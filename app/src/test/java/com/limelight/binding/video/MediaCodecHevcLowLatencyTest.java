@@ -25,6 +25,7 @@ import org.robolectric.shadows.MediaCodecInfoBuilder;
 import org.robolectric.shadows.MediaCodecInfoBuilder.CodecCapabilitiesBuilder;
 import org.robolectric.shadows.ShadowBuild;
 import org.robolectric.shadows.ShadowMediaCodec;
+import org.robolectric.shadows.ShadowMediaCodecList;
 import org.robolectric.util.ReflectionHelpers;
 import org.robolectric.util.ReflectionHelpers.ClassParameter;
 
@@ -106,11 +107,75 @@ public class MediaCodecHevcLowLatencyTest {
     }
 
     @Test
-    public void referenceFrameInvalidationSupportIsIndependentOfTheOptIn() {
+    public void referenceFrameInvalidationUsesEnabledLatencyOptionsAndHonorsTheOverride() {
         MediaCodecInfo decoder = decoder(AML_HEVC, HEVC);
-        assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder));
-        tunedFormat(AML_HEVC, HEVC, true);
-        assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder));
+        assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, true, false, false));
+        assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, true, false));
+        assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, false, false));
+        assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, true, true, true));
+        // Explicitly verified decoders keep their normal RFI policy unless the stability override is on.
+        MediaCodecInfo verified = decoder("c2.exynos.hevc.decoder", HEVC);
+        assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(verified, false, false, false));
+        assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(verified, true, true, true));
+    }
+
+    @Test @Config(sdk = 25)
+    public void fireTv3KeepsItsRequiredHevcFlagEvenWhenTuningIsDisabledOrFallsBack() {
+        ShadowBuild.setManufacturer("Amazon");
+        ShadowBuild.setModel("AFTN");
+        MediaCodecInfo decoder = decoder("OMX.amlogic.hevc.decoder", HEVC);
+        for (boolean override : new boolean[] {false, true}) {
+            for (int attempt = 0; attempt <= 5; attempt++) {
+                MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+                boolean tuned = MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, attempt,
+                        false, false, false, override);
+                assertEquals(attempt == 0, tuned); // The final fallback must still be terminal.
+                assertEquals(1, format.getInteger("vdec-lowlatency"));
+                assertFalse(format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+            }
+        }
+        MediaFormat avc = MediaFormat.createVideoFormat("video/avc", 1920, 1080);
+        assertFalse(MediaCodecHelper.setDecoderLowLatencyOptions(avc, decoder("omx.amlogic.avc.decoder", "video/avc"),
+                0, false, false, false, true));
+        assertFalse(avc.containsKey("vdec-lowlatency"));
+        ShadowBuild.setModel("AFTA");
+        MediaFormat otherFireTv = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        assertFalse(MediaCodecHelper.setDecoderLowLatencyOptions(otherFireTv, decoder, 0, true, true, false, true));
+        assertFalse(otherFireTv.containsKey("vdec-lowlatency"));
+        ShadowBuild.setModel("AFTN");
+        ShadowBuild.setManufacturer("Xiaomi");
+        MediaFormat other = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        assertFalse(MediaCodecHelper.setDecoderLowLatencyOptions(other, decoder, 0, true, true, false, true));
+        assertFalse(other.containsKey("vdec-lowlatency"));
+    }
+
+    @Test @Config(sdk = {28, 34})
+    public void newerFireOsDoesNotForceLegacyAmlogicCompatibilityFlags() {
+        ShadowBuild.setManufacturer("Amazon");
+        ShadowBuild.setModel("AFTN");
+        MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        assertFalse(MediaCodecHelper.setDecoderLowLatencyOptions(format,
+                decoder("omx.amlogic.hevc.decoder", HEVC), 0, true, true, false, true));
+        assertFalse(format.containsKey("vdec-lowlatency"));
+    }
+
+    @Test
+    @Config(shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
+            instrumentedPackages = "com.limelight.nvstream.jni")
+    public void negotiationDoesNotAdvertiseHevcRfiWhenTheOverrideDisablesIt() {
+        ShadowMediaCodecList.addCodec(decoder(AML_HEVC, HEVC));
+        for (boolean disable : new boolean[] {false, true}) {
+            try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+                PreferenceConfiguration prefs = new PreferenceConfiguration();
+                prefs.videoFormat = PreferenceConfiguration.FormatOption.FORCE_HEVC;
+                prefs.codecLowLatency = prefs.vendorLowLatency = true;
+                prefs.disableHevcLowLatency = disable;
+                MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
+                        null, 0, false, false, "", null);
+                assertNotNull(ReflectionHelpers.getField(renderer, "hevcDecoder"));
+                assertEquals(!disable, (renderer.getCapabilities() & MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC) != 0);
+            }
+        }
     }
 
     @Test
@@ -126,7 +191,7 @@ public class MediaCodecHevcLowLatencyTest {
                         null, 0, false, false, "", null);
                 ReflectionHelpers.setField(renderer, "videoFormat", MoonBridge.VIDEO_FORMAT_H265);
                 ReflectionHelpers.setField(renderer, "hevcDecoder", decoder(AML_HEVC, HEVC));
-                ReflectionHelpers.setField(renderer, "refFrameInvalidationHevc", true);
+                ReflectionHelpers.setField(renderer, "refFrameInvalidationHevc", !disable);
                 ReflectionHelpers.setField(renderer, "initialWidth", 1920);
                 ReflectionHelpers.setField(renderer, "initialHeight", 1080);
                 ReflectionHelpers.setField(renderer, "refreshRate", 60);
@@ -134,7 +199,7 @@ public class MediaCodecHevcLowLatencyTest {
                 try {
                     assertEquals(0, renderer.initializeDecoder(true));
                     assertEquals(disable ? 1 : 2, (int) ReflectionHelpers.getField(renderer, "outputBufferQueueLimit"));
-                    assertTrue((boolean) ReflectionHelpers.getField(renderer, "refFrameInvalidationActive"));
+                    assertEquals(!disable, (boolean) ReflectionHelpers.getField(renderer, "refFrameInvalidationActive"));
                     MediaFormat format = ReflectionHelpers.getField(renderer, "configuredFormat");
                     assertEquals(!disable, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
                     assertEquals(!disable, format.containsKey(AML_LOW_LATENCY));

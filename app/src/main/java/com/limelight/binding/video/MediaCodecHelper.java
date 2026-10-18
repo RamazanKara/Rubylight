@@ -524,6 +524,15 @@ public class MediaCodecHelper {
                 !isDecoderInList(exynosDecoderPrefixes, decoderName) && !isDecoderInList(kirinDecoderPrefixes, decoderName);
     }
 
+    private static boolean requiresHevcVdecLowLatency(String decoderName, String mime) {
+        // Fire TV 3 otherwise accepts HEVC but outputs no frames (erratum 17). AFTN is its
+        // Build.MODEL: https://developer.amazon.com/docs/device-specs/identify-fire-tv-devices.html
+        return "video/hevc".equals(mime) && Build.MANUFACTURER.equalsIgnoreCase("Amazon") &&
+                Build.MODEL.equalsIgnoreCase("AFTN") &&
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.O &&
+                decoderName.toLowerCase(java.util.Locale.ROOT).startsWith("omx.amlogic");
+    }
+
     public static boolean setDecoderLowLatencyOptions(MediaFormat videoFormat, MediaCodecInfo decoderInfo, int tryNumber,
                                                       boolean lowLatency, boolean vendorLowLatency, boolean performanceHints,
                                                       boolean disableHevcLowLatency) {
@@ -533,7 +542,7 @@ public class MediaCodecHelper {
         boolean setNewOption = false;
 
         // Some TV firmware accepts these flags but displays HEVC as a slideshow (erratum 22).
-        // This is opt-in on any device, independent of RFI support and decoder performance hints.
+        // This is opt-in on any device, independent of decoder performance hints.
         boolean disableLowLatency = disableHevcLowLatency && "video/hevc".equals(videoFormat.getString(MediaFormat.KEY_MIME));
         boolean useVendorOptions = vendorLowLatency && !disableLowLatency;
         if (lowLatency && !disableLowLatency && tryNumber < 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -545,8 +554,9 @@ public class MediaCodecHelper {
             setNewOption = true;
         }
 
-        if (useVendorOptions && tryNumber < 2 && usesVdecLowLatency(decoderInfo.getName()) &&
-                (!Build.MANUFACTURER.equalsIgnoreCase("xiaomi") || Build.VERSION.SDK_INT > Build.VERSION_CODES.M)) {
+        boolean requiredVdec = requiresHevcVdecLowLatency(decoderInfo.getName(), videoFormat.getString(MediaFormat.KEY_MIME));
+        if (requiredVdec || (useVendorOptions && tryNumber < 2 && usesVdecLowLatency(decoderInfo.getName()) &&
+                (!Build.MANUFACTURER.equalsIgnoreCase("xiaomi") || Build.VERSION.SDK_INT > Build.VERSION_CODES.M))) {
             // MediaTek decoders don't use vendor-defined keys for low latency mode. Instead, they have a modified
             // version of AOSP's ACodec.cpp which supports the "vdec-lowlatency" option. This option is passed down
             // to the decoder as OMX.MTK.index.param.video.LowLatencyDecode.
@@ -561,7 +571,9 @@ public class MediaCodecHelper {
             // https://github.com/yuan1617/Framwork/blob/master/frameworks/av/media/libstagefright/ACodec.cpp
             // https://github.com/iykex/vendor_mediatek_proprietary_hardware/blob/master/libomx/video/MtkOmxVdecEx/MtkOmxVdecEx.h
             videoFormat.setInteger("vdec-lowlatency", 1);
-            setNewOption = true;
+            // Keep mandatory compatibility settings even in the final fallback. They do not
+            // count as another optional tuning attempt, so configure failures still terminate.
+            setNewOption |= !requiredVdec || tryNumber == 0;
         }
 
         // Without low-latency flags, fall back to an untuned format after the first rejected hint.
@@ -783,7 +795,11 @@ public class MediaCodecHelper {
         return isDecoderInList(refFrameInvalidationAvcPrefixes, decoderName);
     }
 
-    public static boolean decoderSupportsRefFrameInvalidationHevc(MediaCodecInfo decoderInfo) {
+    public static boolean decoderSupportsRefFrameInvalidationHevc(MediaCodecInfo decoderInfo,
+                                                                 boolean lowLatency, boolean vendorLowLatency,
+                                                                 boolean disableHevcLowLatency) {
+        // The stability override must also avoid the extra reference buffering RFI can require.
+        if (disableHevcLowLatency) return false;
         // HEVC decoders seem to universally support RFI, but it can have huge latency penalties
         // for some decoders due to the number of references frames being > 1. Old Amlogic
         // decoders are known to have this problem.
@@ -791,8 +807,8 @@ public class MediaCodecHelper {
         // If the decoder supports FEATURE_LowLatency or any vendor low latency option,
         // we will use that as an indication that it can handle HEVC RFI without excessively
         // buffering frames.
-        if (decoderSupportsAndroidRLowLatency(decoderInfo, "video/hevc") ||
-                decoderSupportsKnownVendorLowLatencyOption(decoderInfo.getName())) {
+        if ((lowLatency && decoderSupportsAndroidRLowLatency(decoderInfo, "video/hevc")) ||
+                (vendorLowLatency && decoderSupportsKnownVendorLowLatencyOption(decoderInfo.getName()))) {
             LimeLog.info("Enabling HEVC RFI based on low latency option support");
             return true;
         }

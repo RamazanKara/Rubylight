@@ -217,20 +217,48 @@ public class SettingsStructureTest {
             assertNull(merged.getSummary());
 
             prefs().edit().putBoolean("checkbox_vendor_low_latency", false).commit();
+            assertFalse(((SwitchPreference) advanced.findPreference("checkbox_vendor_low_latency")).isChecked());
             assertFalse(merged.isChecked());
             assertEquals(screen.getString(R.string.settings_low_latency_partial), merged.getSummary().toString());
 
             assertTrue(merged.getOnPreferenceChangeListener().onPreferenceChange(merged, true));
-            for (String key : PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS) assertTrue(key, prefs().getBoolean(key, false));
+            for (String key : PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS) {
+                assertTrue(key, prefs().getBoolean(key, false));
+                assertTrue(key, ((SwitchPreference) advanced.findPreference(key)).isChecked());
+            }
             assertTrue(merged.isChecked());
             assertNull(merged.getSummary());
 
             assertTrue(merged.getOnPreferenceChangeListener().onPreferenceChange(merged, false));
-            for (String key : PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS) assertFalse(key, prefs().getBoolean(key, true));
+            for (String key : PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS) {
+                assertFalse(key, prefs().getBoolean(key, true));
+                assertFalse(key, ((SwitchPreference) advanced.findPreference(key)).isChecked());
+            }
             assertFalse(merged.isChecked());
             assertNull(merged.getSummary());
             // Nothing is stored under the merged switch's own key.
             assertFalse(prefs().contains(StreamSettings.LOW_LATENCY_DECODING_KEY));
+        }
+    }
+
+    @Test
+    public void hevcOverrideShowsPartialLatencyWithoutBeingClearedByTheMasterSwitch() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            StreamSettings.SettingsFragment advanced = open(screen, "advanced");
+            SwitchPreference master = (SwitchPreference) advanced.findPreference(StreamSettings.LOW_LATENCY_DECODING_KEY);
+            SwitchPreference override = (SwitchPreference) advanced.findPreference(
+                    PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING);
+            override.setChecked(true);
+            assertEquals(screen.getString(R.string.settings_low_latency_partial), master.getSummary());
+            master.getOnPreferenceChangeListener().onPreferenceChange(master, false);
+            assertNull(master.getSummary());
+            master.getOnPreferenceChangeListener().onPreferenceChange(master, true);
+            assertEquals(screen.getString(R.string.settings_low_latency_partial), master.getSummary());
+            assertTrue(override.isChecked());
+            assertTrue(prefs().getBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false));
+            override.setChecked(false);
+            assertNull(master.getSummary());
         }
     }
 

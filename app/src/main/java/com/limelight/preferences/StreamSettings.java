@@ -716,12 +716,17 @@ public class StreamSettings extends AppCompatActivity {
                     value = getResources().getStringArray(R.array.stream_touch_modes)[mode];
                 } else if (VideoScaling.STRETCH_PREF.equals(pref.getKey())) {
                     value = getResources().getStringArray(R.array.video_scaling_modes)[storedVideoScaling(prefs)];
+                } else if (Arrays.asList(PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS).contains(pref.getKey())) {
+                    // The master switch and profiles write preferences without going through these views.
+                    ((SwitchPreference) pref).setChecked(prefs.getBoolean(pref.getKey(), true));
+                    continue;
                 } else if (LOW_LATENCY_DECODING_KEY.equals(pref.getKey())) {
                     // On only when every part is on; individual switches below can partially disable it.
                     int on = PreferenceConfiguration.lowLatencyDecodingCount(prefs);
                     ((SwitchPreference) pref).setChecked(on == PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS.length);
-                    pref.setSummary(on == 0 || on == PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS.length ? null :
-                            getString(R.string.settings_low_latency_partial));
+                    boolean partial = on > 0 && (on < PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS.length ||
+                            prefs.getBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false));
+                    pref.setSummary(partial ? getString(R.string.settings_low_latency_partial) : null);
                     continue;
                 } else if ("stream_profiles".equals(pref.getKey())) {
                     value = profilesSummary(getActivity());

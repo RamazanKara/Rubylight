@@ -49,6 +49,8 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 ## Library and frame pacing
 
+- **Close apps on disconnect.** An optional global default closes the app when its last streaming device leaves. Each app can inherit that default or explicitly turn it on or off. [Configuration](configuration.md#close-apps-on-disconnect).
+
 - **Apps.** Commands, preparation and undo, detached commands, URLs and documents, working folder inference, and starting before sign-in.
 - **Steam.** Sync on demand and every 30 seconds, with covers from Steam's cache or store. A Steam app's stream ends when the game's processes exit.
 - **Playnite.** Library sync, launches through Playnite with the stream's environment, a "Playnite (Fullscreen)" app, and the game brought to the front.

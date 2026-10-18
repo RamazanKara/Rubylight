@@ -178,6 +178,92 @@ test('a host that stops answering cannot keep the device actions locked', async 
   assert.equal(await page.getByRole('button', { name: 'Edit Second device', exact: true }).isDisabled(), false);
 });
 
+test('the global close-on-disconnect default saves and survives a reload', async t => {
+  const config = {};
+  const { page, writes } = await fixture(t, async (route, url, request) => {
+    if (url.pathname !== '/api/config') return false;
+    if (request.method() === 'GET') await route.fulfill({ json: config });
+    else {
+      Object.assign(config, request.postDataJSON());
+      await route.fulfill({ json: { status: true } });
+    }
+    return true;
+  });
+  const messages = [];
+  page.on('console', message => { if (['error', 'warning'].includes(message.type())) messages.push(message.text()); });
+  t.after(() => assert.deepEqual(messages, []));
+  const label = 'Close the app when the last device disconnects';
+  await page.goto(base + '/settings/library');
+  const toggle = page.getByRole('switch', { name: label, exact: true });
+  await toggle.waitFor();
+  assert.equal(await toggle.isChecked(), false);
+  await toggle.check();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await page.getByText('Saved. Some changes apply after the host restarts.', { exact: true }).waitFor();
+  assert.equal(writes.at(-1).body.terminate_on_pause, true);
+  await page.reload();
+  await toggle.waitFor();
+  assert.equal(await toggle.isChecked(), true);
+  assert.equal(await page.title(), 'Rubylight');
+  assert.equal(page.url(), base + '/settings/library');
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'disconnect-global-desktop.png') });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'disconnect-global-mobile.png') });
+  }
+});
+
+test('app disconnect overrides preserve explicit Off and can return to inheritance', async t => {
+  let app = { uuid: 'one', name: 'One', 'migration-field': { preserve: true } };
+  const { page, writes } = await fixture(t, async (route, url, request) => {
+    if (url.pathname !== '/api/apps') return false;
+    if (request.method() === 'GET') await route.fulfill({ json: { apps: [app] } });
+    else {
+      app = request.postDataJSON();
+      await route.fulfill({ json: { status: true, uuid: app.uuid } });
+    }
+    return true;
+  });
+  const messages = [];
+  page.on('console', message => { if (['error', 'warning'].includes(message.type())) messages.push(message.text()); });
+  t.after(() => assert.deepEqual(messages, []));
+  await page.goto(base + '/library/one');
+  const select = page.getByLabel('Close the app when the last device disconnects', { exact: true });
+  await select.waitFor();
+  assert.equal(await select.inputValue(), '');
+  await select.scrollIntoViewIfNeeded();
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'disconnect-app-desktop.png') });
+  }
+  for (const [value, expected] of [['off', false], ['on', true], ['', undefined]]) {
+    await select.selectOption(value);
+    const response = page.waitForResponse(response => response.url().endsWith('/api/apps') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await response;
+    assert.equal(app['terminate-on-pause'], expected);
+    assert.deepEqual(app['migration-field'], { preserve: true });
+    if (expected === undefined) assert.equal(Object.hasOwn(writes.at(-1).body, 'terminate-on-pause'), false);
+    await page.reload();
+    await select.waitFor();
+    assert.equal(await select.inputValue(), value);
+  }
+  for (const [stored, selected] of [['yes', 'on'], ['1', 'on'], ['false', 'off'], ['0', 'off']]) {
+    app['terminate-on-pause'] = stored;
+    await page.reload();
+    await select.waitFor();
+    assert.equal(await select.inputValue(), selected);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await select.scrollIntoViewIfNeeded();
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'disconnect-app-mobile.png') });
+  }
+});
+
 test('an app launch that waits on preparation commands is not cut short by the request timeout', async t => {
   const held = deferred(), started = deferred();
   t.after(() => held.resolve());

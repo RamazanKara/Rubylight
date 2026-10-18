@@ -39,6 +39,9 @@ const GRIPS: &[&str] = &[
     "misc",
 ];
 pub const GLOBAL: &[Setting] = settings! {
+    "App behavior" => [
+        "terminate_on_pause", "Close the app when the last device disconnects", Bool;
+    ]
     "Audio" => [
         "virtual_sink", "Virtual audio device", Text;
         "stream_audio", "Stream audio", Bool;
@@ -211,7 +214,7 @@ pub const APP: &[Setting] = settings! {
         "auto-detach", "Keep streaming after an app launcher exits", Bool;
         "wait-all", "Wait for all app processes", Bool;
         "exit-timeout", "App shutdown timeout (seconds)", Number;
-        "terminate-on-pause", "Close the app when streaming pauses", Bool;
+        "terminate-on-pause", "Close the app when the last device disconnects", Bool;
         "allow-client-commands", "Allow per-device connection commands", Bool;
         "exclude-global-state-cmd", "Exclude global pause and resume commands", Bool;
         "state-cmd", "App resume and pause commands", Json;

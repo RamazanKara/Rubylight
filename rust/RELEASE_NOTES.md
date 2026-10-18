@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.7 installer is named `rubylight-setup-2.5.7.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Set a global default for closing apps on disconnect.** Settings → Library can close the app when its last streaming device leaves. Apps can use the global default or explicitly choose On or Off; existing app choices are preserved. The default stays off and changes apply on the next app launch. Addresses [#38](https://github.com/RamazanKara/Rubylight/issues/38).
+
 ## New in 2.5.7
 
 - **Restore Vulkan HDR layer loading on Windows.** The registered manifest path mixed backslashes and a forward slash, which made the Windows Vulkan loader look for the layer DLL in the installation folder instead of its `vulkan-layer` subfolder. Vulkan games could therefore miss HDR even with the setting enabled and a working HDR stream. Startup now registers the native Windows path and removes this installation's older, broken registration; disabling the setting also removes the broken enabled entry. Other installations and third-party layers are preserved. This addresses [Baldur's Gate 3 HDR detection (#39)](https://github.com/RamazanKara/Rubylight/issues/39). After updating, fully exit and relaunch the game while connected to an HDR stream.

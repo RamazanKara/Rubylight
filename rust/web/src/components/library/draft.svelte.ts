@@ -25,7 +25,6 @@ export const FLAGS = {
   elevated: false,
   'auto-detach': true,
   'wait-all': true,
-  'terminate-on-pause': false,
   'allow-client-commands': true,
   'exclude-global-state-cmd': false,
   'exclude-global-prep-cmd': false,
@@ -181,13 +180,16 @@ export class AppDraft {
   }
 
   /** '' when the host setting applies. */
-  tristate(key: 'prefer-10bit-sdr'): '' | 'on' | 'off' {
+  tristate(key: 'prefer-10bit-sdr' | 'terminate-on-pause'): '' | 'on' | 'off' {
     const value = this.app[key];
+    if (key === 'terminate-on-pause' && typeof value === 'string') {
+      return flagValue(value, false) ? 'on' : 'off';
+    }
     if (value === true || value === 'true' || value === '1' || value === 'on') return 'on';
     if (value === false || value === 'false' || value === '0' || value === 'off') return 'off';
     return '';
   }
-  setTristate(key: 'prefer-10bit-sdr', value: '' | 'on' | 'off') {
+  setTristate(key: 'prefer-10bit-sdr' | 'terminate-on-pause', value: '' | 'on' | 'off') {
     if (value === '') delete this.app[key];
     else this.app[key] = value === 'on';
   }

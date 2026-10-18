@@ -293,7 +293,6 @@
           'Wait for every process the app starts',
           'The app counts as running until the last one exits.',
         )}
-        {@render flag('terminate-on-pause', 'Close the app when the last device disconnects')}
         {@render flag(
           'allow-client-commands',
           'Run devices’ connect and disconnect commands',
@@ -306,6 +305,21 @@
         )}
       </div>
       <div class="form-grid behaviour-numbers">
+        <Field
+          label="Close the app when the last device disconnects"
+          id="{uid}-terminate"
+          hint="The global default is set in Settings → Library. Closing the app may lose unsaved progress."
+        >
+          <select
+            id="{uid}-terminate"
+            class="select"
+            bind:value={() => draft.tristate('terminate-on-pause'), (value) => draft.setTristate('terminate-on-pause', value)}
+          >
+            <option value="">Use global default</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </Field>
         <NumberField
           {draft}
           key="exit-timeout"

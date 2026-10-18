@@ -265,3 +265,46 @@ pub async fn maintain(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::test_support::Fixture;
+
+    #[test]
+    fn global_close_on_disconnect_waits_for_the_last_streaming_device() {
+        let fixture = Fixture::new();
+        fixture
+            .host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("terminate_on_pause".into(), "true".into());
+        let app = serde_json::from_value(serde_json::json!({"name":"Desktop"})).unwrap();
+        *fixture.host.current_app.lock().unwrap() =
+            Some(crate::process::launch(&fixture.host, &app, &Default::default()).unwrap());
+        assert!(!application_finished(&fixture.host));
+        let client = fixture.client(u32::MAX);
+        let first = fixture.session(client.clone(), Role::Stream);
+        let second = fixture.session(client.clone(), Role::Stream);
+        let _input = fixture.session(client, Role::InputOnly);
+        assert!(!application_finished(&fixture.host));
+        fixture
+            .host
+            .sessions
+            .lock()
+            .unwrap()
+            .active
+            .remove(&first.launch.id);
+        assert!(!application_finished(&fixture.host));
+        fixture
+            .host
+            .sessions
+            .lock()
+            .unwrap()
+            .active
+            .remove(&second.launch.id);
+        assert!(application_finished(&fixture.host));
+    }
+}

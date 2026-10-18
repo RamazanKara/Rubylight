@@ -17,7 +17,7 @@ const categories: Category[] = [
   { id: 'audio', label: 'Audio', description: 'Sound, speakers and microphone' },
   { id: 'input', label: 'Input', description: 'Keyboard, mouse and controllers' },
   { id: 'commands', label: 'Commands', description: 'Commands run around apps or from a device' },
-  { id: 'library', label: 'Library', description: 'Steam, Playnite and Lossless Scaling' },
+  { id: 'library', label: 'Library', description: 'App behavior, libraries and Lossless Scaling' },
   { id: 'advanced', label: 'Advanced', description: 'Compatibility and custom settings' },
 ];
 

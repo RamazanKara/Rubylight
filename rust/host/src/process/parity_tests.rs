@@ -3,6 +3,69 @@ use crate::state::test_support::Fixture;
 use serde_json::json;
 
 #[test]
+fn close_on_disconnect_inherits_the_global_default_and_preserves_app_overrides() {
+    let fixture = Fixture::new();
+    for global in [None, Some(false), Some(true)] {
+        let mut config = fixture.host.config.write().unwrap();
+        config.values.remove("terminate_on_pause");
+        if let Some(global) = global {
+            config
+                .values
+                .insert("terminate_on_pause".into(), global.to_string());
+        }
+        drop(config);
+        for local in [
+            None,
+            Some(json!(true)),
+            Some(json!(false)),
+            Some(json!("yes")),
+            Some(json!("false")),
+            Some(json!("1")),
+            Some(json!("0")),
+            Some(json!(null)),
+        ] {
+            let expected = match local.as_ref() {
+                Some(serde_json::Value::Bool(value)) => *value,
+                Some(serde_json::Value::String(value)) => {
+                    matches!(value.as_str(), "yes" | "1")
+                }
+                _ => global.unwrap_or(false),
+            };
+            for signed_in in [false, true] {
+                let mut app: App = serde_json::from_value(json!({"name":"Game"})).unwrap();
+                if let Some(local) = &local {
+                    app.extra.insert("terminate-on-pause".into(), local.clone());
+                }
+                if !signed_in {
+                    app.cmd = "must wait for sign-in".into();
+                }
+                let saved = serde_json::to_value(&app).unwrap();
+                let environment = if signed_in {
+                    Ok(BTreeMap::new())
+                } else {
+                    Err(anyhow::anyhow!("no signed-in user"))
+                };
+                let mut running =
+                    launch_with_environment(&fixture.host, &app, &HashMap::new(), environment)
+                        .unwrap();
+                assert!(!running.connection_state(false), "not connected yet");
+                assert!(!running.connection_state(true));
+                assert!(!running.connection_state(true), "still connected");
+                assert_eq!(running.connection_state(false), expected);
+                assert!(!running.connection_state(false), "already disconnected");
+                assert_eq!(serde_json::to_value(&app).unwrap(), saved);
+                if !signed_in {
+                    assert_eq!(
+                        serde_json::to_value(&running.deferred.as_ref().unwrap().0).unwrap(),
+                        saved
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn stopping_an_app_cancels_running_and_queued_state_commands_before_undo() {
     let fixture = Fixture::new();
     let trace = fixture.host.directory.join("trace.txt");

@@ -794,6 +794,14 @@ fn launch_with_environment(
     args: &HashMap<String, String>,
     environment: Result<BTreeMap<String, String>>,
 ) -> Result<RunningApp> {
+    let terminate_on_pause = app_bool(
+        app,
+        "terminate-on-pause",
+        h.config
+            .read()
+            .unwrap()
+            .boolean("terminate_on_pause", false),
+    );
     let scale_factor = args
         .get("scaleFactor")
         .map(|v| v.parse::<u32>())
@@ -840,6 +848,7 @@ fn launch_with_environment(
                 }
             }
             let mut running = RunningApp::with_environment(&placeholder, system)?;
+            running.terminate_on_pause = terminate_on_pause;
             if runs_commands(h, app) {
                 tracing::info!(app = %app.name, %error, "no signed-in user; the application starts after sign-in");
                 running.deferred = Some((app.clone(), args.clone()));
@@ -1056,6 +1065,7 @@ fn launch_with_environment(
         .as_ref()
         .map(|_| butterpollo_windows::process::processes().unwrap_or_default());
     let mut running = RunningApp::with_environment(&app, environment)?;
+    running.terminate_on_pause = terminate_on_pause;
     if fullscreen || (playnite_id.is_some() && config.boolean("playnite_enabled", true)) {
         running.playnite = Some(crate::playnite::Launch::start(
             h,

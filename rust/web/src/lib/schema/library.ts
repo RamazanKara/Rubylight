@@ -227,6 +227,16 @@ const playniteSettings: Setting[] = [
 
 export const settings: Setting[] = [
   {
+    key: 'terminate_on_pause',
+    label: 'Close the app when the last device disconnects',
+    description: 'Closes the running app when its last streaming device disconnects. Off keeps it running for reconnection.',
+    details: 'Applies when the app uses the global default. Each app can override this under Behavior. Takes effect the next time an app starts; unsaved progress may be lost when it closes.',
+    category: 'library',
+    group: 'App behavior',
+    control: { kind: 'toggle' },
+    default: false,
+  },
+  {
     key: 'steam_enabled',
     label: 'Steam library',
     description:

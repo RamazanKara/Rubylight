@@ -12,6 +12,7 @@ use windows::{
 };
 
 mod color_state;
+mod driver_recovery;
 mod hdr;
 mod hotplug;
 mod modes;
@@ -29,7 +30,8 @@ pub use recovery::{
 pub use topology::{Monitor, Topology, edid_refresh, monitors};
 pub use virtual_display::{
     RenderAdapter, VirtualDisplay, VirtualOptions, configured_render_adapter,
-    virtual_display_available, virtual_display_status, windows_11,
+    ensure_virtual_display_available, virtual_display_available, virtual_display_status,
+    windows_11,
 };
 
 fn check(code: i32) -> Result<()> {

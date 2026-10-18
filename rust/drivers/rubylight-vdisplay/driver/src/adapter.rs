@@ -5,44 +5,48 @@
 //!
 //! The adapter is created on the first `EvtDeviceD0Entry` and asynchronously: `init_adapter`
 //! calls `IddCxAdapterInitAsync`, and the adapter object arrives in
-//! `EvtIddCxAdapterInitFinished` ([`set_adapter`]). The FP16 cap plus the `*2`, gamma and
+//! `EvtIddCxAdapterInitFinished` ([`finish_init`]). The FP16 cap plus the `*2`, gamma and
 //! HDR-metadata callbacks registered in `entry.rs` make the monitors HDR-capable.
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Mutex, RwLock};
 
 use rubylight_vdisplay_proto::modes::MAX_MONITORS;
 use wdk_sys::{NTSTATUS, WDFDEVICE, iddcx};
 use windows::core::w;
 
 use crate::STATUS_SUCCESS;
-use crate::worker::Sendable;
+use crate::lifecycle::Lifecycle;
 
-type SendAdapter = Sendable<iddcx::IDDCX_ADAPTER>;
+static LIFECYCLE: Mutex<Lifecycle> = Mutex::new(Lifecycle::new());
+/// Drain control requests before suspending/removing capture resources. IddCx's mode
+/// callbacks do not take this gate, so reentrant monitor creation remains safe.
+pub static POWER_GATE: RwLock<()> = RwLock::new(());
 
-/// Last write wins, so a re-init after a power cycle replaces the stale handle.
-static ADAPTER: Mutex<Option<SendAdapter>> = Mutex::new(None);
-/// The WDFDEVICE of the last init, so an ADD that finds no adapter can ask again.
-static DEVICE: AtomicUsize = AtomicUsize::new(0);
-/// An init is in flight; a second one would race it.
-static INIT_PENDING: AtomicBool = AtomicBool::new(false);
+pub fn powered() -> bool {
+    crate::registry::lock(&LIFECYCLE).powered
+}
 
-pub fn init_settled() {
-    INIT_PENDING.store(false, Ordering::Release);
+pub fn enter(device: WDFDEVICE) {
+    crate::registry::lock(&LIFECYCLE).enter(device as usize);
+}
+
+pub fn suspend() {
+    crate::registry::lock(&LIFECYCLE).suspend();
+}
+
+pub fn finish_init(adapter: iddcx::IDDCX_ADAPTER, succeeded: bool) {
+    crate::registry::lock(&LIFECYCLE).finish_init(adapter as usize, succeeded);
 }
 
 /// Re-issue a failed adapter init from an ADD: a root-enumerated device gets no further D0
 /// entry to retry it. The ADD still fails; the host's retry lands after the completion.
 pub fn retry_init() -> bool {
-    if adapter().is_some() || INIT_PENDING.load(Ordering::Acquire) {
-        return false;
-    }
-    let device = DEVICE.load(Ordering::Acquire);
+    let device = crate::registry::lock(&LIFECYCLE).device;
     if device == 0 {
         return false;
     }
     dbglog!("[rlvd] adapter: none at ADD; re-issuing the init");
-    // SAFETY: `DEVICE` is the WDFDEVICE the last D0 entry ran on; an ADD arrives on that
+    // SAFETY: `device` is the WDFDEVICE the last D0 entry ran on; an ADD arrives on that
     // device's queue, so it is live, and this WUDFHost hosts no other device.
     unsafe { init_adapter(device as WDFDEVICE) >= 0 }
 }
@@ -52,11 +56,10 @@ pub fn retry_init() -> bool {
 /// # Safety
 /// `device` must be a live `WDFDEVICE`.
 pub unsafe fn init_adapter(device: WDFDEVICE) -> NTSTATUS {
-    if adapter().is_some() || INIT_PENDING.load(Ordering::Acquire) {
+    let Some(sequence) = crate::registry::lock(&LIFECYCLE).begin_init() else {
         return STATUS_SUCCESS;
-    }
+    };
     dbglog!("[rlvd] init_adapter");
-    DEVICE.store(device as usize, Ordering::Release);
 
     let mut version = iddcx::IDDCX_ENDPOINT_VERSION {
         Size: core::mem::size_of::<iddcx::IDDCX_ENDPOINT_VERSION>() as u32,
@@ -100,28 +103,30 @@ pub unsafe fn init_adapter(device: WDFDEVICE) -> NTSTATUS {
         ObjectAttributes: &raw mut attr,
     };
     let mut out = iddcx::IDARG_OUT_ADAPTER_INIT::default();
-    INIT_PENDING.store(true, Ordering::Release);
     // SAFETY: `device` is live per the contract; `init` and `out` are locals the DDI reads
     // synchronously; the adapter arrives later in adapter_init_finished.
     let st = unsafe { wdk_iddcx::IddCxAdapterInitAsync(&init, &mut out) };
     dbglog!("[rlvd] IddCxAdapterInitAsync -> {st:#x}");
-    if st < 0 {
-        INIT_PENDING.store(false, Ordering::Release);
+    crate::registry::lock(&LIFECYCLE)
+        .init_returned(sequence, (st >= 0).then_some(out.AdapterObject as usize));
+    if adapter().is_some() {
+        // Covers an unusually early init-finished callback before the DDI returned.
+        crate::watchdog::start();
     }
     st
 }
 
-pub fn set_adapter(adapter: iddcx::IDDCX_ADAPTER) {
-    *crate::registry::lock(&ADAPTER) = Some(Sendable(adapter));
-}
-
-/// Forget the adapter after a real power cycle, so `init_adapter` runs again.
-pub fn clear_adapter() {
-    *crate::registry::lock(&ADAPTER) = None;
+/// Only a PnP stop invalidates the adapter. Sleep does not destroy IddCx objects:
+/// https://learn.microsoft.com/windows-hardware/drivers/display/iddcx-objects
+pub fn stop() {
+    crate::registry::lock(&LIFECYCLE).stop();
+    *crate::registry::lock(&RENDER_PIN) = None;
 }
 
 pub(crate) fn adapter() -> Option<iddcx::IDDCX_ADAPTER> {
-    crate::registry::lock(&ADAPTER).as_ref().map(|a| a.0)
+    crate::registry::lock(&LIFECYCLE)
+        .adapter()
+        .map(|a| a as iddcx::IDDCX_ADAPTER)
 }
 
 /// The pin in force and the owner that set it. IddCx has one render adapter per adapter, so

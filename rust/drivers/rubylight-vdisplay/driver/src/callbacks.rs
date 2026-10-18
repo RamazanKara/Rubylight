@@ -19,25 +19,57 @@ use crate::{
     STATUS_SUCCESS,
 };
 
-/// PnP `EvtDeviceD0Entry`: the adapter is created on the first D0 entry. A resume from a real
-/// low-power state retires the old adapter and its monitors and inits again.
+/// A successful IddCx adapter survives sleep. Only a PnP stop (ReleaseHardware)
+/// permits another initialization; dropping its handle on resume orphans its monitors.
 pub unsafe extern "C" fn device_d0_entry(
     device: WDFDEVICE,
     previous_state: wdk_sys::WDF_POWER_DEVICE_STATE,
 ) -> NTSTATUS {
     dbglog!("[rlvd] device_d0_entry (previous_state={previous_state})");
-    if matches!(
-        previous_state,
-        wdk_sys::_WDF_POWER_DEVICE_STATE::WdfPowerDeviceD1
-            | wdk_sys::_WDF_POWER_DEVICE_STATE::WdfPowerDeviceD2
-            | wdk_sys::_WDF_POWER_DEVICE_STATE::WdfPowerDeviceD3
-    ) {
-        dbglog!("[rlvd] device_d0_entry: power-cycle resume; re-initialising the adapter");
-        crate::monitor::cleanup_for_device_removal();
-        crate::adapter::clear_adapter();
+    crate::adapter::enter(device);
+    if crate::adapter::adapter().is_some() {
+        crate::watchdog::start();
+        return STATUS_SUCCESS;
     }
     // SAFETY: `device` is the framework's live WDFDEVICE for this D0 entry.
     unsafe { crate::adapter::init_adapter(device) }
+}
+
+/// Stop capture before power is removed, retaining monitor ownership and IddCx objects.
+/// The next assignment recreates the swap-chain worker; the host rebuilds its frame ring.
+pub unsafe extern "C" fn device_d0_exit(
+    _device: WDFDEVICE,
+    target_state: wdk_sys::WDF_POWER_DEVICE_STATE,
+) -> NTSTATUS {
+    dbglog!("[rlvd] device_d0_exit (target_state={target_state})");
+    if target_state == wdk_sys::_WDF_POWER_DEVICE_STATE::WdfPowerDevicePrepareForHibernation {
+        return STATUS_SUCCESS;
+    }
+    let _requests = crate::adapter::POWER_GATE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    crate::adapter::suspend();
+    crate::watchdog::pause();
+    crate::monitor::suspend_capture();
+    crate::direct_3d_device::retire_pool();
+    STATUS_SUCCESS
+}
+
+/// A real PnP stop invalidates the adapter and its children, even if the WDFDEVICE
+/// survives a resource rebalance. This also runs for removal from an already sleeping state.
+pub unsafe extern "C" fn device_release_hardware(
+    _device: WDFDEVICE,
+    _resources: wdk_sys::WDFCMRESLIST,
+) -> NTSTATUS {
+    let _requests = crate::adapter::POWER_GATE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    crate::adapter::suspend();
+    crate::watchdog::pause();
+    crate::monitor::cleanup_for_device_removal();
+    crate::direct_3d_device::retire_pool();
+    crate::adapter::stop();
+    STATUS_SUCCESS
 }
 
 /// Completion of `IddCxAdapterInitAsync`: keep the adapter only if the init succeeded (a
@@ -49,12 +81,10 @@ pub unsafe extern "C" fn adapter_init_finished(
     // SAFETY: the framework passes a valid input pointer for the call.
     let status = unsafe { (*p_in).AdapterInitStatus };
     dbglog!("[rlvd] adapter_init_finished (AdapterInitStatus={status:#010x})");
-    crate::adapter::init_settled();
-    if status < 0 {
-        return STATUS_SUCCESS;
+    crate::adapter::finish_init(adapter, status >= 0);
+    if crate::adapter::adapter().is_some() {
+        crate::watchdog::start();
     }
-    crate::adapter::set_adapter(adapter);
-    crate::watchdog::start();
     STATUS_SUCCESS
 }
 
@@ -62,8 +92,11 @@ pub unsafe extern "C" fn adapter_init_finished(
 /// then release every monitor's worker and ring. The framework departs the monitors.
 pub unsafe extern "C" fn device_cleanup(_object: WDFOBJECT) {
     dbglog!("[rlvd] device cleanup; releasing monitors");
+    crate::adapter::suspend();
     crate::watchdog::stop();
     crate::monitor::cleanup_for_device_removal();
+    crate::direct_3d_device::retire_pool();
+    crate::adapter::stop();
 }
 
 fn monitor_mode(width: u32, height: u32, refresh_mhz: u32) -> iddcx::IDDCX_MONITOR_MODE {

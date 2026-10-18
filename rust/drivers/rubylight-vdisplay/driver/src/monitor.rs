@@ -161,7 +161,7 @@ impl Monitor {
     #[must_use]
     pub fn set_swap(&self, proc: SwapChainProcessor) -> Option<SwapChainProcessor> {
         let mut slot = lock(&self.swap);
-        if self.gone.load(Ordering::Acquire) {
+        if self.gone.load(Ordering::Acquire) || !crate::adapter::powered() {
             return Some(proc);
         }
         slot.replace(proc)
@@ -582,6 +582,15 @@ pub fn clear_all(owner: u32) {
 pub fn cleanup_for_device_removal() {
     for m in registry::remove(|_| true) {
         m.teardown();
+    }
+}
+
+/// Sleep preserves the monitor's object, identity, mode history and lease. Only
+/// resources tied to the rendering device are retired. No monitor is orphaned.
+pub fn suspend_capture() {
+    for monitor in registry::all() {
+        drop(monitor.take_swap());
+        drop(monitor.take_ring());
     }
 }
 

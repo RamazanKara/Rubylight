@@ -76,8 +76,13 @@ pub fn create(device: WDFDEVICE) -> NTSTATUS {
 /// Arm the watchdog once monitors can exist. Re-arming re-bases every owner's sample, so the
 /// first tick after it never counts as silence.
 pub fn start() {
-    let timer = lock(&TIMER).as_ref().map(|t| t.0);
-    let Some(timer) = timer else { return };
+    let held = lock(&TIMER);
+    let Some(timer) = held.as_ref().map(|t| t.0) else {
+        return;
+    };
+    if !crate::adapter::powered() {
+        return;
+    }
     for o in lock(&OWNERS).iter_mut() {
         o.seen = o.pings;
         o.silent = 0;
@@ -86,6 +91,16 @@ pub fn start() {
     let _armed = unsafe {
         call_unsafe_wdf_function_binding!(WdfTimerStart, timer, -(i64::from(TICK_MS) * 10_000))
     };
+}
+
+/// Sleep suspends the clock, not the owners. Serialize start/stop so an async
+/// adapter completion cannot rearm the timer after D0Exit paused it.
+pub fn pause() {
+    let held = lock(&TIMER);
+    if let Some(timer) = held.as_ref().map(|t| t.0) {
+        // SAFETY: the device-parented timer is live; wait for an active reap.
+        let _ = unsafe { call_unsafe_wdf_function_binding!(WdfTimerStop, timer, 1) };
+    }
 }
 
 /// Disarm on device cleanup and wait for a running tick, so no reap races the cleanup.

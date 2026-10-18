@@ -30,6 +30,13 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
     // SAFETY: `request` is the live request of this callback, the contract `Request::new`
     // requires. Everything below is safe; the token owns completion.
     let request = unsafe { Request::new(request) };
+    let _power = crate::adapter::POWER_GATE
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !crate::adapter::powered() {
+        request.complete(crate::STATUS_DEVICE_BUSY);
+        return;
+    }
     let owner = request.requestor_pid();
     crate::watchdog::ping(owner, request.file_object());
     match ioctl_code {

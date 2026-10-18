@@ -21,6 +21,7 @@ mod direct_3d_device;
 mod entry;
 mod frame_retry;
 mod frame_ring;
+mod lifecycle;
 mod monitor;
 mod registry;
 mod swap_chain_processor;

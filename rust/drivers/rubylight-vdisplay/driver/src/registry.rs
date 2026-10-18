@@ -42,6 +42,11 @@ pub fn find(pred: impl Fn(&Monitor) -> bool) -> Option<Arc<Monitor>> {
     registry().monitors.iter().find(|m| pred(m)).cloned()
 }
 
+/// Snapshot for power transitions; workers are joined after releasing the registry lock.
+pub fn all() -> Vec<Arc<Monitor>> {
+    registry().monitors.clone()
+}
+
 /// Unlink every monitor matching `pred` for the caller to tear down lock-free.
 pub fn remove(pred: impl Fn(&Monitor) -> bool) -> Vec<Arc<Monitor>> {
     let mut reg = registry();

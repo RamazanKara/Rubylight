@@ -40,6 +40,11 @@ pub fn windows_11() -> bool {
 pub fn virtual_display_available() -> bool {
     Control::open().is_ok()
 }
+/// Launch/resume may repair a confirmed failed devnode before choosing its display.
+/// Console and server-info inspection must keep using the read-only availability query.
+pub fn ensure_virtual_display_available() -> bool {
+    Control::open_recovering().is_ok()
+}
 pub fn virtual_display_status() -> serde_json::Value {
     match Control::open() {
         Ok(control) => serde_json::json!({
@@ -352,7 +357,7 @@ impl VirtualDisplay {
         {
             bail!("virtual display mode is outside the driver limits");
         }
-        let driver = Control::open()?;
+        let driver = Control::open_recovering()?;
         let id = butterpollo_core::display_policy::virtual_display_id(stable_id);
         apply_render_adapter(&driver, &options);
         // A previous host's display can survive a session handover until its
@@ -656,7 +661,7 @@ impl VirtualDisplay {
         if renewed.is_err() {
             // Reopen a stale transport for the next heartbeat, without
             // mistaking its error for permission to create another monitor.
-            if let Ok(driver) = Control::open() {
+            if let Ok(driver) = Control::open_recovering() {
                 self.driver = driver;
             }
         }
@@ -692,7 +697,7 @@ impl VirtualDisplay {
         }
         // Only a confirmed missing lease permits creation. Retain the
         // stream's descriptor and identity, never a recalled desktop mode.
-        self.driver = Control::open()?;
+        self.driver = Control::open_recovering()?;
         // A restarted driver has forgotten the render adapter.
         apply_render_adapter(&self.driver, &self.options);
         let protection = hotplug::Protection::capture()?;

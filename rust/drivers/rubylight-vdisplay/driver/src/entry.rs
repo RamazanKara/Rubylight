@@ -47,6 +47,8 @@ extern "C" fn driver_add(_driver: WDFDRIVER, mut init: PWDFDEVICE_INIT) -> NTSTA
     let mut pnp = WDF_PNPPOWER_EVENT_CALLBACKS {
         Size: core::mem::size_of::<WDF_PNPPOWER_EVENT_CALLBACKS>() as ULONG,
         EvtDeviceD0Entry: Some(callbacks::device_d0_entry),
+        EvtDeviceD0Exit: Some(callbacks::device_d0_exit),
+        EvtDeviceReleaseHardware: Some(callbacks::device_release_hardware),
         ..Default::default()
     };
     // SAFETY: `init` is the framework's device-init; `pnp` is valid for the call.

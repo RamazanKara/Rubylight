@@ -26,6 +26,36 @@ unsafe impl Send for Control {}
 unsafe impl Sync for Control {}
 
 impl Control {
+    /// Session operations may repair a confirmed failed driver. Status/availability
+    /// queries keep using `open`, and never change device state.
+    pub fn open_recovering() -> Result<Self> {
+        let mut error = match Self::open() {
+            Ok(control) => {
+                super::driver_recovery::healthy();
+                return Ok(control);
+            }
+            Err(error) => error,
+        };
+        if !super::driver_recovery::request() {
+            return Err(error);
+        }
+        // SetupAPI runs independently: its native call cannot hold a stream's
+        // recovery loop forever. Future heartbeats observe any late completion.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+            let _ = super::driver_recovery::request();
+            match Self::open() {
+                Ok(control) => {
+                    super::driver_recovery::healthy();
+                    return Ok(control);
+                }
+                Err(failed) => error = failed,
+            }
+        }
+        Err(error)
+    }
+
     pub fn open() -> Result<Self> {
         let handle = crate::input::open_interface(GUID::from_u128(
             rubylight_vdisplay_proto::INTERFACE_GUID_U128,

@@ -74,6 +74,32 @@ host taking it).
 The header also carries the driver's status (size or format mismatch, open failure, wrong
 GPU, device lost), the surface it saw and a heartbeat of its swap-chain loop.
 
+### Sleep and device recovery
+
+The IddCx adapter and monitor identities survive a D0-to-Dx sleep transition. D0 exit
+pauses the owner watchdog, drains control requests, and retires swap-chain workers, shared
+frame rings and pooled rendering devices. Resume reuses the existing adapter and monitors,
+rebases the watchdog grace period and lets fresh swap-chain assignments and capture rings
+restore rendering. Only a real PnP stop (`EvtDeviceReleaseHardware`) discards the adapter
+and framework-owned monitor records. Late initialization callbacks are matched against the
+object returned by their initialization call, so an old callback cannot replace a new
+adapter. This follows the [IddCx object lifetime](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/iddcx-objects).
+Initial adapter-creation errors still propagate to PnP, and failed asynchronous
+initializations never expose an adapter as ready; only a healthy resume skips creation.
+
+If a launch or retained lease cannot open the control interface, the host can request a
+restart of the single installed `Root\RubylightVDisplay` devnode using the `WUDFRd`
+reflector. It requires a stopped device with PnP failure code 10, 31 or 43. Healthy devices,
+manually disabled devices, other display drivers, ambiguous duplicate installations and
+devices requiring setup or reboot are left alone. Recovery uses one background worker,
+at most three restart attempts with a 60-second cooldown, and a three-second caller wait.
+Console/status checks do not trigger recovery. The host never installs a driver or requests
+a Windows reboot through this path; an unelevated process may be unable to restart it.
+
+The lifecycle and restart-selection policies have ordinary tests. Real sleep, hibernation,
+PnP restart and multi-session capture still require separate hardware validation of the
+installed driver; compiling the DLL does not perform those transitions.
+
 ### Optional GPU fence transport
 
 The advanced Video setting **Experimental GPU fence transport** (`idd_push_fence_ring =

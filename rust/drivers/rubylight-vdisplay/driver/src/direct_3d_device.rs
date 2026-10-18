@@ -20,8 +20,8 @@ use windows::{
             Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_FLAG,
                 D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY,
-                D3D11_SDK_VERSION, D3D11CreateDevice,
-                ID3D11Device, ID3D11DeviceContext, ID3D11Multithread,
+                D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
+                ID3D11Multithread,
             },
             Dxgi::{CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, IDXGIAdapter1, IDXGIFactory5},
         },
@@ -121,6 +121,19 @@ static DEVICE_POOL: Mutex<Vec<(i64, Arc<Direct3DDevice>)>> = Mutex::new(Vec::new
 const DEVICE_POOL_CAP: usize = 4;
 static DEVICE_EPOCH: AtomicU32 = AtomicU32::new(0);
 
+/// Sleep/stop ends the render-device epoch even when DXGI has not reported removal.
+/// Mark devices before releasing the pool: a racing assignment cannot reuse one.
+pub fn retire_pool() {
+    let retired = {
+        let mut pool = crate::registry::lock(&DEVICE_POOL);
+        for (_, device) in pool.iter() {
+            device.mark_removed();
+        }
+        core::mem::take(&mut *pool)
+    };
+    drop(retired);
+}
+
 /// A LUID as one comparable number.
 pub fn luid_key(luid: LUID) -> i64 {
     (i64::from(luid.HighPart) << 32) | i64::from(luid.LowPart)
@@ -130,6 +143,9 @@ pub fn luid_key(luid: LUID) -> i64 {
 pub fn pooled_device(luid: LUID) -> Option<Arc<Direct3DDevice>> {
     let key = luid_key(luid);
     let mut pool = crate::registry::lock(&DEVICE_POOL);
+    if !crate::adapter::powered() {
+        return None;
+    }
     if let Some(pos) = pool.iter().position(|(k, _)| *k == key) {
         let dev = &pool[pos].1;
         // SAFETY: a plain status query on the live pooled device.

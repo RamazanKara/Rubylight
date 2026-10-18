@@ -36,6 +36,9 @@ pub mod ring;
 #[cfg(test)]
 #[path = "../../rubylight-vdisplay/driver/src/frame_retry.rs"]
 mod frame_retry;
+#[cfg(test)]
+#[path = "../../rubylight-vdisplay/driver/src/lifecycle.rs"]
+mod lifecycle;
 
 /// Device interface GUID `{5e240e6b-b196-4295-81c3-533c10000c59}` the driver registers and
 /// the host opens. Not libvirtualdisplay's `{5f894d6c-...}` or punktfunk's `{70667664-...}`.

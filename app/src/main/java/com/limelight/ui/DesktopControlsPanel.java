@@ -46,7 +46,7 @@ public class DesktopControlsPanel extends LinearLayout {
 
     public interface Sink {
         void sendKeys(int[] keys);
-        /** Relative device-independent movement, with panel sensitivity already applied. */
+        /** Relative screen pixels, with panel sensitivity already applied. */
         void move(float dx, float dy);
         /** High-resolution wheel units (120 per notch); positive vertical means wheel up. */
         void scroll(float vertical, float horizontal);
@@ -80,6 +80,9 @@ public class DesktopControlsPanel extends LinearLayout {
         mode = Mode.valueOf(config.mode.toUpperCase(Locale.ROOT));
         bank = config.bank;
         setOrientation(VERTICAL);
+        // Empty space, including cutout padding, belongs to the panel rather than the stream.
+        setClickable(true);
+        setFocusable(false);
         setMotionEventSplittingEnabled(true);
         setPadding(dp(4), dp(3), dp(4), dp(3));
         setElevation(dp(12));
@@ -523,6 +526,8 @@ public class DesktopControlsPanel extends LinearLayout {
     private LinearLayout createPad() {
         LinearLayout pad = new LinearLayout(getContext());
         pad.setOrientation(VERTICAL);
+        pad.setClickable(true);
+        pad.setFocusable(false);
         pad.setPadding(dp(4), dp(3), dp(4), dp(3));
         trackpad = new DesktopTrackpad(getContext(), config, new DesktopTrackpad.Sink() {
             @Override public void move(float dx, float dy) { sink.move(dx, dy); }

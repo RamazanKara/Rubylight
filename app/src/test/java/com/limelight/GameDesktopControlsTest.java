@@ -1,17 +1,23 @@
 package com.limelight;
 
 import android.app.Application;
+import android.graphics.Rect;
+import android.view.InputDevice;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.capture.InputCaptureProvider;
+import com.limelight.binding.input.touch.TrackpadPointer;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.DesktopControlsPanel;
+import com.limelight.ui.DesktopViewport;
 import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.StreamView;
 
@@ -48,6 +54,94 @@ public class GameDesktopControlsTest {
         assertEquals(Arrays.asList(2), fixture.connection.horizontal);
         assertEquals(Arrays.asList("1:down", "1:up"), fixture.connection.buttons);
         assertEquals(2, fixture.connection.keys.size());
+    }
+
+    @Test
+    public void panelMovesTheLocalCursorAndTheNextStreamTouchKeepsItsPosition() {
+        Fixture fixture = new Fixture();
+        TrackpadPointer pointer = fixture.pointer(true, false);
+        fixture.sink.move(20, -10);
+        pointer.touchDown();
+        assertEquals(2, fixture.connection.positions.size());
+        for (int[] position : fixture.connection.positions) {
+            assertArrayEquals(new int[] {1040, 480, 2000, 1000}, position);
+        }
+        assertTrue(fixture.connection.motion.isEmpty());
+    }
+
+    @Test
+    public void panelUsesDesktopMouseRoutingAndStreamPixelScaling() {
+        for (boolean absolute : new boolean[] {false, true}) {
+            Fixture fixture = new Fixture();
+            fixture.pointer(false, absolute);
+            fixture.sink.move(20, -10);
+            if (absolute) {
+                assertArrayEquals(new int[] {40, -20, 2000, 1000}, fixture.connection.absoluteMotion.get(0));
+                assertTrue(fixture.connection.motion.isEmpty());
+            } else {
+                assertArrayEquals(new int[] {40, -20}, fixture.connection.motion.get(0));
+                assertTrue(fixture.connection.absoluteMotion.isEmpty());
+            }
+        }
+    }
+
+    @Test
+    public void zoomedLocalCursorKeepsFractionalMovementWithoutChangingWheelUnits() {
+        Fixture fixture = new Fixture();
+        TrackpadPointer pointer = fixture.pointer(true, false);
+        DesktopViewport viewport = new DesktopViewport();
+        viewport.resize(1000, 500);
+        viewport.zoom(2, 500, 250);
+        pointer.setViewport(viewport);
+        for (int i = 0; i < 5; i++) fixture.sink.move(.2f, -.2f);
+        fixture.sink.scroll(120, -120);
+        assertArrayEquals(new int[] {1001, 499, 2000, 1000}, fixture.connection.positions.get(0));
+        assertEquals(Arrays.asList(120), fixture.connection.vertical);
+        assertEquals(Arrays.asList(-120), fixture.connection.horizontal);
+    }
+
+    @Test
+    @Config(sdk = {29, 34})
+    public void directPanelPressWorksBeforeWindowFocusReturnsAndReleasesExactlyOnce() {
+        Fixture fixture = new Fixture();
+        fixture.attach();
+        fixture.game.onWindowFocusChanged(false);
+        fixture.touchButton(MotionEvent.ACTION_DOWN);
+        assertEquals(Arrays.asList("1:down"), fixture.connection.buttons);
+        // Dispatch ended, so unrelated callbacks still cannot use the unfocused window.
+        fixture.sink.mouseButton(3, true);
+        fixture.sink.move(10, 10);
+        fixture.sink.sendKeys(new int[] {KeyEvent.KEYCODE_ENTER});
+        assertEquals(Arrays.asList("1:down"), fixture.connection.buttons);
+        assertTrue(fixture.connection.motion.isEmpty());
+        assertTrue(fixture.connection.keys.isEmpty());
+        fixture.game.onWindowFocusChanged(true);
+        fixture.touchButton(MotionEvent.ACTION_UP);
+        assertEquals(Arrays.asList("1:down", "1:up"), fixture.connection.buttons);
+        fixture.hide();
+        assertEquals(2, fixture.connection.buttons.size());
+    }
+
+    @Test
+    public void directTouchDoesNotBypassSessionGatesAndCancelClearsAnUnfocusedPress() {
+        for (String gate : new String[] {"foreground", "connected", "grabbedInput", "permission", "finishing"}) {
+            Fixture fixture = new Fixture();
+            fixture.attach();
+            fixture.game.onWindowFocusChanged(false);
+            if (gate.equals("permission")) fixture.connection.inputAllowed = false;
+            else if (gate.equals("finishing")) fixture.game.finish();
+            else ReflectionHelpers.setField(fixture.game, gate, false);
+            fixture.touchButton(MotionEvent.ACTION_DOWN);
+            fixture.touchButton(MotionEvent.ACTION_UP);
+            assertTrue(gate, fixture.connection.buttons.isEmpty());
+        }
+        Fixture fixture = new Fixture();
+        fixture.attach();
+        fixture.game.onWindowFocusChanged(false);
+        fixture.touchButton(MotionEvent.ACTION_DOWN);
+        fixture.touchButton(MotionEvent.ACTION_CANCEL);
+        fixture.game.onWindowFocusChanged(true);
+        assertEquals(Arrays.asList("1:down", "1:up"), fixture.connection.buttons);
     }
 
     @Test
@@ -247,10 +341,55 @@ public class GameDesktopControlsTest {
         }
 
         void hide() { ReflectionHelpers.callInstanceMethod(game, "hideKeyboardOverlay"); }
+
+        TrackpadPointer pointer(boolean local, boolean absolute) {
+            StreamView stream = ReflectionHelpers.getField(game, "streamView");
+            stream.layout(0, 0, 1000, 500);
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+            prefs.width = 2000;
+            prefs.height = 1000;
+            TrackpadPointer pointer = new TrackpadPointer(connection, stream, null, absolute, null, null);
+            pointer.setReferenceSize(prefs.width, prefs.height);
+            pointer.setLocalCursor(local);
+            ReflectionHelpers.setField(game, "trackpadPointer", pointer);
+            return pointer;
+        }
+
+        void attach() {
+            panel.setMode(DesktopControlsPanel.Mode.TRACKPAD);
+            game.setContentView((View) panel.getParent());
+            View decor = game.getWindow().getDecorView();
+            decor.measure(View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, 1200, 800);
+        }
+
+        void touchButton(int action) {
+            View button = described(panel, game.getString(R.string.desktop_controls_left_button));
+            assertNotNull(button);
+            Rect bounds = new Rect(0, 0, button.getWidth(), button.getHeight());
+            ((ViewGroup) game.getWindow().getDecorView()).offsetDescendantRectToMyCoords(button, bounds);
+            MotionEvent event = MotionEvent.obtain(0, 10, action, bounds.centerX(), bounds.centerY(), 0);
+            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            try { game.dispatchTouchEvent(event); } finally { event.recycle(); }
+        }
+    }
+
+    private static View described(ViewGroup group, String description) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (description.contentEquals(child.getContentDescription() == null ? "" : child.getContentDescription())) return child;
+            if (child instanceof ViewGroup) {
+                View found = described((ViewGroup) child, description);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private static final class RecordingConnection extends NvConnection {
         final List<int[]> motion = new ArrayList<>();
+        final List<int[]> positions = new ArrayList<>(), absoluteMotion = new ArrayList<>();
         final List<Integer> vertical = new ArrayList<>(), horizontal = new ArrayList<>();
         final List<String> buttons = new ArrayList<>();
         final List<int[]> keys = new ArrayList<>();
@@ -263,6 +402,12 @@ public class GameDesktopControlsTest {
 
         @Override public boolean canSendInput() { return inputAllowed; }
         @Override public void sendMouseMove(short x, short y) { motion.add(new int[] {x, y}); }
+        @Override public void sendMousePosition(short x, short y, short width, short height) {
+            positions.add(new int[] {x, y, width, height});
+        }
+        @Override public void sendMouseMoveAsMousePosition(short x, short y, short width, short height) {
+            absoluteMotion.add(new int[] {x, y, width, height});
+        }
         @Override public void sendMouseHighResScroll(short amount) { vertical.add((int) amount); }
         @Override public void sendMouseHighResHScroll(short amount) { horizontal.add((int) amount); }
         @Override public void sendDesktopMouseButton(byte button, boolean down) {

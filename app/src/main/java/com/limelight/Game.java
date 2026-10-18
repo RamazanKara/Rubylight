@@ -197,6 +197,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private KeyboardTranslator keyboardTranslator;
     private KeyboardOverlay keyboardOverlay;
     private boolean desktopWindowFocused = true;
+    private boolean dispatchingDesktopTouch;
     private int desktopHeldButtons;
     private MouseDeltaAccumulator desktopDeltaX = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopDeltaY = new MouseDeltaAccumulator();
@@ -1510,6 +1511,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
         return true;
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        // A direct press can reach a split-screen window before its focus notification.
+        // Only callbacks inside this dispatch may use that press as evidence of interaction.
+        boolean previous = dispatchingDesktopTouch;
+        dispatchingDesktopTouch = event.isFromSource(InputDevice.SOURCE_CLASS_POINTER) &&
+                event.getActionMasked() != MotionEvent.ACTION_CANCEL &&
+                (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        (event.getFlags() & MotionEvent.FLAG_CANCELED) == 0);
+        try {
+            return super.dispatchTouchEvent(event);
+        } finally {
+            dispatchingDesktopTouch = previous;
+        }
     }
 
     @Override
@@ -4384,15 +4401,25 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean canSendDesktopInput() {
-        return foreground && connected && grabbedInput && desktopWindowFocused && !isFinishing() &&
+        return foreground && connected && grabbedInput && (desktopWindowFocused || dispatchingDesktopTouch) && !isFinishing() &&
                 streamMenu == null && conn != null && conn.canSendInput() && isKeyboardOverlayVisible();
     }
 
     private void sendDesktopMotion(float dx, float dy) {
         if (!canSendDesktopInput() || !Float.isFinite(dx) || !Float.isFinite(dy)) return;
+        if (trackpadPointer != null) {
+            if (streamView.getWidth() <= 0 || streamView.getHeight() <= 0) return;
+            float zoom = trackpadPointer.isLocalCursor() ? trackpadPointer.zoomScale() : 1;
+            dx *= prefConfig.width / (streamView.getWidth() * zoom);
+            dy *= prefConfig.height / (streamView.getHeight() * zoom);
+            trackpadPointer.stopMomentum();
+        }
         short x = desktopDelta(desktopDeltaX, dx);
         short y = desktopDelta(desktopDeltaY, dy);
-        if (x != 0 || y != 0) conn.sendMouseMove(x, y);
+        if (x != 0 || y != 0) {
+            if (trackpadPointer != null) trackpadPointer.moveBy(x, y);
+            else conn.sendMouseMove(x, y);
+        }
     }
 
     private void sendDesktopScroll(float vertical, float horizontal) {
@@ -4413,7 +4440,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int mask = 1 << button;
         boolean wasDown = (desktopHeldButtons & mask) != 0;
         if (wasDown == down) return;
-        if (down) desktopHeldButtons |= mask;
+        if (down) {
+            desktopHeldButtons |= mask;
+            if (trackpadPointer != null) trackpadPointer.stopMomentum();
+        }
         else desktopHeldButtons &= ~mask;
         // Releases must also run after focus/grab was lost. The connection merges this panel's
         // ownership separately from physical input and per-game touch controls.

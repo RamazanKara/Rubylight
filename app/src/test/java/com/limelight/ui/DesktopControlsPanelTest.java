@@ -1,12 +1,14 @@
 package com.limelight.ui;
 
 import android.app.Application;
+import android.graphics.Rect;
 import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 
 import androidx.appcompat.app.AlertDialog;
 
@@ -35,6 +37,46 @@ import static org.robolectric.Shadows.shadowOf;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class DesktopControlsPanelTest {
+    @Test public void panelPaddingAndTheGapBetweenControlsDoNotReachTheStreamOrTakeFocus() {
+        try (ActivityController<UiNavigationTest.Screen> screen = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            FrameLayout root = new FrameLayout(screen.get());
+            int[] streamTouches = {0};
+            View stream = new View(screen.get());
+            stream.setOnTouchListener((view, event) -> { streamTouches[0]++; return true; });
+            root.addView(stream, new FrameLayout.LayoutParams(-1, -1));
+            RecordingSink sink = new RecordingSink();
+            DesktopControlsPanel panel = new DesktopControlsPanel(screen.get(), sink, () -> {}, () -> {});
+            panel.setMode(DesktopControlsPanel.Mode.COMBINED);
+            panel.setPadding(48, 12, 48, 24); // Include a landscape display cutout margin.
+            root.addView(panel, new FrameLayout.LayoutParams(-1, 600, android.view.Gravity.BOTTOM));
+            screen.get().setContentView(root);
+            root.measure(View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, 1200, 800);
+            DesktopTrackpad trackpad = descendant(panel, DesktopTrackpad.class);
+            View pad = (View) trackpad.getParent();
+            Rect bounds = new Rect(0, 0, pad.getWidth(), pad.getHeight());
+            root.offsetDescendantRectToMyCoords(pad, bounds);
+            int[][] points = {{1, panel.getTop() + 100}, {1199, panel.getTop() + 100},
+                    {600, 799}, {bounds.left + 1, bounds.top + 1}};
+            for (int[] point : points) {
+                for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+                    MotionEvent event = MotionEvent.obtain(0, 10, action, point[0], point[1], 0);
+                    try { assertTrue(root.dispatchTouchEvent(event)); } finally { event.recycle(); }
+                }
+            }
+            assertEquals(0, streamTouches[0]);
+            assertTrue(sink.keys.isEmpty());
+            assertTrue(sink.mouse.isEmpty());
+            assertFalse(panel.isFocusable());
+            assertFalse(pad.isFocusable());
+            assertFalse(trackpad.isFocusable());
+            touch(stream, MotionEvent.ACTION_DOWN);
+            touch(stream, MotionEvent.ACTION_UP);
+            assertEquals(2, streamTouches[0]);
+        }
+    }
+
     static final class RecordingSink implements DesktopControlsPanel.Sink {
         final List<int[]> keys = new ArrayList<>();
         final List<String> mouse = new ArrayList<>();

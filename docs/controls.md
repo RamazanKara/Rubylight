@@ -122,6 +122,8 @@ Tap Ctrl, Alt, Shift or Win to combine it with the next panel key; hold a modifi
 
 Move one finger on the trackpad to move the pointer; tap to left-click, use two fingers to scroll, or tap two fingers to right-click. Hold **L** while moving on the pad to drag. The **L/R** buttons work independently of keys and the pad, including in Combined mode.
 
+The panel follows **Local cursor** and **Desktop mouse mode**, using its own pointer-speed setting. Movement scales to the streamed picture, including local-cursor zoom, so a dense display does not slow it down. Empty panel margins absorb touches, and the panel leaves keyboard focus on the stream. In split-screen or freeform windows, the first direct button press works while Android is restoring window focus.
+
 The gear opens customization: key and panel size, background opacity, pointer speed, scrolling direction, tap-to-click, mouse buttons (including optional middle/Back/Forward), trackpad side, visible banks, and modifiers that stay selected for several keys. **Edit keyboard shortcuts** adds, edits, deletes or reorders saved chords inside the stream. Apply saves panel settings for this device; Reset panel restores defaults while keeping saved shortcuts. Closing the panel, changing modes, losing focus or disconnecting releases held mouse buttons and clears modifiers. The host's input permissions still apply.
 
 ### Keyboard options

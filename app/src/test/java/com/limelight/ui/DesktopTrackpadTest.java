@@ -32,18 +32,31 @@ public class DesktopTrackpadTest {
         @Override public void mouseButton(int button, boolean down) { buttons.add(button + ":" + down); }
     }
 
-    @Test public void movementUsesSensitivityAndNeverClicksAfterDragging() {
+    @Test @Config(qualifiers = "xxxhdpi")
+    public void movementUsesScreenPixelsAndSensitivityEvenOnDenseDisplays() {
         try (ActivityController<UiNavigationTest.Screen> screen = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
             DesktopControlsConfig config = new DesktopControlsConfig();
             config.pointerSpeedPercent = 200;
             Sink sink = new Sink();
             DesktopTrackpad pad = new DesktopTrackpad(screen.get(), config, sink);
             event(pad, 0, MotionEvent.ACTION_DOWN, 10, 10);
-            event(pad, 50, MotionEvent.ACTION_MOVE, 30, 40);
-            event(pad, 90, MotionEvent.ACTION_UP, 30, 40);
-            float density = screen.get().getResources().getDisplayMetrics().density;
-            assertArrayEquals(new float[] {40 / density, 60 / density}, sink.moves.get(0), .001f);
+            event(pad, 50, MotionEvent.ACTION_MOVE, 110, 160);
+            event(pad, 90, MotionEvent.ACTION_UP, 110, 160);
+            assertArrayEquals(new float[] {200, 300}, sink.moves.get(0), .001f);
             assertTrue(sink.buttons.isEmpty());
+        }
+    }
+
+    @Test public void padDoesNotTakeKeyboardFocusButKeepsAccessibilityClicks() {
+        try (ActivityController<UiNavigationTest.Screen> screen = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            Sink sink = new Sink();
+            DesktopTrackpad pad = new DesktopTrackpad(screen.get(), new DesktopControlsConfig(), sink);
+            screen.get().setContentView(pad);
+            assertFalse(pad.isFocusable());
+            assertFalse(pad.requestFocus());
+            assertTrue(pad.performClick());
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(150));
+            assertEquals(Arrays.asList("1:true", "1:false"), sink.buttons);
         }
     }
 

@@ -52,7 +52,7 @@ public final class DesktopTrackpad extends View {
         hintPaint.setTextAlign(Paint.Align.CENTER);
         setMinimumHeight(Math.round(80 * density));
         setClickable(true);
-        setFocusable(true);
+        setFocusable(false);
         setContentDescription(config.tapToClick ? context.getString(R.string.desktop_controls_pad_accessibility) :
                 context.getString(R.string.desktop_controls_trackpad) + ". " + android.text.TextUtils.join(". ", hintLines));
         for (int i = 1; i < releases.length; i++) {
@@ -156,7 +156,7 @@ public final class DesktopTrackpad extends View {
                     sink.scroll(direction * dy * 3 / density, -direction * dx * 3 / density);
                 }
             } else if (!wasTwoFinger) {
-                float scale = config.pointerSpeedPercent / (100f * density);
+                float scale = config.pointerSpeedPercent / 100f;
                 if (dx != 0 || dy != 0) sink.move(dx * scale, dy * scale);
             }
             // After a two-finger gesture, the remaining finger cannot move/click accidentally.

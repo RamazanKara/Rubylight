@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="frontend_export_menu">Dodaj gry do ES-DE</string>
+    <string name="frontend_export_menu">Dodaj gry do launchera</string>
     <string name="frontend_export_roms_title">Wybierz folder ROM-ów</string>
     <string name="frontend_export_roms_message">Dodaj skróty gier do tego folderu dla ES-DE lub innego frontendu.</string>
     <string name="frontend_export_esde_title">Wybierz folder ES-DE</string>
@@ -11,11 +11,18 @@
     <string name="frontend_export_no_picker">Na tym urządzeniu nie ma dostępnego selektora folderów.</string>
     <string name="frontend_export_working">Dodawanie gier…</string>
     <plurals name="frontend_export_done">
-        <item quantity="one">Dodano %1$d grę. Uruchom ponownie ES-DE, aby ją zobaczyć.</item>
-        <item quantity="few">Dodano %1$d gry. Uruchom ponownie ES-DE, aby je zobaczyć.</item>
-        <item quantity="many">Dodano %1$d gier. Uruchom ponownie ES-DE, aby je zobaczyć.</item>
-        <item quantity="other">Dodano %1$d gry. Uruchom ponownie ES-DE, aby je zobaczyć.</item>
+        <item quantity="one">Wyeksportowano %1$d grę.</item>
+        <item quantity="few">Wyeksportowano %1$d gry.</item>
+        <item quantity="many">Wyeksportowano %1$d gier.</item>
+        <item quantity="other">Wyeksportowano %1$d gier.</item>
     </plurals>
     <string name="frontend_export_failed">Nie udało się dodać gier.\nWybierz folder lokalny lub na karcie SD.</string>
     <string name="scut_invalid_entry">Plik gry jest niedostępny.\nDodaj gry ponownie w %1$s.</string>
+    <string name="frontend_export_update">Aktualizuj gry</string>
+    <string name="frontend_setup_title">Instrukcja konfiguracji</string>
+    <string name="frontend_setup_copy">Kopiuj polecenie uruchomienia</string>
+    <string name="frontend_setup_beacon">W Beacon dodaj platformę Custom. Wybierz %1$s jako Player app i wyeksportowany folder butterpollo jako ROMs folder. Dodaj .art do rozszerzeń. W Advanced wybierz Default dla plików, włącz Use custom launch i wklej poniższe polecenie. Zapisz i przeskanuj platformę.</string>
+    <string name="frontend_setup_esde">Uruchom ponownie ES-DE, aby wczytać system Nightjar. Jeśli pominięto folder konfiguracji, wybierz go przy następnym eksporcie, aby dodać system i zapisane okładki.</string>
+    <string name="frontend_setup_daijisho">Utwórz platformę dla plików .art w wyeksportowanym folderze butterpollo. Dodaj odtwarzacz Android z poniższymi argumentami intent i przeskanuj folder.</string>
+    <string name="frontend_setup_pegasus">Użyj wyeksportowanego folderu butterpollo i plików .art. Ustaw poniższe polecenie uruchomienia w metadanych kolekcji.</string>
 </resources>

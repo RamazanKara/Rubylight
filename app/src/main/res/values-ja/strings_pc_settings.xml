@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">このデバイスはメニューから PC を起動できます</string>
     <string name="pc_settings_wake_unknown">PC の電源が入っているときにペアリングしてから、PC で Wake-on-LAN を有効にしてください</string>
     <string name="pc_settings_details_summary">ホストソフトウェア、機能、アドレス</string>
-    <string name="pc_settings_export_summary">ES-DE などのフロントエンド用のゲームショートカット</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">ホーム画面に追加</string>
     <string name="pc_settings_shortcut_summary">この PC のライブラリを開きます</string>
     <string name="connection_test_ms">%1$s ms</string>

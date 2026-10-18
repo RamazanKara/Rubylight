@@ -302,7 +302,7 @@ public class ShortcutTrampoline extends Activity {
 
         UiHelper.notifyNewRootView(this);
 
-        // ES-DE, Daijisho and other frontends hand us a game entry file instead of extras
+        // Beacon, ES-DE, Daijisho and other frontends hand us a game entry file instead of extras
         if (Intent.ACTION_VIEW.equals(getIntent().getAction()) && getIntent().getData() != null) {
             Intent entryIntent = readFrontendEntry(getIntent().getData());
             if (entryIntent == null) {
@@ -349,7 +349,8 @@ public class ShortcutTrampoline extends Activity {
             setIntent(new Intent(getIntent()).putExtra(AppView.UUID_EXTRA, uuidString));
         }
 
-        if (appIdString != null && !appIdString.isEmpty()) {
+        if (appIdString != null && !appIdString.isEmpty() &&
+                (appUuidString == null || appUuidString.isEmpty())) {
             app = new NvApp(getIntent().getStringExtra(Game.EXTRA_APP_NAME),
                     Integer.parseInt(appIdString),
                     getIntent().getBooleanExtra(Game.EXTRA_APP_HDR, false));
@@ -438,8 +439,9 @@ public class ShortcutTrampoline extends Activity {
             return null;
         }
 
-        Intent i = new Intent(getIntent());
-        i.setData(null);
+        // A file completely describes its target; unrelated incoming extras must not fill in
+        // missing fields and turn a PC-library entry into an unintended game launch.
+        Intent i = new Intent(this, ShortcutTrampoline.class);
         putIfPresent(i, AppView.UUID_EXTRA, entry.get(FrontendEntry.KEY_HOST_UUID));
         putIfPresent(i, AppView.NAME_EXTRA, entry.get(FrontendEntry.KEY_HOST_NAME));
         putIfPresent(i, Game.EXTRA_APP_UUID, entry.get(FrontendEntry.KEY_APP_UUID));

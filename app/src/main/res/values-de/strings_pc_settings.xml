@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">Dieses Gerät kann den PC über sein Menü aufwecken</string>
     <string name="pc_settings_wake_unknown">Kopple den eingeschalteten PC und aktiviere dort Wake-on-LAN</string>
     <string name="pc_settings_details_summary">Host-Software, Funktionen und Adressen</string>
-    <string name="pc_settings_export_summary">Spielverknüpfungen für ES-DE oder ein anderes Frontend</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Zum Startbildschirm hinzufügen</string>
     <string name="pc_settings_shortcut_summary">Öffnet die Bibliothek dieses PCs</string>
 

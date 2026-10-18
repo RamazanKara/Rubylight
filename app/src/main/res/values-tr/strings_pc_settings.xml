@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">Bu cihaz bilgisayarı menüsünden uyandırabilir</string>
     <string name="pc_settings_wake_unknown">Bilgisayar açıkken eşleştirin, ardından bilgisayarda Wake-on-LAN’i açın</string>
     <string name="pc_settings_details_summary">Ana bilgisayar yazılımı, özellikler ve adresler</string>
-    <string name="pc_settings_export_summary">ES-DE veya başka bir ön yüz için oyun kısayolları</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Ana ekrana ekle</string>
     <string name="pc_settings_shortcut_summary">Bu bilgisayarın kitaplığını açar</string>
     <string name="connection_test_ms">%1$s ms</string>

@@ -35,6 +35,7 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.ui.TopAppBar;
 import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.limelight.LimeLog;
@@ -51,6 +52,8 @@ import com.limelight.nvstream.wol.WakeOnLanSender;
 import com.limelight.ui.HostFeatureGate;
 import com.google.android.material.slider.Slider;
 import com.limelight.utils.FrontendExporter;
+import com.limelight.utils.FrontendLauncher;
+import com.limelight.utils.FrontendExportStore;
 import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.HostDetailsDialog;
 import com.limelight.utils.PyroWaveBandwidthTest;
@@ -101,6 +104,8 @@ public class HostStreamSettings extends NightjarActivity {
     private PyroWavePaceCalibration paceCalibration;
     private Uri exportRomsTree;
     private boolean exporting;
+    private boolean exportRunning;
+    private FrontendLauncher exportLauncher = FrontendLauncher.ES_DE;
     private String savedProfile;
     private String editorKey;
     private AlertDialog editorDialog;
@@ -198,6 +203,8 @@ public class HostStreamSettings extends NightjarActivity {
             restoredEditorKey = state.getString("editor_key");
             restoredEditor = state.getBundle("editor_state");
             exporting = state.getBoolean("exporting");
+            String launcher = state.getString("export_launcher");
+            if (launcher != null) exportLauncher = FrontendLauncher.valueOf(launcher);
             String romsTree = state.getString("export_roms_tree");
             exportRomsTree = romsTree != null ? Uri.parse(romsTree) : null;
         }
@@ -217,7 +224,7 @@ public class HostStreamSettings extends NightjarActivity {
             }
         });
         toolbar.setOnMenuItemClickListener(item -> {
-            new MaterialAlertDialogBuilder(this).setTitle(mode == Mode.PROFILE ? R.string.profiles_title :
+            new NavigationDialogBuilder(this).setTitle(mode == Mode.PROFILE ? R.string.profiles_title :
                             mode == Mode.GAME ? R.string.game_settings_title : R.string.pc_settings_title)
                     .setMessage(mode == Mode.PROFILE ? R.string.profile_settings_explanation :
                             mode == Mode.GAME ? R.string.game_settings_explanation : R.string.host_profile_explanation)
@@ -352,7 +359,7 @@ public class HostStreamSettings extends NightjarActivity {
         if (url == null) {
             return;
         }
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+        AlertDialog dialog = new NavigationDialogBuilder(this)
                 .setTitle(R.string.host_administration_menu)
                 .setMessage(getString(R.string.host_administration_help, url.toString()))
                 .setNegativeButton(android.R.string.cancel, null)
@@ -367,7 +374,7 @@ public class HostStreamSettings extends NightjarActivity {
     }
 
     private void showWakeHelp() {
-        MaterialAlertDialogBuilder dialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.wol_help_title)
+        MaterialAlertDialogBuilder dialog = new NavigationDialogBuilder(this).setTitle(R.string.wol_help_title)
                 .setMessage(R.string.wol_help_text);
         if (computer.state != ComputerDetails.State.ONLINE && computer.macAddress != null) {
             dialog.setNegativeButton(android.R.string.cancel, null)
@@ -409,23 +416,62 @@ public class HostStreamSettings extends NightjarActivity {
     }
 
     private void startFrontendExport() {
+        if (exportRunning) return;
+        FrontendLauncher[] launchers = FrontendLauncher.values();
+        String[] labels = new String[launchers.length];
+        for (int i = 0; i < labels.length; i++) labels[i] = launchers[i].label;
+        new NavigationDialogBuilder(this)
+                .setTitle(R.string.frontend_export_menu)
+                .setItems(labels, (dialog, which) -> {
+                    exportLauncher = launchers[which];
+                    showFrontendActions();
+                }).show();
+    }
+
+    private FrontendExportStore frontendStore() {
+        return new FrontendExportStore(this, computer.uuid, exportLauncher);
+    }
+
+    private void showFrontendActions() {
+        FrontendExportStore store = frontendStore();
+        if (store.romsTree() == null) {
+            chooseFrontendFolder();
+            return;
+        }
+        new NavigationDialogBuilder(this)
+                .setTitle(exportLauncher.label)
+                .setItems(new String[] {getString(R.string.frontend_export_update),
+                        getString(R.string.frontend_export_pick), getString(R.string.frontend_setup_title)},
+                        (dialog, which) -> {
+                            if (which == 0) {
+                                exportRomsTree = store.romsTree();
+                                runFrontendExport(store.esdeTree());
+                            } else if (which == 1) chooseFrontendFolder();
+                            else showFrontendSetup(null);
+                        }).show();
+    }
+
+    private void chooseFrontendFolder() {
         if (new FrontendExporter(this, computer).loadApps().isEmpty()) {
             Toast.makeText(this, R.string.frontend_export_no_apps, Toast.LENGTH_LONG).show();
             return;
         }
         exporting = true;
         exportRomsTree = null;
-        new MaterialAlertDialogBuilder(this)
+        new NavigationDialogBuilder(this)
                 .setTitle(R.string.frontend_export_roms_title)
                 .setMessage(R.string.frontend_export_roms_message)
                 .setPositiveButton(R.string.frontend_export_pick, (dialog, which) -> pickFolder(PICK_ROMS_REQUEST))
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> exporting = false)
+                .setOnCancelListener(dialog -> exporting = false)
                 .show();
     }
 
     private void pickFolder(int request) {
         try {
-            startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), request);
+            startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION), request);
         } catch (ActivityNotFoundException e) {
             exporting = false;
             Toast.makeText(this, R.string.frontend_export_no_picker, Toast.LENGTH_LONG).show();
@@ -439,13 +485,30 @@ public class HostStreamSettings extends NightjarActivity {
         if (!exporting) {
             return;
         }
+        if (requestCode != PICK_ROMS_REQUEST && requestCode != PICK_ESDE_REQUEST) return;
+        if (picked != null) {
+            try {
+                int access = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+                if ((data.getFlags() & access) == access) {
+                    getContentResolver().takePersistableUriPermission(picked, access);
+                }
+            } catch (SecurityException e) {
+                // Some providers only grant this visit. The export still works; a later update
+                // explains the lost access and lets the user pick the folder again.
+                LimeLog.info("Frontend folder has no persistent access");
+            }
+        }
         if (requestCode == PICK_ROMS_REQUEST) {
             if (picked == null) {
                 exporting = false;
                 return;
             }
             exportRomsTree = picked;
-            new MaterialAlertDialogBuilder(this)
+            if (exportLauncher != FrontendLauncher.ES_DE) {
+                runFrontendExport(null);
+                return;
+            }
+            new NavigationDialogBuilder(this)
                     .setTitle(R.string.frontend_export_esde_title)
                     .setMessage(getString(R.string.frontend_export_esde_message, getString(R.string.app_name)))
                     .setPositiveButton(R.string.frontend_export_pick, (dialog, which) -> pickFolder(PICK_ESDE_REQUEST))
@@ -458,27 +521,65 @@ public class HostStreamSettings extends NightjarActivity {
     }
 
     private void runFrontendExport(final Uri esdeTree) {
+        if (exportRunning) return;
         final ComputerDetails target = computer;
         final Uri romsTree = exportRomsTree;
+        final FrontendLauncher launcher = exportLauncher;
+        final FrontendExportStore store = frontendStore();
         exporting = false;
         exportRomsTree = null;
         if (romsTree == null) {
             return;
         }
+        exportRunning = true;
         Toast.makeText(this, R.string.frontend_export_working, Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             String message;
+            boolean succeeded = false;
             try {
                 FrontendExporter exporter = new FrontendExporter(HostStreamSettings.this, target);
-                int count = exporter.export(exporter.loadApps(), romsTree, esdeTree);
-                message = getResources().getQuantityString(R.plurals.frontend_export_done, count, count);
+                java.util.List<com.limelight.nvstream.http.NvApp> apps = exporter.loadApps();
+                if (apps.isEmpty()) message = getString(R.string.frontend_export_no_apps);
+                else {
+                    int count = exporter.export(apps, romsTree, esdeTree);
+                    store.save(romsTree, esdeTree);
+                    succeeded = true;
+                    message = getResources().getQuantityString(R.plurals.frontend_export_done, count, count);
+                }
             } catch (IOException | RuntimeException e) {
                 LimeLog.warning("Frontend export failed: " + e);
                 message = getString(R.string.frontend_export_failed);
             }
             final String result = message;
-            runOnUiThread(() -> Toast.makeText(HostStreamSettings.this, result, Toast.LENGTH_LONG).show());
+            final boolean success = succeeded;
+            runOnUiThread(() -> {
+                exportRunning = false;
+                if (isFinishing() || isDestroyed()) return;
+                exportLauncher = launcher;
+                if (success) showFrontendSetup(result);
+                else new NavigationDialogBuilder(this).setTitle(launcher.label).setMessage(result)
+                        .setPositiveButton(R.string.frontend_export_pick, (dialog, which) -> chooseFrontendFolder())
+                        .setNegativeButton(android.R.string.cancel, null).show();
+            });
         }, "Frontend export").start();
+    }
+
+    private void showFrontendSetup(String result) {
+        String command = exportLauncher.command(getPackageName());
+        String message = (result == null ? "" : result + "\n\n") +
+                getString(exportLauncher.instructions, getString(R.string.app_name));
+        if (command != null) message += "\n\n" + command;
+        MaterialAlertDialogBuilder dialog = new NavigationDialogBuilder(this)
+                .setTitle(exportLauncher.label).setMessage(message)
+                .setPositiveButton(android.R.string.ok, null);
+        if (command != null) {
+            dialog.setNeutralButton(R.string.frontend_setup_copy, (ignored, which) -> {
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
+                        getSystemService(CLIPBOARD_SERVICE);
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText(exportLauncher.label, command));
+            });
+        }
+        dialog.show();
     }
 
     private void leaveSettings() {
@@ -486,7 +587,7 @@ public class HostStreamSettings extends NightjarActivity {
             finish();
             return;
         }
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this).setTitle(R.string.host_profile_unsaved_title)
+        UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.host_profile_unsaved_title)
                 .setMessage(mode == Mode.PC ? R.string.host_profile_unsaved_message : R.string.layers_unsaved_message)
                 .setPositiveButton(R.string.host_profile_save, (dialog, which) -> {
                     saveOwn();
@@ -516,6 +617,7 @@ public class HostStreamSettings extends NightjarActivity {
         super.onSaveInstanceState(state);
         if (overrides != null) state.putString("draft", overrides.serialize());
         state.putBoolean("exporting", exporting);
+        state.putString("export_launcher", exportLauncher.name());
         if (exportRomsTree != null) state.putString("export_roms_tree", exportRomsTree.toString());
         if (editorDialog != null && editorDialog.isShowing()) {
             state.putString("editor_key", editorKey);
@@ -549,7 +651,7 @@ public class HostStreamSettings extends NightjarActivity {
             boolean pc = activity.mode == Mode.PC;
             int reset = pc ? R.string.host_profile_reset : R.string.layers_reset;
             row(stream, "reset", reset, () -> UiHelper.showDialog(activity,
-                    new MaterialAlertDialogBuilder(activity).setTitle(reset)
+                    new NavigationDialogBuilder(activity).setTitle(reset)
                             .setMessage(pc ? R.string.settings_profile_reset_message : R.string.layers_reset_message)
                             .setPositiveButton(reset, (dialog, which) -> {
                                 activity.overrides = new HostStreamProfile();
@@ -831,7 +933,7 @@ public class HostStreamSettings extends NightjarActivity {
                     getString(R.string.host_profile_on),
                     getString(R.string.host_profile_off)};
             int checked = own == null ? 0 : own ? 1 : 2;
-            new MaterialAlertDialogBuilder(activity).setTitle(title)
+            new NavigationDialogBuilder(activity).setTitle(title)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         setSwitchOverride(key, which == 0 ? null : which == 1);
                         updateSummaries();
@@ -847,7 +949,7 @@ public class HostStreamSettings extends NightjarActivity {
             System.arraycopy(names, 0, items, 1, names.length);
             String own = activity.overrides.pacing;
             int checked = own == null ? 0 : java.util.Arrays.asList(values).indexOf(own) + 1;
-            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_frame_pacing)
+            new NavigationDialogBuilder(activity).setTitle(R.string.title_frame_pacing)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         activity.overrides.pacing = which == 0 ? null : values[which - 1];
                         updateSummaries();
@@ -865,7 +967,7 @@ public class HostStreamSettings extends NightjarActivity {
             System.arraycopy(codecs, 0, items, 1, offered);
             PreferenceConfiguration.FormatOption own = activity.overrides.codec;
             int checked = own == null ? 0 : own.ordinal() < offered ? own.ordinal() + 1 : -1;
-            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_video_format)
+            new NavigationDialogBuilder(activity).setTitle(R.string.title_video_format)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         activity.overrides.codec = which == 0 ? null :
                                 PreferenceConfiguration.FormatOption.values()[which - 1];
@@ -880,7 +982,7 @@ public class HostStreamSettings extends NightjarActivity {
             items[0] = sameAs(modes[activity.global.upscalingMode.ordinal()]);
             System.arraycopy(modes, 0, items, 1, modes.length);
             UpscalingPolicy.Mode own = activity.overrides.upscalingMode;
-            AlertDialog picker = new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
+            AlertDialog picker = new NavigationDialogBuilder(activity).setTitle(R.string.title_upscaling)
                     .setSingleChoiceItems(items, own == null ? 0 : own.ordinal() + 1, (dialog, which) -> {
                         activity.overrides.upscalingMode = which == 0 ? null : UpscalingPolicy.Mode.values()[which - 1];
                         updateSummaries();
@@ -889,7 +991,7 @@ public class HostStreamSettings extends NightjarActivity {
                     .setNegativeButton(android.R.string.cancel, null).create();
             UiHelper.showDialog(activity, picker);
             picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
-                    UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
+                    UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).setTitle(R.string.title_upscaling)
                             .setMessage(R.string.summary_upscaling).setPositiveButton(android.R.string.ok, null).create()));
         }
 
@@ -1005,7 +1107,7 @@ public class HostStreamSettings extends NightjarActivity {
             slider.addOnChangeListener((view, strength, fromUser) ->
                     value.setText(getString(R.string.upscaling_sharpness_value, Math.round(strength))));
             form.addView(slider);
-            showEditor("sharpness", new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling_sharpness).setView(scrollable(form))
+            showEditor("sharpness", new NavigationDialogBuilder(activity).setTitle(R.string.title_upscaling_sharpness).setView(scrollable(form))
                     .setPositiveButton(android.R.string.ok, (dialog, which) -> {
                         activity.overrides.upscalingSharpness = allPcs.isChecked() ? null : Math.round(slider.getValue());
                         updateSummaries();
@@ -1033,7 +1135,7 @@ public class HostStreamSettings extends NightjarActivity {
             allPcs.setOnCheckedChangeListener((button, checked) -> refresh.run());
             nativeChoice.setOnCheckedChangeListener((button, checked) -> refresh.run());
             refresh.run();
-            AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_resolution_list)
+            AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle(R.string.title_resolution_list)
                     .setView(scrollable(form)).setPositiveButton(android.R.string.ok, null)
                     .setNegativeButton(android.R.string.cancel, null)
                     .setNeutralButton(R.string.host_profile_match_screen, null).create();
@@ -1103,7 +1205,7 @@ public class HostStreamSettings extends NightjarActivity {
             field[0] = field(form, title, value, !key.equals("scale"));
             allPcs.setOnCheckedChangeListener((button, checked) -> field[0].setEnabled(!checked));
             field[0].setEnabled(!followsAll);
-            MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity).setTitle(title).setView(scrollable(form))
+            MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(activity).setTitle(title).setView(scrollable(form))
                     .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null);
             if (key.equals("refresh")) builder.setNeutralButton(R.string.host_profile_match_screen, null);
             AlertDialog dialog = builder.create();

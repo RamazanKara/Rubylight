@@ -19,6 +19,8 @@ import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.http.TestHosts;
 import com.limelight.utils.CacheHelper;
+import com.limelight.utils.FrontendLauncher;
+import com.limelight.utils.FrontendExportStore;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -245,10 +247,13 @@ public class PcSettingsTest {
         ActivityController<HostStreamSettings> controller = open("export-pc", TestHosts.rubylight());
         try {
             click(row(controller.get(), "frontend_export"));
+            AlertDialog launchers = (AlertDialog) ShadowDialog.getLatestDialog();
+            launchers.getListView().performItemClick(null, FrontendLauncher.ES_DE.ordinal(), 0);
             ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(AlertDialog.BUTTON_POSITIVE).performClick();
             Shadows.shadowOf(Looper.getMainLooper()).idle();
             Intent picker = Shadows.shadowOf(controller.get()).getNextStartedActivityForResult().intent;
             assertEquals(Intent.ACTION_OPEN_DOCUMENT_TREE, picker.getAction());
+            assertTrue((picker.getFlags() & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0);
             Shadows.shadowOf(controller.get()).receiveResult(picker, android.app.Activity.RESULT_OK,
                     new Intent().setData(Uri.parse("content://documents/tree/roms")));
             Shadows.shadowOf(Looper.getMainLooper()).idle();
@@ -258,6 +263,37 @@ public class PcSettingsTest {
             controller.get().onActivityResult(2, android.app.Activity.RESULT_CANCELED, null);
             Shadows.shadowOf(Looper.getMainLooper()).idle();
             assertEquals(app.getString(R.string.frontend_export_working), ShadowToast.getTextOfLatestToast());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void savedBeaconExportOffersSetupWithoutPickingFoldersAgain() throws Exception {
+        try (OutputStream out = CacheHelper.openCacheFileForOutput(app.getCacheDir(), "applist", "beacon-pc")) {
+            out.write("<root status_code=\"200\"><App><AppTitle>Game</AppTitle><ID>2</ID></App></root>"
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+        new FrontendExportStore(app, "beacon-pc", FrontendLauncher.BEACON)
+                .save(Uri.parse("content://documents/tree/roms"), null);
+        ActivityController<HostStreamSettings> controller = open("beacon-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            click(row(screen, "frontend_export"));
+            AlertDialog launchers = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertEquals("Beacon", launchers.getListView().getAdapter().getItem(0));
+            launchers.getListView().performItemClick(null, FrontendLauncher.BEACON.ordinal(), 0);
+            AlertDialog actions = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertEquals(app.getString(R.string.frontend_export_update), actions.getListView().getAdapter().getItem(0));
+            actions.getListView().performItemClick(null, 2, 0);
+            AlertDialog setup = (AlertDialog) ShadowDialog.getLatestDialog();
+            String command = FrontendLauncher.BEACON.command(screen.getPackageName());
+            assertTrue(((TextView) setup.findViewById(android.R.id.message)).getText().toString().contains(command));
+            setup.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            android.content.ClipboardManager clipboard = app.getSystemService(android.content.ClipboardManager.class);
+            assertEquals(command, clipboard.getPrimaryClip().getItemAt(0).getText().toString());
+            assertNull(Shadows.shadowOf(screen).getNextStartedActivityForResult());
         } finally {
             controller.pause().stop().destroy();
         }

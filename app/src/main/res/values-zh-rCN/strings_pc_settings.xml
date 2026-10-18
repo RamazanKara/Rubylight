@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">此设备可通过菜单唤醒电脑</string>
     <string name="pc_settings_wake_unknown">请在电脑开机时配对，然后在电脑上开启 Wake-on-LAN</string>
     <string name="pc_settings_details_summary">主机软件、功能和地址</string>
-    <string name="pc_settings_export_summary">适用于 ES-DE 或其他前端的游戏快捷方式</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">添加到主屏幕</string>
     <string name="pc_settings_shortcut_summary">打开此电脑的游戏库</string>
     <string name="connection_test_ms">%1$s ms</string>

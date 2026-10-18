@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="frontend_export_menu">Add games to ES-DE</string>
+    <string name="frontend_export_menu">Add games to a launcher</string>
     <string name="frontend_export_roms_title">Pick your ROMs folder</string>
     <string name="frontend_export_roms_message">Add game shortcuts to this folder for ES-DE or another frontend.</string>
     <string name="frontend_export_esde_title">Pick your ES-DE folder</string>
@@ -11,9 +11,16 @@
     <string name="frontend_export_no_picker">No folder picker is available on this device.</string>
     <string name="frontend_export_working">Adding games…</string>
     <plurals name="frontend_export_done">
-        <item quantity="one">%1$d game added. Restart ES-DE to see it.</item>
-        <item quantity="other">%1$d games added. Restart ES-DE to see them.</item>
+        <item quantity="one">%1$d game exported.</item>
+        <item quantity="other">%1$d games exported.</item>
     </plurals>
     <string name="frontend_export_failed">Could not add games.\nChoose a local or SD card folder.</string>
     <string name="scut_invalid_entry">Game file unavailable.\nAdd the games again in %1$s.</string>
+    <string name="frontend_export_update">Update games</string>
+    <string name="frontend_setup_title">Setup instructions</string>
+    <string name="frontend_setup_copy">Copy launch command</string>
+    <string name="frontend_setup_beacon">In Beacon, add a Custom platform. Select %1$s as Player app and the exported butterpollo folder as ROMs folder. Include .art in the file extensions. Under Advanced, use Default file handling, enable Use custom launch and paste the command below. Save and scan the platform.</string>
+    <string name="frontend_setup_esde">Restart ES-DE to load the Nightjar system. If you skipped its configuration folder, select it on your next export to add the system and cached covers.</string>
+    <string name="frontend_setup_daijisho">Create a platform for .art files in the exported butterpollo folder. Add an Android player with the intent arguments below, then scan the folder.</string>
+    <string name="frontend_setup_pegasus">Use the exported butterpollo folder and .art entries. Set the launch command below in your collection metadata.</string>
 </resources>

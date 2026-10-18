@@ -13,7 +13,7 @@
     <string name="pc_settings_wake_ready">This device can wake the PC from its menu</string>
     <string name="pc_settings_wake_unknown">Pair while the PC is on, then turn on Wake-on-LAN on the PC</string>
     <string name="pc_settings_details_summary">Host software, features and addresses</string>
-    <string name="pc_settings_export_summary">Game shortcuts for ES-DE or another frontend</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Add to home screen</string>
     <string name="pc_settings_shortcut_summary">Opens this PC’s library</string>
 

@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">這部裝置可以從選單喚醒電腦</string>
     <string name="pc_settings_wake_unknown">請在電腦開機時配對，然後在電腦上開啟 Wake-on-LAN</string>
     <string name="pc_settings_details_summary">主機軟體、功能和位址</string>
-    <string name="pc_settings_export_summary">供 ES-DE 或其他前端使用的遊戲捷徑</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">新增至主畫面</string>
     <string name="pc_settings_shortcut_summary">開啟這部電腦的遊戲庫</string>
     <string name="connection_test_ms">%1$s ms</string>

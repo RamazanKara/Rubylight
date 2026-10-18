@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">Цей пристрій може пробудити ПК з його меню</string>
     <string name="pc_settings_wake_unknown">Створіть сполучення, коли ПК увімкнено, потім увімкніть Wake-on-LAN на ПК</string>
     <string name="pc_settings_details_summary">ПЗ хоста, функції та адреси</string>
-    <string name="pc_settings_export_summary">Ярлики ігор для ES-DE або іншого фронтенду</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Додати на головний екран</string>
     <string name="pc_settings_shortcut_summary">Відкриває бібліотеку цього ПК</string>
     <string name="connection_test_ms">%1$s мс</string>

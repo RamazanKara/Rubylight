@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="frontend_export_menu">Добавить игры в ES-DE</string>
+    <string name="frontend_export_menu">Добавить игры в лаунчер</string>
     <string name="frontend_export_roms_title">Выберите папку ROM</string>
     <string name="frontend_export_roms_message">Добавить ярлыки игр в эту папку для ES-DE или другого фронтенда.</string>
     <string name="frontend_export_esde_title">Выберите папку ES-DE</string>
@@ -11,11 +11,18 @@
     <string name="frontend_export_no_picker">На этом устройстве нет средства выбора папок.</string>
     <string name="frontend_export_working">Добавление игр…</string>
     <plurals name="frontend_export_done">
-        <item quantity="one">Добавлена %1$d игра. Перезапустите ES-DE, чтобы увидеть её.</item>
-        <item quantity="few">Добавлено %1$d игры. Перезапустите ES-DE, чтобы увидеть их.</item>
-        <item quantity="many">Добавлено %1$d игр. Перезапустите ES-DE, чтобы увидеть их.</item>
-        <item quantity="other">Добавлено %1$d игры. Перезапустите ES-DE, чтобы увидеть их.</item>
+        <item quantity="one">Экспортировано игр: %1$d.</item>
+        <item quantity="few">Экспортировано игр: %1$d.</item>
+        <item quantity="many">Экспортировано игр: %1$d.</item>
+        <item quantity="other">Экспортировано игр: %1$d.</item>
     </plurals>
     <string name="frontend_export_failed">Не удалось добавить игры.\nВыберите папку во внутренней памяти или на SD-карте.</string>
     <string name="scut_invalid_entry">Файл игры недоступен.\nСнова добавьте игры в %1$s.</string>
+    <string name="frontend_export_update">Обновить игры</string>
+    <string name="frontend_setup_title">Инструкция по настройке</string>
+    <string name="frontend_setup_copy">Копировать команду запуска</string>
+    <string name="frontend_setup_beacon">В Beacon добавьте платформу Custom. Выберите %1$s в Player app и экспортированную папку butterpollo в ROMs folder. Добавьте .art в расширения. В Advanced выберите Default для файлов, включите Use custom launch и вставьте команду ниже. Сохраните и просканируйте платформу.</string>
+    <string name="frontend_setup_esde">Перезапустите ES-DE для загрузки системы Nightjar. Если вы пропустили папку настроек, выберите её при следующем экспорте, чтобы добавить систему и сохранённые обложки.</string>
+    <string name="frontend_setup_daijisho">Создайте платформу для файлов .art в экспортированной папке butterpollo. Добавьте проигрыватель Android с аргументами intent ниже и просканируйте папку.</string>
+    <string name="frontend_setup_pegasus">Используйте экспортированную папку butterpollo и файлы .art. Укажите команду запуска ниже в метаданных коллекции.</string>
 </resources>

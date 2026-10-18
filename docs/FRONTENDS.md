@@ -2,17 +2,45 @@
 
 [Documentation](index.md)
 
-Nightjar can stream a game opened from ES-DE, Daijisho, Pegasus or another Android launcher. Exported `.art` entries identify the paired PC and app; the launcher opens the entry with Nightjar.
+Nightjar can stream a game opened from Beacon, ES-DE, Daijisho, Pegasus or another Android launcher. Exported `.art` entries identify the paired PC and app; the launcher opens the entry with Nightjar. No PC-side export script or manually copied game IDs are needed.
+
+## Export and update games
+
+1. Pair the PC in Nightjar and open its library once to cache the current app list.
+2. Open **PC settings → Add games to a launcher** and choose your launcher.
+3. Pick a ROMs folder. Nightjar creates a `butterpollo` subfolder containing one `.art` entry per visible game. Use that subfolder as the launcher's game folder.
+4. For ES-DE, optionally select its configuration folder as well. Other launchers go straight to export.
+5. Follow the setup instructions shown when export finishes. **Copy launch command** copies a command for the installed Nightjar package, including root or debug builds.
+
+Nightjar remembers each successful export's folders separately for each PC and launcher. To refresh after changing the library, open it in Nightjar and choose the same launcher, then **Update games**. **Pick folder** changes the destination, and **Setup instructions** reopens the guide and command. If folder access expires or the SD card is absent, export reports the failure and offers the folder picker again; the last successful destination remains saved.
+
+On Android 11+, select the actual ROMs/ES-DE directories rather than a restricted storage root. The folder provider must permit creating and updating files. Devices without a system folder picker cannot export locally; Android home-screen shortcuts remain available when the home launcher supports them.
+
+## Beacon
+
+1. Export with **Beacon** selected in Nightjar.
+2. In Beacon, add a **Custom** platform. Choose **Nightjar** as **Player app** and the exported `butterpollo` subfolder as **ROMs folder**. Include `.art` in the scanned extensions.
+3. Under **Advanced**, select **Default** file handling, enable **Use custom launch**, and paste Nightjar's copied command:
+
+```text
+am start -n com.butterpollo.client/com.limelight.ShortcutTrampoline -a android.intent.action.VIEW --grant-read-uri-permission -d {file_uri}
+```
+
+4. Save and scan the platform. Selecting a game opens Nightjar and starts that game on its paired PC.
+
+Keep Beacon's `{file_uri}` placeholder exactly as written; its underscore differs from Daijisho/Pegasus. The URI and read grant let Nightjar open the entry without broad storage permissions. Use the **Custom** platform and command rather than Beacon's built-in Moonlight player: these are self-contained `.art` entries, not numeric `.moonlight` files or a `Moonlight.uuid` setup. Existing `.moonlight` exports need to be re-exported through Nightjar.
+
+The custom-command placeholders are also documented by [Bannerlator's Beacon integration](https://github.com/moukrea/Bannerlator-AutoSetup/blob/main/marcescence-frontends.md). Launcher field labels may vary with its language/version.
 
 ## ES-DE
 
 1. Pair the PC in Nightjar and open its library once to refresh the cached app list.
-2. Long-press the PC, choose **PC settings…**, then **Add games to ES-DE**.
+2. Long-press the PC, choose **PC settings…**, then **Add games to a launcher → ES-DE**.
 3. Select the ROMs folder used by ES-DE. The exporter creates a `butterpollo` subfolder containing a game entry for each visible app.
 4. Select the ES-DE folder to merge the custom system and copy cached covers. Skip this step when exporting only game files for another frontend.
 5. Restart ES-DE and open its **Nightjar** system.
 
-On Android 11+, select the actual ROMs/ES-DE directories rather than a restricted storage root. Repeat export after changing the host library. Entries are matched by PC and app identity and updated in place even if a game was renamed; the existing filename and matching cover filename stay stable. Same-name games from different PCs are disambiguated.
+Entries are matched by PC and app identity and updated in place even if a game was renamed; the existing filename and matching cover filename stay stable. Same-name games from different PCs are disambiguated. This behavior also applies to exports for the other launchers.
 
 An unsuccessful new entry or cover write is removed when the document provider permits it, so a retry does not leave a broken duplicate or empty cover. Existing custom covers and files belonging to other PCs are preserved. Export does not prune entries for games you removed or hid after an earlier export; remove those entries manually in your frontend's ROMs folder. If storage permission or a provider failure prevents cleanup, remove the incomplete file before retrying.
 
@@ -38,7 +66,7 @@ The Android component is `com.butterpollo.client/com.limelight.ShortcutTrampolin
 Create a platform for `.art` files and point it at the exported ROMs subfolder. Configure its Android player with the following intent arguments:
 
 ```text
--n com.butterpollo.client/com.limelight.ShortcutTrampoline -a android.intent.action.VIEW -d {file.uri}
+-n com.butterpollo.client/com.limelight.ShortcutTrampoline -a android.intent.action.VIEW --grant-read-uri-permission -d {file.uri}
 ```
 
 The frontend must provide a readable file/content URI and grant read access to it.
@@ -48,7 +76,7 @@ The frontend must provide a readable file/content URI and grant read access to i
 Use the exported entries with an Android launch command:
 
 ```text
-launch: am start -n com.butterpollo.client/com.limelight.ShortcutTrampoline -a android.intent.action.VIEW -d {file.uri}
+launch: am start -n com.butterpollo.client/com.limelight.ShortcutTrampoline -a android.intent.action.VIEW --grant-read-uri-permission -d {file.uri}
 ```
 
 `{file.uri}` is supplied by the frontend, not entered as a literal address.
@@ -87,4 +115,6 @@ The parser is [FrontendEntry.java](../app/src/main/java/com/limelight/utils/Fron
 | Game file cannot be opened | Invalid entry or unreadable URI. | Re-export; make sure the launcher grants read access. Keep `%ROMPROVIDER%` in the ES-DE command. |
 | PC not found | PC is not saved on this Android installation. | Pair it here and export again. |
 | Library opens instead of the game | Entry has no usable app fields. | Open the PC library to refresh it, then re-export. |
+| Beacon opens the wrong app or rejects the file | Built-in Moonlight player, wrong placeholder or missing read grant. | Select Nightjar on a Custom platform, scan `.art`, and paste Nightjar's copied command with `{file_uri}` and `--grant-read-uri-permission`. |
+| Update games fails after working previously | SD card absent, folder moved or access revoked. | Restore the card or choose **Pick folder** and grant access again. |
 | Nightjar system absent in ES-DE | Configuration folder was skipped/wrong or ES-DE has not reloaded it. | Select the correct ES-DE folder, check both custom XML files, then restart ES-DE. |

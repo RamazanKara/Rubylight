@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">Questo dispositivo può riattivare il PC dal relativo menu</string>
     <string name="pc_settings_wake_unknown">Accoppia mentre il PC è acceso, poi attiva Wake-on-LAN sul PC</string>
     <string name="pc_settings_details_summary">Software host, funzionalità e indirizzi</string>
-    <string name="pc_settings_export_summary">Scorciatoie dei giochi per ES-DE o un altro frontend</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Aggiungi alla schermata Home</string>
     <string name="pc_settings_shortcut_summary">Apre la libreria di questo PC</string>
     <string name="connection_test_ms">%1$s ms</string>

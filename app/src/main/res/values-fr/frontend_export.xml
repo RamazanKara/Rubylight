@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="frontend_export_menu">Ajouter les jeux à ES-DE</string>
+    <string name="frontend_export_menu">Ajouter des jeux à un lanceur</string>
     <string name="frontend_export_roms_title">Choisissez votre dossier ROMs</string>
     <string name="frontend_export_roms_message">Ajouter des raccourcis de jeux dans ce dossier pour ES-DE ou un autre frontend.</string>
     <string name="frontend_export_esde_title">Choisissez votre dossier ES-DE</string>
@@ -11,10 +11,17 @@
     <string name="frontend_export_no_picker">Aucun sélecteur de dossier n’est disponible sur cet appareil.</string>
     <string name="frontend_export_working">Ajout des jeux…</string>
     <plurals name="frontend_export_done">
-        <item quantity="one">%1$d jeu ajouté. Redémarrez ES-DE pour le voir.</item>
-        <item quantity="many">%1$d de jeux ajoutés. Redémarrez ES-DE pour les voir.</item>
-        <item quantity="other">%1$d jeux ajoutés. Redémarrez ES-DE pour les voir.</item>
+        <item quantity="one">%1$d jeu exporté.</item>
+        <item quantity="many">%1$d jeux exportés.</item>
+        <item quantity="other">%1$d jeux exportés.</item>
     </plurals>
     <string name="frontend_export_failed">Impossible d’ajouter les jeux.\nChoisissez un dossier local ou sur carte SD.</string>
     <string name="scut_invalid_entry">Fichier de jeu indisponible.\nAjoutez de nouveau les jeux dans %1$s.</string>
+    <string name="frontend_export_update">Actualiser les jeux</string>
+    <string name="frontend_setup_title">Instructions de configuration</string>
+    <string name="frontend_setup_copy">Copier la commande</string>
+    <string name="frontend_setup_beacon">Dans Beacon, ajoutez une plateforme Custom. Choisissez %1$s comme Player app et le dossier exporté butterpollo comme ROMs folder. Incluez .art dans les extensions. Dans Advanced, choisissez Default pour les fichiers, activez Use custom launch et collez la commande ci-dessous. Enregistrez et analysez la plateforme.</string>
+    <string name="frontend_setup_esde">Redémarrez ES-DE pour charger le système Nightjar. Si vous avez ignoré son dossier de configuration, sélectionnez-le au prochain export pour ajouter le système et les jaquettes en cache.</string>
+    <string name="frontend_setup_daijisho">Créez une plateforme pour les fichiers .art du dossier exporté butterpollo. Ajoutez un lecteur Android avec les arguments d’intent ci-dessous, puis analysez le dossier.</string>
+    <string name="frontend_setup_pegasus">Utilisez le dossier exporté butterpollo et les fichiers .art. Définissez la commande ci-dessous dans les métadonnées de votre collection.</string>
 </resources>

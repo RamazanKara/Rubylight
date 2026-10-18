@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">Thiết bị này có thể đánh thức PC từ menu của PC</string>
     <string name="pc_settings_wake_unknown">Hãy ghép đôi khi PC đang bật, rồi bật Wake-on-LAN trên PC</string>
     <string name="pc_settings_details_summary">Phần mềm máy chủ, tính năng và địa chỉ</string>
-    <string name="pc_settings_export_summary">Lối tắt trò chơi cho ES-DE hoặc frontend khác</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Thêm vào màn hình chính</string>
     <string name="pc_settings_shortcut_summary">Mở thư viện của PC này</string>
     <string name="connection_test_ms">%1$s ms</string>

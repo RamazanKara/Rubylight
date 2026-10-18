@@ -15,7 +15,7 @@ Stream your PC games and desktop to the Android screen you want to use. Nightjar
 | Measure my device and share the results | [Device results](devices.md) |
 | Connect from outside my home | [Remote play setup](remote-setup.md) |
 | Build and sign an APK | [Building](building.md) |
-| Launch games from ES-DE, Daijisho or Pegasus | [Frontends](FRONTENDS.md) |
+| Launch games from Beacon, ES-DE, Daijisho or Pegasus | [Frontends](FRONTENDS.md) |
 | Find a short answer | [FAQ](faq.md) |
 | Translate Nightjar or fix a translation | [Translations](TRANSLATIONS.md#help-translate) |
 

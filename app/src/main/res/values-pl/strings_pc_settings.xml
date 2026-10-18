@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">To urządzenie może wybudzić komputer z jego menu</string>
     <string name="pc_settings_wake_unknown">Sparuj, gdy komputer jest włączony, a potem włącz Wake-on-LAN na komputerze</string>
     <string name="pc_settings_details_summary">Oprogramowanie hosta, funkcje i adresy</string>
-    <string name="pc_settings_export_summary">Skróty gier dla ES-DE lub innego frontendu</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Dodaj do ekranu głównego</string>
     <string name="pc_settings_shortcut_summary">Otwiera bibliotekę tego komputera</string>
     <string name="connection_test_ms">%1$s ms</string>

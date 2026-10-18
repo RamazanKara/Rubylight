@@ -150,7 +150,7 @@
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection">
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
-            <!-- Game entry files from ES-DE, Daijisho and Pegasus (see docs/frontends.md) -->
+            <!-- Game entry files from Beacon, ES-DE, Daijisho and Pegasus (see docs/FRONTENDS.md) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

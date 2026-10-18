@@ -12,7 +12,7 @@
     <string name="pc_settings_wake_ready">이 기기가 메뉴에서 PC를 깨울 수 있습니다</string>
     <string name="pc_settings_wake_unknown">PC가 켜져 있을 때 페어링한 후 PC에서 Wake-on-LAN을 켜세요</string>
     <string name="pc_settings_details_summary">호스트 소프트웨어, 기능 및 주소</string>
-    <string name="pc_settings_export_summary">ES-DE 또는 다른 프런트엔드용 게임 바로가기</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">홈 화면에 추가</string>
     <string name="pc_settings_shortcut_summary">이 PC의 라이브러리 열기</string>
     <string name="connection_test_ms">%1$s ms</string>

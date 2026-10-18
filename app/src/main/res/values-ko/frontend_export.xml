@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="frontend_export_menu">ES-DE에 게임 추가</string>
+    <string name="frontend_export_menu">런처에 게임 추가</string>
     <string name="frontend_export_roms_title">ROM 폴더 선택</string>
     <string name="frontend_export_roms_message">ES-DE 또는 다른 프런트엔드용 게임 바로가기를 이 폴더에 추가합니다.</string>
     <string name="frontend_export_esde_title">ES-DE 폴더 선택</string>
@@ -11,8 +11,15 @@
     <string name="frontend_export_no_picker">이 기기에는 폴더 선택기가 없습니다.</string>
     <string name="frontend_export_working">게임 추가 중…</string>
     <plurals name="frontend_export_done">
-        <item quantity="other">게임 %1$d개를 추가했습니다. ES-DE를 다시 시작하면 표시됩니다.</item>
+        <item quantity="other">게임 %1$d개를 내보냈습니다.</item>
     </plurals>
     <string name="frontend_export_failed">게임을 추가할 수 없습니다.\n내부 저장소 또는 SD 카드 폴더를 선택하세요.</string>
     <string name="scut_invalid_entry">게임 파일을 사용할 수 없습니다.\n%1$s에서 게임을 다시 추가하세요.</string>
+    <string name="frontend_export_update">게임 업데이트</string>
+    <string name="frontend_setup_title">설정 안내</string>
+    <string name="frontend_setup_copy">실행 명령 복사</string>
+    <string name="frontend_setup_beacon">Beacon에서 Custom 플랫폼을 추가하세요. Player app으로 %1$s, ROMs folder로 내보낸 butterpollo 폴더를 선택하고 확장자에 .art를 포함하세요. Advanced에서 파일 처리를 Default로 설정하고 Use custom launch를 켠 뒤 아래 명령을 붙여 넣으세요. 저장하고 플랫폼을 스캔하세요.</string>
+    <string name="frontend_setup_esde">ES-DE를 다시 시작하여 Nightjar 시스템을 불러오세요. 설정 폴더를 건너뛰었다면 다음 내보내기에서 선택하여 시스템과 캐시된 표지를 추가하세요.</string>
+    <string name="frontend_setup_daijisho">내보낸 butterpollo 폴더의 .art 파일용 플랫폼을 만드세요. 아래 인텐트 인수로 Android 플레이어를 추가한 뒤 폴더를 스캔하세요.</string>
+    <string name="frontend_setup_pegasus">내보낸 butterpollo 폴더와 .art 파일을 사용하세요. 컬렉션 메타데이터에 아래 실행 명령을 설정하세요.</string>
 </resources>

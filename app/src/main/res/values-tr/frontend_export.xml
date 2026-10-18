@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="frontend_export_menu">Oyunları ES-DE’ye ekle</string>
+    <string name="frontend_export_menu">Başlatıcıya oyun ekle</string>
     <string name="frontend_export_roms_title">ROM klasörünüzü seçin</string>
     <string name="frontend_export_roms_message">ES-DE veya başka bir ön yüz için bu klasöre oyun kısayolları ekleyin.</string>
     <string name="frontend_export_esde_title">ES-DE klasörünüzü seçin</string>
@@ -11,9 +11,16 @@
     <string name="frontend_export_no_picker">Bu cihazda klasör seçici yok.</string>
     <string name="frontend_export_working">Oyunlar ekleniyor…</string>
     <plurals name="frontend_export_done">
-        <item quantity="one">%1$d oyun eklendi. Görmek için ES-DE’yi yeniden başlatın.</item>
-        <item quantity="other">%1$d oyun eklendi. Görmek için ES-DE’yi yeniden başlatın.</item>
+        <item quantity="one">%1$d oyun dışa aktarıldı.</item>
+        <item quantity="other">%1$d oyun dışa aktarıldı.</item>
     </plurals>
     <string name="frontend_export_failed">Oyunlar eklenemedi.\nYerel bir klasör veya SD kart klasörü seçin.</string>
     <string name="scut_invalid_entry">Oyun dosyası kullanılamıyor.\nOyunları %1$s içinde yeniden ekleyin.</string>
+    <string name="frontend_export_update">Oyunları güncelle</string>
+    <string name="frontend_setup_title">Kurulum yönergeleri</string>
+    <string name="frontend_setup_copy">Başlatma komutunu kopyala</string>
+    <string name="frontend_setup_beacon">Beacon’da Custom platform ekleyin. Player app olarak %1$s, ROMs folder olarak dışa aktarılan butterpollo klasörünü seçin. Uzantılara .art ekleyin. Advanced altında dosya işleme için Default seçin, Use custom launch seçeneğini açın ve aşağıdaki komutu yapıştırın. Kaydedip platformu tarayın.</string>
+    <string name="frontend_setup_esde">Nightjar sistemini yüklemek için ES-DE’yi yeniden başlatın. Yapılandırma klasörünü atladıysanız sistemi ve önbellekteki kapakları eklemek için sonraki dışa aktarmada seçin.</string>
+    <string name="frontend_setup_daijisho">Dışa aktarılan butterpollo klasöründeki .art dosyaları için platform oluşturun. Aşağıdaki intent bağımsız değişkenleriyle bir Android oynatıcı ekleyip klasörü tarayın.</string>
+    <string name="frontend_setup_pegasus">Dışa aktarılan butterpollo klasörünü ve .art dosyalarını kullanın. Koleksiyon meta verilerinde aşağıdaki başlatma komutunu ayarlayın.</string>
 </resources>

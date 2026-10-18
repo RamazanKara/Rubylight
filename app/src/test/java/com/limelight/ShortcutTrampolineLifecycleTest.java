@@ -4,19 +4,29 @@ import android.app.Application;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.database.sqlite.SQLiteDatabase;
+import android.net.Uri;
 
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.PairingManager;
+import com.limelight.nvstream.http.NvApp;
+import com.limelight.utils.CacheHelper;
+import com.limelight.utils.FrontendEntry;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.util.ReflectionHelpers;
+
+import java.io.ByteArrayInputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.Assert.*;
 
@@ -59,6 +69,50 @@ public class ShortcutTrampolineLifecycleTest {
         assertEquals(0, controller.get().databaseOpens);
         controller.get().finish();
         controller.destroy();
+    }
+
+    @Test
+    public void beaconContentEntryPrefersStableAppUuidOverStaleNumericId() throws Exception {
+        String host = intent().getStringExtra(AppView.UUID_EXTRA);
+        try (OutputStream out = CacheHelper.openCacheFileForOutput(
+                RuntimeEnvironment.getApplication().getCacheDir(), "applist", host)) {
+            out.write(("<root status_code=\"200\"><App><AppTitle>Renamed game</AppTitle>" +
+                    "<ID>99</ID><UUID>app-uuid</UUID></App></root>").getBytes(StandardCharsets.UTF_8));
+        }
+        Uri uri = Uri.parse("content://beacon/games/Game.art");
+        String contents = FrontendEntry.serialize(host, "PC", "app-uuid", "Old game name", 42);
+        Shadows.shadowOf(RuntimeEnvironment.getApplication().getContentResolver()).registerInputStream(uri,
+                new ByteArrayInputStream(contents.getBytes(StandardCharsets.UTF_8)));
+        Intent launch = new Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        ActivityController<Trampoline> controller = Robolectric.buildActivity(Trampoline.class, launch).create();
+        try {
+            NvApp app = ReflectionHelpers.getField(controller.get(), "app");
+            assertEquals("app-uuid", app.getAppUuid());
+            assertEquals(99, app.getAppId());
+            assertEquals("Renamed game", app.getAppName());
+            assertNotNull(controller.get().connection);
+        } finally {
+            controller.get().finish();
+            controller.destroy();
+        }
+    }
+
+    @Test
+    public void libraryEntryDoesNotInheritGameExtrasFromTheCallingLauncher() {
+        String host = intent().getStringExtra(AppView.UUID_EXTRA);
+        Uri uri = Uri.parse("content://beacon/games/PC.art");
+        Shadows.shadowOf(RuntimeEnvironment.getApplication().getContentResolver()).registerInputStream(uri,
+                new ByteArrayInputStream(FrontendEntry.serialize(host, "PC", null, null, 0)
+                        .getBytes(StandardCharsets.UTF_8)));
+        Intent launch = new Intent(Intent.ACTION_VIEW, uri).putExtra(Game.EXTRA_APP_ID, "42");
+        ActivityController<Trampoline> controller = Robolectric.buildActivity(Trampoline.class, launch).create();
+        try {
+            assertNull(ReflectionHelpers.getField(controller.get(), "app"));
+            assertFalse(controller.get().getIntent().hasExtra(Game.EXTRA_APP_ID));
+        } finally {
+            controller.get().finish();
+            controller.destroy();
+        }
     }
 
     @Test

@@ -1,12 +1,14 @@
-# Rubylight 2.5.5 for Windows
+# Rubylight 2.5.6 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.5 installer is named `rubylight-setup-2.5.5.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.6 installer is named `rubylight-setup-2.5.6.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
-## Unreleased
+## New in 2.5.6
+
+**This release comes out of a dedicated bug hunt, and updating is advised.** We went looking for the causes of the recent resets, frozen streams, display mix-ups and input glitches, and fixed everything we could confirm, from display restoration and Windows input through GPU synchronization, PyroWave recovery, pacing and scheduling. If you have run into any of these, this is the build to install. We hope it is now the stable Rubylight you have been waiting for.
 
 - **Restore local displays after disconnect.** Display restoration now defaults on with a three-second delay. Exclusive layouts always release after the configured delay, including older profiles that disabled restoration. The final stream restores monitors its layout disabled even after Win+P changes; failed restoration keeps its original recovery baseline. Explicit `virtualDisplay=0` selects a physical display and cannot reuse a retained virtual stream.
 - **Keep the virtual-display adapter through sleep.** Power transitions preserve the IddCx adapter and monitor identities while capture resources are stopped before sleep and recreated after wake. A confirmed failed Rubylight driver can be restarted by a session operation with bounded retries; healthy and manually disabled devices are left alone.

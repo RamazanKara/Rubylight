@@ -20,6 +20,28 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, application = Application.class)
 public class NavigationDialogBuilderTest {
+    @Test public void cancellingGameReplacementOrPcDeletionRunsTheDeclineCallback() {
+        ActivityController<UiNavigationTest.Screen> activity = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup();
+        AtomicInteger accepted = new AtomicInteger(), declined = new AtomicInteger();
+        try {
+            com.limelight.utils.UiHelper.displayQuitConfirmationDialog(activity.get(), accepted::incrementAndGet, declined::incrementAndGet);
+            AlertDialog replacement = (AlertDialog) org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            press(replacement, KeyEvent.KEYCODE_BUTTON_B);
+            assertFalse(replacement.isShowing());
+            assertEquals(0, accepted.get());
+            assertEquals(1, declined.get());
+            com.limelight.nvstream.http.ComputerDetails computer = new com.limelight.nvstream.http.ComputerDetails();
+            computer.name = "PC";
+            com.limelight.utils.UiHelper.displayDeletePcConfirmationDialog(activity.get(), computer,
+                    accepted::incrementAndGet, declined::incrementAndGet);
+            AlertDialog deletion = (AlertDialog) org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            press(deletion, KeyEvent.KEYCODE_BUTTON_B);
+            assertFalse(deletion.isShowing());
+            assertEquals(0, accepted.get());
+            assertEquals(2, declined.get());
+        } finally { activity.destroy(); }
+    }
+
     private static void press(AlertDialog dialog, int key) {
         dialog.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, key));
         dialog.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, key));

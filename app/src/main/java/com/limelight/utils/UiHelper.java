@@ -213,6 +213,7 @@ public class UiHelper {
         builder.setMessage(parent.getResources().getString(R.string.applist_quit_confirmation))
                 .setPositiveButton(parent.getResources().getString(R.string.yes), dialogClickListener)
                 .setNegativeButton(parent.getResources().getString(R.string.no), dialogClickListener)
+                .setOnCancelListener(dialog -> { if (onNo != null) onNo.run(); })
                 .show();
     }
 
@@ -241,6 +242,7 @@ public class UiHelper {
                 .setTitle(computer.name)
                 .setPositiveButton(parent.getResources().getString(R.string.pcview_menu_delete_pc), dialogClickListener)
                 .setNegativeButton(android.R.string.cancel, dialogClickListener)
+                .setOnCancelListener(ignored -> { if (onNo != null) onNo.run(); })
                 .show();
         markDestructive(dialog);
     }

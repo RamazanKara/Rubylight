@@ -269,6 +269,23 @@ impl Injector {
             |inputs| self.send(inputs),
         )
     }
+    /// Teardown gets one extra release attempt while ownership remains
+    /// locked. A new client cannot press between the failed up and its retry.
+    pub(super) fn release_held(
+        held: &mut BTreeMap<(bool, u32), usize>,
+        identity: (bool, u32),
+        input: INPUT,
+        mut send: impl FnMut(&[INPUT]) -> Result<()>,
+    ) -> Result<()> {
+        Self::update_held(held, identity, false, true, input, |inputs| {
+            send(inputs).or_else(|_| send(inputs))
+        })
+    }
+    pub(super) fn release_owned(&self, keyboard: bool, id: u32, input: INPUT) -> Result<()> {
+        Self::release_held(&mut HELD.lock().unwrap(), (keyboard, id), input, |inputs| {
+            self.send(inputs)
+        })
+    }
     pub(super) fn update_held(
         held: &mut BTreeMap<(bool, u32), usize>,
         identity: (bool, u32),
@@ -558,6 +575,34 @@ mod tests {
         // Otherwise every later press of the key, in every later session, is
         // skipped as already held.
         assert!(held.is_empty());
+    }
+    #[test]
+    fn cleanup_retries_a_refused_final_mouse_release_once() {
+        let identity = (false, 1);
+        for recovered in [false, true] {
+            let mut held = BTreeMap::from([(identity, 1)]);
+            let mut attempts = 0;
+            let result =
+                Injector::release_held(&mut held, identity, Injector::button(1, false), |inputs| {
+                    assert_eq!(inputs.len(), 1);
+                    attempts += 1;
+                    if recovered && attempts == 2 {
+                        Ok(())
+                    } else {
+                        bail!("desktop refused release")
+                    }
+                });
+            assert_eq!(result.is_ok(), recovered);
+            assert_eq!(attempts, 2);
+            // Exhausted retries cannot poison ownership for future clients.
+            assert!(held.is_empty());
+        }
+        let mut shared = BTreeMap::from([(identity, 2)]);
+        Injector::release_held(&mut shared, identity, Injector::button(1, false), |_| {
+            panic!("another client still holds this button")
+        })
+        .unwrap();
+        assert_eq!(shared[&identity], 1);
     }
     #[test]
     fn key_remapping_uses_the_destination_extension_and_legacy_vk_width() {

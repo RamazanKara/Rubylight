@@ -24,6 +24,100 @@ fn pointer_rect(rect: RECT, origin: POINT) -> RECT {
         bottom: rect.bottom - origin.y,
     }
 }
+fn touch_info(touch: POINTER_TOUCH_INFO) -> POINTER_TYPE_INFO {
+    POINTER_TYPE_INFO {
+        r#type: PT_TOUCH,
+        Anonymous: POINTER_TYPE_INFO_0 { touchInfo: touch },
+    }
+}
+/// A move cannot introduce a contact or turn a hover into a contact: Windows
+/// requires a successful down first. Ignore stale moves after cancellation.
+fn touch_start(
+    touches: &BTreeMap<u32, POINTER_TOUCH_INFO>,
+    id: u32,
+    event: u8,
+) -> Result<Option<POINTER_TOUCH_INFO>> {
+    if let Some(existing) = touches.get(&id) {
+        if event > 6
+            || (event == 3
+                && existing.pointerInfo.pointerFlags & POINTER_FLAG_INCONTACT == POINTER_FLAG_NONE)
+        {
+            return Ok(None);
+        }
+        return Ok(Some(*existing));
+    }
+    if !matches!(event, 0 | 1) {
+        return Ok(None);
+    }
+    let pointer_id = (1..=32)
+        .find(|candidate| {
+            !touches
+                .values()
+                .any(|touch| touch.pointerInfo.pointerId == *candidate)
+        })
+        .ok_or_else(|| anyhow::anyhow!("touch pointer limit reached"))?;
+    Ok(Some(POINTER_TOUCH_INFO {
+        pointerInfo: POINTER_INFO {
+            pointerType: PT_TOUCH,
+            pointerId: pointer_id,
+            ..Default::default()
+        },
+        ..Default::default()
+    }))
+}
+/// Keep only frames Windows accepted. In particular a failed move must not
+/// change the position used by the next up, and a refused hover owns no slot.
+fn submit_touch(
+    touches: &mut BTreeMap<u32, POINTER_TOUCH_INFO>,
+    id: u32,
+    mut frame: POINTER_TOUCH_INFO,
+    event: u8,
+    send: impl FnOnce(&[POINTER_TYPE_INFO]) -> Result<()>,
+) -> Result<()> {
+    let mut contacts: Vec<_> = touches
+        .iter()
+        .filter(|(other, _)| **other != id)
+        .map(|(_, touch)| touch_info(*touch))
+        .collect();
+    contacts.push(touch_info(frame));
+    send(&contacts)?;
+    if matches!(event, 2 | 4 | 6) {
+        touches.remove(&id);
+    } else {
+        frame.pointerInfo.pointerFlags &=
+            !(POINTER_FLAG_DOWN | POINTER_FLAG_UP | POINTER_FLAG_CANCELED);
+        frame.pointerInfo.pointerFlags |= POINTER_FLAG_UPDATE;
+        touches.insert(id, frame);
+    }
+    Ok(())
+}
+/// If a stale contact invalidates the cancellation frame, still try every
+/// other contact individually. The caller retires the device on failure.
+fn cancel_touch_contacts(
+    touches: &mut BTreeMap<u32, POINTER_TOUCH_INFO>,
+    mut send: impl FnMut(&[POINTER_TYPE_INFO]) -> Result<()>,
+) -> Result<()> {
+    let contacts: Vec<_> = std::mem::take(touches)
+        .into_values()
+        .map(|mut touch| {
+            pointer_event(&mut touch.pointerInfo, 4, POINT::default());
+            touch_info(touch)
+        })
+        .collect();
+    if contacts.is_empty() || send(&contacts).is_ok() {
+        return Ok(());
+    }
+    let mut failures = Vec::new();
+    for contact in &contacts {
+        if let Err(error) = send(std::slice::from_ref(contact)) {
+            failures.push(format!("{error:#}"));
+        }
+    }
+    if !failures.is_empty() {
+        bail!("touch cancellation failed: {}", failures.join("; "));
+    }
+    Ok(())
+}
 impl Injector {
     fn pointer_display(&mut self) -> Option<RECT> {
         let rect = self.display()?;
@@ -66,11 +160,21 @@ impl Injector {
     }
     /// Cancel every touch contact, as a client's cancel-all does.
     pub(super) fn cancel_touches(&mut self) -> Result<()> {
-        for p in self.touches.values_mut() {
-            pointer_event(&mut p.pointerInfo, 4, POINT::default());
+        let Some(device) = self.touch_device else {
+            self.touches.clear();
+            return Ok(());
+        };
+        let result = cancel_touch_contacts(&mut self.touches, |contacts| {
+            // SAFETY: The injector owns the device through every synchronous
+            // attempt, and each frame is initialized as touch input.
+            unsafe { inject_pointer(device, contacts) }
+        });
+        if result.is_err() {
+            self.touch_device = None;
+            // SAFETY: This injector owns the device, which has just been
+            // detached so no refresh, later event or Drop can reuse it.
+            unsafe { DestroySyntheticPointerDevice(device) };
         }
-        let result = self.inject_touches();
-        self.touches.clear();
         result
     }
     /// Lift the pen if it is active.
@@ -89,6 +193,11 @@ impl Injector {
             )
         };
         self.pen = pen_after(frame, 7, result.is_err());
+        if result.is_err() {
+            self.pen_device = None;
+            // SAFETY: The injector owns the detached device exactly once.
+            unsafe { DestroySyntheticPointerDevice(device) };
+        }
         result
     }
     #[allow(clippy::too_many_arguments)]
@@ -103,6 +212,12 @@ impl Injector {
         minor: f32,
         rotation: u16,
     ) -> Result<()> {
+        if event == 7 {
+            return self.cancel_touches();
+        }
+        let Some(mut p) = touch_start(&self.touches, id, event)? else {
+            return Ok(());
+        };
         // No contact exists before the display does: the rectangle is never
         // forgotten once known.
         let Some(rect) = self.pointer_display() else {
@@ -116,32 +231,6 @@ impl Injector {
                         .context("native touch input unavailable")?,
                 );
             }
-            if event == 7 {
-                return self.cancel_touches();
-            }
-            let mut p = if let Some(existing) = self.touches.get(&id) {
-                *existing
-            } else {
-                if !matches!(event, 0 | 1 | 3) {
-                    return Ok(());
-                }
-                let pointer_id = (1..=32)
-                    .find(|candidate| {
-                        !self
-                            .touches
-                            .values()
-                            .any(|p| p.pointerInfo.pointerId == *candidate)
-                    })
-                    .ok_or_else(|| anyhow::anyhow!("touch pointer limit reached"))?;
-                POINTER_TOUCH_INFO {
-                    pointerInfo: POINTER_INFO {
-                        pointerType: PT_TOUCH,
-                        pointerId: pointer_id,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                }
-            };
             pointer_event(&mut p.pointerInfo, event, self.location(rect, x, y));
             if event != 5 {
                 p.touchMask = TOUCH_MASK_NONE;
@@ -188,24 +277,15 @@ impl Injector {
                     p.touchMask |= TOUCH_MASK_ORIENTATION;
                 }
             }
-            self.touches.insert(id, p);
-            let result = self.inject_touches();
-            if matches!(event, 2 | 4 | 6) {
-                self.touches.remove(&id);
-            }
-            // Ended contacts are gone, and a contact Windows refused to put
-            // down was never seen: drop both whether or not the frame went
-            // through, or every later frame repeats the failure.
-            let failed = result.is_err();
-            self.touches.retain(|_, p| {
-                let flags = p.pointerInfo.pointerFlags;
-                flags & (POINTER_FLAG_UP | POINTER_FLAG_CANCELED) == POINTER_FLAG_NONE
-                    && !(failed && flags & POINTER_FLAG_DOWN != POINTER_FLAG_NONE)
+            let device = self.touch_device.expect("touch device created above");
+            let result = submit_touch(&mut self.touches, id, p, event, |contacts| {
+                inject_pointer(device, contacts)
             });
-            for p in self.touches.values_mut() {
-                p.pointerInfo.pointerFlags &=
-                    !(POINTER_FLAG_DOWN | POINTER_FLAG_UP | POINTER_FLAG_CANCELED);
-                p.pointerInfo.pointerFlags |= POINTER_FLAG_UPDATE;
+            if result.is_err()
+                && matches!(event, 2 | 4 | 6)
+                && let Err(error) = self.cancel_touches()
+            {
+                tracing::warn!(%error, "touch device retired after a failed release");
             }
             self.touch_refreshed = std::time::Instant::now();
             result?;
@@ -384,6 +464,142 @@ fn pen_after(mut pen: POINTER_PEN_INFO, event: u8, failed: bool) -> POINTER_PEN_
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn touch_frame(
+        touches: &BTreeMap<u32, POINTER_TOUCH_INFO>,
+        id: u32,
+        event: u8,
+        location: POINT,
+    ) -> Option<POINTER_TOUCH_INFO> {
+        let mut frame = touch_start(touches, id, event).unwrap()?;
+        pointer_event(&mut frame.pointerInfo, event, location);
+        Some(frame)
+    }
+    #[test]
+    fn a_touch_move_needs_a_successful_down_and_refused_contacts_own_no_slot() {
+        let mut touches = BTreeMap::new();
+        let location = POINT { x: 10, y: 20 };
+        // A lost down, or a move arriving after cancel-all, must not poison
+        // every later frame with an UPDATE for an unknown Windows contact.
+        assert!(touch_frame(&touches, 8, 3, location).is_none());
+        for event in [0, 1] {
+            let frame = touch_frame(&touches, 8, event, location).unwrap();
+            assert!(
+                submit_touch(&mut touches, 8, frame, event, |_| {
+                    bail!("injection refused")
+                })
+                .is_err()
+            );
+            assert!(touches.is_empty());
+            assert_eq!(
+                touch_start(&touches, 9, 1)
+                    .unwrap()
+                    .unwrap()
+                    .pointerInfo
+                    .pointerId,
+                1
+            );
+        }
+        let hover = touch_frame(&touches, 8, 0, location).unwrap();
+        submit_touch(&mut touches, 8, hover, 0, |_| Ok(())).unwrap();
+        assert!(touch_frame(&touches, 8, 3, location).is_none());
+        let down = touch_frame(&touches, 8, 1, location).unwrap();
+        assert_ne!(
+            down.pointerInfo.pointerFlags & POINTER_FLAG_DOWN,
+            POINTER_FLAG_NONE
+        );
+        submit_touch(&mut touches, 8, down, 1, |_| Ok(())).unwrap();
+        assert!(touch_frame(&touches, 8, 3, location).is_some());
+    }
+    #[test]
+    fn a_refused_move_keeps_the_last_accepted_position_for_release() {
+        let mut touches = BTreeMap::new();
+        let original = POINT { x: 10, y: 20 };
+        let down = touch_frame(&touches, 8, 1, original).unwrap();
+        submit_touch(&mut touches, 8, down, 1, |_| Ok(())).unwrap();
+        let moved = touch_frame(&touches, 8, 3, POINT { x: 30, y: 40 }).unwrap();
+        assert!(submit_touch(&mut touches, 8, moved, 3, |_| bail!("busy")).is_err());
+        assert_eq!(touches[&8].pointerInfo.ptPixelLocation, original);
+        let up = touch_frame(&touches, 8, 2, POINT::default()).unwrap();
+        assert_eq!(up.pointerInfo.ptPixelLocation, original);
+        // A failed up retains the accepted contact for cancellation fallback.
+        assert!(submit_touch(&mut touches, 8, up, 2, |_| bail!("busy")).is_err());
+        assert_eq!(touches.len(), 1);
+        submit_touch(&mut touches, 8, up, 2, |_| Ok(())).unwrap();
+        assert!(touches.is_empty());
+    }
+    #[test]
+    fn failed_batch_cancellation_attempts_every_contact_and_clears_state() {
+        let mut touches = BTreeMap::new();
+        for id in 1..=3 {
+            let frame = touch_frame(
+                &touches,
+                id,
+                1,
+                POINT {
+                    x: id as i32,
+                    y: 20,
+                },
+            )
+            .unwrap();
+            submit_touch(&mut touches, id, frame, 1, |_| Ok(())).unwrap();
+        }
+        let mut attempted = Vec::new();
+        let result = cancel_touch_contacts(&mut touches, |contacts| {
+            let ids: Vec<_> = contacts
+                .iter()
+                .map(|contact| {
+                    // SAFETY: cancel_touch_contacts creates initialized touch frames.
+                    let touch = unsafe { contact.Anonymous.touchInfo };
+                    assert_eq!(
+                        touch.pointerInfo.ptPixelLocation.x,
+                        touch.pointerInfo.pointerId as i32
+                    );
+                    assert_eq!(
+                        touch.pointerInfo.pointerFlags,
+                        POINTER_FLAG_UP | POINTER_FLAG_CANCELED
+                    );
+                    touch.pointerInfo.pointerId
+                })
+                .collect();
+            let rejected = ids.contains(&2);
+            attempted.push(ids);
+            if rejected {
+                bail!("stale contact");
+            }
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert_eq!(attempted, [vec![1, 2, 3], vec![1], vec![2], vec![3]]);
+        assert!(touches.is_empty());
+        assert!(touch_frame(&touches, 1, 3, POINT::default()).is_none());
+        cancel_touch_contacts(&mut touches, |_| panic!("empty state must not inject")).unwrap();
+    }
+    #[test]
+    fn cancellation_uses_one_batch_when_accepted_and_can_recover_a_failed_batch() {
+        for fail_batch in [false, true] {
+            let mut touches = BTreeMap::new();
+            for id in 1..=2 {
+                let hover = touch_frame(&touches, id, 0, POINT::default()).unwrap();
+                submit_touch(&mut touches, id, hover, 0, |_| Ok(())).unwrap();
+            }
+            let mut calls = 0;
+            cancel_touch_contacts(&mut touches, |contacts| {
+                calls += 1;
+                if fail_batch && calls == 1 {
+                    bail!("batch refused");
+                }
+                for contact in contacts {
+                    // SAFETY: The helper constructs only initialized touch frames.
+                    let flags = unsafe { contact.Anonymous.touchInfo.pointerInfo.pointerFlags };
+                    assert_eq!(flags, POINTER_FLAG_UPDATE | POINTER_FLAG_CANCELED);
+                }
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(calls, if fail_batch { 3 } else { 1 });
+            assert!(touches.is_empty());
+        }
+    }
     #[test]
     fn native_pointer_rectangles_use_the_virtual_screen_origin() {
         let primary = RECT {

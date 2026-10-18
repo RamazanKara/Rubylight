@@ -777,46 +777,64 @@ impl Injector {
     }
     pub fn release_all(&mut self) {
         self.gamepads.release_all();
-        self.release_pointers();
+        if let Err(error) = self.release_pointers() {
+            tracing::warn!(%error, "input cleanup incomplete");
+        }
     }
-    fn release_pointers(&mut self) {
+    fn release_pointers(&mut self) -> Result<()> {
         self.flush();
+        let mut failures: Vec<_> = std::mem::take(&mut self.pending.errors)
+            .into_iter()
+            .map(|error| format!("pending input: {error:#}"))
+            .collect();
+        let mut keep = |what: &str, result: Result<()>| {
+            if let Err(error) = result {
+                failures.push(format!("{what}: {error:#}"));
+            }
+        };
         self.repeat = None;
         self.scroll = [0; 2];
         if self.left_release.take().is_some() {
-            let _ = self.held(false, 1, false, true, Self::button(1, false));
+            keep(
+                "deferred left button",
+                self.release_owned(false, 1, Self::button(1, false)),
+            );
         }
         for key in &self.keys {
-            let _ = self.held(
-                true,
-                *key,
-                false,
-                true,
-                self.key_scan(*key, false, self.key_flags.get(key).copied().unwrap_or(0)),
+            keep(
+                &format!("key {key}"),
+                self.release_owned(
+                    true,
+                    *key,
+                    self.key_scan(*key, false, self.key_flags.get(key).copied().unwrap_or(0)),
+                ),
             );
         }
         for button in &self.buttons {
-            let _ = self.held(
-                false,
-                u32::from(*button),
-                false,
-                true,
-                Self::button(*button, false),
+            keep(
+                &format!("mouse button {button}"),
+                self.release_owned(false, u32::from(*button), Self::button(*button, false)),
             );
         }
         // Lift contacts that are still down before their devices go away,
-        // as a client's cancel would. Best effort.
-        let _ = self.cancel_touches();
-        let _ = self.cancel_pen();
+        // attempting every release even if an earlier device refused it.
+        keep("touch contacts", self.cancel_touches());
+        keep("pen", self.cancel_pen());
         self.keys.clear();
         self.key_sources.clear();
         self.buttons.clear();
         self.key_flags.clear();
+        if !failures.is_empty() {
+            bail!("{}", failures.join("; "));
+        }
+        Ok(())
     }
 }
 impl Drop for Injector {
     fn drop(&mut self) {
-        self.release_pointers();
+        if let Err(error) = self.release_pointers() {
+            tracing::warn!(%error, "input cleanup incomplete during teardown");
+        }
         // SAFETY: These synthetic device handles are owned by the injector and taken so each is destroyed exactly once.
         unsafe {
             if let Some(device) = self.touch_device.take() {
@@ -1007,7 +1025,7 @@ mod tests {
             *injector.left_release.as_mut().unwrap() = std::time::Instant::now();
             injector.due().unwrap();
             let first = calls().into_iter().flatten().collect::<Vec<_>>();
-            injector.release_pointers();
+            injector.release_pointers().unwrap();
             let cleanup = calls();
             let retained = HELD.lock().unwrap().get(&(false, 1)).copied();
             injector.apply(&relative).unwrap();
@@ -1052,7 +1070,7 @@ mod tests {
         assert!(first.left_release.is_none());
         assert_eq!(calls(), [described(&[movement])]);
         assert_eq!(HELD.lock().unwrap().get(&(false, 1)), Some(&1));
-        first.release_pointers();
+        first.release_pointers().unwrap();
         assert!(calls().is_empty());
         second.apply(&click(1, false)).unwrap();
         assert_eq!(calls(), [described(&[Injector::button(1, false)])]);

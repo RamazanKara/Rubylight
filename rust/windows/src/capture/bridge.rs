@@ -17,12 +17,7 @@ use std::{
 };
 use windows::Win32::{
     Foundation::*,
-    System::{
-        StationsAndDesktops::*,
-        Threading::{
-            GetCurrentProcess, GetCurrentProcessId, HIGH_PRIORITY_CLASS, SetPriorityClass,
-        },
-    },
+    System::{StationsAndDesktops::*, Threading::GetCurrentProcessId},
 };
 use windows::core::HRESULT;
 
@@ -530,6 +525,9 @@ impl Session {
     pub(super) fn frame_signal(&self) -> &crate::timing::Signal {
         &self.frame
     }
+    pub(super) fn pending_frame(&self) -> bool {
+        !self.pending.is_empty()
+    }
     pub(super) fn set_claim_grid(&mut self, grid: Option<Arc<Mutex<ClaimGrid>>>) {
         self.grid = grid;
     }
@@ -805,10 +803,6 @@ fn worker(pipe: &Pipe) -> Result<()> {
     };
     let _com = ComGuard::new()?;
     let _priority = Priority::new();
-    // SAFETY: The current-process pseudo handle needs no closing; only this helper is affected.
-    if let Err(error) = unsafe { SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS) } {
-        tracing::debug!(%error, "WGC helper high process priority unavailable");
-    }
     crate::timing::disable_power_throttling();
     let _streaming = config
         .boolean("wgc_helper_streaming_scope", false)
@@ -830,6 +824,9 @@ fn worker(pipe: &Pipe) -> Result<()> {
         config.boolean("wgc_high_rate_capture", false),
     )?;
     capture.drain_to_newest = config.boolean("wgc_drain_to_newest", false);
+    if let Err(error) = capture.enable_notifications() {
+        tracing::debug!(%error, "WGC idle notifications unavailable; retaining capture polling");
+    }
     // WGC delivers a frame when the desktop is composed, and a static desktop
     // may not be for seconds: the host then gave up on WGC for the whole
     // session (Desktop Duplication paces worse). A repaint of every window
@@ -860,7 +857,12 @@ fn worker(pipe: &Pipe) -> Result<()> {
             Instant::now() < deadline,
             "Windows Graphics Capture produced no initial frame"
         );
-        timer.until(Instant::now() + Duration::from_micros(500));
+        let until = (Instant::now() + Duration::from_millis(10)).min(repaint);
+        if let Some((arrived, _)) = &capture.notifications {
+            timer.until_or_signal(until, arrived)?;
+        } else {
+            timer.until(Instant::now() + Duration::from_micros(500));
+        }
     };
     let source = native_texture(first.as_ref().unwrap())?;
     let mut desc = D3D11_TEXTURE2D_DESC::default();
@@ -919,6 +921,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
 
     let mut slots = Slots::default();
     let mut pending = None;
+    let mut last_frame = Instant::now();
     loop {
         for _ in 0..=SLOTS {
             match pipe.receive::<Request>()? {
@@ -934,6 +937,9 @@ fn worker(pipe: &Pipe) -> Result<()> {
         } else {
             next_native(&mut capture)?
         };
+        if frame.is_some() {
+            last_frame = Instant::now();
+        }
         if frame.is_some() || pending.is_some() {
             let mut chosen = None;
             for (slot, texture) in textures.iter().enumerate() {
@@ -1000,7 +1006,14 @@ fn worker(pipe: &Pipe) -> Result<()> {
             // static still reaches the host when a slot returns. One retained
             // native frame leaves the other pool entry available for updates.
         }
-        timer.until(Instant::now() + Duration::from_micros(500));
+        let poll = Duration::from_micros(500);
+        if let Some((arrived, _)) = &capture.notifications {
+            let interval =
+                notification_wait_interval(last_frame.elapsed(), pending.is_some(), poll);
+            timer.until_or_signal(Instant::now() + interval, arrived)?;
+        } else {
+            timer.until(Instant::now() + poll);
+        }
     }
 }
 

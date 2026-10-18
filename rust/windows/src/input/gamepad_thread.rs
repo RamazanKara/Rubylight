@@ -215,6 +215,16 @@ struct Queue {
     /// Whether events were dropped since the thread last took the queue.
     full: bool,
 }
+impl Queue {
+    /// Hand the worker one batch and give producers its empty spare buffer.
+    /// Both allocations survive draining, without holding this lock in a driver call.
+    fn take_into(&mut self, batch: &mut VecDeque<Event>) -> bool {
+        debug_assert!(batch.is_empty());
+        std::mem::swap(&mut self.events, batch);
+        self.full = false;
+        std::mem::take(&mut self.release)
+    }
+}
 
 /// One client's virtual gamepads, driven on their own thread. The input
 /// thread only queues events and collects reports. Dropping it waits for
@@ -440,9 +450,10 @@ fn run<P: Pads>(
     // sleeps until an event comes.
     let mut polling = false;
     let mut known_controllers = 0u16;
+    let mut events = VecDeque::new();
     let stopping = || shared.stop.load(Ordering::Acquire);
     loop {
-        let (release, events) = {
+        let release = {
             let mut queue = shared.queue.lock().unwrap();
             loop {
                 if stopping() {
@@ -450,11 +461,7 @@ fn run<P: Pads>(
                     return;
                 }
                 if queue.release || !queue.events.is_empty() {
-                    queue.full = false;
-                    break (
-                        std::mem::take(&mut queue.release),
-                        std::mem::take(&mut queue.events),
-                    );
+                    break queue.take_into(&mut events);
                 }
                 if !polling && !pads.as_ref().is_some_and(P::plugged) {
                     queue = shared.wake.wait(queue).unwrap();
@@ -462,7 +469,7 @@ fn run<P: Pads>(
                 }
                 let now = Instant::now();
                 if now >= poll_at {
-                    break (false, VecDeque::new());
+                    break false;
                 }
                 queue = shared.wake.wait_timeout(queue, poll_at - now).unwrap().0;
             }
@@ -476,7 +483,7 @@ fn run<P: Pads>(
                 shared.warnings.lock().unwrap().event("input_gamepad_injection", format!("Controller release failed ({error:#}); held controls may remain active. Check the virtual gamepad driver."), butterpollo_core::session::EVENT_PERIOD);
             }
         }
-        for event in events {
+        for event in events.drain(..) {
             if stopping() {
                 return;
             }
@@ -599,6 +606,37 @@ fn run<P: Pads>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drained_batches_reuse_both_buffers_and_discard_interrupted_input() {
+        let mut queue = Queue::default();
+        let mut batch = VecDeque::new();
+        // The producer may fill the other buffer while a batch is in the driver.
+        for round in 0..8 {
+            let expected = [state(0, 1, 1, round), state(0, 1, 0, round)];
+            queue.events.extend(expected.clone());
+            queue.release = round == 3;
+            queue.full = true;
+            let release = queue.take_into(&mut batch);
+            assert_eq!(release, round == 3);
+            assert!(!queue.full);
+            assert!(!queue.release);
+            assert_eq!(batch.iter().cloned().collect::<Vec<_>>(), expected);
+            if round > 0 {
+                assert!(
+                    queue.events.capacity() >= 2,
+                    "producer lost its spare buffer"
+                );
+            }
+            // An interrupt drops the rest of the batch, as a release request does.
+            let capacity = batch.capacity();
+            let mut drained = batch.drain(..);
+            assert_eq!(drained.next(), Some(expected[0].clone()));
+            drop(drained);
+            assert!(batch.is_empty());
+            assert_eq!(batch.capacity(), capacity);
+        }
+    }
 
     fn state(id: u16, active: u16, buttons: u32, stick: i16) -> Event {
         Event::Controller {

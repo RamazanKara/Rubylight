@@ -1007,6 +1007,7 @@ impl Media {
                     let poll_interval = Duration::from_micros(
                         capture_config.integer("capture_poll_interval_us", 500).clamp(100, 1000) as u64,
                     );
+                    let mut last_frame = Instant::now();
                     while !worker_stop.load(Ordering::Acquire) {
                         if Instant::now() >= check_target {
                             check_target = Instant::now() + Duration::from_millis(100);
@@ -1027,6 +1028,7 @@ impl Media {
                                 };
                                 capture.set_claim_grid(worker_grid.clone(), aligned);
                                 *worker_backend.lock().unwrap() = capture.backend();
+                                last_frame = Instant::now();
                             }
                         }
                         // Reset before the helper's announcements are read: one
@@ -1042,6 +1044,7 @@ impl Media {
                         })();
                         match captured {
                             Ok(Some(mut image)) => {
+                                last_frame = Instant::now();
                                 capture_warnings.clear("capture_recovery");
                                 let captured = image.captured;
                                 image.published = Instant::now();
@@ -1052,11 +1055,12 @@ impl Media {
                                     && capture.backend() == "ddx" {
                                     worker.poll_interval(poll_interval)
                                 } else { poll_interval };
+                                let interval = capture.wait_interval(last_frame.elapsed(), interval);
                                 let deadline = Instant::now() + interval;
                                 let until = capture.publication_deadline().unwrap_or(deadline).min(deadline);
                                 match capture.frame_signal() {
-                                    // The helper's frame wakes this at once instead
-                                    // of at the next poll, up to 0.5 ms later.
+                                    // Frame announcements interrupt both active polling
+                                    // and the longer wait used by a static source.
                                     Some(signal) => {
                                         timer.until_or_signal(until, signal)?;
                                     }
@@ -1079,6 +1083,7 @@ impl Media {
                                 };
                                 capture.set_claim_grid(worker_grid.clone(), aligned);
                                 *worker_backend.lock().unwrap() = capture.backend();
+                                last_frame = Instant::now();
                             }
                         }
                     }
@@ -2767,6 +2772,9 @@ impl Media {
         let mut peers: HashMap<PeerID, ControlPeer> = HashMap::new();
         // Active sessions without a control peer, since when.
         let mut unattended: HashMap<String, Instant> = HashMap::new();
+        // Keep the snapshot's allocation across high-rate input wakes. Sessions
+        // are keyed by their immutable launch ID, so the IDs need no copies.
+        let mut active_sessions: Vec<Arc<Session>> = Vec::new();
         let input_timer = butterpollo_windows::timing::Timer::new()?;
         let mut feedback_at = Instant::now();
         let mut controller_cleanup = Instant::now();
@@ -3409,21 +3417,22 @@ impl Media {
             // A session whose client never connected control, or whose peer
             // this worker lost when it restarted, would otherwise hold the
             // encoder, capture and display forever (Sunshine times it out).
-            let active: Vec<_> = h
-                .sessions
-                .lock()
-                .unwrap()
-                .active
-                .iter()
-                .map(|(id, s)| (id.clone(), s.clone()))
-                .collect();
-            unattended.retain(|id, _| active.iter().any(|(active, _)| active == id));
-            for (id, s) in active {
-                if s.stopping() || peers.values().any(|p| p.id == id) {
-                    unattended.remove(&id);
+            active_sessions.extend(h.sessions.lock().unwrap().active.values().cloned());
+            unattended.retain(|id, _| active_sessions.iter().any(|s| &s.launch.id == id));
+            for s in active_sessions.drain(..) {
+                let id = &s.launch.id;
+                if s.stopping() || peers.values().any(|p| &p.id == id) {
+                    unattended.remove(id);
                     continue;
                 }
-                let since = *unattended.entry(id).or_insert_with(Instant::now);
+                let since = match unattended.get(id) {
+                    Some(since) => *since,
+                    None => {
+                        let since = Instant::now();
+                        unattended.insert(id.clone(), since);
+                        since
+                    }
+                };
                 if since.elapsed() > ping_timeout {
                     tracing::warn!(client=%s.launch.client.name,"session has no control connection; ending it");
                     s.fail();

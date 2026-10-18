@@ -1,4 +1,16 @@
-//! WGC publication policy in nanoseconds, independent of Windows/GPU APIs.
+//! Capture publication and idle-wait policy, independent of Windows/GPU APIs.
+use std::time::Duration;
+
+/// Preserve short active polls and pending GPU handoffs. After 100 ms without
+/// a frame, notifications can interrupt a longer wait; the 10 ms bound still
+/// services helper commands, stop and device checks.
+pub fn notification_wait_interval(idle: Duration, pending: bool, poll: Duration) -> Duration {
+    if pending || idle < Duration::from_millis(100) {
+        poll
+    } else {
+        poll.max(Duration::from_millis(10))
+    }
+}
 #[derive(Default)]
 pub struct Intervals {
     last: Option<i64>,
@@ -137,6 +149,26 @@ pub fn publication_deadline(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn static_capture_sleeps_longer_only_without_a_pending_gpu_handoff() {
+        let poll = Duration::from_micros(500);
+        assert_eq!(
+            notification_wait_interval(Duration::ZERO, false, poll),
+            poll
+        );
+        assert_eq!(
+            notification_wait_interval(Duration::from_millis(99), false, poll),
+            poll
+        );
+        assert_eq!(
+            notification_wait_interval(Duration::from_millis(100), false, poll),
+            Duration::from_millis(10)
+        );
+        assert_eq!(
+            notification_wait_interval(Duration::from_secs(1), true, poll),
+            poll
+        );
+    }
     fn learned(interval: u64) -> Freshness {
         let mut cadence = Freshness::default();
         for frame in 0..=16 {

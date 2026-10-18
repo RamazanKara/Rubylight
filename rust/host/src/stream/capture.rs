@@ -400,8 +400,8 @@ impl<T> Latest<T> {
                 .is_some_and(|current| Arc::ptr_eq(current, image))
         })
     }
-    /// wait_if_current to a frame's claim deadline, met to the tenth of a
-    /// millisecond: a late wake delays that frame.
+    /// Wait for a frame claim with a high-resolution timer, remaining
+    /// interruptible by capture and recovery for the entire wait.
     pub(super) fn wait_if_current_precise(
         &self,
         timer: &Timer,

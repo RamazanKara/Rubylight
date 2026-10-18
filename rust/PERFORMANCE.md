@@ -6,6 +6,8 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Timer CPU cost and idle capture waits | [October 18, timer waits and idle capture](#october-18-timer-waits-and-idle-capture) |
+| Retired compute queues and conservative GPU priority | [October 18, GPU validation](PERFORMANCE_WORK.md#october-18-retired-compute-queues-and-conservative-gpu-priority) |
 | Repeated frame loss and Windows send-buffer pressure | [October 17, loss-response verification](#october-17-loss-response-verification) |
 | Diagnosing repeated pictures despite full encoded FPS | [October 17, fresh-picture throughput diagnosis](#october-17-fresh-picture-throughput-diagnosis) |
 | Installed-driver fence decision for 2.5.1 | [October 17, installed-driver fence comparison](#october-17-installed-driver-fence-comparison) |
@@ -27,6 +29,76 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 18: timer waits and idle capture
+
+The packet and frame-claim waits now use the high-resolution Windows timer
+throughout their deadline instead of yielding for the final 600 us. Ordinary
+timer waits also no longer busy-wait their last 50 us. A timer-arm failure falls
+back to a blocking wait that still accepts capture/recovery notifications.
+Neither the host nor its WGC helper raises its whole process to high CPU
+priority; media-thread scheduling is retained.
+
+The release `timer_probe --compare` fixture compares the old wait implementations
+from `ce3292ab` with the production timer in the same process. Measurements were
+taken on October 18 on an AMD Ryzen 7 5800X3D, Windows 11 Pro build 26200. Both
+variants used media-thread scheduling, normal process priority, a 1 ms timer
+resolution request and the process power-throttling opt-out. There were two
+three-second runs per case, reversing old/new order in the second pass; no build
+or GPU benchmark ran during these measurements. This isolates the wait change,
+not the effect of removing process-wide high priority.
+
+| Synthetic workload | Thread cycles, million/second, old → timer | Mean deadline lateness, us, old → timer | Timer p95 lateness across runs |
+| --- | ---: | ---: | ---: |
+| Continuous 500 us packet batches | 3383.7 → 29.0 | 0.2 → 255.7 | 515–527 us |
+| Frame claims at 120 fps | 127.3 → 3.07 | 4.8 → 281.8 | 501–513 us |
+| Frame claims at 240 fps | 256.0 → 5.88 | 4.9 → 293.1 | 524–526 us |
+| Static capture wait policy, no frames | 34.7 → 2.92 | 31.8 → 257.0 | 513–524 us |
+
+The table averages the two runs. `QueryThreadCycleTime` reports execution
+cycles; these are not converted into elapsed CPU milliseconds
+or power consumption. `GetThreadTimes` also appears in the raw CSV, but reported
+zero for some short busy-wait runs, so those zeroes are not treated as zero work.
+For continuous packet pacing it reported 99.5–100% of one core before, versus
+0–1.04% with the timer.
+
+This is a tradeoff: substantially less CPU work with packet/frame waits waking
+roughly 0.25–0.29 ms after their deadline on average. The worst candidate wake was
+1.912 ms late. Frame cases completed all 360/720 deadlines per three seconds.
+The continuous packet simulation completed 5902–5944 waits versus 6000 for the
+old spin path; it uses the packet pacer's existing bounded 500 us catch-up
+allowance. It does not prove unchanged UDP throughput, frame age, game smoothness
+or client latency under load.
+
+The idle capture policy keeps short polling during movement and pending GPU
+handoffs. After 100 ms without a frame, existing helper/driver events may
+interrupt a 10 ms wait; helpers still service control commands and health
+checks within that bound. Direct WGC and Desktop Duplication keep their polling
+path. In the no-frame wait simulation, three-second empty iterations fell from
+5629/5651 to 388/386, including the initial active-poll window. This measures
+the wait policy, not native capture delivery. The earlier
+[loaded WGC notification experiment](#october-5-wgc-startup-and-notification-experiment)
+is why active capture has not switched to pure notification waits. Pending
+keyed-mutex acquisition still polls because an announcement can precede GPU
+completion without another notification.
+
+Regression coverage checks short deadlines, timer failure fallback, notification
+interrupts, timer reuse and the idle/pending-frame boundary. The control worker
+also reuses its session snapshot and borrows session IDs, while gamepad input
+swaps and drains two retained queue buffers. Queue tests preserve release and
+interruption behavior; these allocation changes have no separate CPU benchmark
+claim here.
+
+Reproduce without starting a host, changing displays or touching the installed
+service:
+
+```powershell
+cargo build -p butterpollo-windows --example timer_probe --release --locked
+& "$env:CARGO_TARGET_DIR\release\examples\timer_probe.exe" --compare > timer-comparison.csv
+```
+
+Use the SDK environment in [the build guide](../docs/building.md). The probe
+prints run-level CPU time, cycle counts, wait counts and lateness distributions.
 
 ## October 17: loss-response verification
 

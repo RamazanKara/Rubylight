@@ -1157,6 +1157,11 @@ impl Session {
     pub(super) fn frame_signal(&self) -> &crate::timing::Signal {
         &self.frame
     }
+    pub(super) fn pending_frame(&self) -> bool {
+        self.consumer
+            .wanted(self.ring.section.header().latest())
+            .is_some()
+    }
 
     pub(super) fn next_frame(&mut self) -> Result<Option<Image>> {
         self.next_gpu()?

@@ -1,5 +1,6 @@
 use crate::text::from_wide;
 use anyhow::{Context, Result, bail};
+use butterpollo_core::capture_policy::notification_wait_interval;
 use serde::Serialize;
 use std::time::{Duration, Instant};
 use windows::{
@@ -1649,9 +1650,8 @@ impl Capture {
             _ => None,
         }
     }
-    /// Set when the user-session capture helper announces a frame. A wait for
-    /// the next poll that also ends on it sees the frame at once instead of
-    /// up to a poll interval later; the polling itself stays.
+    /// Set when the capture helper or display driver announces a frame. It
+    /// interrupts both short active polls and the longer static-source wait.
     pub fn frame_signal(&self) -> Option<&crate::timing::Signal> {
         match self {
             Self::WgcWorker(worker) => Some(worker.frame_signal()),
@@ -1659,8 +1659,19 @@ impl Capture {
             _ => None,
         }
     }
-    /// Opt in to notifications for capture probes. Normal streams keep polling:
-    /// pure event waits measured slower detection under GPU load on the test PC.
+    /// Avoid empty polls on a static source, but never sleep past a pending GPU
+    /// handoff: a frame announcement can precede keyed-mutex readiness.
+    pub fn wait_interval(&self, idle: Duration, poll: Duration) -> Duration {
+        let pending = match self {
+            Self::WgcWorker(worker) => worker.pending_frame(),
+            Self::IddPush(session) => session.pending_frame(),
+            _ => return poll,
+        };
+        notification_wait_interval(idle, pending, poll)
+    }
+    /// Opt in to local WGC notifications for capture probes. Normal local WGC
+    /// keeps polling; the helper uses notifications with short active polls
+    /// because pure event waits measured slower detection under GPU load.
     pub fn enable_frame_notifications(&mut self) -> Result<()> {
         match self {
             Self::Wgc(wgc) => wgc.enable_notifications(),

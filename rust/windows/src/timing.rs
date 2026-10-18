@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use windows::{
     Win32::{
         Foundation::*,
@@ -112,85 +112,78 @@ impl Timer {
         }
     }
     pub fn until(&self, deadline: Instant) {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining > Duration::from_micros(100) {
-            let ticks = -(((remaining - Duration::from_micros(50)).as_nanos() / 100)
-                .min(i64::MAX as u128) as i64);
-            // SAFETY: `self.0` is this Timer's open handle, `ticks` outlives the call, and no
-            // completion routine is registered.
-            unsafe {
-                if SetWaitableTimer(self.0, &ticks, 0, None, None, false).is_ok() {
-                    let _ = WaitForSingleObject(
-                        self.0,
-                        (remaining.as_millis() + 100).min(u32::MAX as u128) as u32,
-                    );
-                } else {
-                    std::thread::sleep(remaining);
-                }
-            }
-        }
-        while Instant::now() < deadline {
-            std::hint::spin_loop();
+        if self.wait_until(deadline, None, arm_timer).is_err() {
+            // A failed kernel wait must not turn a busy media worker into a spin loop.
+            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
         }
     }
-    /// Like `until`, accurate to a few microseconds at the cost of yielding the
-    /// last 600 us. Waitable timers here wake 0.3-0.5 ms late for short waits,
-    /// even at a 1 ms system timer resolution (`examples/timer_probe.rs`), so a
-    /// paced packet burst would otherwise leave its last packet that much later.
+    /// Packet pacing uses the high-resolution timer through the entire wait.
+    /// Scheduler lateness is handled by the pacer's bounded slack, without
+    /// spending the last 600 us of every batch yielding on a CPU core.
     pub fn until_precise(&self, deadline: Instant) {
-        const SPIN: Duration = Duration::from_micros(600);
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining > SPIN + Duration::from_micros(100) {
-            self.until(deadline - SPIN);
-        }
-        while Instant::now() < deadline {
-            std::thread::yield_now();
-        }
+        self.until(deadline);
     }
-    /// until_or_signal to the deadline itself: a timer wakes 0.13-0.47 ms
-    /// late, so it is armed 0.6 ms early and the rest yields, still ending
-    /// on the signal. For a frame's claim deadline, not for polls.
+    /// Frame claims remain interruptible throughout their timer wait.
     pub fn until_or_signal_precise(&self, deadline: Instant, signal: &Signal) -> Result<bool> {
-        const SPIN: Duration = Duration::from_micros(600);
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining > SPIN + Duration::from_micros(100)
-            && self.until_or_signal(deadline - SPIN, signal)?
-        {
-            return Ok(true);
-        }
-        while Instant::now() < deadline {
-            // SAFETY: `signal.0` is an event the borrowed Signal keeps open; a zero timeout only
-            // polls it.
-            if unsafe { WaitForSingleObject(signal.0, 0) } == WAIT_OBJECT_0 {
-                return Ok(true);
-            }
-            std::thread::yield_now();
-        }
-        Ok(false)
+        self.until_or_signal(deadline, signal)
     }
     /// Wait for capture or the precise encoder/static-frame deadline, without
     /// a coarse condition-variable timeout or a polling/spinning thread.
     pub fn until_or_signal(&self, deadline: Instant, signal: &Signal) -> Result<bool> {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Ok(false);
-        }
-        let ticks = -((remaining.as_nanos() / 100).clamp(1, i64::MAX as u128) as i64);
-        // SAFETY: Both handles stay open for the borrows of `self` and `signal`, `ticks` outlives
-        // the call, and no completion routine is registered.
-        unsafe {
-            SetWaitableTimer(self.0, &ticks, 0, None, None, false)?;
-            let timeout = (remaining.as_millis() + 100).min(u128::from(u32::MAX - 1)) as u32;
-            let result = WaitForMultipleObjects(&[self.0, signal.0], false, timeout);
-            if result == WAIT_OBJECT_0 || result == WAIT_TIMEOUT {
-                Ok(false)
-            } else if result.0 == WAIT_OBJECT_0.0 + 1 {
-                Ok(true)
-            } else {
-                Err(windows::core::Error::from_thread().into())
+        self.wait_until(deadline, Some(signal), arm_timer)
+    }
+    fn wait_until(
+        &self,
+        deadline: Instant,
+        signal: Option<&Signal>,
+        arm: impl Fn(HANDLE, &i64) -> windows::core::Result<()>,
+    ) -> Result<bool> {
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
             }
+            // Round up so converting to Windows' 100 ns units never expires early.
+            let ticks = -(remaining.as_nanos().div_ceil(100).min(i64::MAX as u128) as i64);
+            let timeout = remaining
+                .as_nanos()
+                .div_ceil(1_000_000)
+                .min(u128::from(u32::MAX - 1)) as u32;
+            let armed = arm(self.0, &ticks).is_ok();
+            // SAFETY: Every handle stays open for its owner's borrow. Signal comes first so a
+            // simultaneous deadline and recovery notification preserves the notification.
+            let result = unsafe {
+                match (armed, signal) {
+                    (true, Some(signal)) => {
+                        WaitForMultipleObjects(&[signal.0, self.0], false, timeout)
+                    }
+                    (true, None) => WaitForSingleObject(self.0, timeout),
+                    // A timer unavailable after creation must still allow capture/recovery to
+                    // interrupt its fallback wait; do not replace this with an ordinary sleep.
+                    (false, Some(signal)) => WaitForSingleObject(signal.0, timeout),
+                    (false, None) => {
+                        std::thread::sleep(remaining);
+                        WAIT_TIMEOUT
+                    }
+                }
+            };
+            if signal.is_some() && result == WAIT_OBJECT_0 {
+                return Ok(true);
+            }
+            if result != WAIT_TIMEOUT
+                && result != WAIT_OBJECT_0
+                && !(armed && signal.is_some() && result.0 == WAIT_OBJECT_0.0 + 1)
+            {
+                return Err(windows::core::Error::from_thread().into());
+            }
+            // Recheck the monotonic deadline after an early timer or bounded timeout.
         }
     }
+}
+fn arm_timer(handle: HANDLE, ticks: &i64) -> windows::core::Result<()> {
+    // SAFETY: The caller borrows the live timer, ticks outlives the call, and no completion
+    // routine is registered.
+    unsafe { SetWaitableTimer(handle, ticks, 0, None, None, false) }
 }
 impl Drop for Timer {
     fn drop(&mut self) {
@@ -201,7 +194,7 @@ impl Drop for Timer {
     }
 }
 /// Process-wide scheduling for the lifetime of at least one stream: a 1 ms
-/// system timer, high priority class, and no power throttling. Without these,
+/// system timer and no power throttling. Without these,
 /// driver waits (an AMF output query, a DXGI acquire) and Windows 11 timer
 /// coalescing can add a scheduler tick to a frame. Like the C++ host it also
 /// schedules the compositor under MMCSS, puts connected Wi-Fi adapters in
@@ -212,7 +205,6 @@ pub struct StreamingScope(());
 #[derive(Default)]
 struct Streams {
     count: usize,
-    priority: u32,
     power: Option<PROCESS_POWER_THROTTLING_STATE>,
     /// The WLAN client handle that holds media streaming mode; closing it ends it.
     wlan: Option<usize>,
@@ -221,7 +213,6 @@ struct Streams {
 }
 static STREAMS: std::sync::Mutex<Streams> = std::sync::Mutex::new(Streams {
     count: 0,
-    priority: 0,
     power: None,
     wlan: None,
     mouse_keys: None,
@@ -431,10 +422,6 @@ impl StreamingScope {
                 }
                 disable_power_throttling();
                 let _ = windows::Win32::Media::timeBeginPeriod(1);
-                streams.priority = GetPriorityClass(process);
-                if let Err(error) = SetPriorityClass(process, HIGH_PRIORITY_CLASS) {
-                    tracing::debug!(%error, "high process priority unavailable");
-                }
             }
         }
         streams.count += 1;
@@ -446,13 +433,10 @@ impl Drop for StreamingScope {
         let mut streams = STREAMS.lock().unwrap();
         streams.count -= 1;
         if streams.count == 0 {
-            // SAFETY: The process pseudo handle needs no closing, the priority was saved by enter,
+            // SAFETY: The process pseudo handle needs no closing, the power state was saved by enter,
             // and the calls take only plain values.
             unsafe {
                 let process = GetCurrentProcess();
-                if streams.priority != 0 {
-                    let _ = SetPriorityClass(process, PROCESS_CREATION_FLAGS(streams.priority));
-                }
                 let power = streams
                     .power
                     .take()
@@ -501,6 +485,55 @@ impl Drop for StreamingScope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+    #[test]
+    fn short_and_expired_deadlines_do_not_return_early() -> Result<()> {
+        let timer = Timer::new()?;
+        for wait in [
+            Duration::ZERO,
+            Duration::from_micros(25),
+            Duration::from_millis(2),
+        ] {
+            let deadline = Instant::now() + wait;
+            timer.until_precise(deadline);
+            assert!(Instant::now() >= deadline);
+        }
+        Ok(())
+    }
+    #[test]
+    fn unavailable_timer_falls_back_to_a_deadline_wait() -> Result<()> {
+        let timer = Timer::new()?;
+        let deadline = Instant::now() + Duration::from_millis(2);
+        assert!(!timer.wait_until(deadline, None, |_, _| {
+            Err(windows::core::Error::from_hresult(E_FAIL))
+        })?);
+        assert!(Instant::now() >= deadline);
+        Ok(())
+    }
+    #[test]
+    fn unavailable_timer_still_allows_recovery_to_interrupt() -> Result<()> {
+        let timer = Timer::new()?;
+        let signal = std::sync::Arc::new(Signal::new()?);
+        let publisher = signal.clone();
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(2));
+            publisher.set().unwrap();
+        });
+        let notified = timer.wait_until(
+            Instant::now() + Duration::from_secs(2),
+            Some(&signal),
+            |_, _| Err(windows::core::Error::from_hresult(E_FAIL)),
+        )?;
+        worker.join().unwrap();
+        assert!(notified);
+        signal.reset()?;
+        let deadline = Instant::now() + Duration::from_micros(250);
+        assert!(!timer.wait_until(deadline, Some(&signal), |_, _| {
+            Err(windows::core::Error::from_hresult(E_FAIL))
+        })?);
+        assert!(Instant::now() >= deadline);
+        Ok(())
+    }
     #[test]
     #[ignore = "temporarily keeps the interactive display awake"]
     fn display_awake_preserves_and_restores_thread_power_requirements() -> Result<()> {
@@ -569,7 +602,12 @@ mod tests {
         };
         let original_power = power()?;
         let original_gpu = gpu_priority();
+        // SAFETY: The pseudo handle is always valid for this process.
+        let original_priority = unsafe { GetPriorityClass(GetCurrentProcess()) };
         let first = StreamingScope::enter();
+        // SAFETY: The pseudo handle is always valid for this process.
+        let active_priority = unsafe { GetPriorityClass(GetCurrentProcess()) };
+        assert_eq!(active_priority, original_priority);
         let gpu = crate::capture::Device::new("")?;
         crate::gpu_priority::configure(&gpu, &Default::default())?;
         let active_power = power()?;
@@ -581,6 +619,9 @@ mod tests {
         assert_eq!(gpu_priority(), active_gpu);
         drop(first);
         assert_eq!(power()?, original_power);
+        // SAFETY: Streaming must leave the administrator's process priority unchanged.
+        let restored_priority = unsafe { GetPriorityClass(GetCurrentProcess()) };
+        assert_eq!(restored_priority, original_priority);
         if original_gpu.is_some() {
             assert_eq!(gpu_priority(), original_gpu);
         }

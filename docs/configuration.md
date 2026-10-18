@@ -94,7 +94,9 @@ Recovery needs recent standard client pings, active video traffic, stable RTT an
 
 Conventional video batches contain at most about one millisecond of traffic at the selected rate, or one datagram if it takes longer. `video_max_batch_size_kb` remains an additional payload limit (16, 32 or 64 KiB; default 64). With `video_send_thread` enabled (the default), adaptive packet pacing reserves the dedicated video sender from the start so pacing waits do not block capture. Large keyframes can still take multiple frame periods. Startup and steady-state timing are reported separately in the measurement record.
 
-Set `pacing_max_bitrate_kbps` to a positive value in **kbps** to override automatic burst control, including for PyroWave. For example, `120000` paces at 120 Mbps. The existing floor of 110% of the stream bitrate still applies, and a known Ethernet link can lower the limit to 80% of link speed. Explicit limits are not raised for FEC; the host warns if the wire budget exceeds the resulting rate. `800000` keeps a fixed 800 Mbps ceiling when the physical link permits it. Reconnect after saving. PyroWave's automatic policy retains 95% of a known Ethernet link, or 1.25 times its per-frame wire demand (at least 110% of the stream bitrate) on other routes. [Measurements and pacing math](../rust/PERFORMANCE.md#october-14-conventional-video-pacing).
+Set `pacing_max_bitrate_kbps` to a positive value in **kbps** to override automatic burst control, including for PyroWave. For example, `120000` paces at 120 Mbps. Conventional video retains its floor of 110% of the stream bitrate and ceiling of 80% of a known Ethernet link. PyroWave treats the setting, the client's calibrated pace and 95% of either endpoint's reported link as hard ceilings: stream demand cannot raise them. The host warns if the wire budget exceeds the resulting rate. Reconnect after saving. [Measurements and pacing math](../rust/PERFORMANCE.md#october-14-conventional-video-pacing).
+
+PyroWave starts unmeasured and wireless paths at 1.25 times their estimated wire demand (at least 110% of the stream bitrate before that headroom), within the ceilings above. A wired host alone no longer selects line-rate bursts. A client reporting its wired link can retain fast wired pacing. The loss guard and opt-in adaptive packet pacing also apply to PyroWave; neither changes picture bitrate. Calibration and streaming use the same segmented sends, retry handling and batches of at most one millisecond of wire traffic, 64 packets and 65507 payload bytes. Error correction can adapt up to `pyrowave_critical_fec_percentage`; clients without reports keep that configured protection. Record-capable clients protect the coarse picture. Legacy clients use standard whole-frame parity within their four-block limit; large frames may receive less protection and show a warning. Their parity uses some of the existing picture budget; set PyroWave error correction to 0 to retain the unprotected format. Every encoded frame is limited to one nominal frame budget, including the first frame after a pause.
 
 **Leave AMF's low-latency mode and AV1 latency mode on Driver default.** In the [October 12, 2026 Rubylight 2.2.9 property sweep](../rust/PERFORMANCE.md#retained-amf-property-sweeps-october-12), default ultra-low-latency usage already read back internal low latency for H.264/HEVC and AV1 latency mode 3 on the RX 7900 XT. Explicitly forcing the same settings produced similar timings across three runs, not exact equality or a demonstrated speedup. With Low latency or Transcoding usage, single auto/forced pairs changed the readbacks from off to on and showed mean reductions of 0.30-0.31 ms for HEVC and 1.01-1.37 ms for AV1. These are eight-second synthetic 1440p120/20 Mbps component tests, not full-stream latency measurements. The [October 7 audit](../rust/PERFORMANCE.md#october-7-amf-low-latency-mode-and-av1-latency-mode) documents earlier measurements and the RX 9000 HEVC-freeze concern; forcing these settings remains opt-in.
 
@@ -124,7 +126,7 @@ Available in Rubylight 2.2.16 and later.
 
 **Settings → Video → Adapt bitrate on the host (experimental)** enables
 `host_adaptive_bitrate = true` for the next connection. It is off by default.
-For H.264, HEVC and AV1, the host reduces the video budget when a Moonlight
+For H.264, HEVC, AV1 and PyroWave, the host reduces the video budget when a Moonlight
 client reports loss, or when sustained traffic shows a rising control RTT.
 The budget includes packet headers, FEC (including minimum parity), and a
 reserve for audio and control. Video pacing enforces the remaining video
@@ -145,7 +147,8 @@ frame. Clients without those reports retain their existing behavior. It waits
 for eight seconds of busy video, recent control pings and stable RTT before
 raising the budget slowly. A static desktop, a stopped game, missing feedback
 or a quiet encoder cannot prove that more bandwidth is available. PyroWave
-keeps its existing controller. A successful client `/bitrate` request takes
+accounts for its record wire budget or legacy container overhead and respects
+the client's measured pace and link ceilings. A successful client `/bitrate` request takes
 ownership for the rest of that connection, including removal of the host's
 adaptive pacing cap. Clients starting their own controller should send their
 current bitrate once to claim ownership immediately.

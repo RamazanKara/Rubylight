@@ -17,7 +17,12 @@ use std::{
 };
 use windows::Win32::{
     Foundation::*,
-    System::{StationsAndDesktops::*, Threading::GetCurrentProcessId},
+    System::{
+        StationsAndDesktops::*,
+        Threading::{
+            GetCurrentProcess, GetCurrentProcessId, HIGH_PRIORITY_CLASS, SetPriorityClass,
+        },
+    },
 };
 use windows::core::HRESULT;
 
@@ -803,6 +808,12 @@ fn worker(pipe: &Pipe) -> Result<()> {
     };
     let _com = ComGuard::new()?;
     let _priority = Priority::new();
+    // Beside busy game-like threads, normal class held capture near 40 of 60
+    // fps (2.2.9 notes). 2.5.6 dropped this and loaded streams regressed (#42).
+    // SAFETY: The current-process pseudo handle needs no closing; only this helper is affected.
+    if let Err(error) = unsafe { SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS) } {
+        tracing::debug!(%error, "WGC helper high process priority unavailable");
+    }
     crate::timing::disable_power_throttling();
     let _streaming = config
         .boolean("wgc_helper_streaming_scope", false)

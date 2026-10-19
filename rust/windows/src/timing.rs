@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use windows::{
     Win32::{
         Foundation::*,
@@ -8,6 +8,8 @@ use windows::{
     core::PCWSTR,
 };
 
+/// Precise waits arm the timer this much early and yield the rest.
+const PRECISE_TAIL: Duration = Duration::from_micros(600);
 /// One high-resolution waitable timer per media worker. Packet pacing must not
 /// pay the coarse scheduler tick for every UDP datagram.
 pub struct Timer(HANDLE);
@@ -117,15 +119,39 @@ impl Timer {
             std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
         }
     }
-    /// Packet pacing uses the high-resolution timer through the entire wait.
-    /// Scheduler lateness is handled by the pacer's bounded slack, without
-    /// spending the last 600 us of every batch yielding on a CPU core.
+    /// Like `until`, accurate to a few microseconds at the cost of yielding the
+    /// last 600 us. High-resolution timers wake 0.25-0.5 ms late on an idle
+    /// host and milliseconds late beside a busy game. Packet pacing loses any
+    /// lateness beyond the pacer's 500 us slack on every batch, which capped
+    /// PyroWave at about 58 fps in 2.5.6-2.5.8 (issue #42).
     pub fn until_precise(&self, deadline: Instant) {
-        self.until(deadline);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining > PRECISE_TAIL + Duration::from_micros(100) {
+            self.until(deadline - PRECISE_TAIL);
+        }
+        while Instant::now() < deadline {
+            std::thread::yield_now();
+        }
     }
-    /// Frame claims remain interruptible throughout their timer wait.
+    /// `until_or_signal` to the deadline itself: the timer is armed 600 us
+    /// early and the rest yields, still ending on the signal. For a frame's
+    /// claim deadline, not for polls.
     pub fn until_or_signal_precise(&self, deadline: Instant, signal: &Signal) -> Result<bool> {
-        self.until_or_signal(deadline, signal)
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining > PRECISE_TAIL + Duration::from_micros(100)
+            && self.until_or_signal(deadline - PRECISE_TAIL, signal)?
+        {
+            return Ok(true);
+        }
+        while Instant::now() < deadline {
+            // SAFETY: `signal.0` is an event the borrowed Signal keeps open; a zero timeout only
+            // polls it.
+            if unsafe { WaitForSingleObject(signal.0, 0) } == WAIT_OBJECT_0 {
+                return Ok(true);
+            }
+            std::thread::yield_now();
+        }
+        Ok(false)
     }
     /// Wait for capture or the precise encoder/static-frame deadline, without
     /// a coarse condition-variable timeout or a polling/spinning thread.
@@ -194,7 +220,10 @@ impl Drop for Timer {
     }
 }
 /// Process-wide scheduling for the lifetime of at least one stream: a 1 ms
-/// system timer and no power throttling. Without these,
+/// system timer, high priority class, and no power throttling. Without the
+/// priority class, media threads (base 9 at normal class) wait behind a busy
+/// game's threads; PyroWave frames that fill most of a period on the wire then
+/// fall to about 58 fps at 144 Hz (issue #42, 2.5.6-2.5.8). Without these,
 /// driver waits (an AMF output query, a DXGI acquire) and Windows 11 timer
 /// coalescing can add a scheduler tick to a frame. Like the C++ host it also
 /// schedules the compositor under MMCSS, puts connected Wi-Fi adapters in
@@ -205,6 +234,7 @@ pub struct StreamingScope(());
 #[derive(Default)]
 struct Streams {
     count: usize,
+    priority: u32,
     power: Option<PROCESS_POWER_THROTTLING_STATE>,
     /// The WLAN client handle that holds media streaming mode; closing it ends it.
     wlan: Option<usize>,
@@ -213,6 +243,7 @@ struct Streams {
 }
 static STREAMS: std::sync::Mutex<Streams> = std::sync::Mutex::new(Streams {
     count: 0,
+    priority: 0,
     power: None,
     wlan: None,
     mouse_keys: None,
@@ -422,6 +453,10 @@ impl StreamingScope {
                 }
                 disable_power_throttling();
                 let _ = windows::Win32::Media::timeBeginPeriod(1);
+                streams.priority = GetPriorityClass(process);
+                if let Err(error) = SetPriorityClass(process, HIGH_PRIORITY_CLASS) {
+                    tracing::debug!(%error, "high process priority unavailable");
+                }
             }
         }
         streams.count += 1;
@@ -433,10 +468,13 @@ impl Drop for StreamingScope {
         let mut streams = STREAMS.lock().unwrap();
         streams.count -= 1;
         if streams.count == 0 {
-            // SAFETY: The process pseudo handle needs no closing, the power state was saved by enter,
-            // and the calls take only plain values.
+            // SAFETY: The process pseudo handle needs no closing, the priority and power state were
+            // saved by enter, and the calls take only plain values.
             unsafe {
                 let process = GetCurrentProcess();
+                if streams.priority != 0 {
+                    let _ = SetPriorityClass(process, PROCESS_CREATION_FLAGS(streams.priority));
+                }
                 let power = streams
                     .power
                     .take()
@@ -485,7 +523,19 @@ impl Drop for StreamingScope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    #[test]
+    fn precise_waits_end_on_the_signal_or_at_the_deadline() -> Result<()> {
+        let timer = Timer::new()?;
+        let signal = Signal::new()?;
+        let deadline = Instant::now() + Duration::from_millis(2);
+        assert!(!timer.until_or_signal_precise(deadline, &signal)?);
+        assert!(Instant::now() >= deadline);
+        signal.set()?;
+        let start = Instant::now();
+        assert!(timer.until_or_signal_precise(start + Duration::from_secs(2), &signal)?);
+        assert!(start.elapsed() < Duration::from_secs(1));
+        Ok(())
+    }
     #[test]
     fn short_and_expired_deadlines_do_not_return_early() -> Result<()> {
         let timer = Timer::new()?;
@@ -607,7 +657,7 @@ mod tests {
         let first = StreamingScope::enter();
         // SAFETY: The pseudo handle is always valid for this process.
         let active_priority = unsafe { GetPriorityClass(GetCurrentProcess()) };
-        assert_eq!(active_priority, original_priority);
+        assert_eq!(active_priority, HIGH_PRIORITY_CLASS.0);
         let gpu = crate::capture::Device::new("")?;
         crate::gpu_priority::configure(&gpu, &Default::default())?;
         let active_power = power()?;
@@ -619,7 +669,7 @@ mod tests {
         assert_eq!(gpu_priority(), active_gpu);
         drop(first);
         assert_eq!(power()?, original_power);
-        // SAFETY: Streaming must leave the administrator's process priority unchanged.
+        // SAFETY: The pseudo handle is always valid; the last stream restores the original class.
         let restored_priority = unsafe { GetPriorityClass(GetCurrentProcess()) };
         assert_eq!(restored_priority, original_priority);
         if original_gpu.is_some() {

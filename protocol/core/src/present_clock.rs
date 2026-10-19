@@ -100,17 +100,20 @@ impl ClockOffset {
         let middle = oldest + (newest - oldest) / 2;
         let older = Self::best(live.iter().copied().filter(|s| s.local_us < middle));
         let newer = Self::best(live.iter().copied().filter(|s| s.local_us >= middle));
-        // Parts per billion, at most 1000 ppm; quartz is within 100 ppm.
+        // Parts per billion, at most 1000 ppm; quartz is within 100 ppm. No i128: 32-bit
+        // Android has no 128-bit division in its runtime. The offsets differ by under a
+        // second (a larger jump clears the samples), so the products fit in an i64.
         let drift_ppb = match (older, newer) {
             (Some(a), Some(b)) if b.local_us - a.local_us >= 2_000_000 => {
-                ((b.offset_us - a.offset_us) as i128 * 1_000_000_000
-                    / (b.local_us - a.local_us) as i128)
-                    .clamp(-1_000_000, 1_000_000) as i64
+                ((b.offset_us - a.offset_us).clamp(-1_000_000, 1_000_000) * 1_000_000_000
+                    / (b.local_us - a.local_us))
+                    .clamp(-1_000_000, 1_000_000)
             }
             _ => 0,
         };
-        let carried = (local_us - best.local_us) as i128 * drift_ppb as i128 / 1_000_000_000;
-        Some(best.offset_us + carried as i64)
+        // A day either way keeps the product within an i64.
+        let elapsed = (local_us - best.local_us).clamp(-86_400_000_000, 86_400_000_000);
+        Some(best.offset_us + elapsed * drift_ppb / 1_000_000_000)
     }
 }
 

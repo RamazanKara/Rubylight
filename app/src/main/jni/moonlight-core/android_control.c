@@ -233,6 +233,30 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendHostTimingRequest(JNIEnv *env, jc
         ? JNI_TRUE : JNI_FALSE;
 }
 
+// Clock sync probe (protocol/core/src/control.rs, ClockSyncRequest): the host answers at once
+// with its video RTP clock (see android_present_clock.c). Unsequenced: a lost probe is one sample.
+#include <time.h>
+#include "clock_sync.h"
+
+static uint32_t clockSyncSequence;
+
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_sendClockSyncProbe(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    if (!hostSupportsControlMessage(RL_CLOCK_SYNC_MESSAGE_TYPE) ||
+        !encryptedControlStream || stopping || peer == NULL) {
+        return JNI_FALSE;
+    }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    uint8_t probe[RP_CLOCK_SYNC_REQUEST_BYTES];
+    rp_clock_sync_request_encode(++clockSyncSequence,
+                                 (uint64_t)now.tv_sec * 1000000 + (uint64_t)now.tv_nsec / 1000, probe);
+    return sendMessageAndForget(RL_CLOCK_SYNC_MESSAGE_TYPE, (short)sizeof(probe), probe,
+                                CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_UNSEQUENCED, false)
+        ? JNI_TRUE : JNI_FALSE;
+}
+
 // Host cursor shapes (docs/protocol/cursor-shape.md): asks a host that named 0x5540 in its
 // DESCRIBE answer to send its cursor image as 0x5541 and leave it out of the video, or to stop.
 #include "cursor_shape.h"

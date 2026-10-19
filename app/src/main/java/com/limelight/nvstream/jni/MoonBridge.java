@@ -537,6 +537,20 @@ public class MoonBridge {
     // hostSupportsControlMessage(CONTROL_MESSAGE_HOST_TIMING); false when it could not be sent.
     public static native boolean sendHostTimingRequest(boolean enabled);
 
+    // Clock sync (0x5537) and timestamp presentation (protocol/core/src/present_clock.rs); see
+    // android_present_clock.c. Times are System.nanoTime().
+    public static final int CONTROL_MESSAGE_CLOCK_SYNC = 0x5537;
+
+    // Sends one probe to a host that announced clock sync; false otherwise.
+    public static native boolean sendClockSyncProbe();
+    public static native void presentClockStart(int minIntervalUs);
+    public static native void presentClockStop();
+    public static native void presentClockReset();
+    // out: present time (ns), hold (us), host-to-present latency (us, -1 without clock sync), late.
+    public static native boolean presentClockSchedule(long hostUs, long readyNs, long[] out);
+    // out: frames scheduled, frames late, clock sync round trip (us, -1 without).
+    public static native boolean presentClockStats(long[] out);
+
     // Host cursor shapes, client to host (docs/protocol/cursor-shape.md).
     public static final int CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST = 0x5540;
 

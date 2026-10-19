@@ -131,6 +131,7 @@ public class PreferenceConfiguration {
     private static final String VIRTUAL_DISPLAY_SCALE_PREF_STRING = "seekbar_virtual_display_scale";
     private static final String YUV444_PREF_STRING = "checkbox_yuv444";
     private static final String VRR_PREF_STRING = "checkbox_vrr";
+    static final String HOST_FRAME_TIMES_PREF_STRING = "checkbox_host_frame_times";
     static final String UPSCALING_PREF_STRING = "upscaling_mode";
     static final String UPSCALING_SHARPNESS_PREF_STRING = "upscaling_sharpness";
 
@@ -257,6 +258,8 @@ public class PreferenceConfiguration {
     public boolean gpuMaxClocks;
     public boolean dropLateFrames, useTextureView, unbatchedInput, networkPriority;
     public boolean virtualDisplay, enableYuv444, vrr;
+    // Show frames at the host's frame times (HostFrameClock); replaces frame pacing.
+    public boolean hostFrameTimes;
     public int virtualDisplayScale;
     // Where the launch values came from, for the stream log.
     public boolean resolutionFollowsScreen, fromPcProfile;
@@ -661,6 +664,7 @@ public class PreferenceConfiguration {
             config.framePacing = config.vrr ? FRAME_PACING_MIN_LATENCY :
                     profile.pacing != null ? framePacingValue(profile.pacing) : getFramePacingValue(context);
             config.reduceRefreshRate = !config.vrr && prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
+            if (config.hostFrameTimes) config.framePacing = FRAME_PACING_MIN_LATENCY;
             config.enableHdr &= !isShieldAtvFirmwareWithBrokenHdr();
             config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
                     config.videoFormat != FormatOption.FORCE_PYROWAVE;
@@ -1132,6 +1136,11 @@ public class PreferenceConfiguration {
             // decoded; Game votes for ARR where supported, or the highest refresh rate otherwise.
             config.framePacing = FRAME_PACING_MIN_LATENCY;
             config.reduceRefreshRate = false;
+        }
+        config.hostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
+        if (config.hostFrameTimes) {
+            // Each frame is released at its scheduled time and the compositor shows it then.
+            config.framePacing = FRAME_PACING_MIN_LATENCY;
         }
 
         return config;

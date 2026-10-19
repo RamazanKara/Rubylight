@@ -137,6 +137,7 @@ public class SettingsKeysTest {
         reads.put("adaptive_quality_min_fps", new Read("30", "60", c -> c.qualityMinFps));
         reads.put("checkbox_enable_hdr", new Read(false, true, c -> c.enableHdr));
         reads.put("checkbox_vrr", new Read(false, true, c -> c.vrr));
+        reads.put("checkbox_host_frame_times", new Read(false, true, c -> c.hostFrameTimes));
         reads.put("frame_pacing", new Read("latency", "balanced", c -> c.framePacing));
         reads.put("checkbox_reduce_refresh_rate", new Read(false, true, c -> c.reduceRefreshRate));
         reads.put("upscaling_mode", new Read("off", "fsr1", c -> c.upscalingMode));

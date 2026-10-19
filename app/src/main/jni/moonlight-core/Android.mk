@@ -13,6 +13,7 @@ LOCAL_SRC_FILES := moonlight-common-c/src/AudioStream.c \
                    android_connection.c \
                    moonlight-common-c/src/ConnectionTester.c \
                    android_control.c \
+                   android_present_clock.c \
                    moonlight-common-c/src/FakeCallbacks.c \
                    android_input.c \
                    dualsense_usb_audio.c \

@@ -51,6 +51,7 @@ void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uin
 void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) { CHECK(false); }
 void BridgeClHostTiming(const uint8_t* payload, int length) { CHECK(false); }
 void BridgeClCursorShape(const uint8_t* payload, int length) { CHECK(false); }
+void BridgeClClockSync(const uint8_t* payload, int length) { CHECK(false); }
 
 // The receive thread asks the input stream to check for regained contact on every pass.
 static int contactLostPasses;

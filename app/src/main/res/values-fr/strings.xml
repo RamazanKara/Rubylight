@@ -264,6 +264,8 @@
     <string name="summary_virtual_display">Demande au PC un écran correspondant au stream. Désactivé : les paramètres d’affichage du PC décident.</string>
     <string name="title_vrr">Rafraîchissement adaptatif (ARR / VRR)</string>
     <string name="summary_vrr">Sur les écrans Android 16 à rafraîchissement adaptatif, Android adapte la fréquence de rafraîchissement au stream ; les autres écrans tournent à leur fréquence maximale. Les hôtes compatibles VRR sont aussi invités à l’utiliser, selon leurs paramètres. Tant que cette option est activée, le frame pacing et la réduction de la fréquence de rafraîchissement ne s’appliquent pas.</string>
+    <string name="title_host_frame_times">Afficher les images au rythme du PC</string>
+    <string name="summary_host_frame_times">Retient chaque image quelques millisecondes pour qu’elle apparaisse quand le jeu l’a dessinée, et non quand le réseau l’a livrée. Lisse les variations, surtout avec le rafraîchissement adaptatif. Remplace le rythme d’images. Non utilisé avec PyroWave.</string>
     <string name="title_virtual_display_scale">Échelle de rendu de l’hôte</string>
     <string name="summary_virtual_display_scale">Modifie la résolution de rendu du PC, pas la taille de la vidéo transmise. Pour envoyer moins de pixels et mettre à l’échelle sur cet appareil, baissez la résolution du stream.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

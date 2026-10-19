@@ -189,7 +189,7 @@ def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
 def nativePatchNames = ['bughunt-stream.patch', 'bughunt-input.patch', 'controller-haptics.patch', 'host-termination.patch',
                         'disconnect-intercept.patch', 'control-payload.patch', 'control-teardown.patch', 'host-timing.patch',
                         'network-grace.patch', 'cursor-shape.patch', 'network-grace-input.patch',
-                        'pyrowave-link-hints.patch', 'video-recv-buffer.patch']
+                        'pyrowave-link-hints.patch', 'video-recv-buffer.patch', 'clock-sync.patch']
 
 def prepareNativePatches = tasks.register('prepareNativePatches') {
     doLast {

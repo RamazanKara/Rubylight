@@ -264,6 +264,8 @@
     <string name="summary_virtual_display">要求電腦提供與串流相符的顯示器。關閉：由電腦本身的顯示設定決定。</string>
     <string name="title_vrr">自動調整更新率 (ARR / VRR)</string>
     <string name="summary_vrr">在支援自動調整更新率的 Android 16 螢幕上，Android 會讓更新率配合串流；其他螢幕則以最高更新率執行。支援 VRR 的主機也會依其設定被要求使用 VRR。開啟此功能時，影格調步和較低更新率將不會套用。</string>
+    <string name="title_host_frame_times">依電腦的影格時間顯示畫面</string>
+    <string name="summary_host_frame_times">將每個影格保留幾毫秒，讓它在遊戲繪製的時刻顯示，而不是在網路送達時顯示。可平滑抖動，在自適應更新率下效果更好。會取代影格節奏設定。PyroWave 不使用此功能。</string>
     <string name="title_virtual_display_scale">主機轉譯比例</string>
     <string name="summary_virtual_display_scale">變更電腦的轉譯解析度，而非傳輸的視訊大小。如要傳送較少像素並在這部裝置上升頻，請降低串流解析度。</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

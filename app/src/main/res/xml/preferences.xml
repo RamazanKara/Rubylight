@@ -96,6 +96,12 @@
             android:dialogMessage="@string/summary_vrr"
             android:disableDependentsState="true"
             android:defaultValue="false" />
+        <!-- Applies with adaptive refresh on or off: frames are released at their host frame times. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_host_frame_times"
+            android:title="@string/title_host_frame_times"
+            android:dialogMessage="@string/summary_host_frame_times"
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialListPreference
             android:key="frame_pacing"
             android:dependency="checkbox_vrr"

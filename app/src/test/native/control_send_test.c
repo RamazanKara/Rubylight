@@ -651,7 +651,45 @@ static void phaseResetWaitsForTheOldFlushAndClearsItsSuccessor(void) {
     freeSent();
 }
 
+// The encoder's own tests live in protocol/core; here it only has to carry the sequence.
+void rp_clock_sync_request_encode(uint32_t sequence, uint64_t client_us, uint8_t* out) {
+    memset(out, 0, RP_CLOCK_SYNC_REQUEST_BYTES);
+    out[0] = 1;
+    memcpy(out + 4, &sequence, sizeof(sequence));
+    memcpy(out + 8, &client_us, sizeof(client_us));
+}
+
+static void clockSyncProbesNeedTheHostsAnnouncement(void) {
+    reset();
+    const uint16_t others[] = {0x5531, 0x5536};
+    announce(others, 2);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_sendClockSyncProbe(&env, NULL) == JNI_FALSE);
+    CHECK(sentCount == 0);
+
+    const uint16_t clock[] = {RL_CLOCK_SYNC_MESSAGE_TYPE};
+    announce(clock, 1);
+    for (int i = 0; i < 2; i++) {
+        CHECK(Java_com_limelight_nvstream_jni_MoonBridge_sendClockSyncProbe(&env, NULL) == JNI_TRUE);
+    }
+    CHECK(sentCount == 2);
+    uint32_t sequences[2];
+    for (int i = 0; i < 2; i++) {
+        CHECK(sentChannels[i] == CTRL_CHANNEL_GENERIC && sent[i]->flags == ENET_PACKET_FLAG_UNSEQUENCED);
+        uint16_t type, length;
+        const uint8_t* body = plaintext(sent[i], &type, &length);
+        CHECK(type == RL_CLOCK_SYNC_MESSAGE_TYPE && length == RP_CLOCK_SYNC_REQUEST_BYTES && body[0] == 1);
+        memcpy(&sequences[i], body + 4, sizeof(sequences[i]));
+    }
+    CHECK(sequences[1] == sequences[0] + 1);
+
+    stopping = true;
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_sendClockSyncProbe(&env, NULL) == JNI_FALSE);
+    CHECK(sentCount == 2);
+    freeSent();
+}
+
 static const struct { const char* name; void (*run)(void); } scenarios[] = {
+    {"clock-sync", clockSyncProbesNeedTheHostsAnnouncement},
     {"server-command", serverCommandsUseReliableEncryptedServerControlPackets},
     {"microphone", microphonePacketsLargerThanTheStackBufferArriveIntact},
     {"boundary", oversizeOrMalformedControllerAudioStopsAtTheBoundary},

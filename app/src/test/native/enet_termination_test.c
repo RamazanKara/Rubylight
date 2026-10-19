@@ -43,6 +43,7 @@ void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uin
 void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) { CHECK(false); }
 void BridgeClHostTiming(const uint8_t* payload, int length) { CHECK(false); }
 void BridgeClCursorShape(const uint8_t* payload, int length) { CHECK(false); }
+void BridgeClClockSync(const uint8_t* payload, int length) { CHECK(false); }
 void wakeInputAfterContactLoss(void) { CHECK(false); }
 
 // stopControlStream() also reaches into streams and sockets this test does not run.

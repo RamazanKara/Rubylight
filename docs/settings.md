@@ -36,6 +36,7 @@ These tables include every preference, including actions, grouped as the Setting
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
 | Adaptive refresh (ARR / VRR)<br>`checkbox_vrr` | Off | On; Off | Enable Android's automatic ARR policy on supported Android 16 displays; otherwise request maximum refresh. Hosts that support VRR are asked for it too. Overrides pacing to Lowest latency and disables the lower refresh rate. |
+| Show frames at the PC's frame times<br>`checkbox_host_frame_times` | Off | On; Off | Enable for even motion when the network or decoder adds jitter, especially with Adaptive refresh on a screen with ARR. Each MediaCodec frame is released at its host timestamp plus a delay covering about 97% of recent frames; later frames are shown at once. Adds that delay (usually a few milliseconds) and replaces Frame pacing. Hosts that announce clock sync (Rubylight) add the host-to-present latency to the performance overlay. PyroWave streams are not affected. |
 | Frame pacing<br>`frame_pacing` | Lowest latency | Lowest latency; Balanced; Balanced with FPS limit; Smoothest video (more delay) | Use Lowest latency for response, Balanced for cadence, Balanced with FPS limit to cap pacing, or Smoothest video to retain frames at the cost of delay. Unavailable while Adaptive refresh (ARR / VRR) is On. |
 | Allow lower refresh rate<br>`checkbox_reduce_refresh_rate` | Off | On; Off | Enable to allow a lower screen refresh for power savings. Unavailable while Adaptive refresh (ARR / VRR) is On. |
 

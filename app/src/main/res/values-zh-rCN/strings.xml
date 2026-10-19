@@ -264,6 +264,8 @@
     <string name="summary_virtual_display">请求电脑提供与串流匹配的显示器。关闭：由电脑自身的显示设置决定。</string>
     <string name="title_vrr">自适应刷新（ARR / VRR）</string>
     <string name="summary_vrr">在支持自适应刷新的 Android 16 屏幕上，Android 会使刷新率与串流匹配；其他屏幕以其最高刷新率运行。支持 VRR 的主机也会被请求使用 VRR，具体取决于其设置。开启此项时，帧速调节和降低刷新率不适用。</string>
+    <string name="title_host_frame_times">按电脑的帧时间显示画面</string>
+    <string name="summary_host_frame_times">将每一帧保留几毫秒，使其在游戏绘制它的时刻显示，而不是在网络送达时显示。可平滑抖动，自适应刷新率下效果尤佳。将取代帧节奏设置。PyroWave 不使用此功能。</string>
     <string name="title_virtual_display_scale">主机渲染缩放</string>
     <string name="summary_virtual_display_scale">更改电脑的渲染分辨率，而不是传输的视频尺寸。如需发送更少的像素并在此设备上放大，请降低“串流分辨率”。</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

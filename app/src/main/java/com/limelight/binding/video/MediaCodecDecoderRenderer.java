@@ -161,6 +161,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int thermalLevel = ThermalMonitor.NORMAL;
 
     private final FrameLatencyStats frameLatencyStats;
+    // Releases MediaCodec frames at the host's frame times when that setting is on.
+    private final HostFrameClock hostFrameClock = new HostFrameClock();
+    private volatile boolean hostFrameTimes;
     private HandlerThread latencyThread;
     private Handler latencyHandler;
     private final AtomicBoolean phaseFlushQueued = new AtomicBoolean();
@@ -1612,6 +1615,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 pacingFrameRateMilliHz = 0;
                 outputBufferQueueLimit = 1;
                 frameLatencyStats.discardPending("codec_reset");
+                if (hostFrameTimes) hostFrameClock.reset();
 
                 // If we just need a flush, do so now with all threads quiesced.
                 if (codecRecoveryType.get() == CR_RECOVERY_TYPE_FLUSH) {
@@ -2047,7 +2051,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                             FramePacingPolicy.hasOutputDrainTimeRemaining(
                                                     SystemClock.elapsedRealtimeNanos() - outputDrainStartNs,
                                                     streamFrameRateMilliHz) &&
-                                            FramePacingPolicy.shouldDrainOutput(prefs.framePacing,
+                                            FramePacingPolicy.shouldDrainOutput(hostFrameTimes ?
+                                                            PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS : prefs.framePacing,
                                                     frameLatencyStats.getEnqueueTimeNsForOutput(lastIndex),
                                                     System.nanoTime(), streamFrameRateMilliHz, drained) &&
                                             (outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
@@ -2070,6 +2075,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                         // Retain the ordinary smooth-mode presentation behavior after
                                         // replacing any stale decoded outputs above.
                                         releaseOutputFrame(lastIndex, 0);
+                                    }
+                                    else if (hostFrameTimes) {
+                                        // Held until the host's frame time plus the jitter delay; the
+                                        // compositor shows it at that time, or replaces it if a later
+                                        // frame is due first.
+                                        releaseOutputFrame(lastIndex, hostFrameClock.presentNs(lastPtsUs, System.nanoTime()));
                                     }
                                     else {
                                         // Use a PTS that will cause this frame to be dropped if another comes in within
@@ -2218,8 +2229,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return;
         }
         applyOutputPacingFallback();
+        hostFrameTimes = prefs.hostFrameTimes;
+        if (hostFrameTimes) hostFrameClock.start(maxDisplayRefreshRate());
         startRendererThread();
         startChoreographerThread();
+    }
+
+    /** The output display's highest refresh rate: presents are never closer than one refresh. */
+    private float maxDisplayRefreshRate() {
+        Display display = outputDisplay;
+        if (display == null) return 0;
+        float highest = display.getRefreshRate();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            for (Display.Mode mode : display.getSupportedModes()) highest = Math.max(highest, mode.getRefreshRate());
+        }
+        return highest;
     }
 
     // !!! May be called even if setup()/start() fails !!!
@@ -2305,6 +2329,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void cleanup() {
+        if (hostFrameTimes) hostFrameClock.stop();
         pyroWaveRenderer.cleanup(frameLatencyStats);
         if (videoDecoder != null) {
             videoDecoder.release();
@@ -2533,6 +2558,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (leadUs != Integer.MIN_VALUE) {
                 decode.append("\nReady before screen refresh: ").append(metric(leadUs / 1000f, " ms"));
             }
+            String hostFrameLine = hostFrameTimes && mediaCodec ? hostFrameClock.overlayLine() : null;
+            if (hostFrameLine != null) decode.append('\n').append(hostFrameLine);
             decode.append('\n').append(upscalingStats());
             decode.append('\n').append(thermalStats());
             decode.append('\n').append(latencyOverlay);
@@ -2952,6 +2979,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // Copy data from our buffer list into the input buffer
         nextInputBuffer.put(decodeUnitData, 0, decodeUnitLength);
 
+        // Before queuing: the decoder may hand the frame back before queueInputBuffer returns.
+        if (hostFrameTimes) hostFrameClock.onQueued(timestampUs, presentationTimeUs);
         if (!queueNextInputBuffer(timestampUs, codecFlags, frameNumber, receiveTimeNs, enqueueTimeNs, frameHostProcessingLatency)) {
             return MoonBridge.DR_NEED_IDR;
         }

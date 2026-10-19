@@ -1486,6 +1486,9 @@ pub struct Session<P = (), A = ()> {
     pub hdr_source: std::sync::Mutex<crate::display_caps::HdrSource>,
     /// Per-picture present-to-sent reports for a client that asked (0x5536).
     pub host_timings: std::sync::Mutex<crate::host_timing::HostTimings>,
+    /// Zero of the video stream's RTP clock, set when its sender starts; clock sync
+    /// replies (0x5537) are on this clock.
+    pub media_epoch: std::sync::RwLock<Option<Instant>>,
 }
 impl<P, A> Session<P, A> {
     pub fn new(launch: Launch<P, A>, config: Negotiated) -> Arc<Self> {
@@ -1518,6 +1521,7 @@ impl<P, A> Session<P, A> {
             hdr_metadata: Default::default(),
             hdr_source: Default::default(),
             host_timings: Default::default(),
+            media_epoch: Default::default(),
         })
     }
     pub fn stopping(&self) -> bool {

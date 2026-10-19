@@ -1406,6 +1406,7 @@ impl Media {
                     // New pictures claimed and not yet sent, for the stage timings.
                     let claims = std::cell::RefCell::new(butterpollo_core::performance::Claims::default());
                     let start = Instant::now();
+                    *s.media_epoch.write().unwrap() = Some(start);
                     let mut present_stamper = (s.config.codec != 3 && prepared.capture() == "wgc").then(butterpollo_windows::present_timing::Stamper::default);
                     pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start,prepared.capture() == "wgc")?) } else { None };
                     // The stream's size and rate. A client whose display changes can ask
@@ -3058,6 +3059,22 @@ impl Media {
                                         len = payload.len(),
                                         "invalid phase lock report"
                                     ),
+                                }
+                            }
+                            // Answered at once, unreliable: a lost exchange is one sample.
+                            butterpollo_core::clock_sync::CLOCK_SYNC_MESSAGE_TYPE => {
+                                let epoch = *s.media_epoch.read().unwrap();
+                                if let Some(reply) =
+                                    butterpollo_core::clock_sync::reply(epoch, p.seen, &payload)
+                                    && let Ok(message) = p.encrypt(&s, kind, &reply)
+                                {
+                                    let _ = peer.send(
+                                        FEEDBACK_CHANNEL,
+                                        &Packet::new(
+                                            message,
+                                            PacketKind::AlwaysUnreliable { sequenced: false },
+                                        ),
+                                    );
                                 }
                             }
                             butterpollo_core::host_timing::HOST_TIMING_MESSAGE_TYPE => {

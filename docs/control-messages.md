@@ -23,6 +23,13 @@ Each message travels on the control stream like Moonlight's client-to-host contr
 | `0x5530` | Phase lock report | `phase_lock::Report` | Times captures to the client's display latch while reports arrive about every 500 ms; after 3 s without one the host returns to its own pacing. |
 | `0x5531` | Display luminance | `control::DisplayCaps` | Records the client's screen capabilities for diagnostics ([below](#0x5531-display-luminance)). |
 | `0x5532` | Reconfigure | `control::Reconfigure` | Changes the stream's resolution or frame rate without reconnecting ([below](#0x5532-reconfigure)). |
+| `0x5537` | Clock sync | `control::ClockSyncRequest` | Answers at once with a `control::ClockSyncReply` on the video RTP clock ([below](#0x5537-clock-sync)). |
+
+## 0x5537 clock sync
+
+A client probes the host's video clock, NTP style, to map frame timestamps to its own clock. Rubylight's VRR presentation (`present_clock` in rubylight-protocol) needs no shared clock to schedule frames; clock sync adds the host-present-to-client-present latency.
+
+The request is 16 bytes: version `1`, three reserved bytes, a 32-bit sequence number and the client's send time as 64-bit microseconds of its own monotonic clock. The host answers each request with 32 bytes on the same message type, unreliably: version, three reserved bytes, the sequence, the client's time unchanged, then the times the host received the request and sent the reply. Host times are microseconds on the video stream's RTP clock: a frame stamped at `t` µs carries the RTP timestamp `t × 90 / 1000` modulo 2³². The host does not answer before the video stream starts. Four probes a second are plenty; the client keeps the exchanges with the shortest round trips (`present_clock::ClockOffset`).
 
 ## 0x5531 display luminance
 

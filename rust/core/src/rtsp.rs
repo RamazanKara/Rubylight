@@ -356,9 +356,10 @@ impl Negotiated {
 /// The Rubylight control messages this host takes, by id: phase lock reports
 /// (0x5530), display luminance (0x5531), reconfiguration (0x5532) and USB
 /// controller speaker, microphone and status (0x5533–0x5535), and host timing
-/// requests (0x5536), which it answers with reports.
+/// requests (0x5536), which it answers with reports, and clock sync probes (0x5537),
+/// which it answers at once.
 pub const CONTROL_MESSAGES: &str =
-    "a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535,0x5536\r\n";
+    "a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535,0x5536,0x5537\r\n";
 /// The `DESCRIBE` answer. `mic` is set when the host takes a client's
 /// microphone: its encryption is then supported and requested, and the
 /// caller ends the answer with `mic::sdp`, whose `m=` line must come last.
@@ -592,7 +593,7 @@ mod tests {
                 sdp.lines()
                     .filter(|line| line.starts_with("a=x-rl-control:"))
                     .collect::<Vec<_>>(),
-                ["a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535,0x5536"]
+                ["a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535,0x5536,0x5537"]
             );
             assert!(
                 !sdp.lines().any(|line| line.starts_with("m=")),
@@ -608,10 +609,11 @@ mod tests {
                 crate::controller_audio::MICROPHONE,
                 crate::controller_audio::CONTROL,
                 crate::host_timing::HOST_TIMING_MESSAGE_TYPE,
+                crate::clock_sync::CLOCK_SYNC_MESSAGE_TYPE,
             ]
             .map(|id| format!("{id:#06x}"))
             .join(","),
-            "0x5530,0x5531,0x5532,0x5533,0x5534,0x5535,0x5536"
+            "0x5530,0x5531,0x5532,0x5533,0x5534,0x5535,0x5536,0x5537"
         );
     }
     #[test]

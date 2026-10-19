@@ -26,6 +26,7 @@ pub mod bitstream;
 pub mod browse;
 pub mod capture_policy;
 pub mod catalog;
+pub mod clock_sync;
 pub mod config;
 pub mod controller_audio;
 pub mod crypto;

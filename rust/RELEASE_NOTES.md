@@ -1,14 +1,16 @@
-# Rubylight 2.5.7 for Windows
+# Rubylight 2.5.8 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.7 installer is named `rubylight-setup-2.5.7.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.8 installer is named `rubylight-setup-2.5.8.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
-## Unreleased
+## New in 2.5.8
 
-- **Remove contradictory virtual-monitor frequency limits.** The driver requested 1000 Hz for VRR while its EDID declared only 23–495 Hz, a 510 kHz horizontal limit and a 2550 MHz pixel-clock limit. Those limits cannot describe 4K1000. The EDID now identifies a discrete-frequency monitor whose supported modes come from IddCx, without lowering the requested refresh. Regression tests preserve HDR metadata and both EDID checksums. This corrects a driver metadata defect found while investigating [#40](https://github.com/RamazanKara/Rubylight/issues/40); the reason for Windows' rejection on the reporter's 23H2 PC still needs an IddCx trace. `rust/tests/trace_display_modes.ps1` captures that trace without changing display or driver settings.
+- **Correct high-refresh virtual-display metadata.** The driver requested 1000 Hz for VRR while its EDID declared a 495 Hz maximum and clock limits too low for 4K1000. The updated driver removes those contradictory limits and lets IddCx describe its supported modes. The requested refresh, HDR metadata and EDID checksums are preserved.
+
+This corrects a driver defect found while investigating [#40](https://github.com/RamazanKara/Rubylight/issues/40). Resolution of the reporter's Windows 11 23H2 rejection remains unconfirmed. The new [display trace helper](tests/trace_display_modes.ps1) captures Windows' rejection details without changing display, driver or service settings.
 
 ## New in 2.5.7
 

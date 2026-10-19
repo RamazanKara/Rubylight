@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.7 installer is named `rubylight-setup-2.5.7.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Remove contradictory virtual-monitor frequency limits.** The driver requested 1000 Hz for VRR while its EDID declared only 23–495 Hz, a 510 kHz horizontal limit and a 2550 MHz pixel-clock limit. Those limits cannot describe 4K1000. The EDID now identifies a discrete-frequency monitor whose supported modes come from IddCx, without lowering the requested refresh. Regression tests preserve HDR metadata and both EDID checksums. This corrects a driver metadata defect found while investigating [#40](https://github.com/RamazanKara/Rubylight/issues/40); the reason for Windows' rejection on the reporter's 23H2 PC still needs an IddCx trace. `rust/tests/trace_display_modes.ps1` captures that trace without changing display or driver settings.
+
 ## New in 2.5.7
 
 - **Restore Vulkan HDR layer loading on Windows.** The registered manifest path mixed backslashes and a forward slash, which made the Windows Vulkan loader look for the layer DLL in the installation folder instead of its `vulkan-layer` subfolder. Vulkan games could therefore miss HDR even with the setting enabled and a working HDR stream. Startup now registers the native Windows path and removes this installation's older, broken registration; disabling the setting also removes the broken enabled entry. Other installations and third-party layers are preserved. This addresses [Baldur's Gate 3 HDR detection (#39)](https://github.com/RamazanKara/Rubylight/issues/39). After updating, fully exit and relaunch the game while connected to an HDR stream.

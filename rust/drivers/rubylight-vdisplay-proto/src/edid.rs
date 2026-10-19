@@ -6,8 +6,8 @@
 //! Adapted from punktfunk's `pf_driver_proto::edid` (Enrico Bühler (unom), MIT OR
 //! Apache-2.0). Rubylight's identity: manufacturer `RBY`, product name `Rubylight`, the
 //! per-monitor serial at base offset 0x0C (which [`get_serial`] reads back in the mode
-//! callbacks), and a vertical range up to 495 Hz so 480 Hz modes stay inside the declared
-//! limits.
+//! callbacks). The IddCx mode callbacks declare the supported timings; the EDID does not
+//! impose a smaller, fixed frequency range on those modes.
 
 /// `2^(k/32)` for `k = 0..32` in Q16 fixed point: the fractional step table of the
 /// CTA-861.3 luminance exponent.
@@ -100,23 +100,24 @@ pub fn dtd(width: u32, height: u32, refresh_mhz: u32) -> Option<[u8; 18]> {
 const SERIAL_OFFSET: usize = 0x0C;
 
 /// EDID 1.4 base block. The checksum, the serial, the panel size and the preferred timing
-/// are patched in [`generate`]. The range-limits descriptor's flags byte (0x4C) is `0x0A`:
-/// `0x08` adds 255 to the maximum horizontal rate and `0x02` to the maximum vertical rate,
-/// which takes 240 Hz to 495 Hz.
+/// are patched in [`generate`]. This is a discrete-frequency display: IddCx supplies its
+/// mode list. A base-block range descriptor cannot represent our 1000 Hz modes (its
+/// vertical and horizontal fields top out at 510 Hz and 510 kHz), so do not advertise
+/// continuous frequency or a contradictory range. The dummy descriptor is EDID tag 0x10.
 #[rustfmt::skip]
 const BASE: [u8; 128] = [
     0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, // fixed header
     0x48, 0x59, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, // manufacturer "RBY", product 1, serial (patched)
     0xFF, 0x21, 0x01, 0x04, 0xB0, 0x32, 0x1F, 0x78, // model year, EDID 1.4, 10-bit digital, size, gamma 2.2
-    0x03, 0x78, 0xB1, 0xB5, 0x4A, 0x2B, 0xCC, 0x21, // features (continuous frequency), BT.2020 primaries...
+    0x02, 0x78, 0xB1, 0xB5, 0x4A, 0x2B, 0xCC, 0x21, // features (preferred timing, discrete frequency), BT.2020 primaries...
     0x0B, 0x50, 0x54, 0x00, 0x00, 0x00, 0x01, 0x01, // ...primaries, no established timings, standard timings unused
     0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
     0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x3A, // DTD 1: 1080p60 placeholder preferred timing
     0x80, 0x18, 0x71, 0x38, 0x2D, 0x40, 0x58, 0x2C,
     0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E,
-    0x00, 0x00, 0x00, 0xFD, 0x0A, 0x17, 0xF0, 0x0F, // range limits: 23-495 Hz vertical, 15 kHz min H...
-    0xFF, 0xFF, 0x00, 0x0A, 0x20, 0x20, 0x20, 0x20, // ...510 kHz max H, 2550 MHz max clock
-    0x20, 0x20, 0x00, 0x00, 0x00, 0xFC, 0x00, 0x52, // name descriptor "Rubylight"
+    0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, // dummy descriptor: mode limits come from IddCx
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x00, 0x52, // name descriptor "Rubylight"
     0x75, 0x62, 0x79, 0x6C, 0x69, 0x67, 0x68, 0x74,
     0x0A, 0x20, 0x20, 0x20, 0x00, 0x00, 0x00, 0x00, // fourth descriptor unused...
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -237,15 +238,34 @@ mod tests {
     }
 
     #[test]
-    fn the_range_limits_cover_480_hz() {
-        let e = generate(1, ClientLuminance::default(), Some((1920, 1080, 480_000)));
-        assert_eq!(e[0x4B], 0xFD, "range-limits descriptor");
-        let flags = e[0x4C];
-        let max_v = u32::from(e[0x4E]) + if flags & 0x02 != 0 { 255 } else { 0 };
-        assert_eq!(u32::from(e[0x4D]), 23);
-        assert!(max_v >= 480, "max vertical {max_v} Hz");
-        // A 480 Hz 1080p mode needs about 1 GHz; the declared 2550 MHz covers it.
-        assert!(u32::from(e[0x51]) * 10 >= 1920 * 1080 * 480 / 1_000_000);
+    fn the_edid_does_not_constrain_the_drivers_discrete_high_rate_modes() {
+        for requested in [
+            (1920, 1080, 480_000),
+            (3840, 2160, 1_000_000),
+            (7680, 4320, 240_000),
+        ] {
+            let e = generate(1, ClientLuminance::default(), Some(requested));
+            assert_eq!(
+                e[0x18] & 1,
+                0,
+                "discrete frequency does not require a range descriptor"
+            );
+            for descriptor in e[54..126].as_chunks::<18>().0 {
+                assert!(
+                    descriptor[0..2] != [0, 0] || descriptor[3] != 0xFD,
+                    "a fixed range must not filter out {requested:?}"
+                );
+            }
+            assert_eq!(e[0x4B], 0x10, "valid dummy descriptor");
+            assert!(e[0x4C..0x5A].iter().all(|b| *b == 0));
+            assert_eq!(block_sum(&e[..128]), 0);
+            assert_eq!(block_sum(&e[128..]), 0);
+            assert_eq!(
+                &e[136..143],
+                &generate(1, ClientLuminance::default(), None)[136..143],
+                "HDR metadata is preserved"
+            );
+        }
     }
 
     #[test]

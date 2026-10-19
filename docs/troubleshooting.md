@@ -191,6 +191,14 @@ When all streams have ended, use **Maintenance → Displays** to inspect whether
 
 rc.10 has a brief startup guard for a reproduced case where creating a virtual display reactivated a dormant monitor. Record the client, chosen layout, active monitors and log time when reporting another case.
 
+## Windows refuses the virtual display's requested mode
+
+`virtual display mode not applied` reports the requested and actual resolution/refresh, the rates enumerated at that resolution, and the Windows error. `Windows refused the requested display mode (-2)` means `DISP_CHANGE_BADMODE`; it does not identify why Windows excluded the mode. An empty `offered_hz` list means the host enumerated no modes at that resolution; the support log alone cannot distinguish filtering from an enumeration failure.
+
+VRR normally requests a 1000 Hz virtual display. While investigating [#40](https://github.com/RamazanKara/Rubylight/issues/40), we found that the driver's EDID separately declared a 495 Hz vertical maximum, 510 kHz horizontal maximum and 2550 MHz pixel-clock maximum. 4K1000 exceeds all three. The next driver build removes these contradictory limits and leaves mode support to IddCx; it keeps the 1000 Hz request. This metadata correction has unit coverage, but has not yet been confirmed to resolve the reporter's Windows 11 23H2 rejection.
+
+To capture Windows' reason, run [trace_display_modes.ps1](../rust/tests/trace_display_modes.ps1) in an administrator PowerShell, then start the failing stream during its 45-second capture. It uses a private, size-limited IddCx trace and does not change driver, display or service settings. Keep the resulting `IddCx.etl`, `environment.json` and a support bundle from the same reproduction. The WPP messages require matching Microsoft public symbols to decode; see [Microsoft's IddCx debugging guide](https://learn.microsoft.com/windows-hardware/drivers/display/indirect-display-debugging). Capture the failure before changing settings so the evidence describes the original problem.
+
 ## "Virtual display did not become active before the deadline"
 
 Up to rc.10, a launch failed with this error when Windows left the new virtual display switched off, typically because it recalled a layout saved for the other connected displays (two TVs in duplicate mode, for example). rc.11 switches the display on itself after a second, without changing the other displays, and logs `Windows left the new virtual display switched off; switched it on beside the current displays`. Update before trying workarounds such as unplugging the TVs. If a launch still fails, the error says whether Windows reported the display as connected; include that line and the log around it in the report.

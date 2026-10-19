@@ -3,14 +3,18 @@
 //! Built as a static library linked into the client's native code. Outside tests it is
 //! `no_std`: memory comes from the C allocator and a panic aborts, so the library needs
 //! nothing beyond libc.
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(any(test, windows)), no_std)]
 
 extern crate alloc;
 
 use alloc::boxed::Box;
 use core::ffi::c_void;
 use core::slice;
-use rubylight_protocol::control::{DisplayCaps, Reconfigure, DISPLAY_CAPS_BYTES, RECONFIGURE_BYTES};
+use rubylight_protocol::control::{
+    ClockSyncReply, ClockSyncRequest, DisplayCaps, Reconfigure, CLOCK_SYNC_REQUEST_BYTES, DISPLAY_CAPS_BYTES,
+    RECONFIGURE_BYTES,
+};
+use rubylight_protocol::present_clock::{PresentClock, Settings};
 use rubylight_protocol::phase_lock::{SlackWindow, REPORT_BYTES};
 use rubylight_protocol::pyrowave::{self, Records};
 
@@ -157,7 +161,144 @@ pub unsafe extern "C" fn rp_reconfigure_encode(width: u16, height: u16, fps_mill
     core::ptr::copy_nonoverlapping(request.encode().as_ptr(), out, RECONFIGURE_BYTES);
 }
 
-#[cfg(not(test))]
+/// Writes the 16-byte clock sync request (0x5537) to `out`.
+///
+/// # Safety
+/// `out` points to `RP_CLOCK_SYNC_REQUEST_BYTES` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn rp_clock_sync_request_encode(sequence: u32, client_us: u64, out: *mut u8) {
+    let request = ClockSyncRequest { sequence, client_us };
+    core::ptr::copy_nonoverlapping(request.encode().as_ptr(), out, CLOCK_SYNC_REQUEST_BYTES);
+}
+
+/// Values of [`PresentClock`]'s settings; see `present_clock::Settings`.
+#[repr(C)]
+pub struct RpPresentSettings {
+    pub window: u32,
+    pub percentile: u8,
+    pub margin_us: i64,
+    pub decay_us: i64,
+    pub max_hold_us: i64,
+    pub min_interval_us: i64,
+}
+
+impl From<&RpPresentSettings> for Settings {
+    fn from(s: &RpPresentSettings) -> Self {
+        Settings {
+            window: s.window as usize,
+            percentile: s.percentile,
+            margin_us: s.margin_us,
+            decay_us: s.decay_us,
+            max_hold_us: s.max_hold_us,
+            min_interval_us: s.min_interval_us,
+        }
+    }
+}
+
+/// Fills `out` with the default settings.
+///
+/// # Safety
+/// `out` is writable.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_settings_default(out: *mut RpPresentSettings) {
+    let s = Settings::default();
+    out.write(RpPresentSettings {
+        window: s.window as u32,
+        percentile: s.percentile,
+        margin_us: s.margin_us,
+        decay_us: s.decay_us,
+        max_hold_us: s.max_hold_us,
+        min_interval_us: s.min_interval_us,
+    });
+}
+
+/// # Safety
+/// `settings` is readable.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_new(settings: *const RpPresentSettings) -> *mut PresentClock {
+    Box::into_raw(Box::new(PresentClock::new((&*settings).into())))
+}
+
+/// # Safety
+/// `clock` comes from `rp_present_clock_new` and is not used afterwards; null is ignored.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_free(clock: *mut PresentClock) {
+    if !clock.is_null() {
+        drop(Box::from_raw(clock));
+    }
+}
+
+/// Feeds a clock sync reply (0x5537 payload) received at `client_receive_us`. Returns the
+/// exchange's round trip in microseconds, or -1 for a reply that is malformed or cannot be right.
+///
+/// # Safety
+/// `clock` is live and `data` points to `length` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_sync(
+    clock: *mut PresentClock,
+    data: *const u8,
+    length: usize,
+    client_receive_us: u64,
+) -> i64 {
+    ClockSyncReply::decode(bytes(data, length))
+        .and_then(|reply| (*clock).offset.add(&reply, client_receive_us))
+        .unwrap_or(-1)
+}
+
+/// One frame's schedule; see `present_clock::Schedule`. `latency_us` is -1 without clock sync.
+#[repr(C)]
+pub struct RpPresentSchedule {
+    pub present_us: u64,
+    pub hold_us: i64,
+    pub latency_us: i64,
+    pub late: bool,
+}
+
+/// When to present the frame with RTP timestamp `rtp` that was ready at `ready_us` (client
+/// microseconds, the clock the clock sync requests use).
+///
+/// # Safety
+/// `clock` is live.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_schedule(clock: *mut PresentClock, rtp: u32, ready_us: u64) -> RpPresentSchedule {
+    let s = (*clock).schedule(rtp, ready_us);
+    RpPresentSchedule {
+        present_us: s.present_us,
+        hold_us: s.hold_us,
+        latency_us: s.latency_us.unwrap_or(-1),
+        late: s.late,
+    }
+}
+
+/// Forgets the frames seen, for a new stream size or a decoder reset; clock sync stays.
+///
+/// # Safety
+/// `clock` is live.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_reset(clock: *mut PresentClock) {
+    (*clock).reset();
+}
+
+/// Frames scheduled, frames shown late, and the clock sync round trip (-1 without one).
+///
+/// # Safety
+/// `clock` is live; the out pointers are writable or null.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_stats(clock: *const PresentClock, frames: *mut u64, late: *mut u64, rtt_us: *mut i64) {
+    let clock = &*clock;
+    if !frames.is_null() {
+        frames.write(clock.frames);
+    }
+    if !late.is_null() {
+        late.write(clock.late_frames);
+    }
+    if !rtt_us.is_null() {
+        rtt_us.write(clock.offset.rtt_us().unwrap_or(-1));
+    }
+}
+
+// Windows clients link the standard library (the MSVC CRT has no posix_memalign).
+#[cfg(not(any(test, windows)))]
 mod runtime {
     use core::alloc::{GlobalAlloc, Layout};
     use core::ffi::c_void;

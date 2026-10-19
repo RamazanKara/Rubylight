@@ -11,4 +11,5 @@ extern crate alloc;
 
 pub mod control;
 pub mod phase_lock;
+pub mod present_clock;
 pub mod pyrowave;

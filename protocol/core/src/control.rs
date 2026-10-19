@@ -25,6 +25,13 @@ pub const HOST_TIMING_HEADER_BYTES: usize = 4;
 pub const HOST_TIMING_RECORD_BYTES: usize = 20;
 /// Most records one report carries (a 644-byte message).
 pub const HOST_TIMING_MAX_RECORDS: usize = 32;
+/// Control-stream message type of clock sync, both ways: a client sends a
+/// [`ClockSyncRequest`], and the host answers each with a [`ClockSyncReply`].
+pub const CLOCK_SYNC_MESSAGE_TYPE: u16 = 0x5537;
+/// Encoded size of [`ClockSyncRequest`].
+pub const CLOCK_SYNC_REQUEST_BYTES: usize = 16;
+/// Encoded size of [`ClockSyncReply`].
+pub const CLOCK_SYNC_REPLY_BYTES: usize = 32;
 
 use alloc::vec::Vec;
 
@@ -36,6 +43,87 @@ fn u16_at(data: &[u8], at: usize) -> u16 {
 
 fn u32_at(data: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]])
+}
+
+fn u64_at(data: &[u8], at: usize) -> u64 {
+    let mut word = [0; 8];
+    word.copy_from_slice(&data[at..at + 8]);
+    u64::from_le_bytes(word)
+}
+
+/// A client's clock sync probe (client to host). The host answers it at once with a
+/// [`ClockSyncReply`] when its video clock runs; before the first frame it does not answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClockSyncRequest {
+    /// Chosen by the client, echoed in the reply.
+    pub sequence: u32,
+    /// When the client sent it, in microseconds of the client's own clock.
+    pub client_us: u64,
+}
+
+impl ClockSyncRequest {
+    /// Little-endian wire form: version, reserved, sequence, client time.
+    pub fn encode(&self) -> [u8; CLOCK_SYNC_REQUEST_BYTES] {
+        let mut out = [0; CLOCK_SYNC_REQUEST_BYTES];
+        out[0] = VERSION;
+        out[4..8].copy_from_slice(&self.sequence.to_le_bytes());
+        out[8..16].copy_from_slice(&self.client_us.to_le_bytes());
+        out
+    }
+
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < CLOCK_SYNC_REQUEST_BYTES || data[0] != VERSION {
+            return None;
+        }
+        Some(Self {
+            sequence: u32_at(data, 4),
+            client_us: u64_at(data, 8),
+        })
+    }
+}
+
+/// The host's answer to a [`ClockSyncRequest`] (host to client).
+///
+/// Host times are microseconds on the video stream's RTP clock: a frame stamped at
+/// `host_us` carries the RTP timestamp `host_us * 90 / 1000` (modulo 2^32). The client
+/// maps frame timestamps to its own clock with these, NTP style (see
+/// [`crate::present_clock::ClockOffset`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClockSyncReply {
+    pub sequence: u32,
+    /// The request's client time, unchanged.
+    pub client_us: u64,
+    /// When the host received the request.
+    pub host_receive_us: u64,
+    /// When the host sent this reply.
+    pub host_send_us: u64,
+}
+
+impl ClockSyncReply {
+    /// Little-endian wire form: version, reserved, sequence, client, receive, send.
+    pub fn encode(&self) -> [u8; CLOCK_SYNC_REPLY_BYTES] {
+        let mut out = [0; CLOCK_SYNC_REPLY_BYTES];
+        out[0] = VERSION;
+        out[4..8].copy_from_slice(&self.sequence.to_le_bytes());
+        out[8..16].copy_from_slice(&self.client_us.to_le_bytes());
+        out[16..24].copy_from_slice(&self.host_receive_us.to_le_bytes());
+        out[24..32].copy_from_slice(&self.host_send_us.to_le_bytes());
+        out
+    }
+
+    /// Parses a reply; a send time before the receive time rejects it.
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < CLOCK_SYNC_REPLY_BYTES || data[0] != VERSION {
+            return None;
+        }
+        let reply = Self {
+            sequence: u32_at(data, 4),
+            client_us: u64_at(data, 8),
+            host_receive_us: u64_at(data, 16),
+            host_send_us: u64_at(data, 24),
+        };
+        (reply.host_send_us >= reply.host_receive_us).then_some(reply)
+    }
 }
 
 /// The client display's HDR luminance, sent at stream start and when the display changes
@@ -338,6 +426,39 @@ mod tests {
         ] {
             assert_eq!(Reconfigure::decode(&wild.encode()), None, "{wild:?}");
         }
+    }
+
+    #[test]
+    fn clock_sync_round_trips_and_rejects_nonsense() {
+        let request = ClockSyncRequest {
+            sequence: 7,
+            client_us: 0x0102_0304_0506_0708,
+        };
+        let bytes = request.encode();
+        assert_eq!(&bytes[..8], &[1, 0, 0, 0, 7, 0, 0, 0]);
+        assert_eq!(ClockSyncRequest::decode(&bytes), Some(request));
+        assert_eq!(ClockSyncRequest::decode(&bytes[..15]), None);
+        let mut version = bytes;
+        version[0] = 2;
+        assert_eq!(ClockSyncRequest::decode(&version), None);
+
+        let reply = ClockSyncReply {
+            sequence: 7,
+            client_us: request.client_us,
+            host_receive_us: 5_000_000,
+            host_send_us: 5_000_040,
+        };
+        let bytes = reply.encode();
+        assert_eq!(ClockSyncReply::decode(&bytes), Some(reply));
+        let mut longer = bytes.to_vec();
+        longer.extend_from_slice(&[0xff; 8]);
+        assert_eq!(ClockSyncReply::decode(&longer), Some(reply), "newer hosts may append");
+        assert_eq!(ClockSyncReply::decode(&bytes[..31]), None);
+        let backwards = ClockSyncReply {
+            host_send_us: 4_999_999,
+            ..reply
+        };
+        assert_eq!(ClockSyncReply::decode(&backwards.encode()), None);
     }
 
     #[test]

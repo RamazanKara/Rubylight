@@ -53,6 +53,43 @@ void rp_display_caps_encode(bool hdr, float max_nits, float max_average_nits, fl
 #define RP_RECONFIGURE_BYTES 12
 void rp_reconfigure_encode(uint16_t width, uint16_t height, uint32_t fps_millihz, uint8_t *out);
 
+// Clock sync (both ways): the host answers each request with its RTP-clock receive and send
+// times (core/src/control.rs, ClockSyncReply).
+#define RP_CLOCK_SYNC_MESSAGE_TYPE 0x5537
+#define RP_CLOCK_SYNC_REQUEST_BYTES 16
+#define RP_CLOCK_SYNC_REPLY_BYTES 32
+void rp_clock_sync_request_encode(uint32_t sequence, uint64_t client_us, uint8_t *out);
+
+// Timestamp presentation for VRR displays (core/src/present_clock.rs): each frame is shown at
+// its host present time plus a delay that covers recent jitter, so the screen keeps the game's
+// frame times. All times are client microseconds on one monotonic clock.
+typedef struct RpPresentSettings {
+    uint32_t window;         // frames whose lateness sets the delay, up to 512
+    uint8_t percentile;      // share of frames that should be ready in time, percent
+    int64_t margin_us;       // added for the present call itself
+    int64_t decay_us;        // how fast the delay may fall per frame
+    int64_t max_hold_us;     // longest a ready frame is held
+    int64_t min_interval_us; // the display's shortest refresh interval
+} RpPresentSettings;
+
+typedef struct RpPresentSchedule {
+    uint64_t present_us; // present at this time; the ready time when late
+    int64_t hold_us;     // present_us minus the ready time
+    int64_t latency_us;  // host present to this present, -1 without clock sync
+    bool late;
+} RpPresentSchedule;
+
+typedef struct RpPresentClock RpPresentClock;
+
+void rp_present_settings_default(RpPresentSettings *out);
+RpPresentClock *rp_present_clock_new(const RpPresentSettings *settings);
+void rp_present_clock_free(RpPresentClock *clock);
+// Feeds a 0x5537 reply received at client_receive_us; returns its round trip or -1.
+int64_t rp_present_clock_sync(RpPresentClock *clock, const uint8_t *data, size_t length, uint64_t client_receive_us);
+RpPresentSchedule rp_present_clock_schedule(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us);
+void rp_present_clock_reset(RpPresentClock *clock);
+void rp_present_clock_stats(const RpPresentClock *clock, uint64_t *frames, uint64_t *late, int64_t *rtt_us);
+
 #ifdef __cplusplus
 }  // extern "C"
 

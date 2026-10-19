@@ -32,7 +32,9 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 ## October 18: timer waits and idle capture
 
-> **Reverted in 2.5.9 (October 19).** A field report ([#42](https://github.com/RamazanKara/Rubylight/issues/42)) showed the cost under load: PyroWave at 2772×1280, 144 fps on an RX 6600 XT averaged 35–55 fps and peaked near 58 on 2.5.6/2.5.7, against 78–118 average and 129–144 peak on 2.5.1 with the same game. Picture age p95 went from 1–2 ms to 6–11 ms. The 600 us yielding tail of packet and frame-claim waits and the high process priority of the host and WGC helper are restored. The idle capture wait policy below is kept.
+> **Reverted in 2.5.9 (October 19).** A field report ([#42](https://github.com/RamazanKara/Rubylight/issues/42)) showed the cost under load: PyroWave at 2772×1280, 144 fps on an RX 6600 XT averaged 35–55 fps and peaked near 58 on 2.5.6/2.5.7, against 78–118 average and 129–144 peak on 2.5.1 with the same game. Picture age p95 went from 1–2 ms to 6–11 ms. The host and WGC helper again use high process priority while streaming. Packet pacing does not bring back the 600 us yielding tail. Instead, `Timer::until_paced` arms the timer early by an eighth-weighted average of its measured lateness, capped at 1 ms. The pacer's accumulated deadline keeps the average rate exact.
+>
+> `pace_probe --load [--high]` (Ryzen 7 5800X3D, Windows 26200, release build, no socket) sends 260 KB frames at 144 fps and 500 Mbps beside one spinning normal-priority thread per logical CPU, two runs per wait. Paced: 144.1 fps, wire p95 3.56–3.60 ms, max ≤ 4.1 ms in every run. Old yielding tail: 104–143 fps, p95 5.2–10.2 ms. Plain timer: 133–144 fps. `GetThreadTimes` underreports yielding threads, so the probe's CPU column does not compare the spin variant fairly. Frame-claim waits and the idle capture policy below are unchanged from 2.5.6.
 
 The packet and frame-claim waits now use the high-resolution Windows timer
 throughout their deadline instead of yielding for the final 600 us. Ordinary

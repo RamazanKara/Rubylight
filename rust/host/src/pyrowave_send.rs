@@ -657,7 +657,7 @@ mod tests {
                 let mut remaining = block.as_slice();
                 while !remaining.is_empty() {
                     if pacer.due() > Instant::now() {
-                        timer.until_precise(pacer.due());
+                        timer.until_paced(pacer.due());
                     }
                     let count =
                         Batch::count(remaining, batch_limit(bps, remaining[0].len(), false));

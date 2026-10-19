@@ -104,7 +104,7 @@ pub fn send(socket: &UdpSocket, peer: SocketAddr, request: &Request) -> Result<O
     let mut sequence = 0;
     'probe: for (offset, end) in schedule {
         while sequence < end {
-            timer.until_precise((start + offset).max(pacer.due()));
+            timer.until_paced((start + offset).max(pacer.due()));
             if start.elapsed() > limit {
                 break 'probe;
             }

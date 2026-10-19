@@ -116,7 +116,7 @@ pub(super) fn run(
                 }
                 let now = Instant::now();
                 if pacer.due() > now {
-                    timer.until_precise(pacer.due());
+                    timer.until_paced(pacer.due());
                     pacing_wait += now.elapsed();
                 }
                 let budget = network_pacing::batch_payload_limit(bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024);

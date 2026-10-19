@@ -101,7 +101,7 @@ pub(super) fn run(
                     return Ok(());
                 }
                 if pacer.due() > Instant::now() {
-                    timer.until_precise(pacer.due());
+                    timer.until_paced(pacer.due());
                 }
                 let count = Batch::count(
                     remaining,

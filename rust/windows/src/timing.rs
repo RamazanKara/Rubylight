@@ -1,5 +1,8 @@
 use anyhow::Result;
-use std::time::{Duration, Instant};
+use std::{
+    sync::atomic::{AtomicU32, Ordering},
+    time::{Duration, Instant},
+};
 use windows::{
     Win32::{
         Foundation::*,
@@ -8,11 +11,13 @@ use windows::{
     core::PCWSTR,
 };
 
-/// Precise waits arm the timer this much early and yield the rest.
-const PRECISE_TAIL: Duration = Duration::from_micros(600);
+/// Paced waits start with this wake lead and never exceed the maximum.
+const PACED_LEAD_INITIAL_US: u32 = 300;
+const PACED_LEAD_MAX_US: u32 = 1000;
 /// One high-resolution waitable timer per media worker. Packet pacing must not
-/// pay the coarse scheduler tick for every UDP datagram.
-pub struct Timer(HANDLE);
+/// pay the coarse scheduler tick for every UDP datagram. The second field is
+/// the measured wake lateness of paced waits, in microseconds.
+pub struct Timer(HANDLE, AtomicU32);
 /// Each capture consumer owns a separate unnamed event. Resetting it cannot
 /// consume another client's notification, and publishing before a wait is safe.
 pub struct Signal(HANDLE);
@@ -110,7 +115,7 @@ impl Timer {
                 TIMER_ALL_ACCESS.0,
             )
             .or_else(|_| CreateWaitableTimerExW(None, PCWSTR::null(), 0, TIMER_ALL_ACCESS.0))?;
-            Ok(Self(timer))
+            Ok(Self(timer, AtomicU32::new(PACED_LEAD_INITIAL_US)))
         }
     }
     pub fn until(&self, deadline: Instant) {
@@ -119,39 +124,35 @@ impl Timer {
             std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
         }
     }
-    /// Like `until`, accurate to a few microseconds at the cost of yielding the
-    /// last 600 us. High-resolution timers wake 0.25-0.5 ms late on an idle
-    /// host and milliseconds late beside a busy game. Packet pacing loses any
-    /// lateness beyond the pacer's 500 us slack on every batch, which capped
-    /// PyroWave at about 58 fps in 2.5.6-2.5.8 (issue #42).
+    /// A deadline wait that never returns early. Packet pacing uses
+    /// `until_paced` instead: a yielding tail measured slower than the timer
+    /// beside CPU-bound threads (`examples/pace_probe.rs`).
     pub fn until_precise(&self, deadline: Instant) {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining > PRECISE_TAIL + Duration::from_micros(100) {
-            self.until(deadline - PRECISE_TAIL);
-        }
-        while Instant::now() < deadline {
-            std::thread::yield_now();
-        }
+        self.until(deadline);
     }
-    /// `until_or_signal` to the deadline itself: the timer is armed 600 us
-    /// early and the rest yields, still ending on the signal. For a frame's
-    /// claim deadline, not for polls.
+    /// Packet pacing without spinning: arm the timer early by the wake
+    /// lateness this timer has measured (an average, at most 1 ms), so wakes
+    /// land on the deadline on average. Returns up to that lead early; the
+    /// pacer's accumulated deadline keeps the average rate exact, and an early
+    /// send earns no extra credit.
+    pub fn until_paced(&self, deadline: Instant) {
+        let lead = Duration::from_micros(u64::from(self.1.load(Ordering::Relaxed)));
+        let Some(target) = deadline.checked_sub(lead) else {
+            return;
+        };
+        if target <= Instant::now() {
+            return;
+        }
+        self.until(target);
+        let late = Instant::now().saturating_duration_since(target).as_micros() as u32;
+        self.1.store(
+            paced_lead(self.1.load(Ordering::Relaxed), late),
+            Ordering::Relaxed,
+        );
+    }
+    /// Frame claims remain interruptible throughout their timer wait.
     pub fn until_or_signal_precise(&self, deadline: Instant, signal: &Signal) -> Result<bool> {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining > PRECISE_TAIL + Duration::from_micros(100)
-            && self.until_or_signal(deadline - PRECISE_TAIL, signal)?
-        {
-            return Ok(true);
-        }
-        while Instant::now() < deadline {
-            // SAFETY: `signal.0` is an event the borrowed Signal keeps open; a zero timeout only
-            // polls it.
-            if unsafe { WaitForSingleObject(signal.0, 0) } == WAIT_OBJECT_0 {
-                return Ok(true);
-            }
-            std::thread::yield_now();
-        }
-        Ok(false)
+        self.until_or_signal(deadline, signal)
     }
     /// Wait for capture or the precise encoder/static-frame deadline, without
     /// a coarse condition-variable timeout or a polling/spinning thread.
@@ -205,6 +206,12 @@ impl Timer {
             // Recheck the monotonic deadline after an early timer or bounded timeout.
         }
     }
+}
+/// One-eighth exponential average of measured lateness. A single long stall
+/// moves the lead by at most 1/8 of the cap.
+fn paced_lead(lead: u32, late_us: u32) -> u32 {
+    let late = late_us.min(PACED_LEAD_MAX_US);
+    ((lead * 7 + late) / 8).min(PACED_LEAD_MAX_US)
 }
 fn arm_timer(handle: HANDLE, ticks: &i64) -> windows::core::Result<()> {
     // SAFETY: The caller borrows the live timer, ticks outlives the call, and no completion
@@ -523,6 +530,34 @@ impl Drop for StreamingScope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paced_lead_follows_lateness_and_stays_bounded() {
+        assert_eq!(paced_lead(300, 300), 300);
+        assert_eq!(paced_lead(0, 800), 100);
+        assert_eq!(paced_lead(800, 0), 700);
+        // One long stall moves the lead by at most an eighth of the cap.
+        assert_eq!(paced_lead(0, u32::MAX), PACED_LEAD_MAX_US / 8);
+        let mut lead = 0;
+        for _ in 0..200 {
+            lead = paced_lead(lead, u32::MAX);
+        }
+        assert!(lead <= PACED_LEAD_MAX_US);
+    }
+    #[test]
+    fn paced_waits_return_no_earlier_than_their_lead() -> Result<()> {
+        let timer = Timer::new()?;
+        for _ in 0..20 {
+            let deadline = Instant::now() + Duration::from_millis(2);
+            timer.until_paced(deadline);
+            let lead = Duration::from_micros(u64::from(PACED_LEAD_MAX_US));
+            assert!(Instant::now() + lead >= deadline);
+        }
+        // An expired deadline returns at once.
+        let start = Instant::now();
+        timer.until_paced(start);
+        assert!(start.elapsed() < Duration::from_millis(1));
+        Ok(())
+    }
     #[test]
     fn precise_waits_end_on_the_signal_or_at_the_deadline() -> Result<()> {
         let timer = Timer::new()?;

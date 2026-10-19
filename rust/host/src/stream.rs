@@ -1667,7 +1667,7 @@ impl Media {
                                     }
                                     let now = Instant::now();
                                     if network_pacer.due() > now {
-                                        timer.until_precise(network_pacer.due());
+                                        timer.until_paced(network_pacer.due());
                                         pacing_wait += now.elapsed();
                                     }
                                     let budget = butterpollo_core::network_pacing::batch_payload_limit(

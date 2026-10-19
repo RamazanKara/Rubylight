@@ -1,10 +1,16 @@
-# Rubylight 2.5.8 for Windows
+# Rubylight 2.5.9 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.8 installer is named `rubylight-setup-2.5.8.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.9 installer is named `rubylight-setup-2.5.9.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.5.9
+
+- **Restore PyroWave frame rate while a game is running.** Since 2.5.6, a PyroWave stream at 2772×1280, 144 fps and 400 Mbps on an RX 6600 XT peaked near 58 fps and averaged 35–55, where 2.5.1 averaged 78–118 and reached 129–144 with the same game and client. Picture age p95 rose from 1–2 ms to 6–11 ms. 2.5.6 had stopped raising the host and its capture helper to high CPU priority, and packet pacing had stopped yielding through the last 600 µs before each send. Beside a busy game, the host's sending threads then woke milliseconds late, and the pacer lost each delay beyond its 0.5 ms slack. PyroWave keeps a frame on the wire for most of its period, so these delays cut its frame rate directly. Both behaviors are back as they were in 2.5.1, and the pacing thread again uses about one CPU core while a frame is being sent. Reported in [#42](https://github.com/RamazanKara/Rubylight/issues/42).
+
+All workspace tests, Clippy and the elevated process-priority restoration test pass. The comparison above comes from the reporter's 2.5.1 and 2.5.7 support logs. 2.5.9 has not yet been streamed on that setup.
 
 ## New in 2.5.8
 

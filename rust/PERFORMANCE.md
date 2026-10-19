@@ -32,6 +32,8 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 ## October 18: timer waits and idle capture
 
+> **Reverted in 2.5.9 (October 19).** A field report ([#42](https://github.com/RamazanKara/Rubylight/issues/42)) showed the cost under load: PyroWave at 2772×1280, 144 fps on an RX 6600 XT averaged 35–55 fps and peaked near 58 on 2.5.6/2.5.7, against 78–118 average and 129–144 peak on 2.5.1 with the same game. Picture age p95 went from 1–2 ms to 6–11 ms. The 600 us yielding tail of packet and frame-claim waits and the high process priority of the host and WGC helper are restored. The idle capture wait policy below is kept.
+
 The packet and frame-claim waits now use the high-resolution Windows timer
 throughout their deadline instead of yielding for the final 600 us. Ordinary
 timer waits also no longer busy-wait their last 50 us. A timer-arm failure falls

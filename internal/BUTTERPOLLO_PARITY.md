@@ -625,7 +625,7 @@ full MIT notices are included there. The necessary new runtime dependency is `li
 Both ARM64 and x86-64 libraries were rebuilt with Windows NDK 29, rather than copied from the fork.
 32-bit APKs retain the ordinary decoders and tolerate the absent Vulkan library.
 
-Pinned dependency sources: PyroWave `502a3b52a39312ab82c85b1e2fc0e746faee91a4`, Granite
+Pinned dependency sources: PyroWave `a0d2e71e98b85f6a23f62407df21a39e9745b875`, Granite
 `fb178c8080d163419e8d20f10715c61c53c1ec9b`, volk `47cddf7ed97b94118a08aacb548a411188e016cc`,
 Vulkan-Headers `6802bb4733b63ed5efd3adb308a6c885ef180ea1`. The decoder short-block patch from
 Rubylight `6772d401` is retained unchanged in `jni/pyrowave-renderer/patches/`. Two additional
@@ -757,7 +757,7 @@ $Ndk = "$Sdk/ndk/29.0.14206865"
 $env:PATH = "$Sdk/cmake/3.22.1/bin;" + $env:PATH
 git init $Source
 git -C $Source remote add origin https://github.com/Themaister/pyrowave.git
-git -C $Source fetch --depth 1 origin 502a3b52a39312ab82c85b1e2fc0e746faee91a4
+git -C $Source fetch --depth 1 origin a0d2e71e98b85f6a23f62407df21a39e9745b875
 git -C $Source checkout --detach FETCH_HEAD
 git init "$Source/Granite"
 git -C "$Source/Granite" remote add origin https://github.com/Themaister/Granite.git
@@ -787,6 +787,18 @@ Android system-library dependencies and 16 KiB ELF LOAD alignment. The stripped 
 | --- | ---: | --- |
 | arm64-v8a | 1,233,704 | `6f7626d783ad1aeaa0181f2cb3a0608cd3887b821fa9807cd34e032f76e7ea4e` |
 | x86_64 | 1,284,248 | `8a5bbda825985392eb5acc56b2fe7ec955b0433b882f5d508a0f4e3f3da69adc` |
+
+On 2026-10-20 the libraries were rebuilt with the same toolchain, options and three patches at
+PyroWave `a0d2e71e`, which changes only the fragment iDWT shader (`shaders/idwt.frag` and its
+embedded SPIR-V): the first two outputs at an edge now apply the edge mirroring, and the CbCr
+mirroring for multi-plane input is no longer compiled out by a misnamed macro. The fragment path is the one
+upstream selects on Qualcomm drivers. Granite, the C API, the bitstream and the patches are
+unchanged; all 48 exports, the SONAME and 16 KiB LOAD alignment were rechecked.
+
+| ABI | Bytes | SHA-256 |
+| --- | ---: | --- |
+| arm64-v8a | 1,234,792 | `4239343a6a15194c2c82ce881767f48fd6beb9e9901bbad6e1ac4c76fd4cf48b` |
+| x86_64 | 1,285,336 | `50ef087792580309ce5e3f135e25090d47792e78fffcde0c7c4bfbffab165283` |
 
 These are artifact identities, not a claim of path-independent reproducible binaries. The
 ARM64 device comparison on Fold7 with active Turnip Gen8 V37 tested a rebuilt control

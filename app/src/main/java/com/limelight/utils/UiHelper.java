@@ -38,8 +38,11 @@ public class UiHelper {
         };
         dialog.setOnDismissListener(ignored -> lifecycle.removeObserver(observer));
         lifecycle.addObserver(observer);
-        dialog.show();
+        // Pad the content before the window first lays out. Padding it after show() resized the
+        // dialog mid-animation (the 24dp TV margin), so it looked like it opened twice.
+        dialog.create();
         AdaptiveLayout.attach((Activity) context, dialog.findViewById(android.R.id.content));
+        dialog.show();
     }
 
     private static void setGameModeStatus(Context context, boolean streaming, boolean interruptible) {
@@ -142,7 +145,8 @@ public class UiHelper {
             activity.getWindow().setNavigationBarContrastEnforced(false);
             rootView.setForceDarkAllowed(false);
         }
-        boolean light = !oledBlack && activity.getResources().getBoolean(R.bool.light_system_bars);
+        boolean light = !com.limelight.ui.AppTheme.isDark(activity) &&
+                activity.getResources().getBoolean(R.bool.light_system_bars);
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(activity.getWindow(), rootView);
         controller.setAppearanceLightStatusBars(light);
         controller.setAppearanceLightNavigationBars(light);

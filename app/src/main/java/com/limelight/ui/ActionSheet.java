@@ -353,6 +353,8 @@ public final class ActionSheet extends BottomSheetDialog {
             keepSystemBarsHidden(this, getOwnerActivity());
         }
         getBehavior().setMaxWidth(spacing * 75);
+        android.view.View sheet = findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet != null) AppTheme.outlineOnBlack(getContext(), sheet.getBackground());
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
     }
 

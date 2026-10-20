@@ -448,6 +448,8 @@
     <string name="keyboard_shortcuts_file_error">Could not read or write the shortcut file. Check file access and use a valid shortcut export with at most 32 shortcuts.</string>
     <string name="title_disable_hevc_low_latency">Disable HEVC low-latency flags</string>
     <string name="summary_disable_hevc_low_latency">Try if HEVC video stutters or freezes. Disables optional Android and chipset low-latency flags and reference-frame invalidation for HEVC. Required compatibility flags are preserved on older Fire TV decoders. Other codecs and decoder performance hints keep their own settings. Applies to the next stream.</string>
+    <string name="title_always_dark">Always dark</string>
+    <string name="summary_always_dark">Use the dark grey theme in the app, menus and dialogs, even with a light system theme. OLED black makes it pure black.</string>
     <string name="title_oled_black">OLED black</string>
     <string name="summary_oled_black">Use pure black backgrounds in the app, menus and dialogs, even with a light system theme.</string>
 </resources>

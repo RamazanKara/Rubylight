@@ -195,6 +195,11 @@
     <!-- Stream activity theme (Game and the debug stream fixtures). -->
     <style name="StreamTheme" parent="Theme.Nightjar.Stream" />
 
+    <!-- The night palette's dark grey surfaces even when the system is light, as on most TVs. -->
+    <style name="DarkTheme" parent="Theme.Nightjar.Stream">
+        <item name="android:windowBackground">@color/night_surface</item>
+    </style>
+
     <!-- Full black surfaces, with the readable night palette even when the system is light. -->
     <style name="OledBlackTheme" parent="Theme.Nightjar.Stream">
         <item name="android:windowBackground">@android:color/black</item>

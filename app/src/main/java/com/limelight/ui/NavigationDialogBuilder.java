@@ -22,6 +22,7 @@ public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
 
     @Override
     public AlertDialog create() {
+        AppTheme.outlineOnBlack(getContext(), getBackground());
         AlertDialog dialog = super.create();
         DialogInterface.OnKeyListener custom = keyListener;
         dialog.setOnKeyListener((target, key, event) -> {

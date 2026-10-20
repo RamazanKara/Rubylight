@@ -60,6 +60,43 @@ public class AppThemeTest {
     }
 
     @Test
+    public void alwaysDarkUsesTheGreyNightPaletteInSystemLightMode() {
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication())
+                .edit().putBoolean(AppTheme.ALWAYS_DARK, true).commit();
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();
+        try {
+            Screen screen = controller.get();
+            int surface = MaterialColors.getColor(screen, com.google.android.material.R.attr.colorSurface, 0);
+            assertEquals(screen.getColor(com.limelight.R.color.night_surface), surface);
+            assertNotEquals(0xff000000, surface);
+            assertEquals(0, screen.getWindow().getDecorView().getSystemUiVisibility() &
+                    (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR));
+            PreferenceManager.getDefaultSharedPreferences(screen).edit().putBoolean(AppTheme.ALWAYS_DARK, false).commit();
+            assertEquals(1, screen.recreationRequests);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void blackDialogsAndSheetsGetAnOutline() {
+        black(true);
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();
+        try {
+            Screen screen = controller.get();
+            NavigationDialogBuilder builder = new NavigationDialogBuilder(screen);
+            builder.setTitle("Info").setMessage("Dialog").create();
+            com.google.android.material.shape.MaterialShapeDrawable background =
+                    (com.google.android.material.shape.MaterialShapeDrawable) builder.getBackground();
+            assertTrue(background.getStrokeWidth() > 0);
+            assertEquals(MaterialColors.getColor(screen, com.google.android.material.R.attr.colorOutlineVariant, 0),
+                    background.getStrokeColor().getDefaultColor());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void changesRefreshTheVisibleScreenAndStoppedScreensOnReturn() {
         black(false);
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();

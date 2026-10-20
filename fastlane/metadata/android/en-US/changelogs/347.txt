@@ -1,0 +1,1 @@
+Add Show frames at the PC's frame times: frames appear when the game drew them instead of when the network delivered them, evening out jitter, especially with adaptive refresh.

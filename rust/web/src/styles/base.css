@@ -34,7 +34,7 @@ h3 {
   font-family: var(--font-display);
   margin: 0;
   line-height: 1.2;
-  font-weight: 600;
+  font-weight: 650;
 }
 h1 {
   font-size: var(--text-2xl);
@@ -89,6 +89,11 @@ button {
   color: inherit;
 }
 
+button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -96,6 +101,16 @@ button {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding-block: 10px;
+}
+
+@media (max-width: 520px) {
+  h1 { font-size: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

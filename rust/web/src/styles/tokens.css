@@ -1,30 +1,14 @@
-/*
- * Rubylight console design tokens.
- *
- * Decisions (deliberate, not defaults):
- * - Reference: a dense, status-first admin console in the manner of
- *   Tailscale's admin panel. People come here to check whether the host
- *   is streaming, pair a device or add a game; there is no marketing page.
- * - Colour: neutral graphite on cool grey; one brand accent, ruby
- *   (from the name), used for the current selection, primary actions and
- *   the live indicator. No gradients, no glow.
- * - Type: Segoe UI Variable, the host's own system face: Rubylight is a
- *   Windows host and its console should feel native to that PC. Numbers,
- *   commands and logs use Cascadia Mono, which ships with Windows Terminal.
- *   Nothing is downloaded.
- * - Shape: small radii and hairline borders; density over decoration.
- */
 :root {
   --font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --font-display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
   --mono: 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
 
-  --text-xs: 11.5px;
-  --text-sm: 12.5px;
-  --text: 14px;
-  --text-lg: 16px;
-  --text-xl: 21px;
-  --text-2xl: 28px;
+  --text-xs: 13px;
+  --text-sm: 14px;
+  --text: 16px;
+  --text-lg: 22px;
+  --text-xl: 28px;
+  --text-2xl: 40px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -34,9 +18,9 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  --radius: 6px;
-  --radius-lg: 10px;
-  --nav-width: 220px;
+  --radius: 10px;
+  --radius-lg: 12px;
+  --nav-width: 248px;
 
   color-scheme: light;
   --bg: #eef0f3;
@@ -48,7 +32,7 @@
   --muted: #6e7480;
   --line: #dde0e6;
   --line-strong: #c5cad3;
-  --accent: #c41242;
+  --accent: #c42045;
   --accent-strong: #a30e37;
   --accent-ink: #ffffff;
   --accent-soft: #fde6ec;
@@ -67,27 +51,27 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #0f1113;
-  --panel: #171a1e;
-  --panel-raised: #1d2126;
-  --sunken: #13161a;
-  --ink: #e9ebee;
+  --bg: #121419;
+  --panel: #171a20;
+  --panel-raised: #1b1e25;
+  --sunken: #15181e;
+  --ink: #f4f5f7;
   --ink-2: #c3c8cf;
-  --muted: #8b929c;
+  --muted: #a6aebc;
   --line: #2a2f36;
   --line-strong: #3a4049;
-  --accent: #ff406c;
-  --accent-strong: #ff6b8d;
-  --accent-ink: #16181c;
-  --accent-soft: #3a1520;
+  --accent: #c42045;
+  --accent-strong: #a9193a;
+  --accent-ink: #ffffff;
+  --accent-soft: #321d27;
   --focus: #6aa6f0;
-  --ok: #4cc27a;
+  --ok: #4edba5;
   --ok-soft: #12291b;
   --warn: #f0a742;
   --warn-soft: #2e2210;
   --danger: #f06b67;
   --danger-soft: #331716;
-  --live: #4cc27a;
+  --live: #4edba5;
   --shadow: none;
   --shadow-pop: 0 10px 30px rgb(0 0 0 / 50%);
   --scrim: rgb(0 0 0 / 60%);
@@ -96,27 +80,27 @@
 @media (prefers-color-scheme: dark) {
   :root[data-theme='system'] {
     color-scheme: dark;
-    --bg: #0f1113;
-    --panel: #171a1e;
-    --panel-raised: #1d2126;
-    --sunken: #13161a;
-    --ink: #e9ebee;
+    --bg: #121419;
+    --panel: #171a20;
+    --panel-raised: #1b1e25;
+    --sunken: #15181e;
+    --ink: #f4f5f7;
     --ink-2: #c3c8cf;
-    --muted: #8b929c;
+    --muted: #a6aebc;
     --line: #2a2f36;
     --line-strong: #3a4049;
-    --accent: #ff406c;
-    --accent-strong: #ff6b8d;
-    --accent-ink: #16181c;
-    --accent-soft: #3a1520;
+    --accent: #c42045;
+    --accent-strong: #a9193a;
+    --accent-ink: #ffffff;
+    --accent-soft: #321d27;
     --focus: #6aa6f0;
-    --ok: #4cc27a;
+    --ok: #4edba5;
     --ok-soft: #12291b;
     --warn: #f0a742;
     --warn-soft: #2e2210;
     --danger: #f06b67;
     --danger-soft: #331716;
-    --live: #4cc27a;
+    --live: #4edba5;
     --shadow: none;
     --shadow-pop: 0 10px 30px rgb(0 0 0 / 50%);
     --scrim: rgb(0 0 0 / 60%);

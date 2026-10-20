@@ -62,6 +62,12 @@ async function fixture(t, initial = {}, metadata = {}) {
   return { page, writes };
 }
 
+async function showAdvanced(page) {
+  const advanced = page.locator('details.advanced');
+  await advanced.waitFor();
+  if (!(await advanced.evaluate(node => node.open))) await advanced.locator(':scope > summary').click();
+}
+
 const setting = (page, key) => page.locator(`[data-setting="${key}"]`);
 const search = (page, text) => page.getByRole('searchbox', { name: 'Search settings' }).fill(text);
 async function save(page) {
@@ -73,6 +79,7 @@ async function save(page) {
 test('direct driver push can be selected, saved, reloaded and reset to Automatic', async t => {
   const { page, writes } = await fixture(t);
   await page.goto(base + '/settings/video');
+  await showAdvanced(page);
   const row = setting(page, 'capture');
   const control = row.getByRole('combobox');
   assert.equal(await control.inputValue(), 'auto');
@@ -83,6 +90,7 @@ test('direct driver push can be selected, saved, reloaded and reset to Automatic
   await save(page);
   assert.deepEqual(writes, [{ capture: 'idd-push' }]);
   await page.reload();
+  await showAdvanced(page);
   await row.waitFor();
   assert.equal(await control.inputValue(), 'idd-push');
   assert.doesNotMatch(await row.innerText(), /Saved custom choice/);
@@ -99,6 +107,7 @@ test('direct driver push can be selected, saved, reloaded and reset to Automatic
   await save(page);
   assert.deepEqual(writes, [{ capture: 'idd-push' }, { capture: null }]);
   await page.reload();
+  await showAdvanced(page);
   await row.waitFor();
   assert.equal(await control.inputValue(), 'auto');
 });
@@ -106,6 +115,7 @@ test('direct driver push can be selected, saved, reloaded and reset to Automatic
 test('numeric errors block saves, survive categories, and can be corrected without losing focus', async t => {
   const { page, writes } = await fixture(t);
   await page.goto(base + '/settings/network');
+  await showAdvanced(page);
   await setting(page, 'port').getByRole('spinbutton').fill('70000');
   assert.equal(await page.getByRole('button', { name: 'Save changes' }).isDisabled(), true);
   await page.getByRole('link', { name: /^General/ }).click();
@@ -133,6 +143,7 @@ test('numeric errors block saves, survive categories, and can be corrected witho
 test('an incomplete number cannot silently reset a setting and undo restores its saved value', async t => {
   const { page, writes } = await fixture(t, { port: 48123 });
   await page.goto(base + '/settings/network');
+  await showAdvanced(page);
   const input = setting(page, 'port').getByRole('spinbutton');
   await input.fill('');
   await input.pressSequentially('1e');
@@ -191,6 +202,7 @@ test('search finds menu choices and category context, and explains hidden depend
 test('rows show the default only when it differs, and config keys only on request', async t => {
   const { page, writes } = await fixture(t, { fec_percentage: 30, adaptive_fec: 'enabled' });
   await page.goto(base + '/settings/video');
+  await showAdvanced(page);
   const fec = setting(page, 'fec_percentage');
   assert.match(await fec.innerText(), /Default: 20%/);
   await fec.getByRole('button', { name: 'Reset to default for Error correction', exact: true }).waitFor();
@@ -215,6 +227,7 @@ test('rows show the default only when it differs, and config keys only on reques
   await page.getByRole('switch', { name: 'Show config keys', exact: true }).check();
   await fec.locator('code', { hasText: 'fec_percentage' }).waitFor();
   await page.reload();
+  await showAdvanced(page);
   await setting(page, 'fec_percentage').locator('code', { hasText: 'fec_percentage' }).waitFor();
   assert.equal(await page.getByRole('switch', { name: 'Show config keys', exact: true }).isChecked(), true);
   await page.getByRole('switch', { name: 'Show config keys', exact: true }).uncheck();
@@ -238,6 +251,7 @@ test('search shows the key it matched and finds facts behind More', async t => {
 test('controls share a right-hand column on wide screens and stack under the text on phones', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/settings/video');
+  await showAdvanced(page);
   const box = (row, locator) => setting(page, row).locator(locator).first().boundingBox();
   const label = await box('capture', 'label');
   const select = await box('capture', 'select');
@@ -330,6 +344,7 @@ test('undoing an advanced change keeps the Advanced section open', async t => {
 test('editing a dependency does not hide unsaved child settings and review keeps them reachable', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/settings/general');
+  await showAdvanced(page);
   const toggle = page.getByRole('switch', { name: /^Send hardware metrics to client/ });
   await toggle.press('Space');
   const interval = setting(page, 'hardware_metrics_interval').getByRole('spinbutton');
@@ -342,4 +357,29 @@ test('editing a dependency does not hide unsaved child settings and review keeps
   await setting(page, 'hardware_metrics_interval').getByRole('button', { name: /^Undo/ }).click();
   assert.equal(await interval.inputValue(), '1000');
   assert.equal(await page.getByRole('button', { name: 'Save changes' }).count(), 0);
+});
+
+
+test('six groups keep expert settings collapsed, searchable, and customized counts visible', async t => {
+  const { page, writes } = await fixture(t, { fec_percentage: 30, custom_setting: 'keep' });
+  await page.goto(base + '/settings/video');
+  const groups = page.getByRole('navigation', { name: 'Settings categories' });
+  assert.deepEqual((await groups.getByRole('link').allInnerTexts()).map(text => text.trim()), ['General', 'Streaming', 'Display & HDR', 'Audio & controls', 'Games & automation', 'Network & access']);
+  const advanced = page.locator('details.advanced');
+  assert.equal(await advanced.evaluate(node => node.open), false);
+  assert.match(await advanced.locator(':scope > summary').innerText(), /1 customized/);
+  assert.equal(await setting(page, 'max_bitrate').isVisible(), true);
+  assert.equal(await setting(page, 'fec_percentage').isVisible(), false);
+  await search(page, 'fec_percentage');
+  await setting(page, 'fec_percentage').getByRole('spinbutton').fill('25');
+  await save(page);
+  assert.deepEqual(writes, [{ fec_percentage: 25 }]);
+  await page.goto(base + '/settings/advanced');
+  await page.locator('input[readonly]').filter({ visible: true }).waitFor();
+  assert.equal(await page.locator('input[readonly]').inputValue(), 'custom_setting');
+  for (const [legacy, group] of [['input', 'Audio & controls'], ['hdr', 'Display & HDR'], ['encoders', 'Streaming'], ['commands', 'Games & automation'], ['frame-limiting', 'Streaming']]) {
+    await page.goto(base + '/settings/' + legacy);
+    await page.getByRole('heading', { name: group, exact: true }).waitFor();
+  }
+  assert.deepEqual(writes, [{ fec_percentage: 25 }]);
 });

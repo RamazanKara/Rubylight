@@ -223,11 +223,11 @@
             <input id="{uid}-name" class="input" autocomplete="off" required bind:value={draft.app.name} />
           </Field>
           <Field
-            label="Command"
+            label="Program or command"
             id="{uid}-cmd"
             hint={typeof app?.['playnite-id'] === 'string' && app['playnite-id'] !== ''
               ? 'Empty: Playnite starts the game.'
-              : 'Empty streams the desktop.'}
+              : 'Browse for a program, or leave this empty to stream the Desktop.'}
           >
             <PathPicker kind="executable" value={draft.app.cmd} onpick={(path) => (draft.app.cmd = commandFor(path))}>
               <input
@@ -239,6 +239,7 @@
               />
             </PathPicker>
           </Field>
+          <details class="launch-options"><summary>More launch options</summary>
           <Field label="Working directory" id="{uid}-dir" hint="Empty uses the program’s folder.">
             <PathPicker
               kind="directory"
@@ -255,6 +256,7 @@
             </PathPicker>
           </Field>
           <DetachedList id="{uid}-detached" bind:rows={draft.detached} />
+          </details>
         </div>
       </Panel>
 
@@ -263,7 +265,7 @@
       </Panel>
     </div>
 
-    <Panel title="Preparation commands" description="Run before the app starts. Cleanup commands run after it closes.">
+    <Panel collapsible title="Preparation commands" description="Run before the app starts. Cleanup commands run after it closes.">
       <div class="prep">
         <PrepCommands id="{uid}-prep" bind:rows={draft.prep} />
         <p class="note">
@@ -280,7 +282,7 @@
       </div>
     </Panel>
 
-    <Panel title="Behavior" description="What the host does while the app runs.">
+    <Panel collapsible title="Behavior" description="What the host does while the app runs.">
       <div class="toggles">
         {@render flag('elevated', 'Run as administrator', 'Detached commands run as administrator too.')}
         {@render flag(
@@ -313,7 +315,7 @@
         <Field
           label="Close the app when the last device disconnects"
           id="{uid}-terminate"
-          hint="The global default is set in Settings → Library. Closing the app may lose unsaved progress."
+          hint="The global default is set in Settings → Games & automation. Closing the app may lose unsaved progress."
         >
           <select
             id="{uid}-terminate"
@@ -336,15 +338,15 @@
       </div>
     </Panel>
 
-    <Panel title="Display">
+    <Panel collapsible title="Display">
       <DisplaySettings {draft} />
     </Panel>
 
-    <Panel title="Video and input">
+    <Panel collapsible title="Video and input">
       <VideoSettings {draft} />
     </Panel>
 
-    <Panel title="Lossless Scaling" description="Upscaling and frame generation by Lossless Scaling while the app runs.">
+    <Panel collapsible title="Lossless Scaling" description="Upscaling and frame generation by Lossless Scaling while the app runs.">
       <LosslessSettings {draft} />
     </Panel>
 
@@ -368,7 +370,7 @@
                   : undefined}
               onclick={launch}
             >
-              Launch
+              Launch on PC
             </Button>
           {/if}
           <Button variant="danger" icon="trash" busy={busy === 'delete'} disabled={saving} onclick={remove}>
@@ -381,6 +383,7 @@
 </div>
 
 <style>
+  .launch-options > :global(.field), .launch-options > :global(.detached) { margin-top: 16px; }
   .editor {
     display: grid;
     gap: var(--space-5);

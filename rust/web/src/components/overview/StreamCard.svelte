@@ -85,6 +85,8 @@
     </p>
   {/if}
 
+  <details class="performance">
+    <summary>Stream details & performance</summary>
   <dl class="metrics">
     <div>
       <dt>Frame rate</dt>
@@ -143,6 +145,7 @@
       <p class="collecting muted">Collecting samples…</p>
     {/if}
   </figure>
+  </details>
 </article>
 
 <style>

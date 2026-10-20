@@ -199,8 +199,7 @@
                 busy={busy === `launch:${app.uuid}`}
                 title={running ? `Close ${running} first` : undefined}
                 onclick={() => launch(app)}
-              >
-                Launch<span class="visually-hidden"> {app.name}</span>
+              >Launch on PC<span class="visually-hidden"> {app.name}</span>
               </Button>
             {/if}
           </div>

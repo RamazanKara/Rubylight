@@ -14,6 +14,7 @@
   import { applyTheme, storedTheme, type Theme } from './lib/theme';
   import Overview from './pages/Overview.svelte';
   import Library from './pages/Library.svelte';
+  import LibraryImport from './pages/LibraryImport.svelte';
   import Devices from './pages/Devices.svelte';
   import Settings from './pages/Settings.svelte';
   import Logs from './pages/Logs.svelte';
@@ -26,15 +27,13 @@
   type NavItem = { path: string; label: string; icon: IconName };
   // Everyday pages first; tools for troubleshooting and scripts below a divider.
   const primary: NavItem[] = [
-    { path: '/', label: 'Overview', icon: 'overview' },
-    { path: '/library', label: 'Library', icon: 'library' },
+    { path: '/', label: 'Home', icon: 'overview' },
+    { path: '/library', label: 'Games & apps', icon: 'library' },
     { path: '/devices', label: 'Devices', icon: 'devices' },
     { path: '/settings', label: 'Settings', icon: 'settings' },
   ];
   const tools: NavItem[] = [
-    { path: '/logs', label: 'Logs', icon: 'logs' },
-    { path: '/maintenance', label: 'Maintenance', icon: 'maintenance' },
-    { path: '/tokens', label: 'API tokens', icon: 'key' },
+    { path: '/maintenance', label: 'Help & diagnostics', icon: 'help' },
   ];
   const themes: { value: Theme; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
@@ -56,6 +55,7 @@
     if (route.path === '/login') return Login;
     if (route.path === '/setup') return Setup;
     if (route.path === '/') return Overview;
+    if (route.path === '/library/import') return LibraryImport;
     if (match('/library') || match('/library/:uuid')) return Library;
     if (route.path === '/devices') return Devices;
     if (match('/settings') || match('/settings/:section')) return Settings;
@@ -149,7 +149,7 @@
           {/snippet}
           <div class="nav-group">{@render links(primary)}</div>
           <div class="nav-group tools" role="group" aria-labelledby="nav-tools">
-            <span class="nav-heading" id="nav-tools">Tools</span>
+            <span class="visually-hidden" id="nav-tools">Help</span>
             {@render links(tools)}
           </div>
         </nav>
@@ -165,7 +165,7 @@
             </div>
           {/if}
           <div class="foot-actions">
-            <div class="theme" role="group" aria-label="Theme">
+            <div class="appearance"><span>Appearance</span><div class="theme" role="group" aria-label="Theme">
               {#each themes as option (option.value)}
                 <button
                   type="button"
@@ -177,7 +177,7 @@
                   <Icon name={option.icon} size={16} />
                 </button>
               {/each}
-            </div>
+            </div></div>
             <button class="foot-button" disabled={signingOut} aria-busy={signingOut} onclick={signOut}>
               <Icon name="signout" size={16} />
               {signingOut ? 'Signing out…' : 'Sign out'}
@@ -235,7 +235,7 @@
   /* The sidebar's background runs the full page height; its content stays in view. */
   aside {
     border-right: 1px solid var(--line);
-    background: var(--panel);
+    background: var(--bg);
   }
   .side {
     position: sticky;
@@ -260,20 +260,20 @@
     gap: 10px;
     font-family: var(--font-display);
     font-weight: 650;
-    font-size: 17px;
+    font-size: 25px;
     text-decoration: none;
     letter-spacing: -0.01em;
   }
   .mark {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 40px;
+    height: 40px;
     border-radius: 6px;
     background: var(--accent);
     color: var(--accent-ink);
     font-weight: 800;
-    font-size: 15px;
+    font-size: 26px;
   }
   .menu {
     display: none;
@@ -285,28 +285,26 @@
     cursor: pointer;
   }
   nav {
-    display: grid;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     gap: var(--space-3);
   }
   .nav-group {
     display: grid;
-    gap: 2px;
+    gap: 8px;
   }
   .tools {
+    margin-top: auto;
     padding-top: var(--space-3);
     border-top: 1px solid var(--line);
-  }
-  .nav-heading {
-    padding: 0 10px 4px;
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--muted);
   }
   nav a {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 10px;
+    padding: 15px 14px;
+    min-height: 52px;
     border-radius: var(--radius);
     color: var(--ink-2);
     text-decoration: none;
@@ -319,7 +317,7 @@
   nav a[aria-current='page'] {
     background: var(--accent-soft);
     color: var(--ink);
-    box-shadow: inset 3px 0 0 var(--accent);
+
   }
   .foot {
     margin-top: auto;
@@ -357,11 +355,16 @@
     text-overflow: ellipsis;
   }
   .foot-actions {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .appearance {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-2);
+    gap: 8px;
     flex-wrap: wrap;
+    font-size: var(--text-sm);
   }
   .theme {
     display: inline-flex;
@@ -373,8 +376,8 @@
   .theme button {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 24px;
+    width: 44px;
+    height: 44px;
     padding: 0;
     border: 0;
     border-radius: 4px;
@@ -398,7 +401,8 @@
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: none;
-    padding: 5px 8px;
+    padding: 10px 8px;
+    min-height: 44px;
     font-size: var(--text-xs);
     color: var(--ink-2);
     cursor: pointer;
@@ -408,7 +412,7 @@
   }
   main {
     padding: var(--space-6) var(--space-6) var(--space-7);
-    max-width: 1320px;
+    max-width: 1500px;
     width: 100%;
     display: grid;
     align-content: start;
@@ -450,7 +454,7 @@
     }
     .theme button {
       width: 44px;
-      height: 40px;
+      height: 44px;
     }
     .foot-button {
       min-height: 44px;

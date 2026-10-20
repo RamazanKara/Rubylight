@@ -85,11 +85,12 @@ test('the app picker saves a quoted command and the chosen working directory', a
   const { page, errors, writes, browsing } = await fixture(t);
   await page.goto(base + '/library/new');
   await page.getByLabel('Name', { exact: true }).fill('Picker fixture');
-  const command = page.locator('.path-picker').filter({ has: page.getByLabel('Command', { exact: true }) });
+  const command = page.locator('.path-picker').filter({ has: page.getByLabel('Program or command', { exact: true }) });
   await command.getByRole('button', { name: 'Browse', exact: true }).click();
   await command.getByRole('button', { name: 'Programs', exact: true }).click();
   await command.getByRole('button', { name: /Test App.exe/ }).click();
-  assert.equal(await page.getByLabel('Command', { exact: true }).inputValue(), '"C:\\Programs\\Test App.exe"');
+  assert.equal(await page.getByLabel('Program or command', { exact: true }).inputValue(), '"C:\\Programs\\Test App.exe"');
+  await page.locator('summary', { hasText: 'More launch options' }).click();
   const folder = page.locator('.path-picker').filter({ has: page.getByLabel('Working directory', { exact: true }) });
   await folder.getByRole('button', { name: 'Browse', exact: true }).click();
   await folder.getByRole('button', { name: 'Programs', exact: true }).click();

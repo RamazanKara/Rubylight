@@ -31,7 +31,7 @@ async function fixture(t, options = {}) {
     paired_devices: 1, enable_pairing: options.pairing !== false, warnings: [],
     encoder_status: { state: 'ready', h264: true },
     capture_status: { displays: [], virtual_display_configured: false },
-    virtual_display: { capable: false, ready: false }, audio_enabled: false, features: {},
+    virtual_display: { capable: false, ready: false }, audio_enabled: false, features: {}, ...options.metadata,
   };
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => { await page.close(); assert.deepEqual(errors, []); });
@@ -50,16 +50,16 @@ async function fixture(t, options = {}) {
     }
     if (url.pathname === '/api/auth/status') {
       if (failures-- > 0) return route.fulfill({ status: 503, body: 'Host is restarting' });
-      return reply({ status: true, credentials_configured: true, authenticated: true });
+      return reply({ status: true, credentials_configured: options.credentials !== false, authenticated: options.authenticated !== false });
     }
     if (url.pathname === '/api/csrf-token') return reply({ csrf_token: 'fixture-token' });
     if (url.pathname === '/api/config') return reply({ sunshine_name: 'Fixture host' });
-    if (url.pathname === '/api/metadata') return reply(metadata);
+    if (url.pathname === '/api/metadata') return options.metadataError ? route.fulfill({ status: 503, body: 'Host unavailable' }) : reply(metadata);
     if (url.pathname === '/api/clients/pending') return reply({ requests: pending });
-    if (url.pathname === '/api/clients/list') return reply({ clients: [{ uuid: 'client', name: 'Test device', enabled: true, perm: 0x071f1f00 }] });
+    if (url.pathname === '/api/clients/list') return reply({ clients: options.clients ?? [{ uuid: 'client', name: 'Test device', enabled: true, perm: 0x071f1f00 }] });
     if (url.pathname === '/api/clients/hdr-profiles') return reply({ profiles: [] });
     if (url.pathname === '/api/display-devices') return reply([]);
-    if (url.pathname === '/api/apps') return reply({ apps: [] });
+    if (url.pathname === '/api/apps') return reply({ apps: options.apps ?? [] });
     if (url.pathname === '/api/session/status') return reply({ activeSessions: 0, appRunning: false });
     if (url.pathname === '/api/rtsp/sessions') return reply({ status: true, sessions: options.streams || [] });
     if (url.pathname === '/api/logs/tail') return reply({ offset: 0, text: '', reset: false });
@@ -72,7 +72,7 @@ async function fixture(t, options = {}) {
     if (url.pathname === '/api/token/routes') return reply({ routes: [] });
     return reply({ status: true, available: false, enabled: false });
   });
-  return { page, writes };
+  return { page, writes, metadata };
 }
 
 async function nav(page, name) { await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name, exact: true }).click(); }
@@ -87,7 +87,7 @@ test('settings drafts survive category changes and canceled navigation', async t
   await nav(page, 'Settings');
   await page.getByLabel('Host name', { exact: true }).fill('Unsaved name');
   await page.getByRole('link', { name: /^Network/ }).click();
-  await nav(page, 'Library');
+  await nav(page, 'Games & apps');
   await cancel(page);
   assert.equal(new URL(page.url()).pathname, '/settings/network');
   await unloadProtected(page);
@@ -110,6 +110,7 @@ test('hardware metrics stay off until enabled and save the interval and selectio
   page.on('console', message => { if (['error', 'warning'].includes(message.type())) consoleErrors.push(message.text()); });
   await page.goto(base + '/settings/general');
   assert.equal(await page.title(), 'Rubylight');
+  await page.locator('details.advanced > summary').click();
   const enabled = page.getByRole('switch', { name: /^Send hardware metrics to client/ });
   await enabled.waitFor();
   assert.equal(await enabled.isChecked(), false);
@@ -145,8 +146,8 @@ test('hardware metrics stay off until enabled and save the interval and selectio
 test('pairing a device leaves the app draft open and explains PIN verification', async t => {
   const { page, writes } = await fixture(t, { pending: [{ uniqueid: 'new-device', name: 'New device', age_seconds: 0 }] });
   await page.goto(base + '/logs');
-  await nav(page, 'Library');
-  await page.getByRole('link', { name: 'Add app', exact: true }).first().click();
+  await nav(page, 'Games & apps');
+  await page.getByRole('link', { name: 'Add manually', exact: true }).first().click();
   await page.getByLabel('Name', { exact: true }).fill('Unsaved app');
   await page.getByLabel('PIN for New device').fill('1234');
   await page.locator('.banner').getByRole('button', { name: 'Pair', exact: true }).click();
@@ -168,9 +169,9 @@ test('device drafts block links, tab closure and browser Back', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/logs');
   await nav(page, 'Devices');
-  await page.getByRole('button', { name: 'Edit Test device', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings Test device', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Unsaved device');
-  await nav(page, 'Library');
+  await nav(page, 'Games & apps');
   await cancel(page);
   await unloadProtected(page);
   await page.goBack();
@@ -195,6 +196,7 @@ test('an unavailable host retries automatically and recovers with a usable navig
   await page.getByRole('button', { name: 'Retry now' }).click();
   await page.getByRole('navigation', { name: 'Main' }).waitFor();
   assert.equal(new URL(page.url()).pathname, '/settings/general');
+  await page.locator('details.advanced > summary').click();
   await page.getByLabel('Fallback console language').waitFor();
   await page.getByText('This console is currently available in English only.', { exact: false }).waitFor();
 });
@@ -289,8 +291,8 @@ test('the sidebar groups tools, names each theme choice and copies the host addr
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
   await page.goto(base + '/maintenance');
   const sidebar = page.locator('aside');
-  const tools = page.getByRole('navigation', { name: 'Main' }).getByRole('group', { name: 'Tools', exact: true });
-  assert.deepEqual((await tools.getByRole('link').allInnerTexts()).map(text => text.trim()), ['Logs', 'Maintenance', 'API tokens']);
+  const tools = page.getByRole('navigation', { name: 'Main' }).getByRole('group', { name: 'Help', exact: true });
+  assert.deepEqual((await tools.getByRole('link').allInnerTexts()).map(text => text.trim()), ['Help & diagnostics']);
   await sidebar.getByText('Version 2.2.2', { exact: true }).waitFor();
   const dark = page.getByRole('group', { name: 'Theme', exact: true }).getByRole('button', { name: 'Dark theme', exact: true });
   assert.equal(await dark.getAttribute('title'), 'Theme: Dark');
@@ -307,38 +309,36 @@ test('the sidebar groups tools, names each theme choice and copies the host addr
   // A short page still has the page colour down to the bottom of the window.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Menu', exact: true }).click();
-  await nav(page, 'API tokens');
+  await nav(page, 'Settings');
+  await page.getByRole('combobox', { name: 'Settings group', exact: true }).selectOption('network');
+  await page.getByRole('link', { name: 'API tokens', exact: true }).click();
   await page.getByRole('heading', { name: 'API tokens', exact: true }).waitFor();
   const colours = await page.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor]);
   assert.notEqual(colours[0], 'rgba(0, 0, 0, 0)');
   assert.equal(colours[0], colours[1]);
 });
 
-test('pairing methods are labelled tabs that keep waiting devices in sight', async t => {
+test('normal PIN pairing stays primary while Artemis alternatives expand', async t => {
   const { page } = await fixture(t, { pending: [{ uniqueid: 'new-device', name: 'New device', age_seconds: 0 }] });
   await page.goto(base + '/devices');
-  const methods = page.getByRole('tablist', { name: 'Pairing method', exact: true });
-  const pin = methods.getByRole('tab', { name: /^PIN from the device/ });
-  const otp = methods.getByRole('tab', { name: /^One-time PIN/ });
-  assert.equal(await pin.getAttribute('aria-selected'), 'true');
-  await pin.getByText('1 waiting', { exact: true }).waitFor();
-  await otp.getByText('Artemis only', { exact: false }).waitFor();
-  await page.getByLabel('PIN shown on New device', { exact: true }).waitFor();
-  await pin.focus();
-  await page.keyboard.press('ArrowRight');
-  assert.equal(await otp.getAttribute('aria-selected'), 'true');
-  assert.equal(await otp.evaluate(element => element === document.activeElement), true);
+  const pin = page.getByLabel('PIN shown on New device', { exact: true });
+  await pin.waitFor();
+  assert.equal(await page.getByLabel('Passphrase', { exact: true }).isVisible(), false);
+  const other = page.locator('summary', { hasText: 'Other pairing methods' });
+  await other.focus();
+  await page.keyboard.press('Enter');
   await page.getByLabel('Passphrase', { exact: true }).waitFor();
-  assert.equal(await page.getByLabel('PIN shown on New device', { exact: true }).isVisible(), false);
-  await page.keyboard.press('ArrowLeft');
-  await page.getByLabel('PIN shown on New device', { exact: true }).waitFor();
+  assert.equal(await pin.isVisible(), true);
+  await other.press('Enter');
+  assert.equal(await page.getByLabel('Passphrase', { exact: true }).isVisible(), false);
 });
 
-test('an empty library has one Add app button', async t => {
+test('an empty library offers installed imports and manual additions', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/library');
-  await page.getByText('No apps yet', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('link', { name: 'Add app', exact: true }).count(), 1);
+  await page.getByRole('link', { name: 'Add games', exact: true }).first().waitFor();
+  assert(await page.getByRole('link', { name: 'Add manually', exact: true }).count() >= 1);
+  assert.equal(await page.getByRole('link', { name: 'Add games', exact: true }).first().getAttribute('href'), '/library/import');
 });
 
 test('a squeezed Browse button keeps its label on one line', async t => {
@@ -347,7 +347,7 @@ test('a squeezed Browse button keeps its label on one line', async t => {
   const browse = page.getByRole('button', { name: 'Browse', exact: true }).first();
   await browse.waitFor();
   const box = await browse.boundingBox();
-  assert(box.height < 44, `Browse wrapped onto ${box.height}px`);
+  assert(box.height >= 44 && box.height < 60, `Browse wrapped onto ${box.height}px`);
 });
 
 test('a device already waiting for a PIN shows as soon as the console loads', async t => {
@@ -387,6 +387,7 @@ test('the stream card shows present to sent across the metrics, also on a phone'
   const { page } = await fixture(t, { streams: [stream] });
   await page.goto(base + '/');
   const card = page.getByRole('article', { name: 'Stream to Living room' });
+  await card.locator('summary', { hasText: 'Stream details & performance' }).click();
   const label = card.getByText('Present to sent', { exact: true });
   await label.waitFor();
   const row = label.locator('xpath=..');
@@ -407,5 +408,106 @@ test('the stream card shows present to sent across the metrics, also on a phone'
   assert(narrow.width <= 390);
   if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
     await card.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'stream-card-mobile.png') });
+  }
+});
+
+
+test('Home keeps loading, readiness, host errors and the library order distinct', async t => {
+  const options = { metadata: { paired_devices: 0, encoder_status: { state: 'checking' } },
+    apps: ['Fourth', 'First', 'Second', 'Third', 'Fifth'].map((name, index) => ({ name, uuid: String(index) })) };
+  const { page, metadata } = await fixture(t, options);
+  await page.clock.install();
+  await page.goto(base + '/');
+  await page.getByRole('heading', { name: 'Checking this PC…', exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Ready to play', exact: true }).count(), 0);
+  metadata.encoder_status = { state: 'ready', h264: true };
+  metadata.capture_status = { virtual_display_configured: false, displays: [{ active: true, display_name: 'Monitor', width: 1920, height: 1080 }] };
+  await page.clock.runFor(30_100);
+  await page.getByRole('heading', { name: 'Let’s connect your device', exact: true }).waitFor();
+  await page.getByRole('list', { name: 'Getting started' }).waitFor();
+  assert.deepEqual(await page.locator('.game-shelf strong').allTextContents(), ['Fourth', 'First', 'Second', 'Third']);
+  metadata.paired_devices = 1;
+  await page.clock.runFor(30_100);
+  await page.getByRole('heading', { name: 'Ready to play', exact: true }).waitFor();
+  assert.equal(await page.getByRole('list', { name: 'Getting started' }).count(), 0);
+  options.metadataError = true;
+  await page.clock.runFor(30_100);
+  await page.getByRole('heading', { name: 'Cannot check the host', exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Ready to play', exact: true }).count(), 0);
+  options.metadataError = false;
+  metadata.encoder_status = { state: 'failed', h264: false };
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await page.getByRole('heading', { name: 'This PC needs attention', exact: true }).waitFor();
+});
+
+test('PIN submission waits for actual paired-device confirmation and keeps view-only permissions', async t => {
+  const clients = [{ uuid: 'first', name: 'First device', enabled: true, connected: false, perm: 0x071f1f00 }];
+  const { page } = await fixture(t, { clients, pending: [{ uniqueid: 'tablet', name: 'Tablet', age_seconds: 0 }] });
+  await page.clock.install();
+  await page.goto(base + '/devices');
+  await page.locator('.device .name').filter({ hasText: 'First device' }).waitFor();
+  const pin = page.getByLabel('PIN shown on Tablet', { exact: true });
+  await pin.fill('12 34');
+  assert.equal(await pin.inputValue(), '1234');
+  await page.getByRole('button', { name: 'Pair device', exact: true }).click();
+  await page.getByText(/^PIN sent to Tablet/).waitFor();
+  assert.equal(await page.getByText('Tablet is paired.', { exact: true }).count(), 0);
+  clients.push({ uuid: 'tablet', name: 'Tablet', enabled: true, connected: false, perm: 0x03000000, custom: 'keep', output_name_override: 'Other display' });
+  await page.clock.runFor(5_100);
+  await page.getByText('Tablet is paired.', { exact: true }).waitFor();
+  await page.getByText('Can watch streams, but cannot start games or use controls.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Change access Tablet', exact: true }).click();
+  assert.equal(await page.getByLabel('Display', { exact: true }).isVisible(), false);
+  await page.getByLabel('Name', { exact: true }).fill('Renamed tablet');
+  const request = page.waitForRequest(request => new URL(request.url()).pathname === '/api/clients/update');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const body = (await request).postDataJSON();
+  assert.deepEqual(body, { uuid: 'tablet', name: 'Renamed tablet' });
+  const saved = { ...clients[1], ...body };
+  assert.equal(saved.perm, 0x03000000);
+  assert.equal(saved.custom, 'keep');
+  assert.equal(saved.output_name_override, 'Other display');
+});
+
+
+test('console journeys reflow across themes and screen sizes with usable buttons', async t => {
+  const { page } = await fixture(t, { metadata: { capture_status: { displays: [{ display_name: 'Monitor' }] } } });
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 834, height: 1112 }, { width: 390, height: 844 }, { width: 720, height: 450 }]) {
+      await page.setViewportSize(viewport);
+      for (const [route, heading] of [['/', 'Home'], ['/devices', 'Devices'], ['/settings/display', 'Settings'], ['/library/new', 'New app'], ['/maintenance', 'Help & diagnostics']]) {
+        await page.goto(base + route);
+        await page.getByRole('heading', { name: heading, exact: true, level: 1 }).waitFor();
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), colorScheme + ' ' + viewport.width + ' ' + route);
+        const small = await page.getByRole('button').evaluateAll(buttons => buttons.filter(button => {
+          const rect = button.getBoundingClientRect();
+          return !button.classList.contains('visually-hidden') && rect.width && rect.height && (rect.width < 43.5 || rect.height < 43.5);
+        }).map(button => button.textContent.trim()));
+        assert.deepEqual(small, [], 'Buttons need 44px targets on ' + route);
+        if (process.env.BUTTERPOLLO_TEST_ARTIFACTS && viewport.width !== 720) {
+          await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, (route.replaceAll('/', '-') || 'home') + '-' + colorScheme + '-' + viewport.width + '.png'), fullPage: true });
+        }
+      }
+    }
+  }
+});
+
+test('login and account setup remain readable on mobile in both themes', async t => {
+  for (const credentials of [false, true]) {
+    const { page } = await fixture(t, { credentials, authenticated: false });
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      await page.goto(base + '/');
+      await page.getByRole('heading', { name: credentials ? 'Sign in' : 'Set up this host', exact: true }).waitFor();
+      await page.getByLabel('Username', { exact: true }).fill('fixture-user');
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      for (const input of await page.locator('input:not([type=checkbox])').all()) {
+        assert((await input.boundingBox()).height >= 44);
+      }
+      if (credentials) assert((await page.locator('.remember').boundingBox()).height >= 44);
+      if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, (credentials ? 'login' : 'setup') + '-' + colorScheme + '.png'), fullPage: true });
+    }
   }
 });

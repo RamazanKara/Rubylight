@@ -8,6 +8,7 @@
   import { failed, notify } from '../../lib/feedback.svelte';
   import {
     changes,
+    permissionSummary,
     PERMISSION_GROUPS,
     toDraft,
     VIEW_ONLY,
@@ -165,6 +166,8 @@
     <p class="note">
       The first paired device gets full control. Later devices can only list apps and view streams.
     </p>
+    <p class="note">Current access: <strong>{permissionSummary(draft.perm)}</strong></p>
+    <details open={permissionSummary(draft.perm) === 'Custom'}><summary>Custom permissions</summary>
     <div class="groups">
       {#each PERMISSION_GROUPS as group (group.name)}
         <fieldset>
@@ -182,10 +185,11 @@
         </fieldset>
       {/each}
     </div>
+    </details>
   </section>
 
+  <details class="override" open={modeInvalid}><summary>Display overrides</summary>
   <section>
-    <h3>Display</h3>
     <p class="note">“Use the host setting” follows the value in Settings.</p>
     <div class="form-grid">
       <Field
@@ -251,9 +255,10 @@
       bind:checked={draft.remember_display_mode}
     />
   </section>
+  </details>
 
+  <details class="override"><summary>Play in the background</summary>
   <section>
-    <h3>Play in the background</h3>
     <Toggle
       label="Stream in the background"
       hint="Lets this device play while someone keeps using the PC. Its games open on a virtual display away from your monitors, take no focus and stream only their own sound. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
@@ -264,9 +269,10 @@
       that check focus directly, exclusive fullscreen and Steam Input do not work this way.
     </p>
   </section>
+  </details>
 
+  <details class="override"><summary>HDR overrides</summary>
   <section>
-    <h3>HDR</h3>
     <div class="form-grid">
       <Field
         label="Prefer 10-bit SDR"
@@ -297,9 +303,10 @@
       </Field>
     </div>
   </section>
+  </details>
 
+  <details class="override"><summary>Commands</summary>
   <section>
-    <h3>Commands</h3>
     <Toggle
       label="Run connect and disconnect commands"
       hint="An app can still turn these off for its own launches."
@@ -314,6 +321,7 @@
       <code>$(SUNSHINE_CLIENT_HEIGHT)</code>, <code>$(SUNSHINE_CLIENT_FPS)</code> and <code>$(SUNSHINE_CLIENT_HDR)</code>.
     </p>
   </section>
+  </details>
 
   <footer>
     <Button type="submit" variant="primary" busy={saving} disabled={!changed || nameMissing || modeInvalid || disabled}>Save</Button>
@@ -329,6 +337,8 @@
 </form>
 
 <style>
+  .override > summary { padding: 16px 24px; font-weight: 600; border-bottom: 1px solid var(--line); }
+  .override[open] > summary { border-bottom: 0; }
   .editor {
     display: grid;
     border-top: 1px solid var(--line);

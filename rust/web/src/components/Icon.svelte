@@ -1,12 +1,13 @@
 <script lang="ts" module>
   // 24-pixel stroke icons, drawn for the console.
   const paths = {
-    overview: 'M3 12h4l2.5-6 5 12 2.5-6H21',
-    library: 'M4 5h5v14H4zM11 5h4v14h-4zM17 6l3 .5-2 12.5-3-.5',
-    devices: 'M8 3h8v18H8zM11 18h2M3 9h2M3 13h2M19 9h2M19 13h2',
+    overview: 'M3 10l9-7 9 7M5 9v12h5v-7h4v7h5V9',
+    library: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+    devices: 'M3 4h18v13H3zM8 21h8M12 17v4',
     settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
     logs: 'M5 4h14v16H5zM8 8h8M8 12h8M8 16h5',
     maintenance: 'M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.4-.6-.6-2.4z',
+    help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.5 8a2.5 2.5 0 1 1 4 2c-1.5 1-1.5 1.5-1.5 3M12 17h.01',
     key: 'M14 10a4 4 0 1 0-3.5 4L9 15.5V18H6.5v2.5H4V18l6-6M15.5 8.5h.01',
     play: 'M8 5l11 7-11 7z',
     stop: 'M7 7h10v10H7z',

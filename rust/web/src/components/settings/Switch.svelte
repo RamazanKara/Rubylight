@@ -37,9 +37,9 @@
   input {
     /* Covers the track (and a larger touch target) so taps reach it. */
     position: absolute;
-    inset: -6px;
-    width: calc(100% + 12px);
-    height: calc(100% + 12px);
+    inset: -11px -2px;
+    width: calc(100% + 4px);
+    height: calc(100% + 22px);
     margin: 0;
     opacity: 0;
     cursor: pointer;
@@ -80,13 +80,5 @@
   input:focus-visible + .track {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
-  }
-  @media (max-width: 520px) {
-    input {
-      /* 44px touch target. */
-      inset: -11px -2px;
-      width: calc(100% + 4px);
-      height: calc(100% + 22px);
-    }
   }
 </style>

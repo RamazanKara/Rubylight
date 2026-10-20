@@ -27,16 +27,16 @@
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { guardNavigation, match, navigate } from '../lib/router.svelte';
   import { refreshMetadata, session } from '../lib/session.svelte';
-  import { schema } from '../lib/settings-schema';
+  import { schema, settingGroups, settingsGroup } from '../lib/settings-schema';
   import { NATIVE_ENCODERS, type Category, type CategoryId, type Setting } from '../lib/settings-types';
 
-  const categories = schema.categories;
+  const categories = settingGroups;
   const byKey: ReadonlyMap<string, Setting> = new Map(schema.settings.map((setting) => [setting.key, setting]));
   const isDescribed = (key: string) => byKey.has(key);
 
   const section = $derived(match('/settings/:section')?.section ?? 'general');
   const active = $derived<Category | undefined>(
-    categories.find((category) => category.id === section) ??
+    categories.find((category) => category.id === settingsGroup(section)) ??
       categories.find((category) => category.id === 'general') ??
       categories[0],
   );
@@ -92,7 +92,7 @@
   const changedIn = $derived.by(() => {
     const counts: Partial<Record<CategoryId, number>> = {};
     for (const key of pending) {
-      const id = byKey.get(key)?.category ?? 'advanced';
+      const id = settingsGroup(byKey.get(key)?.category ?? 'advanced');
       counts[id] = (counts[id] ?? 0) + 1;
     }
     return counts;
@@ -145,16 +145,17 @@
     return groups;
   }
 
-  const inCategory = $derived(schema.settings.filter((setting) => setting.category === active?.id));
+  const inCategory = $derived(schema.settings.filter((setting) => settingsGroup(setting.category) === active?.id));
   // Keep a pending control reachable if editing its parent makes it inactive.
   const shown = $derived(inCategory.filter((setting) => visible(setting) || pending.has(setting.key)));
-  const basic = $derived(grouped(shown.filter((setting) => !setting.advanced)));
-  const advanced = $derived(shown.filter((setting) => setting.advanced));
+  const basic = $derived(grouped(shown.filter((setting) => (!setting.advanced || missing(setting)))));
+  const advanced = $derived(shown.filter((setting) => setting.advanced && !missing(setting)));
+  const advancedModified = $derived(new Set(advanced.filter(setting => differsFromDefault(setting, edits, config)).map(setting => setting.key)).size);
   const advancedChanged = $derived(advanced.filter((setting) => pending.has(setting.key)).length);
   // Opened by the user, per category. Unsaved advanced changes open it too, and
   // undoing them must not collapse the section the user is working in.
   let advancedOpen = $state<Partial<Record<CategoryId, boolean>>>({});
-  const showAdvanced = $derived(advancedChanged > 0 || (active ? advancedOpen[active.id] === true : false));
+  const showAdvanced = $derived(['encoders', 'commands', 'advanced'].includes(section) || advancedChanged > 0 || (active ? advancedOpen[active.id] === true : false));
 
   // ---------- search ----------
 
@@ -170,10 +171,10 @@
         category,
         settings: schema.settings.filter(
           (setting) =>
-            setting.category === category.id &&
-            inReview(setting.key) && matchesSetting(setting, category, words),
+            settingsGroup(setting.category) === category.id &&
+            inReview(setting.key) && (matchesSetting(setting, category, words) || matchesSetting(setting, schema.categories.find(item => item.id === setting.category)!, words)),
         ),
-        unknown: category.id === 'advanced' ? unknownKeys.filter((key) => inReview(key) && matchesWords(key, words)) : [],
+        unknown: category.id === 'general' ? unknownKeys.filter((key) => inReview(key) && matchesWords(key, words)) : [],
       }))
       .filter((result) => result.settings.length > 0 || result.unknown.length > 0);
   });
@@ -393,8 +394,8 @@
       </div>
 
       <label class="picker">
-        <span>Category</span>
-        <select class="select" onchange={(event) => open(event.currentTarget.value)}>
+        <span>Settings group</span>
+        <select aria-label="Settings group" class="select" onchange={(event) => open(event.currentTarget.value)}>
           {#if browsingResults}<option value="" disabled selected>All categories</option>{/if}
           {#each categories as category (category.id)}
             {@const count = changedIn[category.id] ?? 0}
@@ -422,7 +423,7 @@
                     <span class="visually-hidden">, {count} unsaved</span>
                   {/if}
                 </span>
-                <span class="about">{category.description}</span>
+
               </a>
             </li>
           {/each}
@@ -514,7 +515,7 @@
                   Advanced
                   <span class="count">
                     {advanced.length}
-                    {advanced.length === 1 ? 'setting' : 'settings'}{advancedChanged ? `, ${advancedChanged} unsaved` : ''}
+                    {advanced.length === 1 ? 'setting' : 'settings'}{advancedModified ? `, ${advancedModified} customized` : ''}{advancedChanged ? `, ${advancedChanged} unsaved` : ''}
                   </span>
                 </summary>
                 <div class="rows">
@@ -523,10 +524,12 @@
               </details>
             {/if}
           {/if}
-          {#if active.id === 'advanced'}
-            {@render otherKeys(unknownKeys, true)}
+          {#if active.id === 'general'}
+            <details class="custom-config" open={section === 'advanced'}><summary>Custom configuration keys <span class="count">{unknownKeys.length} stored</span></summary>{@render otherKeys(unknownKeys, true)}</details>
           {/if}
         </Panel>
+        {#if active.id === 'network'}<div class="row"><Button href="/tokens" icon="key">API tokens</Button><Button href="/maintenance#account">Account & sign-in</Button></div>{/if}
+        {#if active.id === 'general'}<div class="row"><Button href="/maintenance#host">Updates & restart</Button><Button href="/logs" icon="logs">View logs</Button></div>{/if}
       {/if}
     </div>
   </div>
@@ -560,6 +563,8 @@
 {/if}
 
 <style>
+  .custom-config { border-top: 1px solid var(--line); }
+  .custom-config > summary { padding: 16px 24px; }
   .frame {
     /* The layout follows the room the page has, whatever the shell around it. */
     container-type: inline-size;
@@ -567,18 +572,17 @@
   }
   .layout {
     display: grid;
-    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);
     align-items: start;
   }
   .side {
-    position: sticky;
-    top: var(--space-4);
     display: grid;
     gap: var(--space-3);
     min-width: 0;
   }
   .search {
+    max-width: 440px;
     position: relative;
     color: var(--muted);
   }
@@ -599,8 +603,9 @@
     font-weight: 560;
   }
   nav ul {
-    display: grid;
-    gap: 2px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -608,7 +613,8 @@
   nav a {
     display: grid;
     gap: 1px;
-    padding: 7px 10px;
+    padding: 12px 14px;
+    min-height: 44px;
     border-radius: var(--radius);
     color: var(--ink-2);
     text-decoration: none;
@@ -620,9 +626,7 @@
   nav a[aria-current='page'] {
     background: var(--panel);
     color: var(--ink);
-    box-shadow:
-      inset 3px 0 0 var(--accent),
-      0 0 0 1px var(--line);
+    box-shadow: inset 0 -3px 0 var(--accent);
   }
   .name {
     display: flex;
@@ -630,11 +634,6 @@
     gap: 6px;
     font-weight: 560;
     font-size: var(--text-sm);
-  }
-  .about {
-    font-size: var(--text-xs);
-    color: var(--muted);
-    line-height: 1.4;
   }
   .dot {
     flex: none;

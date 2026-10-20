@@ -299,6 +299,29 @@ export interface PendingPairing {
   age_seconds: number;
 }
 
+export type LibrarySource = 'steam' | 'epic' | 'battlenet' | 'ea' | 'ubisoft' | 'gog';
+export interface DiscoveredGame {
+  source: LibrarySource;
+  id: string;
+  uuid: string;
+  name: string;
+  install_dir: string;
+  already_added: boolean;
+  unavailable_reason: string | null;
+  has_cover: boolean;
+}
+export interface LibraryDiscovery {
+  status: true;
+  sources: { source: LibrarySource; name: string; state: 'available' | 'unavailable' | 'error'; errors: string[] }[];
+  games: DiscoveredGame[];
+}
+export interface LibraryImportResult {
+  source: LibrarySource;
+  id: string;
+  result: 'added' | 'already_present' | 'failed';
+  error: string | null;
+}
+
 export interface SteamStatus {
   status: true;
   enabled: boolean;
@@ -571,6 +594,11 @@ export const api = {
     /** Store a cover from an https PNG URL (IGDB) or a PNG as base64. */
     uploadCover: (key: string, source: { url: string } | { data: string }) =>
       post<{ status: true; path: string }>('/api/covers/upload', { key, ...source }, ACTION_TIMEOUT_MS),
+  },
+  library: {
+    discovery: () => get<LibraryDiscovery>('/api/library/discovery', ACTION_TIMEOUT_MS),
+    import: (games: { source: LibrarySource; id: string }[]) =>
+      post<{ status: true; results: LibraryImportResult[] }>('/api/library/import', { games }, ACTION_TIMEOUT_MS),
   },
   steam: {
     status: () => get<SteamStatus>('/api/steam/status'),

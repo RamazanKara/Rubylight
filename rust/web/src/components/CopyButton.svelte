@@ -7,12 +7,14 @@
     value,
     label,
     what = value,
+    showLabel = false,
   }: {
     value: string;
     /** Read out and shown as the tooltip, such as "Copy address". */
     label: string;
     /** Named in the confirmation; the value itself by default. */
     what?: string;
+    showLabel?: boolean;
   } = $props();
 
   let copied = $state(false);
@@ -33,8 +35,9 @@
   $effect(() => () => clearTimeout(timer));
 </script>
 
-<button type="button" class="copy" aria-label={label} title={label} onclick={copy}>
+<button type="button" class="copy" class:labelled={showLabel} aria-label={label} title={label} onclick={copy}>
   <Icon name={copied ? 'check' : 'copy'} size={14} />
+  {#if showLabel}<span>{label}</span>{/if}
 </button>
 
 <style>
@@ -42,8 +45,8 @@
     flex: none;
     display: inline-grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 44px;
+    height: 44px;
     padding: 0;
     border: 1px solid transparent;
     border-radius: var(--radius);
@@ -57,10 +60,5 @@
     background: var(--sunken);
     border-color: var(--line);
   }
-  @media (max-width: 860px) {
-    .copy {
-      width: 44px;
-      height: 44px;
-    }
-  }
+  .copy.labelled { display: inline-flex; gap: 8px; width: auto; padding: 10px; }
 </style>

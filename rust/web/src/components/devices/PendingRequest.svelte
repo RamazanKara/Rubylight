@@ -52,7 +52,7 @@
         value={pin}
         oninput={typed}
       />
-      <Button type="submit" variant="primary" {busy} disabled={!complete}>Pair</Button>
+      <Button type="submit" variant="primary" {busy} disabled={!complete}>Pair device</Button>
     </div>
   </form>
 </li>
@@ -66,10 +66,10 @@
     align-items: center;
     gap: var(--space-2) var(--space-3);
     flex-wrap: wrap;
-    padding: var(--space-3);
-    border: 1px solid var(--accent);
+    padding: 20px;
+    border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: var(--accent-soft);
+    background: var(--sunken);
   }
   .who {
     display: grid;
@@ -85,12 +85,15 @@
   }
   .entry {
     display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     gap: var(--space-2);
   }
   .pin {
-    width: 92px;
+    width: 140px;
+    min-width: 0;
     text-align: center;
     letter-spacing: 0.3em;
-    font-size: var(--text-lg);
+    font-size: 24px;
   }
 </style>

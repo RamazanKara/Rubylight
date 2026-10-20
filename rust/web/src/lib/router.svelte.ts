@@ -1,3 +1,5 @@
+import { tick } from 'svelte';
+
 // History routing for the console's handful of pages.
 
 export const route = $state({ path: location.pathname, search: location.search });
@@ -51,6 +53,7 @@ function go(to: string, replace: boolean) {
   else history.pushState({ rubylightIndex: ++index }, '', to);
   sync();
   window.scrollTo(0, 0);
+  if (location.hash) void tick().then(() => document.getElementById(location.hash.slice(1))?.scrollIntoView());
 }
 
 /** Check the current draft before an action that leaves the page, such as signing out. */
@@ -107,7 +110,7 @@ export function link(node: HTMLAnchorElement) {
     const url = new URL(node.href, location.href);
     if (url.origin !== location.origin || node.target || url.pathname.startsWith('/api/')) return;
     event.preventDefault();
-    navigate(url.pathname + url.search);
+    navigate(url.pathname + url.search + url.hash);
   };
   node.addEventListener('click', onclick);
   return { destroy: () => node.removeEventListener('click', onclick) };

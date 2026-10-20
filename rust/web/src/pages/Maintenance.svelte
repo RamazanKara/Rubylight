@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Button from '../components/Button.svelte';
   import { onMount } from 'svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import CrashPanel from '../components/maintenance/CrashPanel.svelte';
@@ -32,7 +33,10 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Maintenance" subtitle="Restart or update the host, recover displays, and manage who can sign in." />
+  <PageHeader title="Help & diagnostics" subtitle="Check logs, recover your displays, or manage this host.">
+    {#snippet actions()}<Button href="/logs" icon="logs">View logs</Button>{/snippet}
+  </PageHeader>
+  <div id="host"></div>
   <Section title="Host">
     <HostPanel />
     <UpdatesPanel />
@@ -48,6 +52,7 @@
     <VulkanPanel />
     <LimiterPanel />
   </Section>
+  <div id="account"></div>
   <Section title="Security" columns={2}>
     <SessionsPanel {sessions} error={sessionsError} onchange={loadSessions} />
     <PasswordPanel {username} />

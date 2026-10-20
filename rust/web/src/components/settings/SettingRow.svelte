@@ -354,7 +354,7 @@
   @media (max-width: 520px) {
     .more summary,
     .link {
-      min-height: 32px;
+      min-height: 44px;
     }
   }
 </style>

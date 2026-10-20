@@ -6,6 +6,8 @@
     description,
     actions,
     flush = false,
+    collapsible = false,
+    open = false,
     level = 2,
     children,
   }: {
@@ -14,6 +16,8 @@
     actions?: Snippet;
     /** Content reaches the panel's edges (tables, lists). */
     flush?: boolean;
+    collapsible?: boolean;
+    open?: boolean;
     /** Heading level of the title: 3 inside a titled page section. It looks the same. */
     level?: 2 | 3;
     children: Snippet;
@@ -21,6 +25,12 @@
 </script>
 
 <section class="panel">
+  {#if collapsible}
+    <details {open}>
+      <summary><span class="title">{title}</span>{#if description}<span class="muted description">{description}</span>{/if}</summary>
+      <div class:body={!flush}>{@render children()}</div>
+    </details>
+  {:else}
   {#if title || actions}
     <header>
       <div>
@@ -33,9 +43,13 @@
   <div class:body={!flush}>
     {@render children()}
   </div>
+  {/if}
 </section>
 
 <style>
+  summary { padding: 20px 24px; font-weight: 600; }
+  .description { display: block; margin-top: 4px; font-weight: 400; font-size: var(--text-sm); }
+  details[open] > summary { border-bottom: 1px solid var(--line); }
   .panel {
     background: var(--panel);
     border: 1px solid var(--line);

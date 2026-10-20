@@ -96,12 +96,12 @@
 </script>
 
 {#snippet addApp()}
-  <Button variant="primary" icon="plus" href="/library/new">Add app</Button>
+  <Button variant="primary" icon="plus" href="/library/import">Add games</Button>
+  <Button href="/library/new">Add manually</Button>
 {/snippet}
 
 {#if editing === null}
-  <!-- With no apps yet, the empty state carries the one Add app button. -->
-  <PageHeader title="Library" subtitle="Games and programs that paired devices can start." actions={apps?.length === 0 ? undefined : addApp} />
+  <PageHeader title="Games & apps" subtitle="Games and programs that paired devices can start." actions={apps?.length === 0 ? undefined : addApp} />
 
   {#if loadError}
     <div class="notice danger load-error" role="alert">
@@ -110,8 +110,7 @@
     </div>
   {/if}
 
-  <SteamSource onsynced={load} />
-  <PlayniteSource onsynced={load} />
+  <details class="sources"><summary>Manage sources</summary><div class="stack"><SteamSource onsynced={load} /><PlayniteSource onsynced={load} /></div></details>
 
   {#if apps === null}
     {#if !loadError}<p class="muted placeholder">Loading apps…</p>{/if}
@@ -119,7 +118,8 @@
     <Panel>
       <EmptyState icon="library" title="No apps yet">
         <p>Add a game or program so devices can start it. An app without a command streams the desktop.</p>
-        <Button variant="primary" icon="plus" href="/library/new">Add app</Button>
+        <Button variant="primary" icon="plus" href="/library/import">Add games</Button>
+  <Button href="/library/new">Add manually</Button>
       </EmptyState>
     </Panel>
   {:else}
@@ -169,6 +169,7 @@
 {/if}
 
 <style>
+  .sources > summary { width: fit-content; color: var(--ink-2); }
   .placeholder {
     font-size: var(--text-sm);
   }

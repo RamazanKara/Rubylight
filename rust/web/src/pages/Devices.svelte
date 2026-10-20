@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Icon from '../components/Icon.svelte';
+  import { refreshMetadata } from '../lib/session.svelte';
   import Badge from '../components/Badge.svelte';
   import Button from '../components/Button.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -22,6 +24,7 @@
   let busy = $state('');
   const acting = $derived(busy !== '' || editorSaving);
   let latestLoad = 0;
+  let knownDevices: Set<string> | null = null;
 
   async function load() {
     // A poll that started before a save must not put the old values back.
@@ -29,6 +32,15 @@
     try {
       const list = (await api.clients.list()).clients;
       if (id !== latestLoad) return;
+      if (knownDevices) {
+        for (const client of list) {
+          if (!knownDevices.has(client.uuid)) {
+            notify(`${client.name} is paired.`, 'ok');
+            void refreshMetadata().catch(() => {});
+          }
+        }
+      }
+      knownDevices = new Set(list.map(client => client.uuid));
       clients = list;
       loadError = '';
       if (editing && !list.some((client) => client.uuid === editing)) closeEditor();
@@ -150,10 +162,10 @@
 </script>
 
 {#snippet unpairAllAction()}
-  <Button variant="danger" size="sm" disabled={acting} busy={busy === 'unpair-all'} onclick={unpairAll}>Unpair all</Button>
+<details class="more"><summary>Manage devices</summary><Button variant="danger" size="sm" disabled={acting} busy={busy === 'unpair-all'} onclick={unpairAll}>Unpair all</Button></details>
 {/snippet}
 
-<PageHeader title="Devices" subtitle="Pair Moonlight and Artemis devices and choose what each one can do." />
+<PageHeader title="Devices" subtitle="Connect a device, then choose what it can do." />
 
 <PairPanel />
 
@@ -183,15 +195,17 @@
         {@const open = editing === client.uuid}
         <li class:open>
           <div class="device">
+            <Icon name="monitor" size={32} />
             <div class="identity">
               <div class="title">
                 <span class="name">{client.name}</span>
-                {#if client.connected}<Badge tone="live">Connected</Badge>{/if}
+                {#if client.connected}<Badge tone="live">Connected</Badge>{:else}<span class="muted">Offline</span>{/if}
                 {#if !client.enabled}<Badge>Disabled</Badge>{/if}
               </div>
               <div class="meta muted">
                 <span title={grantedLabels(client.perm) || 'No permissions'}>{permissionSummary(client.perm)}</span>
               </div>
+              {#if permissionSummary(client.perm) === 'View only'}<p class="network-memory muted">Can watch streams, but cannot start games or use controls.</p>{/if}
               {#if client.network_loss_routes?.length}
                 <p class="network-memory muted">
                   Recent video loss: future streams at {client.network_loss_routes.map((route) => route.address).join(', ')} start with smaller packet bursts.
@@ -200,6 +214,10 @@
               {/if}
             </div>
             <div class="actions">
+              <Button size="sm" disabled={acting} icon={open ? 'x' : permissionSummary(client.perm) === 'View only' ? 'key' : 'settings'} onclick={() => toggleEditor(client.uuid)}>
+                {open ? 'Close' : permissionSummary(client.perm) === 'View only' ? 'Change access' : 'Settings'}<span class="visually-hidden"> {client.name}</span>
+              </Button>
+              <details class="more"><summary>More<span class="visually-hidden"> for {client.name}</span></summary><div class="more-actions">
               {#if client.network_loss_routes?.length}
                 <Button size="sm" disabled={acting} busy={busy === `network-reset:${client.uuid}`} onclick={() => resetNetworkHistory(client)}>
                   Reset network history<span class="visually-hidden"> for {client.name}</span>
@@ -210,9 +228,7 @@
                   Disconnect<span class="visually-hidden"> {client.name}</span>
                 </Button>
               {/if}
-              <Button size="sm" disabled={acting} icon={open ? 'x' : 'edit'} onclick={() => toggleEditor(client.uuid)}>
-                {open ? 'Close' : 'Edit'}<span class="visually-hidden"> {client.name}</span>
-              </Button>
+
               <Button
                 size="sm"
                 variant="danger"
@@ -222,6 +238,8 @@
               >
                 Unpair<span class="visually-hidden"> {client.name}</span>
               </Button>
+
+              </div></details>
             </div>
           </div>
           {#if open}
@@ -234,6 +252,10 @@
 </Panel>
 
 <style>
+  .more { position: relative; }
+  .more summary { padding: 10px 14px; }
+  .more-actions { display: grid; gap: 8px; padding: 12px; min-width: 180px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: var(--radius); }
+  .device > :global(svg) { flex: none; color: var(--ink-2); }
   .network-memory {
     margin: var(--space-1) 0 0;
     font-size: var(--text-sm);
@@ -266,7 +288,7 @@
     justify-content: space-between;
     gap: var(--space-2) var(--space-4);
     flex-wrap: wrap;
-    padding: var(--space-3) var(--space-5);
+    padding: 24px;
   }
   .open .device {
     background: var(--sunken);

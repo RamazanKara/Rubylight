@@ -33,7 +33,8 @@
   .toggle {
     display: flex;
     gap: var(--space-3);
-    align-items: flex-start;
+    align-items: center;
+    min-height: 44px;
     cursor: pointer;
   }
   .disabled {

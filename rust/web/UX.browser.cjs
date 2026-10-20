@@ -129,6 +129,11 @@ test('failed layout refresh keeps the last state visible and offers retry', asyn
   await retry.waitFor({ state: 'detached' });
 });
 
+async function deviceActions(page) {
+  await page.locator('details.more > summary').first().waitFor();
+  for (const summary of await page.locator('details.more > summary').all()) await summary.click();
+}
+
 test('a device action locks other device actions until completion', async t => {
   const held = deferred(), started = deferred();
   t.after(() => held.resolve());
@@ -140,15 +145,16 @@ test('a device action locks other device actions until completion', async t => {
     return true;
   });
   await page.goto(base + '/devices');
+  await deviceActions(page);
   await page.getByRole('button', { name: 'Disconnect First device', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Disconnect', exact: true }).click();
   await started.promise;
-  for (const name of ['Unpair all', 'Unpair First device', 'Edit First device', 'Unpair Second device', 'Edit Second device']) {
+  for (const name of ['Unpair all', 'Unpair First device', 'Settings First device', 'Unpair Second device', 'Settings Second device']) {
     assert.equal(await page.getByRole('button', { name, exact: true }).isDisabled(), true);
   }
   held.resolve();
   await page.getByText('Disconnected First device.', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Edit Second device', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings Second device', exact: true }).click();
   await page.getByRole('form', { name: 'Edit Second device', exact: true }).waitFor();
   assert.equal(writes.filter(write => write.path === '/api/clients/disconnect').length, 1);
 });
@@ -167,6 +173,7 @@ test('a host that stops answering cannot keep the device actions locked', async 
   });
   await page.clock.install();
   await page.goto(base + '/devices');
+  await deviceActions(page);
   await page.getByRole('button', { name: 'Disconnect First device', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Disconnect', exact: true }).click();
   await page.getByText('Disconnected First device.', { exact: true }).waitFor();
@@ -175,7 +182,7 @@ test('a host that stops answering cannot keep the device actions locked', async 
   await page.clock.runFor(21_000);
   await page.getByText(/Could not refresh the list: The host did not answer within 20 seconds/).waitFor();
   assert.equal(await unpair.isDisabled(), false);
-  assert.equal(await page.getByRole('button', { name: 'Edit Second device', exact: true }).isDisabled(), false);
+  assert.equal(await page.getByRole('button', { name: 'Settings Second device', exact: true }).isDisabled(), false);
 });
 
 test('the global close-on-disconnect default saves and survives a reload', async t => {
@@ -231,6 +238,7 @@ test('app disconnect overrides preserve explicit Off and can return to inheritan
   page.on('console', message => { if (['error', 'warning'].includes(message.type())) messages.push(message.text()); });
   t.after(() => assert.deepEqual(messages, []));
   await page.goto(base + '/library/one');
+  await page.locator('summary', { hasText: /^Behavior/ }).click();
   const select = page.getByLabel('Close the app when the last device disconnects', { exact: true });
   await select.waitFor();
   assert.equal(await select.inputValue(), '');
@@ -247,12 +255,14 @@ test('app disconnect overrides preserve explicit Off and can return to inheritan
     assert.deepEqual(app['migration-field'], { preserve: true });
     if (expected === undefined) assert.equal(Object.hasOwn(writes.at(-1).body, 'terminate-on-pause'), false);
     await page.reload();
+    await page.locator('summary', { hasText: /^Behavior/ }).click();
     await select.waitFor();
     assert.equal(await select.inputValue(), value);
   }
   for (const [stored, selected] of [['yes', 'on'], ['1', 'on'], ['false', 'off'], ['0', 'off']]) {
     app['terminate-on-pause'] = stored;
     await page.reload();
+    await page.locator('summary', { hasText: /^Behavior/ }).click();
     await select.waitFor();
     assert.equal(await select.inputValue(), selected);
   }
@@ -276,7 +286,7 @@ test('an app launch that waits on preparation commands is not cut short by the r
   });
   await page.clock.install();
   await page.goto(base + '/library/one');
-  await page.getByRole('button', { name: 'Launch', exact: true }).click();
+  await page.getByRole('button', { name: 'Launch on PC', exact: true }).click();
   await started.promise;
   // Each preparation command may run for two minutes.
   await page.clock.runFor(3 * 60_000);
@@ -295,11 +305,12 @@ test('saving a device keeps its editor open and blocks conflicting actions', asy
     return true;
   });
   await page.goto(base + '/devices');
-  await page.getByRole('button', { name: 'Edit First device', exact: true }).click();
+  await deviceActions(page);
+  await page.getByRole('button', { name: 'Settings First device', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('New name');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await started.promise;
-  for (const name of ['Unpair all', 'Unpair First device', 'Close First device', 'Edit Second device']) {
+  for (const name of ['Unpair all', 'Unpair First device', 'Close First device', 'Settings Second device']) {
     assert.equal(await page.getByRole('button', { name, exact: true }).isDisabled(), true);
   }
   held.resolve();
@@ -335,7 +346,7 @@ test('library reordering cannot overlap writes and restores the server order aft
   await page.getByText('Saving the library order…', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Move earlier', exact: true }).isDisabled(), true);
   assert.equal(await page.getByRole('button', { name: 'Move later', exact: true }).isDisabled(), true);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Library', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Games & apps', exact: true }).click();
   await page.getByText('Saving the library order…', { exact: true }).waitFor();
   held.resolve();
   await page.getByText('Saving the order failed: Order not saved', { exact: true }).waitFor();
@@ -402,7 +413,7 @@ test('a rejected PIN removes the expired request at once instead of on the next 
   await pin.fill('1234');
   // No more polling from here on: only the failure itself may refresh the list.
   await page.clock.pauseAt(new Date(Date.now() + 60_000));
-  await page.getByRole('button', { name: 'Pair', exact: true }).click();
+  await page.getByRole('button', { name: 'Pair device', exact: true }).click();
   await page.getByText('Pairing failed: pairing request no longer exists', { exact: true }).waitFor();
   await pin.waitFor({ state: 'detached' });
 });
@@ -625,4 +636,71 @@ test('a long list of signed-in browsers starts short, with this browser first', 
   assert.match(await list.getByRole('listitem').first().innerText(), /Browser 4\s*This browser/);
   await page.getByRole('button', { name: 'Show all 7 browsers', exact: true }).click();
   assert.equal(await list.getByRole('listitem').count(), 7);
+});
+
+
+test('installed imports filter by launcher, preserve selection and send only stable identities', async t => {
+  const sources = [['steam', 'Steam'], ['epic', 'Epic Games'], ['battlenet', 'Battle.net'], ['ea', 'EA app'], ['ubisoft', 'Ubisoft Connect'], ['gog', 'GOG']]
+    .map(([source, name]) => ({ source, name, state: 'available', errors: [] }));
+  const games = sources.map((source, index) => ({ source: source.source, id: String(index), uuid: 'game-' + index, name: index < 2 ? 'Same title' : source.name + ' game', install_dir: 'E:/Games', has_cover: false, already_added: index === 2, unavailable_reason: index === 3 ? 'EA app is unavailable' : null }));
+  const { page, writes } = await fixture(t, async (route, url, request) => {
+    if (url.pathname === '/api/library/discovery') { await route.fulfill({ json: { status: true, sources, games } }); return true; }
+    if (url.pathname !== '/api/library/import') return false;
+    const results = request.postDataJSON().games.map(game => ({ ...game, result: game.source === 'epic' ? 'failed' : 'added', error: game.source === 'epic' ? 'Game was uninstalled. Scan again.' : null }));
+    await route.fulfill({ json: { status: true, results } });
+    return true;
+  });
+  await page.goto(base + '/library/import');
+  await page.getByRole('heading', { name: 'Add games', exact: true }).waitFor();
+  const steam = page.getByRole('checkbox', { name: 'Add Same title from Steam', exact: true });
+  const epic = page.getByRole('checkbox', { name: 'Add Same title from Epic Games', exact: true });
+  await steam.check();
+  await page.getByRole('combobox', { name: 'Launcher', exact: true }).selectOption('epic');
+  await epic.check();
+  await page.getByRole('searchbox', { name: 'Search games', exact: true }).fill('no match');
+  await page.getByRole('heading', { name: 'No matching games' }).waitFor();
+  await page.getByRole('searchbox', { name: 'Search games', exact: true }).fill('');
+  await page.getByRole('combobox', { name: 'Launcher', exact: true }).selectOption('all');
+  assert.equal(await steam.isChecked(), true);
+  assert.equal(await page.getByRole('checkbox', { name: 'Add Battle.net game from Battle.net', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('checkbox', { name: 'Add EA app game from EA app', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: 'Add selected games', exact: true }).click();
+  await page.getByText('1 game added.', { exact: true }).waitFor();
+  await page.getByText(/Same title: Game was uninstalled/).waitFor();
+  assert.deepEqual(writes.find(write => write.path === '/api/library/import').body, { games: [{ source: 'steam', id: '0' }, { source: 'epic', id: '1' }] });
+  assert.equal(await steam.isDisabled(), true);
+  assert.equal(await epic.isChecked(), true, 'failed imports remain selected for retry');
+  assert.equal(await page.getByRole('link', { name: 'Add manually', exact: true }).getAttribute('href'), '/library/new');
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
+test('import scans distinguish missing launchers, empty libraries, partial errors and connection failures', async t => {
+  let fail = false, scans = 0;
+  const { page, writes } = await fixture(t, async (route, url) => {
+    if (url.pathname !== '/api/library/discovery') return false;
+    scans++;
+    if (fail) await route.fulfill({ status: 503, body: 'Discovery unavailable' });
+    else await route.fulfill({ json: { status: true, games: [], sources: [
+      { source: 'steam', name: 'Steam', state: 'available', errors: [] },
+      { source: 'epic', name: 'Epic Games', state: 'unavailable', errors: [] },
+      { source: 'battlenet', name: 'Battle.net', state: 'error', errors: ['The product database could not be read.'] },
+    ] } });
+    return true;
+  });
+  await page.goto(base + '/library/import');
+  await page.getByRole('heading', { name: 'No installed games found' }).waitFor();
+  await page.getByText('Launcher not found', { exact: true }).waitFor();
+  await page.getByText('No installed games', { exact: true }).waitFor();
+  await page.getByText('Scan incomplete', { exact: true }).waitFor();
+  assert.equal(scans, 1);
+  fail = true;
+  await page.getByRole('button', { name: 'Scan again', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'Discovery unavailable' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Add selected games', exact: true }).isDisabled(), true);
+  fail = false;
+  await page.getByRole('button', { name: 'Scan again', exact: true }).click();
+  await page.getByRole('heading', { name: 'No installed games found' }).waitFor();
+  assert.equal(scans, 3);
+  assert.deepEqual(writes, []);
 });

@@ -115,6 +115,7 @@
   }
   .remember {
     display: flex;
+    min-height: 44px;
     gap: 8px;
     align-items: center;
     font-size: var(--text-sm);

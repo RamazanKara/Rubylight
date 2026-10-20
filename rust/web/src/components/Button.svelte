@@ -56,7 +56,8 @@
     font-weight: 560;
     font-size: var(--text-sm);
     line-height: 1.3;
-    padding: 9px 13px;
+    padding: 11px 18px;
+    min-height: 44px;
     cursor: pointer;
     text-decoration: none;
     max-width: 100%;
@@ -68,7 +69,7 @@
     transition: background 0.12s, border-color 0.12s;
   }
   .sm {
-    padding: 6px 9px;
+    padding: 9px 13px;
   }
   .button:hover:not(:disabled) {
     background: var(--sunken);

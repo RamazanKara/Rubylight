@@ -1,5 +1,7 @@
 [workspace]
-members = ["core", "client", "ffi", "difftest", "cli"]
+members = ["core", "client", "ffi", "difftest", "cli", "desktop"]
+# The desktop client needs SDL3 and FFmpeg; plain `cargo test` here stays the engine's.
+default-members = ["core", "client", "ffi", "difftest", "cli"]
 resolver = "2"
 
 [workspace.package]

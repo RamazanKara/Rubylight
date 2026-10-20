@@ -16,7 +16,7 @@ The Rust workspace is `protocol/`:
 | `nightjar-difftest` | `protocol/difftest` | Test-only (`publish = false`): builds the patched moonlight-common-c receive paths in `build.rs` (sources copied to `OUT_DIR`, patches applied there) and compares them with `nightjar-core` on identical packet sequences. Needs the `moonlight-common-c` and `nanors` submodules and OpenSSL; compiled out elsewhere. |
 | `rubylight-protocol-ffi` | `protocol/ffi` | C ABI for the Android app. Grows a Limelight-compatible API over `nightjar-core` for the switch-over. |
 | `nightjar-cli` | `protocol/cli` | Headless test client (`publish = false`): stream, decode every frame, report. Drop-in for Rubylight's `rust/tests/moonlight_client.c` (same arguments, environment, output lines and exit codes) so Rubylight's `interop.py`/`e2e.py` drive it unchanged; pairing and launch stay in `interop.py`. Decoding needs the `ffmpeg` feature (libavcodec and libopus, as the C client). |
-| desktop client (planned) | `desktop/` | Windows and Linux app on `nightjar-core`. |
+| `nightjar-desktop` | `protocol/desktop` | Windows and Linux client (`publish = false`, not a default member): SDL3 window and renderer, egui launcher, FFmpeg D3D11VA/VAAPI decoding, PresentClock pacing, SDL3 audio and gamepads. See `protocol/desktop/README.md`. |
 
 ## Module boundaries in `nightjar-core`
 
@@ -115,4 +115,4 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
 - [x] `session` + `nightjar-cli`, e2e against Rubylight (loopback session tests in
   `protocol/client/tests/session_loopback.rs`)
 - [ ] Android switch-over behind a setting
-- [ ] Desktop client (Windows, Linux)
+- [x] Desktop client milestone 1 (Windows, Linux): pairing, library, launch/resume/quit, hardware decoding, VRR pacing, audio, input, overlay. Streamed against an isolated Rubylight host on Windows (HEVC D3D11VA up to 5120x1440@240). Next: decode-only FFmpeg for packaging, HDR output, VAAPI dmabuf import, a dedicated D3D11 renderer with a waitable swap chain, per-PC settings, Wake-on-LAN, OTP pairing.

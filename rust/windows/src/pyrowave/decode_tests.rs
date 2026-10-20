@@ -1141,6 +1141,98 @@ fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
     Ok(())
 }
 
+#[test]
+#[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL"]
+fn record_framing_keeps_the_wire_budget_and_decoded_pixels() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    ensure!(
+        crate::compute::copies_on(&gpu.device),
+        "requires AMD compute"
+    );
+    let config = Negotiated {
+        width: 1280,
+        height: 720,
+        fps: 60,
+        codec: 3,
+        packet_size: 1392,
+        pyrowave_records: true,
+        ..Default::default()
+    };
+    let period = butterpollo_core::framegen::Rate(config.fps_millihz()).period();
+    let mut encoder = super::Encoder::new_device(&config, gpu.clone(), &Config::default())?;
+    let mut decoder = Decoder::new(&gpu, &config)?;
+    for scene in [Scene::Desktop, Scene::Game] {
+        let (source, _) = picture(&config, 0, scene);
+        let source = GpuImage::upload(&gpu, &source)?;
+        for kbps in [30_000, 80_000, 100_000, 200_000, 300_000, 400_000] {
+            encoder.restart_interval();
+            let frames = encoder.encode_gpu(&source, true, kbps)?;
+            assert_eq!(frames.len(), 1);
+            assert!(encoder.compute.is_some());
+            let budget = pyrowave::budget(kbps, period, config.packet_size, true, 20);
+            let packet = &encoder.packets[0];
+            let raw = &encoder.bitstream[packet.offset..packet.offset + packet.size];
+            let mut packetizer = VideoPacketizer {
+                sequence: 0,
+                iv_counter: 0,
+                frame: 1,
+                packet_size: config.packet_size,
+                fec_percent: 0,
+                min_fec: 2,
+                key: Some([42; 16]),
+            };
+            let fec = |critical_percentage| PyrowaveFec {
+                records: true,
+                critical_percentage,
+                detail_percentage: 0,
+                wire_budget: 0,
+                ipv6: true,
+            };
+            let allowance = (f64::from(kbps) * 125. * period.as_secs_f64()) as usize;
+            let aligned = pyrowave::record_frame(
+                raw,
+                pyrowave::aligned_payload(config.packet_size),
+                pyrowave::max_frame_bytes(config.packet_size, true),
+            )?;
+            let mut aligned_wire = 0;
+            for percentage in 0..=20 {
+                let packets =
+                    packetizer.encode_pyrowave(&frames[0].bytes, 0, 0, fec(percentage))?;
+                let wire: usize = packets
+                    .iter()
+                    .map(|packet| packet.len() + butterpollo_core::network_pacing::overhead(true))
+                    .sum();
+                assert!(
+                    wire <= allowance,
+                    "record alignment exceeded the wire budget at {scene:?}/{kbps}/{percentage}: {wire} > {allowance}"
+                );
+                let aligned_packets =
+                    packetizer.encode_pyrowave(&aligned, 0, 0, fec(percentage))?;
+                let wire: usize = aligned_packets
+                    .iter()
+                    .map(|packet| packet.len() + butterpollo_core::network_pacing::overhead(true))
+                    .sum();
+                aligned_wire = aligned_wire.max(wire);
+            }
+            println!(
+                "scene={scene:?} kbps={kbps} budget={budget} raw={} framed={} aligned_wire={aligned_wire} allowance={allowance}",
+                raw.len(),
+                frames[0].bytes.len()
+            );
+            if aligned_wire <= allowance {
+                assert_eq!(frames[0].bytes, aligned);
+            } else {
+                assert_eq!(frames[0].bytes, raw);
+            }
+            let expected = decoder.decode(&gpu, &codec_packets(raw, true)?)?;
+            let decoded = decoder.decode(&gpu, &codec_packets(&frames[0].bytes, true)?)?;
+            assert_eq!(decoded, expected);
+        }
+    }
+    Ok(())
+}
+
 fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
     println!("PYROWAVE_QUALITY_START {}", stream_status()?);
     let _com = ComGuard::new()?;

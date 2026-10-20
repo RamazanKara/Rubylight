@@ -62,12 +62,14 @@ fn max_critical_parity(critical_fec_percentage: u32, packets: usize, minimum: us
         return 0;
     }
     (1..=packets.min(255))
-        .filter_map(|critical| {
-            let parity = parity(critical, critical_fec_percentage as usize, minimum);
-            (critical + parity <= 255).then_some(parity)
-        })
+        .map(|critical| critical_parity_bound(critical, critical_fec_percentage as usize, minimum))
         .max()
         .unwrap_or(0)
+}
+pub fn critical_parity_bound(critical: usize, percentage: usize, minimum: usize) -> usize {
+    let percentage = percentage.min(255usize.saturating_sub(critical) * 100 / critical.max(1));
+    let parity = parity(critical, percentage, minimum);
+    if critical + parity <= 255 { parity } else { 0 }
 }
 /// The picture bytes a frame's wire allowance carries: whole packets with
 /// their wire overhead, less one critical block's parity, the frame header
@@ -847,6 +849,103 @@ mod tests {
                         assert!(data + fec <= packets);
                     }
                 }
+            }
+        }
+    }
+    #[test]
+    fn critical_parity_bound_covers_every_adaptive_percentage() {
+        for minimum in [2, 24, 42, 44, 255] {
+            for critical in 0..=256 {
+                let mut maximum = 0;
+                for percentage in 0..=255 {
+                    let parity = parity(critical, percentage, minimum);
+                    if critical + parity <= 255 {
+                        maximum = maximum.max(parity);
+                    }
+                    assert_eq!(
+                        critical_parity_bound(critical, percentage, minimum),
+                        maximum,
+                        "{critical}/{percentage}/{minimum}"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn a_lower_adaptive_percentage_cannot_exceed_the_reserved_wire_budget() {
+        let packet_size = 1392;
+        let allowance = 254 * (packet_size + WIRE_OVERHEAD);
+        let image = image_bytes_with_minimum(allowance, packet_size, 120, 2);
+        let data = (image + 8).div_ceil(packet_size - 16);
+        for critical in 1..=data {
+            for percentage in 0..=120 {
+                let blocks = plan(data, critical, percentage, 2, 0, 0).unwrap();
+                let packets: usize = blocks
+                    .iter()
+                    .map(|block| block.data + parity(block.data, block.percentage, 2))
+                    .sum();
+                assert!(
+                    packets * (packet_size + WIRE_OVERHEAD) <= allowance,
+                    "{critical}/{percentage}: {packets} packets"
+                );
+            }
+        }
+    }
+    #[test]
+    fn aligned_frame_cost_reserves_parity_restored_by_adaptation() {
+        let original = frame(
+            &(0..48)
+                .map(|index| (index, 6100))
+                .chain((48..98).map(|index| (index, 700)))
+                .collect::<Vec<_>>(),
+        );
+        let packet_size = 1392;
+        let aligned = record_frame(
+            &original,
+            aligned_payload(packet_size),
+            max_frame_bytes(packet_size, true),
+        )
+        .unwrap();
+        let critical = layout(&aligned, aligned_payload(packet_size))
+            .unwrap()
+            .critical_shards;
+        assert_eq!(critical, 213);
+        let data = (aligned.len() + 8).div_ceil(packet_size - 16);
+        let maximum = data + critical_parity_bound(critical, 20, 2);
+        let allowance = 437_500;
+        assert!(data * (packet_size + WIRE_OVERHEAD) <= allowance);
+        assert!(maximum * (packet_size + WIRE_OVERHEAD) > allowance);
+        for percentage in 0..=20 {
+            let mut packetizer = crate::packet::VideoPacketizer {
+                sequence: 0,
+                iv_counter: 0,
+                frame: 1,
+                packet_size,
+                fec_percent: 0,
+                min_fec: 2,
+                key: Some([42; 16]),
+            };
+            let packets = packetizer
+                .encode_pyrowave(
+                    &aligned,
+                    0,
+                    0,
+                    crate::packet::PyrowaveFec {
+                        records: true,
+                        critical_percentage: percentage,
+                        detail_percentage: 0,
+                        wire_budget: 0,
+                        ipv6: true,
+                    },
+                )
+                .unwrap();
+            let wire: usize = packets
+                .iter()
+                .map(|packet| packet.len() + crate::network_pacing::overhead(true))
+                .sum();
+            assert!(wire <= maximum * (packet_size + WIRE_OVERHEAD));
+            if percentage == 19 {
+                assert!(wire > allowance);
             }
         }
     }

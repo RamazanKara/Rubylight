@@ -760,11 +760,32 @@ impl Encoder {
                     .bitstream
                     .get(packet.offset..end)
                     .context("invalid codec record range")?;
-                pyrowave::record_frame(
+                let framed = pyrowave::record_frame(
                     raw,
                     pyrowave::aligned_payload(self.config.packet_size),
                     limit,
-                )?
+                )?;
+                if framed.len() <= budget {
+                    framed
+                } else {
+                    let layout = pyrowave::layout(
+                        &framed,
+                        pyrowave::aligned_payload(self.config.packet_size),
+                    )?;
+                    let minimum = self.config.min_fec.max(pyrowave::MIN_PARITY_SHARDS);
+                    let packets = (framed.len() + 8).div_ceil(self.config.packet_size - 16)
+                        + pyrowave::critical_parity_bound(
+                            layout.critical_shards,
+                            self.critical_fec_percentage as usize,
+                            minimum,
+                        );
+                    let allowance = (f64::from(kbps) * 125. * interval.as_secs_f64()) as usize;
+                    if packets * (self.config.packet_size + pyrowave::WIRE_OVERHEAD) <= allowance {
+                        framed
+                    } else {
+                        raw.to_vec()
+                    }
+                }
             } else {
                 pyrowave::container(
                     &self.bitstream,

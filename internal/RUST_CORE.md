@@ -65,7 +65,7 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
 - [ ] `fec` + `video`
 - [ ] `audio`
 - [ ] `crypto` + `control` + `input`
-- [ ] `rtsp` + `sdp` + `http`
+- [x] `rtsp` + `sdp` + `http` (TCP RTSP incl. encrypted; RTSP over ENet for GFE < 3.22 is not ported)
 - [ ] `session` + `nightjar-cli`, e2e against Rubylight
 - [ ] Android switch-over behind a setting
 - [ ] Desktop client (Windows, Linux)

@@ -207,6 +207,7 @@ public final class AdaptiveLayout {
                 size.getWindowHeightSizeClass() != WindowHeightSizeClass.COMPACT) return 1;
         int cellWidth = computers ? 280 : (smallIcons ? 112 : 168);
         if (television) cellWidth = computers ? 320 : (smallIcons ? 144 : 200);
-        return Math.max(1, (int) ((widthDp + 8) / (cellWidth + 8)));
+        int spacing = television ? 16 : 8;
+        return Math.max(1, (int) ((widthDp + spacing) / (cellWidth + spacing)));
     }
 }

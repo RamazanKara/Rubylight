@@ -418,6 +418,37 @@ public class UiNavigationTest {
         }
     }
 
+    @Test @Config(qualifiers = "television")
+    public void tvFocusMovesBetweenCardsAndBackLeavesTheOptionsButton() {
+        try (var controller = Robolectric.buildActivity(Screen.class).setup().visible()) {
+            Screen screen = controller.get();
+            screen.setContentView(R.layout.activity_pc_view);
+            AtomicInteger menus = new AtomicInteger();
+            AdaptiveGridView grid = computerGrid(screen, menus);
+            layout(screen);
+            grid.requestFocus();
+            grid.setSelection(0);
+            layout(screen);
+            View first = grid.getChildAt(0);
+            first.jumpDrawablesToCurrentState();
+            assertEquals(1.04f, first.getScaleX(), 0.001f);
+            press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
+            layout(screen);
+            first.jumpDrawablesToCurrentState();
+            grid.getSelectedView().jumpDrawablesToCurrentState();
+            assertEquals(1f, first.getScaleX(), 0.001f);
+            assertEquals(1.04f, grid.getSelectedView().getScaleX(), 0.001f);
+            for (int key : new int[]{KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE}) {
+                press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
+                assertTrue(grid.isActionMarked());
+                press(grid, key);
+                assertFalse(grid.isActionMarked());
+                assertEquals(1, grid.getSelectedItemPosition());
+            }
+            assertEquals(0, menus.get());
+        }
+    }
+
     @Test
     public void computerAccessibilityActionOpensTheSameMenuAsLongPress() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();

@@ -293,6 +293,11 @@ public final class StreamMenu {
         sheet.setHeading(activity.getString(target == Page.MAIN ? title(o.role) : R.string.stream_overlay_page));
         sheet.setBackHandler(target == Page.MAIN ? null : this::back);
         entries = target == Page.MAIN ? mainPage(o) : overlayPage(o);
+        if ((activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
+            entries.removeIf(entry -> entry.item == Item.TOUCH_MODE || entry.item == Item.ONSCREEN_CONTROLS ||
+                    entry.item == Item.CONTROLS_LAYOUT || entry.item == Item.GAME_CONTROLS || entry.item == Item.ZOOM);
+        }
         LinearLayout quickRow = null;
         Section section = null;
         for (Entry entry : entries) {

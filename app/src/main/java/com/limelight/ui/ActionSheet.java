@@ -25,6 +25,7 @@ public final class ActionSheet extends BottomSheetDialog {
     private final ImageButton back;
     private final NestedScrollView scroll;
     private final int spacing;
+    private final boolean television;
     private MaterialButton firstAction;
     private Runnable backHandler;
     // Enabled only while a page is shown, so Back returns to the page before instead of closing.
@@ -38,6 +39,9 @@ public final class ActionSheet extends BottomSheetDialog {
         super(context);
         if (context instanceof android.app.Activity) setOwnerActivity((android.app.Activity) context);
         context = getContext();
+        television = (context.getResources().getConfiguration().uiMode &
+                android.content.res.Configuration.UI_MODE_TYPE_MASK) == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+        if (television) getWindow().setWindowAnimations(R.style.TvSheetAnimation);
         spacing = Math.round(8 * context.getResources().getDisplayMetrics().density);
         body = new LinearLayout(context);
         body.setOrientation(LinearLayout.VERTICAL);
@@ -48,6 +52,7 @@ public final class ActionSheet extends BottomSheetDialog {
         content = new LinearLayout(context);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(spacing * 2, 0, spacing * 2, spacing * 2);
+        if (television) content.setClipToPadding(false);
         heading = new TextView(context);
         heading.setTextAppearance(context, R.style.TextAppearance_Nightjar_ScreenTitle);
         heading.setText(title);
@@ -124,6 +129,13 @@ public final class ActionSheet extends BottomSheetDialog {
         content.removeAllViews();
         firstAction = null;
         scroll.scrollTo(0, 0);
+        if (television && isShowing()) {
+            content.animate().cancel();
+            content.setAlpha(0);
+            content.setTranslationY(spacing);
+            content.animate().alpha(1).translationY(0).setDuration(180)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        }
     }
 
     /** Moves D-pad and keyboard focus to the first row, as when the sheet opens. */
@@ -202,6 +214,7 @@ public final class ActionSheet extends BottomSheetDialog {
                 params.height = stacked ? LayoutParams.WRAP_CONTENT : LayoutParams.MATCH_PARENT;
                 params.weight = stacked ? 0 : 1;
                 params.setMarginStart(stacked || i == 0 ? 0 : gap);
+                params.resolveLayoutDirection(getLayoutDirection());
                 params.topMargin = stacked && i > 0 ? gap : 0;
                 int iconGravity = stacked ? MaterialButton.ICON_GRAVITY_TEXT_START : MaterialButton.ICON_GRAVITY_TOP;
                 if (button.getIconGravity() != iconGravity) button.setIconGravity(iconGravity);
@@ -229,6 +242,7 @@ public final class ActionSheet extends BottomSheetDialog {
         MaterialButton button = addAction(icon, label);
         content.removeView(button);
         android.widget.FrameLayout frame = new android.widget.FrameLayout(getContext());
+        if (television) frame.setClipChildren(false);
         frame.addView(button, new android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT));
         android.widget.ImageView chevron = new android.widget.ImageView(getContext());
@@ -245,6 +259,10 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     private void claimFirstAction(MaterialButton button) {
+        if (television) {
+            button.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.card_stroke));
+            button.setStateListAnimator(android.animation.AnimatorInflater.loadStateListAnimator(getContext(), R.animator.tv_control_focus));
+        }
         if (firstAction == null) {
             firstAction = button;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) button.setFocusedByDefault(true);

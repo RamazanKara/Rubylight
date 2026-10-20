@@ -60,6 +60,7 @@ public class AdaptiveGridView extends GridView {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (event.hasNoModifiers()) {
+            if (markedAction != null && isBackKey(keyCode)) return true;
             View action = selectedAction();
             int towardAction = getLayoutDirection() == LAYOUT_DIRECTION_RTL ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
             int towardCard = towardAction == KeyEvent.KEYCODE_DPAD_RIGHT ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
@@ -81,6 +82,10 @@ public class AdaptiveGridView extends GridView {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (markedAction != null && event.hasNoModifiers() && isBackKey(keyCode)) {
+            if (!event.isCanceled()) markAction(null);
+            return true;
+        }
         if (markedAction != null && isActivateKey(keyCode) && markedAction == selectedAction()) {
             if (!event.isCanceled()) markedAction.performClick();
             return true;
@@ -133,6 +138,10 @@ public class AdaptiveGridView extends GridView {
         return keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER ||
                 keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || keyCode == KeyEvent.KEYCODE_SPACE ||
                 keyCode == KeyEvent.KEYCODE_BUTTON_A;
+    }
+
+    private static boolean isBackKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_BUTTON_B || keyCode == KeyEvent.KEYCODE_ESCAPE;
     }
 
     /** True when the grid is too short for full-height artwork, as on a phone in landscape. */

@@ -1,4 +1,4 @@
-<!-- A game in the library: its cover, with the title only when the host has no artwork, a status chip
+<!-- A game in the library: its cover, a title caption on TV, a status chip
      for a running or hidden game, and its options button. AppGridAdapter fills it; GenericGridAdapter
      sets the cover height. -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -25,6 +25,10 @@
                 android:padding="@dimen/space_l" android:background="@drawable/bg_cover_action" android:focusable="false"
                 android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />
         </FrameLayout>
+        <TextView android:id="@+id/grid_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:padding="@dimen/space_s" android:lines="2" android:ellipsize="end"
+            android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface"
+            android:visibility="gone" android:importantForAccessibility="no" />
         <TextView android:id="@+id/grid_role" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_s" android:padding="@dimen/space_s" android:maxLines="2" android:ellipsize="end"
             android:background="@drawable/dialog_background" android:drawablePadding="@dimen/space_s"

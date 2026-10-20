@@ -257,6 +257,31 @@ public class StreamMenuTest {
         }
     }
 
+    @Test @Config(qualifiers = "television")
+    public void tvMenusKeepRemoteActionsAndLeaveOutTouchOnlyControls() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            state.onscreenControls = true;
+            state.gameControls = true;
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { });
+            menu.show();
+            for (StreamMenu.Item item : new StreamMenu.Item[]{TOUCH_MODE, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, ZOOM}) {
+                assertNull(menu.row(item));
+                assertFalse(items(menu.entries()).contains(item));
+            }
+            assertEquals("On-screen keyboard", menu.row(KEYBOARD).getText().toString());
+            assertNotNull(menu.row(KEYBOARD_KEYS));
+            assertNotNull(menu.row(DISCONNECT));
+            menu.row(OVERLAY_PAGE).performClick();
+            assertEquals(StreamMenu.Page.OVERLAY, menu.page());
+            menu.back();
+            assertEquals(StreamMenu.Page.MAIN, menu.page());
+            menu.sheet().dismiss();
+        }
+    }
+
     @Test
     public void controllerBAndEscapeStepBackFromThePageToo() {
         try (var controller = Robolectric.buildActivity(Activity.class).setup()) {

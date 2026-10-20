@@ -199,6 +199,12 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         // Let the cached asset loader handle it
         loader.populateImageView(obj.app, imgView, txtView);
 
+        TextView title = parentView.findViewById(R.id.grid_title);
+        boolean television = (context.getResources().getConfiguration().uiMode &
+                android.content.res.Configuration.UI_MODE_TYPE_MASK) == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+        title.setVisibility(television ? View.VISIBLE : View.GONE);
+        title.setText(obj.app.getAppName());
+
         TextView roleView = parentView.findViewById(R.id.grid_role);
         NvApp.Role role = obj.app.getRole();
         int roleLabel = roleLabel(obj.app);

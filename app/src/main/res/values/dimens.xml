@@ -6,6 +6,9 @@
     <dimen name="space_l">16dp</dimen>
     <dimen name="space_xl">24dp</dimen>
     <dimen name="space_xxl">32dp</dimen>
+    <dimen name="grid_spacing">8dp</dimen>
+    <dimen name="grid_padding_top">4dp</dimen>
+    <dimen name="grid_padding_bottom">16dp</dimen>
 
     <!-- Horizontal margin between the window's safe area and content; 24dp from 600dp wide (values-w600dp). -->
     <dimen name="screen_gutter">16dp</dimen>

@@ -13,6 +13,67 @@ import static org.junit.Assert.*;
 @Config(sdk = 28, application = Application.class)
 public class ActionSheetTest {
     @Test @Config(qualifiers = "television")
+    public void focusedTvTogglesHaveRoomToGrow() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            var row = sheet.addToggleRow();
+            var first = sheet.addToggle(row, R.drawable.ic_play, "Play", false);
+            var second = sheet.addToggle(row, R.drawable.ic_settings, "Settings", false);
+            sheet.show();
+            row.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.AT_MOST));
+            row.layout(0, 0, 600, row.getMeasuredHeight());
+            first.requestFocus();
+            first.jumpDrawablesToCurrentState();
+            assertTrue(second.getLeft() - first.getRight() > first.getWidth() * (first.getScaleX() - 1) / 2);
+            sheet.dismiss();
+        }
+    }
+
+    @Test @Config(qualifiers = "television")
+    public void tvMenuFocusFollowsTheRemoteAndClearsThePreviousRow() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            var first = sheet.addAction(R.drawable.ic_play, "Play");
+            var second = sheet.addAction(R.drawable.ic_settings, "Settings");
+            sheet.show();
+            first.requestFocus();
+            first.jumpDrawablesToCurrentState();
+            assertEquals(1.025f, first.getScaleX(), 0.001f);
+            second.requestFocus();
+            first.jumpDrawablesToCurrentState();
+            second.jumpDrawablesToCurrentState();
+            assertEquals(1f, first.getScaleX(), 0.001f);
+            assertEquals(1.025f, second.getScaleX(), 0.001f);
+            assertEquals(R.style.TvSheetAnimation, sheet.getWindow().getAttributes().windowAnimations);
+            sheet.dismiss();
+        }
+    }
+
+    @Test @Config(qualifiers = "television")
+    public void tvPageChangesStayVisibleWhenSystemAnimationsAreDisabled() {
+        org.robolectric.util.ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                org.robolectric.util.ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            sheet.addAction(R.drawable.ic_settings, "Settings");
+            sheet.show();
+            sheet.clearActions();
+            var action = sheet.addAction(R.drawable.ic_play, "Play");
+            sheet.focusFirstAction();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(32, java.util.concurrent.TimeUnit.MILLISECONDS);
+            View content = (View) action.getParent();
+            assertEquals(1f, content.getAlpha(), 0.001f);
+            assertEquals(0f, content.getTranslationY(), 0.001f);
+            assertTrue(action.hasFocus());
+            sheet.dismiss();
+        } finally {
+            org.robolectric.util.ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(qualifiers = "television")
     public void tvSafeAreaStaysInsideTheSheetInsteadOfLiftingItOffTheScreen() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
             ActionSheet sheet = new ActionSheet(controller.get(), "Menu");

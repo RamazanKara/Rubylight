@@ -64,9 +64,14 @@ fn main() {
     let _ = fs::remove_dir_all(out.join("jni"));
     fs::create_dir_all(&out_src).unwrap();
     fs::create_dir_all(out.join("jni/pyrowave-renderer")).unwrap();
-    for entry in fs::read_dir(common.join("src")).unwrap() {
-        let entry = entry.unwrap();
-        fs::copy(entry.path(), out_src.join(entry.file_name())).unwrap();
+    // Gradle and scripts/test-native.sh patch the submodule's src in place, so take the pinned
+    // commit's files from git; the working tree is only the fallback without git.
+    let pinned = copy_pinned_sources(&common, &out_src);
+    if !pinned {
+        for entry in fs::read_dir(common.join("src")).unwrap() {
+            let entry = entry.unwrap();
+            fs::copy(entry.path(), out_src.join(entry.file_name())).unwrap();
+        }
     }
     for name in WRAPPERS {
         fs::copy(core.join(name), out_core.join(name)).unwrap();
@@ -78,7 +83,7 @@ fn main() {
     .unwrap();
     for name in PATCHES {
         let patch = fs::read_to_string(core.join("patches").join(name)).unwrap();
-        apply_patch(&out_core.join("moonlight-common-c"), &patch)
+        apply_patch(&out_core.join("moonlight-common-c"), &patch, !pinned)
             .unwrap_or_else(|error| panic!("{name}: {error}"));
     }
 
@@ -120,9 +125,43 @@ fn main() {
     println!("cargo::rustc-cfg=difftest_c");
 }
 
+/// Writes `src/*` as committed at the submodule's HEAD to `out`; false when git cannot.
+fn copy_pinned_sources(common: &Path, out: &Path) -> bool {
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(common)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| o.stdout)
+    };
+    let Some(list) = git(&["ls-tree", "--name-only", "HEAD", "src/"]) else {
+        return false;
+    };
+    let names: Vec<String> = String::from_utf8_lossy(&list)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    if names.is_empty() {
+        return false;
+    }
+    for name in names {
+        let Some(bytes) = git(&["show", &format!("HEAD:{name}")]) else {
+            return false;
+        };
+        let file = Path::new(&name).file_name().unwrap();
+        fs::write(out.join(file), bytes).unwrap();
+    }
+    true
+}
+
 /// Applies a unified diff (`git diff` output) to files below `root`. Hunks must match exactly,
-/// ignoring line endings; they may sit at a different line than the header says.
-fn apply_patch(root: &Path, patch: &str) -> Result<(), String> {
+/// ignoring line endings; they may sit at a different line than the header says. With
+/// `patched` (sources copied from a working tree that may already carry the patches), hunks
+/// whose result is present are skipped.
+fn apply_patch(root: &Path, patch: &str, patched: bool) -> Result<(), String> {
     let lines: Vec<&str> = patch.lines().collect();
     let mut i = 0;
     while i < lines.len() {
@@ -163,17 +202,23 @@ fn apply_patch(root: &Path, patch: &str) -> Result<(), String> {
                 i += 1;
             }
             let expected = (start - 1 + shift).max(0) as usize;
-            let matches = |at: usize| {
-                at + old.len() <= content.len()
-                    && content[at..at + old.len()]
-                        .iter()
-                        .zip(&old)
-                        .all(|(a, b)| a == b)
+            let find = |block: &[&str]| {
+                (0..content.len().max(expected) + 1)
+                    .flat_map(|d| [expected.checked_add(d), expected.checked_sub(d)])
+                    .flatten()
+                    .find(|&at| {
+                        at + block.len() <= content.len()
+                            && content[at..at + block.len()]
+                                .iter()
+                                .zip(block)
+                                .all(|(a, b)| a == b)
+                    })
             };
-            let at = (0..content.len().max(expected) + 1)
-                .flat_map(|d| [expected.checked_add(d), expected.checked_sub(d)])
-                .flatten()
-                .find(|&at| matches(at))
+            // A working tree the app build already patched carries each hunk's result.
+            if patched && find(&new).is_some() {
+                continue;
+            }
+            let at = find(&old)
                 .ok_or_else(|| format!("hunk at line {start} of {path} does not apply"))?;
             content.splice(at..at + old.len(), new.iter().map(|s| s.to_string()));
             shift += new.len() as isize - old.len() as isize + at as isize - expected as isize;

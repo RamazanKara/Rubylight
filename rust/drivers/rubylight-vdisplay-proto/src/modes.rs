@@ -69,9 +69,9 @@ pub fn union_modes(into: &mut Vec<Mode>, from: &[Mode]) {
     }
 }
 
-/// Slower rates the requested resolution also offers. Windows can drop a rate it will not
-/// drive from the mode list (4K at 1000 Hz for VRR on Windows 11 23H2, issue #40, with
-/// this driver and with libvirtualdisplay alike); with these the resolution stays settable
+/// Slower rates the requested resolution also offers. Windows can drop a rate from the mode
+/// list (4K at 1000 Hz for VRR on a Windows 11 23H2 PC, issue #40, with this driver and with
+/// libvirtualdisplay, whose EDIDs declared 495 and 255 Hz at most); with these the resolution stays settable
 /// and only the refresh falls back. Only rates below the requested one are added, so a
 /// game picking a display's fastest mode cannot run faster than the stream asked for.
 pub const REQUESTED_RESOLUTION_RATES: [u32; 4] = [60_000, 120_000, 240_000, 480_000];

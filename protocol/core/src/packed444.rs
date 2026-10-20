@@ -28,11 +28,7 @@ pub struct Geometry {
 
 impl Geometry {
     pub fn new(width: u32, height: u32) -> Option<Self> {
-        if !(64..=16384).contains(&width)
-            || !(64..=8192).contains(&height)
-            || width % 2 != 0
-            || height % 2 != 0
-        {
+        if !(1..=16384).contains(&width) || !(1..=8192).contains(&height) {
             return None;
         }
         Some(Self {
@@ -118,9 +114,7 @@ mod tests {
         assert_eq!(Geometry::new(66, 66).unwrap().coded_size(), (128, 144));
         for (w, h) in [
             (0, 64),
-            (63, 64),
-            (65, 64),
-            (64, 65),
+            (64, 0),
             (64, 8194),
             (16386, 64),
             (u32::MAX, u32::MAX),
@@ -132,7 +126,7 @@ mod tests {
 
     #[test]
     fn every_sample_round_trips_without_chroma_filtering() {
-        for (w, h) in [(64, 64), (66, 70), (128, 72), (192, 108)] {
+        for (w, h) in [(1, 1), (65, 67), (64, 64), (66, 70), (128, 72), (192, 108)] {
             let layout = Geometry::new(w, h).unwrap();
             for maximum in [255u16, 1023] {
                 let count = w as usize * h as usize;
@@ -180,5 +174,39 @@ mod tests {
             [1, 2, 4, 8]
         );
         assert_eq!(mode_bit(0, false) | mode_bit(3, true), 0);
+    }
+
+    #[test]
+    fn single_pixel_chroma_and_buffer_boundaries() {
+        let layout = Geometry::new(65, 9).unwrap();
+        let count = layout.width as usize * layout.height as usize;
+        let mut source = vec![0u8; count * 3];
+        for plane in [1, 2] {
+            for (x, y) in [(0, 0), (1, 0), (63, 7), (64, 8)] {
+                source.fill(0);
+                source[plane * count + y * 65 + x] = 255;
+                let mut packed = vec![0; layout.samples()];
+                assert!(layout.pack(
+                    [
+                        &source[..count],
+                        &source[count..2 * count],
+                        &source[2 * count..]
+                    ],
+                    &mut packed
+                ));
+                let mut output = vec![0; count * 3];
+                assert!(layout.unpack(&packed, &mut output));
+                assert_eq!(source, output);
+                assert!(!layout.unpack(&packed[..packed.len() - 1], &mut output));
+                assert!(!layout.pack(
+                    [
+                        &source[..count - 1],
+                        &source[count..2 * count],
+                        &source[2 * count..]
+                    ],
+                    &mut packed
+                ));
+            }
+        }
     }
 }

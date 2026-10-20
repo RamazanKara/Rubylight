@@ -171,6 +171,7 @@ pub struct Host {
     pub stop: std::sync::atomic::AtomicBool,
     pub restart: std::sync::atomic::AtomicBool,
     pub codecs: std::sync::atomic::AtomicU32,
+    pub packed_modes: std::sync::atomic::AtomicU8,
     pub probing_codecs: std::sync::atomic::AtomicBool,
     codec_probe_requested: std::sync::atomic::AtomicBool,
     /// True once the startup probe has published its standard codecs, or
@@ -365,6 +366,7 @@ impl Host {
             stop: std::sync::atomic::AtomicBool::new(false),
             restart: std::sync::atomic::AtomicBool::new(false),
             codecs: std::sync::atomic::AtomicU32::new(0),
+            packed_modes: std::sync::atomic::AtomicU8::new(0),
             probing_codecs: std::sync::atomic::AtomicBool::new(true),
             codec_probe_requested: std::sync::atomic::AtomicBool::new(false),
             startup_codecs: tokio::sync::watch::channel(false).0,
@@ -605,8 +607,38 @@ impl Host {
         // probe. A driver/overlay failure in that child cannot kill them.
         self.codecs
             .store(flags | pyrowave, std::sync::atomic::Ordering::Release);
-        self.startup_codecs.send_replace(true);
         let mut retry_pyrowave = false;
+        let mut packed_modes = 0;
+        if config.boolean("experimental_packed_444", false) {
+            for (codec, ten_bit) in [(1, false), (1, true), (2, false), (2, true)] {
+                if busy() {
+                    return Ok(None);
+                }
+                let mode = config.integer(if codec == 1 { "hevc_mode" } else { "av1_mode" }, 0);
+                if mode == 1 || (ten_bit && mode == 2) {
+                    continue;
+                }
+                let negotiated = butterpollo_core::rtsp::Negotiated {
+                    width: 640,
+                    height: 480,
+                    fps: 30,
+                    bitrate_kbps: 2000,
+                    codec,
+                    sdr_10bit: ten_bit,
+                    chroma_packing: butterpollo_core::packed444::VERSION,
+                    ..Default::default()
+                };
+                match butterpollo_windows::codec_probe::packed(config, &negotiated) {
+                    Ok(()) => packed_modes |= butterpollo_core::packed444::mode_bit(codec, ten_bit),
+                    Err(error) => {
+                        tracing::debug!(%error, codec, ten_bit, "packed 4:4:4 unavailable")
+                    }
+                }
+            }
+        }
+        self.packed_modes
+            .store(packed_modes, std::sync::atomic::Ordering::Release);
+        self.startup_codecs.send_replace(true);
         if busy() {
             return Ok(None);
         }

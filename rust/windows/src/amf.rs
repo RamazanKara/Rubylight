@@ -285,6 +285,9 @@ impl Encoder {
         if config.yuv444 {
             bail!("AMD's video encoder supports only 4:2:0; PyroWave or NVENC can stream 4:4:4");
         }
+        if config.chroma_packing != 0 {
+            config.validate()?;
+        }
         if config.ten_bit() && config.codec == 0 {
             bail!("H.264 does not support HDR10");
         }
@@ -292,9 +295,13 @@ impl Encoder {
         // Unsupported NV12/P010 UAV stores otherwise fail every frame after
         // AMF has already committed to D3D12.
         let compute = compute.and_then(|compute| {
+            let (width, height) = config.coded_size();
             let prepared = crate::compute::Converter::new(
-                compute, config.width, config.height, config.ten_bit(),
+                compute, width, height, config.ten_bit(),
             ).and_then(|mut converter| {
+                if config.chroma_packing != 0 {
+                    converter.pack_chroma()?;
+                }
                 converter.prepare_yuv()?;
                 Ok(converter)
             });
@@ -306,6 +313,16 @@ impl Encoder {
                 }
             }
         });
+        let display_config = config.clone();
+        let mut coded_config = config.clone();
+        if config.chroma_packing != 0 {
+            (coded_config.width, coded_config.height) = config.coded_size();
+            coded_config.sdr_10bit = config.ten_bit();
+            coded_config.hdr = false;
+            coded_config.csc_mode = 3;
+            coded_config.chroma_packing = 0;
+        }
+        let config = &coded_config;
         let limits = butterpollo_core::encoder_policy::amf_rate_control(options, config)?;
         let automatic_frame_cap =
             butterpollo_core::encoder_policy::amf_frame_cap_automatic(options);
@@ -389,7 +406,7 @@ impl Encoder {
                 component,
                 context,
                 convert: None,
-                config: config.clone(),
+                config: display_config,
                 codec: config.codec,
                 _device: device,
                 _library: library,
@@ -585,6 +602,9 @@ impl Encoder {
                     Ok(e.read(name))
                 },
             )?;
+            if e.config.chroma_packing != 0 {
+                e.validate_packed_capacity()?;
+            }
             let initialized = check(timed("AMF Init", || {
                 ((*(*e.component).pVtbl).Init.unwrap())(
                     e.component,
@@ -692,6 +712,51 @@ impl Encoder {
             Some((rate.num, rate.den))
         }
     }
+    fn validate_packed_capacity(&self) -> Result<()> {
+        let (width, height) = self.config.coded_size();
+        let throughput = self
+            .cap(if self.codec == 1 {
+                "HevcMaxThroughput"
+            } else {
+                "Av1CapMaxThroughput"
+            })
+            .filter(|&value| value > 0)
+            .context("AMD driver does not expose packed encoder throughput limits")?;
+        let requested = u64::from(width.div_ceil(16))
+            * u64::from(height.div_ceil(16))
+            * u64::from(self.config.fps_millihz());
+        anyhow::ensure!(
+            requested <= throughput as u64 * 1000,
+            "packed {width}x{height} at {} fps exceeds AMD encoder throughput",
+            self.config.fps
+        );
+        // SAFETY: The component owns its caps; both acquired interfaces are released
+        // before inspecting the plain range values returned into local storage.
+        let (min_w, max_w, min_h, max_h) = unsafe {
+            let mut caps = ptr::null_mut();
+            check(((*(*self.component).pVtbl).GetCaps.unwrap())(
+                self.component,
+                &mut caps,
+            ))?;
+            anyhow::ensure!(!caps.is_null(), "AMF returned no encoder limits");
+            let mut input = ptr::null_mut();
+            let result = ((*(*caps).pVtbl).GetInputCaps.unwrap())(caps, &mut input);
+            ((*(*caps).pVtbl).Release.unwrap())(caps);
+            check(result)?;
+            anyhow::ensure!(!input.is_null(), "AMF returned no input limits");
+            let (mut min_w, mut max_w, mut min_h, mut max_h) = (0, 0, 0, 0);
+            ((*(*input).pVtbl).GetWidthRange.unwrap())(input, &mut min_w, &mut max_w);
+            ((*(*input).pVtbl).GetHeightRange.unwrap())(input, &mut min_h, &mut max_h);
+            ((*(*input).pVtbl).Release.unwrap())(input);
+            (min_w, max_w, min_h, max_h)
+        };
+        anyhow::ensure!(
+            (min_w..=max_w).contains(&(width as i32)) && (min_h..=max_h).contains(&(height as i32)),
+            "packed {width}x{height} exceeds AMD input limits {min_w}..{max_w} by {min_h}..{max_h}"
+        );
+        Ok(())
+    }
+
     /// An integer capability of this encoder, such as its engine count.
     fn cap(&self, name: &str) -> Option<i64> {
         // SAFETY: Self retains the component/runtime; caps is checked and its owned
@@ -995,7 +1060,7 @@ impl Encoder {
     /// data. Clients that size HDR from the stream rather than from the
     /// control channel's copy otherwise get no mastering metadata at all.
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
-        if !self.config.hdr || self.codec == 0 {
+        if !self.config.hdr || self.codec == 0 || self.config.chroma_packing != 0 {
             return;
         }
         let (context, component, codec) = (self.context, self.component, self.codec);
@@ -1413,6 +1478,10 @@ impl Encoder {
         }
     }
     pub fn encode(&mut self, image: &Image, idr: bool, bitrate: u32) -> Result<Vec<Encoded>> {
+        if self.config.chroma_packing != 0 {
+            let image = GpuImage::upload(&self._device, image)?;
+            return self.encode_gpu(&image, idr, bitrate);
+        }
         let started = Instant::now();
         let idr = idr || self.hdr_metadata.needs_idr() || self.recover;
         self.set_bitrate(bitrate)?;
@@ -1752,8 +1821,8 @@ impl Encoder {
                 surface.0,
                 0,
                 0,
-                self.config.width as i32,
-                self.config.height as i32,
+                self.config.coded_size().0 as i32,
+                self.config.coded_size().1 as i32,
             ))
             .context("AMF native surface crop")?;
             (v.SetPts.unwrap())(surface.0, self.index);

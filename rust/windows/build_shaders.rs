@@ -25,6 +25,9 @@ pub fn compile(out: &Path) {
         ("pyro_v", "ps_5_0"),
         ("pyro_444", "ps_5_0"),
         ("yuv420_cs", "cs_5_0"),
+        ("chroma_pack_cs", "cs_5_0"),
+        ("chroma_pack_y", "ps_5_0"),
+        ("chroma_pack_uv", "ps_5_0"),
         ("pyro_cs", "cs_5_0"),
     ] {
         let name = CString::new(entry).unwrap();

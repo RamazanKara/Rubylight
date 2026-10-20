@@ -708,6 +708,7 @@ pub fn override_allowed(key: &str) -> bool {
         "min_threads",
         "hevc_mode",
         "av1_mode",
+        "experimental_packed_444",
         "capture",
         "encoder",
         // Playnite focus

@@ -147,6 +147,7 @@ impl Converter {
         if config.width == 0
             || config.height == 0
             || (!config.yuv444
+                && config.chroma_packing == 0
                 && (!config.width.is_multiple_of(2) || !config.height.is_multiple_of(2)))
         {
             bail!("GPU conversion requires nonzero dimensions, and even dimensions for 4:2:0");
@@ -179,6 +180,7 @@ impl Converter {
                     match layout {
                         Layout::Ayuv => b"packed444\0",
                         Layout::Planar444 => b"planar444\0",
+                        _ if config.chroma_packing != 0 => b"chroma_pack_y\0",
                         _ => b"luma\0",
                     },
                     b"ps_5_0\0",
@@ -187,14 +189,28 @@ impl Converter {
                 Some(&mut luma),
             )?;
             gpu.device.CreatePixelShader(
-                &compile(b"chroma\0", b"ps_5_0\0")?,
+                &compile(
+                    if config.chroma_packing != 0 {
+                        b"chroma_pack_uv\0"
+                    } else {
+                        b"chroma\0"
+                    },
+                    b"ps_5_0\0",
+                )?,
                 None,
                 Some(&mut chroma),
             )?;
             let mut compute = None;
             if !config.yuv444 {
                 let _ = gpu.device.CreateComputeShader(
-                    &compile(b"yuv420_cs\0", b"cs_5_0\0")?,
+                    &compile(
+                        if config.chroma_packing != 0 {
+                            b"chroma_pack_cs\0"
+                        } else {
+                            b"yuv420_cs\0"
+                        },
+                        b"cs_5_0\0",
+                    )?,
                     None,
                     Some(&mut compute),
                 );
@@ -223,8 +239,8 @@ impl Converter {
                 constants: constants.unwrap(),
                 values,
                 dirty: false,
-                width: config.width,
-                height: config.height,
+                width: config.coded_size().0,
+                height: config.coded_size().1,
                 layout,
                 targets: vec![],
             })

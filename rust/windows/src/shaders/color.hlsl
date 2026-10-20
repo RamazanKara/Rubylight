@@ -219,6 +219,37 @@ float3 yuv444(float2 p) {
     float y = dot(rgb, k);
     return float3(y, (rgb.b - y) / (2 * (1 - k.b)), (rgb.r - y) / (2 * (1 - k.r)));
 }
+// Version 1 is a permutation of full-resolution quantized Y/U/V. Padding
+// extends the logical edge before conversion, without a chroma filter.
+uint2 packedSize() { return (targetSize + uint2(63, 7)) & ~uint2(63, 7); }
+float3 packedRgb(uint2 at) { return nonlinear(float2(min(at, targetSize - 1))); }
+float packedY(uint2 at) {
+    uint2 size = packedSize();
+    if (at.y < size.y) return lumaCode(packedRgb(at));
+    uint plane = at.x >= size.x / 2 ? 1 : 0;
+    float2 uv = chromaCode(packedRgb(uint2((at.x % (size.x / 2)) * 2 + 1, at.y - size.y)));
+    return plane == 0 ? uv.x : uv.y;
+}
+float4 chroma_pack_y(float4 p : SV_Position) : SV_Target {
+    return float4(packedY(uint2(p.xy)), 0, 0, 1);
+}
+float4 chroma_pack_uv(float4 p : SV_Position) : SV_Target {
+    return float4(chromaCode(packedRgb(uint2(uint(p.x) * 2, uint(p.y)))), 0, 1);
+}
+[numthreads(8, 8, 1)]
+void chroma_pack_cs(uint3 id : SV_DispatchThreadID) {
+    uint2 size = packedSize();
+    if (any(id.xy >= uint2(size.x / 2, size.y))) return;
+    uint2 at = uint2(id.x * 2, id.y);
+    float3 even = packedRgb(at);
+    float3 odd = packedRgb(at + uint2(1, 0));
+    float2 uv = chromaCode(odd);
+    lumaPlane[at] = lumaCode(even);
+    lumaPlane[at + uint2(1, 0)] = lumaCode(odd);
+    lumaPlane[uint2(id.x, size.y + id.y)] = uv.x;
+    lumaPlane[uint2(size.x / 2 + id.x, size.y + id.y)] = uv.y;
+    chromaPlane[id.xy] = chromaCode(even);
+}
 // DXGI AYUV has V, U, Y, A byte order in the compatible RGBA render view.
 float4 packed444(float4 p : SV_Position) : SV_Target {
     float3 yuv = yuv444(p.xy - 0.5);

@@ -977,6 +977,15 @@ impl Encoder {
                 )?,
             )));
         }
+        let preference = if config.chroma_packing != 0 {
+            anyhow::ensure!(
+                matches!(preference, "" | "auto" | "amf"),
+                "packed 4:4:4 requires the AMD hardware encoder"
+            );
+            "amf"
+        } else {
+            preference
+        };
         let automatic = matches!(preference, "" | "auto");
         let native = automatic.then(|| native_for(&image.gpu)).flatten();
         let mut native_error = None;
@@ -1263,6 +1272,15 @@ impl Encoder {
                 tuning.get("adapter_pnp_id", ""),
             )
         };
+        if config.chroma_packing != 0 {
+            anyhow::ensure!(
+                matches!(preference, "" | "auto" | "amf"),
+                "packed 4:4:4 requires the AMD hardware encoder"
+            );
+            return Ok(Self::Amf(Box::new(
+                crate::amf::Encoder::new_device_options(config, device()?, tuning)?,
+            )));
+        }
         if config.codec == 3 {
             return Ok(Self::Pyrowave(Box::new(
                 crate::pyrowave::Encoder::new_device(config, device()?, tuning)?,

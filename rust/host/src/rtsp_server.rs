@@ -192,6 +192,22 @@ async fn connection(
                         body.splice(at..at, format!("a=fmtp:97 surround-params={custom}\r\na=fmtp:97 surround-params={custom}\r\n").bytes());
                     }
                     // Last: the lines after an m= line describe its stream.
+                    if config.boolean("experimental_packed_444", false) {
+                        let modes = h.packed_modes.load(std::sync::atomic::Ordering::Acquire);
+                        if modes != 0 {
+                            use butterpollo_core::packed444;
+                            body.extend_from_slice(
+                                format!(
+                                    "a={}:{}\r\na={}:{}\r\n",
+                                    packed444::VERSION_ATTRIBUTE,
+                                    packed444::VERSION,
+                                    packed444::MODES_ATTRIBUTE,
+                                    modes
+                                )
+                                .as_bytes(),
+                            );
+                        }
+                    }
                     if mic {
                         body.extend_from_slice(butterpollo_core::mic::sdp(ports.mic).as_bytes());
                     }
@@ -251,8 +267,28 @@ async fn connection(
                             config.integer("max_bitrate", 0)
                         ),
                     );
-                    butterpollo_core::stream_policy::apply_color(&mut negotiated, &config);
+                    if negotiated.chroma_packing == 0 {
+                        butterpollo_core::stream_policy::apply_color(&mut negotiated, &config);
+                    }
                     negotiated.validate()?;
+                    if negotiated.chroma_packing != 0 {
+                        anyhow::ensure!(
+                            config.boolean("experimental_packed_444", false),
+                            "experimental packed 4:4:4 is disabled on the host"
+                        );
+                        let mode = butterpollo_core::packed444::mode_bit(
+                            negotiated.codec,
+                            negotiated.ten_bit(),
+                        );
+                        anyhow::ensure!(
+                            h.packed_modes.load(std::sync::atomic::Ordering::Acquire) & mode != 0,
+                            "requested packed codec or bit depth failed the host hardware probe"
+                        );
+                        // Initialize the requested coded geometry and rate before accepting PLAY.
+                        butterpollo_windows::codec_probe::packed(&config, &negotiated).context(
+                            "packed encoder cannot support the requested dimensions and frame rate",
+                        )?;
+                    }
                     negotiated.mic = mics.lock().unwrap().remove(&launch.id);
                     if negotiated.mic
                         && negotiated.encryption & butterpollo_core::mic::ENCRYPTION == 0
@@ -276,6 +312,11 @@ async fn connection(
                         launch.warnings.set("pyrowave_fec", "PyroWave adaptive FEC was not negotiated by the client; recovery protection is reduced. Use a compatible Nonary Moonlight client, or HEVC/AV1 on a lossy network.");
                     }
                     let bit = match (negotiated.codec, negotiated.ten_bit()) {
+                        (0, false) if negotiated.yuv444 => 0x40000,
+                        (1, false) if negotiated.yuv444 => 0x80000,
+                        (1, true) if negotiated.yuv444 => 0x100000,
+                        (2, false) if negotiated.yuv444 => 0x200000,
+                        (2, true) if negotiated.yuv444 => 0x400000,
                         (0, false) => 1,
                         (1, false) => 0x100,
                         (1, true) => 0x200,

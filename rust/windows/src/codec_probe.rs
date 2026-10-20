@@ -57,6 +57,10 @@ struct Request {
     /// The encoding GPU the settings name, as the stream will use it.
     adapter_name: String,
     adapter_pnp_id: String,
+    #[serde(default)]
+    packed: Option<Negotiated>,
+    #[serde(default)]
+    encoder_options: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -67,6 +71,27 @@ enum Reply {
 }
 
 pub fn pyrowave(config: &Config) -> Result<u32> {
+    run(config, None)
+}
+
+pub fn packed(config: &Config, stream: &Negotiated) -> Result<()> {
+    stream.validate()?;
+    ensure!(
+        stream.chroma_packing == butterpollo_core::packed444::VERSION,
+        "invalid packed probe request"
+    );
+    let flag = u32::from(butterpollo_core::packed444::mode_bit(
+        stream.codec,
+        stream.ten_bit(),
+    ));
+    ensure!(
+        run(config, Some(stream))? == flag,
+        "packed hardware encoder produced no complete probe sequence"
+    );
+    Ok(())
+}
+
+fn run(config: &Config, packed: Option<&Negotiated>) -> Result<u32> {
     // The pipe admits only the signed-in user, so it fails before sign-in.
     let (pipe, name) =
         Pipe::server(PIPE_PREFIX).map_err(|error| SessionNotReady(format!("{error:#}")))?;
@@ -98,6 +123,17 @@ pub fn pyrowave(config: &Config) -> Result<u32> {
         output: config.get("output_name", "").into(),
         adapter_name: config.get("adapter_name", "").into(),
         adapter_pnp_id: config.get("adapter_pnp_id", "").into(),
+        packed: packed.cloned(),
+        encoder_options: if packed.is_some() {
+            config
+                .values
+                .iter()
+                .filter(|(key, _)| key.starts_with("amd_") || key.as_str() == "encoder")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        } else {
+            BTreeMap::new()
+        },
     })?;
     let reply = loop {
         if let Some(reply) = pipe.receive::<Reply>()? {
@@ -112,7 +148,20 @@ pub fn pyrowave(config: &Config) -> Result<u32> {
     );
     match reply {
         Reply::Done { flags, errors } => {
-            ensure!(flags & !FLAGS == 0, "invalid optional codec flags");
+            let allowed = if packed.is_some() {
+                u32::from(butterpollo_core::packed444::ALL_MODES)
+            } else {
+                FLAGS
+            };
+            ensure!(flags & !allowed == 0, "invalid optional codec flags");
+            if packed.is_some() {
+                ensure!(
+                    flags != 0,
+                    "packed encoder unavailable: {}",
+                    errors.join("; ")
+                );
+                return Ok(flags);
+            }
             if flags == 0 {
                 tracing::warn!(errors = %errors.join("; "), "PyroWave has no usable codec mode; clients may select H.264, HEVC or AV1 instead. Check the packaged PyroWave DLL and AMD graphics driver, then reconnect");
             }
@@ -145,6 +194,37 @@ fn probe(request: &Request) -> Result<Reply> {
         if !value.is_empty() {
             gpu.values.insert(key.into(), value.clone());
         }
+    }
+    if let Some(mode) = &request.packed {
+        mode.validate()?;
+        ensure!(
+            mode.chroma_packing == butterpollo_core::packed444::VERSION,
+            "invalid packed probe request"
+        );
+        gpu.values.extend(request.encoder_options.clone());
+        let mut encoder =
+            Encoder::new_options(mode, gpu.get("encoder", "auto"), &request.output, &gpu)?;
+        let mut count = 0;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        for frame in 0..3 {
+            count += encoder.encode(&image, frame == 0, mode.bitrate_kbps)?.len();
+            while encoder.pending() && Instant::now() < deadline {
+                count += encoder.poll()?.len();
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            ensure!(
+                count == frame + 1,
+                "packed encoder failed to return frame {}",
+                frame + 1
+            );
+        }
+        return Ok(Reply::Done {
+            flags: u32::from(butterpollo_core::packed444::mode_bit(
+                mode.codec,
+                mode.ten_bit(),
+            )),
+            errors,
+        });
     }
     for (hdr, yuv444, bit) in [
         (false, false, 0x0080_0000),

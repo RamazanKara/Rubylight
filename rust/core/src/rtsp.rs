@@ -153,6 +153,8 @@ pub struct Negotiated {
     pub sdr_10bit: bool,
     pub yuv444: bool,
     #[serde(default)]
+    pub chroma_packing: u8,
+    #[serde(default)]
     pub slices: u32,
     #[serde(default)]
     pub references: u32,
@@ -205,6 +207,7 @@ impl Default for Negotiated {
             hdr: false,
             sdr_10bit: false,
             yuv444: false,
+            chroma_packing: 0,
             slices: 1,
             references: 0,
             intra_refresh: false,
@@ -227,6 +230,15 @@ impl Default for Negotiated {
     }
 }
 impl Negotiated {
+    pub fn coded_size(&self) -> (u32, u32) {
+        if self.chroma_packing == crate::packed444::VERSION {
+            crate::packed444::Geometry::new(self.width, self.height)
+                .expect("validated packed geometry")
+                .coded_size()
+        } else {
+            (self.width, self.height)
+        }
+    }
     pub fn ten_bit(&self) -> bool {
         self.hdr || self.sdr_10bit
     }
@@ -267,9 +279,13 @@ impl Negotiated {
                 None => d,
             })
         };
-        // Encoders need even sizes; round an odd client size down.
-        n.width = get("x-nv-video[0].clientViewportWd", n.width)? & !1;
-        n.height = get("x-nv-video[0].clientViewportHt", n.height)? & !1;
+        n.chroma_packing = u8::try_from(get(crate::packed444::REQUEST_ATTRIBUTE, 0)?)?;
+        n.width = get("x-nv-video[0].clientViewportWd", n.width)?;
+        n.height = get("x-nv-video[0].clientViewportHt", n.height)?;
+        if n.chroma_packing == 0 {
+            n.width &= !1;
+            n.height &= !1;
+        }
         n.fps = get("x-nv-video[0].maxFPS", n.fps)?;
         n.rate_millihz = if n.fps > 1000 {
             n.fps
@@ -321,12 +337,25 @@ impl Negotiated {
         Ok(n)
     }
     pub fn validate(&self) -> Result<()> {
+        if self.chroma_packing != 0
+            && (self.chroma_packing != crate::packed444::VERSION
+                || self.yuv444
+                || crate::packed444::mode_bit(self.codec, self.ten_bit()) == 0
+                || crate::packed444::Geometry::new(self.width, self.height).is_none())
+        {
+            bail!("unsupported packed 4:4:4 version, codec, or geometry");
+        }
         if !(64..=16384).contains(&self.width)
             || !(64..=16384).contains(&self.height)
-            || !self.width.is_multiple_of(2)
-            || !self.height.is_multiple_of(2)
+            || (self.chroma_packing == 0
+                && (!self.width.is_multiple_of(2) || !self.height.is_multiple_of(2)))
         {
             bail!("invalid stream dimensions");
+        }
+        // AMF can report a 128-pixel minimum even though HEVC requires 192.
+        // Reject before probing: submitting the smaller surface can hang VCN.
+        if self.chroma_packing != 0 && self.codec == 1 && self.coded_size().0 < 192 {
+            bail!("AMD packed HEVC requires a coded width of at least 192 pixels");
         }
         if !(1..=4000).contains(&self.fps)
             || (self.rate_millihz != 0 && self.rate_millihz < 1000)
@@ -644,6 +673,54 @@ mod tests {
         assert!(!remote.video_qos && !remote.audio_qos);
         let silent = Negotiated::from_sdp(b"").unwrap();
         assert!(silent.video_qos && silent.audio_qos);
+    }
+    #[test]
+    fn packed_chroma_is_explicit_and_keeps_display_geometry() {
+        let request = b"a=x-nv-vqos[0].bitStreamFormat:1\na=x-rl-video[0].chromaPacking:1\na=x-nv-video[0].clientViewportWd:1922\na=x-nv-video[0].clientViewportHt:1082\n";
+        let config = Negotiated::from_sdp(request).unwrap();
+        assert_eq!((config.width, config.height), (1922, 1082));
+        assert_eq!(config.coded_size(), (1984, 2176));
+        assert!(!config.yuv444);
+        assert_eq!(Negotiated::default().chroma_packing, 0);
+        for suffix in [
+            "a=x-rl-video[0].chromaPacking:2",
+            "a=x-ss-video[0].chromaSamplingType:1",
+            "a=x-nv-vqos[0].bitStreamFormat:0",
+            "a=x-nv-video[0].clientViewportWd:0",
+        ] {
+            let mut invalid = request.to_vec();
+            invalid.extend_from_slice(suffix.as_bytes());
+            assert!(Negotiated::from_sdp(&invalid).is_err());
+        }
+    }
+    #[test]
+    fn packed_hevc_rejects_coded_width_below_amfs_documented_minimum() {
+        let mut config = Negotiated {
+            width: 66,
+            height: 70,
+            codec: 1,
+            chroma_packing: crate::packed444::VERSION,
+            ..Default::default()
+        };
+        for ten_bit in [false, true] {
+            config.sdr_10bit = ten_bit;
+            for width in [64, 66, 128] {
+                config.width = width;
+                let error = config.validate().unwrap_err().to_string();
+                assert!(error.contains("coded width of at least 192"), "{error}");
+            }
+            for width in [129, 130, 192] {
+                config.width = width;
+                assert_eq!(config.coded_size().0, 192);
+                config.validate().unwrap();
+            }
+        }
+        config.width = 128;
+        config.codec = 2;
+        config.validate().unwrap();
+        config.codec = 1;
+        config.chroma_packing = 0;
+        config.validate().unwrap();
     }
     #[test]
     fn fractional_negotiation_does_not_use_stale_display_refresh() {

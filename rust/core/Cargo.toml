@@ -27,7 +27,7 @@ rcgen = { version = "0.14", default-features = false, features = ["crypto", "rin
 uuid = { version = "1.18", features = ["v4", "v5", "serde"] }
 crc32fast = "1.5"
 # Wire formats shared with the Android client; pinned to the commit the client ships.
-rubylight-protocol = { git = "https://github.com/RamazanKara/rubylight-android", rev = "c6c2b7b5", package = "rubylight-protocol" }
+rubylight-protocol = { git = "https://github.com/RamazanKara/rubylight-android", rev = "d25c4d4d028f4b52fcc2d11693c0e3e1781502b6", package = "rubylight-protocol" }
 regex = "1.12"
 
 [build-dependencies]

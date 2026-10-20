@@ -1222,6 +1222,10 @@ fn require_format_support(
 }
 
 impl Converter {
+    pub(crate) fn pack_chroma(&mut self) -> Result<()> {
+        self.convert = pipeline(&self.compute.device, &self.root, b"chroma_pack_cs\0")?;
+        Ok(())
+    }
     /// Probe both plane view formats and the actual planar allocation before
     /// AMF initializes its D3D12 context, so unsupported devices fall back once.
     /// PyroWave uses separate R8/R16 planes and does not need this YUV probe.

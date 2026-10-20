@@ -6,6 +6,8 @@ use std::time::Instant;
 mod color_contract;
 #[path = "downscale_tests.rs"]
 mod downscale;
+#[path = "packed444_tests.rs"]
+mod packed444;
 
 #[test]
 #[ignore = "requires D3D11 native P010 views and GPU timestamp queries"]
@@ -204,6 +206,11 @@ fn readback_compute(
     // before Map, and each row read stays within its footprint until Unmap below.
     unsafe {
         let desc = texture.GetDesc();
+        let pixel_bytes = if desc.Format == DXGI_FORMAT_NV12 {
+            1
+        } else {
+            2
+        };
         let mut layouts = [D3D12_PLACED_SUBRESOURCE_FOOTPRINT::default(); 2];
         let mut total = 0u64;
         compute.device.GetCopyableFootprints(
@@ -285,14 +292,18 @@ fn readback_compute(
                     mapped
                         .cast::<u8>()
                         .add(layout.Offset as usize + y * layout.Footprint.RowPitch as usize),
-                    desc.Width as usize * 2,
+                    desc.Width as usize * pixel_bytes,
                 );
-                values.extend(
-                    row.as_chunks::<2>()
-                        .0
-                        .iter()
-                        .map(|v| u16::from_le_bytes(*v) >> 6),
-                );
+                if pixel_bytes == 1 {
+                    values.extend(row.iter().map(|&v| u16::from(v)));
+                } else {
+                    values.extend(
+                        row.as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|v| u16::from_le_bytes(*v) >> 6),
+                    );
+                }
             }
         }
         buffer.Unmap(0, None);

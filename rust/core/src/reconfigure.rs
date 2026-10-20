@@ -61,6 +61,8 @@ impl std::fmt::Display for Mode {
 pub fn refusal(stream: &Negotiated, enabled: bool) -> Option<&'static str> {
     if !enabled {
         Some("stream_reconfigure is off for this stream")
+    } else if stream.chroma_packing != 0 {
+        Some("packed full-chroma geometry is negotiated at connection; reconnect to change it")
     } else if stream.codec == 3 {
         // Its sender, error correction and bitrate floor are sized at connect.
         Some("PyroWave streams keep the mode they connected with")
@@ -373,6 +375,12 @@ mod tests {
             ..Default::default()
         };
         assert!(refusal(&pyrowave, true).is_some());
+        let packed = Negotiated {
+            codec: 1,
+            chroma_packing: 1,
+            ..stream
+        };
+        assert!(refusal(&packed, true).unwrap().contains("reconnect"));
     }
 
     #[test]

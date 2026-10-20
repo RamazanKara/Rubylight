@@ -87,6 +87,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "adapter_pnp_id", "Encoding adapter device ID", Text;
         "hevc_mode", "HEVC support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
         "av1_mode", "AV1 support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
+        "experimental_packed_444", "Experimental full chroma for Nightjar (restart required)", Bool;
         "max_bitrate", "Maximum bitrate (kbps; 0 has no configured limit)", Number;
         "limit_framerate", "Use the launch frame rate for encoding (off by default: the stream runs at the rate its request asks for)", Bool;
         "minimum_fps_target", "Minimum frame rate for an unchanged desktop", Number;

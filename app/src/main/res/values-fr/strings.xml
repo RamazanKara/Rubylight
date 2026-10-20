@@ -404,6 +404,8 @@
     <string name="keyboard_shortcuts_file_error">Impossible de lire ou d’écrire le fichier de raccourcis. Vérifiez l’accès aux fichiers et utilisez un export de raccourcis valide de 32 raccourcis au maximum.</string>
     <string name="title_disable_hevc_low_latency">Désactiver les options HEVC à faible latence</string>
     <string name="summary_disable_hevc_low_latency">À essayer si la vidéo HEVC saccade ou se fige. Désactive les options Android et du chipset à faible latence pour HEVC sur tout appareil. Les autres codecs et les options de performance du décodeur conservent leurs réglages. Prend effet à la prochaine session.</string>
+    <string name="title_always_dark">Toujours sombre</string>
+    <string name="summary_always_dark">Utilise le thème gris foncé dans l’application, les menus et les boîtes de dialogue, même avec le thème clair du système. Noir OLED le rend noir pur.</string>
     <string name="title_oled_black">Noir OLED</string>
     <string name="summary_oled_black">Utilise des fonds noirs dans l’application, les menus et les boîtes de dialogue, même avec le thème clair du système.</string>
 </resources>

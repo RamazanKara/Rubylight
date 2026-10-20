@@ -504,6 +504,11 @@
     <!-- App -->
     <PreferenceCategory android:key="category_ui_settings">
         <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_always_dark"
+            android:title="@string/title_always_dark"
+            android:dialogMessage="@string/summary_always_dark"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_oled_black"
             android:title="@string/title_oled_black"
             android:dialogMessage="@string/summary_oled_black"

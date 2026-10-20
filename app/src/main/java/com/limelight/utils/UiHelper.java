@@ -145,7 +145,8 @@ public class UiHelper {
             activity.getWindow().setNavigationBarContrastEnforced(false);
             rootView.setForceDarkAllowed(false);
         }
-        boolean light = !oledBlack && activity.getResources().getBoolean(R.bool.light_system_bars);
+        boolean light = !com.limelight.ui.AppTheme.isDark(activity) &&
+                activity.getResources().getBoolean(R.bool.light_system_bars);
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(activity.getWindow(), rootView);
         controller.setAppearanceLightStatusBars(light);
         controller.setAppearanceLightNavigationBars(light);

@@ -404,6 +404,8 @@
     <string name="keyboard_shortcuts_file_error">Não foi possível ler ou gravar o arquivo de atalhos. Verifique o acesso a arquivos e use uma exportação de atalhos válida com no máximo 32 atalhos.</string>
     <string name="title_disable_hevc_low_latency">Desativar opções de baixa latência HEVC</string>
     <string name="summary_disable_hevc_low_latency">Experimente se o vídeo HEVC engasgar ou congelar. Desativa as opções de baixa latência do Android e do chipset para HEVC em qualquer dispositivo. Os outros codecs e as opções de desempenho do decodificador mantêm suas configurações. Vale para a próxima transmissão.</string>
+    <string name="title_always_dark">Sempre escuro</string>
+    <string name="summary_always_dark">Usa o tema cinza-escuro no app, nos menus e nas caixas de diálogo, mesmo com o tema claro do sistema. Preto OLED o deixa totalmente preto.</string>
     <string name="title_oled_black">Preto OLED</string>
     <string name="summary_oled_black">Usa fundos totalmente pretos no app, nos menus e nas caixas de diálogo, mesmo com o tema claro do sistema.</string>
 </resources>

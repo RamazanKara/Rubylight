@@ -404,6 +404,8 @@
     <string name="keyboard_shortcuts_file_error">无法读取或写入快捷键文件。请检查文件访问权限，并使用有效的快捷键导出文件（最多 32 个快捷键）。</string>
     <string name="title_disable_hevc_low_latency">禁用 HEVC 低延迟标志</string>
     <string name="summary_disable_hevc_low_latency">如果 HEVC 视频卡顿或冻结，可尝试启用。在任何设备上禁用 HEVC 的 Android 和芯片组低延迟标志。其他编解码器和解码器性能提示保留各自的设置。从下次串流开始生效。</string>
+    <string name="title_always_dark">始终深色</string>
+    <string name="summary_always_dark">即使系统使用浅色主题，应用、菜单和对话框也使用深灰色主题。开启 OLED 纯黑后变为纯黑。</string>
     <string name="title_oled_black">OLED 纯黑</string>
     <string name="summary_oled_black">在应用、菜单和对话框中使用纯黑背景，即使系统使用浅色主题。</string>
 </resources>

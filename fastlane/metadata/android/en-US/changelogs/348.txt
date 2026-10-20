@@ -1,0 +1,1 @@
+Add Always dark, so the app stays dark on TVs with a light system theme, and outline dialogs and menus on OLED black. D-pad Right now moves between library cards in one press, and setting explanations open with a single animation.

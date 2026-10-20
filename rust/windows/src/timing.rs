@@ -136,19 +136,32 @@ impl Timer {
     /// pacer's accumulated deadline keeps the average rate exact, and an early
     /// send earns no extra credit.
     pub fn until_paced(&self, deadline: Instant) {
+        let _ = self.wait_paced(deadline, None);
+    }
+    pub fn until_paced_or_signal(&self, deadline: Instant, signal: &Signal) -> Result<bool> {
+        self.wait_paced(deadline, Some(signal))
+    }
+    fn wait_paced(&self, deadline: Instant, signal: Option<&Signal>) -> Result<bool> {
         let lead = Duration::from_micros(u64::from(self.1.load(Ordering::Relaxed)));
         let Some(target) = deadline.checked_sub(lead) else {
-            return;
+            return Ok(false);
         };
         if target <= Instant::now() {
-            return;
+            return Ok(false);
         }
-        self.until(target);
+        if let Some(signal) = signal {
+            if self.until_or_signal(target, signal)? {
+                return Ok(true);
+            }
+        } else {
+            self.until(target);
+        }
         let late = Instant::now().saturating_duration_since(target).as_micros() as u32;
         self.1.store(
             paced_lead(self.1.load(Ordering::Relaxed), late),
             Ordering::Relaxed,
         );
+        Ok(false)
     }
     /// Frame claims remain interruptible throughout their timer wait.
     pub fn until_or_signal_precise(&self, deadline: Instant, signal: &Signal) -> Result<bool> {
@@ -556,6 +569,24 @@ mod tests {
         let start = Instant::now();
         timer.until_paced(start);
         assert!(start.elapsed() < Duration::from_millis(1));
+        Ok(())
+    }
+    #[test]
+    fn interrupted_paced_waits_preserve_the_adaptive_lead() -> Result<()> {
+        let timer = Timer::new()?;
+        let signal = Signal::new()?;
+        for _ in 0..20 {
+            let deadline = Instant::now() + Duration::from_millis(2);
+            assert!(!timer.until_paced_or_signal(deadline, &signal)?);
+            let lead = Duration::from_micros(u64::from(PACED_LEAD_MAX_US));
+            assert!(Instant::now() + lead >= deadline);
+        }
+        let lead = timer.1.load(Ordering::Relaxed);
+        signal.set()?;
+        let start = Instant::now();
+        assert!(timer.until_paced_or_signal(start + Duration::from_secs(2), &signal)?);
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert_eq!(timer.1.load(Ordering::Relaxed), lead);
         Ok(())
     }
     #[test]

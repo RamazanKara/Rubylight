@@ -101,7 +101,13 @@ pub(super) fn run(
                     return Ok(());
                 }
                 if pacer.due() > Instant::now() {
-                    timer.until_paced(pacer.due());
+                    timer.until_paced_or_signal(pacer.due(), &shared.stop_signal)?;
+                }
+                if shared.stop.load(Ordering::Acquire)
+                    || current.stopping()
+                    || host.stop.load(Ordering::Acquire)
+                {
+                    return Ok(());
                 }
                 let count = Batch::count(
                     remaining,

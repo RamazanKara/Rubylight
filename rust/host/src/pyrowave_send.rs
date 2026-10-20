@@ -8,7 +8,7 @@ use butterpollo_core::{
     pyrowave::DetailFec,
     session::Warnings,
 };
-use butterpollo_windows::encoder::Encoded;
+use butterpollo_windows::{encoder::Encoded, timing::Signal};
 use std::{
     net::{SocketAddr, UdpSocket},
     sync::{
@@ -94,6 +94,7 @@ struct Slot {
     ready_changed: Condvar,
     error: Mutex<Option<String>>,
     stop: AtomicBool,
+    stop_signal: Signal,
 }
 pub struct Sender {
     slot: Arc<Slot>,
@@ -125,6 +126,7 @@ impl Sender {
                     *shared.error.lock().unwrap() = Some(format!("{error:#}"));
                 }
                 shared.stop.store(true, Ordering::Release);
+                let _ = shared.stop_signal.set();
                 shared.changed.notify_all();
             },
         )?);
@@ -145,6 +147,7 @@ impl Sender {
             ready_changed: Condvar::new(),
             error: Mutex::new(None),
             stop: AtomicBool::new(false),
+            stop_signal: Signal::new()?,
         });
         let shared = slot.clone();
         let current = session.clone();
@@ -215,6 +218,7 @@ impl Sender {
                 shared.ready_changed.notify_one();
             }
             shared.stop.store(true, Ordering::Release);
+            let _ = shared.stop_signal.set();
             shared.changed.notify_all();
             shared.ready_changed.notify_all();
         })?;
@@ -267,6 +271,7 @@ impl Sender {
 impl Drop for Sender {
     fn drop(&mut self) {
         self.slot.stop.store(true, Ordering::Release);
+        let _ = self.slot.stop_signal.set();
         self.slot.changed.notify_all();
         self.slot.ready_changed.notify_all();
         if let Some(worker) = self.worker.take() {
@@ -282,6 +287,69 @@ impl Drop for Sender {
 mod tests {
     use super::*;
     use butterpollo_windows::{net::Batch, timing::Timer};
+
+    #[test]
+    fn stopping_interrupts_a_paced_wait_without_sending_another_packet() -> Result<()> {
+        let fixture = crate::state::test_support::Fixture::new();
+        let launch = fixture.launch(fixture.client(0), butterpollo_core::session::Role::Stream);
+        let session = Session::new(
+            launch,
+            butterpollo_core::rtsp::Negotiated {
+                codec: 3,
+                bitrate_kbps: 80_000,
+                ..Default::default()
+            },
+        );
+        let mut config = fixture.host.config.read().unwrap().clone();
+        config
+            .values
+            .insert("pacing_max_bitrate_kbps".into(), "1".into());
+        let client = UdpSocket::bind("127.0.0.1:0")?;
+        client.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0")?);
+        let sender = Sender::new(
+            socket,
+            session,
+            config,
+            fixture.host.clone(),
+            Instant::now(),
+            false,
+        )?;
+        sender.submit(
+            vec![Encoded {
+                bytes: vec![42; 3000],
+                idr: true,
+                after_invalidation: false,
+                frame_cap_bytes: None,
+                latency: None,
+                presentation: None,
+            }],
+            client.local_addr()?,
+            Duration::ZERO,
+            Instant::now(),
+        )?;
+        let mut packet = [0; 2048];
+        client.recv_from(&mut packet)?;
+        thread::sleep(Duration::from_millis(30));
+        let (done, finished) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            drop(sender);
+            let _ = done.send(());
+        });
+        assert!(
+            finished.recv_timeout(Duration::from_millis(250)).is_ok(),
+            "sender teardown remained blocked by packet pacing"
+        );
+        client.set_read_timeout(Some(Duration::from_millis(100)))?;
+        let error = client
+            .recv_from(&mut packet)
+            .expect_err("a packet was sent after stopping");
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ));
+        Ok(())
+    }
 
     #[test]
     fn prepared_intra_frames_freeze_timing_and_keep_only_the_newest_waiter() {

@@ -4,3 +4,5 @@
 
 # Unified patches use a single space to mark blank context lines.
 rust/compatibility/**/*.patch whitespace=-blank-at-eol
+
+rust/core/src/library/fixtures/product.db binary

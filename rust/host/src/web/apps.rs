@@ -409,3 +409,31 @@ fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
         .fetch_add(1, std::sync::atomic::Ordering::Release);
     Ok(())
 }
+
+pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Value) -> Response {
+    let h = h.clone();
+    let task = match (method.as_str(), action) {
+        ("GET", "discovery") => {
+            tokio::task::spawn_blocking(move || crate::library::discovery(&h)).await
+        }
+        ("POST", "import") => {
+            let selected: Vec<butterpollo_core::library::Selection> =
+                match serde_json::from_value(data["games"].clone()) {
+                    Ok(selected) => selected,
+                    Err(_) => {
+                        return error(
+                            StatusCode::BAD_REQUEST,
+                            "games must contain source and id pairs",
+                        );
+                    }
+                };
+            tokio::task::spawn_blocking(move || crate::library::import(&h, &selected)).await
+        }
+        _ => return error(StatusCode::BAD_REQUEST, "unknown API endpoint"),
+    };
+    match task {
+        Ok(Ok(value)) => Json(value).into_response(),
+        Ok(Err(err)) => error(StatusCode::BAD_REQUEST, &format!("{err:#}")),
+        Err(err) => error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+    }
+}

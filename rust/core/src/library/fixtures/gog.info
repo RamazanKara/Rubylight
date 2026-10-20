@@ -1,0 +1,19 @@
+{
+  "gameId": "1207664663",
+  "rootGameId": "1207664663",
+  "name": "The Witcher 3",
+  "playTasks": [
+    {
+      "isPrimary": true,
+      "type": "FileTask",
+      "path": "bin/x64/witcher3.exe",
+      "workingDir": "bin/x64",
+      "arguments": "-language en"
+    },
+    {
+      "isPrimary": false,
+      "type": "FileTask",
+      "path": "support.exe"
+    }
+  ]
+}

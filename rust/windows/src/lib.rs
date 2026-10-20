@@ -41,6 +41,7 @@ pub mod input;
 mod ipc;
 mod keylayout;
 pub mod launcher;
+pub mod library;
 pub mod limiter;
 pub mod lossless;
 pub mod mic;

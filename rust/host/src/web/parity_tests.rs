@@ -485,3 +485,55 @@ async fn browse_and_app_icon_routes_return_the_local_library_assets() {
             .any(|entry| entry["name"] == "playnite_fixture.png")
     );
 }
+
+#[tokio::test]
+async fn library_discovery_and_import_require_authentication_and_validate_identities() {
+    let f = Fixture::new();
+    f.host
+        .save_credentials(&Credentials::new("parity".into(), "parity-test").unwrap())
+        .unwrap();
+    *f.host.credentials.write().unwrap() =
+        Some(Credentials::new("parity".into(), "parity-test").unwrap());
+    for (method, path) in [
+        ("GET", "/api/library/discovery"),
+        ("POST", "/api/library/import"),
+    ] {
+        let response = router(f.host.clone())
+            .layer(Extension(f.connection(true)))
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+    for body in [
+        json!({"games": []}),
+        json!({"games": [{"source": "unknown", "id": "1"}]}),
+        json!({"games": [{"source": "epic", "cmd": "must not execute"}]}),
+    ] {
+        value(
+            request(&f, "POST", "/api/library/import", body).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    }
+    let discovery = value(
+        request(&f, "GET", "/api/library/discovery", Value::Null).await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(discovery["sources"].as_array().unwrap().len(), 6);
+    assert!(discovery["games"].is_array());
+    for game in discovery["games"].as_array().unwrap() {
+        assert!(game["source"].is_string() && game["id"].is_string());
+        assert!(
+            game.get("launch").is_none(),
+            "launch actions are resolved only on the host"
+        );
+    }
+}

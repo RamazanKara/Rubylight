@@ -243,6 +243,8 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/otp", &["POST"][..]),
         ("/api/clients/pending", &["GET"][..]),
         ("/api/logs/tail", &["GET"][..]),
+        ("/api/library/discovery", &["GET"][..]),
+        ("/api/library/import", &["POST"][..]),
         ("/api/steam/status", &["GET"][..]),
         ("/api/steam/games", &["GET"][..]),
         ("/api/steam/force_sync", &["POST"][..]),
@@ -626,6 +628,9 @@ pub(crate) async fn api(
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;
+    }
+    if let Some(action) = path.strip_prefix("/api/library/") {
+        return apps::library(&h, &method, action, &data).await;
     }
     if let Some(action) = path.strip_prefix("/api/steam/") {
         return apps::steam(&h, &method, action, &uri, &data).await;

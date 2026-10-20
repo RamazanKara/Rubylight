@@ -438,17 +438,32 @@ impl RunningApp {
             }
             running.undo.push(prep.clone());
         }
-        // Steam starts the game itself, outside the app's process group; the
-        // processes that appear in its install folder are the game.
+        let imported = app
+            .extra
+            .get("launcher-launch")
+            .filter(|_| {
+                app.extra
+                    .get("launcher-command")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(app.cmd.as_str())
+            })
+            .map(|action| {
+                serde_json::from_value::<butterpollo_core::library::Launch>(action.clone())
+            })
+            .transpose()?;
+        // Launchers start games outside this app's job. Track only new game
+        // processes so closing a stream cannot terminate a shared launcher.
         if let Some(folder) = app
             .extra
             .get("steam-install-dir")
+            .or_else(|| app.extra.get("launcher-install-dir"))
             .and_then(serde_json::Value::as_str)
             .filter(|folder| !folder.trim().is_empty())
             .filter(|_| {
                 app.extra
                     .get("steam-id")
                     .is_some_and(serde_json::Value::is_string)
+                    || imported.is_some()
             })
         {
             match butterpollo_windows::process::processes() {
@@ -459,7 +474,7 @@ impl RunningApp {
                         Duration::from_secs(15),
                     ))
                 }
-                Err(error) => tracing::warn!(%error, "Steam game tracking unavailable"),
+                Err(error) => tracing::warn!(%error, "Game tracking unavailable"),
             }
         }
         if let Some(commands) = app
@@ -479,7 +494,14 @@ impl RunningApp {
                 )?;
             }
         }
-        if !app.cmd.is_empty() {
+        if let Some(action) = imported {
+            butterpollo_windows::library::launch(
+                &action,
+                directory(&running.working),
+                app_bool(app, "elevated", false),
+                &running.environment,
+            )?;
+        } else if !app.cmd.is_empty() {
             let target = butterpollo_windows::process::command_target(&app.cmd);
             // The app starts with the user's token; a SYSTEM host cannot
             // judge a mapped drive or network share the user can open.
@@ -587,12 +609,12 @@ impl RunningApp {
             match tracker.update(&processes, butterpollo_windows::process::image_path) {
                 Tracked::Waiting | Tracked::Running => return Ok(false),
                 Tracked::Exited => {
-                    tracing::info!(app = %self.name, "the Steam game exited");
+                    tracing::info!(app = %self.name, "the game exited");
                     return Ok(true);
                 }
                 Tracked::Unknown => {
                     if !self.detached {
-                        tracing::info!(app = %self.name, "waiting for the Steam game to appear; tracking continues while the stream stays open");
+                        tracing::info!(app = %self.name, "waiting for the game to appear; tracking continues while the stream stays open");
                         self.detached = true;
                     }
                     return Ok(false);

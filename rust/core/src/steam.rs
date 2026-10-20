@@ -946,6 +946,15 @@ const NOT_THE_GAME: &[&str] = &[
     "epicgameslauncher.exe",
     "eadesktop.exe",
     "battle.net.exe",
+    "battle.net launcher.exe",
+    "agent.exe",
+    "ealauncher.exe",
+    "eabackgroundservice.exe",
+    "galaxyclientservice.exe",
+    "galaxycommunication.exe",
+    "upcwebcore.exe",
+    "epicwebhelper.exe",
+    "origin.exe",
     "galaxyclient.exe",
     "werfault.exe",
 ];
@@ -994,11 +1003,11 @@ impl Tracker {
                 if self.tracked.contains_key(&process.pid)
                     || self.baseline.get(&process.pid) == Some(&process.started)
                     || STEAM_PROCESSES.contains(&process.name.to_ascii_lowercase().as_str())
+                    || NOT_THE_GAME.contains(&process.name.to_ascii_lowercase().as_str())
                 {
                     continue;
                 }
-                let child = self.tracked.contains_key(&process.parent)
-                    && !NOT_THE_GAME.contains(&process.name.to_ascii_lowercase().as_str());
+                let child = self.tracked.contains_key(&process.parent);
                 let inside = !child && !self.checked.contains(&key) && {
                     self.checked.insert(key);
                     image(process.pid).is_some_and(|path| {
@@ -1315,5 +1324,45 @@ mod tests {
         ];
         assert_eq!(tracker.update(&restarted, images), Tracked::Running);
         assert_eq!(tracker.tracked.keys().copied().collect::<Vec<_>>(), [6]);
+    }
+    #[test]
+    fn launcher_handoff_never_owns_shared_launchers_even_inside_the_game_folder() {
+        let process = |pid, parent, name: &str| Process {
+            pid,
+            parent,
+            started: u64::from(pid),
+            name: name.into(),
+        };
+        let mut tracker = Tracker::new(
+            &[],
+            r"E:\Games\Diablo IV",
+            std::time::Duration::from_secs(15),
+        );
+        let launchers = [
+            process(1, 0, "Battle.net Launcher.exe"),
+            process(2, 1, "Agent.exe"),
+        ];
+        let image = |_| Some(r"E:\Games\Diablo IV\program.exe".into());
+        assert_eq!(tracker.update(&launchers, image), Tracked::Waiting);
+        assert!(tracker.tracked.is_empty());
+        let started = [
+            launchers[0].clone(),
+            launchers[1].clone(),
+            process(3, 1, "Diablo IV.exe"),
+            process(4, 3, "Battle.net.exe"),
+        ];
+        assert_eq!(tracker.update(&started, image), Tracked::Running);
+        assert_eq!(tracker.tracked.keys().copied().collect::<Vec<_>>(), [3]);
+        assert_eq!(
+            tracker.update(&launchers, image),
+            Tracked::Running,
+            "launcher handoff gets the existing restart grace period"
+        );
+        let restarted = [process(5, 1, "Diablo IV.exe")];
+        assert_eq!(tracker.update(&restarted, image), Tracked::Running);
+        assert_eq!(tracker.tracked.keys().copied().collect::<Vec<_>>(), [5]);
+        tracker.grace = std::time::Duration::ZERO;
+        assert_eq!(tracker.update(&launchers, image), Tracked::Exited);
+        assert!(tracker.tracked.is_empty());
     }
 }

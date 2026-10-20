@@ -1,0 +1,10 @@
+{
+  "AppName": "Orion",
+  "CatalogNamespace": "namespace-1",
+  "CatalogItemId": "item-2",
+  "DisplayName": "Étoile",
+  "InstallLocation": "E:\\Jeux\\Étoile",
+  "LaunchExecutable": "Game/Binaries/Game.exe",
+  "MainGameAppName": "Orion",
+  "bIsIncompleteInstall": false
+}

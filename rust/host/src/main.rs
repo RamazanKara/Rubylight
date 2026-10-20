@@ -1,6 +1,7 @@
 mod console;
 mod controller_sessions;
 mod display_session;
+mod library;
 mod logging;
 mod lossless;
 mod maintenance;

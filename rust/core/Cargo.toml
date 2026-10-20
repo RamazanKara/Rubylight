@@ -29,6 +29,8 @@ crc32fast = "1.5"
 # Wire formats shared with the Android client; pinned to the commit the client ships.
 rubylight-protocol = { git = "https://github.com/RamazanKara/rubylight-android", rev = "d25c4d4d028f4b52fcc2d11693c0e3e1781502b6", package = "rubylight-protocol" }
 regex = "1.12"
+quick-xml = { version = "0.42", features = ["serialize"] }
+prost = "0.14"
 
 [build-dependencies]
 embed-resource = "3.0.12"

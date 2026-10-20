@@ -15,7 +15,7 @@ The Rust workspace is `protocol/`:
 | `nightjar-core` | `protocol/client` | The client streaming engine (std): pairing and host HTTP, RTSP/SDP, the encrypted ENet control stream, input, video and audio receive with FEC, PyroWave records, timing. No platform code: decoding, rendering, audio output and input capture belong to the apps. |
 | `nightjar-difftest` | `protocol/difftest` | Test-only (`publish = false`): builds the patched moonlight-common-c receive paths in `build.rs` (sources copied to `OUT_DIR`, patches applied there) and compares them with `nightjar-core` on identical packet sequences. Needs the `moonlight-common-c` and `nanors` submodules and OpenSSL; compiled out elsewhere. |
 | `rubylight-protocol-ffi` | `protocol/ffi` | C ABI for the Android app. Grows a Limelight-compatible API over `nightjar-core` for the switch-over. |
-| `nightjar-cli` (planned) | `protocol/cli` | Headless test client: pair, launch, stream, decode-count, report. Drop-in for Rubylight's `rust/tests/moonlight_client.c` so Rubylight's `interop.py`/`e2e.py` drive it unchanged. |
+| `nightjar-cli` | `protocol/cli` | Headless test client (`publish = false`): stream, decode every frame, report. Drop-in for Rubylight's `rust/tests/moonlight_client.c` (same arguments, environment, output lines and exit codes) so Rubylight's `interop.py`/`e2e.py` drive it unchanged; pairing and launch stay in `interop.py`. Decoding needs the `ffmpeg` feature (libavcodec and libopus, as the C client). |
 | desktop client (planned) | `desktop/` | Windows and Linux app on `nightjar-core`. |
 
 ## Module boundaries in `nightjar-core`
@@ -36,7 +36,51 @@ testable without sockets and without a host. Sockets and threads live in `sessio
 - `rtsp`, `sdp`: the RTSP handshake and the stream description, mirroring `android_rtsp.c`
   and `android_sdp.c` (which already replace the core's versions).
 - `http`: serverinfo, pairing, app list, launch/resume/cancel (on Android this is Java today).
-- `session`: wires the above to sockets and threads; the public API.
+- `session`: wires the above to sockets and threads; the public API (below).
+
+## Session API
+
+`Session::start(&HostInfo, SessionConfig, Box<dyn VideoDecoder>, Box<dyn AudioRenderer>,
+Arc<dyn Listener>, &Interrupt)` is LiStartConnection: it reports each `Stage`, resolves the host
+(STREAM_CFG_AUTO through `Location::Auto`, with the 1024/1184 packet caps), runs the RTSP
+handshake (audio socket and pings from SETUP audio on), connects the control stream and starts
+the video, audio and microphone paths. `Session::stop` (or drop) is LiStopConnection, in the C's
+order; terminations after it are not reported.
+
+- `VideoDecoder`: `setup`, `start`, `submit(&Frame) -> DecodeStatus::{Ok, NeedIdr}`, `stop`,
+  `cleanup`. `CAPABILITY_DIRECT_SUBMIT` in the stream's video capabilities decodes on the
+  receive thread; otherwise a decoder thread drains the 15-frame queue.
+- `AudioRenderer`: `init(&AudioSetup)`, `play(Option<&[u8]>)` (`None` = conceal a lost packet),
+  through the 30-packet queue unless the audio capabilities have direct submit.
+- `Listener`: stages, `connection_started`, `connection_terminated(code)` (once, own thread),
+  `control_event(ControlEvent)` for status, rumble, triggers, LEDs, motion, HDR, haptics, host
+  timing, clock sync and cursor shapes, and `log`.
+- `Session`: `input(|InputQueue| ..)`, `request_idr_frame`, `send(ClientMessage)` (0x55xx),
+  `send_clock_sync_probe`, `send_microphone`, `hdr`, `stats` (RTT, video/audio counters,
+  decode and queue counts, connection status), `outcome` (the negotiated stream).
+
+Not ported: the pull renderer (`CAPABILITY_PULL_RENDERER`, LiWaitForNextVideoFrame), STUN
+(LiFindExternalAddressIP4), socket QoS (SO_PRIORITY / SO_NET_SERVICE_TYPE), GFE generations
+before 3.22.
+
+## nightjar-cli
+
+Windows (GNU toolchain, MSYS2's FFmpeg and Opus, as Rubylight's C client):
+
+```powershell
+$env:PATH = "C:\msys64\ucrt64\bin;$env:USERPROFILE\.cargo\bin;" + $env:PATH
+cargo build --release -p nightjar-cli --features ffmpeg   # in protocol/
+```
+
+Linux needs `libavcodec-dev` and `libopus-dev`; `NIGHTJAR_FFMPEG_DIR` overrides the prefix.
+For `e2e.py`, put `nightjar-cli.exe` beside Rubylight's `audio_probe.exe` and `motion_probe.exe`
+and pass it as `--client`; the package directory needs `butterpollo.exe`, its runtime DLLs and
+`assets/web`. `e2e.py` expects the installed host running and idle on 47989.
+
+E2E on 2026-10-20 (Radeon, AMF, Rubylight 2.5.9 at 49e7e3e5, 2560x720x60, 12 s): h264, hevc,
+av1, h264 `--vrr` and h264 `--recovery 3` all passed, every frame decoded (679-707 frames, 0
+failures, steady 60.1 FPS, audio tone continuous, 3/3 keyframe requests answered in 4.9 ms mean).
+The C client on the same package: h264 710/710 and recovery 3/3 (5.2 ms mean), equivalent.
 
 ## Verification
 
@@ -68,6 +112,7 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
 - [x] `crypto` + `control` + `input` (encrypted control stream only; GFE's TCP and plaintext
   generations are not ported)
 - [x] `rtsp` + `sdp` + `http` (TCP RTSP incl. encrypted; RTSP over ENet for GFE < 3.22 is not ported)
-- [ ] `session` + `nightjar-cli`, e2e against Rubylight
+- [x] `session` + `nightjar-cli`, e2e against Rubylight (loopback session tests in
+  `protocol/client/tests/session_loopback.rs`)
 - [ ] Android switch-over behind a setting
 - [ ] Desktop client (Windows, Linux)

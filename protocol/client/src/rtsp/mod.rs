@@ -474,6 +474,11 @@ impl Handshake {
         (self.out.audio_port != 0).then_some(self.out.audio_port)
     }
 
+    /// The audio ping payload from SETUP audio, for pings sent before the handshake ends.
+    pub fn audio_ping_payload(&self) -> Option<[u8; 16]> {
+        self.out.audio_ping_payload
+    }
+
     fn quad(&self) -> [i32; 4] {
         self.out.app_version
     }

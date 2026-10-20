@@ -239,6 +239,115 @@ tasks.configureEach { task ->
     }
 }
 
+// The Rust streaming engine (protocol/android, behind the "New streaming engine" setting):
+// libnightjar_core.so per ABI, built by cargo with the NDK's clang as compiler and linker and
+// packaged like jniLibs. It is not committed: it is a few MB per ABI and changes with every
+// engine change. Needs rustup with the four Android targets (see protocol/README.md).
+abstract class CargoAndroidBuild extends DefaultTask {
+    static final Map<String, List<String>> TARGETS = [
+            'arm64-v8a'  : ['aarch64-linux-android', 'aarch64-linux-android21'],
+            'armeabi-v7a': ['armv7-linux-androideabi', 'armv7a-linux-androideabi21'],
+            'x86'        : ['i686-linux-android', 'i686-linux-android21'],
+            'x86_64'     : ['x86_64-linux-android', 'x86_64-linux-android21'],
+    ]
+
+    @InputFiles @PathSensitive(PathSensitivity.RELATIVE)
+    abstract ConfigurableFileCollection getSources()
+
+    @Input
+    abstract ListProperty<String> getAbis()
+
+    @Input
+    abstract Property<String> getNdkPath()
+
+    @Internal
+    abstract DirectoryProperty getProtocolDir()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @javax.inject.Inject
+    abstract org.gradle.process.ExecOperations getExecOperations()
+
+    @TaskAction
+    void build() {
+        def windows = System.getProperty('os.name').toLowerCase().contains('windows')
+        def host = windows ? 'windows-x86_64' :
+                System.getProperty('os.name').toLowerCase().contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
+        def bin = new File(ndkPath.get(), "toolchains/llvm/prebuilt/$host/bin")
+        def clang = new File(bin, windows ? 'clang.exe' : 'clang').absolutePath
+        def ar = new File(bin, windows ? 'llvm-ar.exe' : 'llvm-ar').absolutePath
+        def cargo = System.getenv('CARGO') ?: 'cargo'
+        def homeCargo = new File(System.getProperty('user.home'), ".cargo/bin/${windows ? 'cargo.exe' : 'cargo'}")
+        if (!System.getenv('CARGO') && homeCargo.exists()) cargo = homeCargo.absolutePath
+        def protocol = protocolDir.get().asFile
+        def out = outputDir.get().asFile
+        out.deleteDir()
+        abis.get().each { abi ->
+            def (triple, clangTarget) = TARGETS[abi]
+            def upper = triple.toUpperCase().replace('-', '_')
+            def lower = triple.replace('-', '_')
+            def env = [
+                    ("CARGO_TARGET_${upper}_LINKER".toString())   : clang,
+                    ("CARGO_TARGET_${upper}_RUSTFLAGS".toString()): "-C link-arg=--target=$clangTarget -C link-arg=-Wl,-z,max-page-size=16384".toString(),
+                    ("CC_$lower".toString())                      : clang,
+                    ("CFLAGS_$lower".toString())                  : "--target=$clangTarget".toString(),
+                    ("AR_$lower".toString())                      : ar,
+            ]
+            execOperations.exec {
+                workingDir protocol
+                environment env
+                commandLine cargo, 'build', '--release', '--locked', '-p', 'nightjar-android', '--target', triple
+            }
+            def lib = new File(protocol, "target/$triple/release/libnightjar_core.so")
+            checkPageAlignment(lib)
+            def dir = new File(out, abi)
+            dir.mkdirs()
+            java.nio.file.Files.copy(lib.toPath(), new File(dir, lib.name).toPath())
+        }
+    }
+
+    // Android 15+ devices with 16 KiB pages load only libraries whose LOAD segments are aligned
+    // to at least 16 KiB.
+    static void checkPageAlignment(File lib) {
+        def buf = java.nio.ByteBuffer.wrap(lib.bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        boolean is64 = buf.get(4) == 2
+        long phoff = is64 ? buf.getLong(0x20) : (buf.getInt(0x1C) & 0xFFFFFFFFL)
+        int phentsize = buf.getShort(is64 ? 0x36 : 0x2A) & 0xFFFF
+        int phnum = buf.getShort(is64 ? 0x38 : 0x2C) & 0xFFFF
+        for (int i = 0; i < phnum; i++) {
+            int at = (int) (phoff + i * phentsize)
+            if (buf.getInt(at) != 1) continue // PT_LOAD
+            long align = is64 ? buf.getLong(at + 0x30) : (buf.getInt(at + 0x1C) & 0xFFFFFFFFL)
+            if (align < 16384) {
+                throw new GradleException("$lib has a LOAD segment aligned to $align bytes; 16 KiB pages need 16384")
+            }
+        }
+    }
+}
+
+def rustAbis = project.hasProperty('abiFilters') ?
+        project.property('abiFilters').toString().split(',').collect { it.trim() }.findAll { CargoAndroidBuild.TARGETS.containsKey(it) } :
+        CargoAndroidBuild.TARGETS.keySet().toList()
+def buildRustEngine = tasks.register('buildRustEngine', CargoAndroidBuild) {
+    def protocol = rootProject.file('protocol')
+    sources.from(fileTree(protocol) {
+        include '**/*.rs', '**/Cargo.toml', 'Cargo.lock'
+        exclude '**/target/**'
+    })
+    sources.from(fileTree('src/main/jni/moonlight-core/opus') { include '*/libopus.a' })
+    abis.set(rustAbis)
+    ndkPath.set(androidComponents.sdkComponents.ndkDirectory.map { it.asFile.absolutePath })
+    protocolDir.set(protocol)
+    outputDir.set(layout.buildDirectory.dir('rustJniLibs'))
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(buildRustEngine) { it.outputDir }
+    }
+}
+
 dependencies {
     implementation 'androidx.window:window-java:1.4.0'
     implementation 'androidx.window:window-core:1.4.0'

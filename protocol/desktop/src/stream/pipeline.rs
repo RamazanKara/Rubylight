@@ -55,6 +55,8 @@ pub struct Counters {
     pub audio_dropped: AtomicU64,
     /// Audio waiting in SDL's stream at the last packet, in microseconds.
     pub audio_queued_us: AtomicU64,
+    /// Times the device ran dry and silence was added.
+    pub audio_underruns: AtomicU64,
     /// Output channels, 0 without an audio device.
     pub audio_channels: AtomicU64,
 }
@@ -201,6 +203,7 @@ pub struct Audio {
     pcm: Vec<f32>,
     /// Most audio queued in SDL before packets are dropped, in bytes.
     max_queued: i32,
+    started: bool,
 }
 
 // SAFETY: SDL audio streams are thread-safe; the pointer is used by the audio thread only.
@@ -214,6 +217,7 @@ impl Audio {
             stream: std::ptr::null_mut(),
             pcm: vec![0.0; 5760 * 8],
             max_queued: 0,
+            started: false,
         }
     }
 }
@@ -277,6 +281,20 @@ impl AudioRenderer for Audio {
             if queued > self.max_queued {
                 self.shared.counters.audio_dropped.fetch_add(1, Ordering::Relaxed);
                 return;
+            }
+            if queued == 0 {
+                // Empty at the start or after an underrun: lead with 10 ms of silence so
+                // the next packet's jitter does not starve the device again.
+                if self.started {
+                    self.shared.counters.audio_underruns.fetch_add(1, Ordering::Relaxed);
+                }
+                self.started = true;
+                let silence = vec![0f32; 480 * decoder.channels];
+                SDL_PutAudioStreamData(
+                    self.stream,
+                    silence.as_ptr().cast::<c_void>(),
+                    (silence.len() * 4) as i32,
+                );
             }
             SDL_PutAudioStreamData(self.stream, self.pcm.as_ptr().cast::<c_void>(), bytes as i32);
         }

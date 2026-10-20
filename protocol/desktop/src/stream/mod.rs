@@ -444,7 +444,7 @@ pub struct Streaming {
     rtp_clock: RtpClock,
     last_probe: Instant,
     window: Window,
-    last_counters: (u64, u64, u64, u64, u64),
+    last_counters: (u64, u64, u64, u64, u64, u64),
     last_video: (u64, u64),
     started: Instant,
     first_frame: bool,
@@ -492,7 +492,7 @@ impl Streaming {
             rtp_clock: RtpClock::default(),
             last_probe: Instant::now(),
             window: Window::default(),
-            last_counters: (0, 0, 0, 0, 0),
+            last_counters: (0, 0, 0, 0, 0, 0),
             last_video: (0, 0),
             started: Instant::now(),
             first_frame: false,
@@ -694,6 +694,7 @@ impl Streaming {
             c.decode_us_total.load(Ordering::Relaxed),
             c.decode_errors.load(Ordering::Relaxed),
             c.audio_dropped.load(Ordering::Relaxed),
+            c.audio_underruns.load(Ordering::Relaxed),
         );
         let last = self.last_counters;
         self.last_counters = now;
@@ -811,6 +812,9 @@ impl Streaming {
         }
         if now.4 > last.4 {
             audio.push_str(&format!(", {} packets dropped to stay in sync", now.4 - last.4));
+        }
+        if now.5 > last.5 {
+            audio.push_str(&format!(", {} underruns", now.5 - last.5));
         }
         lines.push(("Audio".into(), audio));
         self.overlay = Overlay { lines };

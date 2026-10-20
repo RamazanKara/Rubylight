@@ -93,7 +93,8 @@ Why this combination:
   - No VRR: V-Sync (newest picture each refresh), or immediate.
   The launch asks the host for VRR handling when pacing by host times.
 - Audio: Opus multistream (libopus) into an SDL3 audio stream; the queue is capped at
-  40 ms plus one packet, and late packets are dropped rather than letting latency grow.
+  40 ms plus one packet (late packets are dropped rather than letting latency grow), and
+  when it runs dry 10 ms of silence goes ahead of the next packet.
 - Statistics: clock sync (0x5537) every 250 ms gives the host-to-client clock offset, so
   the overlay shows the PC-frame-to-display latency; host timing (0x5536) gives the host's
   present-to-send and encode times when the host offers them.

@@ -48,7 +48,11 @@ impl Gcm {
     }
 
     /// Encrypts `buffer` in place and returns the tag.
-    pub fn seal_in_place(&self, iv: &[u8], buffer: &mut [u8]) -> Result<[u8; TAG_BYTES], CryptoError> {
+    pub fn seal_in_place(
+        &self,
+        iv: &[u8],
+        buffer: &mut [u8],
+    ) -> Result<[u8; TAG_BYTES], CryptoError> {
         let tag = match iv.len() {
             12 => self
                 .iv12
@@ -63,7 +67,11 @@ impl Gcm {
     }
 
     /// Returns the tag and the ciphertext.
-    pub fn seal(&self, iv: &[u8], plaintext: &[u8]) -> Result<([u8; TAG_BYTES], Vec<u8>), CryptoError> {
+    pub fn seal(
+        &self,
+        iv: &[u8],
+        plaintext: &[u8],
+    ) -> Result<([u8; TAG_BYTES], Vec<u8>), CryptoError> {
         let mut buffer = plaintext.to_vec();
         let tag = self.seal_in_place(iv, &mut buffer)?;
         Ok((tag, buffer))
@@ -77,12 +85,18 @@ impl Gcm {
         let mut buffer = ciphertext.to_vec();
         let tag = GenericArray::from_slice(tag);
         match iv.len() {
-            12 => self
-                .iv12
-                .decrypt_in_place_detached(GenericArray::from_slice(iv), b"", &mut buffer, tag),
-            16 => self
-                .iv16
-                .decrypt_in_place_detached(GenericArray::from_slice(iv), b"", &mut buffer, tag),
+            12 => self.iv12.decrypt_in_place_detached(
+                GenericArray::from_slice(iv),
+                b"",
+                &mut buffer,
+                tag,
+            ),
+            16 => self.iv16.decrypt_in_place_detached(
+                GenericArray::from_slice(iv),
+                b"",
+                &mut buffer,
+                tag,
+            ),
             _ => return Err(CryptoError),
         }
         .map_err(|_| CryptoError)?;
@@ -150,7 +164,12 @@ pub enum CbcPadding {
     BlockThenPkcs7,
 }
 
-pub fn cbc_encrypt(key: &Key, iv: &[u8; 16], data: &[u8], padding: CbcPadding) -> Result<Vec<u8>, CryptoError> {
+pub fn cbc_encrypt(
+    key: &Key,
+    iv: &[u8; 16],
+    data: &[u8],
+    padding: CbcPadding,
+) -> Result<Vec<u8>, CryptoError> {
     let encryptor = cbc::Encryptor::<Aes128>::new(key.into(), iv.into());
     match padding {
         CbcPadding::None => {
@@ -171,7 +190,12 @@ pub fn cbc_encrypt(key: &Key, iv: &[u8; 16], data: &[u8], padding: CbcPadding) -
 }
 
 /// Decrypts and, with `pkcs7`, removes and checks PKCS#7 padding.
-pub fn cbc_decrypt(key: &Key, iv: &[u8; 16], data: &[u8], pkcs7: bool) -> Result<Vec<u8>, CryptoError> {
+pub fn cbc_decrypt(
+    key: &Key,
+    iv: &[u8; 16],
+    data: &[u8],
+    pkcs7: bool,
+) -> Result<Vec<u8>, CryptoError> {
     if data.is_empty() || data.len() % BLOCK_BYTES != 0 {
         return Err(CryptoError);
     }
@@ -225,10 +249,14 @@ mod tests {
     fn gcm_matches_the_hosts_implementation() {
         let iv = control_iv(9, true, Origin::Client);
         let (tag, sealed) = Gcm::new(&KEY).seal(iv.as_slice(), b"interop").unwrap();
-        let opened = butterpollo_core::crypto::gcm_open(&KEY, iv.as_slice(), &tag, &sealed).unwrap();
+        let opened =
+            butterpollo_core::crypto::gcm_open(&KEY, iv.as_slice(), &tag, &sealed).unwrap();
         assert_eq!(opened, b"interop");
         let (tag, sealed) = butterpollo_core::crypto::gcm_seal(&KEY, &[3; 16], b"legacy").unwrap();
-        assert_eq!(Gcm::new(&KEY).open(&[3; 16], &tag, &sealed).unwrap(), b"legacy");
+        assert_eq!(
+            Gcm::new(&KEY).open(&[3; 16], &tag, &sealed).unwrap(),
+            b"legacy"
+        );
     }
 
     #[test]
@@ -240,17 +268,26 @@ mod tests {
         let sealed = cbc_encrypt(&KEY, &iv, &[1; 16], CbcPadding::Pkcs7).unwrap();
         assert_eq!(sealed.len(), 32);
         assert_eq!(cbc_decrypt(&KEY, &iv, &sealed, true).unwrap(), [1; 16]);
-        assert_eq!(butterpollo_core::crypto::cbc_open(&KEY, &iv, &sealed).unwrap(), [1; 16]);
+        assert_eq!(
+            butterpollo_core::crypto::cbc_open(&KEY, &iv, &sealed).unwrap(),
+            [1; 16]
+        );
 
         let sealed = cbc_encrypt(&KEY, &iv, &[1; 16], CbcPadding::None).unwrap();
         assert_eq!(sealed.len(), 16);
-        assert_eq!(cbc_encrypt(&KEY, &iv, &[1; 15], CbcPadding::None), Err(CryptoError));
+        assert_eq!(
+            cbc_encrypt(&KEY, &iv, &[1; 15], CbcPadding::None),
+            Err(CryptoError)
+        );
 
         let sealed = cbc_encrypt(&KEY, &iv, &[9; 13], CbcPadding::BlockThenPkcs7).unwrap();
         assert_eq!(sealed.len(), 32);
         let opened = cbc_decrypt(&KEY, &iv, &sealed, true).unwrap();
         assert_eq!(&opened[..13], &[9; 13]);
         assert_eq!(&opened[13..], &[3, 3, 3]);
-        assert_eq!(cbc_decrypt(&KEY, &iv, &sealed[..31], true), Err(CryptoError));
+        assert_eq!(
+            cbc_decrypt(&KEY, &iv, &sealed[..31], true),
+            Err(CryptoError)
+        );
     }
 }

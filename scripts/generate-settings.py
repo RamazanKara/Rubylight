@@ -12,6 +12,7 @@ SEEKBAR = "{http://schemas.moonlight-stream.com/apk/res/seekbar}"
 
 # Usage advice is editorial; labels, options, ranges, dependencies, sections and preset writes come from source.
 ADVICE = {
+    "checkbox_always_dark": "Enable for the dark grey theme on app screens, menus and dialogs even when the system uses a light theme, as most TVs do. OLED black takes precedence. Applies immediately and stays separate from stream profiles.",
     "checkbox_oled_black": "Enable for pure black app, menu and dialog backgrounds, including when the system uses a light theme. Applies immediately and stays separate from stream profiles.",
     "list_resolution": "Choose Custom to enter a fixed width and height (64–16384 pixels each) for every stream without a resolution override. Named profiles, PC and game overrides retain their priority. Custom dimensions stay fixed when the screen changes. Raise for detail; lower for less network and decoding load. The picker also includes screen and standard sizes; larger fixed presets stay listed while chosen. Changing resolution preserves an explicitly chosen bitrate.",
     "list_fps": "Raise for smoother motion on a fast screen. The screen's own refresh rate is added as Screen refresh rate. Changing resolution or FPS preserves an explicitly chosen bitrate.",

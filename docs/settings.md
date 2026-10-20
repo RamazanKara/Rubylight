@@ -154,6 +154,7 @@ These tables include every preference, including actions, grouped as the Setting
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
+| Always dark<br>`checkbox_always_dark` | Off | On; Off | Enable for the dark grey theme on app screens, menus and dialogs even when the system uses a light theme, as most TVs do. OLED black takes precedence. Applies immediately and stays separate from stream profiles. |
 | OLED black<br>`checkbox_oled_black` | Off | On; Off | Enable for pure black app, menu and dialog backgrounds, including when the system uses a light theme. Applies immediately and stays separate from stream profiles. |
 | Language<br>`list_languages` | System default | System default; English; Deutsch; Español; Français; Italiano; Polski; Português (Brasil); Tiếng Việt; Türkçe; Русский; Українська; 日本語; 한국어; 简体中文; 繁體中文 | Choose the interface language. Android 13+ uses the system per-app language setting. |
 | Use small box art<br>`checkbox_small_icon_mode` | On below 500 dp smallest screen width; Off on TVs and larger screens | On; Off | Enable to fit more games in the library grid. |

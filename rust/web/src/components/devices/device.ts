@@ -88,6 +88,8 @@ export interface Draft {
   /** WIDTHxHEIGHTxREFRESH, empty for the mode the device asks for. */
   display_mode: string;
   always_use_virtual_display: boolean;
+  /** Save the mode picked in Windows during a stream as display_mode. */
+  remember_display_mode: boolean;
   background_stream: boolean;
   virtual_display_mode: string;
   virtual_display_layout: string;
@@ -148,6 +150,7 @@ export function toDraft(client: Client): Draft {
     output_name_override: text(client.output_name_override),
     display_mode: text(client.display_mode),
     always_use_virtual_display: flag(client.always_use_virtual_display) === true,
+    remember_display_mode: flag(client.remember_display_mode) === true,
     background_stream: flag(client.background_stream) === true,
     virtual_display_mode: choice(client.virtual_display_mode, VIRTUAL_DISPLAY_MODES),
     virtual_display_layout: choice(client.virtual_display_layout, VIRTUAL_DISPLAY_LAYOUTS),
@@ -175,6 +178,7 @@ function serialise(draft: Draft): Changes {
     output_name_override: draft.output_name_override || null,
     display_mode: draft.display_mode.trim() || null,
     always_use_virtual_display: draft.always_use_virtual_display,
+    remember_display_mode: draft.remember_display_mode,
     background_stream: draft.background_stream,
     virtual_display_mode: draft.virtual_display_mode || null,
     virtual_display_layout: draft.virtual_display_layout || null,

@@ -768,6 +768,23 @@ impl Guard {
         }
         display.lock().unwrap().raise_rate(rate.0)
     }
+    /// The mode (width, height, millihertz) this guard sets on its own
+    /// virtual display. None without one, when another stream shares it, or
+    /// when Windows refused the mode the last time it was set.
+    pub fn virtual_mode(&self) -> Option<(u32, u32, u32)> {
+        let display = self.virtual_display.as_ref()?;
+        if std::sync::Arc::strong_count(display) > 1 {
+            return None;
+        }
+        display.lock().unwrap().applied_mode()
+    }
+    /// Set `mode` from now on where the guard sets its virtual display's
+    /// mode again, as after a layout, a resume or a recovery.
+    pub fn adopt_virtual_mode(&self, mode: (u32, u32, u32)) {
+        if let Some(display) = &self.virtual_display {
+            display.lock().unwrap().adopt_mode(mode);
+        }
+    }
     /// True when the display was recovered, or a recovered display's HDR and
     /// mode were restored late: capture and the stream's layout follow it.
     pub fn feed(&mut self) -> Result<bool> {

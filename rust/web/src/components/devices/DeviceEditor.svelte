@@ -245,6 +245,11 @@
       hint="Creates a virtual display for this device even when the host streams a monitor."
       bind:checked={draft.always_use_virtual_display}
     />
+    <Toggle
+      label="Remember the resolution I pick"
+      hint="When you change this device's own virtual display in Windows during a stream, such as 1440p under a 4K stream, Rubylight saves it as the display mode above when the stream ends and uses it from the next stream. The stream keeps the resolution the device asks for."
+      bind:checked={draft.remember_display_mode}
+    />
   </section>
 
   <section>

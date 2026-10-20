@@ -127,6 +127,9 @@ pub fn client_display(launch: &Launch) -> Option<HostDisplay> {
 type RequestedMode = (Option<(u32, u32)>, Option<u32>, Option<bool>);
 /// Resolution, refresh in millihertz and HDR a display shows.
 type AppliedMode = (u32, u32, u32, bool);
+/// The width, height and millihertz a stream set on its virtual display, and
+/// those Windows shows.
+type ModeChange = ((u32, u32, u32), (u32, u32, u32));
 
 fn applied_mode(output: &str) -> Result<AppliedMode> {
     let topology = butterpollo_windows::display::Topology::query()?;
@@ -198,6 +201,12 @@ impl ModeReport {
         let mut state = self.0.lock().unwrap();
         state.requested = requested;
         state.stream_rate = stream_rate;
+    }
+    /// The display now runs at a mode the user chose, which the stream keeps.
+    fn adopt(&self, resolution: (u32, u32), refresh: u32) {
+        let mut state = self.0.lock().unwrap();
+        state.requested.0 = Some(resolution);
+        state.requested.1 = Some(refresh);
     }
 }
 
@@ -274,9 +283,10 @@ impl Drop for StreamPreparation {
             // Capture the choice at the last transport's disconnect, before
             // a paused lease can observe unrelated local Win+P changes. The
             // state lock also serializes this boundary with resume's reapply.
-            let prepared = self.display._state.lock().unwrap();
+            let mut prepared = self.display._state.lock().unwrap();
             if self.display.active.fetch_sub(1, Ordering::AcqRel) == 1 {
                 prepared.keep_chosen_layout();
+                prepared.keep_chosen_mode();
             }
         }
         if let Some(retained) = &self.display.retained {
@@ -484,9 +494,15 @@ pub struct Prepared {
     layout_owner: Option<String>,
     /// The app or host layout a layout learned for the device replaces.
     inherited_layout: Option<String>,
+    /// The device that keeps the mode the user chose during the stream
+    /// (`remember_display_mode`): a stream on its own virtual display.
+    mode_owner: Option<String>,
     /// A topology fixture keeps lifecycle tests independent of the real desktop.
     #[cfg(test)]
     layout_snapshot: Option<Vec<(String, bool)>>,
+    /// The mode the stream set and the one shown, for lifecycle tests.
+    #[cfg(test)]
+    mode_snapshot: Option<ModeChange>,
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
@@ -1137,6 +1153,7 @@ impl Prepared {
             .transpose()?;
         // A remote monitor's display has its own generation; see `feed`.
         let revision = retained.as_ref().map_or(0, |r| r.capture_target().1);
+        let owns_display = display.is_some();
         Ok((
             Self {
                 display,
@@ -1160,8 +1177,21 @@ impl Prepared {
                 virtual_layout: virtual_layout.then(|| selection.to_owned()),
                 inherited_layout: virtual_layout
                     .then(|| inherited_layout(config, app.as_ref()).to_owned()),
+                // A shared display keeps the first stream's mode for all.
+                mode_owner: (launch.role == Role::Stream
+                    && virtual_mode
+                    && owns_display
+                    && mode != "shared"
+                    && launch
+                        .client
+                        .extra
+                        .get("remember_display_mode")
+                        .is_some_and(|v| v == true || v == "true"))
+                .then(|| launch.client.uuid.clone()),
                 #[cfg(test)]
                 layout_snapshot: None,
+                #[cfg(test)]
+                mode_snapshot: None,
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
@@ -1223,6 +1253,60 @@ impl Prepared {
         }
         if let Err(error) = paired.save(&h.paired_path) {
             tracing::warn!(%error, "the device's display layout could not be saved");
+        }
+    }
+    /// The mode the stream sets on its own virtual display and the one
+    /// Windows shows.
+    fn mode_change(&self) -> Option<ModeChange> {
+        #[cfg(test)]
+        if let Some(snapshot) = self.mode_snapshot {
+            return Some(snapshot);
+        }
+        let set = self.display.as_ref()?.virtual_mode()?;
+        match applied_mode(&self.output) {
+            Ok((width, height, refresh, _)) => Some((set, (width, height, refresh))),
+            Err(error) => {
+                tracing::debug!(%error, "the display mode at the end of the stream could not be read");
+                None
+            }
+        }
+    }
+    /// Keep the mode the user chose for the stream's display in Windows (1440p
+    /// under a 4K stream, say) as the device's display mode when its last
+    /// stream disconnects, and put it back on resume and recovery from now on.
+    fn keep_chosen_mode(&mut self) {
+        let Some(uuid) = self.mode_owner.clone() else {
+            return;
+        };
+        let Some(h) = self.host.upgrade() else {
+            return;
+        };
+        let Some((set, shown)) = self.mode_change() else {
+            return;
+        };
+        let Some(chosen) = butterpollo_core::display_policy::chosen_mode(set, shown) else {
+            return;
+        };
+        let Some((width, height, rate)) =
+            butterpollo_core::display_policy::parse_display_mode(&chosen)
+        else {
+            return;
+        };
+        if let Some(display) = &self.display {
+            display.adopt_virtual_mode((width, height, rate.0));
+        }
+        self.recovery_dimensions = (width, height);
+        self.mode_report.adopt((width, height), rate.0);
+        let mut paired = h.paired.write().unwrap();
+        let Some(client) = paired.clients.iter_mut().find(|c| c.uuid == uuid) else {
+            return;
+        };
+        tracing::info!(client = %client.name, display_mode = %chosen, "keeping the display mode chosen during the stream for this device");
+        client
+            .extra
+            .insert("display_mode".into(), serde_json::json!(chosen));
+        if let Err(error) = paired.save(&h.paired_path) {
+            tracing::warn!(%error, "the device's display mode could not be saved");
         }
     }
 }
@@ -1525,7 +1609,9 @@ mod tests {
             virtual_layout: Some("extended".into()),
             layout_owner: None,
             inherited_layout: Some("extended".into()),
+            mode_owner: None,
             layout_snapshot: None,
+            mode_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
@@ -1590,6 +1676,37 @@ mod tests {
         fixture.host.reap_paused_display();
         assert!(fixture.host.app_display.lock().unwrap().is_empty());
         assert_eq!(chosen(), Some(serde_json::json!("exclusive")));
+    }
+
+    #[test]
+    fn a_mode_chosen_during_the_stream_is_kept_for_the_device_at_disconnect() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let client = fixture.client(u32::MAX);
+        let config = Config::parse("dd_config_revert_delay=0").unwrap();
+        *fixture.host.config.write().unwrap() = config.clone();
+        let display_mode = || {
+            fixture.host.paired.read().unwrap().clients[0]
+                .extra
+                .get("display_mode")
+                .cloned()
+        };
+        for (owner, expected) in [
+            (false, None),
+            (true, Some(serde_json::json!("2560x1440x120"))),
+        ] {
+            let mut prepared = test_prepared(&fixture.host);
+            prepared.mode_owner = owner.then(|| client.uuid.clone());
+            prepared.mode_snapshot = Some(((3840, 2160, 120_000), (2560, 1440, 119_998)));
+            let limiter =
+                limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen)
+                    .unwrap();
+            let stream = Ready::prepare((prepared, limiter)).unwrap();
+            let display = stream.display.clone();
+            drop(stream);
+            assert_eq!(display_mode(), expected);
+            let dimensions = display._state.lock().unwrap().recovery_dimensions;
+            assert_eq!(dimensions, if owner { (2560, 1440) } else { (640, 480) });
+        }
     }
 
     #[test]
@@ -2075,7 +2192,9 @@ mod tests {
             virtual_layout: None,
             layout_owner: None,
             inherited_layout: None,
+            mode_owner: None,
             layout_snapshot: None,
+            mode_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),

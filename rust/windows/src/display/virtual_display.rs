@@ -197,6 +197,8 @@ pub struct VirtualDisplay {
     pub(super) last_feed: Instant,
     last_renew: Instant,
     mode: (u32, u32, u32),
+    /// Windows showed `mode` the last time it was set.
+    mode_applied: std::sync::atomic::AtomicBool,
     options: VirtualOptions,
     pub(super) generation: u64,
     startup_protection: Option<hotplug::Protection>,
@@ -382,6 +384,7 @@ impl VirtualDisplay {
             last_feed: Instant::now(),
             last_renew: Instant::now(),
             mode: (width, height, fps),
+            mode_applied: std::sync::atomic::AtomicBool::new(false),
             options,
             generation: 0,
             startup_protection: Some(startup_protection),
@@ -584,7 +587,7 @@ impl VirtualDisplay {
         );
         let actual = current_timing(&self.name);
         let requested = format_timing(self.mode);
-        match mode_outcome(self.mode, actual.as_ref().ok().copied()) {
+        let applied = match mode_outcome(self.mode, actual.as_ref().ok().copied()) {
             // Applied tolerates rational rates: log what Windows shows.
             ModeOutcome::Applied => {
                 tracing::info!(
@@ -644,7 +647,10 @@ impl VirtualDisplay {
                 }
                 false
             }
-        }
+        };
+        self.mode_applied
+            .store(applied, std::sync::atomic::Ordering::Relaxed);
+        applied
     }
     /// Raise the refresh in place for a stream that asks for more than its
     /// launch did, keeping the display and what runs on it. Returns the
@@ -663,6 +669,20 @@ impl VirtualDisplay {
         }
         self.mode = previous;
         None
+    }
+    /// Make a mode the user chose in Windows the one later layouts, resumes
+    /// and recoveries put back. Windows shows it, so the driver offers it.
+    pub(super) fn adopt_mode(&mut self, mode: (u32, u32, u32)) {
+        self.mode = mode;
+        self.mode_applied
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    /// The stream's mode, when Windows showed it the last time it was set: a
+    /// display at another mode then is the user's choice, not a refusal.
+    pub(super) fn applied_mode(&self) -> Option<(u32, u32, u32)> {
+        self.mode_applied
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .then_some(self.mode)
     }
     fn renew(&mut self) -> Result<()> {
         self.last_renew = Instant::now();

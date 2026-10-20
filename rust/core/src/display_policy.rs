@@ -599,6 +599,32 @@ pub fn chosen_layout(
     (chosen != planned).then_some(chosen)
 }
 
+/// The mode the user left a stream's virtual display in, as a device
+/// `display_mode`, when it differs from the mode the stream `set` (issue #36:
+/// 1440p chosen in Windows under a 4K stream was back to 4K at the next
+/// connection). Both are width, height and refresh in millihertz. Windows
+/// reports a rate it was given as a ratio, so a refresh within 50 mHz of a
+/// whole hertz is that hertz, and one within half a hertz of `set` is unchanged.
+pub fn chosen_mode(set: (u32, u32, u32), shown: (u32, u32, u32)) -> Option<String> {
+    let (width, height, refresh) = shown;
+    if width == 0 || height == 0 || refresh < 1000 {
+        return None;
+    }
+    if (width, height) == (set.0, set.1) && refresh.abs_diff(set.2) < 500 {
+        return None;
+    }
+    let whole = (refresh + 500) / 1000 * 1000;
+    let refresh = if refresh.abs_diff(whole) <= 50 {
+        whole
+    } else {
+        refresh
+    };
+    Some(format!(
+        "{width}x{height}x{}",
+        crate::framegen::Rate(refresh)
+    ))
+}
+
 /// When the heartbeat checks [`switched_back_on`] and puts the stream's layout
 /// back. A display must stay on for [`LayoutWatch::SETTLE`] first, so a game's
 /// own mode switch passes without a fight; a failed attempt (the secure
@@ -640,6 +666,30 @@ impl LayoutWatch {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_mode_chosen_during_the_stream_becomes_the_device_display_mode() {
+        use super::{chosen_mode, parse_display_mode};
+        let set = (3840, 2160, 120_000);
+        // Issue #36: 1440p picked in Windows under a 4K120 stream.
+        assert_eq!(
+            chosen_mode(set, (2560, 1440, 119_998)).as_deref(),
+            Some("2560x1440x120")
+        );
+        assert_eq!(
+            chosen_mode(set, (3840, 2160, 60_000)).as_deref(),
+            Some("3840x2160x60")
+        );
+        assert_eq!(
+            chosen_mode(set, (2560, 1440, 59_940)).as_deref(),
+            Some("2560x1440x59.940")
+        );
+        assert!(parse_display_mode("2560x1440x59.940").is_some());
+        // Untouched, or only a ratio's rounding apart.
+        assert_eq!(chosen_mode(set, (3840, 2160, 119_880)), None);
+        assert_eq!(chosen_mode(set, (3840, 2160, 120_000)), None);
+        assert_eq!(chosen_mode(set, (0, 0, 0)), None);
+    }
+
     #[test]
     fn a_layout_chosen_during_the_stream_is_kept_for_the_device() {
         use super::chosen_layout;

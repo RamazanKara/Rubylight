@@ -301,7 +301,7 @@ public class UsbControllerArrivalTest {
                 else ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
                 input(handler);
                 assertEquals(2, connection.arrivals);
-                assertEquals(1, connection.inputs);
+                assertEquals(connectionStarted ? 2 : 1, connection.inputs);
                 assertEquals(0, connection.slot);
                 assertEquals(1, connection.activeMask);
                 assertEquals(MoonBridge.LI_CTYPE_PS, connection.type);
@@ -310,7 +310,7 @@ public class UsbControllerArrivalTest {
                 assertEquals(1, pad.audioBindings);
                 input(handler);
                 assertEquals(2, connection.arrivals);
-                assertEquals(2, connection.inputs);
+                assertEquals(connectionStarted ? 3 : 2, connection.inputs);
                 handler.handleControllerHaptics((short)0, 0, new byte[4]);
                 handler.handleSetAdaptiveTriggers((short)0, (byte)12, (byte)1, (byte)1,
                         new byte[10], new byte[10]);

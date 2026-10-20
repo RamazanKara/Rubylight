@@ -5,6 +5,9 @@ import android.app.Application;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.usb.UsbManager;
+import android.hardware.input.InputManager;
+import android.view.InputDevice;
+import android.view.MotionEvent;
 import com.limelight.binding.input.driver.AbstractController;
 import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.driver.UsbPads;
@@ -22,7 +25,10 @@ import org.robolectric.android.controller.ActivityController;
 import org.robolectric.android.controller.ServiceController;
 import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.shadows.ShadowUsbManager;
+import org.robolectric.shadows.ShadowInputDevice;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
 import org.robolectric.util.ReflectionHelpers;
 import com.limelight.nvstream.input.ControllerPacket;
 import java.util.ArrayList;
@@ -41,9 +47,98 @@ import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class,
-        shadows = {com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class, UsbPads.Connection.class},
+        shadows = {ControllerPreparationTest.ControllerBridge.class, UsbPads.Connection.class},
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class ControllerPreparationTest {
+    @Implements(value = MoonBridge.class, isInAndroidSdk = false)
+    public static class ControllerBridge {
+        @Implementation protected static void __staticInitializer__() { }
+        @Implementation protected static boolean guessControllerHasPaddles(int vendor, int product) { return false; }
+        @Implementation protected static boolean guessControllerHasShareButton(int vendor, int product) { return false; }
+        @Implementation protected static byte guessControllerType(int vendor, int product) { return MoonBridge.LI_CTYPE_UNKNOWN; }
+    }
+
+    @Test public void builtInAndExternalPadsArePreparedBeforeAnyInputWithoutUsbHaptics() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            addInputDevice(activity.get(), 8, false, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            addInputDevice(activity.get(), 9, true, InputDevice.SOURCE_DPAD);
+            Connection connection = new Connection(73);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String[] prepared = handler.prepareControllersForLaunch().split(",");
+                assertEquals(2, prepared.length);
+                assertTrue(prepared[0].startsWith("0:1:"));
+                assertTrue(prepared[1].startsWith("1:1:"));
+                assertEquals(2, connection.arrivals);
+                assertEquals(0, connection.inputs);
+                handler.resendControllerArrivals();
+                assertEquals(4, connection.arrivals);
+                assertEquals(2, connection.inputs);
+                assertEquals(3, connection.activeMask);
+                java.util.Map<Integer, ControllerHandler.InputDeviceContext> contexts =
+                        ReflectionHelpers.getField(handler, "inputDeviceContexts");
+                assertEquals(0, contexts.get(8).controllerNumber);
+                assertEquals(1, contexts.get(2).controllerNumber);
+                assertFalse(contexts.containsKey(9));
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void aHostWithoutLaunchPreparationGetsAttachedAndNewPadsAtConnectionStart() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            Connection connection = new Connection(73);
+            ControllerHandler handler = handler(activity.get(), connection);
+            try {
+                handler.resendControllerArrivals();
+                assertEquals(1, connection.arrivals);
+                assertEquals(1, connection.inputs);
+                addInputDevice(activity.get(), 3, true, InputDevice.SOURCE_GAMEPAD);
+                handler.onInputDeviceAdded(3);
+                assertEquals(2, connection.arrivals);
+                assertEquals(2, connection.inputs);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void sharedPlayerOneIsPreparedOnlyOnce() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_GAMEPAD);
+            addInputDevice(activity.get(), 3, true, InputDevice.SOURCE_GAMEPAD);
+            ControllerHandler handler = handler(activity.get(), new Connection(73));
+            try {
+                handler.deviceAdded(new Pad());
+                assertEquals(1, handler.prepareControllersForLaunch().split(",").length);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    private static void addInputDevice(Activity activity, int id, boolean external, int sources) {
+        InputDevice device = ShadowInputDevice.makeInputDeviceNamed("Controller " + id);
+        ReflectionHelpers.setField(device, "mId", id);
+        ReflectionHelpers.setField(device, "mDescriptor", "controller-" + id);
+        ReflectionHelpers.setField(device, "mIsExternal", external);
+        ReflectionHelpers.setField(device, "mSources", sources);
+        ReflectionHelpers.setField(device, "mMotionRanges", new ArrayList<InputDevice.MotionRange>());
+        if ((sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
+            for (int axis : new int[] {MotionEvent.AXIS_X, MotionEvent.AXIS_Y}) {
+                ReflectionHelpers.callInstanceMethod(device, "addMotionRange",
+                        ReflectionHelpers.ClassParameter.from(int.class, axis),
+                        ReflectionHelpers.ClassParameter.from(int.class, InputDevice.SOURCE_JOYSTICK),
+                        ReflectionHelpers.ClassParameter.from(float.class, -1f),
+                        ReflectionHelpers.ClassParameter.from(float.class, 1f),
+                        ReflectionHelpers.ClassParameter.from(float.class, 0f),
+                        ReflectionHelpers.ClassParameter.from(float.class, 0f),
+                        ReflectionHelpers.ClassParameter.from(float.class, 0f));
+            }
+        }
+        org.robolectric.Shadows.shadowOf((InputManager) activity.getSystemService(Context.INPUT_SERVICE))
+                .addInputDevice(device);
+    }
+
     @Test public void preparationDoesNotSelectTheMicrophoneBeforeAudioNegotiation() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             Connection connection = new Connection(73);
@@ -69,8 +164,8 @@ public class ControllerPreparationTest {
                 // A handed-over DualSense whose waveform output could not start will not gain it either.
                 usbManager(activity.get()).addOrUpdateUsbDevice(UsbPads.dualSense("/dev/bus/usb/002/001"), true);
                 handler.deviceAdded(new Pad((short) MoonBridge.LI_CCAP_RUMBLE));
-                assertEquals("", worker.submit(handler::prepareControllersForLaunch).get(1, TimeUnit.SECONDS));
-                assertEquals(0, connection.arrivals);
+                assertFalse(worker.submit(handler::prepareControllersForLaunch).get(1, TimeUnit.SECONDS).isEmpty());
+                assertEquals(1, connection.arrivals);
             } finally {
                 worker.shutdownNow();
                 handler.destroy();
@@ -276,6 +371,7 @@ public class ControllerPreparationTest {
             try {
                 handler.deviceAdded(pad);
                 assertEquals("", handler.prepareControllersForLaunch());
+                handler.resendControllerArrivals();
                 handler.reportControllerState(42, 0, 0, 0, 0, 0, 0, 0);
                 ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
                 context.device = pad; context.assignedControllerNumber = true;
@@ -332,6 +428,7 @@ public class ControllerPreparationTest {
     }
     private static class Connection extends NvConnection {
         int arrivals, inputs;
+        short activeMask;
         Connection(int appId) {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().setApp(new NvApp("Test", appId, false)).build(), null, null);
@@ -341,7 +438,7 @@ public class ControllerPreparationTest {
         }
         @Override public void sendControllerInput(short slot, short mask, int buttons, byte leftTrigger,
                                                  byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {
-            inputs++;
+            inputs++; activeMask = mask;
         }
     }
     private static class Pad extends AbstractController {

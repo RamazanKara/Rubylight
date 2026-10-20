@@ -144,6 +144,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final HandlerThread backgroundHandlerThread;
     private final Handler backgroundThreadHandler;
     private boolean hasGameController;
+    private boolean connectionStarted;
     private volatile boolean stopped = false;
     private volatile boolean sensorsEnabled = true;
     private volatile boolean inputEnabled = true;
@@ -253,8 +254,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     @Override
-    public void onInputDeviceAdded(int deviceId) {
-        // Nothing happening here yet
+    public synchronized void onInputDeviceAdded(int deviceId) {
+        if (connectionStarted && !stopped && conn.canSendControllerInput()) {
+            InputDeviceContext context = prepareInputDevice(deviceId);
+            if (context != null) sendControllerInputPacket(context);
+        }
     }
 
     @Override
@@ -616,6 +620,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (!devContext.external) {
                 LimeLog.info("Built-in buttons hardcoded as controller 0");
                 context.controllerNumber = 0;
+                if (devContext.hasJoystickAxes && (currentControllers & 1) == 0) {
+                    currentControllers |= 1;
+                    initialControllers &= ~1;
+                    context.reservedControllerNumber = true;
+                }
             }
             else if (prefConfig.multiController && devContext.hasJoystickAxes) {
                 context.controllerNumber = 0;
@@ -2375,34 +2384,76 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Called only on the connection worker. Give the USB service time to finish its
     // permission/driver handover before the host starts a game that caches devices.
     public String prepareControllersForLaunch() {
-        if (!prefConfig.usbDualSenseHaptics || !conn.canSendControllerInput()) return "";
+        if (!conn.canSendControllerInput()) return "";
         long deadline = android.os.SystemClock.uptimeMillis() + 2500;
         do {
-            int attachedDualSenses = countAttachedDualSenses();
+            int attachedDualSenses = prefConfig.usbDualSenseHaptics ? countAttachedDualSenses() : 0;
             synchronized (this) {
                 if (stopped || !conn.canSendControllerInput()) return "";
-                StringBuilder result = new StringBuilder();
                 int handedOver = 0;
                 for (UsbDeviceContext context : usbDeviceContexts.values()) {
                     if (isDualSense(context.vendorId, context.productId)) handedOver++;
-                    short caps = context.device.getCapabilities();
-                    if ((caps & MoonBridge.LI_CCAP_HAPTICS_PCM) == 0) continue;
-                    assignControllerNumberIfNeeded(context);
-                    if (!context.assignedControllerNumber) continue;
-                    if (!prefConfig.gamepadMotionSensors) caps &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
-                    if (result.length() != 0) result.append(',');
-                    result.append(context.controllerNumber).append(':').append(context.device.getType())
-                            .append(':').append(caps & 0xffff).append(':')
-                            .append(Integer.toUnsignedString(context.device.getSupportedButtonFlags()));
                 }
-                if (result.length() != 0) return result.toString();
                 // Only a DualSense the USB service has not handed over yet can still become ready.
-                if (handedOver >= attachedDualSenses) return "";
+                if (handedOver >= attachedDualSenses) break;
             }
             try { Thread.sleep(50); }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); return ""; }
         } while (android.os.SystemClock.uptimeMillis() < deadline);
-        return "";
+        synchronized (this) {
+            if (stopped || !conn.canSendControllerInput()) return "";
+            prepareInputDevices();
+            String[] controllers = new String[MAX_GAMEPADS];
+            for (InputDeviceContext context : inputDeviceContexts.values()) {
+                if (context.assignedControllerNumber) {
+                    controllers[context.controllerNumber] = launchController(context.controllerNumber,
+                            context.reportedType, context.reportedCapabilities, context.supportedButtonFlags);
+                }
+            }
+            for (UsbDeviceContext context : usbDeviceContexts.values()) {
+                assignControllerNumberIfNeeded(context);
+                if (!context.assignedControllerNumber) continue;
+                short caps = context.device.getCapabilities();
+                if (!prefConfig.gamepadMotionSensors) caps &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
+                controllers[context.controllerNumber] = launchController(context.controllerNumber,
+                        context.device.getType(), caps, context.device.getSupportedButtonFlags());
+            }
+            StringBuilder result = new StringBuilder();
+            for (String controller : controllers) {
+                if (controller == null) continue;
+                if (result.length() != 0) result.append(',');
+                result.append(controller);
+            }
+            return result.toString();
+        }
+    }
+
+    private static String launchController(short slot, byte type, short capabilities, int buttons) {
+        // The launch protocol accepts named controller types only. Generic Android pads use Xbox.
+        if (type == MoonBridge.LI_CTYPE_UNKNOWN) type = MoonBridge.LI_CTYPE_XBOX;
+        return slot + ":" + type + ":" + (capabilities & 0xffff) + ":" + Integer.toUnsignedString(buttons);
+    }
+
+    private InputDeviceContext prepareInputDevice(int deviceId) {
+        InputDevice device = InputDevice.getDevice(deviceId);
+        if (device == null || (!hasJoystickAxes(device) && !hasGamepadButtons(device))) return null;
+        InputDeviceContext context = inputDeviceContexts.get(deviceId);
+        if (context == null) {
+            context = createInputDeviceContextForDevice(device);
+            inputDeviceContexts.put(deviceId, context);
+        }
+        assignControllerNumberIfNeeded(context);
+        return context;
+    }
+
+    private void prepareInputDevices() {
+        // Built-in controls own player 1; reserve it before assigning external controllers.
+        for (boolean external : new boolean[] {false, true}) {
+            for (int id : InputDevice.getDeviceIds()) {
+                InputDevice device = InputDevice.getDevice(id);
+                if (device != null && isExternal(device) == external) prepareInputDevice(id);
+            }
+        }
     }
 
     private static boolean isDualSense(int vendorId, int productId) {
@@ -2427,9 +2478,18 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     public synchronized void resendControllerArrivals() {
-        if (stopped) return;
+        if (stopped || !conn.canSendControllerInput()) return;
+        connectionStarted = true;
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context.assignedControllerNumber) context.sendControllerArrival();
+        }
+        prepareInputDevices();
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context.assignedControllerNumber) sendControllerInputPacket(context);
+        }
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
             if (context.assignedControllerNumber) context.sendControllerArrival();
+            sendControllerInputPacket(context);
         }
     }
 
@@ -3349,6 +3409,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         UsbDeviceContext context = createUsbDeviceContextForDevice(controller);
         usbDeviceContexts.put(controller.getControllerId(), context);
+        if (connectionStarted && conn.canSendControllerInput()) sendControllerInputPacket(context);
     }
 
     class GenericControllerContext {
@@ -3444,6 +3505,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     class InputDeviceContext extends GenericControllerContext {
         public String name;
+        private byte reportedType;
+        private short reportedCapabilities;
+        private int supportedButtonFlags;
         public ControllerButtonMap buttonMap = new ControllerButtonMap();
         public final Map<Integer, Integer> pressedButtons = new HashMap<>();
         public VibratorManager vibratorManager;
@@ -3640,7 +3704,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     break;
             }
 
-            int supportedButtonFlags = 0;
+            supportedButtonFlags = 0;
             for (Map.Entry<Integer, Integer> entry : ANDROID_TO_LI_BUTTON_MAP.entrySet()) {
                 if (inputDevice.hasKeys(entry.getKey())[0]) {
                     supportedButtonFlags |= entry.getValue();
@@ -3704,7 +3768,6 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 capabilities |= MoonBridge.LI_CCAP_GYRO;
             }
 
-            byte reportedType;
             if (type != MoonBridge.LI_CTYPE_PS && sensorManager != null) {
                 // Override the detected controller type if we're emulating motion sensors on an Xbox controller
                 Toast.makeText(activityContext, activityContext.getResources().getText(R.string.toast_controller_type_changed), Toast.LENGTH_LONG).show();
@@ -3737,14 +3800,19 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 }
             }
 
+            reportedCapabilities = capabilities;
             conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     reportedType, supportedButtonFlags, capabilities);
 
             // After reporting arrival to the host, send initial battery state and begin monitoring
+            backgroundThreadHandler.removeCallbacks(batteryStateUpdateRunnable);
             backgroundThreadHandler.post(batteryStateUpdateRunnable);
         }
 
         public void migrateContext(InputDeviceContext oldContext) {
+            reportedType = oldContext.reportedType;
+            reportedCapabilities = oldContext.reportedCapabilities;
+            supportedButtonFlags = oldContext.supportedButtonFlags;
             this.inputMap = oldContext.inputMap;
             this.leftTrigger = oldContext.leftTrigger;
             this.rightTrigger = oldContext.rightTrigger;

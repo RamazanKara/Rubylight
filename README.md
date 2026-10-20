@@ -10,7 +10,7 @@
 
 <div align="center">
 
-**[Download 2.5.9](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.9)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
+**[Download 2.5.10](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.10)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
 
 <sub>Windows x64 · GPL-3.0 · Formerly Butterpollo</sub>
 
@@ -55,7 +55,7 @@ Also built in: Steam and Playnite library sync, RTSS frame limits, Lossless Scal
 
 ## Install. Pair. Play.
 
-1. **Install.** Run **`rubylight-setup-2.5.9.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.9). It sets up the service, the virtual display driver and controller support. No test mode, no restart.
+1. **Install.** Run **`rubylight-setup-2.5.10.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.10). It sets up the service, the virtual display driver and controller support. No test mode, no restart.
 2. **Sign in.** Open **`https://localhost:47990`** on the PC and create your account.
 3. **Pair and play.** In Moonlight, pick your PC, enter the PIN on the console's **Devices** page and launch **Desktop**.
 

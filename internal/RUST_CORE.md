@@ -13,6 +13,7 @@ The Rust workspace is `protocol/`:
 | --- | --- | --- |
 | `rubylight-protocol` | `protocol/core` | `no_std` wire formats shared with the Rubylight host (which depends on it by git revision). Keep it dependency-free. |
 | `nightjar-core` | `protocol/client` | The client streaming engine (std): pairing and host HTTP, RTSP/SDP, the encrypted ENet control stream, input, video and audio receive with FEC, PyroWave records, timing. No platform code: decoding, rendering, audio output and input capture belong to the apps. |
+| `nightjar-difftest` | `protocol/difftest` | Test-only (`publish = false`): builds the patched moonlight-common-c receive paths in `build.rs` (sources copied to `OUT_DIR`, patches applied there) and compares them with `nightjar-core` on identical packet sequences. Needs the `moonlight-common-c` and `nanors` submodules and OpenSSL; compiled out elsewhere. |
 | `rubylight-protocol-ffi` | `protocol/ffi` | C ABI for the Android app. Grows a Limelight-compatible API over `nightjar-core` for the switch-over. |
 | `nightjar-cli` (planned) | `protocol/cli` | Headless test client: pair, launch, stream, decode-count, report. Drop-in for Rubylight's `rust/tests/moonlight_client.c` so Rubylight's `interop.py`/`e2e.py` drive it unchanged. |
 | desktop client (planned) | `desktop/` | Windows and Linux app on `nightjar-core`. |
@@ -62,8 +63,8 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
 
 - [x] Wire formats crate, phase lock, PyroWave records, host timing, clock sync, PresentClock.
 - [ ] `nightjar-core` scaffold
-- [ ] `fec` + `video`
-- [ ] `audio`
+- [x] `fec` + `video` (differential tests in `protocol/difftest`)
+- [x] `audio` (differential tests in `protocol/difftest`)
 - [ ] `crypto` + `control` + `input`
 - [ ] `rtsp` + `sdp` + `http`
 - [ ] `session` + `nightjar-cli`, e2e against Rubylight

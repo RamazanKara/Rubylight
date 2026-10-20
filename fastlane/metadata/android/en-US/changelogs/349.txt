@@ -1,0 +1,1 @@
+Add a new streaming engine written in Rust as a beta (Settings, Advanced). Off by default; streams it cannot handle yet, such as PyroWave, keep using the current engine.

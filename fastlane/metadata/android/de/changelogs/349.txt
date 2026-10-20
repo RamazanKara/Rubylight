@@ -1,0 +1,1 @@
+Neue Streaming-Engine in Rust als Beta (Einstellungen, Erweitert). Standardmäßig aus; Streams, die sie noch nicht beherrscht, etwa PyroWave, nutzen weiter die bisherige Engine.

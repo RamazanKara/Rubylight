@@ -968,6 +968,7 @@ public class NvConnection {
                         }
                         MoonBridge.setNetworkGracePeriodMs(graceMs);
                         MoonBridge.requestRustEngine(prefs.rustEngine);
+                        MoonBridge.requestPacked444(prefs.experimentalPacked444);
                         int ret = MoonBridge.startConnection(context.serverAddress.address,
                                 context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
                                 context.serverCodecModeSupport,

@@ -159,6 +159,15 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
         Ok(session) => session,
         Err(error) => {
             platform::error(&format!("Stream start failed: {error}"));
+            bridge.with_env(|env| {
+                let message = env.new_string(format!("Stream start failed: {error}"))?;
+                bridge.void(
+                    env,
+                    bridge.m.display_message,
+                    &[crate::bridge::object(message.as_ref())],
+                );
+                Ok(())
+            });
             return if error.code != 0 { error.code } else { -1 };
         }
     };

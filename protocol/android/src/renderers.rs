@@ -49,6 +49,17 @@ impl VideoDecoder for Video {
             bridge::int(setup.fps),
         ];
         let buffer = b.with_env(|env| {
+            let packing = [
+                bridge::int(setup.chroma_packing as i32),
+                bridge::int(setup.logical_width),
+                bridge::int(setup.logical_height),
+                bridge::int(setup.color_space),
+                bridge::int(setup.color_range),
+            ];
+            let result = b.int(env, b.m.dr_setup_packing, &packing).unwrap_or(-1);
+            if result != 0 {
+                return Ok(Some(Err(result)));
+            }
             let result = b.int(env, b.m.dr_setup, &args).unwrap_or(-1);
             if result != 0 {
                 return Ok(Some(Err(result)));

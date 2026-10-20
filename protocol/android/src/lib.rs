@@ -103,6 +103,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     pyrowave_link_mbps: jint,
     pyrowave_pace_mbps: jint,
     network_grace_ms: jint,
+    packed444: jboolean,
+    packed444_modes: jint,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -135,6 +137,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
         color_range,
     );
     stream.microphone = enable_mic == JNI_TRUE;
+    stream.experimental_packed_444 = packed444 == JNI_TRUE;
+    stream.packed444_modes = packed444_modes as u8 & rubylight_protocol::packed444::ALL_MODES;
     stream.haptics_pcm = haptics_pcm == JNI_TRUE;
     stream.pyrowave_records_supported = host_features & 1 != 0;
     stream.pyrowave_link_mbps = pyrowave_link_mbps.max(0);

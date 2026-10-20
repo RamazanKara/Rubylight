@@ -6,6 +6,7 @@
 //! contributors): positional keys, the Ctrl+Alt+Shift combos, raising every key when focus
 //! is lost, relative capture with absolute fallback.
 
+pub mod packed444;
 pub mod pipeline;
 pub mod present;
 
@@ -50,6 +51,7 @@ pub struct LaunchPlan {
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
     pub hardware: Hardware,
+    pub packed_modes: u8,
     pub pacing: PacingMode,
 }
 
@@ -326,7 +328,17 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
         bitrate_kbps: bitrate as i32,
         packet_size: 1392,
         audio,
-        supported_video_formats: video_formats(settings.codec, settings.hdr, scm),
+        supported_video_formats: video_formats(
+            settings.codec,
+            settings.hdr,
+            if settings.experimental_packed_444 {
+                0
+            } else {
+                scm
+            },
+        ),
+        experimental_packed_444: settings.experimental_packed_444,
+        packed444_modes: plan.packed_modes,
         client_refresh_rate_x100: refresh_x100 as i32,
         color_space: if settings.hdr { COLORSPACE_REC_2020 } else { COLORSPACE_REC_709 },
         color_range: COLOR_RANGE_LIMITED,
@@ -581,8 +593,9 @@ impl Streaming {
                 let receive_us = session::now_us().saturating_sub(received.elapsed().as_micros() as u64);
                 self.offset.add(&reply, receive_us);
             }
-            ControlEvent::HdrMode { enabled: true, .. } => {
-                self.show_toast("The PC switched to HDR (shown tone-mapped)");
+            ControlEvent::HdrMode { enabled, metadata } => {
+                self.texture.set_hdr_mode(enabled, metadata);
+                self.needs_redraw = true;
             }
             _ => {}
         }
@@ -621,6 +634,11 @@ impl Streaming {
         renderer: *mut SDL_Renderer,
         mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
     ) -> bool {
+        if self.texture.is_hdr() && !crate::sdl::hdr_available(renderer) {
+            self.texture.destroy();
+            self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
+            self.needs_redraw = true;
+        }
         let now = session::now_us();
         let (picture, dropped) = self.pacer.take_due(now);
         self.window.dropped_pacing += dropped;
@@ -631,8 +649,15 @@ impl Streaming {
         }
         let begin = session::now_us();
         if let Some(p) = &picture {
-            if !self.texture.upload(renderer, &p.decoded.frame) {
-                self.show_toast(format!("Cannot show {} pictures", p.decoded.frame.format_name()));
+            if !self.texture.upload(renderer, &p.decoded) {
+                if p.decoded.setup.chroma_packing != 0 {
+                    self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
+                } else {
+                    self.show_toast(format!(
+                        "Cannot show {} pictures",
+                        p.decoded.frame.format_name()
+                    ));
+                }
             }
             if !self.first_frame {
                 self.first_frame = true;

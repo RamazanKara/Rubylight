@@ -139,6 +139,9 @@ pub struct StreamConfig {
     pub audio: AudioConfiguration,
     /// VIDEO_FORMAT_* the decoder takes.
     pub supported_video_formats: u32,
+    pub experimental_packed_444: bool,
+    /// Packed modes verified by the platform's raw-plane renderer and decoder.
+    pub packed444_modes: u8,
     /// The display's refresh rate x 100; 0 when unknown.
     pub client_refresh_rate_x100: i32,
     pub color_space: i32,
@@ -175,6 +178,8 @@ impl Default for StreamConfig {
             location: StreamLocation::Local,
             audio: AudioConfiguration::STEREO,
             supported_video_formats: VIDEO_FORMAT_H264,
+            experimental_packed_444: false,
+            packed444_modes: 0,
             client_refresh_rate_x100: 0,
             color_space: COLORSPACE_REC_709,
             color_range: COLOR_RANGE_LIMITED,
@@ -296,6 +301,12 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
     }
 
     a.add("x-nv-video[0].clientViewportWd", c.width);
+    if c.experimental_packed_444 {
+        a.add(
+            rubylight_protocol::packed444::REQUEST_ATTRIBUTE,
+            rubylight_protocol::packed444::VERSION,
+        );
+    }
     a.add("x-nv-video[0].clientViewportHt", c.height);
     a.add("x-nv-video[0].maxFPS", c.fps);
     let mut packet_size = c.packet_size;
@@ -314,7 +325,11 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
     if remote && adjusted > 500 {
         adjusted -= 500;
     }
-    adjusted = adjusted.min(100_000);
+    adjusted = adjusted.min(if c.experimental_packed_444 {
+        160_000
+    } else {
+        100_000
+    });
     if quad[0] >= 5 {
         a.add("x-nv-video[0].initialBitrateKbps", adjusted);
         a.add("x-nv-video[0].initialPeakBitrateKbps", adjusted);

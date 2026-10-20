@@ -42,6 +42,7 @@ extern "C" {
         hardware: c_int,
         device: *mut c_void,
         threads: c_int,
+        require_hardware: c_int,
         name: *mut c_char,
         name_length: c_int,
         error: *mut c_char,
@@ -120,7 +121,12 @@ pub enum Received {
 }
 
 impl VideoDecoder {
-    pub fn open(codec: Codec, hardware: Hardware, threads: i32) -> Result<Self, String> {
+    pub fn open(
+        codec: Codec,
+        hardware: Hardware,
+        threads: i32,
+        require_hardware: bool,
+    ) -> Result<Self, String> {
         let (kind, device) = match hardware {
             Hardware::None => (0, std::ptr::null_mut()),
             Hardware::D3d11(device) => (1, device),
@@ -135,6 +141,7 @@ impl VideoDecoder {
                 kind,
                 device,
                 threads,
+                i32::from(require_hardware),
                 name.as_mut_ptr(),
                 name.len() as c_int,
                 error.as_mut_ptr(),
@@ -176,7 +183,7 @@ impl Drop for VideoDecoder {
 
 /// A decoded picture (an AVFrame reference).
 pub struct Frame {
-    raw: NonNull<RawFrame>,
+    pub(crate) raw: NonNull<RawFrame>,
 }
 
 // SAFETY: AVFrames are reference counted and safe to hand to another thread.

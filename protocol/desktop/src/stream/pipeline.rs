@@ -25,6 +25,7 @@ pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// A decoded picture waiting to be shown.
 pub struct Decoded {
     pub frame: media::Frame,
+    pub setup: VideoSetup,
     pub rtp: u32,
     /// The frame's first packet arrived (session clock, µs).
     pub receive_us: u64,
@@ -95,6 +96,7 @@ pub struct Decoder {
     pub hardware: Hardware,
     pub decoder: Option<media::VideoDecoder>,
     pub software_threads: i32,
+    setup: Option<VideoSetup>,
 }
 
 impl Decoder {
@@ -105,12 +107,20 @@ impl Decoder {
             hardware,
             decoder: None,
             software_threads: threads,
+            setup: None,
         }
     }
 }
 
 impl VideoDecoder for Decoder {
     fn setup(&mut self, setup: &VideoSetup) -> Result<(), i32> {
+        self.setup = Some(*setup);
+        if setup.chroma_packing != 0 && self.hardware == Hardware::None {
+            self.shared.notify(Notice::DecoderFallback(
+                "Packed 4:4:4 requires hardware decoding".into(),
+            ));
+            return Err(-1);
+        }
         let codec = if setup.format & VIDEO_FORMAT_MASK_AV1 != 0 {
             Codec::Av1
         } else if setup.format & VIDEO_FORMAT_MASK_H265 != 0 {
@@ -119,12 +129,19 @@ impl VideoDecoder for Decoder {
             Codec::H264
         };
         let opened = match self.hardware {
-            Hardware::None => media::VideoDecoder::open(codec, Hardware::None, self.software_threads),
-            hardware => media::VideoDecoder::open(codec, hardware, 1).or_else(|e| {
-                self.shared
-                    .notify(Notice::DecoderFallback(format!("Hardware decoding unavailable: {e}")));
-                media::VideoDecoder::open(codec, Hardware::None, self.software_threads)
-            }),
+            Hardware::None => {
+                media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false)
+            }
+            hardware => media::VideoDecoder::open(codec, hardware, 1, setup.chroma_packing != 0)
+                .or_else(|e| {
+                    if setup.chroma_packing != 0 {
+                        return Err(e);
+                    }
+                    self.shared.notify(Notice::DecoderFallback(format!(
+                        "Hardware decoding unavailable: {e}"
+                    )));
+                    media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false)
+                }),
         };
         match opened {
             Ok(decoder) => {
@@ -163,6 +180,7 @@ impl VideoDecoder for Decoder {
                         .fetch_add(ready.saturating_sub(started), Ordering::Relaxed);
                     let decoded = Decoded {
                         frame: picture,
+                        setup: self.setup.expect("decoder setup precedes frames"),
                         rtp: pts as u32,
                         receive_us: frame.receive_time_us,
                         enqueue_us: frame.enqueue_time_us,

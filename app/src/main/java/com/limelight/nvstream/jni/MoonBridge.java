@@ -216,6 +216,14 @@ public class MoonBridge {
         }
     }
 
+    public static int bridgeDrSetupPacking(int version, int width, int height, int colorSpace, int colorRange) {
+        return videoRenderer == null ? -1 : videoRenderer.setChromaPacking(version, width, height, colorSpace, colorRange);
+    }
+
+    public static void bridgeClDisplayMessage(String message) {
+        if (connectionListener != null) connectionListener.displayMessage(message);
+    }
+
     public static void bridgeDrStart() {
         if (videoRenderer != null) {
             videoRenderer.start();
@@ -409,12 +417,17 @@ public class MoonBridge {
     // the "New streaming engine" setting). Each stream picks one in startConnection(); every
     // streaming call below goes to that engine until the next start.
     private static volatile boolean rustEngineRequested;
+    private static volatile boolean packed444Requested;
     private static volatile boolean rustStream;
     private static volatile int networkGracePeriodMs;
 
     /** Call before startConnection(): whether the next stream should use the Rust engine. */
     public static void requestRustEngine(boolean requested) {
         rustEngineRequested = requested;
+    }
+
+    public static void requestPacked444(boolean requested) {
+        packed444Requested = requested;
     }
 
     public static int startConnection(String address, String appVersion, String gfeVersion,
@@ -431,6 +444,11 @@ public class MoonBridge {
                                       boolean hapticsPcm,
                                       int pyrowaveLinkMbps, int pyrowavePaceMbps) {
         boolean rust = false;
+        int packedModes = 0;
+        if (packed444Requested && !rustEngineRequested) {
+            bridgeClDisplayMessage("Experimental full chroma requires the New streaming engine setting.");
+            return -1;
+        }
         if (rustEngineRequested) {
             String reason = RustBridge.fallbackReason(appVersion, serverCodecModeSupport, supportedVideoFormats,
                     inputOnly, remoteMonitor);
@@ -441,16 +459,28 @@ public class MoonBridge {
                 rust = true;
                 LimeLog.info("Streaming engine: Rust (nightjar-core)");
             } else {
+                if (packed444Requested) {
+                    bridgeClDisplayMessage("Experimental full chroma is unavailable: " + reason);
+                    return -1;
+                }
                 LimeLog.warning("Streaming engine: C, the Rust engine was requested but " + reason);
             }
         }
         rustStream = rust;
         if (rust) {
+            if (packed444Requested) {
+                packedModes = videoRenderer == null ? 0 :
+                        videoRenderer.preparePacked444Modes(supportedVideoFormats, width, height, fps);
+                if (packedModes == 0) {
+                    bridgeClDisplayMessage("Experimental full chroma requires a hardware decoder for the coded size/rate and verified raw 8/10-bit GL_EXT_YUV_target sampling.");
+                    return -1;
+                }
+            }
             return RustBridge.startConnection(address, appVersion, rtspSessionUrl, serverCodecModeSupport,
                     width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,
                     supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
-                    pyrowaveLinkMbps, pyrowavePaceMbps, networkGracePeriodMs);
+                    pyrowaveLinkMbps, pyrowavePaceMbps, networkGracePeriodMs, packed444Requested, packedModes);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,

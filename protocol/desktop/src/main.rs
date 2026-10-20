@@ -164,7 +164,8 @@ fn run() -> Result<(), String> {
             return Err(format!("No window: {}", sdl::error()));
         }
         SDL_SetWindowMinimumSize(window, 720, 480);
-        let renderer = SDL_CreateRenderer(window, std::ptr::null());
+        let renderer =
+            sdl::create_renderer(window, settings.experimental_packed_444 || settings.hdr);
         if renderer.is_null() {
             return Err(format!("No renderer: {}", sdl::error()));
         }
@@ -630,6 +631,21 @@ impl App {
         if self.connecting.is_some() {
             return;
         }
+        if self.launcher.settings.hdr && !sdl::hdr_available(self.renderer) {
+            self.launcher.message("HDR output unavailable", "Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.");
+            return;
+        }
+        let packed_modes = if self.launcher.settings.experimental_packed_444 {
+            match stream::packed444::probe(self.renderer, self.hardware()) {
+                Ok(modes) => modes,
+                Err(reason) => {
+                    self.launcher.message("Full chroma unavailable", reason);
+                    return;
+                }
+            }
+        } else {
+            0
+        };
         let Some(identity) = self.hosts.identity().cloned() else {
             return;
         };
@@ -658,6 +674,7 @@ impl App {
             identity,
             display,
             hardware: self.hardware(),
+            packed_modes,
             pacing: self.pacing(),
         };
         self.cancelled = false;
@@ -832,7 +849,11 @@ impl App {
         }
         if matches!(
             kind,
-            SDL_EVENT_WINDOW_RESIZED | SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED | SDL_EVENT_WINDOW_EXPOSED
+            SDL_EVENT_WINDOW_RESIZED
+                | SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED
+                | SDL_EVENT_WINDOW_EXPOSED
+                | SDL_EVENT_WINDOW_HDR_STATE_CHANGED
+                | SDL_EVENT_WINDOW_DISPLAY_CHANGED
         ) {
             if let Some((s, _)) = self.streaming.as_mut() {
                 s.needs_redraw = true;

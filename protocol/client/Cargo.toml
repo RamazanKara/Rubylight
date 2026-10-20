@@ -23,4 +23,4 @@ socket2 = "0.5"
 
 [dev-dependencies]
 # The Rubylight host's protocol code, for interop tests (control, input, SDP, DESCRIBE, pairing).
-butterpollo-core = { git = "https://github.com/RamazanKara/Rubylight", rev = "21c2940f", package = "butterpollo-core" }
+butterpollo-core = { git = "https://github.com/RamazanKara/Rubylight", rev = "a6775a0b3f8036b3cbece4eadbba619799933dec", package = "butterpollo-core" }

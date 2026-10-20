@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="title_packed_444">Experimental full chroma</string>
+    <string name="summary_packed_444">Requires Rubylight’s experimental full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. Unsupported modes stop the connection. HDR also requires a compatible 10-bit HDR display surface.</string>
     <!-- Shortcut strings -->
     <string name="scut_deleted_pc">PC deleted</string>
     <string name="scut_not_paired">PC not paired</string>

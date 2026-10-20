@@ -559,13 +559,27 @@ impl Launcher {
             );
             if !automatic {
                 let mut mbps = s.bitrate_kbps as f32 / 1000.0;
-                row(ui, "Bitrate", "Higher is sharper and needs a faster network.", |ui| {
-                    let r = ui.add(egui::Slider::new(&mut mbps, 2.0..=150.0).suffix(" Mbps").max_decimals(0));
-                    if r.changed() {
-                        s.bitrate_kbps = (mbps * 1000.0) as u32;
-                    }
-                    r
-                });
+                row(
+                    ui,
+                    "Bitrate",
+                    "Higher is sharper and needs a faster network.",
+                    |ui| {
+                        let maximum = if s.experimental_packed_444 {
+                            200.0
+                        } else {
+                            150.0
+                        };
+                        let r = ui.add(
+                            egui::Slider::new(&mut mbps, 2.0..=maximum)
+                                .suffix(" Mbps")
+                                .max_decimals(0),
+                        );
+                        if r.changed() {
+                            s.bitrate_kbps = (mbps * 1000.0) as u32;
+                        }
+                        r
+                    },
+                );
             }
             row(ui, "Codec", "Automatic picks HEVC when the PC encodes it, else H.264.", |ui| {
                 egui::ComboBox::from_id_salt("codec")
@@ -586,9 +600,11 @@ impl Launcher {
             row(
                 ui,
                 "HDR",
-                "Streams 10-bit HDR when the PC's display is in HDR. Shown tone-mapped to SDR for now.",
+                "Streams 10-bit HDR to an HDR-enabled display. Enable HDR in the operating system first.",
                 |ui| toggle(ui, &mut s.hdr),
             );
+            row(ui, "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
+                |ui| toggle(ui, &mut s.experimental_packed_444));
             row(ui, "Decoder", "Automatic uses the GPU (D3D11VA, VAAPI) and falls back to the CPU.", |ui| {
                 egui::ComboBox::from_id_salt("decoder")
                     .selected_text(match s.decoder {

@@ -11,6 +11,11 @@ fn main() {
         .ok()
         .or_else(|| windows.then(|| r"C:\msys64\ucrt64".to_owned()));
     let mut build = cc::Build::new();
+    if windows {
+        println!("cargo:rerun-if-changed=src/packed444_d3d11.c");
+        build.file("src/packed444_d3d11.c");
+        println!("cargo:rustc-link-lib=d3dcompiler");
+    }
     build.file("src/media_shim.c").warnings(true);
     let mut probed = Vec::new();
     match &prefix {

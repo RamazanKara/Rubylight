@@ -109,6 +109,7 @@ public class PreferenceConfiguration {
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     // Off: streams use the C engine. The Rust engine is a beta and falls back per stream.
     private static final String RUST_ENGINE_PREF_STRING = "checkbox_rust_engine";
+    private static final String PACKED_444_PREF_STRING = "experimental_packed_444";
     static final String FRAME_PACING_PREF_STRING = "frame_pacing";
     private static final String ABSOLUTE_MOUSE_MODE_PREF_STRING = "checkbox_absolute_mouse_mode";
     private static final String ENABLE_AUDIO_FX_PREF_STRING = "checkbox_enable_audiofx";
@@ -225,6 +226,7 @@ public class PreferenceConfiguration {
     public volatile boolean enablePerfOverlay;
     public boolean enableLatencyToast;
     public boolean rustEngine;
+    public boolean experimentalPacked444;
     public boolean bindAllUsb;
     public boolean mouseEmulation;
     public boolean mouseEmulationFixedStep;
@@ -1106,6 +1108,7 @@ public class PreferenceConfiguration {
         config.mouseSpeed = Math.max(25, Math.min(400, prefs.getInt(MOUSE_SPEED_PREF_STRING, DEFAULT_MOUSE_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, false);
+        config.experimentalPacked444 = prefs.getBoolean(PACKED_444_PREF_STRING, false);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);
         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);
         config.reduceRefreshRate = prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);

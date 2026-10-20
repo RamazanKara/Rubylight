@@ -145,6 +145,11 @@ pub struct VideoSetup {
     pub width: i32,
     pub height: i32,
     pub fps: i32,
+    pub chroma_packing: u8,
+    pub logical_width: i32,
+    pub logical_height: i32,
+    pub color_space: i32,
+    pub color_range: i32,
 }
 
 /// The video decoder (`DECODER_RENDERER_CALLBACKS`). Frames come from the decoder thread, or
@@ -749,11 +754,27 @@ fn start(
     listener.stage_starting(Stage::VideoStreamStart);
     if !config.input_only {
         let mut decoder = video_decoder;
+        let coded = if stream.experimental_packed_444 {
+            rubylight_protocol::packed444::Geometry::new(stream.width as u32, stream.height as u32)
+                .expect("validated packed geometry")
+                .coded_size()
+        } else {
+            (stream.width as u32, stream.height as u32)
+        };
         let setup = VideoSetup {
             format: outcome.negotiated_video_format,
-            width: stream.width,
-            height: stream.height,
+            width: coded.0 as i32,
+            height: coded.1 as i32,
             fps: stream.fps,
+            chroma_packing: if stream.experimental_packed_444 {
+                rubylight_protocol::packed444::VERSION
+            } else {
+                0
+            },
+            logical_width: stream.width,
+            logical_height: stream.height,
+            color_space: stream.color_space,
+            color_range: stream.color_range,
         };
         let video_fail = |code: i32, message: String| fail(Stage::VideoStreamStart, code, message);
         if let Err(code) = decoder.setup(&setup) {

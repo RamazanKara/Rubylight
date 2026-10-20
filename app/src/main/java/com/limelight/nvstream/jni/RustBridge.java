@@ -83,7 +83,7 @@ final class RustBridge {
                                       int videoCapabilities, int colorSpace, int colorRange,
                                       int hostFeatures, boolean inputOnly, boolean enableMic,
                                       boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps,
-                                      int networkGracePeriodMs);
+                                      int networkGracePeriodMs, boolean packed444, int packed444Modes);
     static native void stopConnection();
     static native void interruptConnection();
     static native void sendMouseMove(short deltaX, short deltaY);

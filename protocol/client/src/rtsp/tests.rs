@@ -192,6 +192,7 @@ fn failures_report_the_request() {
         Err(RtspError::Status {
             request: "DESCRIBE",
             code: 503,
+            ..
         }) => {}
         other => panic!("{other:?}"),
     }
@@ -209,6 +210,58 @@ fn failures_report_the_request() {
         Ok::<_, RtspError>(())
     })();
     assert!(matches!(result, Err(RtspError::Malformed(m)) if m.contains("no session")));
+}
+
+#[test]
+fn packed_chroma_requires_distinct_capabilities_and_keeps_codec_ids() {
+    use crate::sdp::*;
+    let base = "a=rtpmap:98 AV1/90000\r\na=sprop-parameter-sets=AAAAAU\r\n";
+    let config = StreamConfig {
+        experimental_packed_444: true,
+        packed444_modes: 15,
+        supported_video_formats: VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8,
+        ..Default::default()
+    };
+    assert!(!StreamConfig::default().experimental_packed_444);
+    for offer in [
+        "",
+        "a=x-rl-video.packed444Version:2\r\na=x-rl-video.packed444Modes:15\r\n",
+        "a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:0\r\n",
+    ] {
+        assert!(DescribeInfo::parse(&format!("{base}{offer}"))
+            .select_packed_format(&config)
+            .is_err());
+    }
+    let info = DescribeInfo::parse(&format!(
+        "{base}a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:15\r\n"
+    ));
+    assert_eq!(
+        info.select_packed_format(&config).unwrap(),
+        VIDEO_FORMAT_AV1_MAIN8
+    );
+    assert_eq!(
+        info.select_packed_format(&StreamConfig {
+            supported_video_formats: VIDEO_FORMAT_H265_MAIN10,
+            ..config.clone()
+        })
+        .unwrap(),
+        VIDEO_FORMAT_H265_MAIN10
+    );
+    assert!(info
+        .select_packed_format(&StreamConfig {
+            packed444_modes: 0,
+            ..config.clone()
+        })
+        .is_err());
+    assert!(info
+        .select_packed_format(&StreamConfig {
+            supported_video_formats: VIDEO_FORMAT_H265_REXT10_444,
+            ..config.clone()
+        })
+        .is_err());
+    let mut request = params(None);
+    request.config = StreamConfig { width: 0, ..config };
+    assert!(Handshake::new(request).is_err());
 }
 
 #[test]

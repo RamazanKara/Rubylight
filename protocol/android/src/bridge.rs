@@ -13,6 +13,8 @@ use crate::platform;
 
 pub struct Methods {
     pub dr_setup: JStaticMethodID,
+    pub dr_setup_packing: JStaticMethodID,
+    pub display_message: JStaticMethodID,
     pub dr_start: JStaticMethodID,
     pub dr_stop: JStaticMethodID,
     pub dr_cleanup: JStaticMethodID,
@@ -58,6 +60,8 @@ pub fn init(env: &mut JNIEnv) -> jni::errors::Result<()> {
     let mut id = |name: &str, signature: &str| env.get_static_method_id(&class, name, signature);
     let m = Methods {
         dr_setup: id("bridgeDrSetup", "(IIII)I")?,
+        dr_setup_packing: id("bridgeDrSetupPacking", "(IIIII)I")?,
+        display_message: id("bridgeClDisplayMessage", "(Ljava/lang/String;)V")?,
         dr_start: id("bridgeDrStart", "()V")?,
         dr_stop: id("bridgeDrStop", "()V")?,
         dr_cleanup: id("bridgeDrCleanup", "()V")?,

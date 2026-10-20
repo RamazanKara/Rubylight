@@ -109,6 +109,11 @@ pub struct VideoTexture {
     format: SDL_PixelFormat,
     colorspace: SDL_Colorspace,
     d3d11: *mut c_void,
+    packed: Option<super::packed444::Reconstruction>,
+    packed_format: Option<[u32; 12]>,
+    white_level: f32,
+    hdr_mode: Option<bool>,
+    hdr_metadata: Option<nightjar_core::control::HdrMetadata>,
 }
 
 impl Default for VideoTexture {
@@ -120,6 +125,11 @@ impl Default for VideoTexture {
             format: SDL_PIXELFORMAT_UNKNOWN,
             colorspace: SDL_COLORSPACE_UNKNOWN,
             d3d11: std::ptr::null_mut(),
+            packed: None,
+            packed_format: None,
+            white_level: 1.0,
+            hdr_mode: None,
+            hdr_metadata: None,
         }
     }
 }
@@ -143,6 +153,27 @@ fn colorspace(info: &FrameInfo) -> SDL_Colorspace {
 }
 
 impl VideoTexture {
+    pub fn set_hdr_mode(
+        &mut self,
+        enabled: bool,
+        metadata: Option<nightjar_core::control::HdrMetadata>,
+    ) {
+        if self.hdr_mode != Some(enabled) || self.hdr_metadata != metadata {
+            self.destroy();
+            self.hdr_mode = Some(enabled);
+            self.hdr_metadata = metadata;
+        }
+    }
+
+    pub fn is_hdr(&self) -> bool {
+        self.hdr_mode.unwrap_or(
+            self.colorspace == SDL_COLORSPACE_HDR10
+                || self
+                    .packed_format
+                    .is_some_and(|parameters| parameters[7] != 0),
+        )
+    }
+
     pub fn size(&self) -> (i32, i32) {
         (self.width, self.height)
     }
@@ -154,12 +185,14 @@ impl VideoTexture {
         width: i32,
         height: i32,
         space: SDL_Colorspace,
+        white_level: f32,
     ) -> bool {
         if !self.texture.is_null()
             && self.format == format
             && self.width == width
             && self.height == height
             && self.colorspace == space
+            && self.white_level == white_level
         {
             return true;
         }
@@ -167,15 +200,56 @@ impl VideoTexture {
         // SAFETY: SDL property and texture calls on a live renderer.
         unsafe {
             let props = SDL_CreateProperties();
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64::from(format.0));
+            SDL_SetNumberProperty(
+                props,
+                SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER,
+                i64::from(format.0),
+            );
             SDL_SetNumberProperty(
                 props,
                 SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER,
-                i64::from(SDL_TEXTUREACCESS_STATIC.0),
+                i64::from(if format == SDL_PIXELFORMAT_RGBA64_FLOAT {
+                    SDL_TEXTUREACCESS_TARGET.0
+                } else {
+                    SDL_TEXTUREACCESS_STATIC.0
+                }),
             );
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, i64::from(width));
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, i64::from(height));
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64::from(space.0));
+            SDL_SetNumberProperty(
+                props,
+                SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER,
+                i64::from(width),
+            );
+            SDL_SetNumberProperty(
+                props,
+                SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER,
+                i64::from(height),
+            );
+            SDL_SetNumberProperty(
+                props,
+                SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER,
+                i64::from(space.0),
+            );
+            if space == SDL_COLORSPACE_HDR10 {
+                SDL_SetFloatProperty(
+                    props,
+                    SDL_PROP_TEXTURE_CREATE_SDR_WHITE_POINT_FLOAT,
+                    80.0 * white_level,
+                );
+            }
+            if let Some(metadata) = self.hdr_metadata.filter(|_| self.hdr_mode == Some(true)) {
+                let peak = if metadata.max_content_light_level != 0 {
+                    metadata.max_content_light_level
+                } else {
+                    metadata.max_display_luminance
+                };
+                if peak > 0 {
+                    SDL_SetFloatProperty(
+                        props,
+                        SDL_PROP_TEXTURE_CREATE_HDR_HEADROOM_FLOAT,
+                        f32::from(peak) / (80.0 * white_level),
+                    );
+                }
+            }
             self.texture = SDL_CreateTextureWithProperties(renderer, props);
             SDL_DestroyProperties(props);
             if self.texture.is_null() {
@@ -192,12 +266,98 @@ impl VideoTexture {
         self.width = width;
         self.height = height;
         self.colorspace = space;
+        self.white_level = white_level;
         true
     }
 
     /// Puts a decoded picture into the texture.
-    pub fn upload(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame) -> bool {
+    pub fn upload(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded) -> bool {
+        let frame = &decoded.frame;
         let info = frame.info();
+        // SDL's HDR headroom and tone mapping are relative to the display's SDR white.
+        let white_level = if self.hdr_mode.unwrap_or(
+            info.color_trc == 16
+                || decoded.setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0,
+        ) {
+            // SAFETY: The live renderer belongs to the presenting thread.
+            unsafe {
+                SDL_GetFloatProperty(
+                    SDL_GetRendererProperties(renderer),
+                    SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT,
+                    1.0,
+                )
+                .max(0.001)
+            }
+        } else {
+            1.0
+        };
+        if decoded.setup.chroma_packing != 0 {
+            let setup = decoded.setup;
+            let Some(layout) = rubylight_protocol::packed444::Geometry::new(
+                setup.logical_width as u32,
+                setup.logical_height as u32,
+            ) else {
+                return false;
+            };
+            if setup.chroma_packing != rubylight_protocol::packed444::VERSION
+                || layout.coded_size() != (info.width as u32, info.height as u32)
+                || (info.ten_bit != 0)
+                    != (setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0)
+            {
+                self.destroy();
+                return false;
+            }
+            let hdr = self
+                .hdr_mode
+                .unwrap_or(setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0);
+            if hdr && !crate::sdl::hdr_available(renderer) {
+                self.destroy();
+                return false;
+            }
+            let parameters = [
+                layout.width,
+                layout.height,
+                layout.padded_width,
+                layout.padded_height,
+                info.ten_bit as u32,
+                setup.color_range as u32,
+                setup.color_space as u32,
+                u32::from(hdr),
+                white_level.to_bits(),
+                0,
+                0,
+                0,
+            ];
+            if self
+                .packed_format
+                .is_some_and(|previous| previous != parameters)
+            {
+                self.destroy();
+            }
+            if !self.ensure(
+                renderer,
+                SDL_PIXELFORMAT_RGBA64_FLOAT,
+                setup.logical_width,
+                setup.logical_height,
+                SDL_COLORSPACE_SRGB_LINEAR,
+                white_level,
+            ) {
+                return false;
+            }
+            if self.packed.is_none() {
+                self.packed =
+                    super::packed444::Reconstruction::new(renderer, self.texture, &parameters);
+                self.packed_format = Some(parameters);
+            }
+            let success = self
+                .packed
+                .as_mut()
+                .is_some_and(|packed| packed.draw(renderer, self.texture, frame, &parameters));
+            if !success {
+                self.destroy();
+            }
+            return success;
+        }
         let space = colorspace(&info);
         let (w, h) = (info.width, info.height);
         // SAFETY: plane pointers and pitches come from the live AVFrame.
@@ -209,7 +369,7 @@ impl VideoTexture {
                     } else {
                         SDL_PIXELFORMAT_NV12
                     };
-                    self.ensure(renderer, format, w, h, space)
+                    self.ensure(renderer, format, w, h, space, white_level)
                         && !self.d3d11.is_null()
                         && frame.copy_to_d3d11(self.d3d11, w, h)
                 }
@@ -219,7 +379,7 @@ impl VideoTexture {
                     } else {
                         SDL_PIXELFORMAT_NV12
                     };
-                    self.ensure(renderer, format, w, h, space)
+                    self.ensure(renderer, format, w, h, space, white_level)
                         && SDL_UpdateNVTexture(
                             self.texture,
                             std::ptr::null(),
@@ -230,7 +390,7 @@ impl VideoTexture {
                         )
                 }
                 media::FRAME_YUV420P => {
-                    self.ensure(renderer, SDL_PIXELFORMAT_IYUV, w, h, space)
+                    self.ensure(renderer, SDL_PIXELFORMAT_IYUV, w, h, space, white_level)
                         && SDL_UpdateYUVTexture(
                             self.texture,
                             std::ptr::null(),
@@ -248,11 +408,17 @@ impl VideoTexture {
     }
 
     pub fn destroy(&mut self) {
+        self.packed = None;
+        self.packed_format = None;
         if !self.texture.is_null() {
             // SAFETY: a texture we created.
             unsafe { SDL_DestroyTexture(self.texture) };
         }
-        *self = Self::default();
+        *self = Self {
+            hdr_mode: self.hdr_mode,
+            hdr_metadata: self.hdr_metadata,
+            ..Self::default()
+        };
     }
 }
 

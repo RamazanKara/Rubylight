@@ -21,6 +21,8 @@ import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.concurrent.CountDownLatch;
 
 final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailableListener {
@@ -28,6 +30,11 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private final Handler handler;
     private final UpscalingPolicy policy;
     private final UpscalingPolicy.Mode mode;
+    private final Packed444 packing;
+    private final boolean tenBit;
+    private final boolean stretch;
+    private boolean hdr;
+    private byte[] hdrMetadata;
     private final UpscalingFrameQueue frames = new UpscalingFrameQueue();
     private final long[] frame = new long[3];
     private final float[] transform = new float[16];
@@ -50,8 +57,19 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
 
     GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
                  boolean stretch, int sharpness, UpscalingPolicy policy) {
+        this(context, output, mode, width, height, stretch, sharpness, policy, null, false, null);
+    }
+
+    GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
+                 boolean stretch, int sharpness, UpscalingPolicy policy, Packed444 packing,
+                 boolean tenBit, byte[] hdrMetadata) {
         this.mode = mode;
         this.policy = policy;
+        this.packing = packing;
+        this.tenBit = tenBit;
+        this.hdr = tenBit;
+        this.stretch = stretch;
+        this.hdrMetadata = hdrMetadata == null ? null : hdrMetadata.clone();
         thread.start();
         handler = new Handler(thread.getLooper());
         CountDownLatch ready = new CountDownLatch(1);
@@ -110,16 +128,22 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         }
         int[] attributes = {
                 EGL14.EGL_RENDERABLE_TYPE, 0x40, EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT,
-                EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                EGL14.EGL_RED_SIZE, tenBit ? 10 : 8, EGL14.EGL_GREEN_SIZE, tenBit ? 10 : 8, EGL14.EGL_BLUE_SIZE, tenBit ? 10 : 8,
                 EGL14.EGL_ALPHA_SIZE, 0, EGL14.EGL_NONE
         };
         EGLConfig[] configs = new EGLConfig[1];
         require(EGL14.eglChooseConfig(display, attributes, 0, configs, 0, 1, size, 0) && size[0] != 0,
                 "GLES 3 config");
+        if (tenBit) for (int channel : new int[] {EGL14.EGL_RED_SIZE, EGL14.EGL_GREEN_SIZE, EGL14.EGL_BLUE_SIZE}) {
+            require(EGL14.eglGetConfigAttrib(display, configs[0], channel, size, 0) && size[0] >= 10,
+                    "10-bit HDR color buffer");
+        }
         eglContext = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT,
                 new int[] {EGL14.EGL_CONTEXT_CLIENT_VERSION, 3, EGL14.EGL_NONE}, 0);
         require(eglContext != EGL14.EGL_NO_CONTEXT, "GLES 3 context");
-        window = EGL14.eglCreateWindowSurface(display, configs[0], output, new int[] {EGL14.EGL_NONE}, 0);
+        if (tenBit) require(eglExtensions.contains("EGL_EXT_gl_colorspace_bt2020_pq"), "BT.2020/PQ surface");
+        window = EGL14.eglCreateWindowSurface(display, configs[0], output,
+                tenBit ? new int[] {0x309D, 0x3340, EGL14.EGL_NONE} : new int[] {EGL14.EGL_NONE}, 0);
         require(window != EGL14.EGL_NO_SURFACE, "EGL window");
         require(EGL14.eglMakeCurrent(display, window, window, eglContext), "EGL make current");
         String extensions = GLES30.glGetString(GLES30.GL_EXTENSIONS);
@@ -127,22 +151,29 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             policy.fail(UpscalingPolicy.Reason.UNSUPPORTED);
             return;
         }
+        if (packing != null) require(extensions.contains("GL_EXT_YUV_target"), "raw YUV sampling");
         require(EGL14.eglSwapInterval(display, 0), "EGL swap interval");
         querySurfaceSize();
         surfaceWidth = size[0];
         surfaceHeight = size[1];
-        viewport = UpscalingPolicy.viewport(width, height, surfaceWidth, surfaceHeight, stretch);
-        policy.fail(UpscalingPolicy.unavailableReason(mode, width, height, viewport[2], viewport[3],
+        viewport = UpscalingPolicy.viewport(packing == null ? width : packing.width,
+                packing == null ? height : packing.height, surfaceWidth, surfaceHeight, stretch);
+        if (packing == null) policy.fail(UpscalingPolicy.unavailableReason(mode, width, height, viewport[2], viewport[3],
                 false, false, true));
         if (policy.getReason() != UpscalingPolicy.Reason.NONE) return;
 
         String vertex = shaderSource(context, "upscale.vert");
         upscaleProgram = program(vertex, shaderSource(context,
-                mode == UpscalingPolicy.Mode.FSR1 ? "easu.frag" :
+                packing != null ? "packed444.frag" : mode == UpscalingPolicy.Mode.FSR1 ? "easu.frag" :
                         mode == UpscalingPolicy.Mode.SGSR1 ? "sgsr.frag" : "bilinear.frag"));
         GLES30.glUseProgram(upscaleProgram);
         GLES30.glUniform1i(GLES30.glGetUniformLocation(upscaleProgram, "source"), 0);
         transformUniform = GLES30.glGetUniformLocation(upscaleProgram, "textureTransform");
+        if (packing != null) {
+            GLES30.glUniform4i(GLES30.glGetUniformLocation(upscaleProgram, "picture"),
+                    packing.width, packing.height, packing.paddedWidth, packing.paddedHeight);
+            updateHdr();
+        }
         if (mode == UpscalingPolicy.Mode.FSR1) {
             float[] constants = FsrConstants.easu(width, height, width, height, viewport[2], viewport[3]);
             for (int i = 0; i < 4; i++) {
@@ -175,7 +206,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         sourceTexture = size[0];
         GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, sourceTexture);
         textureParameters(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                mode == UpscalingPolicy.Mode.FSR1 ? GLES30.GL_NEAREST : GLES30.GL_LINEAR);
+                packing != null || mode == UpscalingPolicy.Mode.FSR1 ? GLES30.GL_NEAREST : GLES30.GL_LINEAR);
         texture = new SurfaceTexture(sourceTexture);
         texture.setDefaultBufferSize(width, height);
         texture.setOnFrameAvailableListener(this, handler);
@@ -185,7 +216,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         require(GLES30.glGetError() == GLES30.GL_NO_ERROR, "GLES setup");
     }
 
-    private static String shaderSource(Context context, String name) throws IOException {
+    static String shaderSource(Context context, String name) throws IOException {
         try (InputStream stream = context.getAssets().open("shaders/" + name)) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             byte[] buffer = new byte[4096];
@@ -195,7 +226,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         }
     }
 
-    private static void textureParameters(int target, int filter) {
+    static void textureParameters(int target, int filter) {
         GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_MIN_FILTER, filter);
         GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_MAG_FILTER, filter);
         GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
@@ -216,7 +247,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         return shader;
     }
 
-    private static int program(String vertexSource, String fragmentSource) {
+    static int program(String vertexSource, String fragmentSource) {
         int vertex = shader(GLES30.GL_VERTEX_SHADER, vertexSource);
         int fragment = 0;
         int program = 0;
@@ -272,8 +303,13 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             pendingDrops = (int) frame[2];
             querySurfaceSize();
             if (size[0] != surfaceWidth || size[1] != surfaceHeight) {
-                policy.fail(UpscalingPolicy.Reason.SIZE_CHANGED);
-                return;
+                if (packing == null) {
+                    policy.fail(UpscalingPolicy.Reason.SIZE_CHANGED);
+                    return;
+                }
+                surfaceWidth = size[0];
+                surfaceHeight = size[1];
+                viewport = UpscalingPolicy.viewport(packing.width, packing.height, surfaceWidth, surfaceHeight, stretch);
             }
             texture.getTransformMatrix(transform);
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
@@ -322,6 +358,48 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         } else {
             policy.checkStall(elapsed);
             if (policy.getReason() == UpscalingPolicy.Reason.NONE) handler.postDelayed(pollCompletion, 1);
+        }
+    }
+
+    void setHdrMode(boolean enabled, byte[] metadata) {
+        byte[] copy = metadata == null ? null : metadata.clone();
+        handler.post(() -> {
+            try {
+                hdr = enabled;
+                hdrMetadata = copy;
+                updateHdr();
+            } catch (RuntimeException e) {
+                LimeLog.warning("Packed chroma HDR output failed: " + e);
+                policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+            }
+        });
+    }
+
+    private void updateHdr() {
+        require(!hdr || tenBit, "10-bit HDR output");
+        GLES30.glUseProgram(upscaleProgram);
+        GLES30.glUniform4i(GLES30.glGetUniformLocation(upscaleProgram, "colorimetry"),
+                tenBit ? 1 : 0, packing.colorRange, hdr ? 2 : packing.colorSpace, hdr ? 1 : 0);
+        if (!tenBit) return;
+        String extensions = EGL14.eglQueryString(display, EGL14.EGL_EXTENSIONS);
+        ByteBuffer metadata = hdr && hdrMetadata != null && hdrMetadata.length >= 24 ?
+                ByteBuffer.wrap(hdrMetadata).order(ByteOrder.LITTLE_ENDIAN) : null;
+        if (extensions.contains("EGL_EXT_surface_SMPTE2086_metadata")) {
+            for (int i = 0; i < 10; i++) {
+                int value = -1; // EGL_DONT_CARE is absent from Android's EGL14 bindings.
+                if (metadata != null) {
+                    value = metadata.getShort(i * 2) & 0xffff;
+                    // Control metadata stores maximum luminance in nits and minimum in 0.0001 nits.
+                    if (i == 8) value *= 50000;
+                    if (i == 9) value *= 5;
+                }
+                require(EGL14.eglSurfaceAttrib(display, window, 0x3341 + i, value), "HDR mastering metadata");
+            }
+        }
+        if (extensions.contains("EGL_EXT_surface_CTA861_3_metadata")) {
+            for (int i = 0; i < 2; i++) require(EGL14.eglSurfaceAttrib(display, window, 0x3360 + i,
+                    metadata == null ? -1 : (metadata.getShort(20 + i * 2) & 0xffff) * 50000),
+                    "HDR content metadata");
         }
     }
 

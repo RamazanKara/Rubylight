@@ -43,6 +43,7 @@ pub enum RtspError {
     Status {
         request: &'static str,
         code: i32,
+        reason: String,
     },
     Malformed(String),
     Encryption(String),
@@ -55,8 +56,12 @@ impl std::fmt::Display for RtspError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RtspError::Io(e) => write!(f, "RTSP: {e}"),
-            RtspError::Status { request, code } => {
-                write!(f, "RTSP {request} request failed: {code}")
+            RtspError::Status {
+                request,
+                code,
+                reason,
+            } => {
+                write!(f, "RTSP {request} request failed: {code} {reason}")
             }
             RtspError::Malformed(e)
             | RtspError::Encryption(e)
@@ -362,7 +367,20 @@ impl Handshake {
         if config.packet_size <= 0 {
             return Err(RtspError::InvalidConfig("invalid packet size".into()));
         }
-        config.height &= !1;
+        if config.experimental_packed_444 {
+            if rubylight_protocol::packed444::Geometry::new(
+                config.width as u32,
+                config.height as u32,
+            )
+            .is_none()
+            {
+                return Err(RtspError::InvalidConfig(
+                    "invalid packed 4:4:4 display geometry".into(),
+                ));
+            }
+        } else {
+            config.height &= !1;
+        }
         let sunshine = quad[3] < 0;
         let mut video_capabilities = config.video_capabilities;
         if config.width == 3840 && config.height == 2160 && !sunshine {
@@ -665,6 +683,15 @@ impl Handshake {
         let failed = || RtspError::Status {
             request: stage.name(),
             code: response.status_code,
+            reason: response
+                .payload
+                .as_ref()
+                .and_then(|p| std::str::from_utf8(p).ok())
+                .filter(|p| !p.is_empty())
+                .unwrap_or(&response.status_text)
+                .chars()
+                .take(1024)
+                .collect(),
         };
         let quad = self.quad();
         self.stage = match stage {
@@ -800,10 +827,14 @@ impl Handshake {
     fn handle_describe(&mut self, text: &str) -> Result<(), RtspError> {
         let info = DescribeInfo::parse(text);
         let config = self.out.config.clone();
-        let format = info.select_video_format(
-            config.supported_video_formats,
-            self.server_codec_mode_support,
-        );
+        let format = if config.experimental_packed_444 {
+            info.select_packed_format(&config)?
+        } else {
+            info.select_video_format(
+                config.supported_video_formats,
+                self.server_codec_mode_support,
+            )
+        };
         let pyrowave = format & sdp::VIDEO_FORMAT_MASK_PYROWAVE != 0;
         self.out.pyrowave_records_enabled = pyrowave && config.pyrowave_records_supported;
         if pyrowave {

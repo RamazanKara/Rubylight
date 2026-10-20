@@ -9,6 +9,12 @@ public abstract class VideoDecoderRenderer {
         return formats;
     }
 
+    public int preparePacked444Modes(int formats, int width, int height, int fps) { return 0; }
+
+    public int setChromaPacking(int version, int width, int height, int colorSpace, int colorRange) {
+        return version == 0 ? 0 : -1;
+    }
+
     public abstract int setup(int format, int width, int height, int redrawRate);
 
     public abstract void start();

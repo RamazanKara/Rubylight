@@ -35,6 +35,73 @@ pub fn renderer_pointer(renderer: *mut SDL_Renderer, name: *const c_char) -> *mu
     unsafe { SDL_GetPointerProperty(SDL_GetRendererProperties(renderer), name, std::ptr::null_mut()) }
 }
 
+pub fn hdr_available(renderer: *mut SDL_Renderer) -> bool {
+    // SAFETY: The renderer and its associated window/device are live.
+    unsafe {
+        let props = SDL_GetRendererProperties(renderer);
+        if !SDL_GetBooleanProperty(props, SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, false) {
+            return false;
+        }
+        let device: *mut SDL_GPUDevice = SDL_GetPointerProperty(
+            props,
+            SDL_PROP_RENDERER_GPU_DEVICE_POINTER,
+            std::ptr::null_mut(),
+        )
+        .cast();
+        device.is_null()
+            || (SDL_WindowSupportsGPUSwapchainComposition(
+                device,
+                SDL_GetRenderWindow(renderer),
+                SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR,
+            ) && SDL_GetGPUSwapchainTextureFormat(device, SDL_GetRenderWindow(renderer))
+                == SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT)
+    }
+}
+
+pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer {
+    // SAFETY: The window is live, and all property strings are static.
+    unsafe {
+        let props = SDL_CreateProperties();
+        SDL_SetPointerProperty(
+            props,
+            SDL_PROP_RENDERER_CREATE_WINDOW_POINTER,
+            window.cast(),
+        );
+        if !cfg!(windows) && gpu {
+            SDL_SetStringProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING, c"gpu".as_ptr());
+            SDL_SetBooleanProperty(
+                props,
+                SDL_PROP_RENDERER_CREATE_GPU_SHADERS_SPIRV_BOOLEAN,
+                true,
+            );
+        }
+        SDL_SetNumberProperty(
+            props,
+            SDL_PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER,
+            i64::from(if gpu {
+                SDL_COLORSPACE_SRGB_LINEAR.0
+            } else {
+                SDL_COLORSPACE_SRGB.0
+            }),
+        );
+        let mut renderer = SDL_CreateRendererWithProperties(props);
+        if !cfg!(windows) && gpu && !renderer.is_null() && !hdr_available(renderer) {
+            SDL_DestroyRenderer(renderer);
+            renderer = std::ptr::null_mut();
+        }
+        if renderer.is_null() {
+            SDL_SetNumberProperty(
+                props,
+                SDL_PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER,
+                i64::from(SDL_COLORSPACE_SRGB.0),
+            );
+            renderer = SDL_CreateRendererWithProperties(props);
+        }
+        SDL_DestroyProperties(props);
+        renderer
+    }
+}
+
 /// The window's icon from straight RGBA pixels.
 pub fn set_icon(window: *mut SDL_Window, rgba: &[u8], size: i32) {
     // SAFETY: the surface borrows `rgba` only for the call.

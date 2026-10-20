@@ -78,6 +78,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private byte optimalSlicesPerFrame;
     private boolean refFrameInvalidationActive;
     private int initialWidth, initialHeight;
+    private Packed444 packing;
+    private boolean packingFailed;
     // Mid-stream reconfigure (0x5532): the adaptive-playback maximum, which grows when a larger
     // size is asked for; the size the host was last asked for; and the size being shown.
     private int maxDecodeWidth, maxDecodeHeight;
@@ -622,6 +624,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // either size can then arrive first. False when this decoder cannot take the size.
     public boolean prepareForReconfigure(int width, int height) {
         synchronized (codecRecoveryMonitor) {
+            if (packing != null) {
+                MoonBridge.bridgeClDisplayMessage("Reconnect to change the logical size of a packed full-chroma stream.");
+                return false;
+            }
             MediaCodecInfo.VideoCapabilities caps = reconfigureCapabilities();
             if (caps == null) {
                 return false;
@@ -704,6 +710,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Logs the size each decoder output format carries and, after a reconfigure, reports a new
     // size once its frames come out.
     private void updateShownSize() {
+        if (packing != null) return;
         int[] visible;
         try {
             if (!outputFormat.containsKey(MediaFormat.KEY_WIDTH) || !outputFormat.containsKey(MediaFormat.KEY_HEIGHT)) {
@@ -751,6 +758,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         float panelHz = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                 display.getMode().getRefreshRate() : display.getRefreshRate();
         upscalingPolicy = new UpscalingPolicy(Math.max(1, Math.min(refreshRate, Math.round(panelHz))));
+        if (packing != null) {
+            upscaler = new GlesUpscaler(context, renderTarget, UpscalingPolicy.Mode.BILINEAR,
+                    initialWidth, initialHeight, prefs.stretchVideo, 0, upscalingPolicy, packing,
+                    (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, currentHdrMetadata);
+            if (currentHdrMode != null) upscaler.setHdrMode(currentHdrMode, currentHdrMetadata);
+            return;
+        }
         if (prefs.upscalingMode == UpscalingPolicy.Mode.OFF) {
             upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
             return;
@@ -810,6 +824,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private String upscalingStats() {
+        if (packing != null) return "Packed full chroma (GPU reconstruction)";
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             UpscalingPolicy.Reason reason = pyroWaveRenderer.getUpscalingReason();
             String mode = reason == UpscalingPolicy.Reason.NONE ?
@@ -837,8 +852,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private void checkUpscaling() {
         GlesUpscaler current = upscaler;
         if (current == null || stopping) return;
+        if (packing != null && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 &&
+                !packedHdrAvailable()) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
         current.checkHealth();
         if (upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) {
+            if (packing != null) {
+                if (!packingFailed) {
+                    packingFailed = true;
+                    MoonBridge.bridgeClDisplayMessage("Packed full-chroma presentation stopped: " +
+                            upscalingReason(upscalingPolicy.getReason()));
+                    MoonBridge.bridgeClConnectionTerminated(-1);
+                }
+                return;
+            }
             synchronized (codecRecoveryMonitor) {
                 if (stopping) return;
                 codecRecoveryAttempts = 0;
@@ -858,6 +884,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private void checkUpscalingOutputFormat() {
         if (upscaler == null) return;
+        if (packing != null) {
+            int width = outputFormat.getInteger(MediaFormat.KEY_WIDTH);
+            int height = outputFormat.getInteger(MediaFormat.KEY_HEIGHT);
+            if (outputFormat.containsKey("crop-right")) width = outputFormat.getInteger("crop-right") + 1;
+            if (outputFormat.containsKey("crop-bottom")) height = outputFormat.getInteger("crop-bottom") + 1;
+            if (width != initialWidth || height != initialHeight ||
+                    (outputFormat.containsKey("crop-left") && outputFormat.getInteger("crop-left") != 0) ||
+                    (outputFormat.containsKey("crop-top") && outputFormat.getInteger("crop-top") != 0)) {
+                upscalingPolicy.fail(UpscalingPolicy.Reason.SIZE_CHANGED);
+            }
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && outputFormat.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
             int transfer = outputFormat.getInteger(MediaFormat.KEY_COLOR_TRANSFER);
             if (transfer == MediaFormat.COLOR_TRANSFER_ST2084 || transfer == MediaFormat.COLOR_TRANSFER_HLG) {
@@ -1063,6 +1101,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     public int getSupportedVideoFormats(boolean hdr) {
+        if (prefs.experimentalPacked444) {
+            return getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, false) |
+                    getDecoderVideoFormats(av1Decoder, "video/av01", hdr, false);
+        }
         int pyroWave = 0;
         if (isPyroWaveSupported()) {
             pyroWave = MoonBridge.VIDEO_FORMAT_PYROWAVE;
@@ -1097,6 +1139,56 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.warning("PyroWave initialization failed; retaining MediaCodec fallback");
         }
         return formats & ~MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE;
+    }
+
+    @Override
+    public int preparePacked444Modes(int formats, int width, int height, int fps) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || prefs.useTextureView) return 0;
+        Packed444 geometry = new Packed444(width, height, 0, 0);
+        int modes = 0;
+        MediaCodecInfo[] decoders = {hevcDecoder, av1Decoder};
+        String[] codecs = {"hevc", "av1"};
+        String[] mimes = {"video/hevc", "video/av01"};
+        int[] formatBits = {MoonBridge.VIDEO_FORMAT_H265, MoonBridge.VIDEO_FORMAT_H265_MAIN10,
+                MoonBridge.VIDEO_FORMAT_AV1_MAIN8, MoonBridge.VIDEO_FORMAT_AV1_MAIN10};
+        for (int codec = 0; codec < 2; codec++) {
+            MediaCodecInfo decoder = decoders[codec];
+            if (decoder == null || !decoder.isHardwareAccelerated() || decoder.isSoftwareOnly()) continue;
+            try {
+                MediaCodecInfo.VideoCapabilities caps = decoder.getCapabilitiesForType(mimes[codec]).getVideoCapabilities();
+                if (!caps.areSizeAndRateSupported(geometry.paddedWidth, geometry.paddedHeight * 2, fps)) continue;
+                for (int depth = 0; depth < 2; depth++) {
+                    int bit = codec * 2 + depth;
+                    if ((formats & formatBits[bit]) == 0 || (depth == 1 && !packedHdrAvailable())) continue;
+                    if (Packed444.verifySampling(context, decoder.getName(), codecs[codec], depth == 1)) modes |= 1 << bit;
+                }
+            } catch (IllegalArgumentException e) {
+                LimeLog.warning("Packed chroma decoder geometry is unsupported: " + e);
+            }
+        }
+        return modes;
+    }
+
+    private boolean packedHdrAvailable() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false;
+        Display.HdrCapabilities capabilities = outputDisplay.getHdrCapabilities();
+        if (capabilities != null) for (int type : capabilities.getSupportedHdrTypes()) {
+            if (type == Display.HdrCapabilities.HDR_TYPE_HDR10) return true;
+        }
+        return false;
+    }
+
+    @Override
+    public int setChromaPacking(int version, int width, int height, int colorSpace, int colorRange) {
+        if (version == 0) {
+            packing = null;
+            return 0;
+        }
+        if (version != 1 || !prefs.experimentalPacked444 || !prefs.rustEngine ||
+                width < 64 || height < 64 || width > 16384 || height > 8192) return -1;
+        packing = new Packed444(width, height, colorSpace, colorRange);
+        packingFailed = false;
+        return 0;
     }
 
     public int getPreferredColorSpace() {
@@ -1215,7 +1307,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private void configureAndStartDecoder(MediaFormat format) {
         // Set HDR metadata if present
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        if (packing != null) {
+            Packed444.sampleDataFormat(format);
+            format.removeKey(MediaFormat.KEY_HDR_STATIC_INFO);
+            if (upscaler == null || upscaler.getInputSurface() == null ||
+                    upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) {
+                throw new IllegalStateException("Packed full-chroma reconstruction is unavailable");
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             boolean hdr = currentHdrMode != null ? currentHdrMode :
                     (getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
             format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, hdr ?
@@ -1236,7 +1335,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         LimeLog.info("Configuring with format: "+format);
 
-        if (upscaler != null) {
+        if (upscaler != null && packing == null) {
             if (Boolean.TRUE.equals(currentHdrMode)) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
             if (upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) closeUpscaler();
         }
@@ -1450,7 +1549,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
 
             if (!newFormat) {
-                if (upscaler != null) {
+                if (upscaler != null && packing == null) {
                     LimeLog.warning("Retrying decoder formats without the upscaling surface");
                     closeUpscaler();
                     retryWithoutUpscaling = true;
@@ -1512,10 +1611,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // negotiated down to 1080p); scaling and touch follow the size the decoder gets.
         StreamSizeListener listener = streamSizeListener;
         if (listener != null) {
-            listener.onStreamSizeChanged(width, height);
+            listener.onStreamSizeChanged(packing == null ? width : packing.width, packing == null ? height : packing.height);
         }
         if (result == 0) {
-            if (prefs.enableYuv444 && (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) == 0) {
+            if (packing == null && prefs.enableYuv444 && (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) == 0) {
                 activity.runOnUiThread(() -> Toast.makeText(context, R.string.yuv444_fallback, Toast.LENGTH_LONG).show());
             }
             // Default, not background: the decode thread shares the timing lock with this one.
@@ -1600,7 +1699,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (codecRecoveryThreadQuiescedFlags == CR_FLAG_ALL) {
                 if (upscaler != null) {
                     // A flush can strand frames in the texture queue. Restart onto direct output.
-                    upscalingPolicy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+                    if (packing == null) upscalingPolicy.fail(UpscalingPolicy.Reason.GPU_ERROR);
                     if (codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_FLUSH, CR_RECOVERY_TYPE_RESTART)) {
                         restartReason = "flush with the upscaler";
                     }
@@ -1644,6 +1743,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     LimeLog.warning("Trying to restart decoder after " + restartReason);
                     try {
                         videoDecoder.stop();
+                        if (packing != null && upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE) {
+                            closeUpscaler();
+                            setupUpscaling();
+                        }
                         configureAndStartDecoder(configuredFormat);
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                     } catch (IllegalArgumentException e) {
@@ -1667,6 +1770,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     LimeLog.warning("Trying to reset decoder after CodecException");
                     try {
                         videoDecoder.reset();
+                        if (packing != null && upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE) {
+                            closeUpscaler();
+                            setupUpscaling();
+                        }
                         configureAndStartDecoder(configuredFormat);
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                     } catch (IllegalArgumentException e) {
@@ -2378,6 +2485,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // A callback during recovery must not have its new metadata or restart request overwritten.
         synchronized (codecRecoveryMonitor) {
             if (stopping) {
+                return;
+            }
+            if (packing != null) {
+                currentHdrMode = enabled;
+                currentHdrMetadata = enabled && hdrMetadata != null ? hdrMetadata.clone() : null;
+                if (upscaler != null) {
+                    if (enabled && !packedHdrAvailable()) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
+                    else upscaler.setHdrMode(enabled, currentHdrMetadata);
+                }
                 return;
             }
             if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {

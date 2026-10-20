@@ -157,7 +157,7 @@ struct FakeHost {
     terminate: Arc<AtomicBool>,
 }
 
-fn start_host() -> FakeHost {
+fn start_host(packed_format: Option<u32>) -> FakeHost {
     let video = UdpSocket::bind("127.0.0.1:0").unwrap();
     let audio = UdpSocket::bind("127.0.0.1:0").unwrap();
     let control_socket = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -187,7 +187,14 @@ fn start_host() -> FakeHost {
             match request.method.as_str() {
                 "DESCRIBE" => {
                     // Control encryption v2 only: plain audio and video.
-                    body = host_rtsp::describe(0, 1, 0, false, false, false, false).into_bytes();
+                    let mut describe =
+                        host_rtsp::describe(0, 1, 0, false, packed_format.is_some(), false, false);
+                    if packed_format.is_some() {
+                        describe.push_str(
+                            "a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:15\r\n",
+                        );
+                    }
+                    body = describe.into_bytes();
                     headers.push(("Content-Type", "application/sdp".into()));
                 }
                 "SETUP" => {
@@ -370,8 +377,8 @@ fn until(what: &str, mut done: impl FnMut() -> bool) {
     }
 }
 
-fn run_session(direct_submit: bool) {
-    let host = start_host();
+fn run_session(direct_submit: bool, packed_format: Option<u32>) {
+    let host = start_host(packed_format);
     let record = Arc::new(Mutex::new(Record::default()));
     let recorder = |need_idr_at| {
         Box::new(Recorder {
@@ -386,6 +393,9 @@ fn run_session(direct_submit: bool) {
             fps: 60,
             packet_size: PACKET_SIZE as i32,
             remote_input_aes_key: KEY,
+            experimental_packed_444: packed_format.is_some(),
+            packed444_modes: if packed_format.is_some() { 15 } else { 0 },
+            supported_video_formats: packed_format.unwrap_or(VIDEO_FORMAT_H264),
             video_capabilities: if direct_submit {
                 CAPABILITY_DIRECT_SUBMIT
             } else {
@@ -420,10 +430,15 @@ fn run_session(direct_submit: bool) {
         assert_eq!(
             r.setup,
             Some(VideoSetup {
-                format: VIDEO_FORMAT_H264,
+                format: packed_format.unwrap_or(VIDEO_FORMAT_H264),
                 width: 1280,
-                height: 720,
-                fps: 60
+                height: if packed_format.is_some() { 1440 } else { 720 },
+                fps: 60,
+                chroma_packing: u8::from(packed_format.is_some()),
+                logical_width: 1280,
+                logical_height: 720,
+                color_space: nightjar_core::sdp::COLORSPACE_REC_709,
+                color_range: nightjar_core::sdp::COLOR_RANGE_LIMITED,
             })
         );
         let audio = r.audio_setup.unwrap();
@@ -444,15 +459,22 @@ fn run_session(direct_submit: bool) {
         spi: 0,
         frame: 1,
     };
-    let frames = [
-        (h264_idr(), 2),
-        (h264_p(), 1),
-        (h264_p(), 1),
-        (h264_p(), 1),
-        (h264_p(), 1),
-    ];
+    let idr = if packed_format.is_some() {
+        include_bytes!("../../../app/src/main/assets/packed444/av1-8.bin").to_vec()
+    } else {
+        h264_idr()
+    };
+    let p = if packed_format.is_some() {
+        vec![0x5a; 2500]
+    } else {
+        h264_p()
+    };
+    let frames = [(&idr, 2), (&p, 1), (&p, 1), (&p, 1), (&p, 1)];
     for (payload, kind) in &frames {
-        for packet in packetizer.frame(payload, *kind) {
+        for (index, packet) in packetizer.frame(payload, *kind).into_iter().enumerate() {
+            if packed_format.is_some() && index == 1 {
+                continue;
+            }
             host.video.send_to(&packet, client).unwrap();
         }
         thread::sleep(Duration::from_millis(20));
@@ -466,7 +488,7 @@ fn run_session(direct_submit: bool) {
             .count()
             >= 2
     });
-    for packet in packetizer.frame(&h264_idr(), 2) {
+    for packet in packetizer.frame(&idr, 2) {
         host.video.send_to(&packet, client).unwrap();
     }
     until("the recovery frame", || {
@@ -518,17 +540,22 @@ fn run_session(direct_submit: bool) {
 
 #[test]
 fn a_session_streams_recovers_and_ends_direct_submit() {
-    run_session(true);
+    run_session(true, None);
 }
 
 #[test]
 fn a_session_streams_recovers_and_ends_through_the_decode_queue() {
-    run_session(false);
+    run_session(false, None);
+}
+
+#[test]
+fn packed_chroma_recovers_packet_loss_and_key_frames_with_logical_decoder_geometry() {
+    run_session(false, Some(VIDEO_FORMAT_AV1_MAIN8));
 }
 
 #[test]
 fn stop_disconnects_the_control_stream() {
-    let host = start_host();
+    let host = start_host(None);
     let record = Arc::new(Mutex::new(Record::default()));
     let make = || {
         Box::new(Recorder {

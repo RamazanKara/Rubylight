@@ -19,6 +19,7 @@ pub struct DescribeInfo {
     pub av1: bool,
     /// The base64 HEVC VPS prefix (hosts label HEVC as H264).
     pub hevc: bool,
+    pub packed444_modes: u8,
     /// A `PYROWAVE/90000` rtpmap and the supported bitstream revision.
     pub pyrowave: bool,
     pub reference_frame_invalidation: bool,
@@ -119,6 +120,20 @@ impl DescribeInfo {
         Self {
             av1: sdp.contains("AV1/90000"),
             hevc: sdp.contains("sprop-parameter-sets=AAAAAU"),
+            packed444_modes: {
+                use rubylight_protocol::packed444;
+                let read = |name: &str| {
+                    lines(sdp).find_map(|line| {
+                        let (key, value) = line.strip_prefix("a=")?.split_once(':')?;
+                        (key == name).then(|| value.parse::<u8>().ok()).flatten()
+                    })
+                };
+                if read(packed444::VERSION_ATTRIBUTE) == Some(packed444::VERSION) {
+                    read(packed444::MODES_ATTRIBUTE).unwrap_or(0) & packed444::ALL_MODES
+                } else {
+                    0
+                }
+            },
             pyrowave: offers_pyrowave(sdp),
             reference_frame_invalidation: sdp.contains("x-nv-video[0].refPicInvalidation"),
             sunshine_feature_flags: sdp_attribute_u32(sdp, "x-ss-general.featureFlags")
@@ -181,6 +196,49 @@ impl DescribeInfo {
                 VIDEO_FORMAT_H264,
             )
         }
+    }
+
+    pub fn select_packed_format(&self, config: &StreamConfig) -> Result<u32, RtspError> {
+        if self.packed444_modes == 0 {
+            return Err(RtspError::Unsupported("host does not offer packed 4:4:4 version 1; enable its experimental setting on a supported AMD encoder".into()));
+        }
+        if config.packed444_modes == 0 {
+            return Err(RtspError::Unsupported(
+                "client raw YUV reconstruction is unavailable for packed 4:4:4".into(),
+            ));
+        }
+        let ten_bit = config.supported_video_formats & VIDEO_FORMAT_MASK_10BIT != 0;
+        for (codec, available, format) in [
+            (
+                2,
+                self.av1,
+                if ten_bit {
+                    VIDEO_FORMAT_AV1_MAIN10
+                } else {
+                    VIDEO_FORMAT_AV1_MAIN8
+                },
+            ),
+            (
+                1,
+                self.hevc,
+                if ten_bit {
+                    VIDEO_FORMAT_H265_MAIN10
+                } else {
+                    VIDEO_FORMAT_H265
+                },
+            ),
+        ] {
+            let bit = rubylight_protocol::packed444::mode_bit(codec, ten_bit);
+            if available
+                && config.supported_video_formats & format != 0
+                && self.packed444_modes & config.packed444_modes & bit != 0
+            {
+                return Ok(format);
+            }
+        }
+        Err(RtspError::Unsupported(
+            "requested packed codec and bit depth are not supported by both endpoints".into(),
+        ))
     }
 }
 

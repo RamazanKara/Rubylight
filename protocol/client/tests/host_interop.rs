@@ -260,6 +260,54 @@ fn fractional_rates_and_microphone_encryption_reach_the_host() {
 }
 
 #[test]
+fn packed_formats_preserve_logical_geometry_and_native_codec_ids_on_the_host() {
+    use rubylight_protocol::packed444;
+    for (format, codec, ten_bit) in [
+        (VIDEO_FORMAT_H265, 1, false),
+        (VIDEO_FORMAT_H265_MAIN10, 1, true),
+        (VIDEO_FORMAT_AV1_MAIN8, 2, false),
+        (VIDEO_FORMAT_AV1_MAIN10, 2, true),
+    ] {
+        let config = StreamConfig {
+            width: 2559,
+            height: 1439,
+            fps: 120,
+            bitrate_kbps: 200_000,
+            experimental_packed_444: true,
+            packed444_modes: packed444::mode_bit(codec, ten_bit),
+            supported_video_formats: format,
+            color_space: if ten_bit {
+                COLORSPACE_REC_2020
+            } else {
+                COLORSPACE_REC_709
+            },
+            ..Default::default()
+        };
+        let n =
+            host_rtsp::Negotiated::from_sdp(sdp_for(&config, SUNSHINE, format, 7, 0).as_bytes())
+                .unwrap();
+        assert_eq!((n.width, n.height, n.fps), (2559, 1439, 120));
+        assert_eq!(n.coded_size(), (2560, 2880));
+        assert_eq!((n.codec, n.ten_bit(), n.yuv444), (codec, ten_bit, false));
+        assert_eq!(n.chroma_packing, packed444::VERSION);
+        assert_eq!(n.bitrate_kbps, 160_000);
+        assert_eq!(
+            n.csc_mode,
+            ((config.color_space as u8) << 1) | config.color_range as u8
+        );
+        let plain = StreamConfig {
+            experimental_packed_444: false,
+            ..config
+        };
+        let plain_sdp = sdp_for(&plain, SUNSHINE, format, 7, 0);
+        assert!(!plain_sdp.contains(packed444::REQUEST_ATTRIBUTE));
+        let ordinary = host_rtsp::Negotiated::from_sdp(plain_sdp.as_bytes()).unwrap();
+        assert_eq!(ordinary.chroma_packing, 0);
+        assert_eq!(ordinary.bitrate_kbps, 100_000);
+    }
+}
+
+#[test]
 fn the_hosts_describe_answer_reads_back() {
     let mut answer = host_rtsp::describe(1, 7, 7, true, true, true, true);
     answer.push_str("a=x-nv-video[0].refPicInvalidation:1\r\n");

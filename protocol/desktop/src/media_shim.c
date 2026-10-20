@@ -40,6 +40,7 @@ typedef struct nj_video {
     AVPacket *packet;
     enum AVPixelFormat hardware_format;
     int hardware;
+    int require_hardware;
 } nj_video;
 
 typedef struct nj_frame_info {
@@ -56,6 +57,7 @@ static enum AVPixelFormat select_format(AVCodecContext *context, const enum AVPi
     nj_video *video = context->opaque;
     for (const enum AVPixelFormat *format = formats; *format != AV_PIX_FMT_NONE; format++)
         if (*format == video->hardware_format) return *format;
+    if (video->require_hardware) return AV_PIX_FMT_NONE;
     /* The hardware path is gone (unsupported profile): take the first software format. */
     for (const enum AVPixelFormat *format = formats; *format != AV_PIX_FMT_NONE; format++) {
         const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(*format);
@@ -85,7 +87,7 @@ static int find_hw_format(const AVCodec *codec, enum AVHWDeviceType type, enum A
 /* codec: 0 H.264, 1 HEVC, 2 AV1. hardware: NJ_HW_*; for D3D11 `device` is the renderer's
  * ID3D11Device, shared so decoded surfaces can be copied on the GPU. Writes a description
  * ("h264 d3d11va", "libdav1d") to `name`. NULL with `error` filled on failure. */
-nj_video *nj_video_open(int codec, int hardware, void *device, int threads, char *name, int name_length,
+nj_video *nj_video_open(int codec, int hardware, void *device, int threads, int require_hardware, char *name, int name_length,
                         char *error, int error_length) {
     enum AVCodecID id = codec == 0 ? AV_CODEC_ID_H264 : codec == 1 ? AV_CODEC_ID_HEVC : AV_CODEC_ID_AV1;
     /* Hardware AV1 runs through FFmpeg's native av1 decoder; libdav1d has no hwaccel. */
@@ -100,6 +102,7 @@ nj_video *nj_video_open(int codec, int hardware, void *device, int threads, char
     nj_video *video = av_mallocz(sizeof(*video));
     if (!video) return NULL;
     video->hardware_format = AV_PIX_FMT_NONE;
+    video->require_hardware = require_hardware;
     video->context = avcodec_alloc_context3(found);
     video->packet = av_packet_alloc();
     if (!video->context || !video->packet) goto fail;

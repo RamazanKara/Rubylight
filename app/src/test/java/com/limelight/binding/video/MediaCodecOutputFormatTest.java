@@ -24,6 +24,48 @@ import static org.junit.Assert.*;
 @Config(sdk = 29, application = Application.class, shadows = MediaCodecOutputFormatTest.FormatChangingCodec.class)
 public class MediaCodecOutputFormatTest {
     @Test
+    public void packedChromaSeparatesDisplaySizeFromCodedPadding() {
+        Packed444 geometry = new Packed444(2559, 1439, 2, 0);
+        assertEquals(2559, geometry.width);
+        assertEquals(1439, geometry.height);
+        assertEquals(2560, geometry.paddedWidth);
+        assertEquals(2880, geometry.paddedHeight * 2);
+        assertEquals(2, geometry.colorSpace);
+        assertEquals(0, geometry.colorRange);
+    }
+
+    @Test
+    public void packedSamplesBypassDecoderColorConversion() {
+        MediaFormat format = MediaFormat.createVideoFormat("video/hevc", 2560, 2880);
+        format.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020);
+        format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_ST2084);
+        format.setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED);
+        Packed444.sampleDataFormat(format);
+        assertEquals(MediaFormat.COLOR_STANDARD_BT709, format.getInteger(MediaFormat.KEY_COLOR_STANDARD));
+        assertEquals(MediaFormat.COLOR_TRANSFER_SDR_VIDEO, format.getInteger(MediaFormat.KEY_COLOR_TRANSFER));
+        assertEquals(MediaFormat.COLOR_RANGE_FULL, format.getInteger(MediaFormat.KEY_COLOR_RANGE));
+    }
+
+    @Test
+    public void packedChromaRequiresOptInAndTheRustEngine() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+            MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
+                    null, 0, false, false, "", null);
+            assertEquals(-1, renderer.setChromaPacking(1, 2560, 1440, 1, 0));
+            prefs.experimentalPacked444 = true;
+            assertEquals(-1, renderer.setChromaPacking(1, 2560, 1440, 1, 0));
+            prefs.rustEngine = true;
+            assertEquals(-1, renderer.setChromaPacking(2, 2560, 1440, 1, 0));
+            assertEquals(0, renderer.setChromaPacking(1, 2560, 1440, 1, 0));
+            assertEquals(0, renderer.setChromaPacking(0, 2560, 1440, 1, 0));
+            assertNull(ReflectionHelpers.getField(renderer, "packing"));
+        }
+    }
+
+    @Test
     public void drainingQueuedFramesStillProcessesFormatChanges() throws Exception {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);

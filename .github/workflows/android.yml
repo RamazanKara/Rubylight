@@ -30,6 +30,25 @@ jobs:
           git diff --exit-code -- docs/settings.md
           node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs
           node scripts/check-doc-links.mjs
+  desktop:
+    # The Windows/Linux client: Linux build, unit tests and clippy (SDL3 is built from source).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Test and lint the desktop client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build pkg-config \
+            libavcodec-dev libavutil-dev libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
+            wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
+            libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev
+          cd protocol
+          cargo clippy -p nightjar-desktop --all-targets --locked -- -D warnings
+          cargo test -p nightjar-desktop --locked
   build:
     needs: docs
     runs-on: ubuntu-latest

@@ -14,7 +14,8 @@ out="$here/../app/src/main/jni/protocol/prebuilt"
 ar="${LLVM_AR:-llvm-ar}"
 strip="${LLVM_STRIP:-llvm-strip}"
 
-cargo test --manifest-path "$here/Cargo.toml" --workspace --quiet
+# The desktop client needs SDL3 and FFmpeg; it has its own CI job.
+cargo test --manifest-path "$here/Cargo.toml" --workspace --exclude nightjar-desktop --quiet
 
 for pair in arm64-v8a:aarch64-linux-android armeabi-v7a:armv7-linux-androideabi x86:i686-linux-android \
         x86_64:x86_64-linux-android; do

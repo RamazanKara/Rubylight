@@ -17,7 +17,7 @@ The Rust workspace is `protocol/`:
 | `rubylight-protocol-ffi` | `protocol/ffi` | C ABI for the Android app. Grows a Limelight-compatible API over `nightjar-core` for the switch-over. |
 | `nightjar-android` | `protocol/android` | `libnightjar_core.so` (`publish = false`): the JNI side of the app's `RustBridge`, built by Gradle's `buildRustEngine` for the four ABIs and not committed. See "Android switch-over" below. |
 | `nightjar-cli` | `protocol/cli` | Headless test client (`publish = false`): stream, decode every frame, report. Drop-in for Rubylight's `rust/tests/moonlight_client.c` (same arguments, environment, output lines and exit codes) so Rubylight's `interop.py`/`e2e.py` drive it unchanged; pairing and launch stay in `interop.py`. Decoding needs the `ffmpeg` feature (libavcodec and libopus, as the C client). |
-| desktop client (planned) | `desktop/` | Windows and Linux app on `nightjar-core`. |
+| `nightjar-desktop` | `protocol/desktop` | Windows and Linux client (`publish = false`, not a default member): SDL3 window and renderer, egui launcher, FFmpeg D3D11VA/VAAPI decoding, PresentClock pacing, SDL3 audio and gamepads. See `protocol/desktop/README.md`. |
 
 ## Module boundaries in `nightjar-core`
 
@@ -175,4 +175,4 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
 - [x] Android switch-over behind a setting (`protocol/android`, `RustBridge`; see the parity
   checklist for what still falls back)
 - [ ] Rust engine as the Android default, then removal of the C engine
-- [ ] Desktop client (Windows, Linux)
+- [x] Desktop client milestone 1 (Windows, Linux): pairing, library, launch/resume/quit, hardware decoding, VRR pacing, audio, input, overlay. Streamed against an isolated Rubylight host on Windows (HEVC D3D11VA up to 5120x1440@240). Next: decode-only FFmpeg for packaging, HDR output, VAAPI dmabuf import, a dedicated D3D11 renderer with a waitable swap chain, per-PC settings, Wake-on-LAN, OTP pairing.

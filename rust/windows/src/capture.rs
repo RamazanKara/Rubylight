@@ -230,6 +230,8 @@ impl Drop for ComGuard {
 }
 pub struct Priority {
     handle: windows::Win32::Foundation::HANDLE,
+    /// The thread priority to put back on drop, for a borrowed (pool) thread.
+    restore: Option<i32>,
 }
 impl Default for Priority {
     fn default() -> Self {
@@ -246,6 +248,20 @@ impl Priority {
             use windows::Win32::System::Threading::*;
             let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
         }
+        priority
+    }
+    /// [`Self::new`] on a thread the caller only borrows, such as a Tokio
+    /// blocking-pool thread: dropping it also puts the thread priority back.
+    pub fn scoped() -> Self {
+        // SAFETY: GetThreadPriority reads the current thread's pseudo-handle.
+        let previous = unsafe {
+            windows::Win32::System::Threading::GetThreadPriority(
+                windows::Win32::System::Threading::GetCurrentThread(),
+            )
+        };
+        let mut priority = Self::new();
+        // THREAD_PRIORITY_ERROR_RETURN: nothing known to restore.
+        priority.restore = (previous != 0x7fff_ffff).then_some(previous);
         priority
     }
     /// For the input thread: the MMCSS boost alone. The thread priority that
@@ -280,12 +296,23 @@ impl Priority {
             if !handle.is_invalid() {
                 let _ = AvSetMmThreadPriority(handle, AVRT_PRIORITY_HIGH);
             }
-            Self { handle }
+            Self {
+                handle,
+                restore: None,
+            }
         }
     }
 }
 impl Drop for Priority {
     fn drop(&mut self) {
+        if let Some(previous) = self.restore {
+            // SAFETY: SetThreadPriority acts on the current thread's pseudo-handle and takes no
+            // pointers; callers hold the guard on the stack of the thread it raised.
+            unsafe {
+                use windows::Win32::System::Threading::*;
+                let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY(previous));
+            }
+        }
         if !self.handle.is_invalid() {
             // SAFETY: `handle` is the valid MMCSS handle `games` registered on this thread (HANDLE
             // keeps `Priority` on it), reverted only here.

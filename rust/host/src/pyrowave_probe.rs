@@ -77,6 +77,10 @@ fn handshake(socket: &UdpSocket, peer: SocketAddr, token: &str) -> Result<Socket
 /// Send the probe to `peer` (the client's IP and the port it named), after the
 /// handshake when it asked for one.
 pub fn send(socket: &UdpSocket, peer: SocketAddr, request: &Request) -> Result<Outcome> {
+    // Pace at the priority the stream's senders use, so calibration measures
+    // the path and not this thread's scheduling beside busy threads (the
+    // adaptive timer wait gives the CPU up between packets).
+    let _priority = butterpollo_windows::capture::Priority::scoped();
     let destination = if request.handshake {
         handshake(socket, peer, &request.token)?
     } else {

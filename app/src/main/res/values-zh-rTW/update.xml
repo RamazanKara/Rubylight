@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="host_update_available">Rubylight %1$s 更新可用</string>
+    <string name="host_update_stream_notice">Rubylight %1$s 已發布。請在主機的「維護」分頁中更新。</string>
+    <string name="update_stream_notice">Nightjar %1$s 已發布。請開啟 Nightjar 設定進行更新。</string>
     <string name="title_check_updates">自動檢查更新</string>
     <string name="summary_check_updates">開啟應用程式時檢查是否有新版本，每天最多兩次。未經你選擇，不會安裝任何內容。</string>
     <string name="title_check_updates_now">立即檢查更新</string>

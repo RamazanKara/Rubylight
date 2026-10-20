@@ -20,6 +20,9 @@
             <TextView android:id="@+id/grid_status" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
                 android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/grid_update" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorPrimary"
+                android:visibility="gone" android:importantForAccessibility="no" />
         </LinearLayout>
         <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:focusable="false"
             android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />

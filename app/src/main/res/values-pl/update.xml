@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="host_update_available">Dostępna aktualizacja Rubylight %1$s</string>
+    <string name="host_update_stream_notice">Dostępny jest Rubylight %1$s. Zaktualizuj go na karcie Konserwacja hosta.</string>
+    <string name="update_stream_notice">Dostępny jest Nightjar %1$s. Otwórz ustawienia Nightjar, aby go zaktualizować.</string>
     <string name="title_check_updates">Sprawdzaj aktualizacje automatycznie</string>
     <string name="summary_check_updates">Szuka nowej wersji po otwarciu aplikacji, najwyżej dwa razy dziennie. Nic nie jest instalowane bez Twojej decyzji.</string>
     <string name="title_check_updates_now">Sprawdź aktualizacje teraz</string>

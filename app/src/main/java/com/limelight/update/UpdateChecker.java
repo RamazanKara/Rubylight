@@ -34,7 +34,11 @@ public final class UpdateChecker {
 
     /** Blocks on the network; call from a background thread. */
     public static ReleaseInfo fetchLatest() throws IOException {
-        Request request = request(LATEST_RELEASE_URL)
+        return fetchLatest(LATEST_RELEASE_URL);
+    }
+
+    static ReleaseInfo fetchLatest(String url) throws IOException {
+        Request request = request(url)
                 .header("Accept", "application/vnd.github+json")
                 .header("X-GitHub-Api-Version", "2022-11-28")
                 .build();

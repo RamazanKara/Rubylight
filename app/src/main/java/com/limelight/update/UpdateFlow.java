@@ -15,10 +15,12 @@ import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.utils.UiHelper;
+import com.limelight.nvstream.http.ComputerDetails;
 
 import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** The update screens: the periodic check, the offer, the download progress and the install hand-off. */
 public final class UpdateFlow {
@@ -54,7 +56,7 @@ public final class UpdateFlow {
                 // Old downloads go once the app is running again, whether or not that install finished.
                 UpdateDownloader.cleanUp(app);
                 ReleaseInfo release = UpdateChecker.fetchLatest();
-                prefs.markChecked(now);
+                prefs.recordRelease(release, now);
                 if (UpdatePolicy.shouldOffer(release, BuildConfig.VERSION_NAME, prefs.skippedVersion())) {
                     activity.runOnUiThread(() -> {
                         if (canShow.getAsBoolean() && !activity.isFinishing() && !activity.isDestroyed()) {
@@ -86,7 +88,7 @@ public final class UpdateFlow {
             ReleaseInfo found = null;
             try {
                 ReleaseInfo release = UpdateChecker.fetchLatest();
-                prefs.markChecked(System.currentTimeMillis());
+                prefs.recordRelease(release, System.currentTimeMillis());
                 if (release.isUpdateFor(BuildConfig.VERSION_NAME)) {
                     found = release;
                 } else {
@@ -127,6 +129,46 @@ public final class UpdateFlow {
                 .setNeutralButton(R.string.update_action_skip, (dialog, which) ->
                         new UpdatePrefs(activity).skip(release.version()))
                 .create());
+    }
+
+    public static void notifyForStream(Activity activity, ComputerDetails host, BooleanSupplier canShow,
+                                       Consumer<String> notice) {
+        Context app = activity.getApplicationContext();
+        UpdatePrefs prefs = new UpdatePrefs(app);
+        if (!prefs.isAutoCheck()) return;
+        new Thread(() -> {
+            long now = System.currentTimeMillis();
+            if (isAvailable(app) && !updating.get() && UpdatePolicy.isCheckDue(true, prefs.lastCheck(), now) &&
+                    checking.compareAndSet(false, true)) {
+                try {
+                    prefs.recordRelease(UpdateChecker.fetchLatest(), now);
+                } catch (UpdateException.RateLimited e) {
+                    prefs.markChecked(now);
+                } catch (Exception e) {
+                    LimeLog.info("Update check failed: " + e);
+                } finally {
+                    checking.set(false);
+                }
+            }
+            HostUpdateChecker.refresh(app, host.caps);
+            activity.runOnUiThread(() -> {
+                if (canShow.getAsBoolean() && !activity.isFinishing() && !activity.isDestroyed()) {
+                    String message = streamUpdateMessage(activity, isAvailable(app) ?
+                            prefs.availableVersion(BuildConfig.VERSION_NAME) : null,
+                            HostUpdateChecker.availableVersion(app, host.caps));
+                    if (!message.isEmpty()) notice.accept(message);
+                }
+            });
+        }, "nightjar-stream-update-check").start();
+    }
+
+    static String streamUpdateMessage(Context context, String appVersion, String hostVersion) {
+        String message = appVersion == null ? "" : context.getString(R.string.update_stream_notice, appVersion);
+        if (hostVersion != null) {
+            if (!message.isEmpty()) message += "\n";
+            message += context.getString(R.string.host_update_stream_notice, hostVersion);
+        }
+        return message;
     }
 
     private static void startUpdate(Activity activity, ReleaseInfo release) {

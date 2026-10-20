@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="host_update_available">Rubylight %1$s に更新できます</string>
+    <string name="host_update_stream_notice">Rubylight %1$s が利用可能です。ホストのメンテナンスタブから更新してください。</string>
+    <string name="update_stream_notice">Nightjar %1$s が利用可能です。Nightjar の設定を開いて更新してください。</string>
     <string name="title_check_updates">アップデートを自動で確認</string>
     <string name="summary_check_updates">アプリを開いたときに新しいバージョンを確認します（1日2回まで）。選択するまでインストールされることはありません。</string>
     <string name="title_check_updates_now">今すぐアップデートを確認</string>

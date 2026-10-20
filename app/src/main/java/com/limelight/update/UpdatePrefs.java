@@ -14,6 +14,7 @@ public final class UpdatePrefs {
     private static final String STATE_FILE = "update_state";
     private static final String LAST_CHECK = "last_check";
     private static final String SKIPPED_VERSION = "skipped_version";
+    private static final String LATEST_VERSION = "latest_version";
 
     private final SharedPreferences settings;
     private final SharedPreferences state;
@@ -34,6 +35,16 @@ public final class UpdatePrefs {
 
     public void markChecked(long nowMs) {
         state.edit().putLong(LAST_CHECK, nowMs).apply();
+    }
+
+    public void recordRelease(ReleaseInfo release, long nowMs) {
+        state.edit().putLong(LAST_CHECK, nowMs)
+                .putString(LATEST_VERSION, release.isUpdateFor("0.0.0") ? release.version() : "").apply();
+    }
+
+    public String availableVersion(String currentVersion) {
+        String latest = state.getString(LATEST_VERSION, "");
+        return SemVer.isNewer(latest, currentVersion) && !latest.equals(skippedVersion()) ? latest : null;
     }
 
     public String skippedVersion() {

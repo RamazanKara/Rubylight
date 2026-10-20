@@ -876,6 +876,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         }
         if (details.state == ComputerDetails.State.ONLINE) {
             existingEntry.wakeSentAt = 0;
+            com.limelight.update.HostUpdateChecker.check(this, details.caps, pcGridAdapter::notifyDataSetChanged);
         }
         findRunningGame(existingEntry);
 

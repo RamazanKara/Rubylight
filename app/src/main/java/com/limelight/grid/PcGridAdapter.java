@@ -18,6 +18,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.update.HostUpdateChecker;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -145,6 +146,14 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         statusView.setText(status);
         statusView.setTextColor(MaterialColors.getColor(statusView, state == RowState.RUNNING ?
                 androidx.appcompat.R.attr.colorPrimary : com.google.android.material.R.attr.colorOnSurfaceVariant));
+
+        String update = HostUpdateChecker.availableVersion(context, obj.details.caps);
+        TextView updateView = parentView.findViewById(R.id.grid_update);
+        updateView.setVisibility(update == null ? View.GONE : View.VISIBLE);
+        if (update != null) {
+            updateView.setText(context.getString(R.string.host_update_available, update));
+            status += ". " + updateView.getText();
+        }
 
         parentView.setContentDescription(context.getString(R.string.library_item_description, obj.details.name, status));
         // The grid owns taps and long presses; name both for screen readers and route them back to it.

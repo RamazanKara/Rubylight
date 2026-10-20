@@ -5617,6 +5617,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;
+                if (getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0) == 0) {
+                    com.limelight.update.UpdateFlow.notifyForStream(Game.this, conn.getHostDetails(),
+                            () -> foreground && connected, text -> messages.alert(text, Toast.LENGTH_LONG));
+                }
                 if (app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction()) {
                     displayCapsReporter = new DisplayCapsReporter(MoonBridge::sendDisplayCaps);
                     reportDisplayCaps();

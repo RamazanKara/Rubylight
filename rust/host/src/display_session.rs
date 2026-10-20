@@ -1160,7 +1160,7 @@ impl Prepared {
                     && !background
                     && client_display.is_none()
                     && layout_took)
-                .then(|| launch.client.uuid.clone()),
+                    .then(|| launch.client.uuid.clone()),
                 client_display,
                 virtual_layout: virtual_layout.then(|| selection.to_owned()),
                 inherited_layout: virtual_layout
@@ -1574,6 +1574,13 @@ mod tests {
         assert_eq!(chosen(), None);
         drop(second);
         assert_eq!(chosen(), Some(serde_json::json!("exclusive")));
+        assert_eq!(
+            fixture.host.paired.read().unwrap().clients[0]
+                .extra
+                .get(LEARNED_OVER),
+            Some(&serde_json::json!("extended")),
+            "the learned layout records the layout it replaced"
+        );
         // A later local layout differs, but the paused reaper must not save it.
         display._state.lock().unwrap().layout_snapshot = Some(vec![
             (r"\\.\DISPLAY9".into(), true),
@@ -1857,6 +1864,36 @@ mod tests {
             app.extra
                 .insert("virtual-display-primary".into(), true.into());
         }
+    }
+    #[test]
+    fn a_learned_device_layout_yields_when_the_host_layout_changes() {
+        // Issue #40: "extended" was learned over the host's "extended_primary";
+        // switching the host to "exclusive" must take effect.
+        let mut client: butterpollo_core::state::Client =
+            serde_json::from_value(serde_json::json!({"name":"Device","uuid":"device","cert":""}))
+                .unwrap();
+        client
+            .extra
+            .insert("virtual_display_layout".into(), "extended".into());
+        client
+            .extra
+            .insert(LEARNED_OVER.into(), "extended_primary".into());
+        let primary = Config::parse("virtual_display_layout=extended_primary").unwrap();
+        let exclusive = Config::parse("virtual_display_layout=exclusive").unwrap();
+        assert_eq!(
+            virtual_display_layout(&primary, &client, None, None),
+            "extended"
+        );
+        assert_eq!(
+            virtual_display_layout(&exclusive, &client, None, None),
+            "exclusive"
+        );
+        // A layout the user set for the device has no marker and always applies.
+        client.extra.remove(LEARNED_OVER);
+        assert_eq!(
+            virtual_display_layout(&exclusive, &client, None, None),
+            "extended"
+        );
     }
     #[test]
     fn a_retained_display_matches_only_the_exact_mode_it_was_made_for() {

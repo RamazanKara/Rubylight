@@ -70,6 +70,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .find(|c| c.uuid == text("uuid"))
                 .ok_or_else(|| anyhow::anyhow!("client not found"))?;
             let previous_perm = c.perm;
+            let previous_layout = c.extra.get("virtual_display_layout").cloned();
             if let Some(n) = data.get("name").and_then(Value::as_str) {
                 butterpollo_core::pairing::validate_device_name(n)?;
                 c.name = n.into();
@@ -101,6 +102,10 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                         c.extra.insert(k.clone(), v.clone());
                     }
                 }
+            }
+            // A layout the user picks is theirs, not one learned from a stream.
+            if c.extra.get("virtual_display_layout") != previous_layout.as_ref() {
+                c.extra.remove(crate::display_session::LEARNED_OVER);
             }
             let revoked = data.get("enabled").and_then(Value::as_bool) == Some(false)
                 || data

@@ -10,4 +10,9 @@ rust-version.workspace = true
 rubylight-protocol = { path = "../core" }
 aes = "0.8"
 aes-gcm = "0.10"
-cbc = "0.1"
+cbc = { version = "0.1", features = ["alloc"] }
+rusty_enet = "0.4"
+
+[dev-dependencies]
+# The Rubylight host's own decoders, for interop tests.
+butterpollo-core = { git = "https://github.com/RamazanKara/Rubylight", rev = "21c2940f", package = "butterpollo-core" }

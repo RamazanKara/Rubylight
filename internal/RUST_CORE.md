@@ -62,10 +62,11 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
 ## Status
 
 - [x] Wire formats crate, phase lock, PyroWave records, host timing, clock sync, PresentClock.
-- [ ] `nightjar-core` scaffold
+- [x] `nightjar-core` scaffold
 - [x] `fec` + `video` (differential tests in `protocol/difftest`)
 - [x] `audio` (differential tests in `protocol/difftest`)
-- [ ] `crypto` + `control` + `input`
+- [x] `crypto` + `control` + `input` (encrypted control stream only; GFE's TCP and plaintext
+  generations are not ported)
 - [ ] `rtsp` + `sdp` + `http`
 - [ ] `session` + `nightjar-cli`, e2e against Rubylight
 - [ ] Android switch-over behind a setting

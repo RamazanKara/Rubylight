@@ -115,6 +115,8 @@ public final class AdaptiveLayout {
         if (root.getTag(R.id.adaptive_layout) == null) {
             root.setTag(R.id.adaptive_layout, new AdaptiveLayout(activity, root, handleSystemInsets));
         }
+        // TV margins must be present before a dialog's first measurement and enter animation.
+        ((AdaptiveLayout) root.getTag(R.id.adaptive_layout)).update();
         ViewCompat.requestApplyInsets(root);
         return (AdaptiveLayout) root.getTag(R.id.adaptive_layout);
     }
@@ -204,7 +206,7 @@ public final class AdaptiveLayout {
         if (computers && size.getWindowWidthSizeClass() == WindowWidthSizeClass.COMPACT &&
                 size.getWindowHeightSizeClass() != WindowHeightSizeClass.COMPACT) return 1;
         int cellWidth = computers ? 280 : (smallIcons ? 112 : 168);
-        if (television) cellWidth = computers ? 320 : 200;
+        if (television) cellWidth = computers ? 320 : (smallIcons ? 144 : 200);
         return Math.max(1, (int) ((widthDp + 8) / (cellWidth + 8)));
     }
 }

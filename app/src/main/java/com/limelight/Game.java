@@ -2403,6 +2403,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
+    @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(UiHelper.localeContext(base));
+    }
+
     private void showStreamDialog(android.app.Dialog dialog) {
         setInputGrabState(false);
         suppressPipRefCount++;

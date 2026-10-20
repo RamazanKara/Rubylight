@@ -349,12 +349,16 @@ public final class ActionSheet extends BottomSheetDialog {
         // Material's sheet behavior owns system-bar insets. Consuming them on the dialog's
         // outer content view prevents its bottom padding and hides the last action under navigation.
         if (getOwnerActivity() != null) {
-            AdaptiveLayout.attachBottomSheet(getOwnerActivity(), findViewById(android.R.id.content));
+            AdaptiveLayout.attachBottomSheet(getOwnerActivity(), body);
             keepSystemBarsHidden(this, getOwnerActivity());
         }
         getBehavior().setMaxWidth(spacing * 75);
         android.view.View sheet = findViewById(com.google.android.material.R.id.design_bottom_sheet);
-        if (sheet != null) AppTheme.outlineOnBlack(getContext(), sheet.getBackground());
+        if (sheet != null) {
+            // Material installs its surface during the first layout, replacing the XML background.
+            sheet.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+                    AppTheme.outlineOnBlack(getContext(), view.getBackground()));
+        }
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
     }
 

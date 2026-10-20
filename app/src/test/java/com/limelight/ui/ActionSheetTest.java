@@ -12,6 +12,20 @@ import static org.junit.Assert.*;
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 28, application = Application.class)
 public class ActionSheetTest {
+    @Test @Config(qualifiers = "television")
+    public void tvSafeAreaStaysInsideTheSheetInsteadOfLiftingItOffTheScreen() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            sheet.addAction(R.drawable.ic_settings, "Settings");
+            sheet.show();
+            View content = sheet.findViewById(android.R.id.content);
+            assertEquals(0, content.getPaddingBottom());
+            View body = org.robolectric.util.ReflectionHelpers.getField(sheet, "body");
+            assertEquals(Math.round(24 * body.getResources().getDisplayMetrics().density), body.getPaddingBottom());
+            sheet.dismiss();
+        }
+    }
+
     @Test @Config(sdk = 35) public void navigationInsetsReachTheMaterialSheet() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
             ActionSheet sheet = new ActionSheet(controller.get(), "PC actions");

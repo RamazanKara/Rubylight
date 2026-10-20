@@ -57,7 +57,7 @@ public class AdaptiveLayoutTest {
         assertEquals(2, AdaptiveLayout.gridColumns(360, 720, false, false, false));
         assertEquals(4, AdaptiveLayout.gridColumns(800, 360, false, false, false));
         assertEquals(6, AdaptiveLayout.gridColumns(800, 360, false, true, false));
-        assertEquals(3, AdaptiveLayout.gridColumns(800, 360, false, true, true));
+        assertEquals(5, AdaptiveLayout.gridColumns(800, 360, false, true, true));
         assertEquals(1, AdaptiveLayout.gridColumns(180, 200, false, false, false));
         for (int width = 550; width < 1700; width++) {
             assertTrue(AdaptiveLayout.gridColumns(width + 1, 360, true, false, false) >=
@@ -124,6 +124,20 @@ public class AdaptiveLayoutTest {
             ShadowLooper.idleMainLooper();
             assertEquals(63, root.getPaddingTop());
             assertEquals(48, root.getPaddingBottom());
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void televisionMarginsExistBeforeADialogIsShown() {
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(controller.get())
+                    .setMessage("Explanation").create();
+            dialog.create();
+            View content = dialog.findViewById(android.R.id.content);
+            AdaptiveLayout.attach(controller.get(), content);
+            assertFalse(dialog.isShowing());
+            assertEquals(Math.round(24 * content.getResources().getDisplayMetrics().density), content.getPaddingBottom());
         }
     }
 

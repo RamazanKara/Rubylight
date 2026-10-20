@@ -8,6 +8,11 @@ import androidx.appcompat.app.AppCompatActivity;
 
 /** Applies appearance before views or restored fragments are created, including on deep links. */
 public abstract class NightjarActivity extends AppCompatActivity {
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(com.limelight.utils.UiHelper.localeContext(base));
+    }
+
     private boolean oledBlack;
     private boolean dark;
     private boolean recreatingForTheme;

@@ -71,10 +71,14 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
         TextView txtView = convertView.findViewById(R.id.grid_text);
         ProgressBar prgView = convertView.findViewById(R.id.grid_spinner);
 
-        if (layoutId == R.layout.app_grid_item) {
+        if (layoutId == R.layout.app_grid_item || layoutId == R.layout.app_grid_item_small) {
             View artwork = (View) imgView.getParent();
-            boolean compact = viewGroup instanceof AdaptiveGridView && ((AdaptiveGridView) viewGroup).hasShortViewport();
-            int height = Math.round((compact ? 112 : 224) * context.getResources().getDisplayMetrics().density);
+            boolean compact = layoutId == R.layout.app_grid_item &&
+                    viewGroup instanceof AdaptiveGridView && ((AdaptiveGridView) viewGroup).hasShortViewport();
+            int width = viewGroup instanceof android.widget.GridView ? ((android.widget.GridView) viewGroup).getColumnWidth() : 0;
+            int height = !compact && width > 0 ? Math.round(width * 4f / 3) :
+                    Math.round((compact ? 112 : layoutId == R.layout.app_grid_item_small ? 144 : 224) *
+                            context.getResources().getDisplayMetrics().density);
             ViewGroup.LayoutParams params = artwork.getLayoutParams();
             if (params.height != height) {
                 params.height = height;

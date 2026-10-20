@@ -22,6 +22,46 @@ import static org.junit.Assert.*;
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 30, qualifiers = "notnight", application = Application.class)
 public class AppThemeTest {
+    @Test
+    @Config(qualifiers = "it-rIT")
+    public void selectedLanguageIsInheritedByMenusAndStreamResources() {
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication())
+                .edit().putString("list_languages", "en").commit();
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            assertEquals("en", screen.getResources().getConfiguration().locale.getLanguage());
+            ActionSheet sheet = new ActionSheet(screen, "Menu");
+            assertEquals("en", sheet.getContext().getResources().getConfiguration().locale.getLanguage());
+            assertEquals("en", new NavigationDialogBuilder(screen).getContext()
+                    .getResources().getConfiguration().locale.getLanguage());
+            android.content.res.Configuration changed = new android.content.res.Configuration(screen.getResources().getConfiguration());
+            changed.orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+            controller.configurationChange(changed);
+            assertEquals("en", screen.getResources().getConfiguration().locale.getLanguage());
+        }
+        assertEquals("en", Robolectric.buildActivity(com.limelight.Game.class).get()
+                .getResources().getConfiguration().locale.getLanguage());
+    }
+
+    @Test
+    public void blackActionSheetsKeepTheirOutlineAfterLayout() {
+        black(true);
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            sheet.addAction(com.limelight.R.drawable.ic_settings, "Settings");
+            sheet.show();
+            View decor = sheet.getWindow().getDecorView();
+            decor.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, 1920, 1080);
+            View surface = sheet.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+            android.graphics.drawable.Drawable background = surface.getBackground();
+            assertTrue(background.getClass().getName(), background instanceof com.google.android.material.shape.MaterialShapeDrawable);
+            assertTrue(((com.google.android.material.shape.MaterialShapeDrawable) background).getStrokeWidth() > 0);
+            sheet.dismiss();
+        }
+    }
+
     public static class Screen extends NightjarActivity {
         int recreationRequests;
         @Override protected void onCreate(Bundle state) {

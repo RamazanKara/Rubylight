@@ -114,6 +114,16 @@ public class UiHelper {
         }
     }
 
+    public static Context localeContext(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return context;
+        String language = android.preference.PreferenceManager.getDefaultSharedPreferences(context)
+                .getString("list_languages", PreferenceConfiguration.DEFAULT_LANGUAGE);
+        if (PreferenceConfiguration.DEFAULT_LANGUAGE.equals(language)) return context;
+        Configuration config = new Configuration(context.getResources().getConfiguration());
+        config.setLocale(Locale.forLanguageTag(language));
+        return context.createConfigurationContext(config);
+    }
+
     public static void notifyNewRootView(final Activity activity)
     {
         View rootView = activity.findViewById(android.R.id.content);

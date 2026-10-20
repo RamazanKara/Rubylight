@@ -11,6 +11,70 @@ thread_local! {
     static SESSION_ERROR: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
 }
 
+#[test]
+fn background_game_can_only_resume_on_its_owner_in_the_same_mode() {
+    let fixture = Fixture::new();
+    let mut client = fixture.client(u32::MAX);
+    client.extra.insert("background_stream".into(), true.into());
+    let mut launch = fixture.launch(client, Role::Stream);
+    assert!(validate_background_launch(&fixture.host, &launch).is_ok());
+    let app = fixture.host.apps.read().unwrap()[0].clone();
+    let mut running =
+        crate::process::RunningApp::with_environment(&app, Default::default()).unwrap();
+    running.owner = launch.client.uuid.clone();
+    running.background = true;
+    let generation = running.generation.clone();
+    *fixture.host.current_app.lock().unwrap() = Some(running);
+    assert!(validate_background_launch(&fixture.host, &launch).is_ok());
+
+    launch.client.uuid = "another-device".into();
+    assert!(
+        validate_background_launch(&fixture.host, &launch)
+            .unwrap_err()
+            .to_string()
+            .contains("another device")
+    );
+    launch.client.uuid = "parity-device".into();
+    launch.client.extra.clear();
+    assert!(
+        validate_background_launch(&fixture.host, &launch)
+            .unwrap_err()
+            .to_string()
+            .contains("changing background")
+    );
+    assert_eq!(
+        fixture
+            .host
+            .current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .generation,
+        generation
+    );
+
+    fixture
+        .host
+        .current_app
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .background = false;
+    launch.client.uuid = "another-device".into();
+    assert!(validate_background_launch(&fixture.host, &launch).is_ok());
+    launch
+        .client
+        .extra
+        .insert("background_stream".into(), true.into());
+    assert!(validate_background_launch(&fixture.host, &launch).is_err());
+    for role in [Role::InputOnly, Role::RemoteMonitor] {
+        launch.role = role;
+        assert!(validate_background_launch(&fixture.host, &launch).is_ok());
+    }
+}
+
 pub(super) fn ensure_streaming_session() -> Result<()> {
     match SESSION_ERROR.get() {
         Some(message) => bail!(message),

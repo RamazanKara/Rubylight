@@ -442,6 +442,7 @@ mod tests {
                 },
                 peer: "127.0.0.1".parse().unwrap(),
                 app_id: 1,
+                background: None,
                 key: [0; 16],
                 key_id: 1,
                 ping: "ping".into(),

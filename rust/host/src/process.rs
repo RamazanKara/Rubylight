@@ -202,6 +202,7 @@ pub struct RunningApp {
     pub child: Option<Process>,
     pub owner: String,
     pub generation: String,
+    pub background: bool,
     undo: Vec<PrepCommand>,
     working: String,
     environment: BTreeMap<String, String>,
@@ -313,6 +314,7 @@ impl RunningApp {
                 .cloned()
                 .unwrap_or_default(),
             generation: uuid::Uuid::new_v4().to_string(),
+            background: false,
             undo: vec![],
             working: if app.working_dir.trim().is_empty() {
                 inferred_working_dir(&app.cmd)
@@ -813,6 +815,7 @@ fn launch_with_environment(
     args: &HashMap<String, String>,
     environment: Result<BTreeMap<String, String>>,
 ) -> Result<RunningApp> {
+    let background = args.get(BACKGROUND_ARG).is_some_and(|v| v == "1");
     let terminate_on_pause = app_bool(
         app,
         "terminate-on-pause",
@@ -867,6 +870,7 @@ fn launch_with_environment(
                 }
             }
             let mut running = RunningApp::with_environment(&placeholder, system)?;
+            running.background = background;
             running.terminate_on_pause = terminate_on_pause;
             if runs_commands(h, app) {
                 tracing::info!(app = %app.name, %error, "no signed-in user; the application starts after sign-in");
@@ -875,12 +879,6 @@ fn launch_with_environment(
             return Ok(running);
         }
     };
-    let background = args.get(BACKGROUND_ARG).is_some_and(|v| v == "1");
-    if background {
-        for (key, value) in butterpollo_core::background::ENVIRONMENT {
-            environment.insert(key.into(), value.into());
-        }
-    }
     let mut app = app.clone();
     let document = h.app_document.read().unwrap();
     if let Some(values) = document.get("env").and_then(serde_json::Value::as_object) {
@@ -897,6 +895,11 @@ fn launch_with_environment(
         }
     }
     drop(document);
+    if background {
+        for (key, value) in butterpollo_core::background::ENVIRONMENT {
+            environment.insert(key.into(), value.into());
+        }
+    }
     if !app_bool(&app, "exclude-global-state-cmd", false) {
         let mut global: Vec<PrepCommand> =
             serde_json::from_str(h.config.read().unwrap().get("global_state_cmd", "[]"))?;
@@ -1092,6 +1095,7 @@ fn launch_with_environment(
         .as_ref()
         .map(|_| butterpollo_windows::process::processes().unwrap_or_default());
     let mut running = RunningApp::with_environment(&app, environment)?;
+    running.background = background;
     running.terminate_on_pause = terminate_on_pause;
     if fullscreen || (playnite_id.is_some() && config.boolean("playnite_enabled", true)) {
         running.playnite = Some(crate::playnite::Launch::start(

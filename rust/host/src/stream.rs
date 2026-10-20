@@ -301,14 +301,20 @@ enum ReopenOn {
 /// off (a game resetting the layout on exit); the heartbeat switches it back
 /// on or recreates it and publishes it, possibly under a new name. Capture
 /// waits for that and never quietly shows another desktop: only after
-/// `DISPLAY_RETURN_WAIT` does it open the primary display, with a warning.
-fn reopen_on(present: bool, missing_since: &mut Option<Instant>, now: Instant) -> ReopenOn {
+/// `DISPLAY_RETURN_WAIT` does a foreground stream open the primary display.
+/// A background stream must never expose the local user's desktop.
+fn reopen_on(
+    present: bool,
+    background: bool,
+    missing_since: &mut Option<Instant>,
+    now: Instant,
+) -> ReopenOn {
     if present {
         *missing_since = None;
         return ReopenOn::Stream;
     }
     let since = *missing_since.get_or_insert(now);
-    if now.duration_since(since) >= DISPLAY_RETURN_WAIT {
+    if !background && now.duration_since(since) >= DISPLAY_RETURN_WAIT {
         ReopenOn::Primary
     } else {
         ReopenOn::Wait
@@ -433,12 +439,17 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     // Last, so no override hands the device's keyboard and mouse back to the
     // desktop the person at the PC is using.
     if launch.role == Role::Stream
-        && butterpollo_core::background::requested(
-            &launch.client.extra,
-            app.as_ref().map(|app| &app.extra),
-        )
+        && launch.background.unwrap_or_else(|| {
+            butterpollo_core::background::enabled(&config)
+                || butterpollo_core::background::requested(
+                    &launch.client.extra,
+                    app.as_ref().map(|app| &app.extra),
+                )
+        })
     {
         butterpollo_core::background::apply(&mut config);
+    } else {
+        config.values.remove(butterpollo_core::background::SETTING);
     }
     Ok(config)
 }
@@ -659,6 +670,7 @@ struct CaptureKey {
     wgc_drain: bool,
     wgc_helper_scheduling: bool,
     idd_fence_ring: bool,
+    background: bool,
 }
 impl CaptureKey {
     fn new(kind: &str, output: &str, hdr: bool, config: &Config, phase: &str) -> Self {
@@ -684,6 +696,7 @@ impl CaptureKey {
             wgc_helper_scheduling: !matches!(kind, "ddx" | "dxgi")
                 && config.boolean("wgc_helper_streaming_scope", false),
             idd_fence_ring: config.boolean("idd_push_fence_ring", false),
+            background: butterpollo_core::background::enabled(config),
         }
     }
 }
@@ -974,9 +987,13 @@ impl Media {
                             // A UAC prompt or the lock screen switches the input
                             // desktop; duplication must be made on that desktop.
                             butterpollo_windows::input::follow_input_desktop();
-                            let on = reopen_on(butterpollo_windows::capture::display_present(&next.0), &mut missing_since, Instant::now());
+                            let background = butterpollo_core::background::enabled(&capture_config);
+                            let on = reopen_on(butterpollo_windows::capture::display_present(&next.0), background, &mut missing_since, Instant::now());
                             let opened = match on {
                                 ReopenOn::Wait => {
+                                    if background {
+                                        capture_warnings.set("capture_display", "The background display disappeared. Waiting for it to recover; the PC's monitor is not captured.");
+                                    }
                                     thread::sleep(RECOVERY_RETRY);
                                     continue;
                                 }
@@ -3876,26 +3893,95 @@ mod tests {
         assert!(butterpollo_core::background::enabled(&device));
         let input = effective_config(&f.host, &f.launch(client, Role::InputOnly)).unwrap();
         assert!(!butterpollo_core::background::enabled(&input));
+        // A saved effective-config key must enforce the same isolation.
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("background_stream".into(), "true".into());
+        let configured =
+            effective_config(&f.host, &f.launch(f.client(u32::MAX), Role::Stream)).unwrap();
+        assert!(!configured.boolean("keyboard", true));
+        assert!(!configured.boolean("mouse", true));
+        assert_eq!(configured.get("audio_capture_mode", ""), "game");
+    }
+    #[test]
+    fn a_launch_keeps_its_background_mode_when_settings_change() {
+        let f = crate::state::test_support::Fixture::new();
+        let mut launch = f.launch(f.client(u32::MAX), Role::Stream);
+        launch.background = Some(true);
+        for audio in ["system", "game"] {
+            f.host.apps.write().unwrap()[0].extra.insert(
+                "config-overrides".into(),
+                serde_json::json!({"keyboard":true, "mouse":true, "audio_capture_mode":audio}),
+            );
+            let config = effective_config(&f.host, &launch.clone()).unwrap();
+            assert!(butterpollo_core::background::enabled(&config));
+            assert!(!config.boolean("keyboard", true));
+            assert!(!config.boolean("mouse", true));
+            assert_eq!(config.get("audio_capture_mode", ""), "game");
+        }
+        launch.background = Some(false);
+        f.host.apps.write().unwrap()[0]
+            .extra
+            .insert("background-stream".into(), true.into());
+        let config = effective_config(&f.host, &launch).unwrap();
+        assert!(!butterpollo_core::background::enabled(&config));
+        assert!(config.boolean("keyboard", false));
+        assert!(config.boolean("mouse", false));
     }
     #[test]
     fn capture_waits_for_its_display_and_shows_the_primary_only_after_the_timeout() {
         let start = Instant::now();
         let mut missing = None;
-        assert_eq!(reopen_on(true, &mut missing, start), ReopenOn::Stream);
+        assert_eq!(
+            reopen_on(true, false, &mut missing, start),
+            ReopenOn::Stream
+        );
         // Windows switched the virtual display off: capture waits for the
         // heartbeat to bring it back instead of opening the physical desktop.
-        assert_eq!(reopen_on(false, &mut missing, start), ReopenOn::Wait);
+        assert_eq!(reopen_on(false, false, &mut missing, start), ReopenOn::Wait);
         let almost = start + DISPLAY_RETURN_WAIT - Duration::from_millis(1);
-        assert_eq!(reopen_on(false, &mut missing, almost), ReopenOn::Wait);
         assert_eq!(
-            reopen_on(false, &mut missing, start + DISPLAY_RETURN_WAIT),
+            reopen_on(false, false, &mut missing, almost),
+            ReopenOn::Wait
+        );
+        assert_eq!(
+            reopen_on(false, false, &mut missing, start + DISPLAY_RETURN_WAIT),
             ReopenOn::Primary
         );
         // It came back under another name: the wait starts over next time.
         let back = start + Duration::from_secs(20);
-        assert_eq!(reopen_on(true, &mut missing, back), ReopenOn::Stream);
+        assert_eq!(reopen_on(true, false, &mut missing, back), ReopenOn::Stream);
         assert_eq!(missing, None);
-        assert_eq!(reopen_on(false, &mut missing, back), ReopenOn::Wait);
+        assert_eq!(reopen_on(false, false, &mut missing, back), ReopenOn::Wait);
+    }
+    #[test]
+    fn background_capture_never_recovers_onto_the_primary_display() {
+        let start = Instant::now();
+        let mut missing = None;
+        for elapsed in [Duration::ZERO, DISPLAY_RETURN_WAIT, Duration::from_secs(60)] {
+            assert_eq!(
+                reopen_on(false, true, &mut missing, start + elapsed),
+                ReopenOn::Wait
+            );
+        }
+        assert_eq!(
+            reopen_on(true, true, &mut missing, start + Duration::from_secs(61)),
+            ReopenOn::Stream
+        );
+        assert_eq!(missing, None);
+
+        let plain = Config::default();
+        let mut background = plain.clone();
+        butterpollo_core::background::apply(&mut background);
+        for capture in ["auto", "wgc", "ddx"] {
+            assert_ne!(
+                CaptureKey::new(capture, "display", false, &plain, ""),
+                CaptureKey::new(capture, "display", false, &background, "")
+            );
+        }
     }
     #[test]
     fn pad_feedback_forwards_rumble_and_each_family_extra() {

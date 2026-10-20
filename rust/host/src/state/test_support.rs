@@ -61,6 +61,7 @@ impl Fixture {
             client,
             peer: "127.0.0.1".parse().unwrap(),
             app_id: self.host.apps.read().unwrap()[0].id(),
+            background: None,
             key: [0; 16],
             key_id: 1,
             ping: "parity".into(),

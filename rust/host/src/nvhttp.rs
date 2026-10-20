@@ -1180,7 +1180,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         {
             return Err(LaunchFailure(503, "No video encoder is ready. Check the host console and graphics driver, then retry.").into());
         }
-        let launch = build_launch_session(&connection, &args, client, app_id, role, key, key_id);
+        let mut launch =
+            build_launch_session(&connection, &args, client, app_id, role, key, key_id);
+        launch.background = Some(validate_background_launch(&h, &launch)?);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
             && crate::network::encryption_mode(&h.config.read().unwrap(), connection.peer.ip()) == 2
@@ -1485,6 +1487,7 @@ fn build_launch_session(
         client,
         peer: connection.peer.ip(),
         app_id,
+        background: None,
         key,
         key_id,
         ping: hex::encode(crypto::random::<8>()),
@@ -1584,6 +1587,27 @@ fn replace_launch_app(
     // Launches and stops stay serialized by launch_transition.
     drop(current);
     Ok(())
+}
+fn validate_background_launch(h: &Shared, launch: &Launch) -> Result<bool> {
+    if launch.role != Role::Stream {
+        return Ok(false);
+    }
+    let background =
+        butterpollo_core::background::enabled(&crate::stream::effective_config(h, launch)?);
+    let current = h.current_app.lock().unwrap();
+    if let Some(app) = current.as_ref().filter(|app| app.id == launch.app_id) {
+        if app.background != background {
+            return Err(LaunchFailure(
+                409,
+                "End the current game before changing background streaming mode",
+            )
+            .into());
+        }
+        if background && app.owner != launch.client.uuid {
+            return Err(LaunchFailure(409, "This background game belongs to another device; end it before starting a background game here").into());
+        }
+    }
+    Ok(background)
 }
 fn prepare_launch_display(
     h: &Shared,

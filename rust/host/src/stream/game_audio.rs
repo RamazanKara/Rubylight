@@ -24,6 +24,13 @@ pub(super) struct GameAudio {
 }
 impl GameAudio {
     pub fn start(h: Shared, s: Arc<Session>) -> Result<Self> {
+        let generation = h
+            .current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|app| app.id == s.launch.app_id)
+            .map(|app| app.generation.clone());
         let target = Arc::new(Mutex::new(Err(
             "waiting for the launched game process".to_owned()
         )));
@@ -42,7 +49,10 @@ impl GameAudio {
                             .lock()
                             .unwrap()
                             .as_ref()
-                            .filter(|app| app.id == s.launch.app_id)
+                            .filter(|app| {
+                                app.id == s.launch.app_id
+                                    && Some(&app.generation) == generation.as_ref()
+                            })
                             .ok_or_else(|| {
                                 anyhow::anyhow!("this stream has no matching launched game")
                             })
@@ -62,7 +72,7 @@ impl GameAudio {
         })
     }
     fn failed(&mut self, s: &Session, message: &str) {
-        s.launch.warnings.set("audio_game_only", format!("Game-only audio is unavailable ({message}); sending silence. No other application audio is captured. Use a verified game launch on Windows build 20348 or newer, or explicitly select System audio."));
+        s.launch.warnings.set("audio_game_only", format!("Game-only audio is unavailable ({message}); sending silence. No other application audio is captured. Check the game's launch entry and the Windows Audio service. Process capture requires Windows build 20348 or newer."));
         self.pending = None;
         self.check = Instant::now() + Duration::from_secs(5);
     }
@@ -120,5 +130,48 @@ impl Drop for GameAudio {
             worker.thread().unpark();
             super::finish_worker(worker, "game audio target");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::test_support::Fixture;
+    use butterpollo_core::session::Role;
+
+    #[test]
+    fn discovery_does_not_follow_a_replacement_with_the_same_app_id() {
+        let fixture = Fixture::new();
+        let app = fixture.host.apps.read().unwrap()[0].clone();
+        *fixture.host.current_app.lock().unwrap() =
+            Some(crate::process::RunningApp::with_environment(&app, Default::default()).unwrap());
+        let session = fixture.session(fixture.client(u32::MAX), Role::Stream);
+        let audio = GameAudio::start(fixture.host.clone(), session).unwrap();
+        let wait_for = |message: &str| {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                if audio
+                    .target
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.contains(message))
+                {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "audio discovery did not report {message}"
+                );
+                audio.worker.as_ref().unwrap().thread().unpark();
+                thread::sleep(Duration::from_millis(5));
+            }
+        };
+        wait_for("no owned game process");
+        *fixture.host.current_app.lock().unwrap() =
+            Some(crate::process::RunningApp::with_environment(&app, Default::default()).unwrap());
+        wait_for("no matching launched game");
+        drop(audio);
     }
 }

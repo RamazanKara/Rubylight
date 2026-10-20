@@ -1,9 +1,15 @@
 //! Keeps a background stream's game windows on the stream's display without
 //! activating them, so the person using the PC keeps their focus.
 use butterpollo_core::background::{Rect, placement};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
+};
 use windows::{
-    Win32::{Foundation::*, Graphics::Dwm::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*},
+    Win32::{
+        Foundation::*, Graphics::Dwm::*, Graphics::Gdi::*, System::Threading::*,
+        UI::WindowsAndMessaging::*,
+    },
     core::BOOL,
 };
 
@@ -14,9 +20,17 @@ const MOVE_LIMIT: u32 = 5;
 
 #[derive(Default)]
 pub struct Keeper {
-    moves: BTreeMap<isize, u32>,
+    moves: BTreeMap<(isize, u32), u32>,
     /// Processes whose background throttling is already off.
-    unthrottled: BTreeSet<u32>,
+    unthrottled: BTreeMap<u32, (OwnedHandle, PROCESS_POWER_THROTTLING_STATE)>,
+}
+
+impl Drop for Keeper {
+    fn drop(&mut self) {
+        for (process, previous) in self.unthrottled.values() {
+            restore_throttle(process, previous);
+        }
+    }
 }
 
 /// What one pass did.
@@ -25,9 +39,11 @@ pub struct Pass {
     /// Visible windows of the game, wherever they are.
     pub windows: usize,
     pub moved: usize,
+    /// Windows not yet observed on the target, including moves still queued.
+    pub pending: usize,
     /// Windows that kept leaving the stream's display and are left alone.
     pub given_up: usize,
-    /// The game's largest window and its process: the one that gets focus.
+    /// The game's largest window already on the target and its process.
     pub main: Option<(isize, u32)>,
     /// The game held a cursor clip that reached the stream's display, which
     /// would trap the PC user's mouse; it was released.
@@ -47,10 +63,19 @@ impl Keeper {
     /// `target` onto it.
     pub fn pass(&mut self, processes: &BTreeSet<u32>, target: Rect) -> Pass {
         crate::input::follow_input_desktop();
-        self.unthrottled.retain(|pid| processes.contains(pid));
+        self.unthrottled.retain(|pid, (process, previous)| {
+            if processes.contains(pid) {
+                true
+            } else {
+                restore_throttle(process, previous);
+                false
+            }
+        });
         for &pid in processes {
-            if !self.unthrottled.contains(&pid) && unthrottle(pid) {
-                self.unthrottled.insert(pid);
+            if let std::collections::btree_map::Entry::Vacant(entry) = self.unthrottled.entry(pid)
+                && let Some(previous) = unthrottle(pid)
+            {
+                entry.insert(previous);
             }
         }
         let candidates = windows_of(processes);
@@ -58,18 +83,26 @@ impl Keeper {
             windows: candidates.len(),
             main: candidates
                 .iter()
+                .filter(|c| placement(c.rect, c.monitor, target).is_none())
                 .max_by_key(|c| i64::from(c.rect.width) * i64::from(c.rect.height))
                 .map(|c| (c.window.0 as isize, c.pid)),
             released_clip: release_clip(target),
             ..Default::default()
         };
-        let live: BTreeSet<isize> = candidates.iter().map(|c| c.window.0 as isize).collect();
+        let live: BTreeSet<_> = candidates
+            .iter()
+            .map(|c| (c.window.0 as isize, c.pid))
+            .collect();
         self.moves.retain(|window, _| live.contains(window));
         for candidate in candidates {
             let Some(to) = placement(candidate.rect, candidate.monitor, target) else {
                 continue;
             };
-            let count = self.moves.entry(candidate.window.0 as isize).or_default();
+            pass.pending += 1;
+            let count = self
+                .moves
+                .entry((candidate.window.0 as isize, candidate.pid))
+                .or_default();
             if *count >= MOVE_LIMIT {
                 pass.given_up += 1;
                 continue;
@@ -87,7 +120,7 @@ impl Keeper {
 /// real focus. Many games mute or slow down while inactive and decide that
 /// from these messages; nothing changes for the window that has focus. Does
 /// nothing while the game really is in front.
-pub fn fake_focus(window: isize, processes: &BTreeSet<u32>) {
+pub fn fake_focus(window: isize, processes: &BTreeSet<u32>, target: Rect) {
     let window = HWND(window as *mut _);
     // SAFETY: the handles are plain values; a closed window makes the calls
     // fail harmlessly, and the timeouts never wait on a hung game for long.
@@ -115,6 +148,10 @@ pub fn fake_focus(window: isize, processes: &BTreeSet<u32>) {
             );
         }
     }
+    // Activation messages can make the game clip the cursor immediately.
+    // Release it before yielding rather than trapping the local user until
+    // the next window-placement pass.
+    release_clip(target);
 }
 
 /// A game that believes it is active may clip the cursor to its window. On
@@ -142,29 +179,79 @@ fn release_clip(target: Rect) -> bool {
 
 /// Windows 11 throttles processes it considers in the background (EcoQoS,
 /// coarse timers); a background stream's game is in the background by design.
-fn unthrottle(pid: u32) -> bool {
-    use windows::Win32::System::Threading::*;
-    // SAFETY: the process handle is closed once; the structure is a local of
-    // the size passed.
+fn unthrottle(pid: u32) -> Option<(OwnedHandle, PROCESS_POWER_THROTTLING_STATE)> {
+    // SAFETY: the newly opened handle has one owner; both structures are
+    // live locals of the sizes passed to Windows.
     unsafe {
-        let Ok(process) = OpenProcess(PROCESS_SET_INFORMATION, false, pid) else {
-            return false;
+        let process = OwnedHandle::from_raw_handle(
+            OpenProcess(
+                PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION,
+                false,
+                pid,
+            )
+            .ok()?
+            .0,
+        );
+        let handle = HANDLE(process.as_raw_handle());
+        let mut previous = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ..Default::default()
         };
+        GetProcessInformation(
+            handle,
+            ProcessPowerThrottling,
+            (&mut previous as *mut PROCESS_POWER_THROTTLING_STATE).cast(),
+            std::mem::size_of_val(&previous) as u32,
+        )
+        .ok()?;
         let state = PROCESS_POWER_THROTTLING_STATE {
             Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
             ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED
                 | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
             StateMask: 0,
         };
-        let done = SetProcessInformation(
-            process,
+        SetProcessInformation(
+            handle,
             ProcessPowerThrottling,
             (&state as *const PROCESS_POWER_THROTTLING_STATE).cast(),
             std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
         )
-        .is_ok();
-        let _ = CloseHandle(process);
-        done
+        .ok()?;
+        Some((process, previous))
+    }
+}
+
+fn restore_throttle(process: &OwnedHandle, previous: &PROCESS_POWER_THROTTLING_STATE) {
+    let mask =
+        PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+    // SAFETY: the held process handle prevents PID reuse; both state
+    // structures live through the calls and have the declared sizes.
+    unsafe {
+        let handle = HANDLE(process.as_raw_handle());
+        let mut current = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ..Default::default()
+        };
+        if GetProcessInformation(
+            handle,
+            ProcessPowerThrottling,
+            (&mut current as *mut PROCESS_POWER_THROTTLING_STATE).cast(),
+            std::mem::size_of_val(&current) as u32,
+        )
+        .is_err()
+            || current.ControlMask & mask != mask
+            || current.StateMask & mask != 0
+        {
+            return;
+        }
+        current.ControlMask = (current.ControlMask & !mask) | (previous.ControlMask & mask);
+        current.StateMask = (current.StateMask & !mask) | (previous.StateMask & mask);
+        let _ = SetProcessInformation(
+            handle,
+            ProcessPowerThrottling,
+            (&current as *const PROCESS_POWER_THROTTLING_STATE).cast(),
+            std::mem::size_of_val(&current) as u32,
+        );
     }
 }
 
@@ -275,5 +362,80 @@ fn move_window(candidate: &Candidate, to: Rect) -> bool {
             tracing::debug!(%error, "background stream window could not be moved");
         }
         moved.is_ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::{Context, Result};
+
+    #[test]
+    #[ignore = "temporarily changes this test process's power throttling"]
+    fn background_power_settings_are_restored_without_overwriting_later_changes() -> Result<()> {
+        let power = || -> Result<PROCESS_POWER_THROTTLING_STATE> {
+            let mut state = PROCESS_POWER_THROTTLING_STATE {
+                Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                ..Default::default()
+            };
+            // SAFETY: the output is initialized and the pseudo handle belongs to this test process.
+            unsafe {
+                GetProcessInformation(
+                    GetCurrentProcess(),
+                    ProcessPowerThrottling,
+                    (&mut state as *mut PROCESS_POWER_THROTTLING_STATE).cast(),
+                    std::mem::size_of_val(&state) as u32,
+                )?;
+            }
+            Ok(state)
+        };
+        let set_power = |state: &PROCESS_POWER_THROTTLING_STATE| -> Result<()> {
+            // SAFETY: the live input has the declared size; only this test process is changed.
+            unsafe {
+                SetProcessInformation(
+                    GetCurrentProcess(),
+                    ProcessPowerThrottling,
+                    (state as *const PROCESS_POWER_THROTTLING_STATE).cast(),
+                    std::mem::size_of_val(state) as u32,
+                )?;
+            }
+            Ok(())
+        };
+        let before = power()?;
+        let mut keeper = Keeper::default();
+        keeper.unthrottled.insert(
+            std::process::id(),
+            unthrottle(std::process::id()).context("process power opt-out unavailable")?,
+        );
+        let active = power()?;
+        let mask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+            | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+        assert_eq!(active.ControlMask & mask, mask);
+        assert_eq!(active.StateMask & mask, 0);
+        drop(keeper);
+        let restored = power()?;
+        assert_eq!(
+            (restored.ControlMask, restored.StateMask),
+            (before.ControlMask, before.StateMask)
+        );
+
+        let mut keeper = Keeper::default();
+        keeper.unthrottled.insert(
+            std::process::id(),
+            unthrottle(std::process::id()).context("process power opt-out unavailable")?,
+        );
+        let changed = PROCESS_POWER_THROTTLING_STATE {
+            StateMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            ..active
+        };
+        set_power(&changed)?;
+        drop(keeper);
+        let retained = power()?;
+        set_power(&before)?;
+        assert_eq!(
+            (retained.ControlMask, retained.StateMask),
+            (changed.ControlMask, changed.StateMask)
+        );
+        Ok(())
     }
 }

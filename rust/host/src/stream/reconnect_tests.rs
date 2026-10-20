@@ -1145,6 +1145,53 @@ async fn network_drop_40s_times_out_then_resumes() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn background_resume_preserves_the_owner_and_rejects_mode_changes() -> Result<()> {
+    let h = Harness::new(10_000, 2).await?;
+    for client in &mut h.h.paired.write().unwrap().clients {
+        client.extra.insert("background_stream".into(), true.into());
+    }
+    let generation = {
+        let mut current = h.h.current_app.lock().unwrap();
+        let app = current.as_mut().unwrap();
+        app.owner = "0".into();
+        app.background = true;
+        app.generation.clone()
+    };
+    let launch = h.launch(0, false).await?;
+    let (old, client) = h.play(&launch).await?;
+    let rejected = h.launch_response(1, true).await?;
+    assert!(rejected.contains("status_code=\"409\""), "{rejected}");
+    assert!(rejected.contains("another device"), "{rejected}");
+    assert!(!old.stopping());
+    h.counts(1, 0).await?;
+
+    h.h.paired.write().unwrap().clients[0]
+        .extra
+        .remove("background_stream");
+    let rejected = h.launch_response(0, true).await?;
+    assert!(rejected.contains("status_code=\"409\""), "{rejected}");
+    assert!(rejected.contains("changing background"), "{rejected}");
+    assert!(!old.stopping());
+    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 1);
+    h.h.paired.write().unwrap().clients[0]
+        .extra
+        .insert("background_stream".into(), true.into());
+
+    drop(client);
+    let resumed = h.launch(0, true).await?;
+    assert!(old.stopping());
+    assert_eq!(old.termination_reason(), CLOSED);
+    assert_eq!(
+        h.h.current_app.lock().unwrap().as_ref().unwrap().generation,
+        generation
+    );
+    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 1);
+    let (session, client) = h.play(&resumed).await?;
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_clients_race_to_resume_the_same_app() -> Result<()> {
     let h = Harness::new(10_000, 2).await?;
     let generation =

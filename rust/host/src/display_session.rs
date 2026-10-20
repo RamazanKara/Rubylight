@@ -35,6 +35,9 @@ fn virtual_display_mode<'a>(
     app: Option<&'a butterpollo_core::state::App>,
     windows_11: bool,
 ) -> &'a str {
+    if butterpollo_core::background::enabled(config) {
+        return "per_client";
+    }
     client
         .extra
         .get("virtual_display_mode")
@@ -49,6 +52,34 @@ fn virtual_display_mode<'a>(
         .unwrap_or(config.virtual_display_mode(windows_11))
 }
 
+fn virtual_display_identity(
+    config: &Config,
+    launch: &Launch,
+    app: Option<&butterpollo_core::state::App>,
+) -> String {
+    if !butterpollo_core::background::enabled(config)
+        && app.is_some_and(|a| crate::process::app_bool(a, "use-app-identity", false))
+    {
+        let app_id = app
+            .and_then(|a| a.extra.get("uuid"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("application");
+        if app.is_some_and(|a| crate::process::app_bool(a, "per-client-app-identity", false)) {
+            butterpollo_core::display_policy::app_client_identity(
+                app_id,
+                launch
+                    .options
+                    .get("uniqueid")
+                    .filter(|value| uuid::Uuid::parse_str(value).is_ok())
+                    .unwrap_or(&launch.client.uuid),
+            )
+        } else {
+            app_id.to_owned()
+        }
+    } else {
+        launch.client.uuid.clone()
+    }
+}
 pub(crate) fn virtual_display_layout<'a>(
     config: &'a Config,
     client: &'a butterpollo_core::state::Client,
@@ -844,33 +875,7 @@ impl Prepared {
         } else {
             None
         };
-        let id = if app
-            .as_ref()
-            .is_some_and(|a| crate::process::app_bool(a, "use-app-identity", false))
-        {
-            let app_id = app
-                .as_ref()
-                .and_then(|a| a.extra.get("uuid"))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("application");
-            if app
-                .as_ref()
-                .is_some_and(|a| crate::process::app_bool(a, "per-client-app-identity", false))
-            {
-                butterpollo_core::display_policy::app_client_identity(
-                    app_id,
-                    launch
-                        .options
-                        .get("uniqueid")
-                        .filter(|value| uuid::Uuid::parse_str(value).is_ok())
-                        .unwrap_or(&launch.client.uuid),
-                )
-            } else {
-                app_id.to_owned()
-            }
-        } else {
-            launch.client.uuid.clone()
-        };
+        let id = virtual_display_identity(config, launch, app.as_ref());
         let shared_id = if mode == "shared" {
             let mut paired = h.paired.write().unwrap();
             let existing = paired.document["root"]["shared_virtual_display_guid"]
@@ -2172,6 +2177,51 @@ mod tests {
                 "per_client"
             );
             assert_eq!(virtual_display_mode(&config, &client, None, true), "shared");
+        }
+    }
+
+    #[test]
+    fn background_display_ignores_shared_and_app_identity_overrides() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let mut config =
+            Config::parse("virtual_display_mode=shared\nvirtual_display_layout=exclusive").unwrap();
+        let mut launch = fixture.launch(fixture.client(u32::MAX), Role::Stream);
+        launch.options.insert(
+            "uniqueid".into(),
+            "00000000-0000-0000-0000-000000000001".into(),
+        );
+        let app: butterpollo_core::state::App = serde_json::from_value(serde_json::json!({
+            "name":"Game", "uuid":"app-display", "use-app-identity":true,
+            "virtual-display-mode":"shared", "virtual-display-layout":"exclusive"
+        }))
+        .unwrap();
+        assert_eq!(
+            virtual_display_identity(&config, &launch, Some(&app)),
+            "app-display"
+        );
+        butterpollo_core::background::apply(&mut config);
+        for mode in ["shared", "disabled", "per_client"] {
+            launch
+                .client
+                .extra
+                .insert("virtual_display_mode".into(), mode.into());
+            assert_eq!(
+                virtual_display_mode(&config, &launch.client, Some(&app), true),
+                "per_client"
+            );
+            assert_eq!(
+                virtual_display_identity(&config, &launch, Some(&app)),
+                launch.client.uuid
+            );
+            assert_eq!(
+                virtual_display_layout(
+                    &config,
+                    &launch.client,
+                    Some(&app),
+                    Some(HostDisplay::Physical)
+                ),
+                butterpollo_core::background::LAYOUT
+            );
         }
     }
 

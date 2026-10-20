@@ -3,6 +3,56 @@ use crate::state::test_support::Fixture;
 use serde_json::json;
 
 #[test]
+fn background_mode_survives_a_deferred_launch() {
+    let fixture = Fixture::new();
+    let app: App = serde_json::from_value(json!({"name":"Background"})).unwrap();
+    for background in [false, true] {
+        let args = HashMap::from([(
+            BACKGROUND_ARG.into(),
+            if background { "1" } else { "0" }.into(),
+        )]);
+        for environment in [
+            Ok(BTreeMap::new()),
+            Err(anyhow::anyhow!("no signed-in user")),
+        ] {
+            let deferred = environment.is_err();
+            let mut app = app.clone();
+            if deferred {
+                app.cmd = "game.exe".into();
+            }
+            let running = launch_with_environment(&fixture.host, &app, &args, environment).unwrap();
+            assert_eq!(running.background, background);
+            assert_eq!(running.deferred.is_some(), deferred);
+            if let Some((_, saved_args)) = running.deferred.as_ref() {
+                assert_eq!(saved_args, &args);
+            }
+        }
+    }
+}
+
+#[test]
+fn background_controller_environment_wins_over_saved_environment() {
+    let fixture = Fixture::new();
+    fixture.host.app_document.write().unwrap()["env"] =
+        json!({"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS":"0"});
+    let app: App = serde_json::from_value(json!({"name":"Background"})).unwrap();
+    for background in [false, true] {
+        let value = if background { "1" } else { "0" };
+        let args = HashMap::from([(BACKGROUND_ARG.into(), value.into())]);
+        let running =
+            launch_with_environment(&fixture.host, &app, &args, Ok(BTreeMap::new())).unwrap();
+        assert_eq!(
+            running.environment["SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"],
+            value
+        );
+        assert_eq!(
+            fixture.host.app_document.read().unwrap()["env"]["SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"],
+            "0"
+        );
+    }
+}
+
+#[test]
 fn close_on_disconnect_inherits_the_global_default_and_preserves_app_overrides() {
     let fixture = Fixture::new();
     for global in [None, Some(false), Some(true)] {

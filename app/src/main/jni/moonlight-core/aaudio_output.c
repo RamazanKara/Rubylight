@@ -135,7 +135,7 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeOpenAudio(JNIEnv* en
     if (!output->queue.samples) goto failed;
     int target = output->AAudioStream_setBufferSizeInFrames(output->stream, burst * 2);
     if (target <= 0) goto failed;
-    audioQueueInit(&output->queue, output->queue.samples, ringCapacity, (uint32_t)target);
+    audioQueueInit(&output->queue, output->queue.samples, ringCapacity, (uint32_t)burst * 2);
     if (output->AAudioStream_requestStart(output->stream) != AAUDIO_OK) goto failed;
     return (jlong)(intptr_t)output;
 failed:
@@ -172,23 +172,26 @@ JNIEXPORT jintArray JNICALL
 Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioStats(JNIEnv* env, jclass clazz, jlong handle) {
     AudioOutput* output = (AudioOutput*)(intptr_t)handle;
     int xruns = output->AAudioStream_getXRunCount(output->stream);
+    int underruns = (int)atomic_load(&output->queue.underruns);
     // The software starvation count is still valid if hardware xruns are unsupported.
     jint stats[] = {output->AAudioStream_getFramesPerBurst(output->stream),
-            output->AAudioStream_getBufferCapacityInFrames(output->stream),
-            output->AAudioStream_getBufferSizeInFrames(output->stream),
-            (xruns < 0 ? 0 : xruns) + (int)atomic_load(&output->queue.underruns)};
-    jintArray result = (*env)->NewIntArray(env, 4);
-    if (result) (*env)->SetIntArrayRegion(env, result, 0, 4, stats);
+            (jint)output->queue.capacity,
+            (jint)atomic_load(&output->queue.targetFrames),
+            (xruns < 0 ? 0 : xruns) + underruns,
+            output->AAudioStream_getBufferSizeInFrames(output->stream), xruns, underruns};
+    jintArray result = (*env)->NewIntArray(env, 7);
+    if (result) (*env)->SetIntArrayRegion(env, result, 0, 7, stats);
     return result;
 }
 
 JNIEXPORT jint JNICALL
 Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioBuffer(JNIEnv* env, jclass clazz, jlong handle, jint frames) {
     AudioOutput* output = (AudioOutput*)(intptr_t)handle;
-    int actual = output->AAudioStream_setBufferSizeInFrames(output->stream, frames);
-    if (actual > 0) atomic_store(&output->queue.targetFrames,
-            (unsigned int)actual < output->queue.capacity ? (unsigned int)actual : output->queue.capacity);
-    return actual;
+    output->AAudioStream_setBufferSizeInFrames(output->stream, frames);
+    // Hardware capacity bounds the device queue, not the reserve for network jitter.
+    uint32_t target = (uint32_t)frames < output->queue.capacity ? (uint32_t)frames : output->queue.capacity;
+    atomic_store(&output->queue.targetFrames, target);
+    return (jint)target;
 }
 
 JNIEXPORT void JNICALL

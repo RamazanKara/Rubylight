@@ -48,4 +48,28 @@ public class AudioBufferPolicyTest {
         assertFalse(AudioBufferPolicy.useAAudio(36, 2, true, 48000, 48000));
         assertFalse(AudioBufferPolicy.useAAudio(36, 2, false, 48000, 44100));
     }
+
+    @Test public void repeatedStarvationAtTheLimitRequestsFallback() {
+        AudioBufferPolicy policy = new AudioBufferPolicy(192, 576, 384, 0, 0);
+        assertEquals(576, policy.sample(1, 1000));
+        assertFalse(policy.needsFallback());
+        for (int i = 2; i <= 4; i++) {
+            policy.sample(i * 10, i * 5000L);
+            assertEquals(i == 4, policy.needsFallback());
+        }
+    }
+
+    @Test public void cleanPlaybackAndInvalidCountersClearTheFallbackHistory() {
+        AudioBufferPolicy policy = new AudioBufferPolicy(192, 384, 384, 0, 0);
+        policy.sample(20, 1000);
+        assertFalse("A burst of underruns is one observation", policy.needsFallback());
+        policy.sample(21, 2000);
+        policy.sample(21, 32000);
+        policy.sample(22, 33000);
+        assertFalse(policy.needsFallback());
+        policy.sample(-1, 34000);
+        policy.sample(0, 35000);
+        policy.sample(1, 36000);
+        assertFalse(policy.needsFallback());
+    }
 }

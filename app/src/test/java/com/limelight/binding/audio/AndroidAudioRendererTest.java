@@ -42,6 +42,7 @@ public class AndroidAudioRendererTest {
         private int nextResult;
         private boolean recreationSucceeds = true;
         private int recreations;
+        private String fallbackReason;
         private long now = 1000;
         private final List<Integer> offsets = new ArrayList<>();
         private final List<Integer> lengths = new ArrayList<>();
@@ -67,6 +68,13 @@ public class AndroidAudioRendererTest {
             return recreationSucceeds;
         }
 
+        @Override boolean fallbackToAudioTrack(String reason) {
+            fallbackReason = reason;
+            ReflectionHelpers.setField(this, "nativeAudio", 0L);
+            ReflectionHelpers.setField(this, "bufferPolicy", null);
+            return true;
+        }
+
         @Override long uptimeMillis() {
             return now;
         }
@@ -82,6 +90,18 @@ public class AndroidAudioRendererTest {
         assertEquals(List.of(0, 2, 3), renderer.offsets);
         assertEquals(List.of(6, 4, 3), renderer.lengths);
         assertEquals(0, renderer.recreations);
+    }
+
+    @Test public void persistentNativeUnderrunsSwitchOutputBeforeWritingTheNextPacket() {
+        ScriptedRenderer renderer = new ScriptedRenderer(6);
+        AudioBufferPolicy policy = new AudioBufferPolicy(192, 384, 384, 0, 0);
+        for (int i = 1; i <= 3; i++) policy.sample(i, i * 1000L);
+        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
+        ReflectionHelpers.setField(renderer, "bufferPolicy", policy);
+        renderer.play();
+        assertEquals("AAudio keeps underrunning at its maximum reserve", renderer.fallbackReason);
+        assertEquals(List.of(0), renderer.offsets);
+        assertEquals(List.of(6), renderer.lengths);
     }
 
     @Test public void deadTrackIsRecreatedWithoutReplayingAcceptedSamples() {

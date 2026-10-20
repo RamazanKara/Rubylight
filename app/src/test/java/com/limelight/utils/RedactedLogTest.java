@@ -6,6 +6,14 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class RedactedLogTest {
+    @Test public void audioBackendSelectionSurvivesReportFiltering() {
+        RedactedLog log = new RedactedLog();
+        log.add("INFO", "Audio output: AAudio low latency");
+        log.add("INFO", "Audio track configuration: 1920 false");
+        for (int i = 0; i < 500; i++) log.add("INFO", "Too much pending audio data: 45 ms");
+        assertEquals("INFO Audio output: AAudio low latency\nINFO Audio track configuration: 1920 false", log.snapshot());
+    }
+
     @Test
     public void displayRefreshDiagnosticsRemainInTheSharedReport() {
         RedactedLog log = new RedactedLog();

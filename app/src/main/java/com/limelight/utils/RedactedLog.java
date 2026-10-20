@@ -46,7 +46,7 @@ public final class RedactedLog {
             "Stream request", "Connection terminated", "Selected ", "Decoder", "Reconfigure", "Stream now",
             "Display luminance", "Display modes changed", "Display refresh policy:", "Microphone", "PC stream profiles", "Present mode",
             "PyroWave", "Phase lock", "Low latency", "Automatic codec",
-            "DualSense USB ", "USB controller announcement "};
+            "DualSense USB ", "USB controller announcement ", "Audio output:", "Audio track configuration:"};
 
     /** A PC name or address to keep out of problem reports. */
     public static void addSecret(String secret) {

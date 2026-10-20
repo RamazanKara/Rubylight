@@ -5,6 +5,7 @@
 
 typedef uint8_t jboolean;
 typedef int8_t jbyte;
+typedef int16_t jshort;
 typedef int32_t jint;
 typedef int64_t jlong;
 typedef float jfloat;
@@ -14,9 +15,12 @@ typedef jobject jclass;
 typedef jobject jstring;
 typedef jobject jarray;
 typedef jarray jbyteArray;
+typedef jarray jshortArray;
+typedef jarray jintArray;
 
 #define JNI_FALSE 0
 #define JNI_TRUE 1
+#define JNI_ABORT 2
 #define JNIEXPORT
 #define JNICALL
 
@@ -27,6 +31,10 @@ struct JNINativeInterface {
     jsize (*GetArrayLength)(JNIEnv* env, jarray array);
     void (*GetByteArrayRegion)(JNIEnv* env, jbyteArray array, jsize start, jsize length, jbyte* buffer);
     jboolean (*ExceptionCheck)(JNIEnv* env);
+    jshort* (*GetShortArrayElements)(JNIEnv* env, jshortArray array, jboolean* copy);
+    void (*ReleaseShortArrayElements)(JNIEnv* env, jshortArray array, jshort* elements, jint mode);
+    jintArray (*NewIntArray)(JNIEnv* env, jsize length);
+    void (*SetIntArrayRegion)(JNIEnv* env, jintArray array, jsize start, jsize length, const jint* buffer);
 };
 
 typedef struct {

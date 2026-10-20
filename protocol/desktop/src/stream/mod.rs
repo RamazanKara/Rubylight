@@ -795,9 +795,24 @@ impl Streaming {
                 ),
             ));
         }
-        if now.4 > last.4 {
-            lines.push(("Audio".into(), format!("{} packets dropped to stay in sync", now.4 - last.4)));
+        let channels = c.audio_channels.load(Ordering::Relaxed);
+        let mut audio = match channels {
+            0 => "no output device".to_owned(),
+            2 => "stereo".to_owned(),
+            6 => "5.1".to_owned(),
+            8 => "7.1".to_owned(),
+            n => format!("{n} channels"),
+        };
+        if channels > 0 {
+            audio.push_str(&format!(
+                ", {:.0} ms buffered",
+                c.audio_queued_us.load(Ordering::Relaxed) as f64 / 1000.0
+            ));
         }
+        if now.4 > last.4 {
+            audio.push_str(&format!(", {} packets dropped to stay in sync", now.4 - last.4));
+        }
+        lines.push(("Audio".into(), audio));
         self.overlay = Overlay { lines };
         self.window.started = Some(Instant::now());
         true

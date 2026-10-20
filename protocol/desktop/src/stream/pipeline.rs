@@ -53,6 +53,10 @@ pub struct Counters {
     pub replaced: AtomicU64,
     pub decode_us_total: AtomicU64,
     pub audio_dropped: AtomicU64,
+    /// Audio waiting in SDL's stream at the last packet, in microseconds.
+    pub audio_queued_us: AtomicU64,
+    /// Output channels, 0 without an audio device.
+    pub audio_channels: AtomicU64,
 }
 
 pub struct Shared {
@@ -243,6 +247,10 @@ impl AudioRenderer for Audio {
             }
             SDL_ResumeAudioStreamDevice(self.stream);
         }
+        self.shared
+            .counters
+            .audio_channels
+            .store(u64::from(opus.channel_count), Ordering::Relaxed);
         // 40 ms: enough to ride out scheduling jitter, short enough to stay in sync.
         let bytes_per_ms = 48 * 4 * i32::from(opus.channel_count);
         self.max_queued = bytes_per_ms * (40 + setup.packet_duration_ms as i32);
@@ -260,7 +268,13 @@ impl AudioRenderer for Audio {
         let bytes = samples as usize * decoder.channels * 4;
         // SAFETY: the stream is open; pcm holds `bytes` bytes.
         unsafe {
-            if SDL_GetAudioStreamQueued(self.stream) > self.max_queued {
+            let queued = SDL_GetAudioStreamQueued(self.stream);
+            let bytes_per_us = 48.0 * 4.0 * decoder.channels as f64 / 1000.0;
+            self.shared
+                .counters
+                .audio_queued_us
+                .store((f64::from(queued.max(0)) / bytes_per_us) as u64, Ordering::Relaxed);
+            if queued > self.max_queued {
                 self.shared.counters.audio_dropped.fetch_add(1, Ordering::Relaxed);
                 return;
             }

@@ -59,6 +59,7 @@ extern "C" {
         width: c_int,
         height: c_int,
     ) -> c_int;
+    #[cfg(windows)]
     fn nj_swapchain_allows_tearing(swapchain: *mut c_void) -> c_int;
     fn nj_opus_open(
         rate: c_int,
@@ -212,6 +213,7 @@ impl Drop for Frame {
     }
 }
 
+#[cfg(windows)]
 pub fn swapchain_allows_tearing(swapchain: *mut c_void) -> bool {
     // SAFETY: a DXGI swap chain from SDL's renderer properties, or null.
     unsafe { nj_swapchain_allows_tearing(swapchain) != 0 }

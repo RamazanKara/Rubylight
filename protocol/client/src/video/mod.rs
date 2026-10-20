@@ -34,6 +34,15 @@ pub const MAX_RTP_HEADER_SIZE: usize = 16;
 /// `ENC_VIDEO_HEADER`: IV, frame number and GCM tag before each encrypted packet.
 pub const ENC_VIDEO_HEADER_SIZE: usize = 32;
 
+/// The video socket's receive buffer size: 2048 packets, or about 60 ms at the stream's
+/// bitrate when that is more, capped at 64 MiB (Nightjar's `videoRecvBufferSize`). The OS
+/// may grant less.
+pub fn recv_buffer_size(bitrate_kbps: u32, packet_size: usize) -> usize {
+    let packets = 2048 * (packet_size + MAX_RTP_HEADER_SIZE) as u64;
+    let burst = u64::from(bitrate_kbps) * 1000 / 8 * 60 / 1000;
+    packets.max(burst).min(64 * 1024 * 1024) as usize
+}
+
 /// Session parameters the receiver needs, as negotiated over RTSP.
 #[derive(Clone, Debug)]
 pub struct VideoConfig {

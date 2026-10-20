@@ -233,6 +233,13 @@ fn pyrowave_records_build_an_envelope() {
 }
 
 #[test]
+fn receive_buffer_size() {
+    assert_eq!(recv_buffer_size(20_000, 1392), 2048 * 1408);
+    assert_eq!(recv_buffer_size(2_000_000, 1392), 15_000_000);
+    assert_eq!(recv_buffer_size(u32::MAX, 1392), 64 * 1024 * 1024);
+}
+
+#[test]
 fn fec_status_wire_format() {
     let status = FecStatus {
         frame_index: 0x01020304,

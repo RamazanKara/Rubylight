@@ -126,6 +126,10 @@ impl Depacketizer {
         }
     }
 
+    pub(super) fn reserve(&mut self, bytes: usize) {
+        self.data.reserve(bytes);
+    }
+
     pub(super) fn idr_frame_processed(&mut self) {
         self.idr_frame_processed = true;
     }

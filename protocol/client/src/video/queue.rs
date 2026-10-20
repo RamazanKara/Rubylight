@@ -314,6 +314,8 @@ impl RtpQueue {
         depacketizer: &mut Depacketizer,
         io: &mut Io<S>,
     ) {
+        // Room for the whole frame up front (records add 8 bytes per packet).
+        depacketizer.reserve(self.completed.len() * (self.packet_size + 8) + 4);
         for packet in self.completed.drain(..) {
             depacketizer.queue_rtp_packet(packet, io);
         }

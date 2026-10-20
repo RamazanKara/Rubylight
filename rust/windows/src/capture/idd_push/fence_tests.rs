@@ -277,6 +277,72 @@ fn claim_image(
 }
 
 #[test]
+#[ignore = "requires native AMD D3D11/D3D12 and the PyroWave runtime; does not install a driver"]
+fn pyrowave_encoding_returns_keyed_capture_slots() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    assert!(crate::compute::copies_on(&gpu.device));
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    let layout = Layout {
+        kind: Kind::KeyedMutex,
+        slot_count: 4,
+        width: 64,
+        height: 64,
+        format: crate::compute::format(Pixel::Bgra8).0 as u32,
+        generation: 1,
+    };
+    let ring = Ring::keyed(&gpu, layout)?;
+    let mut returns = crate::compute::Returns::new(compute, &gpu)?;
+    for slot in &ring.slots {
+        returns.import(&slot.texture, HANDLE(slot.shared.as_raw_handle()))?;
+    }
+    let lender = Arc::new(Mutex::new(returns));
+    let mut driver = FakeDriver::open(&ring)?;
+    let source = GpuImage::upload(
+        &driver.gpu,
+        &pixels(layout.width, layout.height, Pixel::Bgra8, 80),
+    )?;
+    let mut consumer = Consumer::new(1, layout.slot_count);
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: layout.width,
+        height: layout.height,
+        fps: 144,
+        codec: 3,
+        bitrate_kbps: 100_000,
+        ..Default::default()
+    };
+    let warnings = Arc::new(butterpollo_core::session::Warnings::default());
+    let mut encoder = crate::pyrowave::Encoder::new_device_reported(
+        &config,
+        gpu.clone(),
+        &Default::default(),
+        warnings.clone(),
+    )?;
+    for frame in 1..=16 {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while driver
+            .push(&ring.section.header(), &source.texture)?
+            .is_none()
+        {
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "all four capture slots remain held before frame {frame}"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let image = claim_image(&gpu, &ring, &mut consumer, Some(&lender))?;
+        assert!(image.cursor.is_none());
+        encoder.restart_interval();
+        assert_eq!(
+            encoder.encode_gpu(&image, true, config.bitrate_kbps)?.len(),
+            1
+        );
+        assert!(warnings.snapshot().is_empty());
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires native D3D11/D3D12 shared textures; does not install a driver"]
 fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<()> {
     let _com = ComGuard::new()?;

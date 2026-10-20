@@ -1773,6 +1773,7 @@ impl Converter {
         image: Option<&crate::capture::GpuImage>,
     ) -> Result<()> {
         self.compute.ensure_active()?;
+        self.release_completed();
         validate_colour_input(&self.values)?;
         let (root, planar) = match &self.planar {
             Some(planar) => planar.clone(),

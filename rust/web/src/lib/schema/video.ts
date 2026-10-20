@@ -175,6 +175,16 @@ const video: Setting[] = [
     advanced: true,
   },
   {
+    key: 'experimental_packed_444',
+    label: 'Experimental full chroma',
+    description: 'Allow compatible Nightjar clients to request full-resolution color through HEVC or AV1 on AMD. Requires the client option and a host restart.',
+    category: 'video',
+    group: 'Codecs',
+    control: { kind: 'toggle' },
+    default: false,
+    advanced: true,
+  },
+  {
     key: 'hevc_mode',
     label: 'HEVC support',
     description:

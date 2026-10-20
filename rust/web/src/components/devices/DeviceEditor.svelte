@@ -248,6 +248,19 @@
   </section>
 
   <section>
+    <h3>Play in the background</h3>
+    <Toggle
+      label="Stream in the background"
+      hint="Lets this device play while someone keeps using the PC. Its games open on a virtual display away from your monitors, take no focus and stream only their own sound. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
+      bind:checked={draft.background_stream}
+    />
+    <p class="note">
+      The PC keeps the real focus; Rubylight tells the game it is active so it keeps its sound and frame rate. Games
+      that check focus directly, exclusive fullscreen and Steam Input do not work this way.
+    </p>
+  </section>
+
+  <section>
     <h3>HDR</h3>
     <div class="form-grid">
       <Field

@@ -15,6 +15,7 @@ Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play 
 | Choose a codec, enable HDR or try PyroWave | [Choose your stream format](getting-started.md#choose-your-stream-format) · [Capture and video settings](configuration.md#capture-and-video) |
 | Let the host adjust bitrate after video packet loss | [Host bitrate adaptation](configuration.md#host-bitrate-adaptation): optional, experimental, and separate from client bitrate control. |
 | Stream the game's sound without other applications | [Game-only audio](configuration.md#game-only-audio): supported Windows versions, verified launches and silence on capture failure. |
+| Let a device play while someone keeps using the PC | [Background streaming](configuration.md#background-streaming): an isolated display, controllers only, and which games work unfocused. |
 | Give each device its own display or cap a game's frame rate | [Displays and RTSS](configuration.md#displays-and-rtss) · [Settings for one app or device](configuration.md#settings-for-one-app-or-device) |
 | Set up a controller or use my client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
 | Launch Steam games from Steam Deck with MoonDeck | [MoonDeck setup](configuration.md#moondeck) |

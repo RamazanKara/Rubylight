@@ -217,6 +217,7 @@ pub const APP: &[Setting] = settings! {
         "terminate-on-pause", "Close the app when the last device disconnects", Bool;
         "allow-client-commands", "Allow per-device connection commands", Bool;
         "exclude-global-state-cmd", "Exclude global pause and resume commands", Bool;
+        "background-stream", "Stream in the background (isolated display, controllers only)", Bool;
         "state-cmd", "App resume and pause commands", Json;
         "output", "App log path (null discards output)", Text;
         "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","vhf_switch"]);
@@ -242,6 +243,7 @@ pub const CLIENT: &[Setting] = settings! {
     "Device preferences" => [
         "output_name_override", "Display override", Text;
         "always_use_virtual_display", "Always use a virtual display", Bool;
+        "background_stream", "Stream in the background (isolated display, controllers only)", Bool;
         "virtual_display_mode", "Virtual display mode", Choice(&["disabled","per_client","shared"]);
         "virtual_display_layout", "Virtual display layout", Choice(&["exclusive","extended","extended_primary","extended_isolated","extended_primary_isolated"]);
         "prefer_10bit_sdr", "Prefer 10-bit SDR", Bool;

@@ -36,6 +36,7 @@ export const FLAGS = {
   'frame-gen-limiter-fix': false,
   'lossless-scaling-enabled': false,
   'lossless-scaling-legacy-auto-detect': false,
+  'background-stream': false,
 } as const;
 export type FlagKey = keyof typeof FLAGS;
 

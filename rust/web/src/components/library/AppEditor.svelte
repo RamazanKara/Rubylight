@@ -303,6 +303,11 @@
           'Skip the global pause and resume commands',
           'The ones set in Settings.',
         )}
+        {@render flag(
+          'background-stream',
+          'Stream in the background',
+          'Plays on an isolated virtual display while someone uses the PC: no focus, game sound only, controllers only. Devices can turn this on for every app under Devices.',
+        )}
       </div>
       <div class="form-grid behaviour-numbers">
         <Field

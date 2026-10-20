@@ -265,10 +265,28 @@ impl RunningApp {
     /// particular, never capture Steam/Playnite itself or an arbitrary foreground
     /// window when its game process has not been identified.
     pub fn audio_process(&self) -> Result<butterpollo_windows::process::AudioProcess> {
+        let (owned, processes) = self.game_processes()?;
+        butterpollo_windows::process::AudioProcess::open(butterpollo_core::audio_scope::root(
+            &owned, &processes,
+        )?)
+    }
+    /// The processes whose windows a background stream keeps on its display,
+    /// identified as for game-only audio.
+    pub fn window_processes(&self) -> Result<std::collections::BTreeSet<u32>> {
+        let (owned, processes) = self.game_processes()?;
+        Ok(butterpollo_core::background::window_owners(
+            &owned, &processes,
+        ))
+    }
+    /// The verified game processes (pid → creation time) and this session's
+    /// process list.
+    fn game_processes(
+        &self,
+    ) -> Result<(BTreeMap<u32, u64>, Vec<butterpollo_core::steam::Process>)> {
         let session = butterpollo_windows::process::current_session()?;
         let mut processes = butterpollo_windows::process::processes()?;
         // A launcher may report the same executable in several signed-in
-        // sessions. Audio ownership never crosses this host's user session.
+        // sessions. Game ownership never crosses this host's user session.
         processes
             .retain(|p| butterpollo_windows::process::process_session(p.pid).ok() == Some(session));
         let owned = if let Some(tracker) = &self.steam {
@@ -276,16 +294,14 @@ impl RunningApp {
         } else if let Some(playnite) = &self.playnite {
             playnite.audio_processes(&processes)?
         } else {
-            let ids = self.child.as_ref().context("this app has no owned game process; game-only audio is unavailable for Desktop or detached commands")?.process_ids()?;
+            let ids = self.child.as_ref().context("this app has no owned game process; game-only audio and background streaming are unavailable for Desktop or detached commands")?.process_ids()?;
             processes
                 .iter()
                 .filter(|p| ids.contains(&p.pid))
                 .map(|p| (p.pid, p.started))
                 .collect()
         };
-        butterpollo_windows::process::AudioProcess::open(butterpollo_core::audio_scope::root(
-            &owned, &processes,
-        )?)
+        Ok((owned, processes))
     }
     pub fn with_environment(app: &App, environment: BTreeMap<String, String>) -> Result<Self> {
         let mut running = Self {
@@ -776,6 +792,9 @@ fn runs_commands(h: &crate::state::Shared, app: &App) -> bool {
         || (!app_bool(app, "exclude-global-prep-cmd", false)
             && h.config.read().unwrap().get("global_prep_cmd", "[]").trim() != "[]")
 }
+/// The launch argument the host sets for a background stream's app; see
+/// [`butterpollo_core::background`].
+pub const BACKGROUND_ARG: &str = "rubylightBackgroundStream";
 pub fn launch(
     h: &crate::state::Shared,
     app: &App,
@@ -856,6 +875,12 @@ fn launch_with_environment(
             return Ok(running);
         }
     };
+    let background = args.get(BACKGROUND_ARG).is_some_and(|v| v == "1");
+    if background {
+        for (key, value) in butterpollo_core::background::ENVIRONMENT {
+            environment.insert(key.into(), value.into());
+        }
+    }
     let mut app = app.clone();
     let document = h.app_document.read().unwrap();
     if let Some(values) = document.get("env").and_then(serde_json::Value::as_object) {
@@ -1050,7 +1075,9 @@ fn launch_with_environment(
         .map(str::to_owned);
     let fullscreen = app.cmd.trim().is_empty() && playnite_fullscreen(&app);
     let config = h.config.read().unwrap().clone();
-    let lossless = if fullscreen {
+    // Lossless Scaling scales the focused window; it would pull the game in
+    // front of the person using the PC.
+    let lossless = if fullscreen || background {
         None
     } else {
         let fps = mode
@@ -1075,6 +1102,7 @@ fn launch_with_environment(
                 playnite_id.as_deref()
             },
             &running.environment,
+            background,
         )?);
     }
     running.playnite_fullscreen = fullscreen;

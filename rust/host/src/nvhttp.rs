@@ -1666,8 +1666,10 @@ fn prepare_launch_app(
     if let Some(fixture) = &h.reconnect_fixture {
         return fixture.prepare_app(h, app, launch);
     }
+    let mut background = false;
     if launch.role != Role::InputOnly {
         let config = crate::stream::effective_config(h, launch)?;
+        background = butterpollo_core::background::enabled(&config);
         if config.boolean("stream_audio", true)
             && config.get("audio_capture_mode", "system") == "system"
             && !(launch.role == Role::RemoteMonitor
@@ -1706,6 +1708,11 @@ fn prepare_launch_app(
         let mut process_args = args.clone();
         process_args.insert("clientName".into(), launch.client.name.clone());
         process_args.insert("clientUuid".into(), launch.client.uuid.clone());
+        // The host decides this, never the client's launch query.
+        process_args.remove(crate::process::BACKGROUND_ARG);
+        if background {
+            process_args.insert(crate::process::BACKGROUND_ARG.into(), "1".into());
+        }
         match crate::process::launch(h, app.context("application not found")?, &process_args) {
             Ok(running) => return Ok(Some(running)),
             Err(e) => {
@@ -1912,15 +1919,26 @@ fn clipboard_client(h: &Shared, c: &Connection, permission: u32, args: &Args) ->
     if args.get("type").is_none_or(|v| v != "text") {
         bail!("only text clipboard data is supported");
     }
-    if !h
+    let sessions: Vec<_> = h
         .sessions
         .lock()
         .unwrap()
         .active
         .values()
-        .any(|s| s.launch.client.uuid == client.uuid && !s.stopping())
-    {
+        .filter(|s| s.launch.client.uuid == client.uuid && !s.stopping())
+        .cloned()
+        .collect();
+    if sessions.is_empty() {
         bail!("clipboard access requires an active session");
+    }
+    // The clipboard belongs to the person using the PC, not to a device
+    // playing in the background.
+    if sessions.iter().any(|s| {
+        crate::stream::effective_config(h, &s.launch).map_or(true, |config| {
+            butterpollo_core::background::enabled(&config)
+        })
+    }) {
+        bail!("clipboard access is off for background streams");
     }
     Ok(())
 }

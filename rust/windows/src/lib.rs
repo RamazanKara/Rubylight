@@ -59,6 +59,7 @@ mod text;
 pub mod timing;
 pub mod tray;
 pub mod vulkan;
+pub mod window_placement;
 
 // Bindgen emits these unsafe blocks; the restriction lint is not covered by clippy::all.
 #[allow(

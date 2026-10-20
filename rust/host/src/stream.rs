@@ -1,5 +1,6 @@
 use crate::state::{Launch, Session, Shared};
 use butterpollo_core::{controller_audio, haptics};
+mod background;
 mod capture;
 mod device_recovery;
 #[cfg(test)]
@@ -428,6 +429,16 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
             Ok(None) => tracing::debug!(%selection, "HDR calibration has no MHC2 peak"),
             Err(error) => tracing::debug!(%error, %selection, "HDR calibration peak unavailable"),
         }
+    }
+    // Last, so no override hands the device's keyboard and mouse back to the
+    // desktop the person at the PC is using.
+    if launch.role == Role::Stream
+        && butterpollo_core::background::requested(
+            &launch.client.extra,
+            app.as_ref().map(|app| &app.extra),
+        )
+    {
+        butterpollo_core::background::apply(&mut config);
     }
     Ok(config)
 }
@@ -1467,6 +1478,15 @@ impl Media {
                     // that a store client started outside the app's processes.
                     let mut quit_scan: Option<butterpollo_windows::foreground::Tracker> = None;
                     let mut quit_scan_due = Instant::now() + Duration::from_secs(1);
+                    let _background_windows = if s.launch.role == Role::Stream
+                        && butterpollo_core::background::enabled(&c)
+                    {
+                        background::GameWindows::start(h.clone(), s.clone())
+                            .inspect_err(|error| tracing::warn!(%error, "background stream window placement unavailable"))
+                            .ok()
+                    } else {
+                        None
+                    };
                     let mut metadata_due = Instant::now() + Duration::from_secs(1);
                     // A keyframe a while after an AMF reference-invalidation recovery.
                     let mut confirm_keyframe: Option<Instant> = None;
@@ -3812,6 +3832,50 @@ mod tests {
             f.host.apps.read().unwrap()[0].extra["config-overrides"]["port"],
             51000
         );
+    }
+    #[test]
+    fn a_background_stream_keeps_keyboard_and_mouse_off_whatever_overrides_say() {
+        use crate::state::test_support::Fixture;
+        use serde_json::json;
+        let f = Fixture::new();
+        let mut client = f.client(u32::MAX);
+        client.extra.insert(
+            "config_overrides".into(),
+            json!({"keyboard":true,"mouse":true,"audio_capture_mode":"system"}),
+        );
+        let plain = effective_config(&f.host, &f.launch(client.clone(), Role::Stream)).unwrap();
+        assert!(!butterpollo_core::background::enabled(&plain));
+        assert!(plain.boolean("keyboard", false));
+        // From the app.
+        f.host.apps.write().unwrap()[0]
+            .extra
+            .insert("background-stream".into(), json!(true));
+        let launch = f.launch(client.clone(), Role::Stream);
+        let app = effective_config(&f.host, &launch).unwrap();
+        assert!(butterpollo_core::background::enabled(&app));
+        assert!(!app.boolean("keyboard", true));
+        assert!(!app.boolean("mouse", true));
+        assert_eq!(app.get("audio_capture_mode", ""), "game");
+        assert_eq!(
+            crate::display_session::virtual_display_layout(
+                &app,
+                &launch.client,
+                None,
+                Some(butterpollo_core::display_policy::HostDisplay::Virtual(
+                    butterpollo_core::display_policy::Arrangement::Exclusive
+                )),
+            ),
+            "extended_isolated"
+        );
+        // From the device, for every app; only streams take it.
+        f.host.apps.write().unwrap()[0]
+            .extra
+            .remove("background-stream");
+        client.extra.insert("background_stream".into(), json!(true));
+        let device = effective_config(&f.host, &f.launch(client.clone(), Role::Stream)).unwrap();
+        assert!(butterpollo_core::background::enabled(&device));
+        let input = effective_config(&f.host, &f.launch(client, Role::InputOnly)).unwrap();
+        assert!(!butterpollo_core::background::enabled(&input));
     }
     #[test]
     fn capture_waits_for_its_display_and_shows_the_primary_only_after_the_timeout() {

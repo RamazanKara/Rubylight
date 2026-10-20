@@ -772,11 +772,13 @@ pub struct Launch {
 }
 impl Launch {
     /// Start a game, or the fullscreen menu without an id, with the
-    /// stream's environment.
+    /// stream's environment. A background stream's game is never brought to
+    /// the front.
     pub fn start(
         h: &Shared,
         id: Option<&str>,
         environment: &BTreeMap<String, String>,
+        background: bool,
     ) -> Result<Self> {
         let fullscreen = id.is_none();
         let id = id
@@ -790,7 +792,10 @@ impl Launch {
             .context("Playnite launch failed: no Desktop or Fullscreen executable found; open Playnite once or repair its installation")?;
         tracing::info!(id, fullscreen, executable = %program.display(), running = butterpollo_windows::playnite::running().is_some(), "Playnite launch prepared");
         let plugin_ready = update_plugin(h);
-        let settings = Settings::from_config(&h.config.read().unwrap());
+        let mut settings = Settings::from_config(&h.config.read().unwrap());
+        if background {
+            settings.focus_attempts = 0;
+        }
         let baseline = butterpollo_windows::playnite::session_processes().unwrap_or_default();
         let state = Arc::new(Mutex::new(LaunchState {
             fullscreen,

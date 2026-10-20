@@ -88,6 +88,7 @@ export interface Draft {
   /** WIDTHxHEIGHTxREFRESH, empty for the mode the device asks for. */
   display_mode: string;
   always_use_virtual_display: boolean;
+  background_stream: boolean;
   virtual_display_mode: string;
   virtual_display_layout: string;
   prefer_10bit_sdr: '' | 'on' | 'off';
@@ -147,6 +148,7 @@ export function toDraft(client: Client): Draft {
     output_name_override: text(client.output_name_override),
     display_mode: text(client.display_mode),
     always_use_virtual_display: flag(client.always_use_virtual_display) === true,
+    background_stream: flag(client.background_stream) === true,
     virtual_display_mode: choice(client.virtual_display_mode, VIRTUAL_DISPLAY_MODES),
     virtual_display_layout: choice(client.virtual_display_layout, VIRTUAL_DISPLAY_LAYOUTS),
     prefer_10bit_sdr: sdr === null ? '' : sdr ? 'on' : 'off',
@@ -173,6 +175,7 @@ function serialise(draft: Draft): Changes {
     output_name_override: draft.output_name_override || null,
     display_mode: draft.display_mode.trim() || null,
     always_use_virtual_display: draft.always_use_virtual_display,
+    background_stream: draft.background_stream,
     virtual_display_mode: draft.virtual_display_mode || null,
     virtual_display_layout: draft.virtual_display_layout || null,
     prefer_10bit_sdr: draft.prefer_10bit_sdr === '' ? null : draft.prefer_10bit_sdr === 'on',

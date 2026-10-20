@@ -206,6 +206,54 @@ Choose a direct executable entry or explicitly select System audio to resolve
 those cases. Arbitrary multi-application selection and separate volume mixing
 are not implemented in this first game-only mode.
 
+## Background streaming
+
+Background streaming lets a device play while someone keeps using the PC, for
+example a child gaming on a tablet while a parent works at the desk
+([#43](https://github.com/RamazanKara/Rubylight/issues/43)). Turn on
+**Devices → (device) → Play in the background** for every stream of that
+device (`background_stream`), or **Library → (app) → Behavior → Stream in the
+background** for one app (`background-stream`). Either one is enough; it applies
+from the next launch.
+
+A background stream:
+
+- **Uses its own virtual display, isolated from the PC's monitors.** The
+  layout is always `extended_isolated` whatever the host, device, app or
+  client asks for: the PC's monitors and primary display stay as they are, and
+  the local mouse cannot reach the stream's display. If the virtual display is
+  unavailable the launch fails rather than stream the PC's own monitor.
+- **Moves the game's windows onto that display without activating them.**
+  Rubylight checks once a second and places windows of the launched game's
+  process tree there: a borderless or maximized window fills the display, any
+  other keeps its size. A window that keeps moving itself back is left alone
+  after five attempts, with a warning on the stream card.
+- **Accepts only controllers from the device.** Its keyboard, mouse, touch and
+  pen would type and click into whatever the PC user has focused, so they are
+  off, as is the clipboard. The virtual controllers work as usual.
+- **Streams only the game's sound** ([Game-only audio](#game-only-audio)), so the
+  PC user's calls and music stay private. The game is still audible on the
+  PC's speakers unless you route it to another playback device.
+- **Never takes focus for the game, but tells the game it has it.** Windows
+  has one keyboard focus per session and it stays with the PC user. Once a
+  second Rubylight sends the game's main window the messages Windows sends an
+  activated window, so games that mute or slow down while inactive keep
+  their sound and frame rate. Total War: Warhammer III, for example, goes
+  silent in the background and plays sound again this way. A cursor clip the
+  game then sets on the stream's display is released, so the PC's mouse is
+  never trapped there. Windows' background throttling (EcoQoS, coarse timers)
+  is turned off for the game's processes. Playnite launch focus and Lossless
+  Scaling are skipped, and launched programs get
+  `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1` so SDL games read controllers
+  without focus.
+
+Games that ask Windows directly which window is in front are not fooled by
+the messages, and neither are games using exclusive fullscreen or Steam
+Input (which only feeds the focused game). Choose windowed or borderless mode
+in the game. Window placement needs a launch Rubylight can identify, as for
+game-only audio: a direct executable, a Steam game or a Playnite game. The
+Desktop entry and detached commands only get the isolated display.
+
 ## Displays and RTSS
 
 Under **Settings → Display**, select a physical display or choose a virtual display per device/shared by all devices. **Exclusive** switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.

@@ -281,6 +281,7 @@ export interface Client {
   output_name_override?: string | null;
   display_mode?: string | null;
   always_use_virtual_display?: boolean | string | null;
+  background_stream?: boolean | string | null;
   virtual_display_mode?: string | null;
   virtual_display_layout?: string | null;
   prefer_10bit_sdr?: boolean | string | null;

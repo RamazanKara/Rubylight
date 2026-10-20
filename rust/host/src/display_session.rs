@@ -55,19 +55,43 @@ pub(crate) fn virtual_display_layout<'a>(
     app: Option<&'a butterpollo_core::state::App>,
     requested: Option<HostDisplay>,
 ) -> &'a str {
+    // A background stream must not move the PC's windows or let its mouse
+    // wander onto the device's display, whatever the device asks for.
+    if butterpollo_core::background::enabled(config) {
+        return butterpollo_core::background::LAYOUT;
+    }
     if let Some(HostDisplay::Virtual(arrangement)) = requested {
         return arrangement.name();
     }
+    let inherited = inherited_layout(config, app);
     client
         .extra
         .get("virtual_display_layout")
         .and_then(serde_json::Value::as_str)
         .filter(|s| !s.is_empty() && *s != "global")
-        .or_else(|| {
-            app.and_then(|app| app.extra.get("virtual-display-layout"))
+        // A layout learned at the end of a stream stands in for the app or host
+        // layout it replaced, until that layout changes (issue #40).
+        .filter(|_| {
+            client
+                .extra
+                .get(LEARNED_OVER)
                 .and_then(serde_json::Value::as_str)
-                .filter(|s| !s.is_empty() && *s != "global")
+                .is_none_or(|over| over == inherited)
         })
+        .unwrap_or(inherited)
+}
+
+/// The device setting naming the app or host layout a learned device layout replaced.
+pub(crate) const LEARNED_OVER: &str = "virtual_display_layout_learned_over";
+
+/// The virtual display layout without the device's own: the app's, then the host's.
+fn inherited_layout<'a>(
+    config: &'a Config,
+    app: Option<&'a butterpollo_core::state::App>,
+) -> &'a str {
+    app.and_then(|app| app.extra.get("virtual-display-layout"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty() && *s != "global")
         .or_else(|| {
             app.filter(|app| crate::process::app_bool(app, "virtual-display-primary", false))
                 .map(|_| "extended_primary")
@@ -463,6 +487,8 @@ pub struct Prepared {
     /// during the stream: a stream on its own virtual display whose client did
     /// not choose the layout itself.
     layout_owner: Option<String>,
+    /// The app or host layout a layout learned for the device replaces.
+    inherited_layout: Option<String>,
     /// A topology fixture keeps lifecycle tests independent of the real desktop.
     #[cfg(test)]
     layout_snapshot: Option<Vec<(String, bool)>>,
@@ -746,15 +772,19 @@ impl Prepared {
             .get("virtualDisplay")
             .map(|value| value != "0");
         let client_display = client_display(launch);
+        let background = butterpollo_core::background::enabled(config);
         let mut display_request = butterpollo_core::display_policy::VirtualDisplayRequest {
             client_requested: client_virtual == Some(true)
                 || matches!(client_display, Some(HostDisplay::Virtual(_))),
-            client_physical: client_display == Some(HostDisplay::Physical),
-            client_forced: launch
-                .client
-                .extra
-                .get("always_use_virtual_display")
-                .is_some_and(|v| v == true || v == "true"),
+            // Streaming the PC's own monitor would show the device whatever
+            // the person at the PC is doing.
+            client_physical: client_display == Some(HostDisplay::Physical) && !background,
+            client_forced: background
+                || launch
+                    .client
+                    .extra
+                    .get("always_use_virtual_display")
+                    .is_some_and(|v| v == true || v == "true"),
             app_requested: app.as_ref().is_some_and(|a| {
                 crate::process::app_bool(a, "virtual-display", false)
                     || crate::process::app_bool(a, "virtual-screen", false)
@@ -777,6 +807,16 @@ impl Prepared {
             physical_only,
             butterpollo_windows::display::ensure_virtual_display_available,
         );
+        if background && !virtual_mode && launch.role == Role::Stream {
+            anyhow::bail!(
+                "background streaming needs Rubylight's virtual display, which is unavailable{}; it never streams the PC's own monitor",
+                if physical_only {
+                    " while Windows is locked"
+                } else {
+                    ""
+                }
+            );
+        }
         if physical_only && display_request.requested() {
             launch.warnings.set("display_virtual", "Windows was locked and the virtual display could not be set up there, so this stream shows the physical display. Start the stream again after signing in to use the virtual display.");
         } else if display_request.requested() && !virtual_mode {
@@ -1029,6 +1069,38 @@ impl Prepared {
             // Applying the layout can recall the display's saved mode.
             display.apply_virtual_mode("after layout");
         }
+        // A layout Windows did not take is not one the user can be said to have chosen
+        // at the end of the stream (issue #40: "extended" learned from an "extended +
+        // primary" stream whose display never became primary, which then overrode every
+        // host setting).
+        let layout_took = !virtual_layout
+            || arrangement.is_none()
+            || butterpollo_windows::display::monitors()
+                .map(|monitors| {
+                    let active: Vec<_> = monitors
+                        .into_iter()
+                        .map(|m| (m.display_name, m.primary))
+                        .collect();
+                    match butterpollo_core::display_policy::chosen_layout(
+                        selection, &output, &active,
+                    ) {
+                        None => true,
+                        Some(actual) => {
+                            tracing::warn!(
+                                output = %output,
+                                planned = selection,
+                                actual,
+                                "Windows did not apply the virtual display layout"
+                            );
+                            launch.warnings.set(
+                                "display_layout",
+                                format!("Windows did not apply the {selection} display layout; the stream's display is {actual}. Check that no other display tool rearranges displays, then reconnect."),
+                            );
+                            false
+                        }
+                    }
+                })
+                .unwrap_or(false);
         tracing::info!(
             client = %launch.client.name,
             role = ?launch.role,
@@ -1082,12 +1154,17 @@ impl Prepared {
                 _vulkan: vulkan,
                 _golden: golden,
                 mode: stream_mode(stream),
+                // A background stream's fixed layout is not the device's choice.
                 layout_owner: (launch.role == Role::Stream
                     && virtual_mode
-                    && client_display.is_none())
+                    && !background
+                    && client_display.is_none()
+                    && layout_took)
                 .then(|| launch.client.uuid.clone()),
                 client_display,
                 virtual_layout: virtual_layout.then(|| selection.to_owned()),
+                inherited_layout: virtual_layout
+                    .then(|| inherited_layout(config, app.as_ref()).to_owned()),
                 #[cfg(test)]
                 layout_snapshot: None,
                 revision,
@@ -1144,6 +1221,11 @@ impl Prepared {
         client
             .extra
             .insert("virtual_display_layout".into(), serde_json::json!(chosen));
+        if let Some(inherited) = &self.inherited_layout {
+            client
+                .extra
+                .insert(LEARNED_OVER.into(), serde_json::json!(inherited));
+        }
         if let Err(error) = paired.save(&h.paired_path) {
             tracing::warn!(%error, "the device's display layout could not be saved");
         }
@@ -1447,6 +1529,7 @@ mod tests {
             client_display: None,
             virtual_layout: Some("extended".into()),
             layout_owner: None,
+            inherited_layout: Some("extended".into()),
             layout_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
@@ -1953,6 +2036,7 @@ mod tests {
             client_display: None,
             virtual_layout: None,
             layout_owner: None,
+            inherited_layout: None,
             layout_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),

@@ -34,6 +34,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 - **Per-device modes.** A device's display mode sets the resolution and refresh of its display, and the stream keeps the client's frame rate.
 - **The client chooses the display.** A Rubylight client can ask, per PC, for the virtual display alone, a virtual display beside your monitors, or no virtual display at all, without changing the host settings ([configuration](configuration.md#display-choice-from-the-client)).
 - **Two clients at once**, each on its own virtual display.
+- **Background streaming.** A device can play on its own isolated virtual display while someone keeps using the PC: the game takes no focus but is told it has it, only the game's sound is streamed, and only the device's controllers reach it ([setup and limits](configuration.md#background-streaming)).
 - **Resolution changes mid-stream.** A Rubylight client can switch the stream's size and frame rate without reconnecting, as a foldable does when it opens ([control messages](control-messages.md)).
 
 ## Input, audio and microphone

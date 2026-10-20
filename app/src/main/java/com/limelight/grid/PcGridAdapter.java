@@ -149,7 +149,17 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
 
         String update = HostUpdateChecker.availableVersion(context, obj.details.caps);
         TextView updateView = parentView.findViewById(R.id.grid_update);
-        updateView.setVisibility(update == null ? View.GONE : View.VISIBLE);
+        int updateVisibility = update == null ? View.GONE : View.VISIBLE;
+        if (update == null) {
+            // GridView advances to the next row using the last card's height.
+            for (PcView.ComputerObject computer : itemList) {
+                if (HostUpdateChecker.availableVersion(context, computer.details.caps) != null) {
+                    updateVisibility = View.INVISIBLE;
+                    break;
+                }
+            }
+        }
+        updateView.setVisibility(updateVisibility);
         if (update != null) {
             updateView.setText(context.getString(R.string.host_update_available, update));
             status += ". " + updateView.getText();

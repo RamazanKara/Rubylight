@@ -67,6 +67,49 @@ public class UiNavigationTest {
     }
 
     @Test
+    public void computerUpdateNoticeDoesNotOverlapTheNextGridRow() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            android.content.SharedPreferences updates = screen.getSharedPreferences("host_update_state", 0);
+            updates.edit().putString("latest_version", "2.5.11").apply();
+            com.limelight.grid.PcGridAdapter adapter = new com.limelight.grid.PcGridAdapter(screen,
+                    new com.limelight.preferences.PreferenceConfiguration());
+            for (String name : new String[] {"Desk", "Laptop", "Studio"}) {
+                com.limelight.nvstream.http.ComputerDetails details = new com.limelight.nvstream.http.ComputerDetails();
+                details.name = name;
+                details.state = com.limelight.nvstream.http.ComputerDetails.State.OFFLINE;
+                if (name.equals("Desk")) {
+                    details.caps = org.robolectric.util.ReflectionHelpers.callStaticMethod(
+                            com.limelight.nvstream.http.HostCapabilities.class, "fromServerInfo",
+                            org.robolectric.util.ReflectionHelpers.ClassParameter.from(String.class,
+                                    "<root><RustHostVersion>2.5.10</RustHostVersion></root>"));
+                }
+                adapter.addComputer(new com.limelight.PcView.ComputerObject(details));
+            }
+            GridView grid = new GridView(screen);
+            grid.setNumColumns(2);
+            grid.setVerticalSpacing(8);
+            grid.setAdapter(adapter);
+            screen.setContentView(grid);
+            layout(screen);
+            assertEquals(3, grid.getChildCount());
+            assertTrue("the next row clears the card with an update", grid.getChildAt(2).getTop() >=
+                    Math.max(grid.getChildAt(0).getBottom(), grid.getChildAt(1).getBottom()) + 8);
+            assertTrue(grid.getChildAt(0).getContentDescription().toString().contains("2.5.11"));
+            assertFalse(grid.getChildAt(1).getContentDescription().toString().contains("2.5.11"));
+
+            updates.edit().clear().apply();
+            adapter.notifyDataSetChanged();
+            layout(screen);
+            assertEquals(View.GONE, grid.getChildAt(0).findViewById(R.id.grid_update).getVisibility());
+            assertEquals(View.GONE, grid.getChildAt(1).findViewById(R.id.grid_update).getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void manualHostEntryHasMatchingKeyboardAndAccessibilityOrder() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
         try {

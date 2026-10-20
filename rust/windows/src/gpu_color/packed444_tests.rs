@@ -37,6 +37,8 @@ fn packed444_gpu_exact() -> Result<()> {
         &[(66, 70), (320, 180)],
         &[(false, false), (true, false), (true, true)],
         &[],
+        60,
+        100_000,
     )
 }
 
@@ -47,16 +49,36 @@ fn packed444_independent_decoder() -> Result<()> {
         &[(130, 70), (320, 180)],
         &[(false, false), (true, false), (true, true)],
         &[1, 2],
+        60,
+        100_000,
     )
 }
 
 #[test]
 #[ignore = "requires AMD HEVC, D3D11/D3D12 and an independent FFmpeg decoder"]
 fn packed444_hevc_minimum_width() -> Result<()> {
-    verify(&[(130, 70)], &[(false, false)], &[1])
+    verify(&[(130, 70)], &[(false, false)], &[1], 60, 100_000)
 }
 
-fn verify(sizes: &[(u32, u32)], formats: &[(bool, bool)], codecs: &[u8]) -> Result<()> {
+#[test]
+#[ignore = "requires AMD AMF at 1440p120, D3D11/D3D12 and an independent FFmpeg decoder"]
+fn packed444_target_geometry() -> Result<()> {
+    verify(
+        &[(2560, 1440)],
+        &[(false, false), (true, true)],
+        &[1, 2],
+        120,
+        160_000,
+    )
+}
+
+fn verify(
+    sizes: &[(u32, u32)],
+    formats: &[(bool, bool)],
+    codecs: &[u8],
+    fps: u32,
+    bitrate_kbps: u32,
+) -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
     let decoder = std::env::var_os("BUTTERPOLLO_TEST_FFMPEG");
@@ -105,7 +127,8 @@ fn verify(sizes: &[(u32, u32)], formats: &[(bool, bool)], codecs: &[u8]) -> Resu
                 sdr_10bit: ten_bit,
                 hdr,
                 chroma_packing: 1,
-                bitrate_kbps: 100_000,
+                fps,
+                bitrate_kbps,
                 ..Default::default()
             };
             let reference = Negotiated {

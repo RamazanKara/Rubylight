@@ -1067,39 +1067,55 @@ fn stopping_wakes_a_packetizer_blocked_on_the_prepared_slot() {
 
 #[test]
 fn a_sender_taking_over_mid_stream_continues_the_inline_numbering() {
-    let fixture = crate::state::test_support::Fixture::new();
-    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
-    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
-    receiver.set_read_timeout(Some(WAIT)).unwrap();
-    // Where the stream thread's own sends left off.
-    let mut inline = packetizer(None);
-    inline.frame = 300;
-    inline.sequence = 7000;
-    let sender = Sender::new(
-        socket,
-        session.clone(),
-        fixture.host.config.read().unwrap().clone(),
-        fixture.host.clone(),
-        Instant::now(),
-        handoff(inline),
-    )
-    .unwrap();
-    assert_eq!(sender.next_wire_frame().unwrap(), 300);
-    sender
-        .submit(
-            vec![frame(2)],
-            receiver.local_addr().unwrap(),
-            Duration::ZERO,
-            &mut Claims::default(),
+    for key in [None, Some([17; 16])] {
+        let fixture = crate::state::test_support::Fixture::new();
+        let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        receiver.set_read_timeout(Some(WAIT)).unwrap();
+        // Where the stream thread's own sends left off.
+        let mut inline = packetizer(key);
+        inline.frame = 300;
+        inline.sequence = 7000;
+        inline.iv_counter = 9000;
+        let sender = Sender::new(
+            socket,
+            session.clone(),
+            fixture.host.config.read().unwrap().clone(),
+            fixture.host.clone(),
+            Instant::now(),
+            handoff(inline),
         )
         .unwrap();
-    assert_eq!(sender.next_wire_frame().unwrap(), 301);
-    let mut packet = [0; 2048];
-    let size = receiver.recv(&mut packet).unwrap();
-    assert!(size > 24);
-    assert_eq!(u16::from_be_bytes([packet[2], packet[3]]), 7000);
-    assert_eq!(u32::from_le_bytes(packet[20..24].try_into().unwrap()), 300);
+        assert_eq!(sender.next_wire_frame().unwrap(), 300);
+        sender
+            .submit(
+                vec![frame(1)],
+                receiver.local_addr().unwrap(),
+                Duration::ZERO,
+                &mut Claims::default(),
+            )
+            .unwrap();
+        assert_eq!(sender.next_wire_frame().unwrap(), 301);
+        let mut packet = [0; 2048];
+        let size = receiver.recv(&mut packet).unwrap();
+        let packet = match key {
+            None => packet[..size].to_vec(),
+            Some(key) => {
+                assert_eq!(u64::from_le_bytes(packet[..8].try_into().unwrap()), 9000);
+                butterpollo_core::crypto::gcm_open(
+                    &key,
+                    &packet[..12],
+                    &packet[16..32],
+                    &packet[32..size],
+                )
+                .unwrap()
+            }
+        };
+        assert!(size > 24);
+        assert_eq!(u16::from_be_bytes([packet[2], packet[3]]), 7000);
+        assert_eq!(u32::from_le_bytes(packet[20..24].try_into().unwrap()), 300);
+    }
 }
 
 #[test]

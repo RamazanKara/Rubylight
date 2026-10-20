@@ -174,6 +174,20 @@ pub fn video_wire_rate_bps(
     ipv6: bool,
 ) -> u64 {
     let payload = (f64::from(stream_kbps) * 125. * period.as_secs_f64()).ceil() as usize;
+    video_frame_wire_rate_bps(packetizer, payload, period, ipv6)
+}
+
+/// Wire demand for one encoded frame per period. Sender selection must also
+/// account for a large individual frame, even when the average fits inline.
+pub fn video_frame_wire_rate_bps(
+    packetizer: &crate::packet::VideoPacketizer,
+    payload: usize,
+    period: Duration,
+    ipv6: bool,
+) -> u64 {
+    if payload == 0 {
+        return 0;
+    }
     let packets: usize = packetizer
         .block_layout(payload)
         .iter()
@@ -504,6 +518,47 @@ mod tests {
         assert!(paced(400_000_000, 100_000_000));
         assert!(!paced(400_000_001, 100_000_000));
         assert!(!paced(1, 0));
+    }
+
+    #[test]
+    fn large_frames_need_the_sender_even_when_average_traffic_fits_inline() {
+        let period = Duration::from_secs_f64(1. / 90.);
+        for bitrate in [80_000, 100_000] {
+            for ipv6 in [false, true] {
+                for key in [None, Some([7; 16])] {
+                    let mut packetizer = crate::packet::VideoPacketizer {
+                        sequence: 0,
+                        iv_counter: 0,
+                        frame: 1,
+                        packet_size: 1392,
+                        fec_percent: 20,
+                        min_fec: 2,
+                        key,
+                    };
+                    let average = video_wire_rate_bps(&packetizer, bitrate, period, ipv6);
+                    let bps = rate_bps(0, bitrate, 1_000_000_000, false, average);
+                    assert!(!paced(bps, average));
+                    let payload = recovery_frame_cap(bps, bitrate, period, 20, 1392, ipv6);
+                    let needed =
+                        video_frame_wire_rate_bps(&packetizer, payload as usize, period, ipv6);
+                    assert!(paced(bps, needed));
+                    let packets = packetizer
+                        .encode(&vec![0; payload as usize], true, 0, 0)
+                        .unwrap();
+                    let bytes: usize = packets.iter().map(|p| p.len() + overhead(ipv6)).sum();
+                    assert_eq!(
+                        needed,
+                        (bytes as f64 * 8. / period.as_secs_f64()).ceil() as u64
+                    );
+                    let wire_time = Duration::from_secs_f64(bytes as f64 * 8. / bps as f64);
+                    assert!(wire_time > period);
+                    assert!(!paced(
+                        bps,
+                        video_frame_wire_rate_bps(&packetizer, 0, period, ipv6)
+                    ));
+                }
+            }
+        }
     }
 
     #[test]

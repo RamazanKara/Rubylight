@@ -2,7 +2,8 @@
 //! heartbeats.
 
 use super::modes::{
-    ModeOutcome, current_timing, format_timing, mode_outcome, offered_rates, supported_modes,
+    ModeOutcome, current_timing, fallback_rate, format_timing, mode_outcome, offered_rates,
+    supported_modes,
 };
 use super::rubylight_vdd::{self, Control};
 use super::topology::activate_target;
@@ -600,15 +601,47 @@ impl VirtualDisplay {
                     ModeOutcome::Kept(actual) => format_timing(actual),
                     _ => "unknown".into(),
                 };
+                let offered = offered_rates(&supported_modes(&self.name), width, height);
                 tracing::warn!(
                     output = %self.name,
                     stage,
                     requested = %requested,
                     actual = %actual_text,
-                    offered_hz = ?offered_rates(&supported_modes(&self.name), width, height),
+                    offered_hz = ?offered,
                     error = ?result.err().or(actual.err()).map(|e| format!("{e:#}")),
                     "virtual display mode not applied; streaming at the mode Windows chose"
                 );
+                // A refused refresh must not cost the resolution too (issue #40: 4K at
+                // 1000 Hz for VRR refused, and Windows fell back to 1440p). A display at
+                // the requested size keeps its refresh, as a refused raise does.
+                let wrong_size =
+                    !matches!(outcome, ModeOutcome::Kept((w, h, _)) if (w, h) == (width, height));
+                if wrong_size && let Some(fallback) = fallback_rate(&offered, rate) {
+                    let retried = Topology::set_mode_rate(
+                        &self.name,
+                        width,
+                        height,
+                        butterpollo_core::framegen::Rate(fallback),
+                    );
+                    let now = current_timing(&self.name).ok();
+                    if now.is_some_and(|(w, h, _)| (w, h) == (width, height)) {
+                        tracing::info!(
+                            output = %self.name,
+                            stage,
+                            requested = %requested,
+                            actual = %now.map_or_else(String::new, format_timing),
+                            "virtual display kept the requested resolution at a refresh Windows accepts"
+                        );
+                    } else {
+                        tracing::warn!(
+                            output = %self.name,
+                            stage,
+                            fallback_millihz = fallback,
+                            error = ?retried.err().map(|e| format!("{e:#}")),
+                            "virtual display refused the fallback refresh too"
+                        );
+                    }
+                }
                 false
             }
         }

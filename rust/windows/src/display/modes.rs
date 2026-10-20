@@ -187,6 +187,19 @@ pub(super) fn offered_rates(modes: &[(u32, u32, u32)], width: u32, height: u32) 
     rates.dedup();
     rates
 }
+/// The refresh (millihertz) to retry a refused mode's resolution at: the fastest offered
+/// rate below the refused one, else the slowest offered. None when the resolution is not
+/// offered at all.
+pub(super) fn fallback_rate(offered_hz: &[u32], refused_mhz: u32) -> Option<u32> {
+    let below = offered_hz
+        .iter()
+        .copied()
+        .filter(|hz| hz.saturating_mul(1000) < refused_mhz)
+        .max();
+    below
+        .or_else(|| offered_hz.iter().copied().min())
+        .map(|hz| hz.saturating_mul(1000))
+}
 /// Every mode a display reports as (width, height, refresh Hz).
 pub(super) fn supported_modes(output: &str) -> Vec<(u32, u32, u32)> {
     let name: Vec<_> = output.encode_utf16().chain(Some(0)).collect();
@@ -308,5 +321,13 @@ mod tests {
         ];
         assert_eq!(offered_rates(&modes, 3840, 2160), [60, 1000, 2000]);
         assert!(offered_rates(&modes, 1920, 1080).is_empty());
+    }
+    #[test]
+    fn a_refused_rate_falls_back_to_the_fastest_slower_one() {
+        // Issue #40: 4K at 1000 Hz refused; keep 4K at 240 Hz instead of 1440p.
+        assert_eq!(fallback_rate(&[60, 120, 240], 1_000_000), Some(240_000));
+        assert_eq!(fallback_rate(&[60, 120, 240], 120_000), Some(60_000));
+        assert_eq!(fallback_rate(&[144, 240], 120_000), Some(144_000));
+        assert_eq!(fallback_rate(&[], 1_000_000), None);
     }
 }

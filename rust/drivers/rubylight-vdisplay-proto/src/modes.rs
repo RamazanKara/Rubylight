@@ -69,11 +69,23 @@ pub fn union_modes(into: &mut Vec<Mode>, from: &[Mode]) {
     }
 }
 
-/// The list a monitor advertises: the requested mode first, then the fallbacks, then
-/// whatever it advertised before (`history`, empty when it is created).
+/// Rates the requested resolution offers besides the requested one. Windows can refuse a
+/// rate it will not drive (4K at 1000 Hz for VRR on Windows 11 23H2, issue #40); with
+/// these the resolution stays settable and only the refresh falls back.
+pub const REQUESTED_RESOLUTION_RATES: [u32; 3] = [60_000, 120_000, 240_000];
+
+/// The list a monitor advertises: the requested mode first, then the requested resolution
+/// at [`REQUESTED_RESOLUTION_RATES`], then the fallbacks, then whatever it advertised
+/// before (`history`, empty when it is created).
 #[must_use]
 pub fn advertised_modes(requested: Mode, history: &[Mode]) -> Vec<Mode> {
+    let same_resolution = Mode {
+        width: requested.width,
+        height: requested.height,
+        refresh_mhz: REQUESTED_RESOLUTION_RATES.to_vec(),
+    };
     let mut modes = vec![requested];
+    union_modes(&mut modes, &[same_resolution]);
     union_modes(&mut modes, &default_modes());
     union_modes(&mut modes, history);
     modes
@@ -262,7 +274,8 @@ mod tests {
         for rate in [119_880, 120_000, 240_000] {
             let requested = mode(3840, 2160, &[rate]);
             let list = advertised_modes(requested.clone(), &[]);
-            assert_eq!(list[0], requested);
+            assert_eq!((list[0].width, list[0].height), (3840, 2160));
+            assert_eq!(list[0].refresh_mhz[0], rate, "the requested rate leads");
             let available: Vec<_> = flatten(&list)
                 .map(|m| (m.width, m.height, m.refresh_mhz))
                 .collect();
@@ -288,8 +301,22 @@ mod tests {
     #[test]
     fn a_requested_fallback_resolution_is_not_listed_twice() {
         let list = advertised_modes(mode(1920, 1080, &[480_000]), &[]);
-        assert_eq!(list[0], mode(1920, 1080, &[480_000, 60_000, 120_000]));
+        assert_eq!(
+            list[0],
+            mode(1920, 1080, &[480_000, 60_000, 120_000, 240_000])
+        );
         assert_eq!(list.iter().filter(|m| m.width == 1920).count(), 1);
+    }
+
+    #[test]
+    fn a_refused_vrr_rate_still_leaves_the_requested_resolution_settable() {
+        // Issue #40: Windows 11 23H2 refused 4K at 1000 Hz, and with no other 4K rate the
+        // display fell back to 1440p.
+        let list = advertised_modes(mode(3840, 2160, &[1_000_000]), &[]);
+        assert_eq!(
+            list[0],
+            mode(3840, 2160, &[1_000_000, 60_000, 120_000, 240_000])
+        );
     }
 
     #[test]

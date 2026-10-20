@@ -167,7 +167,9 @@ pub fn generate(
     let mut edid = [0u8; 256];
     edid[..128].copy_from_slice(&BASE);
     edid[SERIAL_OFFSET..SERIAL_OFFSET + 4].copy_from_slice(&serial.to_le_bytes());
-    if let Some(d) = preferred.and_then(|(w, h, r)| dtd(w, h, r)) {
+    // A rate too fast for the descriptor keeps the resolution at 60 Hz, which the mode
+    // list always offers, so Windows' default is not the 1080p placeholder.
+    if let Some(d) = preferred.and_then(|(w, h, r)| dtd(w, h, r).or_else(|| dtd(w, h, 60_000))) {
         edid[54..72].copy_from_slice(&d);
     }
     if let Some((w, h, _)) = preferred {
@@ -316,8 +318,13 @@ mod tests {
         let swapped = generate(1, lum, Some((2560, 1440, 120_000)));
         assert_eq!(swapped[54..72], dtd(2560, 1440, 120_000).unwrap());
         assert_eq!((swapped[0x15], swapped[0x16]), (67, 38));
-        let too_fast = generate(1, lum, Some((3840, 2160, 120_000)));
-        assert_eq!(too_fast[54..72], placeholder[54..72]);
+        // Too fast for the descriptor: the resolution stays preferred at 60 Hz (#40).
+        for rate in [120_000, 1_000_000] {
+            let too_fast = generate(1, lum, Some((3840, 2160, rate)));
+            assert_eq!(too_fast[54..72], dtd(3840, 2160, 60_000).unwrap());
+        }
+        let too_large = generate(1, lum, Some((7680, 4320, 60_000)));
+        assert_eq!(too_large[54..72], placeholder[54..72]);
     }
 
     #[test]

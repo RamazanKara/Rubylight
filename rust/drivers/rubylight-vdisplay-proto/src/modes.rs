@@ -69,20 +69,26 @@ pub fn union_modes(into: &mut Vec<Mode>, from: &[Mode]) {
     }
 }
 
-/// Rates the requested resolution offers besides the requested one. Windows can refuse a
-/// rate it will not drive (4K at 1000 Hz for VRR on Windows 11 23H2, issue #40); with
-/// these the resolution stays settable and only the refresh falls back.
-pub const REQUESTED_RESOLUTION_RATES: [u32; 3] = [60_000, 120_000, 240_000];
+/// Slower rates the requested resolution also offers. Windows can drop a rate it will not
+/// drive from the mode list (4K at 1000 Hz for VRR on Windows 11 23H2, issue #40, with
+/// this driver and with libvirtualdisplay alike); with these the resolution stays settable
+/// and only the refresh falls back. Only rates below the requested one are added, so a
+/// game picking a display's fastest mode cannot run faster than the stream asked for.
+pub const REQUESTED_RESOLUTION_RATES: [u32; 4] = [60_000, 120_000, 240_000, 480_000];
 
 /// The list a monitor advertises: the requested mode first, then the requested resolution
-/// at [`REQUESTED_RESOLUTION_RATES`], then the fallbacks, then whatever it advertised
-/// before (`history`, empty when it is created).
+/// at the slower [`REQUESTED_RESOLUTION_RATES`], then the fallbacks, then whatever it
+/// advertised before (`history`, empty when it is created).
 #[must_use]
 pub fn advertised_modes(requested: Mode, history: &[Mode]) -> Vec<Mode> {
+    let fastest = requested.refresh_mhz.iter().copied().max().unwrap_or(0);
     let same_resolution = Mode {
         width: requested.width,
         height: requested.height,
-        refresh_mhz: REQUESTED_RESOLUTION_RATES.to_vec(),
+        refresh_mhz: REQUESTED_RESOLUTION_RATES
+            .into_iter()
+            .filter(|&rate| rate < fastest)
+            .collect(),
     };
     let mut modes = vec![requested];
     union_modes(&mut modes, &[same_resolution]);
@@ -315,8 +321,13 @@ mod tests {
         let list = advertised_modes(mode(3840, 2160, &[1_000_000]), &[]);
         assert_eq!(
             list[0],
-            mode(3840, 2160, &[1_000_000, 60_000, 120_000, 240_000])
+            mode(3840, 2160, &[1_000_000, 60_000, 120_000, 240_000, 480_000])
         );
+        // A slower request offers nothing faster than itself.
+        let list = advertised_modes(mode(3840, 2160, &[60_000]), &[]);
+        assert_eq!(list[0], mode(3840, 2160, &[60_000]));
+        let list = advertised_modes(mode(3840, 2160, &[144_000]), &[]);
+        assert_eq!(list[0], mode(3840, 2160, &[144_000, 60_000, 120_000]));
     }
 
     #[test]

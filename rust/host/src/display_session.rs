@@ -116,16 +116,11 @@ pub fn client_display(launch: &Launch) -> Option<HostDisplay> {
     {
         tracing::info!(value = %value, "unknown hostDisplay launch value; the display settings decide");
     }
-    // Legacy Moonlight clients express a physical-display choice with zero.
-    // Preserve that choice through retained-display matching as well as initial
-    // preparation, so reconnecting cannot reuse a previously virtual stream.
-    choice.or_else(|| {
-        launch
-            .options
-            .get("virtualDisplay")
-            .is_some_and(|value| value.trim() == "0")
-            .then_some(HostDisplay::Physical)
-    })
+    // `virtualDisplay=0` is not a choice: Apollo-compatible clients send it
+    // whenever their own virtual display toggle is off, and Apollo reads it as
+    // "not forced". Taking it as "physical" (2.5.6 to 2.5.9) overrode the host's
+    // virtual display for those clients, which then mirrored the PC's monitor.
+    choice
 }
 
 /// Resolution, refresh in millihertz and HDR a stream asked its display for.
@@ -1964,7 +1959,7 @@ mod tests {
         assert_eq!(launch(Role::InputOnly, Some("exclusive")), None);
     }
     #[test]
-    fn legacy_virtual_display_zero_selects_physical_and_prevents_virtual_reuse() {
+    fn legacy_virtual_display_zero_leaves_the_host_settings_in_control() {
         use butterpollo_core::display_policy::Arrangement;
         let f = crate::state::test_support::Fixture::new();
         let client = f.client(u32::MAX);
@@ -1972,10 +1967,16 @@ mod tests {
         assert_eq!(client_display(&launch), None);
         launch.options.insert("virtualDisplay".into(), "1".into());
         assert_eq!(client_display(&launch), None);
+        // Apollo-compatible clients send 0 whenever their toggle is off; the
+        // host's virtual display must still apply.
         launch.options.insert("virtualDisplay".into(), "0".into());
+        assert_eq!(client_display(&launch), None);
+        // An explicit hostDisplay=physical still selects the physical display.
+        launch
+            .options
+            .insert(HostDisplay::PARAMETER.into(), "physical".into());
         let physical = client_display(&launch);
         assert_eq!(physical, Some(HostDisplay::Physical));
-        assert!(!HostDisplay::reusable(None, physical));
         assert!(!HostDisplay::reusable(
             Some(HostDisplay::Virtual(Arrangement::Exclusive)),
             physical

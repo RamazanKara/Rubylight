@@ -67,7 +67,7 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
 - [x] `audio` (differential tests in `protocol/difftest`)
 - [x] `crypto` + `control` + `input` (encrypted control stream only; GFE's TCP and plaintext
   generations are not ported)
-- [ ] `rtsp` + `sdp` + `http`
+- [x] `rtsp` + `sdp` + `http` (TCP RTSP incl. encrypted; RTSP over ENet for GFE < 3.22 is not ported)
 - [ ] `session` + `nightjar-cli`, e2e against Rubylight
 - [ ] Android switch-over behind a setting
 - [ ] Desktop client (Windows, Linux)

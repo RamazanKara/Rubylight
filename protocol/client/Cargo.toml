@@ -12,7 +12,13 @@ aes = "0.8"
 aes-gcm = "0.10"
 cbc = { version = "0.1", features = ["alloc"] }
 rusty_enet = "0.4"
+# Host HTTP, pairing and encrypted RTSP. Pure Rust plus ring, so the same code builds for
+# Android, Windows and Linux without OpenSSL.
+rand_core = { version = "0.6", features = ["getrandom"] }
+ring = "0.17"
+rsa = { version = "0.9", default-features = false, features = ["std"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [dev-dependencies]
-# The Rubylight host's own decoders, for interop tests.
+# The Rubylight host's protocol code, for interop tests (control, input, SDP, DESCRIBE, pairing).
 butterpollo-core = { git = "https://github.com/RamazanKara/Rubylight", rev = "21c2940f", package = "butterpollo-core" }

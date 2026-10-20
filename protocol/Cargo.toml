@@ -17,3 +17,9 @@ codegen-units = 1
 
 [profile.dev]
 panic = "abort"
+
+# RSA key generation (client identities, test hosts) takes minutes unoptimized.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3

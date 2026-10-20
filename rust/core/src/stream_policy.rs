@@ -488,9 +488,10 @@ impl Pacer {
             // just before the claim is allowed may still arrive after it.
             let detection = self.period / 4;
             if next + detection > allowed && next <= allowed + slack {
-                // If the fresher frame does not come, the current one is
-                // claimed at this deadline.
-                return Pace::WaitUntil((next + detection).max(allowed));
+                // Detection shares the prediction budget: adding it after
+                // the latest expected arrival held an available frame for
+                // another quarter-period when that prediction was missed.
+                return Pace::WaitUntil((next + detection).min(allowed + slack));
             }
         }
         Pace::WaitUntil(allowed)

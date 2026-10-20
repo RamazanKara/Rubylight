@@ -484,11 +484,11 @@ fn prediction_override_keeps_the_earliest_slot_and_does_not_bypass_rate_limits()
     let arrived = start + Duration::from_millis(3);
     let source = Some(Duration::from_millis(4));
     // The newer source frame is expected at 7 ms. Normal pacing allows
-    // its detection window; the diagnostic mode only waits for the 6 ms
-    // minimum spacing. Neither mode may claim the frame immediately.
+    // its detection window within the 2.5 ms prediction budget; the diagnostic
+    // mode only waits for the 6 ms minimum spacing.
     assert_eq!(
         predicted.decide(arrived, arrived, source),
-        Pace::WaitUntil(start + Duration::from_millis(9))
+        Pace::WaitUntil(start + Duration::from_micros(8500))
     );
     assert_eq!(
         immediate.decide(arrived, arrived, source),
@@ -512,6 +512,49 @@ fn prediction_override_keeps_the_earliest_slot_and_does_not_bypass_rate_limits()
             .windows(2)
             .all(|pair| pair[1] - pair[0] >= period.mul_f64(0.75))
     );
+}
+#[test]
+fn a_missed_prediction_does_not_stack_detection_after_the_wait_budget() {
+    for fps in [59.94, 90., 120., 144., 240.] {
+        let start = Instant::now();
+        let period = Duration::from_secs_f64(1. / fps);
+        let interval = period / 2;
+        let presented = start + interval;
+        let detected = presented + Duration::from_micros(200);
+        let mut pacer = Pacer::new(start, period);
+        pacer.claimed(start);
+        let allowed = pacer.allowed_at(detected);
+        let Pace::WaitUntil(deadline) = pacer.decide(detected, presented, Some(interval)) else {
+            panic!("the minimum spacing still applies");
+        };
+        assert!(deadline > allowed);
+        assert!(deadline <= allowed + period / 4 + Duration::from_micros(500));
+        assert_eq!(
+            pacer.decide(deadline, presented, Some(interval)),
+            Pace::Claim
+        );
+    }
+}
+#[test]
+fn a_fresh_capture_can_replace_the_frame_before_the_prediction_fallback() {
+    for fps in [59.94, 90., 120., 144., 240.] {
+        let start = Instant::now();
+        let period = Duration::from_secs_f64(1. / fps);
+        let interval = period / 2;
+        let presented = start + interval;
+        let detected = presented + Duration::from_micros(200);
+        let mut pacer = Pacer::new(start, period);
+        pacer.claimed(start);
+        let Pace::WaitUntil(deadline) = pacer.decide(detected, presented, Some(interval)) else {
+            panic!("the minimum spacing still applies");
+        };
+        let fresh = presented + interval;
+        let arrived = fresh + Duration::from_micros(200);
+        assert!(arrived < deadline);
+        assert_eq!(pacer.decide(arrived, fresh, Some(interval)), Pace::Claim);
+        pacer.claimed(arrived);
+        assert!(pacer.allowed_at(arrived) >= arrived + period.mul_f64(0.75));
+    }
 }
 #[test]
 fn explicitly_enabling_prediction_preserves_default_decisions() {

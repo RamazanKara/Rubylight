@@ -418,6 +418,67 @@ mod tests {
         assert_eq!(invert(0), 0);
     }
 
+    static RUMBLE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    unsafe extern "C" fn record_rumble(_: *mut std::ffi::c_void, low: u16, high: u16) -> bool {
+        RUMBLE.store((u32::from(low) << 16) | u32::from(high), std::sync::atomic::Ordering::SeqCst);
+        true
+    }
+
+    /// An SDL virtual gamepad: arrival, a button press and stick motion reach the host's
+    /// input queue, and the host's rumble reaches the device.
+    #[test]
+    fn virtual_gamepad_round_trip() {
+        use nightjar_core::control::HostCapabilities;
+        // SAFETY: SDL calls on this test's thread; the descriptor outlives the attach.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+            let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+            desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+            desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+            desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+            desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+            desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+            desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+            desc.name = c"Nightjar test pad".as_ptr();
+            desc.Rumble = Some(record_rumble);
+            let id = SDL_AttachVirtualJoystick(&desc);
+            assert!(id.0 != 0, "{}", crate::sdl::error());
+
+            let mut pads = Gamepads::default();
+            pads.added(id);
+            assert_eq!(pads.pads.len(), 1, "{}", crate::sdl::error());
+            let mut queue = InputQueue::new(&HostCapabilities {
+                app_version: [7, 1, 431, -1],
+                feature_flags: 0x03,
+                ..Default::default()
+            });
+            let before = queue.len();
+            pads.announce_all(&mut queue);
+            assert!(queue.len() > before, "arrival queued");
+
+            let joystick = SDL_GetGamepadJoystick(pads.pads[0].handle);
+            SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH.0, true);
+            SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTY.0, -32768);
+            SDL_UpdateJoysticks();
+            let queued = queue.len();
+            let mut event: SDL_Event = std::mem::zeroed();
+            while SDL_PollEvent(&mut event) {
+                pads.handle(&event, &mut queue);
+            }
+            assert_eq!(pads.pads[0].buttons, button::A);
+            assert_eq!(pads.pads[0].ls.1, 32767, "stick up is positive for the host");
+            assert!(queue.len() > queued, "controller state queued");
+
+            pads.rumble(0, 0x1234, 0x5678);
+            assert_eq!(RUMBLE.load(std::sync::atomic::Ordering::SeqCst), 0x1234_5678);
+
+            pads.close_all();
+            SDL_DetachVirtualJoystick(id);
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+        }
+    }
+
     #[test]
     fn button_map_follows_sdl_order() {
         assert_eq!(BUTTON_MAP[SDL_GAMEPAD_BUTTON_SOUTH.0 as usize], button::A);

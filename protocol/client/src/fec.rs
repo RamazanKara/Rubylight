@@ -77,7 +77,9 @@ fn axpy(a: &mut [u8], b: &[u8], u: u8) {
         1 => a.iter_mut().zip(b).for_each(|(a, b)| *a ^= b),
         _ => {
             let row = &MUL[u as usize];
-            a.iter_mut().zip(b).for_each(|(a, b)| *a ^= row[*b as usize]);
+            a.iter_mut()
+                .zip(b)
+                .for_each(|(a, b)| *a ^= row[*b as usize]);
         }
     }
 }
@@ -144,7 +146,11 @@ impl ReedSolomon {
                 *value = INV[(parity + i) ^ j];
             }
         }
-        Some(Self { data, parity, matrix })
+        Some(Self {
+            data,
+            parity,
+            matrix,
+        })
     }
 
     /// A code with an explicit row-major parity matrix (`parity` rows of `data` entries).
@@ -168,7 +174,9 @@ impl ReedSolomon {
     fn check(&self, shards: &[&mut [u8]], len: usize) -> Result<(), FecError> {
         if len == 0
             || shards.len() < self.data + self.parity
-            || shards[..self.data + self.parity].iter().any(|s| s.len() < len)
+            || shards[..self.data + self.parity]
+                .iter()
+                .any(|s| s.len() < len)
         {
             return Err(FecError::BadShards);
         }
@@ -208,11 +216,9 @@ impl ReedSolomon {
         let mut colperm = [0u8; MAX_SHARDS];
         let mut rowperm = [0u8; MAX_SHARDS];
         let mut gaps = 0;
-        for i in 0..ds {
-            if missing[i] {
-                erasures[gaps] = i as u8;
-                gaps += 1;
-            }
+        for (i, _) in missing[..ds].iter().enumerate().filter(|(_, &m)| m) {
+            erasures[gaps] = i as u8;
+            gaps += 1;
         }
         let mut j = 0;
         for slot in colperm.iter_mut().take(ds - gaps) {
@@ -344,7 +350,10 @@ mod tests {
         let mut set = shards(6, 8, 1);
         let mut refs: Vec<&mut [u8]> = set.iter_mut().map(|s| &mut s[..]).collect();
         let missing = [true, true, false, false, true, false];
-        assert_eq!(code.decode(&mut refs, &missing, 8), Err(FecError::TooFewShards));
+        assert_eq!(
+            code.decode(&mut refs, &missing, 8),
+            Err(FecError::TooFewShards)
+        );
     }
 
     #[test]

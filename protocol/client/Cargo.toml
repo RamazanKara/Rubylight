@@ -8,3 +8,6 @@ rust-version.workspace = true
 
 [dependencies]
 rubylight-protocol = { path = "../core" }
+aes = "0.8"
+aes-gcm = "0.10"
+cbc = "0.1"

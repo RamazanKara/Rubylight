@@ -221,6 +221,8 @@
     <string name="summary_enable_perf_overlay">스트림 속도, 지연 시간, 프레임 손실을 실시간으로 표시합니다. 스트림 메뉴에서도 표시할 수 있습니다.</string>
     <string name="title_enable_post_stream_toast">스트리밍 후 디코딩 시간 표시</string>
     <string name="summary_enable_post_stream_toast">스트림이 끝나면 평균 디코딩 시간을 표시합니다.</string>
+    <string name="title_rust_engine">새 스트리밍 엔진(베타)</string>
+    <string name="summary_rust_engine">현재 엔진 대신 새 엔진으로 스트리밍합니다. 아직 지원하지 않는 스트림은 현재 엔진을 사용합니다. 스트림에 문제가 있으면 끄세요.</string>
     <string name="toast_controller_type_changed">모션 컨트롤로 인해 컨트롤러 유형이 바뀔 수 있습니다.</string>
     <string name="local_network_rationale">PC를 찾으려면 로컬 네트워크 접근을 허용하세요.</string>
     <string name="resolution_360p">360p</string>

@@ -221,6 +221,8 @@
     <string name="summary_enable_perf_overlay">ストリームの速度、遅延、フレーム損失をリアルタイムで表示します。ストリームメニューから表示することもできます。</string>
     <string name="title_enable_post_stream_toast">ストリーミング後にデコード時間を表示</string>
     <string name="summary_enable_post_stream_toast">ストリーム終了時に平均デコード時間を表示します。</string>
+    <string name="title_rust_engine">新しいストリーミングエンジン（ベータ）</string>
+    <string name="summary_rust_engine">現在のエンジンの代わりに新しいエンジンでストリーミングします。まだ対応していないストリームは現在のエンジンを使います。ストリームに問題が起きたらオフにしてください。</string>
     <string name="toast_controller_type_changed">モーション操作によってコントローラの種類が変わる場合があります。</string>
     <string name="local_network_rationale">PC を見つけるには、ローカル ネットワークへのアクセスを許可してください。</string>
     <string name="resolution_360p">360p</string>

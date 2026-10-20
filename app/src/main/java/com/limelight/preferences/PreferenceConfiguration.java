@@ -107,6 +107,8 @@ public class PreferenceConfiguration {
     private static final String FOUR_FINGER_TAP_PREF_STRING = "list_four_finger_tap";
     private static final String MOUSE_SPEED_PREF_STRING = "seekbar_mouse_speed";
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
+    // Off: streams use the C engine. The Rust engine is a beta and falls back per stream.
+    private static final String RUST_ENGINE_PREF_STRING = "checkbox_rust_engine";
     static final String FRAME_PACING_PREF_STRING = "frame_pacing";
     private static final String ABSOLUTE_MOUSE_MODE_PREF_STRING = "checkbox_absolute_mouse_mode";
     private static final String ENABLE_AUDIO_FX_PREF_STRING = "checkbox_enable_audiofx";
@@ -222,6 +224,7 @@ public class PreferenceConfiguration {
     public int qualityMinShortEdge = 720, qualityMinFps = 30;
     public volatile boolean enablePerfOverlay;
     public boolean enableLatencyToast;
+    public boolean rustEngine;
     public boolean bindAllUsb;
     public boolean mouseEmulation;
     public boolean mouseEmulationFixedStep;
@@ -1102,6 +1105,7 @@ public class PreferenceConfiguration {
                 FingerTapGesture.NONE);
         config.mouseSpeed = Math.max(25, Math.min(400, prefs.getInt(MOUSE_SPEED_PREF_STRING, DEFAULT_MOUSE_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
+        config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, false);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);
         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);
         config.reduceRefreshRate = prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);

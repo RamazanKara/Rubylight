@@ -215,6 +215,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_unbatched_input", new Read(true, false, c -> c.unbatchedInput));
         reads.put("checkbox_network_priority", new Read(true, false, c -> c.networkPriority));
         reads.put("checkbox_enable_post_stream_toast", new Read(false, true, c -> c.enableLatencyToast));
+        reads.put("checkbox_rust_engine", new Read(false, true, c -> c.rustEngine));
         return reads;
     }
 

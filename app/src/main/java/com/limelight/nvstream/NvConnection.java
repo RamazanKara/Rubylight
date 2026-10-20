@@ -967,6 +967,7 @@ public class NvConnection {
                             LimeLog.info("Network drop tolerance: " + prefs.networkGraceSeconds + " s");
                         }
                         MoonBridge.setNetworkGracePeriodMs(graceMs);
+                        MoonBridge.requestRustEngine(prefs.rustEngine);
                         int ret = MoonBridge.startConnection(context.serverAddress.address,
                                 context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
                                 context.serverCodecModeSupport,

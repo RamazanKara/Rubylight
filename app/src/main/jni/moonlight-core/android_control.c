@@ -4,7 +4,7 @@
 #include "moonlight-common-c/src/ControlStream.c"
 
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendServerCommand(JNIEnv *env, jclass clazz, jbyteArray payload) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendServerCommand(JNIEnv *env, jclass clazz, jbyteArray payload) {
     jsize length = (*env)->GetArrayLength(env, payload);
     uint8_t bytes[4];
     if ((length != 1 && length != 4) || !IS_SUNSHINE() || !encryptedControlStream || stopping || peer == NULL) {
@@ -57,7 +57,7 @@ void resetPhaseLockReports(void) {
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(JNIEnv *env, jclass clazz, jlong slackNs, jlong periodNs) {
+Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(JNIEnv *env, jclass clazz, jlong slackNs, jlong periodNs) {
     (void)env; (void)clazz;
     if (!hostSupportsControlMessage(RP_PHASE_REPORT_MESSAGE_TYPE)) return JNI_FALSE;
     bool ready = false;
@@ -88,7 +88,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(JNIEnv *env, jclass 
 // Called only on the renderer's background handler. Keep one latest report, not a
 // queue of old timing feedback, and never hold the sampling mutex while sending.
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(JNIEnv *env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
     uint8_t report[RP_PHASE_REPORT_BYTES];
     bool send = false;
@@ -115,7 +115,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(JNIEnv *env, jcl
 // The early edge of the last reported window, in microseconds before the latch (negative when
 // late), or Integer.MIN_VALUE before the first report.
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_getPhaseLockLeadUs(JNIEnv *env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cGetPhaseLockLeadUs(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
     return atomic_load(&phaseLockLastLeadUs);
 }
@@ -148,7 +148,7 @@ bool hostSupportsControlMessage(uint16_t messageType) {
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_hostSupportsControlMessage(JNIEnv *env, jclass clazz, jint messageType) {
+Java_com_limelight_nvstream_jni_MoonBridge_cHostSupportsControlMessage(JNIEnv *env, jclass clazz, jint messageType) {
     (void)env; (void)clazz;
     if (messageType < 0 || messageType > 0xFFFF) return JNI_FALSE;
     return hostSupportsControlMessage((uint16_t)messageType) ? JNI_TRUE : JNI_FALSE;
@@ -158,7 +158,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_hostSupportsControlMessage(JNIEnv *en
 // when the display changes, only to hosts that announced 0x5531. The Java side sends it again
 // only when a value changes, so it goes reliably.
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendDisplayCaps(JNIEnv *env, jclass clazz, jboolean hdr,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendDisplayCaps(JNIEnv *env, jclass clazz, jboolean hdr,
                                                           jfloat maxNits, jfloat maxAverageNits, jfloat minNits) {
     (void)env; (void)clazz;
     if (!hostSupportsControlMessage(RP_DISPLAY_CAPS_MESSAGE_TYPE) ||
@@ -177,7 +177,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendDisplayCaps(JNIEnv *env, jclass c
 // reliably, since a lost request would leave the stream at the old size. The caller checks that
 // the host advertised the message and checks again here; the host validates the values too.
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_requestReconfigure(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cRequestReconfigure(JNIEnv *env, jclass clazz,
                                                              jint width, jint height, jint fpsMillihz) {
     (void)env; (void)clazz;
     if (width <= 0 || width > UINT16_MAX || height <= 0 || height > UINT16_MAX || fpsMillihz <= 0) {
@@ -196,7 +196,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_requestReconfigure(JNIEnv *env, jclas
 
 // Speaker/microphone control uses the authenticated stream and existing ENet sequencing.
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendControllerAudio(JNIEnv* env, jclass clazz, jint kind, jbyteArray payload) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendControllerAudio(JNIEnv* env, jclass clazz, jint kind, jbyteArray payload) {
     (void)clazz;
     if ((kind != 0x5534 && kind != 0x5535) || !hostSupportsControlMessage((uint16_t)kind) ||
         !encryptedControlStream || stopping || peer == NULL || !payload) return JNI_FALSE;
@@ -221,7 +221,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendControllerAudio(JNIEnv* env, jcla
 #define HOST_TIMING_REQUEST_BYTES 4
 
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendHostTimingRequest(JNIEnv *env, jclass clazz, jboolean enabled) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendHostTimingRequest(JNIEnv *env, jclass clazz, jboolean enabled) {
     (void)env; (void)clazz;
     if (!hostSupportsControlMessage(HOST_TIMING_MESSAGE_TYPE) ||
         !encryptedControlStream || stopping || peer == NULL) {
@@ -241,7 +241,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendHostTimingRequest(JNIEnv *env, jc
 static uint32_t clockSyncSequence;
 
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendClockSyncProbe(JNIEnv *env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendClockSyncProbe(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
     if (!hostSupportsControlMessage(RL_CLOCK_SYNC_MESSAGE_TYPE) ||
         !encryptedControlStream || stopping || peer == NULL) {
@@ -272,7 +272,7 @@ bool cursorShapesRequested(void) {
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendCursorShapeRequest(JNIEnv *env, jclass clazz, jboolean enabled) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendCursorShapeRequest(JNIEnv *env, jclass clazz, jboolean enabled) {
     (void)env; (void)clazz;
     if (!hostSupportsControlMessage(RL_CURSOR_SHAPE_REQUEST_TYPE) ||
         !encryptedControlStream || stopping || peer == NULL) {

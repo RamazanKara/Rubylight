@@ -11,29 +11,29 @@
 #include "controller_list.h"
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendMouseMove(JNIEnv *env, jclass clazz, jshort deltaX, jshort deltaY) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendMouseMove(JNIEnv *env, jclass clazz, jshort deltaX, jshort deltaY) {
     LiSendMouseMoveEvent(deltaX, deltaY);
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendMousePosition(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendMousePosition(JNIEnv *env, jclass clazz,
         jshort x, jshort y, jshort referenceWidth, jshort referenceHeight) {
     LiSendMousePositionEvent(x, y, referenceWidth, referenceHeight);
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendMouseMoveAsMousePosition(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendMouseMoveAsMousePosition(JNIEnv *env, jclass clazz,
         jshort deltaX, jshort deltaY, jshort referenceWidth, jshort referenceHeight) {
     LiSendMouseMoveAsMousePositionEvent(deltaX, deltaY, referenceWidth, referenceHeight);
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendMouseButton(JNIEnv *env, jclass clazz, jbyte buttonEvent, jbyte mouseButton) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendMouseButton(JNIEnv *env, jclass clazz, jbyte buttonEvent, jbyte mouseButton) {
     LiSendMouseButtonEvent(buttonEvent, mouseButton);
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendMultiControllerInput(JNIEnv *env, jclass clazz, jshort controllerNumber,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendMultiControllerInput(JNIEnv *env, jclass clazz, jshort controllerNumber,
                                                            jshort activeGamepadMask, jint buttonFlags,
                                                            jbyte leftTrigger, jbyte rightTrigger,
                                                            jshort leftStickX, jshort leftStickY,
@@ -43,7 +43,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendMultiControllerInput(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendTouchEvent(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendTouchEvent(JNIEnv *env, jclass clazz,
                                                           jbyte eventType, jint pointerId,
                                                           jfloat x, jfloat y, jfloat pressureOrDistance,
                                                           jfloat contactAreaMajor, jfloat contactAreaMinor,
@@ -53,7 +53,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendTouchEvent(JNIEnv *env, jclass cl
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendPenEvent(JNIEnv *env, jclass clazz, jbyte eventType,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendPenEvent(JNIEnv *env, jclass clazz, jbyte eventType,
                                                         jbyte toolType, jbyte penButtons,
                                                         jfloat x, jfloat y, jfloat pressureOrDistance,
                                                         jfloat contactAreaMajor, jfloat contactAreaMinor,
@@ -63,7 +63,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendPenEvent(JNIEnv *env, jclass claz
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendControllerArrivalEvent(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendControllerArrivalEvent(JNIEnv *env, jclass clazz,
                                                                       jbyte controllerNumber,
                                                                       jshort activeGamepadMask,
                                                                       jbyte type,
@@ -73,7 +73,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendControllerArrivalEvent(JNIEnv *en
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendControllerTouchEvent(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendControllerTouchEvent(JNIEnv *env, jclass clazz,
                                                                     jbyte controllerNumber,
                                                                     jbyte eventType,
                                                                     jint pointerId, jfloat x,
@@ -82,7 +82,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendControllerTouchEvent(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendControllerMotionEvent(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendControllerMotionEvent(JNIEnv *env, jclass clazz,
                                                                      jbyte controllerNumber,
                                                                      jbyte motionType, jfloat x,
                                                                      jfloat y, jfloat z) {
@@ -90,7 +90,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendControllerMotionEvent(JNIEnv *env
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendControllerBatteryEvent(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cSendControllerBatteryEvent(JNIEnv *env, jclass clazz,
                                                                       jbyte controllerNumber,
                                                                       jbyte batteryState,
                                                                       jbyte batteryPercentage) {
@@ -98,22 +98,22 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendControllerBatteryEvent(JNIEnv *en
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendKeyboardInput(JNIEnv *env, jclass clazz, jshort keyCode, jbyte keyAction, jbyte modifiers, jbyte flags) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendKeyboardInput(JNIEnv *env, jclass clazz, jshort keyCode, jbyte keyAction, jbyte modifiers, jbyte flags) {
     LiSendKeyboardEvent2(keyCode, keyAction, modifiers, flags);
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendMouseHighResScroll(JNIEnv *env, jclass clazz, jshort scrollAmount) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendMouseHighResScroll(JNIEnv *env, jclass clazz, jshort scrollAmount) {
     LiSendHighResScrollEvent(scrollAmount);
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendMouseHighResHScroll(JNIEnv *env, jclass clazz, jshort scrollAmount) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendMouseHighResHScroll(JNIEnv *env, jclass clazz, jshort scrollAmount) {
     LiSendHighResHScrollEvent(scrollAmount);
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendUtf8Text(JNIEnv *env, jclass clazz, jbyteArray text) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendUtf8Text(JNIEnv *env, jclass clazz, jbyteArray text) {
     jbyte* utf8Text = (*env)->GetByteArrayElements(env, text, NULL);
     if (utf8Text == NULL) {
         return;
@@ -123,12 +123,12 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendUtf8Text(JNIEnv *env, jclass claz
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_stopConnection(JNIEnv *env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cStopConnection(JNIEnv *env, jclass clazz) {
     LiStopConnection();
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_interruptConnection(JNIEnv *env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cInterruptConnection(JNIEnv *env, jclass clazz) {
     LiInterruptConnection();
 }
 
@@ -162,12 +162,12 @@ Java_com_limelight_nvstream_jni_MoonBridge_findExternalAddressIP4(JNIEnv *env, j
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_getPendingAudioDuration(JNIEnv *env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cGetPendingAudioDuration(JNIEnv *env, jclass clazz) {
     return LiGetPendingAudioDuration();
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_getPendingVideoFrames(JNIEnv *env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cGetPendingVideoFrames(JNIEnv *env, jclass clazz) {
     return LiGetPendingVideoFrames();
 }
 
@@ -205,7 +205,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_stringifyPortFlags(JNIEnv *env, jclas
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_getEstimatedRttInfo(JNIEnv *env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cGetEstimatedRttInfo(JNIEnv *env, jclass clazz) {
     uint32_t rtt, variance;
 
     if (!LiGetEstimatedRttInfo(&rtt, &variance)) {

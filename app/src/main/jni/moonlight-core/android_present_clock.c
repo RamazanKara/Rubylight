@@ -26,7 +26,7 @@ void BridgeClClockSync(const uint8_t* payload, int length) {
 
 // Starts a clock for a new stream; minIntervalUs is the display's shortest refresh interval.
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_presentClockStart(JNIEnv* env, jclass clazz, jint minIntervalUs) {
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockStart(JNIEnv* env, jclass clazz, jint minIntervalUs) {
     (void)env; (void)clazz;
     RpPresentSettings settings;
     rp_present_settings_default(&settings);
@@ -40,7 +40,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_presentClockStart(JNIEnv* env, jclass
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_presentClockStop(JNIEnv* env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockStop(JNIEnv* env, jclass clazz) {
     (void)env; (void)clazz;
     pthread_mutex_lock(&presentClockMutex);
     RpPresentClock* old = presentClock;
@@ -51,7 +51,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_presentClockStop(JNIEnv* env, jclass 
 
 // Forgets the frames seen (a decoder restart or a new stream size); clock sync stays.
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_presentClockReset(JNIEnv* env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockReset(JNIEnv* env, jclass clazz) {
     (void)env; (void)clazz;
     pthread_mutex_lock(&presentClockMutex);
     if (presentClock) rp_present_clock_reset(presentClock);
@@ -62,7 +62,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_presentClockReset(JNIEnv* env, jclass
 // the RTP timestamp in microseconds) and that was ready at readyNs. Writes present time (ns),
 // hold (us), host-to-present latency (us, -1 without clock sync) and late (0/1) to out[0..3].
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_presentClockSchedule(JNIEnv* env, jclass clazz, jlong hostUs,
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockSchedule(JNIEnv* env, jclass clazz, jlong hostUs,
                                                                jlong readyNs, jlongArray out) {
     (void)clazz;
     if (hostUs < 0 || readyNs <= 0 || (*env)->GetArrayLength(env, out) < 4) return JNI_FALSE;
@@ -84,7 +84,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_presentClockSchedule(JNIEnv* env, jcl
 
 // Frames scheduled, frames late and the clock sync round trip (us, -1 without) to out[0..2].
 JNIEXPORT jboolean JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_presentClockStats(JNIEnv* env, jclass clazz, jlongArray out) {
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockStats(JNIEnv* env, jclass clazz, jlongArray out) {
     (void)clazz;
     if ((*env)->GetArrayLength(env, out) < 3) return JNI_FALSE;
     uint64_t frames = 0, late = 0;

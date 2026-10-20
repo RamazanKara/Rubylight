@@ -200,6 +200,7 @@ These tables include every preference, including actions, grouped as the Setting
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
 | Show decode time after streaming<br>`checkbox_enable_post_stream_toast` | Off | On; Off | Enable to see the average decode time after a session ends; it is not end-to-end latency. |
+| New streaming engine (beta)<br>`checkbox_rust_engine` | Off | On; Off | Off by default. Enable to stream with Nightjar's new engine (written in Rust) instead of the current one. Streams it does not handle yet (PyroWave, remote monitor sessions, hosts older than GFE 3.22) keep the current engine automatically. Applies from the next stream; turn it off if a stream fails to start or misbehaves, and report the problem. |
 | Latency benchmark<br>`latency_benchmark` | No stored default | Action | Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing. |
 | Export latency CSV<br>`export_latency_csv` | No stored default | Action | Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings. |
 

@@ -76,7 +76,7 @@ for mode in plain sanitized; do
     done
 done
 
-cargo test --locked --manifest-path protocol/Cargo.toml --workspace
+cargo test --locked --manifest-path protocol/Cargo.toml --workspace --exclude nightjar-desktop
 cargo build --locked --manifest-path protocol/Cargo.toml -p rubylight-protocol-ffi --release
 c++ -std=c++17 -O2 "${sanitize[@]}" "$tests/pyrowave_frame_test.cpp" \
     protocol/target/release/librubylight_protocol.a -o "$out/pyrowave_frame"

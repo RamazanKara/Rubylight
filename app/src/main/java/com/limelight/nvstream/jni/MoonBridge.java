@@ -417,11 +417,6 @@ public class MoonBridge {
         rustEngineRequested = requested;
     }
 
-    /** Whether the current (or last) stream runs on the Rust engine. */
-    public static boolean isRustStream() {
-        return rustStream;
-    }
-
     public static int startConnection(String address, String appVersion, String gfeVersion,
                                       String rtspSessionUrl, int serverCodecModeSupport,
                                       int width, int height, int fps,

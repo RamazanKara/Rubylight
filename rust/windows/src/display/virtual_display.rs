@@ -197,8 +197,9 @@ pub struct VirtualDisplay {
     pub(super) last_feed: Instant,
     last_renew: Instant,
     mode: (u32, u32, u32),
-    /// Windows showed `mode` the last time it was set.
-    mode_applied: std::sync::atomic::AtomicBool,
+    /// Windows showed `mode`'s resolution after it was last set, at that or a
+    /// slower refresh it accepted.
+    size_applied: std::sync::atomic::AtomicBool,
     options: VirtualOptions,
     pub(super) generation: u64,
     startup_protection: Option<hotplug::Protection>,
@@ -384,7 +385,7 @@ impl VirtualDisplay {
             last_feed: Instant::now(),
             last_renew: Instant::now(),
             mode: (width, height, fps),
-            mode_applied: std::sync::atomic::AtomicBool::new(false),
+            size_applied: std::sync::atomic::AtomicBool::new(false),
             options,
             generation: 0,
             startup_protection: Some(startup_protection),
@@ -587,6 +588,7 @@ impl VirtualDisplay {
         );
         let actual = current_timing(&self.name);
         let requested = format_timing(self.mode);
+        let mut size_applied = true;
         let applied = match mode_outcome(self.mode, actual.as_ref().ok().copied()) {
             // Applied tolerates rational rates: log what Windows shows.
             ModeOutcome::Applied => {
@@ -619,6 +621,7 @@ impl VirtualDisplay {
                 // the requested size keeps its refresh, as a refused raise does.
                 let wrong_size =
                     !matches!(outcome, ModeOutcome::Kept((w, h, _)) if (w, h) == (width, height));
+                size_applied = !wrong_size;
                 if wrong_size && let Some(fallback) = fallback_rate(&offered, rate) {
                     let retried = Topology::set_mode_rate(
                         &self.name,
@@ -627,7 +630,8 @@ impl VirtualDisplay {
                         butterpollo_core::framegen::Rate(fallback),
                     );
                     let now = current_timing(&self.name).ok();
-                    if now.is_some_and(|(w, h, _)| (w, h) == (width, height)) {
+                    size_applied = now.is_some_and(|(w, h, _)| (w, h) == (width, height));
+                    if size_applied {
                         tracing::info!(
                             output = %self.name,
                             stage,
@@ -648,8 +652,8 @@ impl VirtualDisplay {
                 false
             }
         };
-        self.mode_applied
-            .store(applied, std::sync::atomic::Ordering::Relaxed);
+        self.size_applied
+            .store(size_applied, std::sync::atomic::Ordering::Relaxed);
         applied
     }
     /// Raise the refresh in place for a stream that asks for more than its
@@ -670,19 +674,22 @@ impl VirtualDisplay {
         self.mode = previous;
         None
     }
-    /// Make a mode the user chose in Windows the one later layouts, resumes
-    /// and recoveries put back. Windows shows it, so the driver offers it.
-    pub(super) fn adopt_mode(&mut self, mode: (u32, u32, u32)) {
-        self.mode = mode;
-        self.mode_applied
+    /// Make a resolution the user chose in Windows the one later layouts,
+    /// resumes and recoveries put back. Windows shows it, so the driver offers
+    /// it. The refresh stays the stream's (VRR's 1000 Hz, say); one Windows
+    /// refuses falls back at this resolution as for any other.
+    pub(super) fn adopt_size(&mut self, width: u32, height: u32) {
+        self.mode.0 = width;
+        self.mode.1 = height;
+        self.size_applied
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    /// The stream's mode, when Windows showed it the last time it was set: a
-    /// display at another mode then is the user's choice, not a refusal.
-    pub(super) fn applied_mode(&self) -> Option<(u32, u32, u32)> {
-        self.mode_applied
+    /// The stream's resolution, when Windows showed it after it was last set:
+    /// a display at another one then is the user's choice, not a refusal.
+    pub(super) fn applied_size(&self) -> Option<(u32, u32)> {
+        self.size_applied
             .load(std::sync::atomic::Ordering::Relaxed)
-            .then_some(self.mode)
+            .then_some((self.mode.0, self.mode.1))
     }
     fn renew(&mut self) -> Result<()> {
         self.last_renew = Instant::now();

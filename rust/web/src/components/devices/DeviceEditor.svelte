@@ -247,7 +247,7 @@
     />
     <Toggle
       label="Remember the resolution I pick"
-      hint="When you change this device's own virtual display in Windows during a stream, such as 1440p under a 4K stream, Rubylight saves it as the display mode above when the stream ends and uses it from the next stream. The stream keeps the resolution the device asks for."
+      hint={`When you change the resolution of this device's own virtual display in Windows during a stream, such as 1440p under a 4K stream, the next streams start at it. The stream keeps the resolution the device asks for, and the refresh rate and VRR follow the stream as usual. A display mode above comes first.${draft.remember_display_mode && draft.remembered_resolution ? ` Kept now: ${draft.remembered_resolution}.` : ''}`}
       bind:checked={draft.remember_display_mode}
     />
   </section>

@@ -83,6 +83,9 @@ pub(crate) fn virtual_display_layout<'a>(
 
 /// The device setting naming the app or host layout a learned device layout replaced.
 pub(crate) const LEARNED_OVER: &str = "virtual_display_layout_learned_over";
+/// The resolution a device with `remember_display_mode` keeps for its virtual
+/// display, `WIDTHxHEIGHT`, from the last stream it was changed in Windows.
+pub(crate) const REMEMBERED_RESOLUTION: &str = "remembered_resolution";
 
 /// The virtual display layout without the device's own: the app's, then the host's.
 fn inherited_layout<'a>(
@@ -127,9 +130,8 @@ pub fn client_display(launch: &Launch) -> Option<HostDisplay> {
 type RequestedMode = (Option<(u32, u32)>, Option<u32>, Option<bool>);
 /// Resolution, refresh in millihertz and HDR a display shows.
 type AppliedMode = (u32, u32, u32, bool);
-/// The width, height and millihertz a stream set on its virtual display, and
-/// those Windows shows.
-type ModeChange = ((u32, u32, u32), (u32, u32, u32));
+/// The resolution a stream set on its virtual display, and the one Windows shows.
+type SizeChange = ((u32, u32), (u32, u32));
 
 fn applied_mode(output: &str) -> Result<AppliedMode> {
     let topology = butterpollo_windows::display::Topology::query()?;
@@ -202,11 +204,9 @@ impl ModeReport {
         state.requested = requested;
         state.stream_rate = stream_rate;
     }
-    /// The display now runs at a mode the user chose, which the stream keeps.
-    fn adopt(&self, resolution: (u32, u32), refresh: u32) {
-        let mut state = self.0.lock().unwrap();
-        state.requested.0 = Some(resolution);
-        state.requested.1 = Some(refresh);
+    /// The display now runs at a resolution the user chose, which the stream keeps.
+    fn adopt(&self, resolution: (u32, u32)) {
+        self.0.lock().unwrap().requested.0 = Some(resolution);
     }
 }
 
@@ -286,7 +286,7 @@ impl Drop for StreamPreparation {
             let mut prepared = self.display._state.lock().unwrap();
             if self.display.active.fetch_sub(1, Ordering::AcqRel) == 1 {
                 prepared.keep_chosen_layout();
-                prepared.keep_chosen_mode();
+                prepared.keep_chosen_resolution();
             }
         }
         if let Some(retained) = &self.display.retained {
@@ -494,15 +494,16 @@ pub struct Prepared {
     layout_owner: Option<String>,
     /// The app or host layout a layout learned for the device replaces.
     inherited_layout: Option<String>,
-    /// The device that keeps the mode the user chose during the stream
-    /// (`remember_display_mode`): a stream on its own virtual display.
-    mode_owner: Option<String>,
+    /// The device that keeps the resolution the user chose during the stream
+    /// (`remember_display_mode`): a stream on its own virtual display without
+    /// a display mode of its own.
+    resolution_owner: Option<String>,
     /// A topology fixture keeps lifecycle tests independent of the real desktop.
     #[cfg(test)]
     layout_snapshot: Option<Vec<(String, bool)>>,
-    /// The mode the stream set and the one shown, for lifecycle tests.
+    /// The resolution the stream set and the one shown, for lifecycle tests.
     #[cfg(test)]
-    mode_snapshot: Option<ModeChange>,
+    size_snapshot: Option<SizeChange>,
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
@@ -918,6 +919,29 @@ impl Prepared {
             request.refresh = Some(framegen.display_rate.0);
             request.prefer_highest = false;
         }
+        // A resolution the device kept from Windows replaces only the
+        // resolution: the refresh follows the stream as usual. A shared display
+        // keeps the first stream's mode for all, and a display mode set for
+        // the device comes first.
+        let remember = launch.role == Role::Stream
+            && virtual_mode
+            && mode != "shared"
+            && device_mode.is_none()
+            && launch
+                .client
+                .extra
+                .get("remember_display_mode")
+                .is_some_and(|v| v == true || v == "true");
+        if remember
+            && let Some(resolution) = launch
+                .client
+                .extra
+                .get(REMEMBERED_RESOLUTION)
+                .and_then(serde_json::Value::as_str)
+                .and_then(butterpollo_core::display_policy::parse_resolution)
+        {
+            request.resolution = Some(resolution);
+        }
         if request.prefer_highest && !virtual_mode {
             request.refresh =
                 Some(butterpollo_windows::display::highest_refresh(output, request.resolution)?.0);
@@ -1177,21 +1201,11 @@ impl Prepared {
                 virtual_layout: virtual_layout.then(|| selection.to_owned()),
                 inherited_layout: virtual_layout
                     .then(|| inherited_layout(config, app.as_ref()).to_owned()),
-                // A shared display keeps the first stream's mode for all.
-                mode_owner: (launch.role == Role::Stream
-                    && virtual_mode
-                    && owns_display
-                    && mode != "shared"
-                    && launch
-                        .client
-                        .extra
-                        .get("remember_display_mode")
-                        .is_some_and(|v| v == true || v == "true"))
-                .then(|| launch.client.uuid.clone()),
+                resolution_owner: (remember && owns_display).then(|| launch.client.uuid.clone()),
                 #[cfg(test)]
                 layout_snapshot: None,
                 #[cfg(test)]
-                mode_snapshot: None,
+                size_snapshot: None,
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
@@ -1255,58 +1269,56 @@ impl Prepared {
             tracing::warn!(%error, "the device's display layout could not be saved");
         }
     }
-    /// The mode the stream sets on its own virtual display and the one
+    /// The resolution the stream sets on its own virtual display and the one
     /// Windows shows.
-    fn mode_change(&self) -> Option<ModeChange> {
+    fn size_change(&self) -> Option<SizeChange> {
         #[cfg(test)]
-        if let Some(snapshot) = self.mode_snapshot {
+        if let Some(snapshot) = self.size_snapshot {
             return Some(snapshot);
         }
-        let set = self.display.as_ref()?.virtual_mode()?;
+        let set = self.display.as_ref()?.virtual_size()?;
         match applied_mode(&self.output) {
-            Ok((width, height, refresh, _)) => Some((set, (width, height, refresh))),
+            Ok((width, height, _, _)) => Some((set, (width, height))),
             Err(error) => {
-                tracing::debug!(%error, "the display mode at the end of the stream could not be read");
+                tracing::debug!(%error, "the display resolution at the end of the stream could not be read");
                 None
             }
         }
     }
-    /// Keep the mode the user chose for the stream's display in Windows (1440p
-    /// under a 4K stream, say) as the device's display mode when its last
-    /// stream disconnects, and put it back on resume and recovery from now on.
-    fn keep_chosen_mode(&mut self) {
-        let Some(uuid) = self.mode_owner.clone() else {
+    /// Keep the resolution the user chose for the stream's display in Windows
+    /// (1440p under a 4K stream, say) for the device when its last stream
+    /// disconnects, and put it back on resume and recovery from now on. The
+    /// refresh is not kept: it stays the stream's, so VRR and the virtual
+    /// refresh multipliers keep working.
+    fn keep_chosen_resolution(&mut self) {
+        let Some(uuid) = self.resolution_owner.clone() else {
             return;
         };
         let Some(h) = self.host.upgrade() else {
             return;
         };
-        let Some((set, shown)) = self.mode_change() else {
+        let Some((set, (width, height))) = self.size_change() else {
             return;
         };
-        let Some(chosen) = butterpollo_core::display_policy::chosen_mode(set, shown) else {
+        if (width, height) == set || width == 0 || height == 0 {
             return;
-        };
-        let Some((width, height, rate)) =
-            butterpollo_core::display_policy::parse_display_mode(&chosen)
-        else {
-            return;
-        };
+        }
         if let Some(display) = &self.display {
-            display.adopt_virtual_mode((width, height, rate.0));
+            display.adopt_virtual_size(width, height);
         }
         self.recovery_dimensions = (width, height);
-        self.mode_report.adopt((width, height), rate.0);
+        self.mode_report.adopt((width, height));
         let mut paired = h.paired.write().unwrap();
         let Some(client) = paired.clients.iter_mut().find(|c| c.uuid == uuid) else {
             return;
         };
-        tracing::info!(client = %client.name, display_mode = %chosen, "keeping the display mode chosen during the stream for this device");
+        let chosen = format!("{width}x{height}");
+        tracing::info!(client = %client.name, resolution = %chosen, "keeping the display resolution chosen during the stream for this device");
         client
             .extra
-            .insert("display_mode".into(), serde_json::json!(chosen));
+            .insert(REMEMBERED_RESOLUTION.into(), serde_json::json!(chosen));
         if let Err(error) = paired.save(&h.paired_path) {
-            tracing::warn!(%error, "the device's display mode could not be saved");
+            tracing::warn!(%error, "the device's display resolution could not be saved");
         }
     }
 }
@@ -1609,9 +1621,9 @@ mod tests {
             virtual_layout: Some("extended".into()),
             layout_owner: None,
             inherited_layout: Some("extended".into()),
-            mode_owner: None,
+            resolution_owner: None,
             layout_snapshot: None,
-            mode_snapshot: None,
+            size_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
@@ -1679,33 +1691,44 @@ mod tests {
     }
 
     #[test]
-    fn a_mode_chosen_during_the_stream_is_kept_for_the_device_at_disconnect() {
+    fn a_resolution_chosen_during_the_stream_is_kept_for_the_device_at_disconnect() {
         let fixture = crate::state::test_support::Fixture::new();
         let client = fixture.client(u32::MAX);
         let config = Config::parse("dd_config_revert_delay=0").unwrap();
         *fixture.host.config.write().unwrap() = config.clone();
-        let display_mode = || {
-            fixture.host.paired.read().unwrap().clients[0]
-                .extra
-                .get("display_mode")
-                .cloned()
+        let kept = || {
+            let paired = fixture.host.paired.read().unwrap();
+            let extra = &paired.clients[0].extra;
+            assert_eq!(
+                extra.get("display_mode"),
+                None,
+                "the refresh is never pinned"
+            );
+            extra.get(REMEMBERED_RESOLUTION).cloned()
         };
-        for (owner, expected) in [
-            (false, None),
-            (true, Some(serde_json::json!("2560x1440x120"))),
+        let uhd = (3840, 2160);
+        let qhd = (2560, 1440);
+        for (owner, shown, expected) in [
+            // Not opted in.
+            (false, qhd, None),
+            // Untouched: a refresh Windows lowered (VRR's 1000 Hz) is not a choice.
+            (true, uhd, None),
+            // Issue #36: 1440p picked in Windows under a 4K stream.
+            (true, qhd, Some(serde_json::json!("2560x1440"))),
         ] {
             let mut prepared = test_prepared(&fixture.host);
-            prepared.mode_owner = owner.then(|| client.uuid.clone());
-            prepared.mode_snapshot = Some(((3840, 2160, 120_000), (2560, 1440, 119_998)));
+            prepared.recovery_dimensions = uhd;
+            prepared.resolution_owner = owner.then(|| client.uuid.clone());
+            prepared.size_snapshot = Some((uhd, shown));
             let limiter =
                 limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen)
                     .unwrap();
             let stream = Ready::prepare((prepared, limiter)).unwrap();
             let display = stream.display.clone();
             drop(stream);
-            assert_eq!(display_mode(), expected);
+            assert_eq!(kept(), expected);
             let dimensions = display._state.lock().unwrap().recovery_dimensions;
-            assert_eq!(dimensions, if owner { (2560, 1440) } else { (640, 480) });
+            assert_eq!(dimensions, if expected.is_some() { qhd } else { uhd });
         }
     }
 
@@ -2192,9 +2215,9 @@ mod tests {
             virtual_layout: None,
             layout_owner: None,
             inherited_layout: None,
-            mode_owner: None,
+            resolution_owner: None,
             layout_snapshot: None,
-            mode_snapshot: None,
+            size_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),

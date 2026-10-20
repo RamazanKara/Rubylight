@@ -49,9 +49,11 @@ public class AdaptiveGridView extends GridView {
 
     /**
      * D-pad and keyboard focus stays on the grid, which moves a selection over its cards. A card's
-     * overflow button cannot take focus without breaking taps on the card, so the grid steps onto it:
-     * toward the end edge (right in left-to-right layouts) from a selected card marks its overflow
-     * button, Enter or the A button opens it, and the opposite direction returns to the card.
+     * overflow button cannot take focus without breaking taps on the card, so the grid steps onto it,
+     * but only where the end direction (right in left-to-right layouts) has no further card: at the
+     * end of a row or on the last card. Elsewhere that direction moves card to card in one press;
+     * a long press of the select button, Menu and Shift+F10 open any card's options directly. On a marked
+     * button, Enter or the A button opens it and the opposite direction returns to the card.
      */
     private View markedAction;
 
@@ -61,7 +63,7 @@ public class AdaptiveGridView extends GridView {
             View action = selectedAction();
             int towardAction = getLayoutDirection() == LAYOUT_DIRECTION_RTL ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
             int towardCard = towardAction == KeyEvent.KEYCODE_DPAD_RIGHT ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
-            if (markedAction == null && action != null && keyCode == towardAction) {
+            if (markedAction == null && action != null && keyCode == towardAction && atRowEnd()) {
                 markAction(action);
                 return true;
             }
@@ -105,6 +107,13 @@ public class AdaptiveGridView extends GridView {
         View card = getSelectedView();
         View action = card == null ? null : card.findViewById(R.id.grid_more);
         return action != null && action.getVisibility() == VISIBLE && action.isEnabled() ? action : null;
+    }
+
+    /** No card follows the selected one in its row, so the end direction has nowhere else to go. */
+    private boolean atRowEnd() {
+        int position = getSelectedItemPosition();
+        int columns = Math.max(1, getNumColumns());
+        return position == INVALID_POSITION || position % columns == columns - 1 || position == getCount() - 1;
     }
 
     boolean isActionMarked() {

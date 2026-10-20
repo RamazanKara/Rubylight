@@ -299,13 +299,14 @@ public class UiNavigationTest {
             AdaptiveGridView grid = computerGrid(screen, menus);
             layout(screen);
             grid.requestFocus();
-            grid.setSelection(0);
+            // The last card: no neighbour to its right, so the options button is next.
+            grid.setSelection(1);
             layout(screen);
             View more = grid.getSelectedView().findViewById(R.id.grid_more);
             press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
             assertTrue(grid.isActionMarked());
             assertTrue("the options button shows the focus ring", more.isHovered());
-            assertEquals(0, grid.getSelectedItemPosition());
+            assertEquals(1, grid.getSelectedItemPosition());
             press(grid, KeyEvent.KEYCODE_DPAD_CENTER);
             assertEquals(1, menus.get());
             press(grid, KeyEvent.KEYCODE_DPAD_LEFT);
@@ -314,6 +315,34 @@ public class UiNavigationTest {
             press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
             press(grid, KeyEvent.KEYCODE_DPAD_DOWN);
             assertFalse("moving on leaves the options button", grid.isActionMarked());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void dpadMovesCardToCardInOnePressAndMarksOptionsOnlyAtTheRowEnd() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            screen.setContentView(R.layout.activity_pc_view);
+            AdaptiveGridView grid = computerGrid(screen, new AtomicInteger());
+            layout(screen);
+            grid.setNumColumns(2);
+            layout(screen);
+            grid.requestFocus();
+            grid.setSelection(0);
+            layout(screen);
+            press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
+            assertFalse("a card with a neighbour does not stop on its options", grid.isActionMarked());
+            assertEquals(1, grid.getSelectedItemPosition());
+            press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
+            assertTrue("the last card in the row steps onto its options", grid.isActionMarked());
+            assertEquals(1, grid.getSelectedItemPosition());
+            press(grid, KeyEvent.KEYCODE_DPAD_LEFT);
+            assertFalse(grid.isActionMarked());
+            press(grid, KeyEvent.KEYCODE_DPAD_LEFT);
+            assertEquals(0, grid.getSelectedItemPosition());
         } finally {
             controller.pause().stop().destroy();
         }

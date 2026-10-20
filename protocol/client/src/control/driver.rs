@@ -179,6 +179,12 @@ impl ControlHandle {
         result
     }
 
+    /// Runs `f` on the session without waking the control thread, for state that waits for
+    /// its next service (at most 5 ms), such as per-frame connection quality.
+    pub fn with_session_quiet<R>(&self, f: impl FnOnce(&mut ControlSession) -> R) -> R {
+        f(&mut lock(&self.shared.session))
+    }
+
     /// Runs `f` on the input queue and wakes the control thread.
     pub fn with_input<R>(&self, f: impl FnOnce(&mut InputQueue) -> R) -> R {
         let result = f(&mut lock(&self.shared.input));

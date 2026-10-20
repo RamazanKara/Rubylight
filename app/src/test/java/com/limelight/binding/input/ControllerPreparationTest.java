@@ -91,7 +91,9 @@ public class ControllerPreparationTest {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
             Connection connection = new Connection(73);
-            ControllerHandler handler = handler(activity.get(), connection);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
             try {
                 handler.resendControllerArrivals();
                 assertEquals(1, connection.arrivals);
@@ -100,6 +102,7 @@ public class ControllerPreparationTest {
                 handler.onInputDeviceAdded(3);
                 assertEquals(2, connection.arrivals);
                 assertEquals(2, connection.inputs);
+                assertEquals(3, connection.activeMask);
             } finally { handler.destroy(); }
         }
     }

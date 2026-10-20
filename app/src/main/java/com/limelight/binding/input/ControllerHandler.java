@@ -620,13 +620,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (!devContext.external) {
                 LimeLog.info("Built-in buttons hardcoded as controller 0");
                 context.controllerNumber = 0;
-                if (devContext.hasJoystickAxes && (currentControllers & 1) == 0) {
+                if ((devContext.hasJoystickAxes || hasGamepadButtons(devContext.inputDevice)) && (currentControllers & 1) == 0) {
                     currentControllers |= 1;
                     initialControllers &= ~1;
                     context.reservedControllerNumber = true;
                 }
             }
-            else if (prefConfig.multiController && devContext.hasJoystickAxes) {
+            else if (prefConfig.multiController && (devContext.hasJoystickAxes ||
+                    (hasGamepadButtons(devContext.inputDevice) &&
+                            !isAssociatedJoystick(devContext.inputDevice, InputDevice.getDevice(devContext.id + 1)) &&
+                            !isAssociatedJoystick(devContext.inputDevice, InputDevice.getDevice(devContext.id - 1))))) {
                 context.controllerNumber = 0;
 
                 LimeLog.info("Reserving the next available controller number");
@@ -3770,7 +3773,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
             if (type != MoonBridge.LI_CTYPE_PS && sensorManager != null) {
                 // Override the detected controller type if we're emulating motion sensors on an Xbox controller
-                Toast.makeText(activityContext, activityContext.getResources().getText(R.string.toast_controller_type_changed), Toast.LENGTH_LONG).show();
+                mainThreadHandler.post(() -> Toast.makeText(activityContext,
+                        R.string.toast_controller_type_changed, Toast.LENGTH_LONG).show());
                 reportedType = MoonBridge.LI_CTYPE_UNKNOWN;
 
                 // Remember that we should enable the clickpad emulation combo (Select+LB) for this device

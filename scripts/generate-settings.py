@@ -115,6 +115,7 @@ ADVICE = {
     "checkbox_usb_bind_all": "Enable to prefer the app's built-in Xbox USB driver even when Android already recognizes the controller.",
     "checkbox_enable_sops": "Leave on to request game optimization from hosts that implement it; the host decides whether it has an effect.",
     "checkbox_disable_warnings": "Enable to hide stream connection warnings once your connection is tuned.",
+    "checkbox_rust_engine": "Off by default. Enable to stream with Nightjar's new engine (written in Rust) instead of the current one. Streams it does not handle yet (PyroWave, remote monitor sessions, hosts older than GFE 3.22) keep the current engine automatically. Applies from the next stream; turn it off if a stream fails to start or misbehaves, and report the problem.",
     "export_latency_csv": "Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings.",
     "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode and Phone performance hints together; turn off only to test a decoding problem. The individual switches are also in Advanced; the row says when one is off.",
 }

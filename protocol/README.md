@@ -21,8 +21,8 @@ It holds:
 
 ## Building for Android
 
-The app links prebuilt static libraries from `app/src/main/jni/protocol/prebuilt/`, so a
-normal app build needs no Rust. After changing the crate, refresh them:
+The app links prebuilt static libraries of this crate from
+`app/src/main/jni/protocol/prebuilt/`. After changing the crate, refresh them:
 
 ```sh
 rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
@@ -31,3 +31,10 @@ protocol/tests/differential.sh # optional: 8 seeds x 2000 streams against the ol
 ```
 
 Only the crate's own object goes into each archive (about 25 KB); it needs nothing but libc.
+
+The Rust streaming engine is different: `android/` (`nightjar-android`) builds
+`libnightjar_core.so`, the JNI bridge over `nightjar-core` behind the app's "New streaming
+engine" setting. It links Rust's std, ring and the app's libopus, so it is not committed:
+the Gradle task `buildRustEngine` (app/build.gradle) runs cargo for each ABI with the NDK's
+clang as compiler and linker and checks the 16 KiB segment alignment. A normal app build
+therefore needs rustup with the four targets above. See internal/RUST_CORE.md.

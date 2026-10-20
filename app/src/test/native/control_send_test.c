@@ -256,12 +256,12 @@ static const uint8_t* plaintext(const ENetPacket* packet, uint16_t* type, uint16
 
 static jboolean sendAudio(int kind, const uint8_t* bytes, int length) {
     FakeByteArray array = {length, bytes};
-    return Java_com_limelight_nvstream_jni_MoonBridge_sendControllerAudio(&env, NULL, kind, (jbyteArray)&array);
+    return Java_com_limelight_nvstream_jni_MoonBridge_cSendControllerAudio(&env, NULL, kind, (jbyteArray)&array);
 }
 
 static jboolean sendCommand(const uint8_t* bytes, int length) {
     FakeByteArray array = {length, bytes};
-    return Java_com_limelight_nvstream_jni_MoonBridge_sendServerCommand(&env, NULL, (jbyteArray)&array);
+    return Java_com_limelight_nvstream_jni_MoonBridge_cSendServerCommand(&env, NULL, (jbyteArray)&array);
 }
 
 static void serverCommandsUseReliableEncryptedServerControlPackets(void) {
@@ -497,7 +497,7 @@ static void phaseLockReportsNeedTheHostsAnnouncement(void) {
     const uint16_t display[] = {0x5531};
     announce(display, 1);
     for (int i = 0; i < 3; i++) {
-        CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
+        CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
         fakeNowMs += 600;
     }
     CHECK(sentCount == 0);
@@ -505,11 +505,11 @@ static void phaseLockReportsNeedTheHostsAnnouncement(void) {
     reset();
     const uint16_t phase[] = {RP_PHASE_REPORT_MESSAGE_TYPE};
     announce(phase, 1);
-    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
     fakeNowMs += 600;
-    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_TRUE);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_TRUE);
     CHECK(sentCount == 0);
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1 && sentChannels[0] == CTRL_CHANNEL_GENERIC && sent[0]->flags == 0);
     uint16_t type, length;
     plaintext(sent[0], &type, &length);
@@ -519,14 +519,14 @@ static void phaseLockReportsNeedTheHostsAnnouncement(void) {
 
 static void queuePhaseReport(void) {
     fakeNowMs += 600;
-    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_TRUE);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_TRUE);
 }
 
 static void startPhaseReports(void) {
     reset();
     const uint16_t phase[] = {RP_PHASE_REPORT_MESSAGE_TYPE};
     announce(phase, 1);
-    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
 }
 
 static void phaseMailboxKeepsOnlyFreshNegotiatedReports(void) {
@@ -535,37 +535,37 @@ static void phaseMailboxKeepsOnlyFreshNegotiatedReports(void) {
     fakePhaseLead = 0x20;
     queuePhaseReport();
     CHECK(sentCount == 0);
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1);
     uint16_t type, length;
     CHECK(plaintext(sent[0], &type, &length)[8] == 0x20);
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1); // Consumed once, even if another handler message was queued.
 
     queuePhaseReport();
     fakeNowMs += PHASE_LOCK_MAX_REPORT_AGE_MS + 1;
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1);
 
     queuePhaseReport();
     fakeNowMs--; // Invalid clock ordering must not revive a report.
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1);
 
     queuePhaseReport();
     resetHostControlMessages();
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1);
     const uint16_t phase[] = {RP_PHASE_REPORT_MESSAGE_TYPE};
     announce(phase, 1);
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1); // Unsupported reports were discarded, not retained for a new host.
 
     queuePhaseReport();
     resetPhaseLockReports();
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1);
-    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_getPhaseLockLeadUs(&env, NULL) == INT32_MIN);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cGetPhaseLockLeadUs(&env, NULL) == INT32_MIN);
     freeSent();
 }
 
@@ -589,7 +589,7 @@ static void samplePhaseWithoutWaitingForNetwork(void) {
 }
 
 static void* flushPhaseFromBackground(void* context) {
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     atomic_store(&phaseFlushDone, true);
     return NULL;
 }
@@ -623,7 +623,7 @@ static void phaseSamplingNeverWaitsForTheNetworkSender(void) {
     CHECK(sentCount == 1);
     uint16_t type, length;
     CHECK(plaintext(sent[0], &type, &length)[8] == 0x10);
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 2 && plaintext(sent[1], &type, &length)[8] == 0x30);
     freeSent();
 }
@@ -646,7 +646,7 @@ static void phaseResetWaitsForTheOldFlushAndClearsItsSuccessor(void) {
     CHECK(pthread_join(flusher, NULL) == 0);
     CHECK(pthread_join(resetter, NULL) == 0);
     CHECK(atomic_load(&phaseResetDone));
-    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1 && !phaseLockReportPending);
     freeSent();
 }
@@ -663,13 +663,13 @@ static void clockSyncProbesNeedTheHostsAnnouncement(void) {
     reset();
     const uint16_t others[] = {0x5531, 0x5536};
     announce(others, 2);
-    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_sendClockSyncProbe(&env, NULL) == JNI_FALSE);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cSendClockSyncProbe(&env, NULL) == JNI_FALSE);
     CHECK(sentCount == 0);
 
     const uint16_t clock[] = {RL_CLOCK_SYNC_MESSAGE_TYPE};
     announce(clock, 1);
     for (int i = 0; i < 2; i++) {
-        CHECK(Java_com_limelight_nvstream_jni_MoonBridge_sendClockSyncProbe(&env, NULL) == JNI_TRUE);
+        CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cSendClockSyncProbe(&env, NULL) == JNI_TRUE);
     }
     CHECK(sentCount == 2);
     uint32_t sequences[2];
@@ -683,7 +683,7 @@ static void clockSyncProbesNeedTheHostsAnnouncement(void) {
     CHECK(sequences[1] == sequences[0] + 1);
 
     stopping = true;
-    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_sendClockSyncProbe(&env, NULL) == JNI_FALSE);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cSendClockSyncProbe(&env, NULL) == JNI_FALSE);
     CHECK(sentCount == 2);
     freeSent();
 }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "client", "ffi", "difftest", "cli"]
+members = ["core", "client", "ffi", "difftest", "cli", "android"]
 resolver = "2"
 
 [workspace.package]

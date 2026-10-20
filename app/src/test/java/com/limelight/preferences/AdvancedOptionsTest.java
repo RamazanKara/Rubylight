@@ -53,7 +53,7 @@ public class AdvancedOptionsTest {
             "checkbox_codec_low_latency", "checkbox_vendor_low_latency", "checkbox_phone_performance_hints",
             "checkbox_codec_performance", "checkbox_drop_late_frames", "checkbox_unbatched_input",
             "checkbox_network_priority", "checkbox_texture_view", "checkbox_unlock_fps",
-            "export_latency_csv", "latency_benchmark", "checkbox_enable_post_stream_toast"
+            "export_latency_csv", "latency_benchmark", "checkbox_enable_post_stream_toast", "checkbox_rust_engine"
     };
 
     @Implements(value = PyroWaveDecoderRenderer.class, isInAndroidSdk = false)
@@ -252,6 +252,7 @@ public class AdvancedOptionsTest {
                 assertTrue(config.useTextureView);
                 assertFalse(config.networkPriority);
                 assertTrue(config.gpuMaxClocks);
+                assertFalse(config.rustEngine);
                 assertEquals("debug", prefs().getString("performance_overlay_mode", null));
             }
         }

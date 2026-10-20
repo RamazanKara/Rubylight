@@ -583,12 +583,12 @@ extern bool AndroidInputOnly;
 extern bool AndroidRemoteMonitor;
 
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_setNetworkGracePeriodMs(JNIEnv *env, jclass clazz, jint gracePeriodMs) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSetNetworkGracePeriodMs(JNIEnv *env, jclass clazz, jint gracePeriodMs) {
     LiSetNetworkGracePeriodMs(gracePeriodMs);
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_startConnection(JNIEnv *env, jclass clazz,
+Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass clazz,
                                                            jstring address, jstring appVersion, jstring gfeVersion,
                                                            jstring rtspSessionUrl, jint serverCodecModeSupport,
                                                            jint width, jint height, jint fps,

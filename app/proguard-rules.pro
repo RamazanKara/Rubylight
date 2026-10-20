@@ -3,7 +3,7 @@
     public <init>(android.app.Activity, com.limelight.binding.input.evdev.EvdevListener);
 }
 
-# Looked up by name from callbacks.c and pyrowave_renderer.cpp.
+# Looked up by name from callbacks.c, pyrowave_renderer.cpp and protocol/android/src/bridge.rs.
 -keepclassmembers class com.limelight.nvstream.jni.MoonBridge {
     public static *** bridge*(...);
 }

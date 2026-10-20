@@ -628,6 +628,11 @@
             android:title="@string/title_enable_post_stream_toast"
             android:dialogMessage="@string/summary_enable_post_stream_toast"
             android:defaultValue="false"/>
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_rust_engine"
+            android:title="@string/title_rust_engine"
+            android:dialogMessage="@string/summary_rust_engine"
+            android:defaultValue="false" />
         <Preference android:key="latency_benchmark" android:title="@string/latency_benchmark_title"
             android:summary="@string/settings_latency_benchmark_summary" />
         <Preference

@@ -1,0 +1,410 @@
+//! Platform-free pieces of the bridge: value conversions between the Java API (which mirrors
+//! moonlight-common-c's) and nightjar-core, and Nightjar's per-stream extras that lived in
+//! `android_control.c` and `android_microphone.c`. Unit-tested on the host.
+
+use std::time::Duration;
+
+use nightjar_core::control::{ClientMessage, CursorShape, HdrMetadata};
+use nightjar_core::input::queue::InputError;
+use nightjar_core::sdp::AudioConfiguration;
+use nightjar_core::session::Location;
+use rubylight_protocol::control::DisplayCaps;
+use rubylight_protocol::phase_lock::{self, SlackWindow};
+
+/// `LI_ERR_UNSUPPORTED`: the Java side falls back (touch to mouse, for example).
+pub const LI_ERR_UNSUPPORTED: i32 = -5501;
+
+/// The C API's return codes for input calls.
+pub fn input_result(result: Result<(), InputError>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(InputError::Stopped) => -2,
+        Err(InputError::Invalid) => -3,
+        Err(InputError::Unsupported) => LI_ERR_UNSUPPORTED,
+        Err(InputError::QueueFull) => -1,
+    }
+}
+
+/// `MAKE_AUDIO_CONFIGURATION`.
+pub fn audio_configuration_to_int(config: AudioConfiguration) -> i32 {
+    (i32::from(config.channel_mask) << 16) | (i32::from(config.channel_count) << 8) | 0xCA
+}
+
+/// The inverse, checking the magic byte.
+pub fn audio_configuration_from_int(value: i32) -> Option<AudioConfiguration> {
+    (value & 0xFF == 0xCA).then_some(AudioConfiguration {
+        channel_count: ((value >> 8) & 0xFF) as u8,
+        channel_mask: ((value >> 16) & 0xFFFF) as u16,
+    })
+}
+
+/// `STREAM_CFG_LOCAL`, `STREAM_CFG_REMOTE`, `STREAM_CFG_AUTO`.
+pub fn location(streaming_remotely: i32) -> Location {
+    match streaming_remotely {
+        0 => Location::Local,
+        1 => Location::Remote,
+        _ => Location::Auto,
+    }
+}
+
+/// `SS_HDR_METADATA` as the C struct lays it out (13 little-endian words).
+pub fn hdr_metadata_bytes(m: &HdrMetadata) -> [u8; 26] {
+    let words = [
+        m.display_primaries[0].0,
+        m.display_primaries[0].1,
+        m.display_primaries[1].0,
+        m.display_primaries[1].1,
+        m.display_primaries[2].0,
+        m.display_primaries[2].1,
+        m.white_point.0,
+        m.white_point.1,
+        m.max_display_luminance,
+        m.min_display_luminance,
+        m.max_content_light_level,
+        m.max_frame_average_light_level,
+        m.max_full_frame_luminance,
+    ];
+    let mut out = [0; 26];
+    for (i, word) in words.iter().enumerate() {
+        out[i * 2..i * 2 + 2].copy_from_slice(&word.to_le_bytes());
+    }
+    out
+}
+
+/// The 0x5541 message for a decoded shape, as the Java side parses it
+/// (docs/protocol/cursor-shape.md).
+pub fn cursor_shape_message(shape: &CursorShape) -> Vec<u8> {
+    let header = |kind: u8, id: u32| {
+        let mut out = vec![1, kind, 0, 0];
+        out.extend_from_slice(&id.to_le_bytes());
+        out
+    };
+    match shape {
+        CursorShape::Hide => header(0, 0),
+        CursorShape::Default => header(1, 0),
+        CursorShape::Show { id } => header(2, *id),
+        CursorShape::Image {
+            id,
+            width,
+            height,
+            hotspot_x,
+            hotspot_y,
+            scale_percent,
+            rgba,
+        } => {
+            let mut out = header(3, *id);
+            for word in [*width, *height, *hotspot_x, *hotspot_y] {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+            out.extend_from_slice(&[1, 0]);
+            out.extend_from_slice(&scale_percent.to_le_bytes());
+            out.extend_from_slice(rgba);
+            out
+        }
+    }
+}
+
+/// `getEstimatedRttInfo`: milliseconds in the top 32 bits, variance in the bottom, -1 without.
+pub fn rtt_info(rtt: Option<(Duration, Duration)>) -> i64 {
+    match rtt {
+        Some((rtt, variance)) => {
+            let ms = |d: Duration| (d.as_millis().min(u128::from(u32::MAX))) as u64;
+            ((ms(rtt) << 32) | ms(variance)) as i64
+        }
+        None => -1,
+    }
+}
+
+/// `rp_display_caps_encode`'s scaling: nits to the wire units, 0 for unknown.
+pub fn display_caps(hdr: bool, max_nits: f32, max_average_nits: f32, min_nits: f32) -> DisplayCaps {
+    let scale = |nits: f32, per_nit: f32| {
+        if nits.is_finite() && nits > 0.0 {
+            (nits * per_nit + 0.5).min(u32::MAX as f32) as u32
+        } else {
+            0
+        }
+    };
+    DisplayCaps {
+        hdr,
+        max_centinits: scale(max_nits, 100.0),
+        max_average_centinits: scale(max_average_nits, 100.0),
+        min_decimillinits: scale(min_nits, 10_000.0),
+    }
+}
+
+/// `sendControllerAudio`: a DualSense microphone block (0x5534) or an endpoint status
+/// (0x5535), with the checks `android_control.c` makes.
+pub fn controller_audio_message(kind: i32, payload: &[u8]) -> Option<ClientMessage> {
+    if !(8..=nightjar_core::control::haptics::MAX_PAYLOAD).contains(&payload.len()) {
+        return None;
+    }
+    let message = match kind {
+        0x5534 => ClientMessage::ControllerMicrophone(payload.to_vec()),
+        0x5535 => {
+            if payload.len() != 8 || payload[..2] != [1, 1] || payload[5..] != [0, 0, 0] {
+                return None;
+            }
+            ClientMessage::ControllerAudioStatus {
+                controller: u16::from_le_bytes([payload[2], payload[3]]),
+                flags: payload[4],
+            }
+        }
+        _ => return None,
+    };
+    message.is_valid().then_some(message)
+}
+
+/// The RTP timestamp back from moonlight-common-c's `presentationTimeUs`
+/// (`floor(rtp * 1000 / 90)`), as `android_present_clock.c` recovers it.
+pub fn rtp_from_presentation_us(us: u64) -> u32 {
+    (us * 9).div_ceil(100) as u32
+}
+
+/// Phase lock reports (`android_control.c`): frame slack is collected on the render path;
+/// every half second a report is made from at least ten frames, and the background sender
+/// sends the newest one if it is at most a second old.
+pub struct PhaseLockReports {
+    window: SlackWindow,
+    last_report_ms: u64,
+    pending: Option<(phase_lock::Report, u64)>,
+    lead_us: i32,
+}
+
+pub const PHASE_LOCK_REPORT_INTERVAL_MS: u64 = 500;
+const PHASE_LOCK_MIN_FRAMES: usize = 10;
+const PHASE_LOCK_MAX_REPORT_AGE_MS: u64 = 1000;
+
+impl Default for PhaseLockReports {
+    fn default() -> Self {
+        Self {
+            window: SlackWindow::default(),
+            last_report_ms: 0,
+            pending: None,
+            lead_us: i32::MIN,
+        }
+    }
+}
+
+impl PhaseLockReports {
+    /// Adds a frame; true when a new report is ready for [`Self::take`].
+    pub fn push(&mut self, slack_ns: i64, period_ns: i64, now_ms: u64) -> bool {
+        if self.last_report_ms == 0 {
+            self.last_report_ms = now_ms;
+        }
+        self.window.push(slack_ns, period_ns);
+        if now_ms - self.last_report_ms < PHASE_LOCK_REPORT_INTERVAL_MS {
+            return false;
+        }
+        self.last_report_ms = now_ms;
+        match self.window.report(PHASE_LOCK_MIN_FRAMES) {
+            Some(report) => {
+                self.lead_us = report.lead_ns / 1000;
+                self.pending = Some((report, now_ms));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The pending report if it is fresh; the mailbox is emptied either way.
+    pub fn take(&mut self, now_ms: u64) -> Option<phase_lock::Report> {
+        let (report, at) = self.pending.take()?;
+        (now_ms >= at && now_ms - at <= PHASE_LOCK_MAX_REPORT_AGE_MS).then_some(report)
+    }
+
+    /// The early edge of the last report in microseconds, `i32::MIN` before the first.
+    pub fn lead_us(&self) -> i32 {
+        self.lead_us
+    }
+}
+
+/// Opus frame sizes at 48 kHz from 2.5 to 60 ms, the ones `sendMicrophonePcm` takes.
+pub fn valid_microphone_frame(samples: usize) -> bool {
+    matches!(samples, 120 | 240 | 480 | 960 | 1920 | 2880)
+}
+
+/// A longer gap between microphone frames (mute, a stall) restarts the encoder.
+pub const MIC_RESET_GAP_MS: u64 = 200;
+
+/// Whether to encrypt every stream: only with hardware AES and more than two cores, as
+/// `callbacks.c` decides from cpufeatures.
+pub fn has_fast_aes() -> bool {
+    if std::thread::available_parallelism().map_or(1, |n| n.get()) <= 2 {
+        return false;
+    }
+    cpu_has_aes()
+}
+
+#[cfg(target_arch = "aarch64")]
+fn cpu_has_aes() -> bool {
+    std::arch::is_aarch64_feature_detected!("aes")
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn cpu_has_aes() -> bool {
+    std::arch::is_x86_feature_detected!("aes")
+}
+
+#[cfg(all(target_arch = "arm", target_os = "android"))]
+fn cpu_has_aes() -> bool {
+    const AT_HWCAP2: libc::c_ulong = 26;
+    const HWCAP2_AES: libc::c_ulong = 1;
+    unsafe { libc::getauxval(AT_HWCAP2) & HWCAP2_AES != 0 }
+}
+
+#[cfg(not(any(
+    target_arch = "aarch64",
+    target_arch = "x86",
+    target_arch = "x86_64",
+    all(target_arch = "arm", target_os = "android")
+)))]
+fn cpu_has_aes() -> bool {
+    // Assume new architectures have crypto acceleration, as callbacks.c does.
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_configurations_round_trip() {
+        assert_eq!(
+            audio_configuration_to_int(AudioConfiguration::STEREO),
+            0x0003_02CA
+        );
+        assert_eq!(
+            audio_configuration_to_int(AudioConfiguration::SURROUND_71),
+            0x063F_08CA
+        );
+        assert_eq!(
+            audio_configuration_from_int(0x003F_06CA),
+            Some(AudioConfiguration::SURROUND_51)
+        );
+        assert_eq!(audio_configuration_from_int(0x0003_0200), None);
+    }
+
+    #[test]
+    fn input_errors_map_to_the_c_codes() {
+        assert_eq!(input_result(Ok(())), 0);
+        assert_eq!(input_result(Err(InputError::Unsupported)), -5501);
+        assert_eq!(input_result(Err(InputError::Stopped)), -2);
+        assert_eq!(input_result(Err(InputError::Invalid)), -3);
+    }
+
+    #[test]
+    fn hdr_metadata_has_the_c_layout() {
+        let m = HdrMetadata {
+            display_primaries: [(1, 2), (3, 4), (5, 6)],
+            white_point: (7, 8),
+            max_display_luminance: 9,
+            min_display_luminance: 10,
+            max_content_light_level: 11,
+            max_frame_average_light_level: 12,
+            max_full_frame_luminance: 0x0d0e,
+        };
+        let bytes = hdr_metadata_bytes(&m);
+        assert_eq!(&bytes[..4], &[1, 0, 2, 0]);
+        assert_eq!(&bytes[12..16], &[7, 0, 8, 0]);
+        assert_eq!(&bytes[24..], &[0x0e, 0x0d]);
+    }
+
+    #[test]
+    fn cursor_shapes_encode_back_to_the_wire_form() {
+        let shapes = [
+            CursorShape::Hide,
+            CursorShape::Default,
+            CursorShape::Show { id: 7 },
+            CursorShape::Image {
+                id: 9,
+                width: 2,
+                height: 1,
+                hotspot_x: 1,
+                hotspot_y: 0,
+                scale_percent: 150,
+                rgba: vec![0xab; 8],
+            },
+        ];
+        for shape in shapes {
+            let message = cursor_shape_message(&shape);
+            assert_eq!(CursorShape::decode(&message), Ok(shape));
+        }
+    }
+
+    #[test]
+    fn rtt_info_packs_like_the_c() {
+        assert_eq!(rtt_info(None), -1);
+        let packed = rtt_info(Some((Duration::from_millis(12), Duration::from_millis(3))));
+        assert_eq!(packed, (12 << 32) | 3);
+    }
+
+    #[test]
+    fn display_caps_scale_like_the_ffi() {
+        let caps = display_caps(true, 1000.0, 400.0, 0.0005);
+        assert_eq!(
+            (
+                caps.hdr,
+                caps.max_centinits,
+                caps.max_average_centinits,
+                caps.min_decimillinits
+            ),
+            (true, 100_000, 40_000, 5)
+        );
+        assert_eq!(display_caps(false, f32::NAN, -1.0, 0.0).max_centinits, 0);
+    }
+
+    #[test]
+    fn controller_audio_is_checked() {
+        assert_eq!(
+            controller_audio_message(0x5535, &[1, 1, 3, 0, 5, 0, 0, 0]),
+            Some(ClientMessage::ControllerAudioStatus {
+                controller: 3,
+                flags: 5
+            })
+        );
+        assert!(controller_audio_message(0x5535, &[1, 1, 16, 0, 5, 0, 0, 0]).is_none());
+        assert!(controller_audio_message(0x5535, &[1, 1, 3, 0, 5, 0, 0, 1]).is_none());
+        let pcm = nightjar_core::control::haptics::encode(2, 1, &[0; 8]).unwrap();
+        assert!(controller_audio_message(0x5534, &pcm).is_some());
+        assert!(controller_audio_message(0x5534, &pcm[..pcm.len() - 1]).is_none());
+        assert!(controller_audio_message(0x5533, &pcm).is_none());
+    }
+
+    #[test]
+    fn rtp_timestamps_survive_the_presentation_time() {
+        for rtp in [0u32, 1, 89, 90, 12_345_678, u32::MAX] {
+            let us = u64::from(rtp) * 1000 / 90;
+            assert_eq!(rtp_from_presentation_us(us), rtp);
+        }
+    }
+
+    #[test]
+    fn phase_lock_reports_every_half_second() {
+        let mut reports = PhaseLockReports::default();
+        assert_eq!(reports.lead_us(), i32::MIN);
+        let mut ready = false;
+        for frame in 0..60u64 {
+            ready |= reports.push(2_000_000, 16_666_667, 1000 + frame * 10);
+        }
+        assert!(ready);
+        assert!(reports.lead_us() != i32::MIN);
+        assert!(reports.take(1600).is_some());
+        assert!(reports.take(1600).is_none());
+        // Too few frames in a window make no report.
+        let mut sparse = PhaseLockReports::default();
+        assert!(!sparse.push(1, 16_666_667, 1));
+        assert!(!sparse.push(1, 16_666_667, 600));
+        // A stale report is dropped.
+        let mut stale = PhaseLockReports::default();
+        for frame in 0..60u64 {
+            stale.push(2_000_000, 16_666_667, 1 + frame * 10);
+        }
+        assert!(stale.take(5000).is_none());
+    }
+
+    #[test]
+    fn microphone_frames_are_opus_sizes() {
+        assert!(valid_microphone_frame(960));
+        assert!(!valid_microphone_frame(1000));
+    }
+}

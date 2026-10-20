@@ -221,6 +221,8 @@
     <string name="summary_enable_perf_overlay">Показує швидкість трансляції, затримку та втрати кадрів у реальному часі. Його також можна показати з меню трансляції.</string>
     <string name="title_enable_post_stream_toast">Показувати час декодування після трансляції</string>
     <string name="summary_enable_post_stream_toast">Показує середній час декодування після завершення трансляції.</string>
+    <string name="title_rust_engine">Новий рушій трансляції (бета)</string>
+    <string name="summary_rust_engine">Веде трансляцію на новому рушії замість поточного. Трансляції, які він ще не підтримує, йдуть на поточному. Вимкніть, якщо трансляція працює неправильно.</string>
     <string name="toast_controller_type_changed">Керування рухом може змінити тип контролера.</string>
     <string name="local_network_rationale">Дозвольте доступ до локальної мережі, щоб знайти ваші ПК.</string>
     <string name="resolution_360p">360p</string>

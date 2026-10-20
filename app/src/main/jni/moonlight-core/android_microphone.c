@@ -187,7 +187,7 @@ static int sendMicrophoneFrameLocked(const opus_int16* pcm, int samples) {
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_sendMicrophonePcm(JNIEnv* env, jclass clazz, jshortArray pcm, jint samples) {
+Java_com_limelight_nvstream_jni_MoonBridge_cSendMicrophonePcm(JNIEnv* env, jclass clazz, jshortArray pcm, jint samples) {
     opus_int16 frame[MIC_MAX_FRAME_SAMPLES];
     int ret;
     (void)clazz;
@@ -210,7 +210,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendMicrophonePcm(JNIEnv* env, jclass
 }
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_getMicrophoneState(JNIEnv* env, jclass clazz) {
+Java_com_limelight_nvstream_jni_MoonBridge_cGetMicrophoneState(JNIEnv* env, jclass clazz) {
     (void)env; (void)clazz;
     return atomic_load(&micState);
 }

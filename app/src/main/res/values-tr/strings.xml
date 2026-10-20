@@ -221,6 +221,8 @@
     <string name="summary_enable_perf_overlay">Yayın hızını, gecikmeyi ve kare kaybını canlı gösterir. Yayın menüsünden de gösterebilirsiniz.</string>
     <string name="title_enable_post_stream_toast">Yayından sonra kod çözme süresini göster</string>
     <string name="summary_enable_post_stream_toast">Yayın bittiğinde ortalama kod çözme süresini gösterir.</string>
+    <string name="title_rust_engine">Yeni yayın motoru (beta)</string>
+    <string name="summary_rust_engine">Yayını mevcut motor yerine yeni motorla yapar. Henüz desteklemediği yayınlar mevcut motorla devam eder. Bir yayında sorun olursa kapatın.</string>
     <string name="toast_controller_type_changed">Hareket kontrolleri kumanda türünü değiştirebilir.</string>
     <string name="local_network_rationale">Bilgisayarlarınızı bulmak için yerel ağ erişimine izin verin.</string>
     <string name="resolution_360p">360p</string>

@@ -221,6 +221,8 @@
     <string name="summary_enable_perf_overlay">Hiển thị trực tiếp tốc độ stream, độ trễ và tỷ lệ mất khung hình. Bạn cũng có thể hiện lớp phủ từ menu stream.</string>
     <string name="title_enable_post_stream_toast">Hiện thời gian giải mã sau khi stream</string>
     <string name="summary_enable_post_stream_toast">Hiển thị thời gian giải mã trung bình khi stream kết thúc.</string>
+    <string name="title_rust_engine">Công cụ stream mới (beta)</string>
+    <string name="summary_rust_engine">Stream bằng công cụ mới thay cho công cụ hiện tại. Stream nào nó chưa hỗ trợ vẫn dùng công cụ hiện tại. Tắt đi nếu stream gặp sự cố.</string>
     <string name="toast_controller_type_changed">Điều khiển chuyển động có thể thay đổi loại tay cầm điều khiển.</string>
     <string name="local_network_rationale">Cho phép truy cập mạng cục bộ để tìm PC của bạn.</string>
     <string name="resolution_360p">360p</string>

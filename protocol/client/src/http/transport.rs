@@ -163,12 +163,24 @@ pub(crate) fn get(request: &Request<'_>, cancel: &Cancel) -> Result<Response, Er
 }
 
 pub(crate) fn send(request: &Request<'_>, cancel: &Cancel, body: Option<&[u8]>) -> Result<Response, Error> {
+    send_inner(request, cancel, body, None, &mut |_, _, _| Ok(()))
+}
+
+type HeaderHook<'a> = dyn FnMut(u16, &[(String, String)], SocketAddr) -> Result<(), Error> + 'a;
+
+pub(crate) fn probe(request: &Request<'_>, cancel: &Cancel, timeout: Duration, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
+    send_inner(request, cancel, None, Some(timeout), headers)
+}
+
+fn send_inner(request: &Request<'_>, cancel: &Cancel, body: Option<&[u8]>, timeout: Option<Duration>, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
+    let started = std::time::Instant::now();
     let tcp = connect(request.host, request.port, request.timeouts.connect)?;
     let id = cancel.register(&tcp)?;
-    let result = exchange(request, tcp, body);
+    let deadline = timeout.map(|timeout| started + timeout);
+    let result = exchange(request, tcp, body, headers, deadline);
     cancel.unregister(id);
     match result {
         Err(Error::Io(_)) if cancel.is_cancelled() => Err(Error::Cancelled),
@@ -189,10 +201,14 @@ fn connect(host: &Host, port: u16, timeout: Duration) -> Result<TcpStream, Error
     ))
 }
 
-fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<&[u8]>) -> Result<Response, Error> {
+fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<&[u8]>, headers: &mut HeaderHook<'_>, deadline: Option<std::time::Instant>) -> Result<Response, Error> {
+    let peer = tcp.peer_addr()?;
+    let mut headers = |status, fields: &[(String, String)]| headers(status, fields, peer);
     tcp.set_read_timeout(request.timeouts.read)?;
     tcp.set_write_timeout(Some(request.timeouts.connect.max(Duration::from_secs(5))))?;
     tcp.set_nodelay(true)?;
+    let tcp = DeadlineSocket { socket: tcp, deadline, read_timeout: request.timeouts.read,
+        write_timeout: request.timeouts.connect.max(Duration::from_secs(5)) };
     let mut head = format!(
         "{} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: Nightjar\r\n",
         if body.is_some() { "POST" } else { "GET" },
@@ -209,7 +225,7 @@ fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<&[u8]>) -> Resul
             let mut tcp = tcp;
             tcp.write_all(head.as_bytes())?;
             if let Some(body) = body { tcp.write_all(body)?; }
-            read_response(&mut tcp, request.body_limit)
+            read_response_with_headers(&mut tcp, request.body_limit, &mut headers)
         }
         Some(config) => {
             let name = ServerName::try_from(request.host.name.clone()).map_err(|_| {
@@ -226,9 +242,40 @@ fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<&[u8]>) -> Resul
             stream.write_all(head.as_bytes()).map_err(io_tls_error)?;
             if let Some(body) = body { stream.write_all(body).map_err(io_tls_error)?; }
             stream.flush().map_err(io_tls_error)?;
-            read_response(&mut stream, request.body_limit)
+            read_response_with_headers(&mut stream, request.body_limit, &mut headers)
         }
     }
+}
+
+struct DeadlineSocket {
+    socket: TcpStream,
+    deadline: Option<std::time::Instant>,
+    read_timeout: Option<Duration>,
+    write_timeout: Duration,
+}
+
+impl DeadlineSocket {
+    fn remaining(&self) -> std::io::Result<Option<Duration>> {
+        self.deadline.map(|deadline| deadline.checked_duration_since(std::time::Instant::now())
+            .filter(|duration| !duration.is_zero()).ok_or_else(|| ErrorKind::TimedOut.into())).transpose()
+    }
+}
+
+impl Read for DeadlineSocket {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(left) = self.remaining()? {
+            self.socket.set_read_timeout(Some(self.read_timeout.map_or(left, |timeout| timeout.min(left))))?;
+        }
+        self.socket.read(bytes)
+    }
+}
+
+impl Write for DeadlineSocket {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if let Some(left) = self.remaining()? { self.socket.set_write_timeout(Some(self.write_timeout.min(left)))?; }
+        self.socket.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> { self.socket.flush() }
 }
 
 fn tls_error(error: rustls::Error) -> Error {
@@ -250,7 +297,13 @@ fn io_tls_error(error: std::io::Error) -> Error {
 }
 
 /// Reads one response; a peer closing TLS without close_notify still ends the body.
+#[cfg(test)]
 fn read_response(stream: &mut impl Read, body_limit: usize) -> Result<Response, Error> {
+    read_response_with_headers(stream, body_limit, &mut |_, _| Ok(()))
+}
+
+fn read_response_with_headers(stream: &mut impl Read, body_limit: usize,
+    on_headers: &mut impl FnMut(u16, &[(String, String)]) -> Result<(), Error>) -> Result<Response, Error> {
     let mut reader = Reader {
         stream,
         buffer: Vec::new(),
@@ -291,6 +344,7 @@ fn read_response(stream: &mut impl Read, body_limit: usize) -> Result<Response, 
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
             .map(|(_, v)| v.as_str())
     };
+    on_headers(status, &headers)?;
     let too_large =
         || Error::Malformed(format!("host response exceeds the {body_limit} byte limit"));
     let body = if header("Transfer-Encoding").is_some_and(|t| t.eq_ignore_ascii_case("chunked")) {
@@ -303,7 +357,7 @@ fn read_response(stream: &mut impl Read, body_limit: usize) -> Result<Response, 
             if size == 0 {
                 break;
             }
-            if body.len() + size > body_limit {
+            if size > body_limit.saturating_sub(body.len()) {
                 return Err(too_large());
             }
             body.extend_from_slice(&reader.take(size)?);
@@ -507,6 +561,31 @@ mod tests {
         assert!(parse(b"HTTP/1.1 200 OK\r\nContent-Length: 5000\r\n\r\n").is_err());
         assert!(parse(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel").is_err());
         assert!(parse(b"garbage\r\n\r\n").is_err());
+    }
+
+    #[test]
+    fn probe_deadline_closes_a_stalled_body() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let mut byte = [0]; socket.read_exact(&mut byte).unwrap(); head.push(byte[0]);
+            }
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n").unwrap();
+            let _ = socket.read(&mut [0]);
+        });
+        let host = Host::parse("127.0.0.1").unwrap();
+        let mut headers_seen = false;
+        let started = std::time::Instant::now();
+        let result = probe(&Request { host: &host, port, target: "probe", tls: None,
+            timeouts: Timeouts { connect: Duration::from_secs(1), read: None }, body_limit: 1 },
+            &Cancel::default(), Duration::from_millis(150), &mut |_, _, _| { headers_seen = true; Ok(()) });
+        assert!(headers_seen && result.is_err());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        server.join().unwrap();
     }
 
     #[test]

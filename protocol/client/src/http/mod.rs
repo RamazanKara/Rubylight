@@ -13,6 +13,8 @@ mod der;
 mod identity;
 mod launch;
 mod pairing;
+pub mod pace;
+mod probe;
 mod serverinfo;
 mod transport;
 mod xml;

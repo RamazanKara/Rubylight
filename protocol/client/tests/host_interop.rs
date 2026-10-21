@@ -832,6 +832,51 @@ fn start_test_host() -> TestHost {
                 continue;
             };
             let target = headers.split(' ').nth(1).unwrap();
+            if target.starts_with("/pyrowave-udp-probe?") {
+                use nightjar_core::http::pace;
+                let (_, args) = decode_query(target);
+                assert_eq!(tls.conn.peer_certificates().unwrap()[0].as_ref(), shared.lock().unwrap().paired_certificate.as_ref().unwrap());
+                assert_eq!(args["handshake"], "1");
+                let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+                let kbps: u32 = args["kbps"].parse().unwrap();
+                let packet_size: u32 = args["packetsize"].parse().unwrap();
+                let expected = pace::expected_packets(kbps, packet_size);
+                let body = xml(200, &[("expected", expected.to_string()), ("sent", expected.to_string()), ("elapsedMs", "2000".into())]);
+                write!(tls, "HTTP/1.1 200 OK\r\nX-PyroWave-Udp-Port: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", socket.local_addr().unwrap().port(), body.len()).unwrap();
+                tls.flush().unwrap();
+                let mut hello = [0; 64];
+                let (length, peer) = socket.recv_from(&mut hello).unwrap();
+                assert_eq!(&hello[..length], args["token"].as_bytes());
+                assert_eq!(peer.port(), args["port"].parse::<u16>().unwrap());
+                let mut packet = vec![0; packet_size as usize + 48];
+                packet[..32].copy_from_slice(args["token"].as_bytes());
+                packet[32..36].copy_from_slice(&5u32.to_be_bytes());
+                let other = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+                other.send_to(&packet, peer).unwrap();
+                packet[0] ^= 1;
+                socket.send_to(&packet, peer).unwrap();
+                packet[0] ^= 1;
+                for seq in (0..expected).rev() {
+                    if seq == 5 { continue; }
+                    packet[32..36].copy_from_slice(&seq.to_be_bytes());
+                    socket.send_to(&packet, peer).unwrap();
+                    if seq == 7 { socket.send_to(&packet, peer).unwrap(); }
+                    if seq % 16 == 0 { std::thread::sleep(std::time::Duration::from_millis(1)); }
+                }
+                tls.write_all(body.as_bytes()).unwrap();
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+                continue;
+            }
+            if target.starts_with("/pyrowave-bandwidth-probe?") {
+                assert_eq!(tls.conn.peer_certificates().unwrap()[0].as_ref(), shared.lock().unwrap().paired_certificate.as_ref().unwrap());
+                write!(tls, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 33554432\r\nConnection: close\r\n\r\n").unwrap();
+                for _ in 0..4096 { tls.write_all(&[0; 8192]).unwrap(); }
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+                continue;
+            }
             if target.starts_with("/actions/clipboard?") {
                 let mut state = shared.lock().unwrap();
                 assert_eq!(tls.conn.peer_certificates().unwrap()[0].as_ref(), state.paired_certificate.as_ref().unwrap());
@@ -1029,4 +1074,26 @@ fn runtime_bitrate_returns_the_applied_budget_and_rejects_invalid_replies() {
         host.state.lock().unwrap().bitrate_reply = Some(reply.into());
         assert!(matches!(client.set_bitrate(20_000), Err(HttpError::Malformed(_))));
     }
+}
+
+#[test]
+fn paired_probes_authenticate_udp_packets_and_transfer_the_advertised_bytes() {
+    let host = start_test_host();
+    let identity = client_identity();
+    host.state.lock().unwrap().paired_certificate = Some(identity.certificate_der().to_vec());
+    let client = HostClient::new("127.0.0.1", host.http_port, identity.clone()).unwrap()
+        .with_https_port(host.https_port).with_server_certificate_pem(&host_identity().certificate).unwrap();
+    let result = client.probe_pace(5000, 1392, 60, 50_000).unwrap();
+    assert_eq!(result.received, result.expected - 1, "duplicates, foreign ports and wrong tokens must not repair the missing packet");
+    assert!(result.measured());
+    let info = nightjar_core::http::ServerInfo::parse("<root status_code=\"200\"><uniqueid>probe-host</uniqueid><state>SERVER_FREE</state><PairStatus>1</PairStatus><PyroWaveBandwidthProbeBytes>33554432</PyroWaveBandwidthProbeBytes></root>", host.http_port).unwrap();
+    let mbps = client.probe_bandwidth(&info).unwrap();
+    assert!(mbps.is_finite() && mbps > 0.0);
+    let unpaired = HostClient::new("127.0.0.1", host.http_port, identity.clone()).unwrap().with_https_port(host.https_port);
+    assert!(matches!(unpaired.probe_pace(5000, 1392, 60, 50_000), Err(HttpError::NotPaired)));
+    assert!(matches!(unpaired.probe_bandwidth(&info), Err(HttpError::NotPaired)));
+    let other = crypto::Identity::generate().unwrap();
+    let wrong_pin = HostClient::new("127.0.0.1", host.http_port, identity).unwrap().with_https_port(host.https_port)
+        .with_server_certificate_pem(&other.certificate).unwrap();
+    assert!(matches!(wrong_pin.probe_bandwidth(&info), Err(HttpError::CertificateMismatch)));
 }

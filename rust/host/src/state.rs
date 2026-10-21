@@ -256,6 +256,9 @@ impl Host {
             }
             warnings.set("settings_retired", warning);
         }
+        if let Some(warning) = butterpollo_windows::limiter::take_stale_nvidia(&directory) {
+            warnings.set("nvidia_limiter_retired", warning);
+        }
         if let Some(port) = port {
             config.values.insert("port".into(), port.to_string());
         }
@@ -958,6 +961,24 @@ mod tests {
         let second = Fixture::load(directory);
         assert!(second.host.warnings.snapshot().is_empty());
         assert_eq!(second.host.config.read().unwrap().get("encoder", ""), "amf");
+    }
+
+    #[test]
+    fn nvidia_settings_a_2_6_host_left_pending_are_reported_at_start() {
+        use super::test_support::Fixture;
+        let directory = Fixture::profile();
+        std::fs::write(
+            directory.join("frame-limiter-recovery.json"),
+            r#"{"version":1,"rtss":null,"nvidia":[{"id":277041154,"before":{"effective":0,"override_value":null},"applied":60}]}"#,
+        )
+        .unwrap();
+        let first = Fixture::load(directory.clone());
+        let warnings = first.host.warnings.snapshot();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].code, "nvidia_limiter_retired");
+        assert!(warnings[0].message.contains("NVIDIA Control Panel"));
+        // Reported once.
+        assert!(Fixture::load(directory).host.warnings.snapshot().is_empty());
     }
 
     #[test]

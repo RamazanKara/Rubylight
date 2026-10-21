@@ -24,6 +24,10 @@ struct RtssChange {
 struct Journal {
     version: u32,
     rtss: Option<RtssChange>,
+    /// NVIDIA driver profile changes a 2.6 host journalled. 3.0 cannot restore
+    /// them, but must not lose track of them silently; see `take_stale_nvidia`.
+    #[serde(default)]
+    nvidia: Vec<Json>,
 }
 #[derive(Default)]
 struct State {
@@ -60,6 +64,54 @@ fn load(directory: &Path) -> Result<Journal> {
 fn persist(directory: &Path, journal: &Journal) -> Result<()> {
     write_json(&path(directory), journal)?;
     crate::display_recovery::external(true)
+}
+/// The NVIDIA driver settings a 2.6 host changed for a stream and, after a
+/// crash, left in `frame-limiter-recovery.json` (a hybrid AMD and NVIDIA
+/// laptop). 3.0 has no NVIDIA code to put them back, so name them for the user
+/// and drop the entries, which would otherwise be retained and ignored forever.
+/// The warning shows once; if the journal cannot be written it shows again at
+/// the next start.
+pub fn take_stale_nvidia(directory: &Path) -> Option<String> {
+    let mut journal = match load(directory) {
+        Ok(journal) => journal,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "frame limiter recovery journal is unreadable");
+            return None;
+        }
+    };
+    let message = stale_nvidia_warning(&journal.nvidia)?;
+    journal.nvidia.clear();
+    if let Err(error) = write_json(&path(directory), &journal) {
+        tracing::warn!(error = %format!("{error:#}"), "the stale NVIDIA entries could not be removed from the recovery journal");
+    }
+    Some(message)
+}
+fn stale_nvidia_warning(entries: &[Json]) -> Option<String> {
+    if entries.is_empty() {
+        return None;
+    }
+    let mut names = Vec::new();
+    for id in entries.iter().filter_map(|entry| entry["id"].as_u64()) {
+        let name = match id {
+            0x1083_5002 => "Max Frame Rate".to_string(),
+            0x00a8_79cf => "Vertical sync".to_string(),
+            0xb0d3_84c0 | 0xb0cc_0875 | 0x0005_f543 | 0x1083_5000 | 0x20d6_90f8 => {
+                "Smooth Motion".to_string()
+            }
+            other => format!("driver setting {other:#010x}"),
+        };
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    let names = if names.is_empty() {
+        "frame limit and vertical sync".to_string()
+    } else {
+        names.join(", ")
+    };
+    Some(format!(
+        "A previous Rubylight 2.6 host stopped before it restored NVIDIA driver settings it changed for a stream ({names}). Rubylight 3.0 is AMD-only and cannot restore them. Open NVIDIA Control Panel, Manage 3D settings, and reset the Global profile and the butterpollo.exe program profile."
+    ))
 }
 /// Also used by the Rust crash watcher. Failures leave the journal intact.
 pub fn recover(directory: &Path) -> Result<()> {
@@ -301,6 +353,28 @@ pub fn status(config: &Config) -> Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_journal_with_nvidia_entries_is_not_dropped_silently() {
+        let directory = std::env::temp_dir().join(format!("limiter-nvidia-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            path(&directory),
+            r#"{"version":1,"rtss":null,"nvidia":[{"id":277041154,"before":{"effective":0,"override_value":null},"applied":60},{"id":11041231,"before":{"effective":0,"override_value":null},"applied":134497095}]}"#,
+        )
+        .unwrap();
+        // The entries survive loading and are written back with the journal.
+        let journal = load(&directory).unwrap();
+        assert_eq!(journal.nvidia.len(), 2);
+        let message = take_stale_nvidia(&directory).expect("a warning");
+        assert!(message.contains("Max Frame Rate"), "{message}");
+        assert!(message.contains("Vertical sync"), "{message}");
+        assert!(message.contains("NVIDIA Control Panel"), "{message}");
+        // Warned once: the entries are gone, the rest of the journal stays.
+        assert!(load(&directory).unwrap().nvidia.is_empty());
+        assert!(take_stale_nvidia(&directory).is_none());
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
     #[test]
     fn limiter_reports_missing_and_failed_providers() {
         assert!(

@@ -668,11 +668,12 @@ impl Streaming {
         unsafe {
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
             SDL_RenderClear(renderer);
-            if !self.texture.texture.is_null() {
-                let (mut w, mut h) = (0, 0);
-                SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h);
-                let dst = letterbox(self.texture.size(), (w, h));
-                SDL_RenderTexture(renderer, self.texture.texture, std::ptr::null(), &dst);
+            let (mut w, mut h) = (0, 0);
+            SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h);
+            if !self.texture.draw(renderer, (w, h)) {
+                self.exit = Some(Exit::Ended(Some(
+                    "Packed full-chroma presentation failed.".into(),
+                )));
             }
         }
         draw_overlay(self, renderer);

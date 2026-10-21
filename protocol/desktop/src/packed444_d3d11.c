@@ -11,7 +11,7 @@ typedef struct nj_packed {
     ID3D11RenderTargetView *target;
     ID3D11VertexShader *vertex;
     ID3D11PixelShader *fragment;
-    ID3D11Buffer *constants;
+    ID3D11Buffer *constants, *presentation;
     int width, height;
 } nj_packed;
 
@@ -21,6 +21,7 @@ typedef struct nj_packed {
 void nj_packed_free(nj_packed *p) {
     if (!p) return;
     RELEASE(p->constants);
+    RELEASE(p->presentation);
     RELEASE(p->vertex);
     RELEASE(p->fragment);
     RELEASE(p->target);
@@ -32,14 +33,13 @@ void nj_packed_free(nj_packed *p) {
     free(p);
 }
 
-nj_packed *nj_packed_create(void *target, int width, int height, int ten_bit, const char *source, size_t length) {
+nj_packed *nj_packed_create(void *device_pointer, void *target, int width, int height, int ten_bit, const char *source, size_t length) {
     nj_packed *p = calloc(1, sizeof(*p));
-    ID3D11Device *device = NULL;
+    ID3D11Device *device = device_pointer;
     ID3DBlob *code = NULL, *errors = NULL;
     if (!p) return NULL;
     p->width = width;
     p->height = height;
-    ID3D11Texture2D_GetDevice((ID3D11Texture2D *)target, &device);
     ID3D11Device_GetImmediateContext(device, &p->context);
     CHECK(ID3D11Device_CreateDeferredContext(device, 0, &p->deferred));
     D3D11_TEXTURE2D_DESC desc = {0};
@@ -58,26 +58,29 @@ nj_packed *nj_packed_create(void *target, int width, int height, int ten_bit, co
         view.Texture2D.MipLevels = 1;
         CHECK(ID3D11Device_CreateShaderResourceView(device, (ID3D11Resource *)p->input, &view, &p->planes[i]));
     }
-    CHECK(ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)target, NULL, &p->target));
+    if (target) CHECK(ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)target, NULL, &p->target));
     CHECK(D3DCompile(source, length, NULL, NULL, NULL, "vertex", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors));
     CHECK(ID3D11Device_CreateVertexShader(device, ID3D10Blob_GetBufferPointer(code), ID3D10Blob_GetBufferSize(code), NULL, &p->vertex));
     RELEASE(code);
     RELEASE(errors);
-    CHECK(D3DCompile(source, length, NULL, NULL, NULL, "fragment", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors));
+    const D3D_SHADER_MACRO sdr[] = {{"SDR_PRESENT", "1"}, {NULL, NULL}};
+    CHECK(D3DCompile(source, length, NULL, target ? NULL : sdr, NULL, target ? "fragment" : "present", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors));
     CHECK(ID3D11Device_CreatePixelShader(device, ID3D10Blob_GetBufferPointer(code), ID3D10Blob_GetBufferSize(code), NULL, &p->fragment));
     D3D11_BUFFER_DESC buffer = {0};
     buffer.ByteWidth = 48;
     buffer.Usage = D3D11_USAGE_DEFAULT;
     buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     CHECK(ID3D11Device_CreateBuffer(device, &buffer, NULL, &p->constants));
+    if (!target) {
+        buffer.ByteWidth = 32;
+        CHECK(ID3D11Device_CreateBuffer(device, &buffer, NULL, &p->presentation));
+    }
     RELEASE(code);
     RELEASE(errors);
-    RELEASE(device);
     return p;
 failed:
     RELEASE(code);
     RELEASE(errors);
-    RELEASE(device);
     nj_packed_free(p);
     return NULL;
 }
@@ -85,19 +88,26 @@ failed:
 /* The existing helper copies under the decoder device's lock. */
 int nj_frame_copy_d3d11(const void *frame, void *destination, int width, int height);
 
-int nj_packed_draw(nj_packed *p, const void *frame, const uint32_t parameters[12]) {
-    if (nj_frame_copy_d3d11(frame, p->input, p->width, p->height) != 0) return 0;
+int nj_packed_upload(nj_packed *p, const void *frame) {
+    return nj_frame_copy_d3d11(frame, p->input, p->width, p->height) == 0;
+}
+
+static int nj_packed_render(nj_packed *p, ID3D11RenderTargetView *target, const uint32_t parameters[12],
+                            const D3D11_VIEWPORT *viewport, const float *presentation) {
     ID3D11DeviceContext *c = p->deferred;
-    D3D11_VIEWPORT viewport = {0, 0, (float)parameters[0], (float)parameters[1], 0, 1};
     ID3D11DeviceContext_ClearState(c);
     ID3D11DeviceContext_UpdateSubresource(c, (ID3D11Resource *)p->constants, 0, NULL, parameters, 0, 0);
-    ID3D11DeviceContext_OMSetRenderTargets(c, 1, &p->target, NULL);
-    ID3D11DeviceContext_RSSetViewports(c, 1, &viewport);
+    ID3D11DeviceContext_OMSetRenderTargets(c, 1, &target, NULL);
+    ID3D11DeviceContext_RSSetViewports(c, 1, viewport);
     ID3D11DeviceContext_IASetPrimitiveTopology(c, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D11DeviceContext_VSSetShader(c, p->vertex, NULL, 0);
     ID3D11DeviceContext_PSSetShader(c, p->fragment, NULL, 0);
     ID3D11DeviceContext_PSSetShaderResources(c, 0, 2, p->planes);
     ID3D11DeviceContext_PSSetConstantBuffers(c, 0, 1, &p->constants);
+    if (presentation) {
+        ID3D11DeviceContext_UpdateSubresource(c, (ID3D11Resource *)p->presentation, 0, NULL, presentation, 0, 0);
+        ID3D11DeviceContext_PSSetConstantBuffers(c, 1, 1, &p->presentation);
+    }
     ID3D11DeviceContext_Draw(c, 3, 0);
     ID3D11CommandList *commands = NULL;
     if (FAILED(ID3D11DeviceContext_FinishCommandList(c, FALSE, &commands))) return 0;
@@ -105,4 +115,32 @@ int nj_packed_draw(nj_packed *p, const void *frame, const uint32_t parameters[12
     ID3D11DeviceContext_ExecuteCommandList(p->context, commands, TRUE);
     RELEASE(commands);
     return 1;
+}
+
+int nj_packed_draw(nj_packed *p, const void *frame, const uint32_t parameters[12]) {
+    if (!nj_packed_upload(p, frame)) return 0;
+    D3D11_VIEWPORT viewport = {0, 0, (float)parameters[0], (float)parameters[1], 0, 1};
+    return nj_packed_render(p, p->target, parameters, &viewport, NULL);
+}
+
+int nj_packed_present(nj_packed *p, void *swapchain, const uint32_t parameters[12],
+                      const float destination[4], int linear_output, float color_scale) {
+    static const GUID texture_iid = {0x6f15aaf2, 0xd208, 0x4e89, {0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c}};
+    ID3D11Texture2D *buffer = NULL;
+    ID3D11RenderTargetView *target = NULL;
+    ID3D11Device *device = NULL;
+    int result = 0;
+    CHECK(IDXGISwapChain_GetBuffer((IDXGISwapChain *)swapchain, 0, &texture_iid, (void **)&buffer));
+    ID3D11Texture2D_GetDevice(buffer, &device);
+    CHECK(ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)buffer, NULL, &target));
+    D3D11_VIEWPORT viewport = {destination[0], destination[1], destination[2], destination[3], 0, 1};
+    float presentation[8] = {destination[0], destination[1], destination[2], destination[3],
+                             (float)linear_output, color_scale, 0, 0};
+    result = nj_packed_render(p, target, parameters, &viewport, presentation);
+failed:
+    /* SDL must be able to resize its buffers before the next draw. */
+    RELEASE(target);
+    RELEASE(buffer);
+    RELEASE(device);
+    return result;
 }

@@ -40,9 +40,7 @@ impl PacingMode {
 pub fn pacing(settings: &crate::config::Settings, tearing_supported: bool) -> (PacingMode, bool) {
     let vrr = settings.vrr && tearing_supported;
     let mode = if vrr {
-        if settings.present_at_host_times
-            && !(cfg!(windows) && settings.experimental_packed_444)
-        {
+        if settings.present_at_host_times && !(cfg!(windows) && settings.experimental_packed_444) {
             PacingMode::HostTimes
         } else {
             PacingMode::Immediate
@@ -352,6 +350,32 @@ impl VideoTexture {
             {
                 self.destroy();
             }
+            #[cfg(windows)]
+            if !hdr
+                && !crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER)
+                    .is_null()
+            {
+                if self.packed.is_none() {
+                    self.destroy();
+                    self.packed = super::packed444::Reconstruction::new(
+                        renderer,
+                        std::ptr::null_mut(),
+                        &parameters,
+                    );
+                }
+                let success = self
+                    .packed
+                    .as_mut()
+                    .is_some_and(|packed| packed.upload(frame));
+                if success {
+                    self.width = setup.logical_width;
+                    self.height = setup.logical_height;
+                    self.packed_format = Some(parameters);
+                } else {
+                    self.destroy();
+                }
+                return success;
+            }
             if !self.ensure(
                 renderer,
                 SDL_PIXELFORMAT_RGBA64_FLOAT,
@@ -423,6 +447,25 @@ impl VideoTexture {
                 _ => false,
             }
         }
+    }
+
+    pub fn draw(&mut self, renderer: *mut SDL_Renderer, area: (i32, i32)) -> bool {
+        let destination = letterbox(self.size(), area);
+        #[cfg(windows)]
+        if self.texture.is_null() {
+            if let Some(packed) = &mut self.packed {
+                return packed.present(
+                    renderer,
+                    self.packed_format.as_ref().unwrap(),
+                    &destination,
+                );
+            }
+        }
+        if !self.texture.is_null() {
+            // SAFETY: The renderer and its video texture are live on this thread.
+            unsafe { SDL_RenderTexture(renderer, self.texture, std::ptr::null(), &destination) };
+        }
+        true
     }
 
     pub fn destroy(&mut self) {
@@ -499,9 +542,15 @@ mod tests {
     }
 
     fn decoded(ready_us: u64) -> Decoded {
-        let mut decoder = media::VideoDecoder::open(media::Codec::Hevc, media::Hardware::None, 1, false)
-            .unwrap();
-        assert_eq!(decoder.send(include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin"), 0), 0);
+        let mut decoder =
+            media::VideoDecoder::open(media::Codec::Hevc, media::Hardware::None, 1, false).unwrap();
+        assert_eq!(
+            decoder.send(
+                include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin"),
+                0
+            ),
+            0
+        );
         let media::Received::Frame(frame) = decoder.receive() else {
             panic!("fixture did not decode");
         };

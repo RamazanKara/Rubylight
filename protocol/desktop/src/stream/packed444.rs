@@ -205,6 +205,7 @@ fn fixture_rgb(x: usize, y: usize, ten_bit: bool) -> [f32; 3] {
 #[cfg(windows)]
 extern "C" {
     fn nj_packed_create(
+        device: *mut c_void,
         target: *mut c_void,
         width: i32,
         height: i32,
@@ -217,6 +218,15 @@ extern "C" {
         packed: *mut c_void,
         frame: *const media::RawFrame,
         parameters: *const u32,
+    ) -> i32;
+    fn nj_packed_upload(packed: *mut c_void, frame: *const media::RawFrame) -> i32;
+    fn nj_packed_present(
+        packed: *mut c_void,
+        swapchain: *mut c_void,
+        parameters: *const u32,
+        destination: *const f32,
+        linear_output: i32,
+        color_scale: f32,
     ) -> i32;
 }
 
@@ -251,14 +261,21 @@ impl Reconstruction {
         unsafe {
             #[cfg(windows)]
             {
-                let texture = SDL_GetPointerProperty(
-                    SDL_GetTextureProperties(_target),
-                    SDL_PROP_TEXTURE_D3D11_TEXTURE_POINTER,
-                    ptr::null_mut(),
-                );
-                if !texture.is_null() {
+                let device =
+                    crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
+                if !device.is_null() {
+                    let texture = if _target.is_null() {
+                        ptr::null_mut()
+                    } else {
+                        SDL_GetPointerProperty(
+                            SDL_GetTextureProperties(_target),
+                            SDL_PROP_TEXTURE_D3D11_TEXTURE_POINTER,
+                            ptr::null_mut(),
+                        )
+                    };
                     let source = include_bytes!("../packed444.hlsl");
                     result.native = nj_packed_create(
+                        device,
                         texture,
                         parameters[2] as i32,
                         parameters[3] as i32 * 2,
@@ -323,6 +340,56 @@ impl Reconstruction {
                 },
             );
             (!result.state.is_null()).then_some(result)
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn upload(&mut self, frame: &media::Frame) -> bool {
+        // SAFETY: The renderer owns native; FFmpeg keeps the decoder surface alive during the copy.
+        frame.info().kind == media::FRAME_D3D11
+            && unsafe { nj_packed_upload(self.native, frame.raw.as_ptr()) != 0 }
+    }
+
+    #[cfg(windows)]
+    pub fn present(
+        &mut self,
+        renderer: *mut SDL_Renderer,
+        parameters: &[u32; 12],
+        destination: &SDL_FRect,
+    ) -> bool {
+        // SAFETY: All renderer calls and the native draw run on the presenting thread.
+        unsafe {
+            if !SDL_FlushRenderer(renderer) {
+                return false;
+            }
+            let properties = SDL_GetRendererProperties(renderer);
+            let swapchain = SDL_GetPointerProperty(
+                properties,
+                SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER,
+                ptr::null_mut(),
+            );
+            if swapchain.is_null() {
+                return false;
+            }
+            let output = SDL_GetNumberProperty(
+                properties,
+                SDL_PROP_RENDERER_OUTPUT_COLORSPACE_NUMBER,
+                i64::from(SDL_COLORSPACE_SRGB.0),
+            );
+            let mut scale = 1.0;
+            if !SDL_GetRenderColorScale(renderer, &mut scale) {
+                return false;
+            }
+            scale *= SDL_GetFloatProperty(properties, SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0);
+            let destination = [destination.x, destination.y, destination.w, destination.h];
+            nj_packed_present(
+                self.native,
+                swapchain,
+                parameters.as_ptr(),
+                destination.as_ptr(),
+                i32::from(output == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0)),
+                scale,
+            ) != 0
         }
     }
 
@@ -434,6 +501,172 @@ impl Drop for Reconstruction {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    unsafe fn pixels(renderer: *mut SDL_Renderer) -> Vec<f32> {
+        // SAFETY: Readback owns the temporary surfaces and copies their initialized rows.
+        unsafe {
+            let surface = SDL_RenderReadPixels(renderer, ptr::null());
+            assert!(!surface.is_null(), "{}", crate::sdl::error());
+            let converted = SDL_ConvertSurface(surface, SDL_PIXELFORMAT_RGBA128_FLOAT);
+            SDL_DestroySurface(surface);
+            assert!(!converted.is_null(), "{}", crate::sdl::error());
+            let mut result = Vec::new();
+            for y in 0..(*converted).h as usize {
+                result.extend_from_slice(std::slice::from_raw_parts(
+                    ((*converted).pixels as *const u8)
+                        .add(y * (*converted).pitch as usize)
+                        .cast::<f32>(),
+                    (*converted).w as usize * 4,
+                ));
+            }
+            SDL_DestroySurface(converted);
+            result
+        }
+    }
+
+    #[cfg(windows)]
+    unsafe fn overlay(renderer: *mut SDL_Renderer) {
+        // SAFETY: The live renderer belongs to this test's thread.
+        unsafe {
+            assert!(SDL_SetRenderDrawColor(renderer, 213, 55, 17, 255));
+            assert!(SDL_RenderFillRect(
+                renderer,
+                &SDL_FRect {
+                    x: 3.0,
+                    y: 4.0,
+                    w: 12.0,
+                    h: 9.0
+                }
+            ));
+        }
+    }
+
+    #[cfg(windows)]
+    unsafe fn direct_matches_reconstruction(window: *mut SDL_Window, renderer: *mut SDL_Renderer) {
+        use super::super::pipeline::Decoded;
+        use super::super::present::{letterbox, VideoTexture};
+        // SAFETY: The test owns the window, renderer, textures and decoder on this thread.
+        unsafe {
+            let hardware = media::Hardware::D3d11(crate::sdl::renderer_pointer(
+                renderer,
+                SDL_PROP_RENDERER_D3D11_DEVICE_POINTER,
+            ));
+            let target = SDL_CreateTexture(
+                renderer,
+                SDL_PIXELFORMAT_RGBA64_FLOAT,
+                SDL_TEXTUREACCESS_TARGET,
+                128,
+                64,
+            );
+            assert!(!target.is_null());
+            assert!(SDL_SetTextureScaleMode(target, SDL_SCALEMODE_LINEAR));
+            for (codec, format, data) in [
+                (
+                    media::Codec::Hevc,
+                    nightjar_core::sdp::VIDEO_FORMAT_H265,
+                    &include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin")[..],
+                ),
+                (
+                    media::Codec::Av1,
+                    nightjar_core::sdp::VIDEO_FORMAT_AV1_MAIN8,
+                    &include_bytes!("../../../../app/src/main/assets/packed444/av1-8.bin")[..],
+                ),
+            ] {
+                let mut decoder = media::VideoDecoder::open(codec, hardware, 1, true).unwrap();
+                assert_eq!(decoder.send(data, 0), 0);
+                let media::Received::Frame(frame) = decoder.receive() else {
+                    panic!("no hardware fixture frame")
+                };
+                let mut decoded = Decoded {
+                    frame,
+                    setup: nightjar_core::session::VideoSetup {
+                        format,
+                        width: 128,
+                        height: 128,
+                        fps: 60,
+                        chroma_packing: 1,
+                        logical_width: 128,
+                        logical_height: 64,
+                        color_space: 1,
+                        color_range: 1,
+                    },
+                    rtp: 0,
+                    receive_us: 0,
+                    enqueue_us: 0,
+                    ready_us: 0,
+                    host_latency: 0,
+                };
+                let mut parameters = [128, 64, 128, 64, 0, 1, 1, 0, 1.0f32.to_bits(), 0, 0, 0];
+                let mut reference = Reconstruction::new(renderer, target, &parameters).unwrap();
+                let mut video = VideoTexture::default();
+                for range in 0..=1 {
+                    for matrix in 0..=2 {
+                        decoded.setup.color_range = range;
+                        decoded.setup.color_space = matrix;
+                        parameters[5] = range as u32;
+                        parameters[6] = matrix as u32;
+                        assert!(reference.draw(renderer, target, &decoded.frame, &parameters));
+                        assert!(video.upload(renderer, &decoded));
+                        assert!(
+                            video.texture.is_null(),
+                            "direct presentation allocated an intermediate RGB texture"
+                        );
+                        for (width, height) in [(128, 64), (240, 160), (99, 59)] {
+                            assert!(SDL_SetWindowSize(window, width, height));
+                            SDL_PumpEvents();
+                            let (mut w, mut h) = (0, 0);
+                            assert!(SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h));
+                            assert_eq!((w, h), (width, height));
+                            let destination = letterbox((128, 64), (w, h));
+                            for scale in [1.0, 0.6] {
+                                assert!(SDL_SetRenderColorScale(renderer, scale));
+                                assert!(SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255));
+                                assert!(SDL_RenderClear(renderer));
+                                assert!(SDL_RenderTexture(
+                                    renderer,
+                                    target,
+                                    ptr::null(),
+                                    &destination
+                                ));
+                                overlay(renderer);
+                                let expected = pixels(renderer);
+                                assert!(SDL_RenderPresent(renderer));
+                                // Redraws after Present and resize must retain the uploaded picture.
+                                for _ in 0..2 {
+                                    assert!(SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255));
+                                    assert!(SDL_RenderClear(renderer));
+                                    assert!(
+                                        video.draw(renderer, (w, h)),
+                                        "{}",
+                                        crate::sdl::error()
+                                    );
+                                    overlay(renderer);
+                                    let actual = pixels(renderer);
+                                    assert_eq!(actual.len(), expected.len());
+                                    let mut maximum = 0.0f32;
+                                    let mut sum = 0.0;
+                                    for (&a, &b) in expected.iter().zip(&actual) {
+                                        assert!(b.is_finite());
+                                        let error = (a - b).abs();
+                                        maximum = maximum.max(error);
+                                        sum += error;
+                                    }
+                                    let mean = sum / actual.len() as f32;
+                                    assert!(maximum < 0.01 && mean < 0.0008,
+                                        "{codec:?} range={range} matrix={matrix} {w}x{h} scale={scale}: max={maximum}, mean={mean}");
+                                    assert!(SDL_RenderPresent(renderer));
+                                }
+                            }
+                        }
+                    }
+                }
+                video.destroy();
+                drop(reference);
+            }
+            SDL_DestroyTexture(target);
+        }
+    }
+
     #[test]
     #[ignore = "requires an HEVC/AV1 hardware decoder and a D3D11 or Vulkan display"]
     fn packed_decode_and_gpu_reconstruction() {
@@ -457,7 +690,16 @@ mod tests {
             #[cfg(not(windows))]
             let hardware = media::Hardware::Vaapi;
             let modes = probe(renderer, hardware);
+            #[cfg(windows)]
+            direct_matches_reconstruction(window, renderer);
             SDL_DestroyRenderer(renderer);
+            #[cfg(windows)]
+            {
+                let renderer = crate::sdl::create_renderer(window, false);
+                assert!(!renderer.is_null(), "{}", crate::sdl::error());
+                direct_matches_reconstruction(window, renderer);
+                SDL_DestroyRenderer(renderer);
+            }
             SDL_DestroyWindow(window);
             SDL_Quit();
             assert_eq!(

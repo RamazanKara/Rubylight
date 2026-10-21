@@ -488,10 +488,22 @@ impl Gamepads {
             if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
         }
         if !enabled { return; }
+        self.auto_audio();
+    }
+
+    pub fn auto_audio(&mut self) {
         let outputs = crate::controller_audio::outputs();
         let pads: Vec<_> = self.pads.iter().filter(|p| p.supports_audio()).map(|p| p.index).collect();
         if let ([index], [(device, _)]) = (pads.as_slice(), outputs.as_slice()) {
-            if let Err(error) = self.set_audio(*index, Some(*device)) { eprintln!("nightjar: controller audio: {error}"); }
+            if self.pads.iter().any(|p| p.index == *index && p.audio.is_none()) {
+                if let Err(error) = self.set_audio(*index, Some(*device)) { eprintln!("nightjar: controller audio: {error}"); }
+            }
+            let inputs = crate::controller_audio::inputs();
+            if let [(input, _)] = inputs.as_slice() {
+                if let Some(audio) = self.pads.iter_mut().find(|p| p.index == *index).and_then(|p| p.audio.as_mut()) {
+                    if audio.input.is_none() { audio.set_input(Some(*input)); }
+                }
+            }
         }
     }
 
@@ -506,11 +518,31 @@ impl Gamepads {
         if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
         pad.announced = false;
         if let Some(device) = device {
-            let audio = crate::controller_audio::Audio::open(device)?;
+            let audio = crate::controller_audio::Audio::open(device, pad.handle)?;
             audio.send(pad.handle);
             pad.audio = Some(audio);
         }
         Ok(())
+    }
+
+    pub fn set_audio_input(&mut self, index: u8, device: Option<SDL_AudioDeviceID>) -> Result<(), String> {
+        if device.is_some_and(|device| self.pads.iter().any(|p| p.index != index && p.audio.as_ref().is_some_and(|a| a.input == Some(device)))) {
+            return Err("That microphone already belongs to another controller.".into());
+        }
+        if device.is_some_and(|id| !crate::controller_audio::inputs().iter().any(|(candidate, _)| *candidate == id)) {
+            return Err("The controller microphone is unavailable.".into());
+        }
+        if let Some(audio) = self.pads.iter_mut().find(|p| p.index == index).and_then(|p| p.audio.as_mut()) { audio.set_input(device); }
+        Ok(())
+    }
+
+    pub fn removed_audio_device(&mut self, device: SDL_AudioDeviceID) {
+        for pad in &mut self.pads {
+            if pad.audio.as_mut().is_some_and(|audio| audio.removed(device)) {
+                if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
+                pad.announced = false;
+            }
+        }
     }
 
     pub fn update_audio(&mut self) {
@@ -663,6 +695,7 @@ mod tests {
     /// input queue, and the host's rumble reaches the device.
     #[test]
     fn virtual_gamepad_round_trip() {
+        let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
         use nightjar_core::control::HostCapabilities;
         // SAFETY: SDL calls on this test's thread; the descriptor outlives the attach.
         unsafe {

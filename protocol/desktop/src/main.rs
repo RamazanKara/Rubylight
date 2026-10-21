@@ -1034,13 +1034,12 @@ impl App {
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
+        streaming.drain_notices(&mut self.pads);
         streaming.pump();
         streaming.follow_display(display);
         if streaming.export_statistics {
             streaming.save_statistics(&self.store.dir().join("statistics"));
         }
-        streaming.drain_notices(&mut self.pads);
-        self.pads.update_audio();
         // Wait for input, a decoded picture or the next present time.
         // SAFETY: event calls on the main thread.
         unsafe {
@@ -1197,7 +1196,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if ui.button("Export statistics (last hour)").clicked() { s.export_statistics = true; }
                     if s.microphone_available() {
                         let mut muted = s.microphone_muted;
-                        if ui.checkbox(&mut muted, "Mute microphone").changed() { s.mute_microphone(muted); }
+                        if ui.checkbox(&mut muted, "Mute microphone").changed() { s.mute_microphone(muted, pads); }
                     }
                     ui.add_enabled_ui(s.facts.clipboard, |ui| {
                         if ui.button("Send clipboard to PC").clicked() { s.clipboard(true); }
@@ -1253,8 +1252,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         ui.separator();
                         ui.label("DualSense USB audio and waveform haptics");
                         let outputs = controller_audio::outputs();
+                        let inputs = controller_audio::inputs();
                         let mut selections = Vec::new();
-                        for pad in &pads.pads {
+                        let mut input_selections = Vec::new();
+                        for pad in &mut pads.pads {
                             if !pad.supports_audio() { continue; }
                             let current = pad.audio.as_ref().map(|a| a.device);
                             let mut selected = current;
@@ -1264,12 +1265,36 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
                             });
                             if selected != current { selections.push((pad.index, selected)); }
+                            if let Some(audio) = &mut pad.audio {
+                                let mut input = audio.input;
+                                let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or("Off", |(_, name)| name.as_str());
+                                ui.add_enabled_ui(s.microphone_available(), |ui| {
+                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(format!("Microphone: {label}")).show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut input, None, "Off");
+                                        for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
+                                    });
+                                });
+                                if input != audio.input { input_selections.push((pad.index, input)); }
+                                egui::ComboBox::from_id_salt(("controller-headphones", pad.index))
+                                    .selected_text(match audio.headphone_override { None => "Automatic headset detection", Some(true) => "Headset", Some(false) => "Controller speaker" })
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut audio.headphone_override, None, "Automatic headset detection");
+                                        ui.selectable_value(&mut audio.headphone_override, Some(true), "Headset");
+                                        ui.selectable_value(&mut audio.headphone_override, Some(false), "Controller speaker");
+                                    });
+                                if audio.headphone_override.is_none() && audio.detected_headphones.is_none() {
+                                    ui.weak("Headset detection unavailable. Select Headset when using the controller jack.");
+                                }
+                            }
                         }
                         for (index, device) in selections {
                             match pads.set_audio(index, device) {
                                 Ok(()) => s.session.input(|q| pads.announce_new(q)),
                                 Err(error) => s.show_toast(format!("Controller audio unavailable: {error}")),
                             }
+                        }
+                        for (index, device) in input_selections {
+                            if let Err(error) = pads.set_audio_input(index, device) { s.show_toast(error); }
                         }
                     }
                     if !s.facts.server_commands.is_empty() {

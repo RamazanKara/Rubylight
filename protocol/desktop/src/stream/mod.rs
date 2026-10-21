@@ -609,7 +609,7 @@ pub struct Streaming {
     clipboard_busy: bool,
     command_busy: bool,
     last_command: Option<Instant>,
-    audio_status: (u16, Instant),
+    audio_status: ([u8; 16], Instant),
     pub pending_command: Option<usize>,
     pub bitrate_busy: bool,
     pub bitrate_kbps: u32,
@@ -675,10 +675,10 @@ impl Streaming {
                         None
                     }
                 }
-            } else {
+            } else if !settings.controller_audio {
                 connecting.shared.notify(Notice::MicrophoneFailed("The PC did not offer an encrypted microphone stream.".into()));
                 None
-            }
+            } else { None }
         } else { None };
         let bitrate_kbps = facts.bitrate_kbps.max(1) as u32;
         let mode = Reconfigure { width: facts.width as u16, height: facts.height as u16, fps_millihz: facts.fps as u32 * 1000 };
@@ -707,7 +707,7 @@ impl Streaming {
             clipboard_busy: false,
             command_busy: false,
             last_command: None,
-            audio_status: (0, Instant::now() - Duration::from_secs(1)),
+            audio_status: ([0; 16], Instant::now() - Duration::from_secs(1)),
             pending_command: None,
             bitrate_busy: false,
             bitrate_kbps,
@@ -840,25 +840,59 @@ impl Streaming {
     }
 
     pub fn microphone_available(&self) -> bool {
-        self.settings.microphone && self.session.microphone_available() && self.facts.role != AppRole::RemoteMonitor
+        self.settings.microphone && (self.session.microphone_available() || self.controller_audio_available()) && self.facts.role != AppRole::RemoteMonitor
     }
 
     pub fn controller_audio_available(&self) -> bool {
         self.settings.controllers && self.settings.controller_audio && self.facts.role != AppRole::RemoteMonitor
     }
 
-    pub fn mute_microphone(&mut self, muted: bool) {
+    pub fn mute_microphone(&mut self, muted: bool, pads: &mut Gamepads) {
         self.microphone_muted = muted;
         self.microphone = None;
-        if !muted && self.microphone_available() {
-            match microphone::Microphone::open(self.shared.clone()) {
-                Ok(microphone) => self.microphone = Some(microphone),
+        if !muted {
+            for audio in pads.pads.iter_mut().filter_map(|pad| pad.audio.as_mut()) { audio.host_muted = false; }
+        }
+        self.route_microphones(pads);
+    }
+
+    fn route_microphones(&mut self, pads: &mut Gamepads) {
+        let permitted = self.settings.microphone && self.facts.role != AppRole::RemoteMonitor;
+        let mut controller_route = false;
+        for pad in &mut pads.pads {
+            let Some(audio) = &mut pad.audio else { continue; };
+            if audio.host_muted { self.microphone_muted = true; }
+            match audio.capture(permitted, self.microphone_muted, &self.shared) {
+                Ok(active) => controller_route |= active,
                 Err(error) => {
                     self.microphone_muted = true;
                     self.show_toast(error);
                 }
             }
         }
+        if self.microphone_muted {
+            for audio in pads.pads.iter_mut().filter_map(|pad| pad.audio.as_mut()) {
+                let _ = audio.capture(permitted, true, &self.shared);
+            }
+        }
+        if !permitted || self.microphone_muted || controller_route {
+            self.microphone = None;
+        } else if self.microphone.is_none() && self.session.microphone_available() {
+            match microphone::Microphone::open(self.shared.clone()) {
+                Ok(microphone) => self.microphone = Some(microphone),
+                Err(error) => { self.microphone_muted = true; self.show_toast(error); }
+            }
+        }
+        for pad in &mut pads.pads {
+            let Some(audio) = &mut pad.audio else { continue; };
+            while let Some(packet) = audio.microphone_packet(u16::from(pad.index)) {
+                if let Err(error) = self.session.send(ClientMessage::ControllerMicrophone(packet)) {
+                    self.shared.notify(Notice::MicrophoneFailed(format!("Controller microphone forwarding stopped: {error}")));
+                    break;
+                }
+            }
+        }
+        pads.update_audio();
     }
 
     pub fn save_statistics(&mut self, directory: &std::path::Path) {
@@ -918,17 +952,6 @@ impl Streaming {
     /// Handles queued notices from the session threads. Control events that need the
     /// controllers are applied to `pads`.
     pub fn drain_notices(&mut self, pads: &mut Gamepads) {
-        if self.controller_audio_available() {
-            let mask = pads.pads.iter().filter(|p| p.audio.is_some()).fold(0, |mask, pad| mask | (1 << pad.index));
-            if mask != self.audio_status.0 || self.audio_status.1.elapsed() >= Duration::from_secs(1) {
-                for index in 0..16 {
-                    if (mask | self.audio_status.0) & (1 << index) != 0 {
-                        let _ = self.session.send(ClientMessage::ControllerAudioStatus { controller: index, flags: if mask & (1 << index) != 0 { 1 | 8 } else { 0 } });
-                    }
-                }
-                self.audio_status = (mask, Instant::now());
-            }
-        }
         let notices = std::mem::take(&mut *lock(&self.shared.notices));
         for notice in notices {
             match notice {
@@ -1003,13 +1026,35 @@ impl Streaming {
                 Notice::Stage(_) | Notice::Reconnecting(_) | Notice::Started => {}
             }
         }
+        self.route_microphones(pads);
+        *lock(&self.shared.controller_audio) = pads.pads.iter().filter_map(|p| p.audio.as_ref().map(|audio| Arc::downgrade(&audio.playback))).collect();
+        let mut status = [0u8; 16];
+        if self.controller_audio_available() {
+            for pad in &pads.pads {
+                if let Some(audio) = &pad.audio { status[usize::from(pad.index)] = audio.status(self.settings.microphone, self.microphone_muted); }
+            }
+        }
+        if status != self.audio_status.0 || self.audio_status.1.elapsed() >= Duration::from_secs(1) {
+            for (index, &flags) in status.iter().enumerate() {
+                if flags != 0 || self.audio_status.0[index] != 0 {
+                    let _ = self.session.send(ClientMessage::ControllerAudioStatus { controller: index as u16, flags });
+                }
+            }
+            self.audio_status = (status, Instant::now());
+        }
     }
 
     fn control_event(&mut self, event: ControlEvent, pads: &mut Gamepads) {
         match event {
             ControlEvent::ControllerHaptics(pcm) if self.controller_audio_available() => pads.pcm(pcm, false),
             ControlEvent::ControllerSpeaker(pcm) if self.controller_audio_available() => pads.pcm(pcm, true),
-            ControlEvent::ControllerAudioControl(payload) if self.controller_audio_available() => pads.audio_control(&payload),
+            ControlEvent::ControllerAudioControl(payload) if self.controller_audio_available() => {
+                pads.audio_control(&payload);
+                if pads.pads.iter().any(|p| p.audio.as_ref().is_some_and(|a| a.host_muted)) {
+                    self.microphone_muted = true;
+                    self.microphone = None;
+                }
+            }
             ControlEvent::Rumble {
                 controller,
                 low_frequency,
@@ -1233,7 +1278,7 @@ impl Streaming {
                     Wait::For(Duration::from_micros(due - now))
                 }
             }
-            None => Wait::For(Duration::from_millis(if self.audio_status.0 != 0 { 20 } else if self.overlay_visible { 250 } else { 500 })),
+            None => Wait::For(Duration::from_millis(if self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
         }
     }
 
@@ -1665,6 +1710,7 @@ impl Streaming {
                 }
                 SDL_EVENT_GAMEPAD_ADDED => {
                     pads.added(event.gdevice.which);
+                    if self.controller_audio_available() { pads.auto_audio(); }
                     if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor {
                         self.session.input(|q| pads.announce_new(q));
                     }
@@ -1675,6 +1721,16 @@ impl Streaming {
                             self.session.input(|q| pads.send_removed(index, q));
                         }
                     }
+                }
+                SDL_EVENT_AUDIO_DEVICE_ADDED => {
+                    if self.controller_audio_available() {
+                        pads.auto_audio();
+                        self.session.input(|q| pads.announce_new(q));
+                    }
+                }
+                SDL_EVENT_AUDIO_DEVICE_REMOVED => {
+                    pads.removed_audio_device(event.adevice.which);
+                    self.session.input(|q| pads.announce_new(q));
                 }
                 _ => {
                     let focused = SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0;
@@ -1827,7 +1883,7 @@ impl Streaming {
         self.set_capture(window, false);
         self.cursor.clear();
         for controller in 0..16 {
-            if self.audio_status.0 & (1 << controller) != 0 {
+            if self.audio_status.0[usize::from(controller)] != 0 {
                 let _ = self.session.send(ClientMessage::ControllerAudioStatus { controller, flags: 0 });
             }
         }

@@ -5,6 +5,9 @@ use std::path::Path;
 
 use sdl3_sys::everything::*;
 
+#[cfg(test)]
+pub static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// SDL's last error message.
 pub fn error() -> String {
     // SAFETY: SDL_GetError always returns a valid string.

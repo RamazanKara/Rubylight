@@ -75,6 +75,7 @@ pub struct Shared {
     pub frames: Mutex<VecDeque<Decoded>>,
     pub notices: Mutex<Vec<Notice>>,
     pub decoder_name: Mutex<String>,
+    pub controller_audio: Mutex<Vec<std::sync::Weak<Mutex<crate::controller_audio::Playback>>>>,
     pub counters: Counters,
     /// Most pictures held before the oldest is dropped.
     pub queue_limit: usize,
@@ -101,6 +102,7 @@ impl Shared {
             frames: Mutex::new(VecDeque::new()),
             notices: Mutex::new(Vec::new()),
             decoder_name: Mutex::new(String::new()),
+            controller_audio: Mutex::new(Vec::new()),
             counters: Counters::default(),
             queue_limit,
             waker,
@@ -360,9 +362,20 @@ impl AudioRenderer for Audio {
             return;
         };
         let samples = decoder.decode(packet, &mut self.pcm);
-        if samples <= 0 || self.stream.is_null() {
+        if samples <= 0 {
             return;
         }
+        let mut routed = false;
+        for playback in lock(&self.shared.controller_audio).iter().filter_map(std::sync::Weak::upgrade) {
+            routed |= lock(&playback).headphones(&self.pcm[..samples as usize * decoder.channels], decoder.channels);
+        }
+        if routed {
+            if !self.stream.is_null() { unsafe { SDL_ClearAudioStream(self.stream) }; }
+            self.started = false;
+            self.shared.counters.audio_queued_us.store(0, Ordering::Relaxed);
+            return;
+        }
+        if self.stream.is_null() { return; }
         let bytes = samples as usize * decoder.channels * 4;
         // SAFETY: the stream is open; pcm holds `bytes` bytes.
         unsafe {

@@ -256,6 +256,16 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
 
     if let Some(root) = &previous {
         line(format!("previous installation: {}", root.display()));
+        // Vibepollo journals NVIDIA profile changes; only its own program can
+        // put them back, so do it before that program is removed.
+        if nvprefs_undo_pending(&system::program_data(), root) {
+            progress.set("Restoring NVIDIA settings changed by Vibepollo…");
+            let _ = system::run(
+                &root.join("sunshine.exe").display().to_string(),
+                &["--restore-nvprefs-undo"],
+                Duration::from_secs(60),
+            );
+        }
         // A package without drivers reuses the signed drivers already
         // installed with Vibepollo.
         for (from, to) in [("drivers\\vhf-gamepad", "drivers\\gamepad")] {
@@ -836,6 +846,12 @@ impl<F: FnMut(&str) -> Result<()>> Drop for Restart<F> {
 }
 /// What butterpollo.exe printed when it failed: anyhow's "Error: ..." and
 /// its "Caused by:" chain, which follow any warnings.
+/// Vibepollo's journal of NVIDIA profile changes, and the program that can
+/// undo them, both still present.
+fn nvprefs_undo_pending(program_data: &Path, previous: &Path) -> bool {
+    program_data.join("Sunshine\\nvprefs_undo.json").is_file()
+        && previous.join("sunshine.exe").is_file()
+}
 fn import_error(output: &str) -> Option<String> {
     let lines: Vec<&str> = output.lines().collect();
     let start = lines.iter().rposition(|line| line.starts_with("Error: "))?;
@@ -1442,6 +1458,21 @@ mod tests {
         );
     }
     use super::*;
+    #[test]
+    fn vibepollos_nvidia_undo_runs_only_with_its_journal_and_program() {
+        let base = std::env::temp_dir().join(format!("nvprefs-undo-{}", std::process::id()));
+        let (data, previous) = (base.join("data"), base.join("previous"));
+        std::fs::create_dir_all(data.join("Sunshine")).unwrap();
+        std::fs::create_dir_all(&previous).unwrap();
+        assert!(!nvprefs_undo_pending(&data, &previous));
+        std::fs::write(data.join("Sunshine\\nvprefs_undo.json"), "{}").unwrap();
+        assert!(!nvprefs_undo_pending(&data, &previous));
+        std::fs::write(previous.join("sunshine.exe"), "").unwrap();
+        assert!(nvprefs_undo_pending(&data, &previous));
+        std::fs::remove_file(data.join("Sunshine\\nvprefs_undo.json")).unwrap();
+        assert!(!nvprefs_undo_pending(&data, &previous));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
     #[test]
     fn driver_reboot_exit_codes_are_successful_but_warnings_are_shown() {
         let mut notes = Vec::new();

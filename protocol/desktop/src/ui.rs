@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::config::{
-    AudioChannels, CodecPreference, DecoderPreference, HostDisplay, MouseMode, Settings, WindowMode,
+    AudioChannels, CodecPreference, DecoderPreference, HostDisplay, MouseMode, Overrides, Profiles, Settings, WindowMode,
 };
 use crate::hosts::{Apps, Art, Host, Hosts, Reach};
 use crate::stream::{stream_mode, Display};
@@ -23,6 +23,11 @@ pub enum Command {
     Wake(u64),
     HostSettings(u64),
     SaveHostSettings(u64),
+    AppSettings { host: u64, app: nightjar_core::http::App },
+    SaveAppSettings(u64),
+    ProfileSettings(u64),
+    SaveProfile(u64),
+    SaveProfiles,
     CancelPair,
     AddHost(String),
     Unpair(u64),
@@ -39,6 +44,21 @@ pub enum Screen {
     Apps(u64),
     Settings,
     HostSettings(u64),
+    AppSettings(u64),
+    Profiles,
+    ProfileSettings(u64),
+}
+
+impl Screen {
+    pub fn save_command(self) -> Option<Command> {
+        match self {
+            Self::Settings => Some(Command::SaveSettings),
+            Self::HostSettings(id) => Some(Command::SaveHostSettings(id)),
+            Self::AppSettings(id) => Some(Command::SaveAppSettings(id)),
+            Self::ProfileSettings(id) => Some(Command::SaveProfile(id)),
+            _ => None,
+        }
+    }
 }
 
 pub enum Dialog {
@@ -49,6 +69,8 @@ pub enum Dialog {
     Message { title: String, body: String },
     ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String },
     ConfirmAction { host: u64, app: i32, name: String },
+    ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
+    DeleteProfile { id: u64, name: String },
 }
 
 /// The connecting card's content.
@@ -62,8 +84,12 @@ pub struct Launcher {
     pub screen: Screen,
     pub dialog: Dialog,
     pub settings: Settings,
-    pub host_settings: Settings,
-    pub use_host_settings: bool,
+    pub profiles: Profiles,
+    pub edit_settings: Settings,
+    pub inherited_settings: Settings,
+    pub edit_overrides: Overrides,
+    pub editing_app: Option<nightjar_core::http::App>,
+    pub edit_name: String,
     pub settings_dirty: bool,
     logo: Option<TextureHandle>,
     focus_screen: bool,
@@ -171,13 +197,17 @@ fn spinner(ui: &mut Ui, radius: f32) {
 }
 
 impl Launcher {
-    pub fn new(settings: Settings, display: Display) -> Self {
+    pub fn new(settings: Settings, profiles: Profiles, display: Display) -> Self {
         Self {
             screen: Screen::Hosts,
             dialog: Dialog::None,
             settings,
-            host_settings: Settings::default(),
-            use_host_settings: false,
+            profiles,
+            edit_settings: Settings::default(),
+            inherited_settings: Settings::default(),
+            edit_overrides: Overrides::default(),
+            editing_app: None,
+            edit_name: String::new(),
             settings_dirty: false,
             logo: None,
             focus_screen: true,
@@ -190,7 +220,7 @@ impl Launcher {
     }
 
     pub fn go(&mut self, screen: Screen) {
-        if matches!(screen, Screen::HostSettings(_)) && !matches!(self.screen, Screen::HostSettings(_)) {
+        if matches!(screen, Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_)) {
             self.settings_return = self.screen;
         }
         if self.screen == Screen::Settings && screen != Screen::Settings && self.settings_dirty {
@@ -229,10 +259,11 @@ impl Launcher {
                     commands.push(Command::SaveSettings);
                     self.go(Screen::Hosts);
                 }
-                Screen::HostSettings(host) => {
-                    commands.push(Command::SaveHostSettings(host));
+                Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {
+                    commands.extend(self.screen.save_command());
                     self.go(self.settings_return);
                 }
+                Screen::Profiles => self.go(Screen::Settings),
             },
             Dialog::Pairing { .. } => {
                 commands.push(Command::CancelPair);
@@ -277,7 +308,8 @@ impl Launcher {
             match self.screen {
                 Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
                 Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
-                Screen::Settings | Screen::HostSettings(_) => self.settings_page(ui),
+                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &mut commands),
+                Screen::Profiles => self.profiles_page(ui, &mut commands),
             }
         });
         if blocked {
@@ -313,13 +345,17 @@ impl Launcher {
                     }
                     ui.label(RichText::new("Settings").font(semibold(22.0)).color(PAPER));
                 }
-                Screen::HostSettings(host) => {
+                Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {
                     if text_button(ui, "‹  Back").clicked() {
-                        commands.push(Command::SaveHostSettings(host));
-                        self.go(self.settings_return);
+                        self.back(commands);
                     }
-                    let name = view.hosts.get(host).map_or("PC", |h| h.display_name());
-                    ui.label(RichText::new(format!("{name} settings")).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(&self.edit_name).font(semibold(22.0)).color(PAPER));
+                }
+                Screen::Profiles => {
+                    if text_button(ui, "‹  Settings").clicked() {
+                        self.go(Screen::Settings);
+                    }
+                    ui.label(RichText::new("Profiles").font(semibold(22.0)).color(PAPER));
                 }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -355,7 +391,7 @@ impl Launcher {
                         }
                     }
                 }
-                Screen::Settings | Screen::HostSettings(_) => {}
+                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) => {}
                 }
             });
         });
@@ -492,6 +528,8 @@ impl Launcher {
                     ui.label(RichText::new("This PC lists no apps.").color(ON_SURFACE_VARIANT));
                     return;
                 }
+                ui.label(RichText::new("Game settings: right-click a game, press F2, or use the controller's left face button.").color(ON_SURFACE_VARIANT));
+                ui.add_space(12.0);
                 scroll(ui, "apps", |ui| {
                     let gap = 20.0;
                     let columns = ((ui.available_width() + gap) / (POSTER_W + gap)).floor().max(1.0) as usize;
@@ -535,6 +573,17 @@ impl Launcher {
                                         });
                                     }
                                 }
+                                if !app.is_control_action() {
+                                    response.context_menu(|ui| {
+                                        if ui.button("Game settings").clicked() {
+                                            commands.push(Command::AppSettings { host: id, app: app.clone() });
+                                            ui.close();
+                                        }
+                                    });
+                                    if response.has_focus() && ui.input(|i| i.key_pressed(Key::F2)) {
+                                        commands.push(Command::AppSettings { host: id, app: app.clone() });
+                                    }
+                                }
                             }
                         });
                         ui.add_space(gap);
@@ -548,22 +597,83 @@ impl Launcher {
         }
     }
 
-    fn settings_page(&mut self, ui: &mut Ui) {
+    fn profiles_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
+        ui.label("Profiles change the settings used for your next stream. Each PC and game can override them.");
+        let before = self.profiles.active;
+        let active = self.profiles.entries.iter().find(|p| Some(p.id) == before)
+            .map_or("Main settings", |p| p.name.as_str());
+        row(ui, "Active profile", "Main settings apply wherever the profile has no override.", |ui| {
+            egui::ComboBox::from_id_salt("active-profile").selected_text(active).show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.profiles.active, None, "Main settings");
+                for profile in &self.profiles.entries {
+                    ui.selectable_value(&mut self.profiles.active, Some(profile.id), &profile.name);
+                }
+            }).response
+        });
+        if before != self.profiles.active { commands.push(Command::SaveProfiles); }
+        let button = primary_button(ui, "New profile");
+        if std::mem::take(&mut self.focus_screen) { button.request_focus(); }
+        if button.clicked() {
+            self.dialog = Dialog::ProfileName { id: None, name: String::new(), settings: Overrides::default(), error: None };
+            self.focus_dialog = true;
+        }
+        ui.add_space(16.0);
+        scroll(ui, "profiles", |ui| {
+            for profile in &self.profiles.entries {
+                ui.push_id(profile.id, |ui| {
+                    row(ui, &profile.name, if Some(profile.id) == self.profiles.active { "Active for new streams" } else { "Saved profile" }, |ui| {
+                        ui.horizontal(|ui| {
+                            if quiet_button(ui, "Edit").clicked() { commands.push(Command::ProfileSettings(profile.id)); }
+                            ui.menu_button("More", |ui| {
+                                if ui.button("Rename").clicked() {
+                                    self.dialog = Dialog::ProfileName { id: Some(profile.id), name: profile.name.clone(), settings: Overrides::default(), error: None };
+                                    self.focus_dialog = true;
+                                    ui.close();
+                                }
+                                if ui.button("Duplicate").clicked() {
+                                    self.dialog = Dialog::ProfileName { id: None, name: String::new(), settings: profile.settings.clone(), error: None };
+                                    self.focus_dialog = true;
+                                    ui.close();
+                                }
+                                if ui.button("Delete").clicked() {
+                                    self.dialog = Dialog::DeleteProfile { id: profile.id, name: profile.name.clone() };
+                                    self.focus_dialog = true;
+                                    ui.close();
+                                }
+                            }).response
+                        }).inner
+                    });
+                });
+            }
+        });
+    }
+
+    fn settings_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
         let display = self.display;
         let tearing = self.tearing_supported;
-        let host_settings = matches!(self.screen, Screen::HostSettings(_));
-        if host_settings {
-            let response = row(ui, "Use settings for this PC", "Off uses your current global settings.", |ui| {
-                toggle(ui, &mut self.use_host_settings)
+        let layered = self.screen != Screen::Settings;
+        if layered {
+            ui.label(match self.screen {
+                Screen::ProfileSettings(_) => "Unchecked settings follow your main settings.",
+                Screen::HostSettings(_) => "Unchecked settings follow the active profile and main settings.",
+                _ => "Unchecked settings follow this PC, the active profile, and main settings.",
             });
-            if response.changed() && self.use_host_settings {
-                self.host_settings = self.settings.clone();
+            if text_button(ui, "Reset all to inherited").clicked() {
+                self.edit_overrides = Overrides::default();
+                self.edit_settings = self.inherited_settings.clone();
             }
-            if !self.use_host_settings {
+        } else {
+            let active = self.profiles.entries.iter().find(|p| Some(p.id) == self.profiles.active)
+                .map_or("Main settings", |p| p.name.as_str());
+            if row(ui, "Profiles", &format!("Active: {active}. PCs and games can override individual settings."), |ui| quiet_button(ui, "Manage profiles")).clicked() {
+                commands.push(Command::SaveSettings);
+                self.go(Screen::Profiles);
                 return;
             }
         }
-        let s = if host_settings { &mut self.host_settings } else { &mut self.settings };
+        let inherited = self.inherited_settings.clone();
+        let overrides = &mut self.edit_overrides;
+        let s = if layered { &mut self.edit_settings } else { &mut self.settings };
         let before = s.clone();
         let focus_first = std::mem::take(&mut self.focus_screen);
         scroll(ui, "settings", |ui| {
@@ -575,7 +685,7 @@ impl Launcher {
             } else {
                 format!("{}x{}", s.width, s.height)
             };
-            let first = row(ui, "Resolution", "The stream's size. Native matches this display.", |ui| {
+            let first = setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["width", "height"], "Resolution", "The stream's size. Native matches this display.", |ui, s| {
                 egui::ComboBox::from_id_salt("resolution")
                     .selected_text(current)
                     .show_ui(ui, |ui| {
@@ -596,7 +706,7 @@ impl Launcher {
                 first.request_focus();
             }
             if s.width != 0 {
-                row(ui, "Custom resolution", "Width and height in pixels.", |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["width", "height"], "Custom resolution", "Width and height in pixels.", |ui, s| {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         ui.add(egui::DragValue::new(&mut s.width).range(320..=7680));
                         ui.label("×");
@@ -610,7 +720,7 @@ impl Launcher {
             } else {
                 format!("{} fps", s.fps)
             };
-            row(ui, "Frame rate", "Display matches this monitor's refresh rate.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["fps"], "Frame rate", "Display matches this monitor's refresh rate.", |ui, s| {
                 egui::ComboBox::from_id_salt("fps")
                     .selected_text(fps_text)
                     .show_ui(ui, |ui| {
@@ -624,11 +734,9 @@ impl Launcher {
             let (w, h, fps, bitrate) = stream_mode(s, display);
             let recommended = stream_mode(&Settings { bitrate_kbps: 0, ..s.clone() }, display).3;
             let mut automatic = s.bitrate_kbps == 0;
-            row(
-                ui,
-                "Automatic bitrate",
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["bitrate_kbps"], "Automatic bitrate",
                 &format!("{:.0} Mbps for {w}x{h} at {fps} fps.", f64::from(recommended) / 1000.0),
-                |ui| {
+                |ui, s| {
                     let r = toggle(ui, &mut automatic);
                     if r.changed() {
                         s.bitrate_kbps = if automatic { 0 } else { recommended };
@@ -638,12 +746,11 @@ impl Launcher {
             );
             if !automatic {
                 let mut mbps = bitrate as f32 / 1000.0;
-                row(
-                    ui,
-                    "Bitrate",
-                    if s.codec.is_pyrowave() { "PyroWave maintains a minimum bitrate for this size and frame rate." }
-                    else { "Higher is sharper and needs a faster network." },
-                    |ui| {
+                let note = if s.codec.is_pyrowave() { "PyroWave maintains a minimum bitrate for this size and frame rate." }
+                    else { "Higher is sharper and needs a faster network." };
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["bitrate_kbps"], "Bitrate",
+                    note,
+                    |ui, s| {
                         let r = ui.add(
                             egui::Slider::new(&mut mbps, 0.5..=2000.0)
                                 .logarithmic(true)
@@ -658,10 +765,10 @@ impl Launcher {
                     },
                 );
             }
-            row(ui, "Adapt bitrate to the connection", "Reduce bitrate during sustained congestion and recover gradually. Requires a compatible host.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["adaptive_bitrate"], "Adapt bitrate to the connection", "Reduce bitrate during sustained congestion and recover gradually. Requires a compatible host.", |ui, s| {
                 toggle(ui, &mut s.adaptive_bitrate)
             });
-            row(ui, "Automatic quality", "Adjust resolution and frame rate under sustained load. Requires a host that supports live stream changes.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["adaptive_quality"], "Automatic quality", "Adjust resolution and frame rate under sustained load. Requires a host that supports live stream changes.", |ui, s| {
                 egui::ComboBox::from_id_salt("quality").selected_text(s.adaptive_quality.label()).show_ui(ui, |ui| {
                     for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {
                         ui.selectable_value(&mut s.adaptive_quality, mode, mode.label());
@@ -669,14 +776,14 @@ impl Launcher {
                 }).response
             });
             if s.adaptive_quality != crate::config::QualityMode::Off {
-                row(ui, "Minimum resolution", "Shortest edge, in pixels. Never increases the selected stream size.", |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["quality_min_short_edge"], "Minimum resolution", "Shortest edge, in pixels. Never increases the selected stream size.", |ui, s| {
                     ui.add(egui::DragValue::new(&mut s.quality_min_short_edge).range(256..=2160).speed(2).suffix(" px"))
                 });
-                row(ui, "Minimum frame rate", "Automatic quality stays above this rate.", |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["quality_min_fps"], "Minimum frame rate", "Automatic quality stays above this rate.", |ui, s| {
                     ui.add(egui::DragValue::new(&mut s.quality_min_fps).range(15..=240).suffix(" fps"))
                 });
             }
-            row(ui, "Codec", "Automatic picks HEVC, then H.264. PyroWave needs GPU rendering; restart after selecting it on Linux.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["codec"], "Codec", "Automatic picks HEVC, then H.264. PyroWave needs GPU rendering; restart after selecting it on Linux.", |ui, s| {
                 egui::ComboBox::from_id_salt("codec")
                     .selected_text(match s.codec {
                         CodecPreference::Auto => "Automatic",
@@ -696,7 +803,7 @@ impl Launcher {
                     })
                     .response
             });
-            row(ui, "Upscaling", "Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["upscaling"], "Upscaling", "Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.", |ui, s| {
                 egui::ComboBox::from_id_salt("upscaling").selected_text(s.upscaling.label()).show_ui(ui, |ui| {
                     for mode in [crate::config::Upscaling::Bilinear, crate::config::Upscaling::Fsr1, crate::config::Upscaling::Sgsr1] {
                         ui.selectable_value(&mut s.upscaling, mode, mode.label());
@@ -704,20 +811,18 @@ impl Launcher {
                 }).response
             });
             if s.upscaling != crate::config::Upscaling::Bilinear {
-                row(ui, "Sharpness", "Extra sharpening applied by the upscaler.", |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["upscale_sharpness"], "Sharpness", "Extra sharpening applied by the upscaler.", |ui, s| {
                     ui.add(egui::Slider::new(&mut s.upscale_sharpness, 0..=100).suffix("%"))
                 });
             }
-            row(
-                ui,
-                "HDR",
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["hdr"], "HDR",
                 "Streams 10-bit HDR to an HDR-enabled display. Enable HDR in the operating system first.",
-                |ui| toggle(ui, &mut s.hdr),
+                |ui, s| toggle(ui, &mut s.hdr),
             );
-            row(ui, "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
-                |ui| ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| toggle(ui, &mut s.experimental_packed_444)).inner);
-            row(ui, "Full color range", "Request the full RGB range from the host.", |ui| toggle(ui, &mut s.full_range));
-            row(ui, "Decoder", "Automatic uses hardware decoding when available. PyroWave always uses GPU wavelets.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["experimental_packed_444"], "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
+                |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| toggle(ui, &mut s.experimental_packed_444)).inner);
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["full_range"], "Full color range", "Request the full RGB range from the host.", |ui, s| toggle(ui, &mut s.full_range));
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["decoder"], "Decoder", "Automatic uses hardware decoding when available. PyroWave always uses GPU wavelets.", |ui, s| {
                 ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| egui::ComboBox::from_id_salt("decoder")
                     .selected_text(match s.decoder {
                         DecoderPreference::Auto => "Automatic",
@@ -731,8 +836,8 @@ impl Launcher {
             });
 
             section(ui, "PC display");
-            row(ui, "Virtual display", "Use a separate display on hosts that support it.", |ui| toggle(ui, &mut s.virtual_display));
-            row(ui, "Display arrangement", "Applied only to normal streams on hosts that support display modes.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["virtual_display"], "Virtual display", "Use a separate display on hosts that support it.", |ui, s| toggle(ui, &mut s.virtual_display));
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["host_display"], "Display arrangement", "Applied only to normal streams on hosts that support display modes.", |ui, s| {
                 egui::ComboBox::from_id_salt("host-display")
                     .selected_text(host_display_name(s.host_display))
                     .show_ui(ui, |ui| {
@@ -742,11 +847,11 @@ impl Launcher {
                         }
                     }).response
             });
-            row(ui, "PC display scaling", "Text and interface size on the virtual display.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["virtual_display_scale"], "PC display scaling", "Text and interface size on the virtual display.", |ui, s| {
                 ui.add(egui::Slider::new(&mut s.virtual_display_scale, 100..=300).step_by(25.0).suffix("%"))
             });
             section(ui, "Display");
-            row(ui, "Window", "Borderless covers the display without changing its mode.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
                     .selected_text(match s.window_mode {
                         WindowMode::Fullscreen => "Fullscreen",
@@ -765,26 +870,24 @@ impl Launcher {
             } else {
                 "This system cannot present with tearing, which VRR needs here."
             };
-            row(ui, "Variable refresh rate", vrr_note, |ui| toggle(ui, &mut s.vrr));
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["vrr"], "Variable refresh rate", vrr_note, |ui, s| toggle(ui, &mut s.vrr));
             ui.add_enabled_ui(s.vrr, |ui| {
-                row(
-                    ui,
-                    "Show frames at the PC's frame times",
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["present_at_host_times"], "Show frames at the PC's frame times",
                     "Each frame appears at the moment the game made it, plus a steady delay, so motion stays even.",
-                    |ui| toggle(ui, &mut s.present_at_host_times),
+                    |ui, s| toggle(ui, &mut s.present_at_host_times),
                 );
             });
             ui.add_enabled_ui(!s.vrr, |ui| {
-                row(ui, "V-Sync", "Without VRR: wait for the display's refresh, no tearing.", |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["vsync"], "V-Sync", "Without VRR: wait for the display's refresh, no tearing.", |ui, s| {
                     toggle(ui, &mut s.vsync)
                 });
             });
-            row(ui, "Performance overlay", "Frame rates, decode and network times. Ctrl+Alt+Shift+S toggles it.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["overlay"], "Performance overlay", "Frame rates, decode and network times. Ctrl+Alt+Shift+S toggles it.", |ui, s| {
                 toggle(ui, &mut s.overlay)
             });
 
             section(ui, "Audio");
-            row(ui, "Channels", "Surround needs a host and output device that support it.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio"], "Channels", "Surround needs a host and output device that support it.", |ui, s| {
                 egui::ComboBox::from_id_salt("audio")
                     .selected_text(match s.audio {
                         AudioChannels::Stereo => "Stereo",
@@ -798,15 +901,15 @@ impl Launcher {
                     })
                     .response
             });
-            row(ui, "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["play_audio_on_host"], "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui, s| {
                 toggle(ui, &mut s.play_audio_on_host)
             });
-            row(ui, "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["microphone"], "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui, s| {
                 toggle(ui, &mut s.microphone)
             });
 
             section(ui, "Input");
-            row(ui, "Mouse", "Captured suits games; desktop pointer suits remote work. Ctrl+Alt+Shift+M switches.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_mode"], "Mouse", "Captured suits games; desktop pointer suits remote work. Ctrl+Alt+Shift+M switches.", |ui, s| {
                 egui::ComboBox::from_id_salt("mouse")
                     .selected_text(match s.mouse_mode {
                         MouseMode::Capture => "Captured",
@@ -818,20 +921,18 @@ impl Launcher {
                     })
                     .response
             });
-            row(
-                ui,
-                "Send system keys",
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["capture_system_keys"], "Send system keys",
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
-                |ui| toggle(ui, &mut s.capture_system_keys),
+                |ui, s| toggle(ui, &mut s.capture_system_keys),
             );
-            row(ui, "Local cursor", "Show the PC's cursor without video delay in desktop pointer mode when the host supports it.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["cursor_shapes"], "Local cursor", "Show the PC's cursor without video delay in desktop pointer mode when the host supports it.", |ui, s| {
                 toggle(ui, &mut s.cursor_shapes)
             });
             section(ui, "Connection");
-            row(ui, "Reconnect after an interruption", "Try to resume the same running app up to five times within one minute.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["auto_reconnect"], "Reconnect after an interruption", "Try to resume the same running app up to five times within one minute.", |ui, s| {
                 toggle(ui, &mut s.auto_reconnect)
             });
-            row(ui, "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
                 egui::ComboBox::from_id_salt("network-grace")
                     .selected_text(format!("{} seconds", s.network_grace_ms / 1000))
                     .show_ui(ui, |ui| {
@@ -842,18 +943,18 @@ impl Launcher {
             });
 
             section(ui, "Controllers");
-            row(ui, "Controllers", "Every connected controller becomes a controller on the PC.", |ui| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controllers"], "Controllers", "Every connected controller becomes a controller on the PC.", |ui, s| {
                 toggle(ui, &mut s.controllers)
             });
             ui.add_enabled_ui(s.controllers, |ui| {
-                row(ui, "Nintendo button layout", "Swap A/B and X/Y.", |ui| toggle(ui, &mut s.swap_face_buttons));
-                row(ui, "Motion controls", "Send gyro and accelerometer data when a game asks for it.", |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["swap_face_buttons"], "Nintendo button layout", "Swap A/B and X/Y.", |ui, s| toggle(ui, &mut s.swap_face_buttons));
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_motion"], "Motion controls", "Send gyro and accelerometer data when a game asks for it.", |ui, s| {
                     toggle(ui, &mut s.controller_motion)
                 });
-                row(ui, "DualSense USB audio", "Enable waveform haptics and controller speaker audio. Select the four-channel controller output in stream controls if more than one is connected.", |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_audio"], "DualSense USB audio", "Enable waveform haptics and controller speaker audio. Select the four-channel controller output in stream controls if more than one is connected.", |ui, s| {
                     toggle(ui, &mut s.controller_audio)
                 });
-                row(ui, "Input in the background", "Keep controllers working when Nightjar is not focused.", |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["background_controllers"], "Input in the background", "Keep controllers working when Nightjar is not focused.", |ui, s| {
                     toggle(ui, &mut s.background_controllers)
                 });
             });
@@ -884,6 +985,62 @@ impl Launcher {
         let mut focused = false;
         match &mut self.dialog {
             Dialog::None => return,
+            Dialog::ProfileName { id, name, settings, error } => {
+                egui::Modal::new(Id::unique("profile-name"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new(if id.is_some() { "Rename profile" } else { "New profile" }).font(semibold(22.0)));
+                        let edit = ui.add(egui::TextEdit::singleline(name).hint_text("Profile name"));
+                        if focus_first { edit.request_focus(); focused = true; }
+                        if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
+                        let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        ui.horizontal(|ui| {
+                            if primary_button(ui, "Save").clicked() || submitted {
+                                let result = if let Some(id) = *id {
+                                    self.profiles.check_name(name, Some(id)).map(|()| {
+                                        if let Some(profile) = self.profiles.entries.iter_mut().find(|p| p.id == id) {
+                                            profile.name = name.trim().to_owned();
+                                        }
+                                        id
+                                    })
+                                } else {
+                                    self.profiles.create(name, settings.clone())
+                                };
+                                match result {
+                                    Ok(saved) => {
+                                        commands.push(Command::SaveProfiles);
+                                        if id.is_none() { commands.push(Command::ProfileSettings(saved)); }
+                                        close = true;
+                                    }
+                                    Err(message) => *error = Some(message.into()),
+                                }
+                            }
+                            if quiet_button(ui, "Cancel").clicked() { close = true; }
+                        });
+                    });
+            }
+            Dialog::DeleteProfile { id, name } => {
+                egui::Modal::new(Id::unique("delete-profile"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new(format!("Delete {name}?")).font(semibold(22.0)));
+                        ui.label("If this profile is active, new streams will use main settings instead.");
+                        ui.horizontal(|ui| {
+                            let button = quiet_button(ui, "Cancel");
+                            if focus_first { button.request_focus(); focused = true; }
+                            if button.clicked() { close = true; }
+                            if primary_button(ui, "Delete").clicked() {
+                                self.profiles.delete(*id);
+                                commands.push(Command::SaveProfiles);
+                                close = true;
+                            }
+                        });
+                    });
+            }
             Dialog::ConfirmAction { host, app, name } => {
                 egui::Modal::new(Id::unique("host-action"))
                     .frame(frame)
@@ -1158,6 +1315,34 @@ fn section(ui: &mut Ui, title: &str) {
     ui.add_space(14.0);
     ui.label(RichText::new(title.to_uppercase()).font(semibold(13.0)).color(MOON));
     ui.add_space(2.0);
+}
+
+fn setting_row(
+    ui: &mut Ui,
+    settings: &mut Settings,
+    layer: Option<(&Settings, &mut Overrides)>,
+    keys: &[&str],
+    label: &str,
+    description: &str,
+    control: impl FnOnce(&mut Ui, &mut Settings) -> Response,
+) -> Response {
+    let Some((inherited, overrides)) = layer else {
+        return row(ui, label, description, |ui| control(ui, settings));
+    };
+    row(ui, label, description, |ui| {
+        ui.with_layout(Layout::top_down(Align::Max), |ui| {
+            ui.set_width(240.0);
+            let mut own = overrides.has(keys);
+            let response = ui.checkbox(&mut own, "Override");
+            if response.changed() && !own {
+                overrides.clear(keys);
+                *settings = overrides.apply(inherited);
+            }
+            let value = ui.add_enabled_ui(own, |ui| control(ui, settings)).inner;
+            if own { overrides.capture(settings, keys); }
+            response.union(value)
+        }).inner
+    })
 }
 
 /// A settings row: label and description on the left, the control on the right.

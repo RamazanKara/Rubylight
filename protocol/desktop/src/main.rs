@@ -153,9 +153,10 @@ fn run() -> Result<(), String> {
     }
     let store = Store::open().map_err(|e| format!("No config directory: {e}"))?;
     let settings = store.settings();
+    let profiles = store.profiles();
     let gpu = settings.experimental_packed_444 || settings.hdr || settings.codec.is_pyrowave() || settings.upscaling != config::Upscaling::Bilinear || store.hosts().iter()
-        .filter_map(|host| host.settings.as_ref())
-        .any(|settings| settings.experimental_packed_444 || settings.hdr || settings.codec.is_pyrowave() || settings.upscaling != config::Upscaling::Bilinear);
+        .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
+        || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
 
     // SAFETY: window and renderer creation on the main thread.
     let (window, renderer, wake_event) = unsafe {
@@ -193,7 +194,7 @@ fn run() -> Result<(), String> {
     let gui = Gui::new();
     theme::apply(&gui.ctx);
     let display = display_of(window);
-    let mut launcher = Launcher::new(settings.clone(), display);
+    let mut launcher = Launcher::new(settings.clone(), profiles, display);
     #[cfg(windows)]
     {
         launcher.tearing_supported =
@@ -283,11 +284,7 @@ fn run() -> Result<(), String> {
 
 impl App {
     fn shutdown(&mut self) {
-        match self.launcher.screen {
-            Screen::HostSettings(host) => self.command(Command::SaveHostSettings(host)),
-            Screen::Settings => self.command(Command::SaveSettings),
-            _ => {}
-        }
+        if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
         if let Some((streaming, _)) = self.streaming.take() {
             streaming.finish(self.window, &mut self.pads);
         }
@@ -326,11 +323,10 @@ impl App {
                         SDL_GAMEPAD_BUTTON_SOUTH => Some(if swap { egui::Key::Escape } else { egui::Key::Enter }),
                         SDL_GAMEPAD_BUTTON_EAST => Some(if swap { egui::Key::Enter } else { egui::Key::Escape }),
                         SDL_GAMEPAD_BUTTON_BACK => Some(egui::Key::Escape),
+                        SDL_GAMEPAD_BUTTON_WEST => Some(egui::Key::F2),
                         SDL_GAMEPAD_BUTTON_START => {
                             if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && self.connecting.is_none() {
-                                if let Screen::HostSettings(host) = self.launcher.screen {
-                                    self.command(Command::SaveHostSettings(host));
-                                }
+                                if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
                                 self.launcher.go(Screen::Settings);
                             }
                             None
@@ -576,15 +572,53 @@ impl App {
             Command::Wake(host) => self.hosts.wake(host),
             Command::HostSettings(id) => {
                 if let Some(host) = self.hosts.get(id) {
-                    self.launcher.host_settings = host.record.settings(&self.launcher.settings).clone();
-                    self.launcher.use_host_settings = host.record.settings.is_some();
+                    self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings);
+                    self.launcher.edit_overrides = host.record.settings.clone().unwrap_or_default();
+                    self.launcher.edit_settings = self.launcher.edit_overrides.apply(&self.launcher.inherited_settings);
+                    self.launcher.edit_name = format!("{} settings", host.display_name());
                     self.launcher.go(Screen::HostSettings(id));
                 }
             }
             Command::SaveHostSettings(id) => {
                 if let Some(host) = self.hosts.get_mut(id) {
-                    host.record.settings = self.launcher.use_host_settings.then(|| self.launcher.host_settings.clone());
+                    host.record.settings = (!self.launcher.edit_overrides.is_empty()).then(|| self.launcher.edit_overrides.clone());
                     self.save_hosts();
+                }
+            }
+            Command::AppSettings { host: id, app } => {
+                if let Some(host) = self.hosts.get(id) {
+                    self.launcher.inherited_settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings));
+                    self.launcher.edit_overrides = host.record.app_settings(&app.uuid, app.id).cloned().unwrap_or_default();
+                    self.launcher.edit_settings = self.launcher.edit_overrides.apply(&self.launcher.inherited_settings);
+                    self.launcher.edit_name = format!("{} settings", app.name);
+                    self.launcher.editing_app = Some(app);
+                    self.launcher.go(Screen::AppSettings(id));
+                }
+            }
+            Command::SaveAppSettings(id) => {
+                if let (Some(host), Some(app)) = (self.hosts.get_mut(id), self.launcher.editing_app.as_ref()) {
+                    host.record.save_app_settings(&app.uuid, app.id, self.launcher.edit_overrides.clone());
+                    self.save_hosts();
+                }
+            }
+            Command::ProfileSettings(id) => {
+                if let Some(profile) = self.launcher.profiles.entries.iter().find(|p| p.id == id) {
+                    self.launcher.inherited_settings = self.launcher.settings.clone();
+                    self.launcher.edit_overrides = profile.settings.clone();
+                    self.launcher.edit_settings = profile.settings.apply(&self.launcher.inherited_settings);
+                    self.launcher.edit_name = format!("{} settings", profile.name);
+                    self.launcher.go(Screen::ProfileSettings(id));
+                }
+            }
+            Command::SaveProfile(id) => {
+                if let Some(profile) = self.launcher.profiles.entries.iter_mut().find(|p| p.id == id) {
+                    profile.settings = self.launcher.edit_overrides.clone();
+                    self.command(Command::SaveProfiles);
+                }
+            }
+            Command::SaveProfiles => {
+                if let Err(e) = self.store.save_profiles(&self.launcher.profiles) {
+                    self.launcher.message("Could not save profiles", e.to_string());
                 }
             }
             Command::CancelPair => self.hosts.cancel_pairing(),
@@ -676,7 +710,8 @@ impl App {
             self.hosts.control_action(host_id, app_id);
             return;
         }
-        let mut settings = host.record.settings(&self.launcher.settings).clone();
+        let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings));
+        if let Some(overrides) = host.record.app_settings(&app.uuid, app.id) { settings = overrides.apply(&settings); }
         if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
         if app.role(false) == nightjar_core::http::AppRole::InputOnly {
             settings.hdr = false;

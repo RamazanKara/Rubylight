@@ -3,6 +3,7 @@
 //! (`%APPDATA%\Nightjar` on Windows, `~/.config/nightjar` on Linux).
 
 use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -240,12 +241,110 @@ pub struct HostRecord {
     pub mac: Option<String>,
     /// Added by hand rather than found on the network.
     pub manual: bool,
-    pub settings: Option<Settings>,
+    pub settings: Option<Overrides>,
+    pub app_settings: BTreeMap<String, Overrides>,
 }
 
 impl HostRecord {
-    pub fn settings<'a>(&'a self, global: &'a Settings) -> &'a Settings {
-        self.settings.as_ref().unwrap_or(global)
+    pub fn settings(&self, global: &Settings) -> Settings {
+        self.settings.as_ref().map_or_else(|| global.clone(), |own| own.apply(global))
+    }
+
+    pub fn app_settings(&self, uuid: &str, id: i32) -> Option<&Overrides> {
+        self.app_settings.get(&app_key(uuid, id))
+    }
+
+    pub fn save_app_settings(&mut self, uuid: &str, id: i32, settings: Overrides) {
+        let mut keys = vec![app_key(uuid, id)];
+        if !uuid.is_empty() { keys.push(app_key("", id)); }
+        for key in keys {
+            if settings.is_empty() { self.app_settings.remove(&key); }
+            else { self.app_settings.insert(key, settings.clone()); }
+        }
+    }
+}
+
+fn app_key(uuid: &str, id: i32) -> String {
+    if uuid.is_empty() { format!("id:{id}") } else { format!("uuid:{uuid}") }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct Overrides(serde_json::Map<String, serde_json::Value>);
+
+impl<'de> Deserialize<'de> for Overrides {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let values = serde_json::Map::deserialize(deserializer)?;
+        serde_json::from_value::<Settings>(serde_json::Value::Object(values.clone())).map_err(serde::de::Error::custom)?;
+        Ok(Self(values))
+    }
+}
+
+impl Overrides {
+    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+
+    pub fn has(&self, keys: &[&str]) -> bool { keys.iter().any(|key| self.0.contains_key(*key)) }
+
+    pub fn capture(&mut self, settings: &Settings, keys: &[&str]) {
+        let values = serde_json::to_value(settings).expect("settings serialize");
+        for key in keys { self.0.insert((*key).to_owned(), values[*key].clone()); }
+    }
+
+    pub fn clear(&mut self, keys: &[&str]) {
+        for key in keys { self.0.remove(*key); }
+    }
+
+    pub fn apply(&self, base: &Settings) -> Settings {
+        let mut values = serde_json::to_value(base).expect("settings serialize");
+        values.as_object_mut().unwrap().extend(self.0.clone());
+        serde_json::from_value(values).expect("validated settings overrides")
+    }
+
+    pub fn needs_gpu(&self) -> bool {
+        let s = self.apply(&Settings::default());
+        s.experimental_packed_444 || s.hdr || s.codec.is_pyrowave() || s.upscaling != Upscaling::Bilinear
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Profile {
+    pub id: u64,
+    pub name: String,
+    pub settings: Overrides,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Profiles {
+    pub active: Option<u64>,
+    pub entries: Vec<Profile>,
+}
+
+impl Profiles {
+    pub fn settings(&self, base: &Settings) -> Settings {
+        self.entries.iter().find(|p| Some(p.id) == self.active).map_or_else(|| base.clone(), |p| p.settings.apply(base))
+    }
+
+    pub fn check_name(&self, name: &str, except: Option<u64>) -> Result<(), &'static str> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 32 { return Err("Use a name between 1 and 32 characters."); }
+        if self.entries.iter().any(|p| Some(p.id) != except && p.name.to_lowercase() == name.to_lowercase()) {
+            return Err("A profile already uses that name.");
+        }
+        Ok(())
+    }
+
+    pub fn create(&mut self, name: &str, settings: Overrides) -> Result<u64, &'static str> {
+        self.check_name(name, None)?;
+        if self.entries.len() >= 50 { return Err("You can save up to 50 profiles."); }
+        let id = self.entries.iter().map(|p| p.id).max().unwrap_or(0).checked_add(1).ok_or("No profile IDs available.")?;
+        self.entries.push(Profile { id, name: name.trim().to_owned(), settings });
+        Ok(id)
+    }
+
+    pub fn delete(&mut self, id: u64) {
+        self.entries.retain(|p| p.id != id);
+        if self.active == Some(id) { self.active = None; }
     }
 }
 
@@ -300,6 +399,14 @@ impl Store {
 
     pub fn save_settings(&self, settings: &Settings) -> std::io::Result<()> {
         write_json(&self.dir.join("settings.json"), settings)
+    }
+
+    pub fn profiles(&self) -> Profiles {
+        read_json(&self.dir.join("profiles.json")).unwrap_or_default()
+    }
+
+    pub fn save_profiles(&self, profiles: &Profiles) -> std::io::Result<()> {
+        write_json(&self.dir.join("profiles.json"), profiles)
     }
 
     pub fn identity(&self) -> Option<Identity> {
@@ -394,7 +501,12 @@ mod tests {
         };
         store.save_settings(&settings).unwrap();
         assert_eq!(store.settings(), settings);
-        let hosts = vec![HostRecord {
+        let mut profiles = Profiles::default();
+        let id = profiles.create("Travel", serde_json::from_str(r#"{"fps":60,"hdr":false}"#).unwrap()).unwrap();
+        profiles.active = Some(id);
+        store.save_profiles(&profiles).unwrap();
+        assert_eq!(store.profiles(), profiles);
+        let mut hosts = vec![HostRecord {
             unique_id: "ABC".into(),
             name: "Desk".into(),
             address: "10.0.0.2".into(),
@@ -402,6 +514,7 @@ mod tests {
             server_certificate: Some("PEM".into()),
             ..Default::default()
         }];
+        hosts[0].save_app_settings("game-a", 1, serde_json::from_str(r#"{"mouse_mode":"Absolute"}"#).unwrap());
         store.save_hosts(&hosts).unwrap();
         assert_eq!(store.hosts(), hosts);
         // A settings file from an older version keeps the new fields' defaults.
@@ -416,12 +529,52 @@ mod tests {
         let mut host: HostRecord = serde_json::from_str(r#"{"address":"pc.local"}"#).unwrap();
         let mut global = Settings { fps: 120, ..Default::default() };
         assert_eq!(host.settings(&global).fps, 120);
-        host.settings = Some(Settings { fps: 60, microphone: true, ..global.clone() });
+        host.settings = Some(serde_json::from_str(r#"{"fps":60,"microphone":true}"#).unwrap());
         global.fps = 144;
         let saved: HostRecord = serde_json::from_str(&serde_json::to_string(&host).unwrap()).unwrap();
         assert_eq!(saved.settings(&global).fps, 60);
         assert!(saved.settings(&global).microphone);
         host.settings = None;
         assert_eq!(host.settings(&global).fps, 144);
+    }
+
+    #[test]
+    fn partial_profiles_and_game_overrides_follow_their_layers() {
+        let mut global = Settings { fps: 120, microphone: true, ..Default::default() };
+        let mut profiles = Profiles::default();
+        let id = profiles.create(" Home ", serde_json::from_str(r#"{"codec":"Av1","fps":90}"#).unwrap()).unwrap();
+        profiles.active = Some(id);
+        assert!(profiles.create("HOME", Overrides::default()).is_err());
+        let mut host = HostRecord { settings: Some(serde_json::from_str(r#"{"fps":60}"#).unwrap()), ..Default::default() };
+        host.save_app_settings("game-a", 1, serde_json::from_str(r#"{"hdr":true,"microphone":false}"#).unwrap());
+        global.upscale_sharpness = 80;
+        let base = host.settings(&profiles.settings(&global));
+        let game = host.app_settings("game-a", 1).unwrap().apply(&base);
+        assert_eq!(game.fps, 60);
+        assert_eq!(game.codec, CodecPreference::Av1);
+        assert_eq!(game.upscale_sharpness, 80);
+        assert!(game.hdr);
+        assert!(!game.microphone);
+        assert!(host.app_settings("game-b", 1).is_none());
+        assert!(host.app_settings("game-a", 7).is_some());
+        assert!(host.app_settings("", 1).is_some());
+        host.save_app_settings("game-a", 1, Overrides::default());
+        assert!(host.app_settings.is_empty());
+        profiles.delete(id);
+        assert_eq!(profiles.active, None);
+        assert_eq!(profiles.settings(&global), global);
+    }
+
+    #[test]
+    fn old_pc_snapshots_and_explicit_false_survive_serialization() {
+        let settings = Settings { fps: 90, microphone: false, ..Default::default() };
+        let old: Overrides = serde_json::from_value(serde_json::to_value(&settings).unwrap()).unwrap();
+        assert_eq!(old.apply(&Settings { fps: 144, microphone: true, ..Default::default() }), settings);
+        let mut own: Overrides = serde_json::from_str(r#"{"microphone":false}"#).unwrap();
+        assert_eq!(serde_json::to_string(&own).unwrap(), r#"{"microphone":false}"#);
+        own.clear(&["microphone"]);
+        assert!(own.is_empty());
+        assert!(serde_json::from_str::<Overrides>(r#"{"fps":"bad"}"#).is_err());
+        assert!(serde_json::from_str::<Overrides>(r#"{"codec":"unknown"}"#).is_err());
     }
 }

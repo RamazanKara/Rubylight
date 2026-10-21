@@ -685,6 +685,9 @@ impl Hosts {
                 if kept.settings.is_none() {
                     kept.settings = dropped.settings;
                 }
+                for (key, settings) in dropped.app_settings {
+                    kept.app_settings.entry(key).or_insert(settings);
+                }
                 for a in std::iter::once(dropped.address).chain(dropped.other_addresses) {
                     if a != kept.address && !kept.other_addresses.contains(&a) {
                         kept.other_addresses.push(a);

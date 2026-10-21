@@ -56,10 +56,11 @@ impl FakeDriver {
         // SAFETY: `device` is live; the list records into the allocator made with it and is
         // closed until the first copy.
         unsafe {
-            let queue: ID3D12CommandQueue = device.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
-                Type: D3D12_COMMAND_LIST_TYPE_COPY,
-                ..Default::default()
-            })?;
+            let queue: ID3D12CommandQueue =
+                device.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
+                    Type: D3D12_COMMAND_LIST_TYPE_COPY,
+                    ..Default::default()
+                })?;
             let allocator: ID3D12CommandAllocator =
                 device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY)?;
             let list: ID3D12GraphicsCommandList =
@@ -251,12 +252,8 @@ fn a_fence_ring_carries_frames_both_ways_without_keyed_mutexes() -> Result<()> {
                         slot: index,
                         seq,
                     };
-                    let image = lend_fenced(
-                        &gpu,
-                        &ring.slots[index].texture,
-                        lent,
-                        fences.written(seq),
-                    )?;
+                    let image =
+                        lend_fenced(&gpu, &ring.slots[index].texture, lent, fences.written(seq))?;
                     // The compute conversion waits for the driver's copy on the GPU.
                     convert(&image)?;
                     anyhow::ensure!(
@@ -317,10 +314,7 @@ fn pyrowave_encoding_frees_fence_ring_slots() -> Result<()> {
     };
     let ring = Ring::fenced(gpu.compute.clone(), layout, release_queue(&gpu, None))?;
     let mut driver = FakeDriver::open(&ring, &gpu)?;
-    let source = GpuImage::upload(
-        &gpu,
-        &pixels(layout.width, layout.height, Pixel::Bgra8, 80),
-    )?;
+    let source = GpuImage::upload(&gpu, &pixels(layout.width, layout.height, Pixel::Bgra8, 80))?;
     let mut consumer = Consumer::new(1, layout.slot_count);
     let config = butterpollo_core::rtsp::Negotiated {
         width: layout.width,

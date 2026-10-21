@@ -14,7 +14,7 @@ const RECOVERY: usize = 733;
 #[test]
 #[ignore = "requires an idle AMD GPU, AMF and a task-owned report path"]
 fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
-    use windows::Win32::Graphics::Direct3D12::*;
+    use windows::{Win32::Graphics::Direct3D12::*, core::Interface};
     let report = std::path::PathBuf::from(
         std::env::var_os("BUTTERPOLLO_TEST_AMF_STATE_REPORT")
             .context("set BUTTERPOLLO_TEST_AMF_STATE_REPORT")?,
@@ -49,11 +49,7 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
             csc_mode: if hdr { 4 } else { 0 },
             ..Default::default()
         };
-        let mut encoder = Encoder::new_gpu(
-            &config,
-            device.clone(),
-            &Default::default(),
-        )?;
+        let mut encoder = Encoder::new_gpu(&config, device.clone(), &Default::default())?;
         anyhow::ensure!(encoder.compute.is_some(), "requires D3D12 AMF");
         let format = if codec == 1 { "hevc" } else { "av1" };
         let range = if hdr { "hdr" } else { "sdr" };
@@ -289,11 +285,7 @@ fn native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery() -> Result
         let pictures = (0..4)
             .map(|phase| picture(&device, hdr, phase))
             .collect::<Result<Vec<_>>>()?;
-        let mut encoder = Encoder::new_gpu(
-            &config,
-            device.clone(),
-            &Default::default(),
-        )?;
+        let mut encoder = Encoder::new_gpu(&config, device.clone(), &Default::default())?;
         anyhow::ensure!(
             encoder.compute.is_some(),
             "D3D12 encoder input was not established"

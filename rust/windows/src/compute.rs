@@ -593,6 +593,7 @@ pub struct Copier {
 }
 impl Copier {
     pub fn new(compute: Arc<Compute>) -> Result<Self> {
+        compute.ensure_active()?;
         let (queue, _) = compute_queue(&compute.device)?;
         // SAFETY: `compute.device` is a live D3D12 device.
         let copied = unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
@@ -793,6 +794,7 @@ pub(crate) fn upload(
     bytes: &[u8],
     stride: usize,
 ) -> Result<(ID3D12Resource, u64)> {
+    compute.ensure_active()?;
     let texture = compute.texture(width, height, format, flags, D3D12_HEAP_FLAG_NONE)?;
     let mut footprint = D3D12_PLACED_SUBRESOURCE_FOOTPRINT::default();
     let (mut rows, mut row, mut total) = (0u32, 0u64, 0u64);
@@ -1757,5 +1759,11 @@ fn buffer_desc(size: u64) -> D3D12_RESOURCE_DESC {
     }
 }
 
+#[cfg(test)]
+mod downscale_tests;
+#[cfg(test)]
+mod packed444_performance_tests;
+#[cfg(test)]
+mod packed444_tests;
 #[cfg(test)]
 mod tests;

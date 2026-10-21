@@ -34,7 +34,7 @@ fn each_stream_converts_a_shared_capture_for_its_own_dynamic_range() {
     assert_eq!(f32::from_bits(hdr_of_bgra[9]), 200. / 80.);
 }
 
-fn make_image(colors: &[[f32; 3]], patch: usize, height: usize) -> Image {
+pub(super) fn make_image(colors: &[[f32; 3]], patch: usize, height: usize) -> Image {
     let width = colors.len() * patch;
     let mut bytes = vec![0; width * height * 8];
     for (index, pixel) in bytes.as_chunks_mut::<8>().0.iter_mut().enumerate() {
@@ -72,7 +72,7 @@ fn gradient(width: usize, height: usize) -> Image {
 }
 
 /// A converted P010 picture as ten-bit codes: luma rows, then interleaved chroma rows.
-fn p010_codes(compute: &Compute, converted: &Converted) -> Result<Vec<u16>> {
+pub(super) fn p010_codes(compute: &Compute, converted: &Converted) -> Result<Vec<u16>> {
     let ready = Ready::on(compute, converted.fence.clone(), converted.value);
     let planes = read_planes(compute, &converted.texture, Some(&ready), &mut None)?;
     Ok(planes
@@ -89,7 +89,7 @@ fn p010_codes(compute: &Compute, converted: &Converted) -> Result<Vec<u16>> {
 }
 
 /// `image` converted for `config` with `luminance`, as ten-bit codes.
-fn convert_p010(
+pub(super) fn convert_p010(
     gpu: &Device,
     config: &butterpollo_core::rtsp::Negotiated,
     image: &GpuImage,
@@ -328,7 +328,11 @@ fn compute_targets_are_bounded_and_never_overwrite_held_pictures() -> Result<()>
 }
 
 /// One plane's codes, row by row.
-fn plane_codes(compute: &Compute, plane: &ID3D12Resource, ten_bit: bool) -> Result<Vec<u16>> {
+pub(super) fn plane_codes(
+    compute: &Compute,
+    plane: &ID3D12Resource,
+    ten_bit: bool,
+) -> Result<Vec<u16>> {
     let bytes = read_planes(compute, plane, None, &mut None)?.remove(0);
     Ok(if ten_bit {
         bytes
@@ -361,12 +365,16 @@ fn pyrowave_planes_carry_the_codes_of_the_yuv420_conversion() -> Result<()> {
     // SAFETY: `compute.device` is a live D3D12 device.
     let fence: ID3D12Fence = unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
     let mut value = 0;
-    // The same size, a downscale and a letterboxed shape.
-    for (width, height) in [(96, 40), (48, 20), (64, 64)] {
+    // The same size, a downscale, a letterboxed shape and an enlargement, under every client
+    // matrix.
+    let cases = [(96, 40), (48, 20), (64, 64), (130, 70)]
+        .into_iter()
+        .flat_map(|size| (0..=5).map(move |matrix| (size, matrix)));
+    for ((width, height), csc_mode) in cases {
         for (hdr, image) in [(true, &hdr_image), (false, &sdr_image)] {
             for ten_bit in [false, true].into_iter().filter(|ten| hdr <= *ten) {
-                let mut luma420 = None;
-                for yuv444 in [false, true] {
+                let mut full: Option<Vec<Vec<u16>>> = None;
+                for yuv444 in [true, false] {
                     let config = butterpollo_core::rtsp::Negotiated {
                         width,
                         height,
@@ -374,6 +382,7 @@ fn pyrowave_planes_carry_the_codes_of_the_yuv420_conversion() -> Result<()> {
                         hdr,
                         sdr_10bit: ten_bit && !hdr,
                         yuv444,
+                        csc_mode,
                         ..Default::default()
                     };
                     assert_eq!(config.ten_bit(), ten_bit);
@@ -425,8 +434,9 @@ fn pyrowave_planes_carry_the_codes_of_the_yuv420_conversion() -> Result<()> {
                     } else {
                         0xab
                     };
-                    let what =
-                        format!("{width}x{height} hdr {hdr} ten-bit {ten_bit} 4:4:4 {yuv444}");
+                    let what = format!(
+                        "{width}x{height} hdr {hdr} ten-bit {ten_bit} 4:4:4 {yuv444} matrix {csc_mode}"
+                    );
                     // Each plane is written everywhere: a row of the sentinel is a pixel the
                     // dispatch did not cover.
                     for (index, plane) in codes.iter().enumerate() {
@@ -438,40 +448,66 @@ fn pyrowave_planes_carry_the_codes_of_the_yuv420_conversion() -> Result<()> {
                             "{what}: plane {index} has an unwritten row"
                         );
                     }
-                    match &luma420 {
-                        // 4:4:4 changes chroma only.
-                        Some(luma) => assert_eq!(&codes[0], luma, "{what}: luma"),
-                        None => {
-                            // The YUV420 conversion's codes for the same stream.
-                            let reference = if ten_bit {
-                                convert_p010(&gpu, &config, image, [100., 1.])?
-                            } else {
-                                let mut nv12 =
-                                    Converter::new(compute.clone(), width, height, false)?;
-                                nv12.values = constants(&config, source, [100., 1.]);
-                                let converted = nv12.convert(image)?;
-                                let ready =
-                                    Ready::on(compute, converted.fence.clone(), converted.value);
-                                read_planes(compute, &converted.texture, Some(&ready), &mut None)?
-                                    .concat()
-                                    .into_iter()
-                                    .map(u16::from)
-                                    .collect()
-                            };
-                            let pixels = (width * height) as usize;
-                            assert_eq!(&codes[0][..], &reference[..pixels], "{what}: luma");
-                            let chroma = &reference[pixels..];
-                            for (index, plane) in codes[1..].iter().enumerate() {
-                                let interleaved: Vec<u16> =
-                                    chroma.iter().skip(index).step_by(2).copied().collect();
-                                for (at, (a, e)) in plane.iter().zip(&interleaved).enumerate() {
-                                    assert!(
-                                        a.abs_diff(*e) <= 1,
-                                        "{what}: chroma {index} code {at} is {a}, YUV420 gives {e}"
-                                    );
-                                }
+                    let Some(full) = &full else {
+                        // The 4:4:4 pass runs first and anchors the 4:2:0 checks.
+                        full = Some(codes);
+                        continue;
+                    };
+                    // 4:2:0 changes chroma only.
+                    assert_eq!(&codes[0], &full[0], "{what}: luma");
+                    // The YUV420 conversion's codes for the same stream.
+                    let reference = if ten_bit {
+                        convert_p010(&gpu, &config, image, [100., 1.])?
+                    } else {
+                        let mut nv12 = Converter::new(compute.clone(), width, height, false)?;
+                        nv12.values = constants(&config, source, [100., 1.]);
+                        let converted = nv12.convert(image)?;
+                        let ready = Ready::on(compute, converted.fence.clone(), converted.value);
+                        read_planes(compute, &converted.texture, Some(&ready), &mut None)?
+                            .concat()
+                            .into_iter()
+                            .map(u16::from)
+                            .collect()
+                    };
+                    let pixels = (width * height) as usize;
+                    assert_eq!(&codes[0][..], &reference[..pixels], "{what}: luma");
+                    let chroma = &reference[pixels..];
+                    let (cw, ch) = ((width / 2) as usize, (height / 2) as usize);
+                    for (index, plane) in codes[1..].iter().enumerate() {
+                        let interleaved: Vec<u16> =
+                            chroma.iter().skip(index).step_by(2).copied().collect();
+                        let wide = &full[1 + index];
+                        for at in 0..cw * ch {
+                            let (x, y) = (at % cw, at / cw);
+                            // PyroWave keeps its chroma at the centre of each 2x2 block, so it
+                            // is the mean of the 4:4:4 chroma there.
+                            let block = [(0, 0), (1, 0), (0, 1), (1, 1)].map(|(dx, dy)| {
+                                u32::from(wide[(2 * y + dy) * width as usize + 2 * x + dx])
+                            });
+                            let mean = (block.iter().sum::<u32>() as f32 / 4.).round() as u16;
+                            assert!(
+                                plane[at].abs_diff(mean) <= 2,
+                                "{what}: chroma {index} code {at} is {}, the 4:4:4 block gives {mean}",
+                                plane[at]
+                            );
+                            // The standard conversion is left-sited. Where the 4:4:4 chroma is
+                            // flat across its filter, both sitings give the same code.
+                            let flat = (0..2).all(|dy| {
+                                let row = &wide[(2 * y + dy) * width as usize..][..width as usize];
+                                let from = (2 * x).saturating_sub(2);
+                                let to = (2 * x + 4).min(width as usize);
+                                row[from..to]
+                                    .windows(2)
+                                    .all(|pair| pair[0].abs_diff(pair[1]) <= 1)
+                            });
+                            if flat {
+                                assert!(
+                                    plane[at].abs_diff(interleaved[at]) <= 1,
+                                    "{what}: chroma {index} code {at} is {}, YUV420 gives {}",
+                                    plane[at],
+                                    interleaved[at]
+                                );
                             }
-                            luma420 = Some(codes[0].clone());
                         }
                     }
                 }
@@ -577,6 +613,530 @@ fn uploads_read_back_every_capture_format_at_odd_sizes() -> Result<()> {
                 );
             }
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn pq_input_is_rejected_only_for_sdr_output() {
+    for pixel in 0..=2 {
+        for hdr in 0..=1 {
+            let mut values = [0; 20];
+            values[4] = pixel;
+            values[5] = hdr;
+            assert_eq!(
+                validate_colour_input(&values).is_ok(),
+                pixel != 2 || hdr != 0
+            );
+        }
+    }
+}
+
+#[test]
+fn compute_texture_states_accept_only_supported_reads_or_one_write() {
+    for state in [
+        D3D12_RESOURCE_STATE_COMMON,
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_COPY_SOURCE,
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_COPY_SOURCE,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+    ] {
+        assert!(ensure_compute_texture_state(state).is_ok(), "{state:?}");
+    }
+    for state in [
+        D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ,
+        D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE,
+        D3D12_RESOURCE_STATE_VIDEO_DECODE_READ,
+        D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE,
+        D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ,
+        D3D12_RESOURCE_STATE_VIDEO_PROCESS_WRITE,
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_DEPTH_READ,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATES(i32::MIN),
+    ] {
+        assert!(ensure_compute_texture_state(state).is_err(), "{state:?}");
+    }
+}
+
+/// Always release the task-owned queue gate, including on assertion failure.
+struct Gate(ID3D12Fence);
+impl Drop for Gate {
+    fn drop(&mut self) {
+        // SAFETY: CPU-signalling this test-owned fence releases only this test's queue. No
+        // production queue waits for it.
+        let _ = unsafe { self.0.Signal(1) };
+    }
+}
+
+/// A 4x4 BGRA picture of one value, and the settings that convert it at its own size.
+fn small_image(value: u8) -> Image {
+    Image {
+        width: 4,
+        height: 4,
+        stride: 16,
+        bytes: vec![value; 64],
+        captured: Instant::now(),
+        pixel: Pixel::Bgra8,
+    }
+}
+fn small_values() -> [u32; 20] {
+    constants(
+        &butterpollo_core::rtsp::Negotiated {
+            width: 4,
+            height: 4,
+            ..Default::default()
+        },
+        (4, 4, Pixel::Bgra8),
+        [100., 1.],
+    )
+}
+
+#[test]
+#[ignore = "requires D3D12 compute; gates only a task-owned compute queue for two seconds"]
+fn timed_out_converter_retains_capture_until_its_queue_really_finishes() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let luid = gpu.compute.luid();
+    let compute = Compute::new(luid)?;
+    let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
+    converter.prepare_yuv()?;
+    let image = GpuImage::upload(&gpu, &small_image(128))?;
+    let capture = Arc::downgrade(&image.texture);
+    converter.values = small_values();
+    // SAFETY: This gate and queue belong exclusively to this test. Gate's destructor always
+    // signals it, even if a later assertion panics.
+    let gate = Gate(unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? });
+    // SAFETY: The fence was created on this queue's device and stays owned.
+    unsafe { compute.queue.Wait(&gate.0, 1)? };
+    let converted = converter.convert(&image)?;
+    drop(image);
+    drop(converter);
+    assert!(compute.is_stuck());
+    assert!(
+        capture.upgrade().is_some(),
+        "timed-out GPU read lost its capture lease"
+    );
+    assert!(
+        Compute::new(luid).is_err(),
+        "retries must not grow retained GPU memory"
+    );
+    let tail = RETAINED
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|work| !work.captures.is_empty())
+        .and_then(|work| work.tail.clone())
+        .context("retained converter tail missing")?;
+    drop(gate);
+    converted.wait()?;
+    wait_fence(&tail, 1)?;
+    let _replacement = Compute::new(luid)?;
+    assert!(
+        capture.upgrade().is_none(),
+        "completed capture was never released"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute; gates only a task-owned copy queue for two seconds"]
+fn timed_out_copier_keeps_its_copy_executable_after_teardown() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let luid = gpu.compute.luid();
+    let compute = Compute::new(luid)?;
+    let mut copier = Copier::new(compute.clone())?;
+    let source = GpuImage::upload(&gpu, &small_image(85))?;
+    let mut destination = GpuImage::upload(&gpu, &small_image(0))?;
+    // SAFETY: Gate always signals on drop; only this test's copy queue waits for it, and every
+    // texture it copies belongs to this test.
+    let gate = Gate(unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? });
+    // SAFETY: The gate is on the same live device as the copy queue.
+    unsafe { copier.queue().Wait(&gate.0, 1)? };
+    destination.ready =
+        Some(copier.copy(&destination.texture, &source.texture, source.ready.as_ref())?);
+    drop(source);
+    drop(copier);
+    assert!(compute.is_stuck());
+    assert!(Compute::new(luid).is_err());
+    let tail = RETAINED
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|work| work.adapter == (luid.LowPart, luid.HighPart))
+        .and_then(|work| work.tail.clone())
+        .context("retained copy tail missing")?;
+    drop(gate);
+    destination.ready.as_ref().unwrap().wait()?;
+    wait_fence(&tail, 1)?;
+    let actual = destination.readback(&mut None)?;
+    for row in actual.bytes.chunks_exact(actual.stride).take(4) {
+        assert_eq!(&row[..16], &[85; 16]);
+    }
+    let _replacement = Compute::new(luid)?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute; validates distinct task-owned queues on a shared device"]
+fn reader_values_belong_to_a_fence_not_the_shared_device() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let old = gpu.compute.clone();
+    let new = Compute::new(old.luid())?;
+    assert_eq!(
+        old.device, new.device,
+        "D3D12 should reuse the adapter device"
+    );
+    assert_ne!(old.fence, new.fence);
+    let readers = Arc::new(AtomicU64::new(0));
+    let ready = Ready {
+        fence: old.fence.clone(),
+        value: 0,
+        device: old.device.as_raw() as usize,
+        readers: Some(readers.clone()),
+        reader_fence: Some(old.fence.clone()),
+    };
+    let old_value = old.signal()?;
+    ready.read_by(&old, old_value)?;
+    assert_eq!(readers.load(Ordering::Acquire), old_value);
+    let _ = new.signal()?;
+    let new_value = new.signal()?;
+    ready.read_by(&new, new_value)?;
+    assert!(
+        new.completed(new_value),
+        "cross-generation read returned before finishing"
+    );
+    assert_eq!(
+        readers.load(Ordering::Acquire),
+        old_value,
+        "new fence value entered the old timeline"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute; validates bounded reuse after a delayed target fence"]
+fn released_encoder_target_waits_for_its_gpu_fence() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = Compute::new(gpu.compute.luid())?;
+    let mut converter = Converter::new(compute, 4, 4, false)?;
+    converter.prepare_yuv()?;
+    let mut busy = Vec::new();
+    for _ in 0..8 {
+        let index = converter.target()?;
+        busy.push(converter.targets[index].texture.clone());
+    }
+    converter.targets[0].value = 1;
+    drop(busy.remove(0));
+    let fence = converter.targets[0].fence.clone();
+    std::thread::scope(|scope| -> Result<()> {
+        scope.spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            // SAFETY: This test-owned signal models the encoder finishing after it has already
+            // released its surface reference.
+            unsafe { fence.Signal(1).unwrap() };
+        });
+        assert_eq!(converter.target()?, 0);
+        Ok(())
+    })?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute; changes only task-owned AMF metadata"]
+fn unsupported_amf_state_is_rejected_before_recording_conversion() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = Compute::new(gpu.compute.luid())?;
+    let image = GpuImage::upload(&gpu, &small_image(128))?;
+    let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
+    converter.values = small_values();
+    let index = converter.target()?;
+    let submitted = *compute.next.lock().unwrap();
+    let slot = converter.slot;
+    for state in [
+        D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_COPY_SOURCE,
+    ] {
+        // This changes only AMF's private-data record. The texture remains COMMON; rejection
+        // must happen before recording any GPU commands.
+        crate::amf::gpu::set_resource_state(&converter.targets[index].texture, state)?;
+        let error = converter
+            .convert(&image)
+            .err()
+            .expect("unsupported AMF state accepted");
+        assert!(format!("{error:#}").contains("cannot transition on the compute queue"));
+        assert_eq!(*compute.next.lock().unwrap(), submitted);
+        assert_eq!(converter.slot, slot);
+        assert_eq!(converter.targets.len(), 1);
+        assert_eq!(converter.targets[index].value, 0);
+        assert!(converter.slots.iter().all(|slot| slot.capture.is_none()));
+        assert_eq!(
+            crate::amf::gpu::resource_state(&converter.targets[index].texture)?,
+            state
+        );
+    }
+    crate::amf::gpu::set_resource_state(
+        &converter.targets[index].texture,
+        D3D12_RESOURCE_STATE_COMMON,
+    )?;
+    converter.convert(&image)?.wait()?;
+    converter.release_completed();
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute; retires only a completed task-owned queue"]
+fn retired_queue_rejects_conversion_upload_and_capture_before_mutating_resources() -> Result<()> {
+    fn rejected<T>(result: Result<T>) {
+        let error = result.err().expect("retired queue accepted new work");
+        assert!(format!("{error:#}").contains("compute queue is retired"));
+    }
+
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = Compute::new(gpu.compute.luid())?;
+    let image = GpuImage::upload(&gpu, &small_image(128))?;
+    let destination = GpuImage::upload(&gpu, &small_image(128))?;
+    let mut copier = Copier::new(compute.clone())?;
+    let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
+    converter.values = small_values();
+    converter.convert(&image)?.wait()?;
+    converter.release_completed();
+
+    let plane = || {
+        compute.texture(
+            4,
+            4,
+            DXGI_FORMAT_R8_UNORM,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_HEAP_FLAG_NONE,
+        )
+    };
+    let planes = Planes {
+        // Even a missing retirement guard must receive valid planes.
+        planes: [plane()?, plane()?, plane()?],
+        format: DXGI_FORMAT_R8_UNORM,
+        // SAFETY: The test owns this unused fence on its compute device.
+        fence: unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? },
+        after: 0,
+        done: 1,
+    };
+    let submitted = *compute.next.lock().unwrap();
+    let slot = converter.slot;
+    let targets = converter.targets.len();
+    compute.retire();
+    // Old fences remain usable for cleanup, but their completion cannot allow new work on the
+    // quarantined queue.
+    compute.wait(submitted)?;
+    assert!(compute.completed(submitted));
+    rejected(converter.convert(&image));
+    rejected(converter.convert_planes(&image, &planes));
+    rejected(compute.execute(&converter.slots[slot].list));
+    rejected(upload(
+        &compute,
+        (4, 4),
+        DXGI_FORMAT_B8G8R8A8_UNORM,
+        D3D12_RESOURCE_FLAG_NONE,
+        &[128; 64],
+        16,
+    ));
+    rejected(copier.copy(&destination.texture, &image.texture, None));
+    rejected(Converter::new(compute.clone(), 4, 4, false));
+    rejected(Copier::new(compute.clone()));
+    assert_eq!(*compute.next.lock().unwrap(), submitted);
+    assert_eq!(converter.slot, slot);
+    assert_eq!(converter.targets.len(), targets);
+    assert!(converter.planar.is_none());
+    assert!(copier.readers.is_empty());
+    Ok(())
+}
+
+/// `converted` as its codes: the luma rows, then the interleaved chroma rows.
+pub(super) fn yuv_codes(
+    compute: &Compute,
+    converted: &Converted,
+    ten_bit: bool,
+) -> Result<Vec<u16>> {
+    if ten_bit {
+        return p010_codes(compute, converted);
+    }
+    let ready = Ready::on(compute, converted.fence.clone(), converted.value);
+    Ok(
+        read_planes(compute, &converted.texture, Some(&ready), &mut None)?
+            .concat()
+            .into_iter()
+            .map(u16::from)
+            .collect(),
+    )
+}
+
+/// PyroWave's planes for `config`'s shape, filled with `fill`, and the fence they signal.
+pub(super) fn planes_for(
+    compute: &Compute,
+    config: &butterpollo_core::rtsp::Negotiated,
+    yuv444: bool,
+    fill: u8,
+) -> Result<Planes> {
+    let ten_bit = config.ten_bit();
+    let format = if ten_bit {
+        DXGI_FORMAT_R16_UNORM
+    } else {
+        DXGI_FORMAT_R8_UNORM
+    };
+    let divisor = if yuv444 { 1 } else { 2 };
+    let plane = |divisor: u32| -> Result<ID3D12Resource> {
+        let (w, h) = (config.width / divisor, config.height / divisor);
+        let pitch = w as usize * if ten_bit { 2 } else { 1 };
+        Ok(upload(
+            compute,
+            (w, h),
+            format,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            &vec![fill; pitch * h as usize],
+            pitch,
+        )?
+        .0)
+    };
+    Ok(Planes {
+        planes: [plane(1)?, plane(divisor)?, plane(divisor)?],
+        format,
+        // SAFETY: `compute.device` is a live D3D12 device.
+        fence: unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? },
+        after: 0,
+        done: 1,
+    })
+}
+
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn standard_chroma_is_left_sited_and_pyrowave_remains_center_sited() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let mut bytes = [0, 0, 0, 255].repeat(64 * 64);
+    // The interior impulse has equal contributions at the chroma samples on either side. The
+    // boundary impulse also checks target-edge clamping.
+    for y in 0..64 {
+        for x in [0, 5] {
+            bytes[(y * 64 + x) * 4 + 2] = 255;
+        }
+    }
+    let image = Image {
+        width: 64,
+        height: 64,
+        stride: 256,
+        bytes,
+        pixel: Pixel::Bgra8,
+        captured: Instant::now(),
+    };
+    let uploaded = GpuImage::upload(&gpu, &image)?;
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: 64,
+        height: 64,
+        codec: 1,
+        sdr_10bit: true,
+        csc_mode: 2,
+        ..Default::default()
+    };
+    let output = convert_p010(&gpu, &config, &uploaded, [100., 1.])?;
+    // BT.709 limited range, with 75% red at x=0 and 25% at x=4/6.
+    for (x, expected) in [
+        (0, [435, 848]),
+        (2, [512, 512]),
+        (4, [486, 624]),
+        (6, [486, 624]),
+    ] {
+        let at = 4096 + x;
+        for (actual, expected) in output[at..at + 2].iter().zip(expected) {
+            assert!(
+                actual.abs_diff(expected) <= 1,
+                "standard chroma x={x}: {actual} != {expected}"
+            );
+        }
+    }
+    // PyroWave's chroma samples stay at the centre of each 2x2 block.
+    let planes = planes_for(&gpu.compute, &config, false, 0)?;
+    let mut converter = Converter::new(gpu.compute.clone(), 64, 64, true)?;
+    converter.values = constants(&config, (64, 64, Pixel::Bgra8), [100., 1.]);
+    converter.convert_planes(&uploaded, &planes)?;
+    wait_fence(&planes.fence, planes.done)?;
+    for (plane, expected) in [(1, [461_u16, 512, 461, 512]), (2, [736, 512, 736, 512])] {
+        // PyroWave uses full-normalized 10-bit codes in R16_UNORM planes.
+        let codes = plane_codes(&gpu.compute, &planes.planes[plane], true)?;
+        for (actual, expected) in codes.iter().zip(expected) {
+            assert!(
+                actual.abs_diff(expected) <= 1,
+                "PyroWave plane {plane}: {actual} != {expected}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn sdr_bt2020_gpu_matches_reference_primaries_and_transfer() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: 64,
+        height: 64,
+        codec: 1,
+        sdr_10bit: true,
+        csc_mode: 4,
+        ..Default::default()
+    };
+    for (bgra, linear, expected) in [
+        ([0, 0, 255, 255], [1.25, 0., 0.], [387_u16, 371, 769]),
+        ([128, 128, 128, 255], [0.2698256; 3], [460, 512, 512]),
+    ] {
+        let image = Image {
+            width: 64,
+            height: 64,
+            stride: 256,
+            bytes: bgra.repeat(64 * 64),
+            pixel: Pixel::Bgra8,
+            captured: Instant::now(),
+        };
+        // Advanced-color Windows desktops can deliver the same SDR picture as FP16 scRGB, with
+        // 100-nit SDR white represented by 1.25.
+        for image in [image, make_image(&[linear], 64, 64)] {
+            let uploaded = GpuImage::upload(&gpu, &image)?;
+            let output = convert_p010(&gpu, &config, &uploaded, [100., 1.])?;
+            for (actual, expected) in [output[0], output[4096], output[4097]]
+                .into_iter()
+                .zip(expected)
+            {
+                assert!(
+                    actual.abs_diff(expected) <= 1,
+                    "GPU {:?}: {actual} != {expected}",
+                    image.pixel
+                );
+            }
+        }
+    }
+    // Extended scRGB channels may be outside Rec.709 while the color is inside BT.2020. Mapping
+    // must happen before clamping the SDR output.
+    let uploaded = GpuImage::upload(&gpu, &make_image(&[[-0.125, 1.2, -0.0125]], 64, 64))?;
+    let output = convert_p010(&gpu, &config, &uploaded, [100., 1.])?;
+    for (actual, expected) in [output[0], output[4096], output[4097]]
+        .into_iter()
+        .zip([746, 256, 338])
+    {
+        assert!(
+            actual.abs_diff(expected) <= 1,
+            "extended scRGB: {actual} != {expected}"
+        );
     }
     Ok(())
 }

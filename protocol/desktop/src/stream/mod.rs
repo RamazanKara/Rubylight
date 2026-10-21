@@ -53,6 +53,7 @@ pub struct LaunchPlan {
     pub hardware: Hardware,
     pub packed_modes: u8,
     pub pacing: PacingMode,
+    pub vrr: bool,
 }
 
 /// The stream's negotiated shape.
@@ -276,7 +277,7 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
         height,
         fps,
         client_refresh_rate_x100: refresh_x100,
-        vrr: plan.pacing == PacingMode::HostTimes,
+        vrr: plan.vrr,
         hdr: settings.hdr,
         audio,
         ri_key,

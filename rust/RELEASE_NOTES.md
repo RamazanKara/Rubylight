@@ -1,10 +1,19 @@
-# Rubylight 2.5.13 for Windows
+# Rubylight 2.6.0 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.13 installer is named `rubylight-setup-2.5.13.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.6.0 installer is named `rubylight-setup-2.6.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.6.0
+
+- **A simpler console for everyday play.** Home leads with setup, ready, streaming or attention status, followed by your game shelf. Home, Games & apps, Devices and Settings form the main navigation; Help & diagnostics holds logs and recovery tools. The refreshed console uses comfortable spacing, larger controls, light/dark/system appearance and a compact mobile drawer.
+- **Import installed games from six launchers.** Games & apps → Add games scans Steam, Epic Games, Battle.net, EA app, Ubisoft Connect and GOG. Search, filter, select and rescan installed games, with Already added states and per-launcher scan results. Imports preserve user edits and distinguish games from different stores. Steam and Playnite synchronization and manual editing remain available.
+- **Clearer pairing and device access.** Enter the streaming client's PIN in one field, then wait for the actual paired-device confirmation. Each device shows its connection state and access level, with an explicit Change access action. Other pairing methods and custom permissions are expandable.
+- **Everyday settings first.** Six settings groups show common controls and their dependencies, with specialist fields under Advanced. Search finds configuration keys and advanced controls; changed-setting review, reset, unsaved-change protection and restart confirmation remain available. Game editors put the name, program or Desktop selection and cover first.
+
+**Verification and limits:** Frontend checks and production build, 47 frontend unit tests, 61 affected browser tests, 549 core tests and 44 targeted Windows/host tests passed before release preparation. Desktop, tablet, mobile, both themes, keyboard navigation, 200% reflow and loading/error/empty states were checked. Launcher discovery uses fixtures; real-device pairing, live streaming and real store-launcher handoff still need hardware verification.
 
 ## New in 2.5.13
 

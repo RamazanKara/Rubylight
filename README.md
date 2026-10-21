@@ -10,7 +10,7 @@
 
 <div align="center">
 
-**[Download 2.5.13](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.13)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
+**[Download 2.6.0](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
 
 <sub>Windows x64 · GPL-3.0 · Formerly Butterpollo</sub>
 
@@ -46,7 +46,7 @@ The Moonlight hosts that came before were built NVIDIA-first, and Radeon owners 
 | **Radeon compute pipeline** | Frame copies and colour conversion run on D3D12 compute queues beside your game, so the game and the stream stop waiting on each other. |
 | **A screen for every device** | Rubylight's own virtual display driver gives each client its exact resolution and refresh rate, and hands every frame straight to the encoder with no capture API in between. Your monitors come back when you disconnect. |
 | **HDR, and PyroWave 4:4:4** | 10-bit HDR over HEVC and AV1. PyroWave adds full-colour HDR 4:4:4 on a fast local network, so coloured text and fine edges stay sharp, paced to the speed of each client's link. |
-| **One console for everything** | Pair devices, manage games, and watch frame rate, bitrate and encode time live in your browser. |
+| **A simpler everyday console** | See whether your PC is ready, pair devices, import installed games and change stream settings. Live performance details are available when you need them. |
 | **Driver quirks handled** | Rubylight tracks AMD's driver releases, works around their bugs and removes the workaround once AMD fixes it. |
 
 Also built in: Steam and Playnite library sync, RTSS frame limits, Lossless Scaling, VRR, DualSense haptics and adaptive triggers, a real Steam Deck controller, touch and pen, surround sound, microphone passthrough, streaming from the lock screen, and headless or VM hosts.
@@ -55,20 +55,30 @@ Also built in: Steam and Playnite library sync, RTSS frame limits, Lossless Scal
 
 ## Install. Pair. Play.
 
-1. **Install.** Run **`rubylight-setup-2.5.13.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.13). It sets up the service, the virtual display driver and controller support. No test mode, no restart.
+1. **Install.** Run **`rubylight-setup-2.6.0.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). It sets up the service, the virtual display driver and controller support. No test mode, no restart.
 2. **Sign in.** Open **`https://localhost:47990`** on the PC and create your account.
-3. **Pair and play.** In Moonlight, pick your PC, enter the PIN on the console's **Devices** page and launch **Desktop**.
+3. **Pair and play.** Open Moonlight on your device, select your PC and enter its PIN on the console's **Devices** page. Once the device appears as paired, choose **Desktop** or a game in Moonlight to start streaming.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/console-dark.png">
-    <img src="docs/media/console-light.png" width="800" alt="Rubylight's web console: a Steam Deck streaming 2560×1440 at 120 fps in AV1, with frame rate, encoding time and host readiness.">
+    <img src="docs/media/console-light.png" width="800" alt="Rubylight's redesigned Home page, showing host readiness, paired devices and a compact game library.">
   </picture>
 </p>
 
 **Coming from Apollo or Vibepollo?** Setup imports your settings, paired devices and app library, so your clients keep working. Updates keep them too, and you choose whether they install automatically.
 
 [Full setup guide →](docs/getting-started.md)
+
+## Your games, ready to stream
+
+Open **Games & apps → Add games** to scan installed games from **Steam, Epic Games, Battle.net, EA app, Ubisoft Connect and GOG**. Search or filter by launcher, select the games you want and add them to your library. **Scan again** refreshes the list; games already in the library are marked **Already added**. Use **Add manually** for another program or a Desktop entry, and choose your own cover if you prefer.
+
+Existing **Steam and Playnite synchronization** stays available through source management. Imports keep games from different stores separate and preserve your customizations when scanned again.
+
+**Home** shows setup checks, readiness and the current stream, with a game shelf below. **Devices** handles pairing and access permissions. **Settings** groups everyday controls into General, Streaming, Display & HDR, Audio & controls, Games & automation, and Network & access; search also finds advanced controls. Logs and recovery tools live in **Help & diagnostics**. Light, dark and system appearance work across desktop and mobile.
+
+Start a stream from the streaming app on your device. **Launch on PC** starts the selected game on the host PC.
 
 ## Runs on your hardware
 

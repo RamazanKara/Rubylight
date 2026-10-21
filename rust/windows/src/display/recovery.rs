@@ -644,7 +644,6 @@ impl Guard {
     /// it on or restore mode/HDR after the user changed the local layout.
     pub fn keep_alive(&mut self) -> Result<()> {
         self.virtual_display.lock().unwrap().keep_alive()
-
     }
     /// Repair and publish a paused display before its stream resumes.
     pub fn resume(&mut self) -> Result<bool> {

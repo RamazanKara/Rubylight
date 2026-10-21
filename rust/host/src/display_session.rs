@@ -1486,8 +1486,7 @@ mod tests {
     }
 
     fn test_prepared(host: &Shared) -> Prepared {
-        let framegen =
-            Policy::resolve(&Config::default(), Rate(60_000), "none", false).unwrap();
+        let framegen = Policy::resolve(&Config::default(), Rate(60_000), "none", false).unwrap();
         Prepared {
             display: None,
             output: String::new(),

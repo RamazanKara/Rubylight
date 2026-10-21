@@ -278,8 +278,7 @@ fn gpu_downscale_coverage_matches_independent_reference() -> Result<()> {
                 let d3d11 = readback(&gpu, single.convert(&source)?.as_ref())?;
                 let pixel_pass = readback(&gpu, graphics.convert(&source)?.as_ref())?;
                 let opened = compute.open(&source.texture)?;
-                let converted =
-                    d3d12.convert(&opened, crate::compute::format(pixel), &source)?;
+                let converted = d3d12.convert(&opened, crate::compute::format(pixel), &source)?;
                 converted.wait()?;
                 let compute_pass = readback_compute(&compute, &converted.texture)?;
                 for (name, actual) in [

@@ -1664,7 +1664,10 @@ port = 48123
             assert_eq!(keys, ["idd_push_fence_ring"]);
             let warning = retired_warning(&retired).unwrap();
             assert!(warning.contains("idd_push_fence_ring"), "{warning}");
-            assert!(warning.contains("fence ring is the only transport"), "{warning}");
+            assert!(
+                warning.contains("fence ring is the only transport"),
+                "{warning}"
+            );
             // What the host writes back reads without a report.
             let (_, again) = Config::parse_retiring(&config.text()).unwrap();
             assert!(again.is_empty());

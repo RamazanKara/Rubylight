@@ -110,12 +110,7 @@ impl Sender {
         host: Shared,
         start: Instant,
     ) -> Result<Self> {
-        let mut sender = Self::packetizer(
-            session.clone(),
-            config.clone(),
-            host.clone(),
-            start,
-        )?;
+        let mut sender = Self::packetizer(session.clone(), config.clone(), host.clone(), start)?;
         let shared = sender.slot.clone();
         sender.transport = Some(thread::Builder::new().name("pyrowave-send".into()).spawn(
             move || {

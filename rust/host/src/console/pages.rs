@@ -609,8 +609,7 @@ async fn settings(
             .to_owned()
     };
     let mut content =
-        "<p class=\"intro\">Choose the encoder, display, and sound for your stream.</p>"
-            .to_owned();
+        "<p class=\"intro\">Choose the encoder, display, and sound for your stream.</p>".to_owned();
     content += "<p class=\"muted\">Automatic encodes H.264, HEVC and AV1 with AMF, the AMD GPU's encoder, and PyroWave streams with PyroWave's own encoder. If AMF cannot start, the stream fails with AMF's error in the log; there is no other encoder to fall back to.</p>";
     content += "<p class=\"muted\">Every stream runs on a Rubylight virtual display and captures it through Rubylight's display driver.</p>";
     let editor = field(

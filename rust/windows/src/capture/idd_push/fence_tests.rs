@@ -471,9 +471,7 @@ fn cpu_readback_waits_for_a_delayed_fence_producer() -> Result<()> {
                 .gpu
                 .context
                 .CopyResource(&driver.textures[index], &*source.texture);
-            driver
-                .context
-                .Signal(&driver.written, u64::from(seq))?;
+            driver.context.Signal(&driver.written, u64::from(seq))?;
             driver.gpu.context.Flush();
         }
         Ok(())

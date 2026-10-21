@@ -1173,14 +1173,7 @@ mod tests {
             ring::STATUS_DEVICE_LOST,
         ] {
             assert_eq!(
-                fence_fault(
-                    status,
-                    false,
-                    FIRST_FRAME_TIMEOUT,
-                    acquired,
-                    false,
-                    false
-                ),
+                fence_fault(status, false, FIRST_FRAME_TIMEOUT, acquired, false, false),
                 None,
                 "shape/device recovery must not identify a fence fault"
             );

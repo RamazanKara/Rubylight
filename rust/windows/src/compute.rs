@@ -1770,11 +1770,8 @@ mod tests {
         let gate = Gate(unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? });
         // SAFETY: This fence was created on this queue's device and stays owned.
         unsafe { compute.queue.Wait(&gate.0, 1)? };
-        let converted = converter.convert(
-            &compute.open(&image.texture)?,
-            format(Pixel::Bgra8),
-            &image,
-        )?;
+        let converted =
+            converter.convert(&compute.open(&image.texture)?, format(Pixel::Bgra8), &image)?;
         drop(image);
         drop(converter);
         assert!(compute.is_stuck());
@@ -2115,13 +2112,7 @@ mod tests {
         compute.wait(submitted)?;
         assert!(compute.completed(submitted));
         rejected(converter.convert(&source, format(Pixel::Bgra8), &image));
-        rejected(converter.convert_planes(
-            &source,
-            format(Pixel::Bgra8),
-            None,
-            &planes,
-            None,
-        ));
+        rejected(converter.convert_planes(&source, format(Pixel::Bgra8), None, &planes, None));
         rejected(compute.execute(&converter.slots[slot].list));
         rejected(compute.open(&image.texture));
         rejected(handoff.copy(&destination.texture, &image.texture));

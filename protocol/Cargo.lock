@@ -1076,6 +1076,7 @@ dependencies = [
  "directories",
  "egui",
  "image",
+ "libc",
  "mdns-sd",
  "nightjar-core",
  "pkg-config",

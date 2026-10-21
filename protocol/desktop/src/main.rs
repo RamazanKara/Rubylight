@@ -9,6 +9,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod config;
+mod controller_audio;
 mod gamepad;
 mod gui;
 mod hosts;
@@ -93,7 +94,7 @@ fn display_of(window: *mut SDL_Window) -> Display {
     // SAFETY: a live window; the mode pointer is owned by SDL.
     unsafe {
         let id = SDL_GetDisplayForWindow(window);
-        let mode = SDL_GetDesktopDisplayMode(id);
+        let mode = SDL_GetCurrentDisplayMode(id);
         if mode.is_null() {
             return Display {
                 width: 1920,
@@ -152,9 +153,9 @@ fn run() -> Result<(), String> {
     }
     let store = Store::open().map_err(|e| format!("No config directory: {e}"))?;
     let settings = store.settings();
-    let gpu = settings.experimental_packed_444 || settings.hdr || store.hosts().iter()
+    let gpu = settings.experimental_packed_444 || settings.hdr || settings.codec.is_pyrowave() || settings.upscaling != config::Upscaling::Bilinear || store.hosts().iter()
         .filter_map(|host| host.settings.as_ref())
-        .any(|settings| settings.experimental_packed_444 || settings.hdr);
+        .any(|settings| settings.experimental_packed_444 || settings.hdr || settings.codec.is_pyrowave() || settings.upscaling != config::Upscaling::Bilinear);
 
     // SAFETY: window and renderer creation on the main thread.
     let (window, renderer, wake_event) = unsafe {
@@ -676,6 +677,7 @@ impl App {
             return;
         }
         let mut settings = host.record.settings(&self.launcher.settings).clone();
+        if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
         if app.role(false) == nightjar_core::http::AppRole::InputOnly {
             settings.hdr = false;
             settings.experimental_packed_444 = false;
@@ -687,6 +689,12 @@ impl App {
         if settings.hdr && !sdl::hdr_available(self.renderer) {
             self.launcher.message("HDR output unavailable", "Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.");
             return;
+        }
+        if settings.codec.is_pyrowave() {
+            if let Err(reason) = stream::pyrowave_gpu::probe(self.renderer, settings.hdr) {
+                self.launcher.message("PyroWave output unavailable", format!("{reason}. Restart Nightjar after selecting PyroWave so it can initialize the GPU renderer."));
+                return;
+            }
         }
         let packed_modes = if settings.experimental_packed_444 {
             match stream::packed444::probe(self.renderer, self.hardware(&settings)) {
@@ -777,8 +785,9 @@ impl App {
             SDL_SyncWindow(self.window);
         }
         let mut streaming = Streaming::new(connecting, session, facts, display);
+        self.pads.prepare_audio(settings.controllers && settings.controller_audio && streaming.facts.role != nightjar_core::http::AppRole::RemoteMonitor);
         streaming.display_changed(self.renderer);
-        if settings.adaptive_bitrate { streaming.enable_adaptive_bitrate(true); }
+        if settings.adaptive_bitrate || streaming.quality_mode != config::QualityMode::Off { streaming.enable_adaptive_bitrate(true); }
         if settings.controllers && streaming.facts.role != nightjar_core::http::AppRole::RemoteMonitor {
             streaming.session.input(|q| self.pads.announce_all(q));
         }
@@ -843,14 +852,17 @@ impl App {
     fn stream_frame(&mut self) {
         let window = self.window;
         let renderer = self.renderer;
+        let display = display_of(window);
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
         streaming.pump();
+        streaming.follow_display(display);
         if streaming.export_statistics {
             streaming.save_statistics(&self.store.dir().join("statistics"));
         }
-        streaming.drain_notices(&self.pads);
+        streaming.drain_notices(&mut self.pads);
+        self.pads.update_audio();
         // Wait for input, a decoded picture or the next present time.
         // SAFETY: event calls on the main thread.
         unsafe {
@@ -940,7 +952,7 @@ impl App {
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
-        if matches!(kind, SDL_EVENT_WINDOW_HDR_STATE_CHANGED | SDL_EVENT_WINDOW_DISPLAY_CHANGED) {
+        if matches!(kind, SDL_EVENT_WINDOW_HDR_STATE_CHANGED | SDL_EVENT_WINDOW_DISPLAY_CHANGED | SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED) {
             streaming.display_changed(self.renderer);
         }
         if streaming.menu_visible {
@@ -1025,6 +1037,51 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 s.set_bitrate();
                             }
                         });
+                    }
+                    if s.facts.reconfigure {
+                        ui.separator();
+                        let mut quality = s.quality_mode;
+                        egui::ComboBox::from_id_salt("stream-quality").selected_text(quality.label()).show_ui(ui, |ui| {
+                            for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
+                                ui.selectable_value(&mut quality, mode, mode.label());
+                            }
+                        });
+                        if quality != s.quality_mode { s.set_quality(quality); }
+                        ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::DragValue::new(&mut s.requested_mode.width).range(256..=8192).speed(2));
+                                ui.label("×");
+                                ui.add(egui::DragValue::new(&mut s.requested_mode.height).range(256..=8192).speed(2));
+                                let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
+                                if ui.add(egui::DragValue::new(&mut fps).range(10.0..=500.0).suffix(" fps").max_decimals(3)).changed() {
+                                    s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
+                                }
+                            });
+                            if ui.button("Apply stream size and rate").clicked() { s.set_mode(s.requested_mode); }
+                        });
+                    }
+                    if s.controller_audio_available() {
+                        ui.separator();
+                        ui.label("DualSense USB audio and waveform haptics");
+                        let outputs = controller_audio::outputs();
+                        let mut selections = Vec::new();
+                        for pad in &pads.pads {
+                            if !pad.supports_audio() { continue; }
+                            let current = pad.audio.as_ref().map(|a| a.device);
+                            let mut selected = current;
+                            let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or("Off", |(_, name)| name.as_str());
+                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(format!("Controller {}: {label}", pad.index + 1)).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut selected, None, "Off");
+                                for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
+                            });
+                            if selected != current { selections.push((pad.index, selected)); }
+                        }
+                        for (index, device) in selections {
+                            match pads.set_audio(index, device) {
+                                Ok(()) => s.session.input(|q| pads.announce_new(q)),
+                                Err(error) => s.show_toast(format!("Controller audio unavailable: {error}")),
+                            }
+                        }
                     }
                     if !s.facts.server_commands.is_empty() {
                         ui.separator();

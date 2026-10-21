@@ -33,6 +33,7 @@ pub const FRAME_NV12: c_int = 0;
 pub const FRAME_P010: c_int = 1;
 pub const FRAME_YUV420P: c_int = 2;
 pub const FRAME_D3D11: c_int = 3;
+pub const FRAME_WAVELET: c_int = 5;
 
 extern "C" {
     fn opus_multistream_decoder_create(
@@ -285,7 +286,7 @@ impl VideoDecoder {
             let Some(raw) = NonNull::new(av_frame_alloc()) else {
                 return Received::Error;
             };
-            let frame = Frame { raw };
+            let frame = Frame { raw, wavelet: false };
             let status = avcodec_receive_frame(self.context, raw.as_ptr());
             if status == -11 || status == -541478725 {
                 return Received::None;
@@ -297,7 +298,7 @@ impl VideoDecoder {
                 let Some(memory) = NonNull::new(av_frame_alloc()) else {
                     return Received::Error;
                 };
-                let memory = Frame { raw: memory };
+                let memory = Frame { raw: memory, wavelet: false };
                 if av_hwframe_transfer_data(memory.raw.as_ptr(), raw.as_ptr(), 0) < 0
                     || av_frame_copy_props(memory.raw.as_ptr(), raw.as_ptr()) < 0
                 {
@@ -321,16 +322,29 @@ impl Drop for VideoDecoder {
 
 pub struct Frame {
     pub(crate) raw: NonNull<AVFrame>,
+    wavelet: bool,
 }
 
 // An owned AVFrame reference can be handed from the decoder to the renderer.
 unsafe impl Send for Frame {}
 
 impl Frame {
+    pub fn wavelet(width: usize, height: usize) -> Result<Self, String> {
+        unsafe {
+            let mut frame = Self { raw: NonNull::new(av_frame_alloc()).ok_or("Could not allocate wavelet frame")?, wavelet: true };
+            let raw = frame.raw.as_mut();
+            raw.width = width as i32;
+            raw.height = height as i32;
+            raw.format = AV_PIX_FMT_RGBA64LE;
+            if av_frame_get_buffer(frame.raw.as_ptr(), 32) < 0 { return Err("Could not allocate wavelet coefficients".into()); }
+            Ok(frame)
+        }
+    }
+
     pub fn info(&self) -> FrameInfo {
         unsafe {
             let frame = self.raw.as_ref();
-            let (kind, ten_bit) = match frame.format as AVPixelFormat {
+            let (kind, ten_bit) = if self.wavelet { (FRAME_WAVELET, 0) } else { match frame.format as AVPixelFormat {
                 AV_PIX_FMT_NV12 => (FRAME_NV12, 0),
                 AV_PIX_FMT_P010LE => (FRAME_P010, 1),
                 AV_PIX_FMT_YUV420P | AV_PIX_FMT_YUVJ420P => (FRAME_YUV420P, 0),
@@ -344,7 +358,7 @@ impl Frame {
                     (FRAME_D3D11, i32::from(depth))
                 }
                 _ => (4, 0),
-            };
+            } };
             FrameInfo {
                 width: frame.width,
                 height: frame.height,

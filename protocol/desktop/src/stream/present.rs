@@ -110,6 +110,8 @@ pub struct VideoTexture {
     colorspace: SDL_Colorspace,
     d3d11: *mut c_void,
     packed: Option<super::packed444::Reconstruction>,
+    pyrowave: Option<super::pyrowave_gpu::Reconstruction>,
+    pyrowave_format: Option<[u32; 8]>,
     packed_format: Option<[u32; 12]>,
     white_level: f32,
     hdr_mode: Option<bool>,
@@ -126,6 +128,8 @@ impl Default for VideoTexture {
             colorspace: SDL_COLORSPACE_UNKNOWN,
             d3d11: std::ptr::null_mut(),
             packed: None,
+            pyrowave: None,
+            pyrowave_format: None,
             packed_format: None,
             white_level: 1.0,
             hdr_mode: None,
@@ -291,6 +295,22 @@ impl VideoTexture {
         } else {
             1.0
         };
+        if info.kind == media::FRAME_WAVELET {
+            let setup = decoded.setup;
+            let ten = setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
+            let hdr = self.hdr_mode.unwrap_or(ten);
+            if hdr && !crate::sdl::hdr_available(renderer) { self.destroy(); return false; }
+            let flags = u32::from(setup.color_range != 0) | (u32::from(hdr) << 1) | ((setup.color_space as u32) << 2)
+                | (u32::from(ten) << 4) | (u32::from(setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_YUV444 != 0) << 5);
+            let parameters = [setup.width as u32, setup.height as u32, info.width as u32, info.height as u32, 0, 0, flags, white_level.to_bits()];
+            if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
+            if !self.ensure(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, setup.width, setup.height, SDL_COLORSPACE_SRGB_LINEAR, white_level) { return false; }
+            if self.pyrowave.is_none() {
+                self.pyrowave = super::pyrowave_gpu::Reconstruction::new(renderer, self.texture, parameters);
+                self.pyrowave_format = Some(parameters);
+            }
+            return self.pyrowave.as_ref().is_some_and(|gpu| gpu.draw(renderer, self.texture, frame));
+        }
         if decoded.setup.chroma_packing != 0 {
             let setup = decoded.setup;
             let Some(layout) = rubylight_protocol::packed444::Geometry::new(
@@ -408,6 +428,8 @@ impl VideoTexture {
     }
 
     pub fn destroy(&mut self) {
+        self.pyrowave = None;
+        self.pyrowave_format = None;
         self.packed = None;
         self.packed_format = None;
         if !self.texture.is_null() {

@@ -4,11 +4,11 @@
 
 use std::collections::VecDeque;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use nightjar_core::control::ControlEvent;
-use nightjar_core::sdp::{VIDEO_FORMAT_MASK_AV1, VIDEO_FORMAT_MASK_H265};
+use nightjar_core::sdp::{VIDEO_FORMAT_MASK_AV1, VIDEO_FORMAT_MASK_H265, VIDEO_FORMAT_MASK_PYROWAVE, VIDEO_FORMAT_MASK_YUV444};
 use nightjar_core::session::{
     self, AudioRenderer, AudioSetup, DecodeStatus, Listener, Stage, VideoDecoder, VideoSetup,
 };
@@ -69,6 +69,8 @@ pub struct Counters {
 }
 
 pub struct Shared {
+    pub fps_millihz: AtomicU32,
+    pub decode_window: Mutex<DecodeWindow>,
     pub host_client: Mutex<Option<Arc<nightjar_core::http::HostClient>>>,
     pub frames: Mutex<VecDeque<Decoded>>,
     pub notices: Mutex<Vec<Notice>>,
@@ -79,9 +81,22 @@ pub struct Shared {
     waker: Waker,
 }
 
+#[derive(Default)]
+pub struct DecodeWindow {
+    pub record_loss_milli: u64,
+    pub record_samples: u32,
+    pub samples: u32,
+    pub late: u32,
+    pub first_us: u64,
+    pub last_us: u64,
+    pub queue_us: u64,
+}
+
 impl Shared {
     pub fn new(waker: Waker, queue_limit: usize) -> Arc<Self> {
         Arc::new(Self {
+            fps_millihz: AtomicU32::new(60_000),
+            decode_window: Mutex::new(DecodeWindow::default()),
             host_client: Mutex::new(None),
             frames: Mutex::new(VecDeque::new()),
             notices: Mutex::new(Vec::new()),
@@ -109,6 +124,7 @@ pub struct Decoder {
     pub decoder: Option<media::VideoDecoder>,
     pub software_threads: i32,
     setup: Option<VideoSetup>,
+    pyrowave: Option<super::pyrowave::Decoder>,
 }
 
 impl Decoder {
@@ -120,6 +136,7 @@ impl Decoder {
             decoder: None,
             software_threads: threads,
             setup: None,
+            pyrowave: None,
         }
     }
 }
@@ -127,6 +144,15 @@ impl Decoder {
 impl VideoDecoder for Decoder {
     fn setup(&mut self, setup: &VideoSetup) -> Result<(), i32> {
         self.setup = Some(*setup);
+        self.shared.fps_millihz.store(setup.fps.max(1) as u32 * 1000, Ordering::Relaxed);
+        if setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+            self.pyrowave = match super::pyrowave::Decoder::new(setup.width as usize, setup.height as usize, setup.format & VIDEO_FORMAT_MASK_YUV444 != 0) {
+                Ok(decoder) => Some(decoder),
+                Err(error) => { self.shared.notify(Notice::DecoderFallback(error.into())); return Err(-1); }
+            };
+            *lock(&self.shared.decoder_name) = "PyroWave (Rust, GPU wavelets)".into();
+            return Ok(());
+        }
         if setup.chroma_packing != 0 && self.hardware == Hardware::None {
             self.shared.notify(Notice::DecoderFallback(
                 "Packed 4:4:4 requires hardware decoding".into(),
@@ -170,6 +196,35 @@ impl VideoDecoder for Decoder {
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
+        if let Some(decoder) = &mut self.pyrowave {
+            let start = session::now_us();
+            let setup = self.setup.expect("decoder setup precedes frames");
+            let result = decoder.coefficients(frame.data()).map_err(str::to_owned).and_then(|_| decoder.coefficient_frame());
+            let picture = match result {
+                Ok(picture) => picture,
+                Err(error) => { eprintln!("nightjar: PyroWave: {error}"); self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed); return DecodeStatus::NeedIdr; }
+            };
+            let ready_us = session::now_us();
+            let counters = &self.shared.counters;
+            counters.decoded.fetch_add(1, Ordering::Relaxed);
+            counters.decode_us_total.fetch_add(ready_us - start, Ordering::Relaxed);
+            let mut timing = lock(&self.shared.decode_window);
+            timing.samples += 1;
+            timing.queue_us += start.saturating_sub(frame.enqueue_time_us);
+            if decoder.loss_percent >= 0.0 {
+                timing.record_loss_milli += (decoder.loss_percent * 1000.0) as u64;
+                timing.record_samples += 1;
+            }
+            drop(timing);
+            let decoded = Decoded { frame: picture, setup, rtp: frame.rtp_timestamp, receive_us: frame.receive_time_us,
+                enqueue_us: frame.enqueue_time_us, ready_us, host_latency: frame.host_processing_latency };
+            let mut frames = lock(&self.shared.frames);
+            frames.push_back(decoded);
+            while frames.len() > self.shared.queue_limit { frames.pop_front(); counters.replaced.fetch_add(1, Ordering::Relaxed); }
+            drop(frames);
+            self.shared.wake();
+            return DecodeStatus::Ok;
+        }
         let Some(decoder) = self.decoder.as_mut() else {
             return DecodeStatus::Ok;
         };
@@ -190,6 +245,14 @@ impl VideoDecoder for Decoder {
                     counters
                         .decode_us_total
                         .fetch_add(ready.saturating_sub(started), Ordering::Relaxed);
+                    let mut timing = lock(&self.shared.decode_window);
+                    if timing.samples == 0 { timing.first_us = ready; }
+                    timing.last_us = ready;
+                    timing.samples += 1;
+                    timing.queue_us += started.saturating_sub(frame.enqueue_time_us);
+                    let budget_us = 2_000_000_000 / u64::from(self.shared.fps_millihz.load(Ordering::Relaxed).max(1));
+                    timing.late += u32::from(ready.saturating_sub(frame.enqueue_time_us) >= budget_us);
+                    drop(timing);
                     let decoded = Decoded {
                         frame: picture,
                         setup: self.setup.expect("decoder setup precedes frames"),
@@ -222,6 +285,7 @@ impl VideoDecoder for Decoder {
     fn cleanup(&mut self) {
         lock(&self.shared.frames).clear();
         self.decoder = None;
+        self.pyrowave = None;
     }
 }
 

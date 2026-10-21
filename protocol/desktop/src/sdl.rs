@@ -128,6 +128,10 @@ pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer 
             );
             renderer = SDL_CreateRendererWithProperties(props);
         }
+        if renderer.is_null() && !cfg!(windows) && gpu {
+            SDL_ClearProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING);
+            renderer = SDL_CreateRendererWithProperties(props);
+        }
         SDL_DestroyProperties(props);
         renderer
     }

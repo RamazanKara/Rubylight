@@ -13,6 +13,12 @@ mod microphone;
 mod cursor;
 mod bitrate;
 mod recovery;
+mod quality;
+mod touch;
+mod upscale;
+mod phase;
+mod pyrowave;
+pub mod pyrowave_gpu;
 #[cfg(windows)]
 mod d3d11;
 
@@ -27,11 +33,11 @@ use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, Lau
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, Session, SessionConfig, Stage};
-use rubylight_protocol::control::{HostTimingRequest, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE};
+use rubylight_protocol::control::{HostTimingRequest, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::present_clock::ClockOffset;
 use sdl3_sys::everything::*;
 
-use crate::config::{self, AudioChannels, CodecPreference, HostRecord, MouseMode, Settings};
+use crate::config::{self, AudioChannels, CodecPreference, HostRecord, MouseMode, QualityMode, Settings};
 use crate::gamepad::{Action, Gamepads};
 use crate::hosts::Waker;
 use crate::keymap;
@@ -82,12 +88,17 @@ pub struct Facts {
     pub clipboard: bool,
     pub server_commands: Vec<String>,
     pub runtime_bitrate: bool,
+    pub reconfigure: bool,
+    pub touch: bool,
+    pub phase_lock: bool,
     pub app_name: String,
     pub host_name: String,
 }
 
 pub fn codec_name(format: u32) -> &'static str {
-    if format & VIDEO_FORMAT_MASK_AV1 != 0 {
+    if format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+        if format & VIDEO_FORMAT_MASK_10BIT != 0 { "PyroWave 10-bit" } else { "PyroWave" }
+    } else if format & VIDEO_FORMAT_MASK_AV1 != 0 {
         if format & VIDEO_FORMAT_MASK_10BIT != 0 {
             "AV1 10-bit"
         } else {
@@ -135,6 +146,9 @@ pub fn stream_mode(settings: &Settings, display: Display) -> (u32, u32, u32, u32
     } else {
         settings.bitrate_kbps
     };
+    let bitrate = if matches!(settings.codec, CodecPreference::PyroWave | CodecPreference::PyroWave444) {
+        bitrate.max(pyrowave::minimum_bitrate(w, h, fps, settings.codec == CodecPreference::PyroWave444, settings.hdr))
+    } else { bitrate };
     (w, h, fps, bitrate)
 }
 
@@ -145,6 +159,8 @@ pub fn video_formats(preference: CodecPreference, hdr: bool, host_scm: u32) -> u
         CodecPreference::Hevc => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265,
         CodecPreference::Av1 => VIDEO_FORMAT_H264 | VIDEO_FORMAT_AV1_MAIN8,
         CodecPreference::Auto => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265,
+        CodecPreference::PyroWave => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_PYROWAVE,
+        CodecPreference::PyroWave444 => VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_PYROWAVE | VIDEO_FORMAT_PYROWAVE_444,
     };
     if hdr {
         if formats & VIDEO_FORMAT_H265 != 0 {
@@ -153,6 +169,8 @@ pub fn video_formats(preference: CodecPreference, hdr: bool, host_scm: u32) -> u
         if formats & VIDEO_FORMAT_AV1_MAIN8 != 0 {
             formats |= VIDEO_FORMAT_AV1_MAIN10;
         }
+        if formats & VIDEO_FORMAT_PYROWAVE != 0 { formats |= VIDEO_FORMAT_PYROWAVE_MAIN10; }
+        if formats & VIDEO_FORMAT_PYROWAVE_444 != 0 { formats |= VIDEO_FORMAT_PYROWAVE_MAIN10_444; }
     }
     // Hosts that report codec support get only what they encode; H.264 always stays.
     if host_scm != 0 {
@@ -167,6 +185,10 @@ pub fn video_formats(preference: CodecPreference, hdr: bool, host_scm: u32) -> u
         }
         if host_scm & SCM_AV1_MAIN10 == 0 {
             formats &= !VIDEO_FORMAT_AV1_MAIN10;
+        }
+        for (scm, format) in [(SCM_PYROWAVE, VIDEO_FORMAT_PYROWAVE), (SCM_PYROWAVE_444, VIDEO_FORMAT_PYROWAVE_444),
+            (SCM_PYROWAVE_MAIN10, VIDEO_FORMAT_PYROWAVE_MAIN10), (SCM_PYROWAVE_MAIN10_444, VIDEO_FORMAT_PYROWAVE_MAIN10_444)] {
+            if host_scm & scm == 0 { formats &= !format; }
         }
     }
     formats | VIDEO_FORMAT_H264
@@ -437,6 +459,8 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         color_space: if settings.hdr { COLORSPACE_REC_2020 } else { COLORSPACE_REC_709 },
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
+        haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
+        pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
         encryption_flags: ENCFLG_ALL,
         remote_input_aes_key: ri_key,
         remote_input_aes_iv: iv,
@@ -481,6 +505,11 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             plan.info.server_commands.iter().take(256).cloned().collect()
         } else { Vec::new() },
         runtime_bitrate: plan.info.capabilities.has(Feature::RuntimeBitrate) && role != AppRole::InputOnly,
+        reconfigure: outcome.host_control_messages.contains(&RECONFIGURE_MESSAGE_TYPE)
+            && !outcome.config.experimental_packed_444 && outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE == 0 && role == AppRole::Stream,
+        touch: outcome.sunshine_feature_flags & nightjar_core::control::negotiation::feature::PEN_TOUCH_EVENTS != 0
+            && role != AppRole::RemoteMonitor,
+        phase_lock: outcome.host_control_messages.contains(&rubylight_protocol::phase_lock::REPORT_MESSAGE_TYPE),
         app_name: plan.app.name.clone(),
         host_name: plan.record.name.clone(),
     };
@@ -553,6 +582,9 @@ pub struct Streaming {
     pub facts: Facts,
     pub pacer: Pacer,
     pub texture: VideoTexture,
+    upscaler: Option<upscale::Upscaler>,
+    upscale_failed: bool,
+    phase: phase::Phase,
     pub overlay_visible: bool,
     pub overlay: Overlay,
     pub exit: Option<Exit>,
@@ -566,11 +598,18 @@ pub struct Streaming {
     clipboard_busy: bool,
     command_busy: bool,
     last_command: Option<Instant>,
+    audio_status: (u16, Instant),
     pub pending_command: Option<usize>,
     pub bitrate_busy: bool,
     pub bitrate_kbps: u32,
     pub adaptive_bitrate: bool,
     bitrate_policy: Option<bitrate::Bitrate>,
+    pub quality_mode: QualityMode,
+    quality_policy: Option<quality::Quality>,
+    quality_ceiling: Reconfigure,
+    pub requested_mode: Reconfigure,
+    pending_mode: Option<(Reconfigure, Instant)>,
+    display_change: Option<Instant>,
     last_arrival: Option<(u32, u64)>,
     jitter_ms: f64,
     focused: bool,
@@ -580,6 +619,7 @@ pub struct Streaming {
     pub menu_visible: bool,
     keys_down: HashSet<u16>,
     mouse_down: HashSet<u8>,
+    touch: touch::Touch,
     captured: bool,
     absolute: bool,
     relative_remainder: (f32, f32),
@@ -630,12 +670,19 @@ impl Streaming {
             }
         } else { None };
         let bitrate_kbps = facts.bitrate_kbps.max(1) as u32;
+        let mode = Reconfigure { width: facts.width as u16, height: facts.height as u16, fps_millihz: facts.fps as u32 * 1000 };
+        let quality_mode = if facts.reconfigure { settings.adaptive_quality } else { QualityMode::Off };
+        let quality_policy = (quality_mode != QualityMode::Off).then(|| quality::Quality::new(
+            quality_mode, mode, settings.quality_min_short_edge, settings.quality_min_fps, 0));
         Self {
             session,
             shared: connecting.shared,
             facts,
             pacer: Pacer::new(connecting.pacing, min_interval),
             texture: VideoTexture::default(),
+            upscaler: None,
+            upscale_failed: false,
+            phase: phase::Phase::default(),
             overlay_visible: settings.overlay,
             overlay: Overlay::default(),
             exit: None,
@@ -649,11 +696,18 @@ impl Streaming {
             clipboard_busy: false,
             command_busy: false,
             last_command: None,
+            audio_status: (0, Instant::now() - Duration::from_secs(1)),
             pending_command: None,
             bitrate_busy: false,
             bitrate_kbps,
             adaptive_bitrate: false,
             bitrate_policy: None,
+            quality_mode,
+            quality_policy,
+            quality_ceiling: mode,
+            requested_mode: mode,
+            pending_mode: None,
+            display_change: None,
             last_arrival: None,
             jitter_ms: -1.0,
             focused: false,
@@ -664,6 +718,7 @@ impl Streaming {
             menu_visible: false,
             keys_down: HashSet::new(),
             mouse_down: HashSet::new(),
+            touch: touch::Touch::default(),
             captured: false,
             relative_remainder: (0.0, 0.0),
             offset: ClockOffset::default(),
@@ -706,14 +761,79 @@ impl Streaming {
         Some(plan)
     }
 
-    pub fn display_changed(&self, renderer: *mut SDL_Renderer) {
+    pub fn display_changed(&mut self, renderer: *mut SDL_Renderer) {
+        self.phase.reset();
+        self.display_change = Some(Instant::now());
         if self.facts.display_caps && self.facts.role != AppRole::InputOnly {
             let _ = self.session.send(ClientMessage::DisplayCaps(crate::sdl::display_caps(renderer)));
         }
     }
 
+    pub fn set_quality(&mut self, mode: QualityMode) {
+        self.quality_mode = if self.facts.reconfigure { mode } else { QualityMode::Off };
+        self.quality_policy = None;
+        if self.quality_mode != QualityMode::Off {
+            if !self.request_mode(self.quality_ceiling) { self.quality_mode = QualityMode::Off; return; }
+            self.quality_policy = Some(quality::Quality::new(mode, self.quality_ceiling,
+                self.settings.quality_min_short_edge, self.settings.quality_min_fps, self.started.elapsed().as_millis() as u64));
+            if !self.adaptive_bitrate && !self.bitrate_busy { self.enable_adaptive_bitrate(true); }
+        }
+    }
+
+    pub fn set_mode(&mut self, request: Reconfigure) {
+        if self.request_mode(request) {
+            self.quality_ceiling = request;
+            self.settings.width = u32::from(request.width);
+            self.settings.height = u32::from(request.height);
+            self.settings.fps = request.fps_millihz.div_ceil(1000);
+            self.plan.settings = self.settings.clone();
+        }
+    }
+
+    fn request_mode(&mut self, request: Reconfigure) -> bool {
+        if !self.facts.reconfigure || Reconfigure::decode(&request.encode()).is_none() {
+            self.show_toast("This stream cannot use the requested size or frame rate.");
+            return false;
+        }
+        if let Err(error) = self.session.send(ClientMessage::Reconfigure(request)) {
+            self.show_toast(format!("Could not change the stream: {error}"));
+            return false;
+        }
+        self.requested_mode = request;
+        self.pending_mode = Some((request, Instant::now()));
+        self.facts.fps = request.fps_millihz.div_ceil(1000) as i32;
+        self.shared.fps_millihz.store(request.fps_millihz, Ordering::Relaxed);
+        *lock(&self.shared.decode_window) = pipeline::DecodeWindow::default();
+        if let Some(rate) = &mut self.bitrate_policy { rate.set_fps(request.fps_millihz); }
+        true
+    }
+
+    pub fn follow_display(&mut self, display: Display) {
+        self.pacer.clock.settings.min_interval_us = (1_000_000.0 / display.refresh_hz.max(1.0)) as i64;
+        self.plan.display = display;
+        if !self.facts.reconfigure || !self.display_change.is_some_and(|at| at.elapsed() >= Duration::from_millis(300)) { return; }
+        self.display_change = None;
+        let (width, height) = if self.settings.width == 0 || self.settings.height == 0 {
+            ((display.width.clamp(256, 8192) + 1) & !1, (display.height.clamp(256, 8192) + 1) & !1)
+        } else { (u32::from(self.quality_ceiling.width), u32::from(self.quality_ceiling.height)) };
+        let fps = if self.settings.fps == 0 { (display.refresh_hz * 1000.0).round() as u32 } else { self.quality_ceiling.fps_millihz };
+        let Some(request) = quality::target(width, height, fps) else { return; };
+        if request == self.quality_ceiling { return; }
+        self.quality_ceiling = request;
+        if self.quality_mode == QualityMode::Off { self.request_mode(request); }
+        else if let Some(policy) = &mut self.quality_policy {
+            let request = policy.rebase(self.quality_mode, request, self.settings.quality_min_short_edge,
+                self.settings.quality_min_fps, self.started.elapsed().as_millis() as u64);
+            if !self.request_mode(request) { self.quality_policy = None; self.quality_mode = QualityMode::Off; }
+        }
+    }
+
     pub fn microphone_available(&self) -> bool {
         self.settings.microphone && self.session.microphone_available() && self.facts.role != AppRole::RemoteMonitor
+    }
+
+    pub fn controller_audio_available(&self) -> bool {
+        self.settings.controllers && self.settings.controller_audio && self.facts.role != AppRole::RemoteMonitor
     }
 
     pub fn mute_microphone(&mut self, muted: bool) {
@@ -774,6 +894,7 @@ impl Streaming {
         let keys: Vec<u16> = self.keys_down.drain().collect();
         let buttons: Vec<u8> = self.mouse_down.drain().collect();
         self.session.input(|q| {
+            self.touch.release(q);
             for key in keys {
                 let _ = q.send_keyboard(0x8000 | key, false, 0, 0);
             }
@@ -785,7 +906,18 @@ impl Streaming {
 
     /// Handles queued notices from the session threads. Control events that need the
     /// controllers are applied to `pads`.
-    pub fn drain_notices(&mut self, pads: &Gamepads) {
+    pub fn drain_notices(&mut self, pads: &mut Gamepads) {
+        if self.controller_audio_available() {
+            let mask = pads.pads.iter().filter(|p| p.audio.is_some()).fold(0, |mask, pad| mask | (1 << pad.index));
+            if mask != self.audio_status.0 || self.audio_status.1.elapsed() >= Duration::from_secs(1) {
+                for index in 0..16 {
+                    if (mask | self.audio_status.0) & (1 << index) != 0 {
+                        let _ = self.session.send(ClientMessage::ControllerAudioStatus { controller: index, flags: if mask & (1 << index) != 0 { 1 | 8 } else { 0 } });
+                    }
+                }
+                self.audio_status = (mask, Instant::now());
+            }
+        }
         let notices = std::mem::take(&mut *lock(&self.shared.notices));
         for notice in notices {
             match notice {
@@ -862,8 +994,11 @@ impl Streaming {
         }
     }
 
-    fn control_event(&mut self, event: ControlEvent, pads: &Gamepads) {
+    fn control_event(&mut self, event: ControlEvent, pads: &mut Gamepads) {
         match event {
+            ControlEvent::ControllerHaptics(pcm) if self.controller_audio_available() => pads.pcm(pcm, false),
+            ControlEvent::ControllerSpeaker(pcm) if self.controller_audio_available() => pads.pcm(pcm, true),
+            ControlEvent::ControllerAudioControl(payload) if self.controller_audio_available() => pads.audio_control(&payload),
             ControlEvent::Rumble {
                 controller,
                 low_frequency,
@@ -1034,6 +1169,14 @@ impl Streaming {
         }
         let frames: Vec<_> = lock(&self.shared.frames).drain(..).collect();
         for decoded in frames {
+            if decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0 {
+                let info = decoded.frame.info();
+                self.facts.width = info.width;
+                self.facts.height = info.height;
+                if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == info.width && i32::from(mode.height) == info.height) {
+                    self.pending_mode = None;
+                }
+            }
             if let Some((rtp, received)) = self.last_arrival {
                 let ticks = decoded.rtp.wrapping_sub(rtp) as i32;
                 if ticks > 0 && decoded.receive_us >= received {
@@ -1043,6 +1186,12 @@ impl Streaming {
             }
             self.last_arrival = Some((decoded.rtp, decoded.receive_us));
             self.pacer.accept(decoded);
+        }
+        if self.pending_mode.is_some_and(|(_, at)| at.elapsed() >= Duration::from_secs(5)) {
+            self.pending_mode = None;
+            self.quality_policy = None;
+            self.quality_mode = QualityMode::Off;
+            self.show_toast("The PC did not confirm the requested size. Automatic quality stopped.");
         }
         if self.facts.clock_sync && self.last_probe.elapsed() >= Duration::from_millis(250) {
             self.last_probe = Instant::now();
@@ -1061,7 +1210,7 @@ impl Streaming {
                     Wait::For(Duration::from_micros(due - now))
                 }
             }
-            None => Wait::For(Duration::from_millis(if self.overlay_visible { 250 } else { 500 })),
+            None => Wait::For(Duration::from_millis(if self.audio_status.0 != 0 { 20 } else if self.overlay_visible { 250 } else { 500 })),
         }
     }
 
@@ -1086,8 +1235,16 @@ impl Streaming {
         }
         let begin = session::now_us();
         if let Some(p) = &picture {
+            if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync && self.focused && !self.menu_visible {
+                let timing = phase::timing(renderer, self.plan.display.refresh_hz);
+                if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing) {
+                    let _ = self.session.send(ClientMessage::PhaseLockReport(report));
+                }
+            } else { self.phase.reset(); }
             if !self.texture.upload(renderer, &p.decoded) {
-                if p.decoded.setup.chroma_packing != 0 {
+                if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+                    self.exit = Some(Exit::Ended(Some("PyroWave GPU reconstruction failed.".into())));
+                } else if p.decoded.setup.chroma_packing != 0 {
                     self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
                 } else {
                     self.show_toast(format!(
@@ -1108,7 +1265,25 @@ impl Streaming {
                 let (mut w, mut h) = (0, 0);
                 SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h);
                 let dst = letterbox(self.texture.size(), (w, h));
-                SDL_RenderTexture(renderer, self.texture.texture, std::ptr::null(), &dst);
+                let mut texture = self.texture.texture;
+                let output = (dst.w as i32, dst.h as i32);
+                let input = self.texture.size();
+                let use_upscaler = self.settings.upscaling != config::Upscaling::Bilinear && !self.upscale_failed
+                    && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input;
+                if use_upscaler {
+                    if !self.upscaler.as_ref().is_some_and(|u| u.matches(input, output, self.settings.upscaling)) {
+                        self.upscaler = upscale::Upscaler::new(renderer, input, output, self.settings.upscaling);
+                    }
+                    match self.upscaler.as_ref().and_then(|u| u.draw(renderer, texture, self.settings.upscale_sharpness)) {
+                        Some(upscaled) => texture = upscaled,
+                        None => {
+                            self.upscaler = None;
+                            self.upscale_failed = true;
+                            self.show_toast("GPU upscaling is unavailable; using bilinear scaling.");
+                        }
+                    }
+                } else { self.upscaler = None; }
+                SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
             }
         }
         draw_overlay(self, renderer);
@@ -1191,6 +1366,13 @@ impl Streaming {
             format!("{}x{} {} fps, {}", f.width, f.height, f.fps, codec_name(f.format)),
         ));
         lines.push(("Decoder".into(), lock(&self.shared.decoder_name).clone()));
+        if self.settings.upscaling != config::Upscaling::Bilinear {
+            lines.push(("Upscaling".into(), if self.upscale_failed { "Bilinear (GPU unavailable)".into() }
+                else if self.texture.is_hdr() { "Bilinear (HDR)".into() }
+                else if self.upscaler.is_some() { self.settings.upscaling.label().into() }
+                else { "Bilinear (no upscale needed)".into() }));
+        }
+        if self.quality_mode != QualityMode::Off { lines.push(("Quality".into(), self.quality_mode.label().into())); }
         lines.push((
             "Frames".into(),
             format!(
@@ -1241,6 +1423,9 @@ impl Streaming {
             pacing.push_str(&format!(", {} replaced", w.dropped_pacing));
         }
         lines.push(("Pacing".into(), pacing));
+        if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync {
+            lines.push(("Phase lock".into(), self.phase.lead_us.map_or_else(|| "Waiting for display timing".into(), |lead| format!("{:.2} ms lead", f64::from(lead) / 1000.0))));
+        }
         if w.timing_n > 0 {
             lines.push((
                 "Host".into(),
@@ -1289,6 +1474,25 @@ impl Streaming {
         lines.push(("Bitrate".into(), format!("{:.1} Mbps{}", f64::from(self.facts.bitrate_kbps) / 1000.0,
             if self.adaptive_bitrate { ", automatic" } else { "" })));
         self.overlay = Overlay { lines };
+        let timing = std::mem::take(&mut *lock(&self.shared.decode_window));
+        let recent = decoded > 0 && self.last_arrival.is_some_and(|(_, at)| session::now_us().saturating_sub(at) < 500_000);
+        let poor = stats.connection_status == Some(nightjar_core::control::ConnectionStatus::Poor);
+        let quality_target = if let Some(policy) = &mut self.quality_policy {
+            if self.menu_visible || !self.focused || self.pending_mode.is_some() { policy.suspend(); None }
+            else { policy.sample(quality::Sample {
+                now: self.started.elapsed().as_millis() as u64, recent, poor,
+                loss: if completed + drops > 0 { loss } else { -1.0 },
+                decode_ms: if decoded > 0 { decode_ms } else { -1.0 }, jitter_ms: self.jitter_ms,
+                queue_ms: if timing.samples > 0 { timing.queue_us as f64 / f64::from(timing.samples) / 1000.0 } else { -1.0 },
+                bitrate_has_room: self.bitrate_busy || self.bitrate_policy.as_ref().is_some_and(|p| p.has_room()),
+                samples: timing.samples, late: timing.late, span_us: timing.last_us.saturating_sub(timing.first_us),
+            }) }
+        } else { None };
+        if let Some(target) = quality_target {
+            if self.request_mode(target) {
+                self.quality_policy.as_mut().expect("active quality policy").applied(target, self.started.elapsed().as_millis() as u64);
+            } else { self.quality_policy = None; self.quality_mode = QualityMode::Off; }
+        }
         if !self.bitrate_busy {
             if let Some(policy) = &mut self.bitrate_policy {
                 if self.menu_visible || !self.focused {
@@ -1296,8 +1500,16 @@ impl Streaming {
                 } else {
                     let recent = decoded > 0 && self.last_arrival.is_some_and(|(_, at)| session::now_us().saturating_sub(at) < 500_000);
                     let poor = stats.connection_status == Some(nightjar_core::control::ConnectionStatus::Poor);
-                    if let Some(target) = policy.sample(self.started.elapsed().as_millis() as u64, recent, poor,
-                        if completed + drops > 0 { loss } else { -1.0 }, if decoded > 0 { decode_ms } else { -1.0 }, self.jitter_ms) {
+                    let loss = if completed + drops > 0 { loss } else { -1.0 };
+                    let decode_ms = if decoded > 0 { decode_ms } else { -1.0 };
+                    let now = self.started.elapsed().as_millis() as u64;
+                    let target = if self.facts.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+                        let record_loss = if timing.record_samples > 0 { timing.record_loss_milli as f64 / f64::from(timing.record_samples) / 1000.0 } else { -1.0 };
+                        policy.pyrowave_sample(now, recent, poor, [loss.max(record_loss),
+                            if timing.samples > 0 { timing.queue_us as f64 / f64::from(timing.samples) / 1000.0 } else { -1.0 },
+                            decode_ms, self.jitter_ms])
+                    } else { policy.sample(now, recent, poor, loss, decode_ms, self.jitter_ms) };
+                    if let Some(target) = target {
                         self.bitrate_kbps = target;
                         self.set_bitrate();
                     }
@@ -1352,6 +1564,7 @@ impl Streaming {
                 }
                 SDL_EVENT_MOUSE_MOTION => {
                     let m = event.motion;
+                    if self.facts.touch && self.captured && matches!(m.which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID) { return; }
                     if !self.captured {
                         return;
                     }
@@ -1371,6 +1584,7 @@ impl Streaming {
                 }
                 SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_BUTTON_UP => {
                     let b = event.button;
+                    if self.facts.touch && self.captured && matches!(b.which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID) { return; }
                     if !self.captured {
                         // The first click only takes the pointer.
                         if b.down {
@@ -1413,6 +1627,16 @@ impl Streaming {
                             let _ = q.send_high_res_hscroll((x * 120.0).clamp(-32000.0, 32000.0) as i16);
                         }
                     });
+                }
+                SDL_EVENT_FINGER_DOWN | SDL_EVENT_FINGER_MOTION | SDL_EVENT_FINGER_UP | SDL_EVENT_FINGER_CANCELED
+                | SDL_EVENT_PEN_MOTION | SDL_EVENT_PEN_DOWN | SDL_EVENT_PEN_UP | SDL_EVENT_PEN_AXIS
+                | SDL_EVENT_PEN_BUTTON_DOWN | SDL_EVENT_PEN_BUTTON_UP | SDL_EVENT_PEN_PROXIMITY_OUT => {
+                    if !self.facts.touch || !self.captured || !self.focused { return; }
+                    let mut area = (0, 0);
+                    SDL_GetCurrentRenderOutputSize(renderer, &mut area.0, &mut area.1);
+                    let picture = if self.facts.role == AppRole::InputOnly { area } else { self.texture.size() };
+                    let density = SDL_GetWindowPixelDensity(window).max(0.01);
+                    self.session.input(|q| self.touch.handle(event, picture, area, density, q));
                 }
                 SDL_EVENT_GAMEPAD_ADDED => {
                     pads.added(event.gdevice.which);
@@ -1577,9 +1801,15 @@ impl Streaming {
         self.raise_all_keys();
         self.set_capture(window, false);
         self.cursor.clear();
+        for controller in 0..16 {
+            if self.audio_status.0 & (1 << controller) != 0 {
+                let _ = self.session.send(ClientMessage::ControllerAudioStatus { controller, flags: 0 });
+            }
+        }
         // SAFETY: a live window.
         unsafe { SDL_ShowCursor() };
         pads.reset();
+        self.upscaler = None;
         self.texture.destroy();
         self.session.stop();
     }
@@ -1610,6 +1840,12 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(stream_mode(&settings, display()), (1920, 1080, 60, 30000));
+        let mut settings = Settings { codec: CodecPreference::PyroWave444, ..settings };
+        assert_eq!(stream_mode(&settings, display()).3, 151_000);
+        settings.bitrate_kbps = 0;
+        assert_eq!(stream_mode(&settings, display()).3, 151_000);
+        settings.bitrate_kbps = 2_000_000;
+        assert_eq!(stream_mode(&settings, display()).3, 2_000_000);
     }
 
     #[test]
@@ -1625,6 +1861,9 @@ mod tests {
         );
         assert_eq!(video_formats(CodecPreference::Hevc, false, SCM_H264), VIDEO_FORMAT_H264);
         assert_eq!(video_formats(CodecPreference::H264, true, all), VIDEO_FORMAT_H264);
+        assert_eq!(video_formats(CodecPreference::PyroWave, false, SCM_H264 | SCM_PYROWAVE), VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE);
+        assert_eq!(video_formats(CodecPreference::PyroWave444, true, SCM_H264 | SCM_PYROWAVE_MAIN10_444), VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE_MAIN10_444);
+        assert_eq!(video_formats(CodecPreference::PyroWave444, false, SCM_H264), VIDEO_FORMAT_H264);
     }
 
     #[test]

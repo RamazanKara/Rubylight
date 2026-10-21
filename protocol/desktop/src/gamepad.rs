@@ -52,6 +52,7 @@ const BUTTON_MAP: [u32; 21] = [
 ];
 
 pub struct Pad {
+    pub audio: Option<crate::controller_audio::Audio>,
     pub id: SDL_JoystickID,
     pub handle: *mut SDL_Gamepad,
     /// Host controller number.
@@ -62,6 +63,13 @@ pub struct Pad {
     ls: (i16, i16),
     rs: (i16, i16),
     announced: bool,
+}
+
+impl Pad {
+    pub fn supports_audio(&self) -> bool {
+        unsafe { SDL_GetGamepadType(self.handle) == SDL_GAMEPAD_TYPE_PS5
+            && SDL_GetGamepadConnectionState(self.handle) == SDL_JOYSTICK_CONNECTION_WIRED }
+    }
 }
 
 /// What a controller asked the UI to do.
@@ -100,6 +108,7 @@ impl Gamepads {
             return;
         };
         self.pads.push(Pad {
+            audio: None,
             id,
             handle,
             index,
@@ -116,6 +125,8 @@ impl Gamepads {
     pub fn removed(&mut self, id: SDL_JoystickID) -> Option<u8> {
         let position = self.pads.iter().position(|p| p.id == id)?;
         let pad = self.pads.remove(position);
+        if let Some(audio) = &pad.audio { audio.reset(pad.handle); }
+        drop(pad.audio);
         // SAFETY: a gamepad we opened.
         unsafe { SDL_CloseGamepad(pad.handle) };
         Some(pad.index)
@@ -291,6 +302,7 @@ impl Gamepads {
     /// Rumble from the host; motor speeds 0-65535.
     pub fn rumble(&self, index: u16, low: u16, high: u16) {
         if let Some(pad) = self.by_index(index) {
+            if pad.audio.as_ref().is_some_and(|audio| audio.active()) { return; }
             // SAFETY: an open gamepad. A long duration; the host sends 0 to stop.
             unsafe { SDL_RumbleGamepad(pad.handle, low, high, 30_000) };
         }
@@ -307,6 +319,7 @@ impl Gamepads {
         if let Some(pad) = self.by_index(index) {
             // SAFETY: an open gamepad.
             unsafe { SDL_SetGamepadLED(pad.handle, r, g, b) };
+            if let Some(audio) = &pad.audio { audio.send(pad.handle); }
         }
     }
 
@@ -344,6 +357,7 @@ impl Gamepads {
             self.adaptive_triggers(u16::from(pad.index), 0x0C, 0x05, 0x05, &[0; 10], &[0; 10]);
         }
         for pad in &mut self.pads {
+            if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
             // SAFETY: open gamepads.
             unsafe {
                 SDL_RumbleGamepad(pad.handle, 0, 0, 0);
@@ -362,8 +376,60 @@ impl Gamepads {
 
     pub fn close_all(&mut self) {
         for pad in self.pads.drain(..) {
+            if let Some(audio) = &pad.audio { audio.reset(pad.handle); }
+            drop(pad.audio);
             // SAFETY: gamepads we opened.
             unsafe { SDL_CloseGamepad(pad.handle) };
+        }
+    }
+
+    pub fn prepare_audio(&mut self, enabled: bool) {
+        for pad in &mut self.pads {
+            if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
+        }
+        if !enabled { return; }
+        let outputs = crate::controller_audio::outputs();
+        let pads: Vec<_> = self.pads.iter().filter(|p| p.supports_audio()).map(|p| p.index).collect();
+        if let ([index], [(device, _)]) = (pads.as_slice(), outputs.as_slice()) {
+            if let Err(error) = self.set_audio(*index, Some(*device)) { eprintln!("nightjar: controller audio: {error}"); }
+        }
+    }
+
+    pub fn set_audio(&mut self, index: u8, device: Option<SDL_AudioDeviceID>) -> Result<(), String> {
+        if device.is_some_and(|device| self.pads.iter().any(|p| p.index != index && p.audio.as_ref().is_some_and(|a| a.device == device))) {
+            return Err("That output already belongs to another controller.".into());
+        }
+        let Some(pad) = self.pads.iter_mut().find(|p| p.index == index && p.supports_audio()) else { return Err("Connect a DualSense controller over USB.".into()); };
+        if device.is_some_and(|id| !crate::controller_audio::outputs().iter().any(|(candidate, _)| *candidate == id)) {
+            return Err("The controller's four-channel output is unavailable.".into());
+        }
+        if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
+        pad.announced = false;
+        if let Some(device) = device {
+            let audio = crate::controller_audio::Audio::open(device)?;
+            audio.send(pad.handle);
+            pad.audio = Some(audio);
+        }
+        Ok(())
+    }
+
+    pub fn update_audio(&mut self) {
+        for pad in &mut self.pads {
+            if let Some(audio) = &mut pad.audio { audio.update(pad.handle); }
+        }
+    }
+
+    pub fn pcm(&mut self, pcm: nightjar_core::control::haptics::Pcm, speaker: bool) {
+        if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.index) == pcm.controller) {
+            if let Some(audio) = &mut pad.audio { audio.offer(pcm, speaker); audio.update(pad.handle); }
+        }
+    }
+
+    pub fn audio_control(&mut self, payload: &[u8]) {
+        if !crate::controller_audio::valid_control(payload) { return; }
+        let index = u16::from_le_bytes([payload[2], payload[3]]);
+        if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.index) == index) {
+            if let Some(audio) = &mut pad.audio { audio.control(payload, pad.handle); }
         }
     }
 }
@@ -412,6 +478,7 @@ fn describe(pad: &Pad) -> (u8, u32, u16) {
         let props = SDL_GetGamepadProperties(pad.handle);
         let has = |name: *const std::ffi::c_char| SDL_GetBooleanProperty(props, name, false);
         let mut caps = 0u16;
+        if pad.audio.is_some() { caps |= nightjar_core::control::haptics::CAPABILITY; }
         if SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) {
             caps |= capability::ANALOG_TRIGGERS;
         }

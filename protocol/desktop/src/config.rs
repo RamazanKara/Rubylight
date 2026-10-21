@@ -12,6 +12,12 @@ pub enum CodecPreference {
     H264,
     Hevc,
     Av1,
+    PyroWave,
+    PyroWave444,
+}
+
+impl CodecPreference {
+    pub fn is_pyrowave(self) -> bool { matches!(self, Self::PyroWave | Self::PyroWave444) }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +50,40 @@ pub enum DecoderPreference {
     Software,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QualityMode {
+    #[default]
+    Off,
+    Motion,
+    Detail,
+    Battery,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Upscaling {
+    #[default]
+    Bilinear,
+    Fsr1,
+    Sgsr1,
+}
+
+impl Upscaling {
+    pub fn label(self) -> &'static str {
+        match self { Self::Bilinear => "Bilinear", Self::Fsr1 => "FSR 1", Self::Sgsr1 => "SGSR 1" }
+    }
+}
+
+impl QualityMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Motion => "Prefer motion",
+            Self::Detail => "Prefer detail",
+            Self::Battery => "Save power",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -55,6 +95,9 @@ pub struct Settings {
     /// 0 picks a bitrate for the resolution and rate.
     pub bitrate_kbps: u32,
     pub adaptive_bitrate: bool,
+    pub adaptive_quality: QualityMode,
+    pub quality_min_short_edge: u32,
+    pub quality_min_fps: u32,
     pub codec: CodecPreference,
     pub hdr: bool,
     pub experimental_packed_444: bool,
@@ -75,6 +118,7 @@ pub struct Settings {
     /// Nintendo layout: swap A/B and X/Y.
     pub swap_face_buttons: bool,
     pub controller_motion: bool,
+    pub controller_audio: bool,
     /// Keep sending controller input while the window is in the background.
     pub background_controllers: bool,
     pub decoder: DecoderPreference,
@@ -86,6 +130,8 @@ pub struct Settings {
     pub virtual_display_scale: u32,
     pub host_display: HostDisplay,
     pub full_range: bool,
+    pub upscaling: Upscaling,
+    pub upscale_sharpness: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +168,9 @@ impl Default for Settings {
             fps: 0,
             bitrate_kbps: 0,
             adaptive_bitrate: false,
+            adaptive_quality: QualityMode::Off,
+            quality_min_short_edge: 720,
+            quality_min_fps: 30,
             codec: CodecPreference::Auto,
             hdr: false,
             experimental_packed_444: false,
@@ -137,6 +186,7 @@ impl Default for Settings {
             controllers: true,
             swap_face_buttons: false,
             controller_motion: true,
+            controller_audio: false,
             background_controllers: false,
             decoder: DecoderPreference::Auto,
             microphone: false,
@@ -147,6 +197,8 @@ impl Default for Settings {
             virtual_display_scale: 100,
             host_display: HostDisplay::HostDefault,
             full_range: false,
+            upscaling: Upscaling::Bilinear,
+            upscale_sharpness: 50,
         }
     }
 }

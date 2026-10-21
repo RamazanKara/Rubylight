@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::config::{
-    default_bitrate_kbps, AudioChannels, CodecPreference, DecoderPreference, HostDisplay, MouseMode, Settings, WindowMode,
+    AudioChannels, CodecPreference, DecoderPreference, HostDisplay, MouseMode, Settings, WindowMode,
 };
 use crate::hosts::{Apps, Art, Host, Hosts, Reach};
 use crate::stream::{stream_mode, Display};
@@ -621,8 +621,8 @@ impl Launcher {
                     })
                     .response
             });
-            let (w, h, fps, _) = stream_mode(s, display);
-            let recommended = default_bitrate_kbps(w, h, fps);
+            let (w, h, fps, bitrate) = stream_mode(s, display);
+            let recommended = stream_mode(&Settings { bitrate_kbps: 0, ..s.clone() }, display).3;
             let mut automatic = s.bitrate_kbps == 0;
             row(
                 ui,
@@ -637,21 +637,19 @@ impl Launcher {
                 },
             );
             if !automatic {
-                let mut mbps = s.bitrate_kbps as f32 / 1000.0;
+                let mut mbps = bitrate as f32 / 1000.0;
                 row(
                     ui,
                     "Bitrate",
-                    "Higher is sharper and needs a faster network.",
+                    if s.codec.is_pyrowave() { "PyroWave maintains a minimum bitrate for this size and frame rate." }
+                    else { "Higher is sharper and needs a faster network." },
                     |ui| {
-                        let maximum = if s.experimental_packed_444 {
-                            200.0
-                        } else {
-                            150.0
-                        };
                         let r = ui.add(
-                            egui::Slider::new(&mut mbps, 2.0..=maximum)
+                            egui::Slider::new(&mut mbps, 0.5..=2000.0)
+                                .logarithmic(true)
                                 .suffix(" Mbps")
-                                .max_decimals(0),
+                                .max_decimals(1)
+                                .step_by(0.5),
                         );
                         if r.changed() {
                             s.bitrate_kbps = (mbps * 1000.0) as u32;
@@ -663,22 +661,53 @@ impl Launcher {
             row(ui, "Adapt bitrate to the connection", "Reduce bitrate during sustained congestion and recover gradually. Requires a compatible host.", |ui| {
                 toggle(ui, &mut s.adaptive_bitrate)
             });
-            row(ui, "Codec", "Automatic picks HEVC when the PC encodes it, else H.264.", |ui| {
+            row(ui, "Automatic quality", "Adjust resolution and frame rate under sustained load. Requires a host that supports live stream changes.", |ui| {
+                egui::ComboBox::from_id_salt("quality").selected_text(s.adaptive_quality.label()).show_ui(ui, |ui| {
+                    for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {
+                        ui.selectable_value(&mut s.adaptive_quality, mode, mode.label());
+                    }
+                }).response
+            });
+            if s.adaptive_quality != crate::config::QualityMode::Off {
+                row(ui, "Minimum resolution", "Shortest edge, in pixels. Never increases the selected stream size.", |ui| {
+                    ui.add(egui::DragValue::new(&mut s.quality_min_short_edge).range(256..=2160).speed(2).suffix(" px"))
+                });
+                row(ui, "Minimum frame rate", "Automatic quality stays above this rate.", |ui| {
+                    ui.add(egui::DragValue::new(&mut s.quality_min_fps).range(15..=240).suffix(" fps"))
+                });
+            }
+            row(ui, "Codec", "Automatic picks HEVC, then H.264. PyroWave needs GPU rendering; restart after selecting it on Linux.", |ui| {
                 egui::ComboBox::from_id_salt("codec")
                     .selected_text(match s.codec {
                         CodecPreference::Auto => "Automatic",
                         CodecPreference::H264 => "H.264",
                         CodecPreference::Hevc => "HEVC",
                         CodecPreference::Av1 => "AV1",
+                        CodecPreference::PyroWave => "PyroWave 4:2:0",
+                        CodecPreference::PyroWave444 => "PyroWave 4:4:4",
                     })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut s.codec, CodecPreference::Auto, "Automatic");
                         ui.selectable_value(&mut s.codec, CodecPreference::H264, "H.264");
                         ui.selectable_value(&mut s.codec, CodecPreference::Hevc, "HEVC");
                         ui.selectable_value(&mut s.codec, CodecPreference::Av1, "AV1");
+                        ui.selectable_value(&mut s.codec, CodecPreference::PyroWave, "PyroWave 4:2:0");
+                        ui.selectable_value(&mut s.codec, CodecPreference::PyroWave444, "PyroWave 4:4:4");
                     })
                     .response
             });
+            row(ui, "Upscaling", "Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.", |ui| {
+                egui::ComboBox::from_id_salt("upscaling").selected_text(s.upscaling.label()).show_ui(ui, |ui| {
+                    for mode in [crate::config::Upscaling::Bilinear, crate::config::Upscaling::Fsr1, crate::config::Upscaling::Sgsr1] {
+                        ui.selectable_value(&mut s.upscaling, mode, mode.label());
+                    }
+                }).response
+            });
+            if s.upscaling != crate::config::Upscaling::Bilinear {
+                row(ui, "Sharpness", "Extra sharpening applied by the upscaler.", |ui| {
+                    ui.add(egui::Slider::new(&mut s.upscale_sharpness, 0..=100).suffix("%"))
+                });
+            }
             row(
                 ui,
                 "HDR",
@@ -686,10 +715,10 @@ impl Launcher {
                 |ui| toggle(ui, &mut s.hdr),
             );
             row(ui, "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
-                |ui| toggle(ui, &mut s.experimental_packed_444));
+                |ui| ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| toggle(ui, &mut s.experimental_packed_444)).inner);
             row(ui, "Full color range", "Request the full RGB range from the host.", |ui| toggle(ui, &mut s.full_range));
-            row(ui, "Decoder", "Automatic uses the GPU (D3D11VA, VAAPI) and falls back to the CPU.", |ui| {
-                egui::ComboBox::from_id_salt("decoder")
+            row(ui, "Decoder", "Automatic uses hardware decoding when available. PyroWave always uses GPU wavelets.", |ui| {
+                ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| egui::ComboBox::from_id_salt("decoder")
                     .selected_text(match s.decoder {
                         DecoderPreference::Auto => "Automatic",
                         DecoderPreference::Software => "Software",
@@ -698,7 +727,7 @@ impl Launcher {
                         ui.selectable_value(&mut s.decoder, DecoderPreference::Auto, "Automatic");
                         ui.selectable_value(&mut s.decoder, DecoderPreference::Software, "Software");
                     })
-                    .response
+                    .response).inner
             });
 
             section(ui, "PC display");
@@ -820,6 +849,9 @@ impl Launcher {
                 row(ui, "Nintendo button layout", "Swap A/B and X/Y.", |ui| toggle(ui, &mut s.swap_face_buttons));
                 row(ui, "Motion controls", "Send gyro and accelerometer data when a game asks for it.", |ui| {
                     toggle(ui, &mut s.controller_motion)
+                });
+                row(ui, "DualSense USB audio", "Enable waveform haptics and controller speaker audio. Select the four-channel controller output in stream controls if more than one is connected.", |ui| {
+                    toggle(ui, &mut s.controller_audio)
                 });
                 row(ui, "Input in the background", "Keep controllers working when Nightjar is not focused.", |ui| {
                     toggle(ui, &mut s.background_controllers)

@@ -9,6 +9,8 @@
 pub mod packed444;
 pub mod pipeline;
 pub mod present;
+#[cfg(windows)]
+mod d3d11;
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::Ordering;

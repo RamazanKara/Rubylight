@@ -1,7 +1,5 @@
 use crate::media;
 use sdl3_sys::everything::*;
-#[cfg(windows)]
-use std::ffi::c_void;
 use std::ptr;
 
 pub fn probe(renderer: *mut SDL_Renderer, hardware: media::Hardware) -> Result<u8, String> {
@@ -202,27 +200,9 @@ fn fixture_rgb(x: usize, y: usize, ten_bit: bool) -> [f32; 3] {
     }
 }
 
-#[cfg(windows)]
-extern "C" {
-    fn nj_packed_create(
-        target: *mut c_void,
-        width: i32,
-        height: i32,
-        ten_bit: i32,
-        source: *const u8,
-        length: usize,
-    ) -> *mut c_void;
-    fn nj_packed_free(packed: *mut c_void);
-    fn nj_packed_draw(
-        packed: *mut c_void,
-        frame: *const media::RawFrame,
-        parameters: *const u32,
-    ) -> i32;
-}
-
 pub struct Reconstruction {
     #[cfg(windows)]
-    native: *mut c_void,
+    native: Option<super::d3d11::Packed>,
     device: *mut SDL_GPUDevice,
     buffer: *mut SDL_GPUBuffer,
     transfer: *mut SDL_GPUTransferBuffer,
@@ -239,7 +219,7 @@ impl Reconstruction {
     ) -> Option<Self> {
         let mut result = Self {
             #[cfg(windows)]
-            native: ptr::null_mut(),
+            native: None,
             device: ptr::null_mut(),
             buffer: ptr::null_mut(),
             transfer: ptr::null_mut(),
@@ -257,16 +237,13 @@ impl Reconstruction {
                     ptr::null_mut(),
                 );
                 if !texture.is_null() {
-                    let source = include_bytes!("../packed444.hlsl");
-                    result.native = nj_packed_create(
+                    result.native = super::d3d11::Packed::new(
                         texture,
                         parameters[2] as i32,
                         parameters[3] as i32 * 2,
-                        parameters[4] as i32,
-                        source.as_ptr(),
-                        source.len(),
-                    );
-                    return (!result.native.is_null()).then_some(result);
+                        parameters[4] != 0,
+                    ).map_err(|e| eprintln!("nightjar: packed reconstruction: {e}")).ok();
+                    return result.native.is_some().then_some(result);
                 }
             }
             result.device = SDL_GetPointerProperty(
@@ -341,9 +318,9 @@ impl Reconstruction {
                 return false;
             }
             #[cfg(windows)]
-            if !self.native.is_null() {
+            if let Some(native) = &self.native {
                 return info.kind == media::FRAME_D3D11
-                    && nj_packed_draw(self.native, frame.raw.as_ptr(), parameters.as_ptr()) != 0;
+                    && native.draw(frame, parameters);
             }
             if !matches!(info.kind, media::FRAME_NV12 | media::FRAME_P010) {
                 return false;
@@ -412,8 +389,6 @@ impl Drop for Reconstruction {
     fn drop(&mut self) {
         // SAFETY: These resources are owned here; the renderer/device outlives this object.
         unsafe {
-            #[cfg(windows)]
-            nj_packed_free(self.native);
             if !self.state.is_null() {
                 SDL_DestroyGPURenderState(self.state);
             }

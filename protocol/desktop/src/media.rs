@@ -1,19 +1,20 @@
-//! FFmpeg video decoding and Opus audio decoding through `media_shim.c`.
+//! FFmpeg and Opus through Rust bindings to the platform libraries.
 
 use std::ffi::{c_char, c_int, c_uchar, c_void, CStr};
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
-#[repr(C)]
-struct RawVideo {
-    _private: [u8; 0],
+#[allow(
+    non_upper_case_globals,
+    non_camel_case_types,
+    non_snake_case,
+    dead_code,
+    clippy::all
+)]
+pub(crate) mod ffi {
+    include!(concat!(env!("OUT_DIR"), "/media.rs"));
 }
+use ffi::*;
 
-#[repr(C)]
-pub struct RawFrame {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FrameInfo {
     pub width: c_int,
@@ -23,12 +24,9 @@ pub struct FrameInfo {
     pub pts: i64,
     pub data: [*mut u8; 3],
     pub linesize: [c_int; 3],
-    pub texture: *mut c_void,
-    pub texture_index: c_int,
     pub color_space: c_int,
     pub color_range: c_int,
     pub color_trc: c_int,
-    pub color_primaries: c_int,
 }
 
 pub const FRAME_NV12: c_int = 0;
@@ -37,32 +35,7 @@ pub const FRAME_YUV420P: c_int = 2;
 pub const FRAME_D3D11: c_int = 3;
 
 extern "C" {
-    fn nj_video_open(
-        codec: c_int,
-        hardware: c_int,
-        device: *mut c_void,
-        threads: c_int,
-        require_hardware: c_int,
-        name: *mut c_char,
-        name_length: c_int,
-        error: *mut c_char,
-        error_length: c_int,
-    ) -> *mut RawVideo;
-    fn nj_video_close(video: *mut RawVideo);
-    fn nj_video_send(video: *mut RawVideo, data: *const u8, length: c_int, pts: i64) -> c_int;
-    fn nj_video_receive(video: *mut RawVideo, status: *mut c_int) -> *mut RawFrame;
-    fn nj_frame_free(frame: *mut RawFrame);
-    fn nj_frame_describe(frame: *const RawFrame, info: *mut FrameInfo);
-    fn nj_pixel_format_name(frame: *const RawFrame) -> *const c_char;
-    fn nj_frame_copy_d3d11(
-        frame: *const RawFrame,
-        destination: *mut c_void,
-        width: c_int,
-        height: c_int,
-    ) -> c_int;
-    #[cfg(windows)]
-    fn nj_swapchain_allows_tearing(swapchain: *mut c_void) -> c_int;
-    fn nj_opus_open(
+    fn opus_multistream_decoder_create(
         rate: c_int,
         channels: c_int,
         streams: c_int,
@@ -70,48 +43,84 @@ extern "C" {
         mapping: *const c_uchar,
         error: *mut c_int,
     ) -> *mut c_void;
-    fn nj_opus_decode(
+    fn opus_multistream_decode_float(
         decoder: *mut c_void,
         data: *const c_uchar,
         length: c_int,
         pcm: *mut f32,
         frame_size: c_int,
+        fec: c_int,
     ) -> c_int;
-    fn nj_opus_close(decoder: *mut c_void);
+    fn opus_multistream_decoder_destroy(decoder: *mut c_void);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Codec {
-    H264 = 0,
-    Hevc = 1,
-    Av1 = 2,
+    H264,
+    Hevc,
+    Av1,
 }
 
-/// Where decoding happens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hardware {
     None,
-    /// The renderer's ID3D11Device, shared with the decoder.
     D3d11(*mut c_void),
     Vaapi,
 }
 
-// SAFETY: the device pointer is a COM object FFmpeg AddRefs and uses under its own lock.
+// The renderer keeps the device alive until the decoder has stopped; FFmpeg owns a COM reference.
 unsafe impl Send for Hardware {}
 
-fn text(buffer: &[c_char]) -> String {
-    // SAFETY: the shim always NUL-terminates within the buffer.
-    unsafe { CStr::from_ptr(buffer.as_ptr()) }
-        .to_string_lossy()
-        .into_owned()
+struct Format {
+    hardware: AVPixelFormat,
+    required: bool,
+}
+
+unsafe extern "C" fn select_format(
+    context: *mut AVCodecContext,
+    formats: *const AVPixelFormat,
+) -> AVPixelFormat {
+    let wanted = &*((*context).opaque.cast::<Format>());
+    let mut next = formats;
+    while *next != AV_PIX_FMT_NONE {
+        if *next == wanted.hardware {
+            return *next;
+        }
+        next = next.add(1);
+    }
+    if !wanted.required {
+        next = formats;
+        while *next != AV_PIX_FMT_NONE {
+            let descriptor = av_pix_fmt_desc_get(*next);
+            if !descriptor.is_null()
+                && (*descriptor).flags & u64::from(AV_PIX_FMT_FLAG_HWACCEL) == 0
+            {
+                return *next;
+            }
+            next = next.add(1);
+        }
+    }
+    AV_PIX_FMT_NONE
+}
+
+fn error(code: i32) -> String {
+    let mut buffer = [0 as c_char; 128];
+    unsafe {
+        av_strerror(code, buffer.as_mut_ptr(), buffer.len());
+        CStr::from_ptr(buffer.as_ptr())
+            .to_string_lossy()
+            .into_owned()
+    }
 }
 
 pub struct VideoDecoder {
-    raw: NonNull<RawVideo>,
+    context: *mut AVCodecContext,
+    packet: *mut AVPacket,
+    _format: Box<Format>,
     pub name: String,
 }
 
-// SAFETY: an AVCodecContext may move between threads; it is used by one thread at a time.
+// An AVCodecContext moves between threads but is only accessed by its decoder thread.
 unsafe impl Send for VideoDecoder {}
 
 pub enum Received {
@@ -127,103 +136,310 @@ impl VideoDecoder {
         threads: i32,
         require_hardware: bool,
     ) -> Result<Self, String> {
-        let (kind, device) = match hardware {
-            Hardware::None => (0, std::ptr::null_mut()),
-            Hardware::D3d11(device) => (1, device),
-            Hardware::Vaapi => (2, std::ptr::null_mut()),
-        };
-        let mut name = [0 as c_char; 96];
-        let mut error = [0 as c_char; 256];
-        // SAFETY: valid buffers with their lengths.
-        let raw = unsafe {
-            nj_video_open(
-                codec as c_int,
-                kind,
-                device,
-                threads,
-                i32::from(require_hardware),
-                name.as_mut_ptr(),
-                name.len() as c_int,
-                error.as_mut_ptr(),
-                error.len() as c_int,
-            )
-        };
-        match NonNull::new(raw) {
-            Some(raw) => Ok(Self {
-                raw,
-                name: text(&name),
-            }),
-            None => Err(text(&error)),
+        unsafe {
+            let id = match codec {
+                Codec::H264 => AV_CODEC_ID_H264,
+                Codec::Hevc => AV_CODEC_ID_HEVC,
+                Codec::Av1 => AV_CODEC_ID_AV1,
+            };
+            let mut found = if codec == Codec::Av1 && hardware != Hardware::None {
+                avcodec_find_decoder_by_name(c"av1".as_ptr())
+            } else {
+                ptr::null()
+            };
+            if found.is_null() {
+                found = avcodec_find_decoder(id);
+            }
+            if found.is_null() {
+                return Err("No decoder for this codec.".into());
+            }
+            let mut video = Self {
+                context: avcodec_alloc_context3(found),
+                packet: av_packet_alloc(),
+                _format: Box::new(Format {
+                    hardware: AV_PIX_FMT_NONE,
+                    required: require_hardware,
+                }),
+                name: CStr::from_ptr((*found).name).to_string_lossy().into_owned(),
+            };
+            if video.context.is_null() || video.packet.is_null() {
+                return Err("Could not allocate the video decoder.".into());
+            }
+            let context = &mut *video.context;
+            context.opaque = (&mut *video._format as *mut Format).cast();
+            if hardware != Hardware::None {
+                let kind = match hardware {
+                    Hardware::D3d11(_) => AV_HWDEVICE_TYPE_D3D11VA,
+                    _ => AV_HWDEVICE_TYPE_VAAPI,
+                };
+                let mut index = 0;
+                loop {
+                    let config = avcodec_get_hw_config(found, index);
+                    if config.is_null() {
+                        return Err(format!("{} has no support for {hardware:?}.", video.name));
+                    }
+                    if (*config).device_type == kind
+                        && (*config).methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as i32 != 0
+                    {
+                        video._format.hardware = (*config).pix_fmt;
+                        break;
+                    }
+                    index += 1;
+                }
+                match hardware {
+                    Hardware::D3d11(device) => {
+                        #[cfg(windows)]
+                        {
+                            use windows::core::Interface;
+                            use windows::Win32::Graphics::{
+                                Direct3D10::ID3D10Multithread, Direct3D11::ID3D11Device,
+                            };
+                            let device = ID3D11Device::from_raw_borrowed(&device)
+                                .ok_or("No D3D11 device.")?;
+                            let reference = av_hwdevice_ctx_alloc(kind);
+                            if reference.is_null() {
+                                return Err("Could not allocate a D3D11 device context.".into());
+                            }
+                            context.hw_device_ctx = reference;
+                            let device_context = (*reference).data.cast::<AVHWDeviceContext>();
+                            let d3d =
+                                &mut *((*device_context).hwctx.cast::<AVD3D11VADeviceContext>());
+                            d3d.device = device.clone().into_raw().cast();
+                            // SDL and FFmpeg share the immediate context from different threads.
+                            let _ = device
+                                .cast::<ID3D10Multithread>()
+                                .map_err(|e| format!("D3D11 multithread protection: {e}"))?
+                                .SetMultithreadProtected(true);
+                            let status = av_hwdevice_ctx_init(reference);
+                            if status < 0 {
+                                return Err(format!("D3D11VA: {}", error(status)));
+                            }
+                        }
+                        #[cfg(not(windows))]
+                        {
+                            let _ = device;
+                            return Err("D3D11VA is only available on Windows.".into());
+                        }
+                    }
+                    Hardware::Vaapi => {
+                        let status = av_hwdevice_ctx_create(
+                            &mut context.hw_device_ctx,
+                            kind,
+                            ptr::null(),
+                            ptr::null_mut(),
+                            0,
+                        );
+                        if status < 0 {
+                            return Err(format!("VAAPI: {}", error(status)));
+                        }
+                    }
+                    Hardware::None => unreachable!(),
+                }
+                context.get_format = Some(select_format);
+                context.extra_hw_frames = 6;
+            }
+            context.thread_count = if hardware == Hardware::None {
+                threads
+            } else {
+                1
+            };
+            context.thread_type = FF_THREAD_SLICE as i32;
+            context.flags |= AV_CODEC_FLAG_LOW_DELAY as i32;
+            context.flags2 |= AV_CODEC_FLAG2_FAST as i32;
+            let mut options = ptr::null_mut();
+            if video.name == "libdav1d" {
+                av_dict_set(&mut options, c"max_frame_delay".as_ptr(), c"1".as_ptr(), 0);
+            }
+            let status = avcodec_open2(video.context, found, &mut options);
+            av_dict_free(&mut options);
+            if status < 0 {
+                return Err(format!("Opening the decoder: {}", error(status)));
+            }
+            video.name.push_str(match hardware {
+                Hardware::D3d11(_) => " d3d11va",
+                Hardware::Vaapi => " vaapi",
+                Hardware::None => "",
+            });
+            Ok(video)
         }
     }
 
     pub fn send(&mut self, data: &[u8], pts: i64) -> i32 {
-        // SAFETY: the decoder is open; data is valid for its length.
-        unsafe { nj_video_send(self.raw.as_ptr(), data.as_ptr(), data.len() as c_int, pts) }
+        let Ok(length) = i32::try_from(data.len()) else {
+            return -1;
+        };
+        unsafe {
+            av_packet_unref(self.packet);
+            let status = av_new_packet(self.packet, length);
+            if status < 0 {
+                return status;
+            }
+            ptr::copy_nonoverlapping(data.as_ptr(), (*self.packet).data, data.len());
+            (*self.packet).pts = pts;
+            avcodec_send_packet(self.context, self.packet)
+        }
     }
 
     pub fn receive(&mut self) -> Received {
-        let mut status = 0;
-        // SAFETY: the decoder is open.
-        let frame = unsafe { nj_video_receive(self.raw.as_ptr(), &mut status) };
-        match NonNull::new(frame) {
-            Some(raw) => Received::Frame(Frame { raw }),
-            None if status == 1 => Received::None,
-            None => Received::Error,
+        unsafe {
+            let Some(raw) = NonNull::new(av_frame_alloc()) else {
+                return Received::Error;
+            };
+            let frame = Frame { raw };
+            let status = avcodec_receive_frame(self.context, raw.as_ptr());
+            if status == -11 || status == -541478725 {
+                return Received::None;
+            }
+            if status < 0 {
+                return Received::Error;
+            }
+            if (*raw.as_ptr()).format == AV_PIX_FMT_VAAPI {
+                let Some(memory) = NonNull::new(av_frame_alloc()) else {
+                    return Received::Error;
+                };
+                let memory = Frame { raw: memory };
+                if av_hwframe_transfer_data(memory.raw.as_ptr(), raw.as_ptr(), 0) < 0
+                    || av_frame_copy_props(memory.raw.as_ptr(), raw.as_ptr()) < 0
+                {
+                    return Received::Error;
+                }
+                return Received::Frame(memory);
+            }
+            Received::Frame(frame)
         }
     }
 }
 
 impl Drop for VideoDecoder {
     fn drop(&mut self) {
-        // SAFETY: opened by nj_video_open, closed once.
-        unsafe { nj_video_close(self.raw.as_ptr()) }
+        unsafe {
+            avcodec_free_context(&mut self.context);
+            av_packet_free(&mut self.packet);
+        }
     }
 }
 
-/// A decoded picture (an AVFrame reference).
 pub struct Frame {
-    pub(crate) raw: NonNull<RawFrame>,
+    pub(crate) raw: NonNull<AVFrame>,
 }
 
-// SAFETY: AVFrames are reference counted and safe to hand to another thread.
+// An owned AVFrame reference can be handed from the decoder to the renderer.
 unsafe impl Send for Frame {}
 
 impl Frame {
     pub fn info(&self) -> FrameInfo {
-        let mut info = std::mem::MaybeUninit::<FrameInfo>::uninit();
-        // SAFETY: the frame is valid and the shim fills every field.
         unsafe {
-            nj_frame_describe(self.raw.as_ptr(), info.as_mut_ptr());
-            info.assume_init()
+            let frame = self.raw.as_ref();
+            let (kind, ten_bit) = match frame.format as AVPixelFormat {
+                AV_PIX_FMT_NV12 => (FRAME_NV12, 0),
+                AV_PIX_FMT_P010LE => (FRAME_P010, 1),
+                AV_PIX_FMT_YUV420P | AV_PIX_FMT_YUVJ420P => (FRAME_YUV420P, 0),
+                AV_PIX_FMT_D3D11 => {
+                    let depth = if frame.hw_frames_ctx.is_null() {
+                        false
+                    } else {
+                        (*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>())).sw_format
+                            == AV_PIX_FMT_P010LE
+                    };
+                    (FRAME_D3D11, i32::from(depth))
+                }
+                _ => (4, 0),
+            };
+            FrameInfo {
+                width: frame.width,
+                height: frame.height,
+                kind,
+                ten_bit,
+                pts: frame.pts,
+                data: [frame.data[0], frame.data[1], frame.data[2]],
+                linesize: [frame.linesize[0], frame.linesize[1], frame.linesize[2]],
+                color_space: frame.colorspace as i32,
+                color_range: frame.color_range as i32,
+                color_trc: frame.color_trc as i32,
+            }
         }
     }
 
     pub fn format_name(&self) -> String {
-        // SAFETY: the shim returns a static string.
-        unsafe { CStr::from_ptr(nj_pixel_format_name(self.raw.as_ptr())) }
-            .to_string_lossy()
-            .into_owned()
+        unsafe {
+            let name = av_get_pix_fmt_name(self.raw.as_ref().format as AVPixelFormat);
+            if name.is_null() {
+                "unknown".into()
+            } else {
+                CStr::from_ptr(name).to_string_lossy().into_owned()
+            }
+        }
     }
 
-    /// Copies a D3D11 surface into `texture` (same device, NV12 or P010).
     pub fn copy_to_d3d11(&self, texture: *mut c_void, width: i32, height: i32) -> bool {
-        // SAFETY: the frame is valid; the texture belongs to the decoder's device.
-        unsafe { nj_frame_copy_d3d11(self.raw.as_ptr(), texture, width, height) == 0 }
+        #[cfg(windows)]
+        unsafe {
+            use windows::core::Interface;
+            use windows::Win32::Graphics::Direct3D11::{
+                ID3D11DeviceContext, ID3D11Texture2D, D3D11_BOX,
+            };
+            let frame = self.raw.as_ref();
+            if frame.format != AV_PIX_FMT_D3D11 || frame.hw_frames_ctx.is_null() {
+                return false;
+            }
+            let frames = &*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>());
+            let d3d = &*((*frames.device_ctx).hwctx.cast::<AVD3D11VADeviceContext>());
+            let context_raw = d3d.device_context.cast();
+            let source_raw = frame.data[0].cast();
+            let Some(context) = ID3D11DeviceContext::from_raw_borrowed(&context_raw) else {
+                return false;
+            };
+            let Some(source) = ID3D11Texture2D::from_raw_borrowed(&source_raw) else {
+                return false;
+            };
+            let Some(target) = ID3D11Texture2D::from_raw_borrowed(&texture) else {
+                return false;
+            };
+            let region = D3D11_BOX {
+                left: 0,
+                top: 0,
+                front: 0,
+                right: (width & !1) as u32,
+                bottom: (height & !1) as u32,
+                back: 1,
+            };
+            (d3d.lock.unwrap())(d3d.lock_ctx);
+            context.CopySubresourceRegion(
+                target,
+                0,
+                0,
+                0,
+                0,
+                source,
+                frame.data[1] as usize as u32,
+                Some(&region),
+            );
+            (d3d.unlock.unwrap())(d3d.lock_ctx);
+            true
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (texture, width, height);
+            false
+        }
     }
 }
 
 impl Drop for Frame {
     fn drop(&mut self) {
-        // SAFETY: owned reference, freed once.
-        unsafe { nj_frame_free(self.raw.as_ptr()) }
+        unsafe { av_frame_free(&mut self.raw.as_ptr()) };
     }
 }
 
 #[cfg(windows)]
 pub fn swapchain_allows_tearing(swapchain: *mut c_void) -> bool {
-    // SAFETY: a DXGI swap chain from SDL's renderer properties, or null.
-    unsafe { nj_swapchain_allows_tearing(swapchain) != 0 }
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::{IDXGISwapChain1, DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING};
+    unsafe {
+        IDXGISwapChain1::from_raw_borrowed(&swapchain)
+            .and_then(|chain| chain.GetDesc1().ok())
+            .is_some_and(|desc| desc.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING.0 as u32 != 0)
+    }
 }
 
 pub struct OpusDecoder {
@@ -231,23 +447,21 @@ pub struct OpusDecoder {
     pub channels: usize,
 }
 
-// SAFETY: used by one thread at a time.
 unsafe impl Send for OpusDecoder {}
 
 impl OpusDecoder {
     pub fn new(channels: u8, streams: u8, coupled: u8, mapping: &[u8]) -> Result<Self, i32> {
+        if !(1..=8).contains(&channels) || mapping.len() < usize::from(channels) {
+            return Err(-1);
+        }
         let mut error = 0;
-        let mut map = [0u8; 8];
-        let n = mapping.len().min(8);
-        map[..n].copy_from_slice(&mapping[..n]);
-        // SAFETY: the mapping has at least `channels` entries.
         let raw = unsafe {
-            nj_opus_open(
+            opus_multistream_decoder_create(
                 48000,
-                c_int::from(channels),
-                c_int::from(streams),
-                c_int::from(coupled),
-                map.as_ptr(),
+                i32::from(channels),
+                i32::from(streams),
+                i32::from(coupled),
+                mapping.as_ptr(),
                 &mut error,
             )
         };
@@ -259,18 +473,17 @@ impl OpusDecoder {
             .ok_or(if error != 0 { error } else { -1 })
     }
 
-    /// Decodes a packet (None conceals a lost one) into `pcm`; samples per channel.
     pub fn decode(&mut self, packet: Option<&[u8]>, pcm: &mut [f32]) -> i32 {
-        let frame_size = (pcm.len() / self.channels.max(1)) as c_int;
-        let (data, length) = packet.map_or((std::ptr::null(), 0), |p| (p.as_ptr(), p.len()));
-        // SAFETY: pcm holds frame_size samples for every channel.
+        let frame_size = (pcm.len() / self.channels) as i32;
+        let (data, length) = packet.map_or((ptr::null(), 0), |p| (p.as_ptr(), p.len()));
         unsafe {
-            nj_opus_decode(
+            opus_multistream_decode_float(
                 self.raw.as_ptr(),
                 data,
-                length as c_int,
+                length as i32,
                 pcm.as_mut_ptr(),
                 frame_size,
+                0,
             )
         }
     }
@@ -278,7 +491,56 @@ impl OpusDecoder {
 
 impl Drop for OpusDecoder {
     fn drop(&mut self) {
-        // SAFETY: created by nj_opus_open, destroyed once.
-        unsafe { nj_opus_close(self.raw.as_ptr()) }
+        unsafe { opus_multistream_decoder_destroy(self.raw.as_ptr()) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn software_decodes_packed_fixtures_and_preserves_timestamps() {
+        for (codec, bytes, ten_bit) in [
+            (
+                Codec::Hevc,
+                include_bytes!("../../../app/src/main/assets/packed444/hevc-8.bin").as_slice(),
+                0,
+            ),
+            (
+                Codec::Hevc,
+                include_bytes!("../../../app/src/main/assets/packed444/hevc-10.bin").as_slice(),
+                1,
+            ),
+            (
+                Codec::Av1,
+                include_bytes!("../../../app/src/main/assets/packed444/av1-8.bin").as_slice(),
+                0,
+            ),
+            (
+                Codec::Av1,
+                include_bytes!("../../../app/src/main/assets/packed444/av1-10.bin").as_slice(),
+                1,
+            ),
+        ] {
+            let mut decoder = VideoDecoder::open(codec, Hardware::None, 1, false).unwrap();
+            assert_eq!(decoder.send(bytes, 12345), 0);
+            let Received::Frame(frame) = decoder.receive() else {
+                panic!("no decoded frame")
+            };
+            let info = frame.info();
+            assert_eq!((info.width, info.height, info.pts), (128, 128, 12345));
+            assert!(!info.data[0].is_null());
+            if ten_bit == 0 {
+                assert_eq!(info.kind, FRAME_YUV420P);
+            }
+            assert!(matches!(decoder.receive(), Received::None));
+        }
+    }
+
+    #[test]
+    fn invalid_opus_mapping_is_rejected_before_ffi() {
+        assert!(OpusDecoder::new(9, 1, 0, &[0; 9]).is_err());
+        assert!(OpusDecoder::new(2, 1, 1, &[0]).is_err());
     }
 }

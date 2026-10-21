@@ -28,6 +28,9 @@ pub enum Command {
     ProfileSettings(u64),
     SaveProfile(u64),
     SaveProfiles,
+    NetworkTest { host: u64, calibrate: bool },
+    CancelNetworkTest,
+    ClearPace(u64),
     ControllerSettings,
     EditController { key: String, name: String },
     SaveControllerMapping,
@@ -75,6 +78,7 @@ pub enum Dialog {
     None,
     AddHost { text: String, error: Option<String> },
     Pairing { host: u64, pin: String },
+    NetworkTest { stage: String },
     Otp { host: u64, pin: String, passphrase: String, error: Option<String> },
     Message { title: String, body: String },
     ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String },
@@ -295,6 +299,7 @@ impl Launcher {
                     self.go(Screen::Settings);
                 }
             },
+            Dialog::NetworkTest { .. } => { commands.push(Command::CancelNetworkTest); self.dialog = Dialog::None; }
             Dialog::Pairing { .. } => {
                 commands.push(Command::CancelPair);
                 self.dialog = Dialog::None;
@@ -338,7 +343,7 @@ impl Launcher {
             match self.screen {
                 Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
                 Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
-                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &mut commands),
+                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
                 Screen::Profiles => self.profiles_page(ui, &mut commands),
                 Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
                 Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
@@ -845,7 +850,7 @@ impl Launcher {
         if self.profiles != before_profiles { commands.push(Command::SaveProfiles); }
     }
 
-    fn settings_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
+    fn settings_page(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
         let display = self.display;
         let tearing = self.tearing_supported;
         let layered = self.screen != Screen::Settings;
@@ -876,6 +881,7 @@ impl Launcher {
                 }).inner
             });
         }
+        let test_host = if let Screen::HostSettings(id) = self.screen { view.hosts.get(id) } else { None };
         let inherited = self.inherited_settings.clone();
         let overrides = &mut self.edit_overrides;
         let s = if layered { &mut self.edit_settings } else { &mut self.settings };
@@ -883,6 +889,27 @@ impl Launcher {
         let focus_first = std::mem::take(&mut self.focus_screen);
         scroll(ui, "settings", |ui| {
             ui.set_max_width(760.0);
+            if let Some(host) = test_host {
+                section(ui, "Connection tests");
+                let online = host.paired() && host.reach == Reach::Online;
+                row(ui, "Bandwidth", "Receive 32 MiB from this PC. Uses network data and requires a supported paired host.", |ui| {
+                    let enabled = online && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::PyroWaveBandwidthProbe));
+                    let button = ui.add_enabled(enabled, egui::Button::new("Test speed"));
+                    if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: false }); }
+                    button
+                });
+                let note = host.record.pace.as_ref().map_or_else(|| "Find a frame pace for this network. May take several minutes and uses substantial network data; stop other streams first.".into(),
+                    |p| format!("Saved {} Mbps · {}. Recalibrate after changing the network or stream bitrate.", p.pace_mbps, if p.qualified { "confirmed" } else { "best available" }));
+                row(ui, "PyroWave frame pace", &note, |ui| {
+                    ui.horizontal(|ui| {
+                        let enabled = online && host.info.as_ref().is_some_and(|i| i.pyrowave_burst_probe);
+                        let button = ui.add_enabled(enabled, egui::Button::new("Calibrate"));
+                        if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: true }); }
+                        if host.record.pace.is_some() && text_button(ui, "Clear").clicked() { commands.push(Command::ClearPace(host.id)); }
+                        button
+                    }).inner
+                });
+            }
             section(ui, "Video");
             let native = format!("Native ({}x{})", display.width, display.height);
             let current = if s.width == 0 {
@@ -1195,6 +1222,16 @@ impl Launcher {
         let mut focused = false;
         match &mut self.dialog {
             Dialog::None => return,
+            Dialog::NetworkTest { stage } => {
+                egui::Modal::new(Id::unique("network-test")).frame(frame).backdrop_color(Color32::from_black_alpha(150)).show(ctx, |ui| {
+                    ui.set_width(420.0);
+                    ui.label(RichText::new("Network test").font(semibold(22.0)));
+                    ui.horizontal(|ui| { spinner(ui, 10.0); ui.label(stage.as_str()); });
+                    let button = quiet_button(ui, "Cancel");
+                    if focus_first { button.request_focus(); focused = true; }
+                    if button.clicked() { commands.push(Command::CancelNetworkTest); close = true; }
+                });
+            }
             Dialog::Shortcut { id, name, chord, error } => {
                 egui::Modal::new(Id::unique("shortcut-editor"))
                     .frame(frame)

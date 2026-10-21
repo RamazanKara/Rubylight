@@ -127,7 +127,7 @@ pub struct Hosts {
     _mdns: Option<mdns_sd::ServiceDaemon>,
 }
 
-fn client_for(identity: &Arc<ClientIdentity>, record: &HostRecord, address: &str) -> Result<HostClient, String> {
+pub fn client_for(identity: &Arc<ClientIdentity>, record: &HostRecord, address: &str) -> Result<HostClient, String> {
     let port = if record.http_port == 0 {
         DEFAULT_HTTP_PORT
     } else {
@@ -682,6 +682,7 @@ impl Hosts {
                 let dropped = self.list[drop].record.clone();
                 let kept = &mut self.list[keep].record;
                 kept.manual |= dropped.manual;
+                if kept.pace.is_none() { kept.pace = dropped.pace; }
                 if kept.settings.is_none() {
                     kept.settings = dropped.settings;
                 }

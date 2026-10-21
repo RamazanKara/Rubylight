@@ -228,6 +228,7 @@ pub struct Identity {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct HostRecord {
+    pub pace: Option<PaceCalibration>,
     /// The host's `uniqueid`; empty until the host answered once.
     pub unique_id: String,
     pub name: String,
@@ -243,6 +244,24 @@ pub struct HostRecord {
     pub manual: bool,
     pub settings: Option<Overrides>,
     pub app_settings: BTreeMap<String, Overrides>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaceCalibration {
+    pub pace_mbps: u32,
+    pub client_link_mbps: u32,
+    pub host_link_mbps: u32,
+    pub wifi: bool,
+    pub ssid: Option<String>,
+    pub qualified: bool,
+}
+
+impl PaceCalibration {
+    pub fn for_network(&self, network: &crate::network::Network, host_link: u32) -> u32 {
+        if network.error.is_none() && self.client_link_mbps == network.link_mbps && self.host_link_mbps == host_link
+            && self.wifi == network.wifi && (!self.wifi || (self.ssid.is_some() && self.ssid == network.ssid))
+            && (1..=9999).contains(&self.pace_mbps) { self.pace_mbps } else { 0 }
+    }
 }
 
 impl HostRecord {
@@ -652,6 +671,21 @@ mod tests {
         assert_eq!(profiles.settings(&Settings::default(), Kind::Mobile), Settings::default());
         let restored: Profiles = serde_json::from_str(&serde_json::to_string(&profiles).unwrap()).unwrap();
         assert_eq!(restored, profiles);
+    }
+
+    #[test]
+    fn calibration_is_used_only_on_the_measured_network_and_link() {
+        let mut network = crate::network::Network { wifi: true, ssid: Some("Home".into()), link_mbps: 1200, ..Default::default() };
+        let calibration = PaceCalibration { pace_mbps: 900, client_link_mbps: 1200, host_link_mbps: 2500,
+            wifi: true, ssid: Some("Home".into()), qualified: true };
+        assert_eq!(calibration.for_network(&network, 2500), 900);
+        assert_eq!(calibration.for_network(&network, 1000), 0);
+        network.ssid = Some("Hotel".into());
+        assert_eq!(calibration.for_network(&network, 2500), 0);
+        network.ssid = None;
+        assert_eq!(calibration.for_network(&network, 2500), 0);
+        let restored: PaceCalibration = serde_json::from_str(&serde_json::to_string(&calibration).unwrap()).unwrap();
+        assert_eq!(restored, calibration);
     }
 
     #[test]

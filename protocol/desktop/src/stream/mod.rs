@@ -71,6 +71,8 @@ pub struct LaunchPlan {
     pub prepared_controllers: String,
     pub microphone_muted: bool,
     pub bitrate_limit_kbps: u32,
+    pub pyrowave_link_mbps: u32,
+    pub pyrowave_pace_mbps: u32,
     pub recovery: Option<recovery::Recovery>,
 }
 
@@ -467,6 +469,8 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
+        pyrowave_link_mbps: plan.pyrowave_link_mbps as i32,
+        pyrowave_pace_mbps: plan.pyrowave_pace_mbps as i32,
         pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
         encryption_flags: ENCFLG_ALL,
         remote_input_aes_key: ri_key,

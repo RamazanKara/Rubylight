@@ -16,6 +16,7 @@ mod hosts;
 mod keymap;
 mod media;
 mod network;
+mod network_test;
 mod sdl;
 mod shortcuts;
 mod stream;
@@ -86,6 +87,7 @@ struct App {
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
     shortcut_file: Option<(bool, sdl::FileChoice)>,
     network_query: Option<Receiver<network::Network>>,
+    network_test: Option<network_test::Test>,
     network_launch: Option<(u64, i32, bool)>,
     next_network_check: Instant,
     waker: hosts::Waker,
@@ -257,6 +259,7 @@ fn run() -> Result<(), String> {
         identity: None,
         shortcut_file: None,
         network_query: Some(network::query(waker.clone())),
+        network_test: None,
         network_launch: None,
         next_network_check: Instant::now(),
         waker,
@@ -296,6 +299,7 @@ fn run() -> Result<(), String> {
 
 impl App {
     fn shutdown(&mut self) {
+        self.network_test = None;
         if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
         if let Some((streaming, _)) = self.streaming.take() {
             streaming.finish(self.window, &mut self.pads);
@@ -401,7 +405,7 @@ impl App {
 
     fn launcher_frame(&mut self) {
         // Wait for input or a worker; animate the spinner while something runs.
-        let busy = self.connecting.is_some() || self.network_launch.is_some()
+        let busy = self.connecting.is_some() || self.network_launch.is_some() || self.network_test.is_some()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
             || self.identity.is_some();
         let timeout = if busy { 16 } else { 250 };
@@ -417,6 +421,26 @@ impl App {
         }
         if !self.running {
             return;
+        }
+        let test_events: Vec<_> = self.network_test.as_ref().map(|test| test.events.try_iter().collect()).unwrap_or_default();
+        for event in test_events {
+            match event {
+                network_test::Event::Progress(stage) => self.launcher.dialog = Dialog::NetworkTest { stage },
+                network_test::Event::Done(result) => {
+                    let host = self.network_test.take().unwrap().host;
+                    match result {
+                        Ok(network_test::Outcome::Bandwidth(mbps)) => self.launcher.message("Bandwidth test", format!("{mbps:.1} Mbps received from the PC over pinned HTTPS. This measures transfer speed, not a recommended video bitrate.")),
+                        Ok(network_test::Outcome::Pace(calibration, measurement)) => {
+                            let text = format!("Saved {} Mbps frame pace ({}). Packet loss {:.2}%, worst 100 ms loss {:.2}%, missing frame tails {:.2}%. The calibration applies while the network and endpoint link speeds match.",
+                                calibration.pace_mbps, if calibration.qualified { "confirmed twice" } else { "best measured result; some loss limits exceeded" },
+                                measurement.loss, measurement.worst_window_loss, measurement.tail_loss());
+                            if let Some(host) = self.hosts.get_mut(host) { host.record.pace = Some(calibration); self.save_hosts(); }
+                            self.launcher.message("PyroWave calibration", text);
+                        }
+                        Err(error) => self.launcher.message("Network test failed", error),
+                    }
+                }
+            }
         }
         if let Some(receiver) = &self.network_query {
             if let Ok(network) = receiver.try_recv() {
@@ -671,6 +695,24 @@ impl App {
                     self.launcher.message("Could not save profiles", e.to_string());
                 }
             }
+            Command::NetworkTest { host: id, calibrate } => {
+                if self.network_test.is_some() { return; }
+                if self.launcher.screen == Screen::HostSettings(id) { self.command(Command::SaveHostSettings(id)); }
+                let Some(host) = self.hosts.get(id) else { return; };
+                let Some(identity) = self.hosts.identity() else { return; };
+                let client = match hosts::client_for(identity, &host.record, &host.record.address) {
+                    Ok(client) => client,
+                    Err(error) => { self.launcher.message("Network test unavailable", error); return; }
+                };
+                let settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
+                let (_, _, fps, bitrate) = stream::stream_mode(&settings, display_of(self.window));
+                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), (bitrate, fps), calibrate, self.waker.clone()));
+                self.launcher.dialog = Dialog::NetworkTest { stage: if calibrate { "Preparing frame-shaped UDP probes" } else { "Receiving 32 MiB from the PC" }.into() };
+            }
+            Command::CancelNetworkTest => { self.network_test = None; self.launcher.dialog = Dialog::None; }
+            Command::ClearPace(id) => {
+                if let Some(host) = self.hosts.get_mut(id) { host.record.pace = None; self.save_hosts(); }
+            }
             Command::ControllerSettings => {
                 self.command(Command::SaveSettings);
                 self.launcher.go(Screen::Controllers);
@@ -856,6 +898,8 @@ impl App {
             vrr,
             gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
             prepared_controllers: if settings.controllers { self.pads.prepare(settings.controller_motion) } else { String::new() },
+            pyrowave_link_mbps: if self.launcher.network.wifi || self.launcher.network.cellular { 0 } else { self.launcher.network.link_mbps.min(9999) },
+            pyrowave_pace_mbps: host.record.pace.as_ref().map_or(0, |pace| pace.for_network(&self.launcher.network, host.info.as_ref().map_or(0, |info| info.pyrowave_host_link_mbps))),
             bitrate_limit_kbps: self.launcher.profiles.bitrate_limit(self.launcher.network.kind(&self.launcher.profiles.home_wifi)),
             microphone_muted: false,
             recovery: None,

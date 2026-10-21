@@ -411,6 +411,8 @@ Three native checks passed SDR/HDR pixels, copy/in-place reads, multiple readers
 
 The option stays **experimental and disabled by default**, with capability checks, initialization fallback and failed-ring quarantine. Installed-driver and receiver evidence is required before changing that default. Reproduce the component checks with the explicitly ignored `capture::idd_push::fence_tests` tests. Raw logs and build/source provenance are retained in `D:\CodexArtifacts\rubylight-2.5.0-20261017`: `fence-timing.log`, `fence-pixels.log`, `fence-lifetime.log`, `fence-delayed-gpu.log`, `fence-results.md`, `driver-clippy.log`, `driver-build.log` and `driver-source-hashes.json`.
 
+**2026-10-21:** 3.0 makes the fence ring the only transport from Rubylight's display driver and retires the `idd_push_fence_ring` option. This section stays as the history of the 2.5 experiment. Installed-driver and receiver evidence for the ring as the only transport comes from the 3.0 alpha.1 hardware gate; nothing here claims a speedup.
+
 ## October 17: Punktfunk host timing and paced keyframes
 
 The change released in 2.4.8 matches Punktfunk's GameStream software-encoder timer: the capture/encode output tick through entry into a separate packetizer. Prepared packets already contain the field before waiting for the paced sender. Asynchronous output uses the tick that polls it; encoder duration and present-to-last-send remain separate measurements. Packetizer backlog can still count. The wire field truncates microseconds to tenths of a millisecond and saturates at 65535. See the [reference source and definitions](../docs/performance.md#comparing-host-latency-between-hosts). Earlier sections retain the timing definitions of their measured builds.

@@ -36,12 +36,12 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
 
 ## How frames reach the host
 
-The standard transport uses keyed mutexes and remains the default:
+The driver's keyed-mutex ring, which the host no longer uses (the [GPU fence transport](#gpu-fence-transport) replaces it), works like this:
 
 1. The host creates the display with `IOCTL_ADD` and
    keeps it alive with `IOCTL_HEARTBEAT` every second. A monitor belongs to the process that
    created it and departs when that process closes its handles or goes silent for 10 s.
-2. The capture backend `idd-push` creates four `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` textures
+2. A host using it creates four `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` textures
    on the GPU that renders the monitor, a one-page header section and an event, duplicates
    them into the driver's WUDFHost (its pid comes with the ADD reply) and hands them over
    with `IOCTL_SET_FRAME_RING`. The driver owns the handles if, and only if, that succeeds.
@@ -100,15 +100,15 @@ The lifecycle and restart-selection policies have ordinary tests. Real sleep, hi
 PnP restart and multi-session capture still require separate hardware validation of the
 installed driver; compiling the DLL does not perform those transitions.
 
-### Optional GPU fence transport
+### GPU fence transport
 
-The advanced Video setting **Experimental GPU fence transport** (`idd_push_fence_ring =
-true`) selects an additional transport for this driver's displays with `capture = auto`
-or `idd-push`. It defaults to `false`. End every stream before changing it, then start a
-new stream. It requires the driver capability `CAP_FENCE_RING`, compatible AMD compute
-capture (`gpu_compute_conversion = true`) and in-place reads (`idd_push_zero_copy = true`).
-An older display driver or an incompatible capture device keeps the standard transport
-and produces a console warning.
+The fence ring is the only transport from this driver to the host. There is no setting for it
+(`idd_push_fence_ring` is retired and dropped from `sunshine.conf` with a report). It
+requires the driver capability `CAP_FENCE_RING`; a driver without it, such as an update
+that runs only after Windows restarts, makes the host refuse the stream and the console
+says to restart Windows or repair the installation. The host's compute conversion reads the
+textures in place (`idd_push_zero_copy = true`, the default) or its D3D11 device copies
+them (`false`).
 
 The driver continues acquiring and copying frames with **D3D11**. The host creates
 D3D12-owned shared textures and two shared fences, then submits them with
@@ -118,25 +118,22 @@ copy; a release fence covers the last compute and graphics readers before the dr
 reuse a returned slot. The driver picks another free slot or drops a frame instead of
 waiting for the host. The ring is replaced before its frame sequence could wrap.
 
-This option does not use IddCx's native D3D12 swap-chain API and does not add an IddCx 1.11
-requirement. WGC, Desktop Duplication, every encoder choice and the existing keyed IOCTL
-remain available. Driver and host capability negotiation allow an old host to use the new
-driver's keyed path, and a new host to use an old driver's keyed path. Generation-scoped
-ring cleanup uses `IOCTL_CLEAR_FRAME_RING_GENERATION` (`0xB0B`) when supported.
+The transport does not use IddCx's native D3D12 swap-chain API and does not add an IddCx
+1.11 requirement. The driver still answers the older keyed IOCTL, but the host no longer
+sends it. Generation-scoped ring cleanup uses `IOCTL_CLEAR_FRAME_RING_GENERATION`
+(`0xB0B`).
 
-If fence setup, shared-resource opening or the first frame fails, the host retries the
-standard keyed ring. A failed GPU ordering operation also retires the fence ring without
-releasing a potentially busy texture. Device loss follows the normal capture recovery
-path, and the existing WGC fallback still applies if driver capture cannot recover. A
-console warning identifies fallback; enabling the setting alone does not prove the
-fence path is active.
+If fence setup, shared-resource opening or the first frame fails, the host reports the
+failure and ends the stream; it does not fall back to another transport. A failed GPU
+ordering operation retires the ring without releasing a potentially busy texture. Device
+loss follows the normal capture recovery path.
 
 The two-device native tests in `rust/windows/src/capture/idd_push/fence_tests.rs` cover
 SDR/HDR pixels, multiple readers, ring replacement and delayed GPU completion without
 installing a driver. Its ignored ABBA transport probe measures producer copy through
 completed conversion. These component checks do not establish latency or picture quality
-for a live IddCx stream, encoder, network or receiver. Keep this option experimental until
-those measurements justify a wider default.
+for a live IddCx stream, encoder, network or receiver; the installed-driver evidence comes
+from the 3.0 alpha.1 hardware gate.
 
 ## Build
 
@@ -214,10 +211,9 @@ pnputil /enum-devices /deviceid "Root\RubylightVDisplay" /drivers
 ```
 
 `pnputil` has no command that creates a root-enumerated device, so `devcon install` creates
-the `Root\RubylightVDisplay` devnode and binds the driver. The host needs no setting:
-`capture = auto` (the default) uses the frame push for the displays it creates, and an
-explicit `capture = wgc` or `ddx` keeps those. A failed frame push falls back to WGC with a
-console warning.
+the `Root\RubylightVDisplay` devnode and binds the driver. The host needs no setting: every
+stream captures through the frame push, and a failed push ends the stream with a console
+warning.
 
 If the device shows code 31, enable the UMDF log
 (`wevtutil sl Microsoft-Windows-DriverFrameworks-UserMode/Operational /e:true`), restart the
@@ -302,8 +298,7 @@ Smart App Control, S mode and App Control (WDAC) policies refuse a driver signed
 `install-local.ps1` checks for them before it makes a certificate: it installs nothing,
 removes an earlier install so no device that cannot start stays, and records why in
 `HKLM\SOFTWARE\Rubylight\VirtualDisplay` (`Problem`), with what the user can do. Setup shows
-that as its note and the console as the reason there is no virtual display; streams use a
-physical display. A fresh install that fails, or whose device does not start, is rolled back
+that as its note and the console as the reason there is no virtual display; streams are refused. A fresh install that fails, or whose device does not start, is rolled back
 and recorded the same way. A SignPath-signed release installs on Smart App Control PCs.
 
 A signed release replaces the catalog with the one SignPath signed

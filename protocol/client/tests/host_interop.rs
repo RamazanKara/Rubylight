@@ -567,6 +567,9 @@ struct HostState {
     paired_certificate: Option<Vec<u8>>,
     unpairs: u32,
     launches: Vec<HashMap<String, String>>,
+    clipboard: String,
+    reject_clipboard: bool,
+    bitrate_reply: Option<String>,
 }
 
 fn decode_query(target: &str) -> (String, HashMap<String, String>) {
@@ -694,6 +697,9 @@ fn handle(state: &Mutex<HostState>, target: &str, peer: Option<&[u8]>, https_por
             xml(200, &[("cancel", "1".into())])
         }
         "appasset" => format!("PNG:{}", args["appid"]),
+        "bitrate" => xml(200, &[("bitrate", state.bitrate_reply.clone().unwrap_or_else(|| {
+            args["bitrate"].parse::<u32>().unwrap().min(80_000).to_string()
+        }))]),
         other => panic!("unexpected request {other}"),
     }
 }
@@ -714,6 +720,10 @@ fn respond(stream: &mut impl Write, body: &str) {
 }
 
 fn read_head(stream: &mut impl Read) -> Option<String> {
+    Some(read_headers(stream)?.split(' ').nth(1)?.to_owned())
+}
+
+fn read_headers(stream: &mut impl Read) -> Option<String> {
     let mut head = Vec::new();
     let mut byte = [0u8; 1];
     while !head.ends_with(b"\r\n\r\n") {
@@ -722,9 +732,7 @@ fn read_head(stream: &mut impl Read) -> Option<String> {
         }
         head.push(byte[0]);
     }
-    let text = String::from_utf8(head).unwrap();
-    let target = text.split(' ').nth(1)?.to_owned();
-    Some(target)
+    Some(String::from_utf8(head).unwrap())
 }
 
 #[derive(Debug)]
@@ -820,15 +828,37 @@ fn start_test_host() -> TestHost {
             let tcp = stream.unwrap();
             let connection = rustls::ServerConnection::new(config.clone()).unwrap();
             let mut tls = rustls::StreamOwned::new(connection, tcp);
-            let Some(target) = read_head(&mut tls) else {
+            let Some(headers) = read_headers(&mut tls) else {
                 continue;
             };
+            let target = headers.split(' ').nth(1).unwrap();
+            if target.starts_with("/actions/clipboard?") {
+                let mut state = shared.lock().unwrap();
+                assert_eq!(tls.conn.peer_certificates().unwrap()[0].as_ref(), state.paired_certificate.as_ref().unwrap());
+                assert!(target.contains("type=text") && target.contains("uniqueid="));
+                if state.reject_clipboard {
+                    respond(&mut tls, "<root status_code=\"404\"/>");
+                } else {
+                    let body = if headers.starts_with("POST ") {
+                        let length: usize = headers.lines().find_map(|line| line.strip_prefix("Content-Length: ")).unwrap().trim().parse().unwrap();
+                        assert!(headers.contains("Content-Type: text/plain; charset=utf-8\r\n"));
+                        let mut bytes = vec![0; length];
+                        tls.read_exact(&mut bytes).unwrap();
+                        state.clipboard = String::from_utf8(bytes).unwrap();
+                        ""
+                    } else { state.clipboard.as_str() };
+                    write!(tls, "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                }
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+                continue;
+            }
             let peer = tls
                 .conn
                 .peer_certificates()
                 .and_then(|c| c.first())
                 .map(|c| c.to_vec());
-            let body = handle(&shared, &target, peer.as_deref(), https_port);
+            let body = handle(&shared, target, peer.as_deref(), https_port);
             respond(&mut tls, &body);
             tls.conn.send_close_notify();
             let _ = tls.flush();
@@ -961,4 +991,42 @@ fn a_wrong_pin_is_detected_and_the_pairing_cancelled() {
         client.server_certificate_pem().is_none(),
         "a failed pairing pins nothing"
     );
+}
+
+#[test]
+fn clipboard_uses_pinned_https_utf8_and_rejects_xml_errors() {
+    let host = start_test_host();
+    let identity = client_identity();
+    host.state.lock().unwrap().paired_certificate = Some(identity.certificate_der().to_vec());
+    let client = HostClient::new("127.0.0.1", host.http_port, identity).unwrap()
+        .with_https_port(host.https_port)
+        .with_server_certificate_pem(&host_identity().certificate).unwrap();
+    let text = "Nightjar — Ελληνικά\nsecond line\r\n日本語";
+    client.send_clipboard(text).unwrap();
+    assert_eq!(client.clipboard().unwrap(), text);
+    client.send_clipboard("").unwrap();
+    assert_eq!(client.clipboard().unwrap(), "");
+    assert!(matches!(client.send_clipboard(&"x".repeat(1024 * 1024 + 1)), Err(HttpError::InvalidArgument(_))));
+    host.state.lock().unwrap().reject_clipboard = true;
+    assert!(matches!(client.clipboard(), Err(HttpError::Malformed(_))));
+    assert!(matches!(client.send_clipboard("test"), Err(HttpError::Malformed(_))));
+}
+
+#[test]
+fn runtime_bitrate_returns_the_applied_budget_and_rejects_invalid_replies() {
+    let host = start_test_host();
+    let identity = client_identity();
+    host.state.lock().unwrap().paired_certificate = Some(identity.certificate_der().to_vec());
+    let client = HostClient::new("127.0.0.1", host.http_port, identity).unwrap()
+        .with_https_port(host.https_port)
+        .with_server_certificate_pem(&host_identity().certificate).unwrap();
+    assert_eq!(client.set_bitrate(90_000).unwrap(), 80_000);
+    assert_eq!(client.set_bitrate(30_000).unwrap(), 30_000);
+    for bitrate in [0, 2_000_001, u32::MAX] {
+        assert!(matches!(client.set_bitrate(bitrate), Err(HttpError::InvalidArgument(_))));
+    }
+    for reply in ["0", "-1", "2000001", "invalid"] {
+        host.state.lock().unwrap().bitrate_reply = Some(reply.into());
+        assert!(matches!(client.set_bitrate(20_000), Err(HttpError::Malformed(_))));
+    }
 }

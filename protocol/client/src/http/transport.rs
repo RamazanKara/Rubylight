@@ -101,6 +101,7 @@ pub(crate) fn random_uuid() -> String {
 pub(crate) struct Response {
     pub status: u16,
     pub reason: String,
+    pub content_type: Option<String>,
     pub body: Vec<u8>,
 }
 
@@ -158,12 +159,16 @@ pub(crate) struct Request<'a> {
 }
 
 pub(crate) fn get(request: &Request<'_>, cancel: &Cancel) -> Result<Response, Error> {
+    send(request, cancel, None)
+}
+
+pub(crate) fn send(request: &Request<'_>, cancel: &Cancel, body: Option<&[u8]>) -> Result<Response, Error> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
     let tcp = connect(request.host, request.port, request.timeouts.connect)?;
     let id = cancel.register(&tcp)?;
-    let result = exchange(request, tcp);
+    let result = exchange(request, tcp, body);
     cancel.unregister(id);
     match result {
         Err(Error::Io(_)) if cancel.is_cancelled() => Err(Error::Cancelled),
@@ -184,21 +189,26 @@ fn connect(host: &Host, port: u16, timeout: Duration) -> Result<TcpStream, Error
     ))
 }
 
-fn exchange(request: &Request<'_>, tcp: TcpStream) -> Result<Response, Error> {
+fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<&[u8]>) -> Result<Response, Error> {
     tcp.set_read_timeout(request.timeouts.read)?;
     tcp.set_write_timeout(Some(request.timeouts.connect.max(Duration::from_secs(5))))?;
     tcp.set_nodelay(true)?;
     let mut head = format!(
-        "GET /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: Nightjar\r\n",
+        "{} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: Nightjar\r\n",
+        if body.is_some() { "POST" } else { "GET" },
         request.target,
         request.host.url_host(),
         request.port
     );
+    if let Some(body) = body {
+        head.push_str(&format!("Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n", body.len()));
+    }
     head.push_str("\r\n");
     match &request.tls {
         None => {
             let mut tcp = tcp;
             tcp.write_all(head.as_bytes())?;
+            if let Some(body) = body { tcp.write_all(body)?; }
             read_response(&mut tcp, request.body_limit)
         }
         Some(config) => {
@@ -214,6 +224,7 @@ fn exchange(request: &Request<'_>, tcp: TcpStream) -> Result<Response, Error> {
                     .map_err(io_tls_error)?;
             }
             stream.write_all(head.as_bytes()).map_err(io_tls_error)?;
+            if let Some(body) = body { stream.write_all(body).map_err(io_tls_error)?; }
             stream.flush().map_err(io_tls_error)?;
             read_response(&mut stream, request.body_limit)
         }
@@ -315,11 +326,15 @@ fn read_response(stream: &mut impl Read, body_limit: usize) -> Result<Response, 
                 return Err(too_large());
             }
         }
+        if reader.buffer.len() > body_limit {
+            return Err(too_large());
+        }
         std::mem::take(&mut reader.buffer)
     };
     Ok(Response {
         status,
         reason,
+        content_type: header("Content-Type").map(str::to_owned),
         body,
     })
 }
@@ -520,5 +535,14 @@ mod tests {
             (uuid.len(), &uuid[14..15], uuid.matches('-').count()),
             (36, "4", 4)
         );
+    }
+
+    #[test]
+    fn clipboard_response_type_and_unframed_limit_are_preserved() {
+        let response = parse(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 3\r\n\r\nabc").unwrap();
+        assert_eq!(response.content_type.as_deref(), Some("text/plain; charset=utf-8"));
+        let mut bytes = b"HTTP/1.1 200 OK\r\n\r\n".to_vec();
+        bytes.extend_from_slice(&[b'x'; 1025]);
+        assert!(read_response(&mut bytes.as_slice(), 1024).is_err());
     }
 }

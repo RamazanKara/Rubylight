@@ -43,6 +43,7 @@ const READ_TIMEOUT: Duration = Duration::from_millis(7000);
 const MAX_XML_RESPONSE_BYTES: usize = 256 * 1024;
 const MAX_APP_LIST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_BOX_ART_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
 
 /// Why a host request failed.
 #[derive(Debug)]
@@ -502,6 +503,58 @@ impl HostClient {
             });
         }
         Ok(true)
+    }
+
+    fn clipboard_request(&self, text: Option<&str>) -> Result<transport::Response, Error> {
+        if text.is_some_and(|text| text.len() > MAX_CLIPBOARD_BYTES) {
+            return Err(Error::InvalidArgument("Clipboard text exceeds 1 MiB".into()));
+        }
+        let response = transport::send(
+            &Request {
+                host: &self.host,
+                port: self.https_port(true)?,
+                target: &self.url_target("actions/clipboard", Some("type=text")),
+                tls: Some(self.tls()?),
+                timeouts: Timeouts { connect: LONG_CONNECT_TIMEOUT, read: Some(READ_TIMEOUT) },
+                body_limit: MAX_CLIPBOARD_BYTES,
+            },
+            &self.cancel,
+            text.map(str::as_bytes),
+        )?;
+        if !(200..=299).contains(&response.status) {
+            return Err(Error::Status { code: i32::from(response.status), message: response.reason });
+        }
+        Ok(response)
+    }
+
+    pub fn clipboard(&self) -> Result<String, Error> {
+        let response = self.clipboard_request(None)?;
+        if !response.content_type.as_deref().is_some_and(|mime| {
+            mime.split(';').next().unwrap_or_default().trim().eq_ignore_ascii_case("text/plain")
+        }) {
+            return Err(Error::Malformed("The PC does not support text clipboard transfer".into()));
+        }
+        String::from_utf8(response.body).map_err(|_| Error::Malformed("Clipboard text is not UTF-8".into()))
+    }
+
+    pub fn send_clipboard(&self, text: &str) -> Result<(), Error> {
+        if !self.clipboard_request(Some(text))?.body.is_empty() {
+            return Err(Error::Malformed("The PC did not accept the clipboard text".into()));
+        }
+        Ok(())
+    }
+
+    pub fn set_bitrate(&self, kbps: u32) -> Result<u32, Error> {
+        if !(1..=2_000_000).contains(&kbps) {
+            return Err(Error::InvalidArgument("Bitrate must be between 1 and 2000000 kbps".into()));
+        }
+        let raw = self.request_text(
+            Scheme::Https, "bitrate", Some(&format!("bitrate={kbps}")),
+            LONG_CONNECT_TIMEOUT, Some(READ_TIMEOUT),
+        )?;
+        xml::parse_reply(&raw)?.required_text("bitrate")?.parse::<u32>().ok()
+            .filter(|applied| (1..=2_000_000).contains(applied))
+            .ok_or_else(|| Error::Malformed("The PC did not apply the bitrate".into()))
     }
 }
 

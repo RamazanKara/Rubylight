@@ -70,6 +70,20 @@ fn link_iddcx_stub() {
     let cpu = wdk_build::CpuArchitecture::try_from_cargo_str(&target_arch)
         .unwrap_or_else(|| panic!("no WDK lib dir for target arch {target_arch}"));
     let arch = cpu.as_windows_str();
+    // A folder with a newer stub than the installed kit has (IddCx 1.11 ships in WDK 28000's
+    // NuGet package, not in the 26100 kit).
+    println!("cargo:rerun-if-env-changed=RLVD_IDDCX_LIB");
+    if let Ok(dir) = std::env::var("RLVD_IDDCX_LIB") {
+        let dir = std::path::PathBuf::from(dir);
+        assert!(
+            dir.join("IddCxStub.lib").is_file(),
+            "RLVD_IDDCX_LIB={} has no IddCxStub.lib",
+            dir.display()
+        );
+        println!("cargo:rustc-link-search={}", dir.display());
+        println!("cargo:rustc-link-lib=static=IddCxStub");
+        return;
+    }
     const ROOTS: [&str; 2] = [
         r"C:\Program Files (x86)\Windows Kits\10\Lib",
         r"C:\Program Files\Windows Kits\10\Lib",

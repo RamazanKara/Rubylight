@@ -1030,9 +1030,14 @@ impl Launcher {
                 "This system cannot present with tearing, which VRR needs here."
             };
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["vrr"], "Variable refresh rate", vrr_note, |ui, s| toggle(ui, &mut s.vrr));
-            ui.add_enabled_ui(s.vrr, |ui| {
+            let immediate_packed = cfg!(windows) && s.experimental_packed_444 && tearing;
+            ui.add_enabled_ui(s.vrr && !immediate_packed, |ui| {
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["present_at_host_times"], "Show frames at the PC's frame times",
-                    "Each frame appears at the moment the game made it, plus a steady delay, so motion stays even.",
+                    if immediate_packed {
+                        "Full chroma presents frames immediately with VRR, without the extra timing delay."
+                    } else {
+                        "Each frame appears at the moment the game made it, plus a steady delay, so motion stays even."
+                    },
                     |ui, s| toggle(ui, &mut s.present_at_host_times),
                 );
             });

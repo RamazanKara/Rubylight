@@ -66,6 +66,7 @@ pub struct LaunchPlan {
     pub hardware: Hardware,
     pub packed_modes: u8,
     pub pacing: PacingMode,
+    pub vrr: bool,
     pub gamepad_mask: u32,
     pub prepared_controllers: String,
     pub microphone_muted: bool,
@@ -372,7 +373,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         height,
         fps,
         client_refresh_rate_x100: refresh_x100,
-        vrr: plan.pacing == PacingMode::HostTimes,
+        vrr: plan.vrr,
         hdr: settings.hdr,
         audio,
         ri_key,
@@ -679,7 +680,7 @@ impl Streaming {
             shared: connecting.shared,
             facts,
             pacer: Pacer::new(connecting.pacing, min_interval),
-            texture: VideoTexture::default(),
+            texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear),
             upscaler: None,
             upscale_failed: false,
             phase: phase::Phase::default(),
@@ -1271,9 +1272,9 @@ impl Streaming {
         unsafe {
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
             SDL_RenderClear(renderer);
+            let (mut w, mut h) = (0, 0);
+            SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h);
             if !self.texture.texture.is_null() {
-                let (mut w, mut h) = (0, 0);
-                SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h);
                 let dst = letterbox(self.texture.size(), (w, h));
                 let mut texture = self.texture.texture;
                 let output = (dst.w as i32, dst.h as i32);
@@ -1294,6 +1295,8 @@ impl Streaming {
                     }
                 } else { self.upscaler = None; }
                 SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
+            } else if !self.texture.draw(renderer, (w, h)) {
+                self.exit = Some(Exit::Ended(Some("Packed full-chroma presentation failed.".into())));
             }
         }
         draw_overlay(self, renderer);

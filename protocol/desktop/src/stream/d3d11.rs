@@ -6,6 +6,7 @@ use windows::Win32::Graphics::Direct3D::{
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
+use windows::Win32::Graphics::Dxgi::IDXGISwapChain;
 
 use crate::media;
 
@@ -85,6 +86,7 @@ pub struct Packed {
     vertex: ID3D11VertexShader,
     fragment: ID3D11PixelShader,
     constants: [Option<ID3D11Buffer>; 1],
+    presentation: [Option<ID3D11Buffer>; 1],
     width: i32,
     height: i32,
 }
@@ -116,13 +118,14 @@ unsafe fn compile(source: &[u8], entry: PCSTR, profile: PCSTR) -> windows::core:
 
 impl Packed {
     pub unsafe fn new(
+        device: *mut c_void,
         target: *mut c_void,
         width: i32,
         height: i32,
         ten_bit: bool,
     ) -> windows::core::Result<Self> {
-        let target = ID3D11Texture2D::from_raw_borrowed(&target).unwrap();
-        let device = target.GetDevice()?;
+        let target = ID3D11Texture2D::from_raw_borrowed(&target);
+        let device = ID3D11Device::from_raw_borrowed(&device).unwrap();
         let context = device.GetImmediateContext()?;
         let mut deferred = None;
         device.CreateDeferredContext(0, Some(&mut deferred))?;
@@ -173,7 +176,9 @@ impl Packed {
             )?;
         }
         let mut render_target = None;
-        device.CreateRenderTargetView(target, None, Some(&mut render_target))?;
+        if let Some(target) = target {
+            device.CreateRenderTargetView(target, None, Some(&mut render_target))?;
+        }
         let vertex_code = compile(include_bytes!("../packed444.hlsl"), s!("vertex"), s!("vs_5_0"))?;
         let mut vertex = None;
         device.CreateVertexShader(
@@ -184,7 +189,12 @@ impl Packed {
             None,
             Some(&mut vertex),
         )?;
-        let fragment_code = compile(include_bytes!("../packed444.hlsl"), s!("fragment"), s!("ps_5_0"))?;
+        let fragment_code = if target.is_some() {
+            compile(include_bytes!("../packed444.hlsl"), s!("fragment"), s!("ps_5_0"))?
+        } else {
+            let source = [b"#define SDR_PRESENT 1\n".as_slice(), include_bytes!("../packed444.hlsl")].concat();
+            compile(&source, s!("present"), s!("ps_5_0"))?
+        };
         let mut fragment = None;
         device.CreatePixelShader(
             std::slice::from_raw_parts(
@@ -205,6 +215,13 @@ impl Packed {
             None,
             Some(&mut constants),
         )?;
+        let mut presentation = None;
+        if target.is_none() {
+            device.CreateBuffer(&D3D11_BUFFER_DESC {
+                ByteWidth: 32, Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32, ..Default::default()
+            }, None, Some(&mut presentation))?;
+        }
         Ok(Self {
             context,
             deferred: deferred.unwrap(),
@@ -214,15 +231,33 @@ impl Packed {
             vertex: vertex.unwrap(),
             fragment: fragment.unwrap(),
             constants: [constants],
+            presentation: [presentation],
             width,
             height,
         })
     }
 
     pub fn draw(&self, frame: &media::Frame, parameters: &[u32; 12]) -> bool {
-        if !frame.copy_to_d3d11(self.input.as_raw(), self.width, self.height) {
-            return false;
-        }
+        self.upload(frame) && self.render(&self.target, parameters,
+            &[0.0, 0.0, parameters[0] as f32, parameters[1] as f32], None)
+    }
+
+    pub fn upload(&self, frame: &media::Frame) -> bool {
+        frame.copy_to_d3d11(self.input.as_raw(), self.width, self.height)
+    }
+
+    pub unsafe fn present(&self, swapchain: *mut c_void, parameters: &[u32; 12], destination: &[f32; 4], linear: bool, scale: f32) -> bool {
+        let swapchain = IDXGISwapChain::from_raw_borrowed(&swapchain).unwrap();
+        let Ok(buffer) = swapchain.GetBuffer::<ID3D11Texture2D>(0) else { return false; };
+        let Ok(device) = buffer.GetDevice() else { return false; };
+        let mut target = None;
+        if device.CreateRenderTargetView(&buffer, None, Some(&mut target)).is_err() { return false; }
+        let presentation = [destination[0], destination[1], destination[2], destination[3], u32::from(linear) as f32, scale, 0.0, 0.0];
+        // Release the swapchain buffer and view before SDL next resizes the window.
+        self.render(&[target], parameters, destination, Some(&presentation))
+    }
+
+    fn render(&self, target: &[Option<ID3D11RenderTargetView>; 1], parameters: &[u32; 12], destination: &[f32; 4], presentation: Option<&[f32; 8]>) -> bool {
         unsafe {
             // Recording on a deferred context preserves SDL's cached immediate-context state.
             let c = &self.deferred;
@@ -235,12 +270,12 @@ impl Packed {
                 0,
                 0,
             );
-            c.OMSetRenderTargets(Some(&self.target), None);
+            c.OMSetRenderTargets(Some(target), None);
             c.RSSetViewports(Some(&[D3D11_VIEWPORT {
-                TopLeftX: 0.0,
-                TopLeftY: 0.0,
-                Width: parameters[0] as f32,
-                Height: parameters[1] as f32,
+                TopLeftX: destination[0],
+                TopLeftY: destination[1],
+                Width: destination[2],
+                Height: destination[3],
                 MinDepth: 0.0,
                 MaxDepth: 1.0,
             }]));
@@ -249,6 +284,10 @@ impl Packed {
             c.PSSetShader(&self.fragment, None);
             c.PSSetShaderResources(0, Some(&self.planes));
             c.PSSetConstantBuffers(0, Some(&self.constants));
+            if let Some(presentation) = presentation {
+                c.UpdateSubresource(self.presentation[0].as_ref().unwrap(), 0, None, presentation.as_ptr().cast(), 0, 0);
+                c.PSSetConstantBuffers(1, Some(&self.presentation));
+            }
             c.Draw(3, 0);
             let mut commands = None;
             if c.FinishCommandList(false, Some(&mut commands)).is_err() {

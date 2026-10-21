@@ -11,6 +11,10 @@ cbuffer Picture : register(b0) {
     float sdrWhite; float padding0; float padding1; float padding2;
 };
 
+#ifdef SDR_PRESENT
+#define hdr 0
+#endif
+
 #ifdef VULKAN
 float sampleCode(uint at) {
     uint word = samples[tenBit != 0 ? at / 2 : at / 4];
@@ -52,11 +56,49 @@ float3 linearRgb(float3 yuv) {
                   dot(rgb, float3(-0.018151, -0.100579, 1.118730)));
 }
 
-float4 fragment(float4 position : SV_Position) : SV_Target {
-    uint2 p = min(uint2(position.xy), uint2(width - 1, height - 1));
+float3 reconstruct(uint2 p) {
     float2 uv;
     if ((p.x & 1) == 0) uv = readUV(uint2(p.x / 2, p.y));
     else uv = float2(readY(uint2(p.x / 2, paddedHeight + p.y)),
                      readY(uint2(paddedWidth / 2 + p.x / 2, paddedHeight + p.y)));
-    return float4(linearRgb(float3(readY(p), uv)), 1);
+    return linearRgb(float3(readY(p), uv));
 }
+
+float4 fragment(float4 position : SV_Position) : SV_Target {
+    return float4(reconstruct(min(uint2(position.xy), uint2(width - 1, height - 1))), 1);
+}
+
+#ifndef VULKAN
+cbuffer Presentation : register(b1) {
+    float4 destination;
+    float linearOutput; float colorScale; float2 unused;
+};
+
+float3 reconstructRow(uint2 p, float weight) {
+    // Decode the even and odd samples together to avoid divergent packed-region reads.
+    uint evenX = (p.x + 1) / 2;
+    uint oddX = p.x / 2;
+    float3 even = linearRgb(float3(readY(uint2(evenX * 2, p.y)), readUV(uint2(evenX, p.y))));
+    float3 odd = linearRgb(float3(readY(uint2(oddX * 2 + 1, p.y)),
+        readY(uint2(oddX, paddedHeight + p.y)), readY(uint2(paddedWidth / 2 + oddX, paddedHeight + p.y))));
+    return lerp(even, odd, (p.x & 1) != 0 ? 1 - weight : weight);
+}
+
+float4 present(float4 position : SV_Position) : SV_Target {
+    float2 at = clamp((position.xy - destination.xy) * (float2(width, height) / destination.zw) - 0.5,
+                      0, float2(width - 1, height - 1));
+    uint2 p = uint2(at);
+    float3 rgb;
+    if (destination.z != width || destination.w != height) {
+        float2 weight = frac(at);
+        rgb = lerp(reconstructRow(p, weight.x),
+                   reconstructRow(uint2(p.x, min(p.y + 1, height - 1)), weight.x), weight.y);
+    } else rgb = reconstruct(p);
+    rgb *= colorScale;
+    if (linearOutput == 0) {
+        rgb = saturate(lerp(1.055 * pow(abs(rgb), 1.0 / 2.4) - 0.055,
+                            rgb * 12.92, step(rgb, 0.0031308)));
+    }
+    return float4(rgb, 1);
+}
+#endif

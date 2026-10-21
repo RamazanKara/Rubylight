@@ -37,6 +37,22 @@ impl PacingMode {
     }
 }
 
+pub fn pacing(settings: &crate::config::Settings, tearing_supported: bool) -> (PacingMode, bool) {
+    let vrr = settings.vrr && tearing_supported;
+    let mode = if vrr {
+        if settings.present_at_host_times && !(cfg!(windows) && settings.experimental_packed_444) {
+            PacingMode::HostTimes
+        } else {
+            PacingMode::Immediate
+        }
+    } else if settings.vsync {
+        PacingMode::Vsync
+    } else {
+        PacingMode::Immediate
+    };
+    (mode, vrr)
+}
+
 /// A picture with its present time.
 pub struct Pending {
     pub decoded: Decoded,
@@ -103,6 +119,7 @@ impl Pacer {
 
 /// The renderer's texture holding the current picture.
 pub struct VideoTexture {
+    pub direct_packed: bool,
     pub texture: *mut SDL_Texture,
     width: i32,
     height: i32,
@@ -121,6 +138,7 @@ pub struct VideoTexture {
 impl Default for VideoTexture {
     fn default() -> Self {
         Self {
+            direct_packed: true,
             texture: std::ptr::null_mut(),
             width: 0,
             height: 0,
@@ -157,6 +175,10 @@ fn colorspace(info: &FrameInfo) -> SDL_Colorspace {
 }
 
 impl VideoTexture {
+    pub fn new(direct_packed: bool) -> Self {
+        Self { direct_packed, ..Default::default() }
+    }
+
     pub fn set_hdr_mode(
         &mut self,
         enabled: bool,
@@ -354,6 +376,32 @@ impl VideoTexture {
             {
                 self.destroy();
             }
+            #[cfg(windows)]
+            if self.direct_packed && !hdr
+                && !crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER)
+                    .is_null()
+            {
+                if self.packed.is_none() {
+                    self.destroy();
+                    self.packed = super::packed444::Reconstruction::new(
+                        renderer,
+                        std::ptr::null_mut(),
+                        &parameters,
+                    );
+                }
+                let success = self
+                    .packed
+                    .as_mut()
+                    .is_some_and(|packed| packed.upload(frame));
+                if success {
+                    self.width = setup.logical_width;
+                    self.height = setup.logical_height;
+                    self.packed_format = Some(parameters);
+                } else {
+                    self.destroy();
+                }
+                return success;
+            }
             if !self.ensure(
                 renderer,
                 SDL_PIXELFORMAT_RGBA64_FLOAT,
@@ -427,6 +475,25 @@ impl VideoTexture {
         }
     }
 
+    pub fn draw(&mut self, renderer: *mut SDL_Renderer, area: (i32, i32)) -> bool {
+        let destination = letterbox(self.size(), area);
+        #[cfg(windows)]
+        if self.texture.is_null() {
+            if let Some(packed) = &mut self.packed {
+                return packed.present(
+                    renderer,
+                    self.packed_format.as_ref().unwrap(),
+                    &destination,
+                );
+            }
+        }
+        if !self.texture.is_null() {
+            // SAFETY: The renderer and its video texture are live on this thread.
+            unsafe { SDL_RenderTexture(renderer, self.texture, std::ptr::null(), &destination) };
+        }
+        true
+    }
+
     pub fn destroy(&mut self) {
         self.pyrowave = None;
         self.pyrowave_format = None;
@@ -473,10 +540,86 @@ mod tests {
     }
 
     #[test]
-    fn immediate_pacing_takes_the_newest_ready_picture() {
-        let mut pacer = Pacer::new(PacingMode::Immediate, 0);
+    fn pacing_preserves_vrr_without_host_time_delay() {
+        let mut settings = crate::config::Settings::default();
+        assert_eq!(pacing(&settings, true), (PacingMode::HostTimes, true));
+        settings.present_at_host_times = false;
+        assert_eq!(pacing(&settings, true), (PacingMode::Immediate, true));
+        settings.present_at_host_times = true;
+        settings.experimental_packed_444 = true;
+        let expected = if cfg!(windows) {
+            PacingMode::Immediate
+        } else {
+            PacingMode::HostTimes
+        };
+        assert_eq!(pacing(&settings, true), (expected, true));
+        assert!(settings.present_at_host_times);
+    }
+
+    #[test]
+    fn pacing_keeps_the_non_vrr_fallback() {
+        let mut settings = crate::config::Settings {
+            experimental_packed_444: true,
+            ..Default::default()
+        };
+        assert_eq!(pacing(&settings, false), (PacingMode::Vsync, false));
+        settings.vrr = false;
+        assert_eq!(pacing(&settings, true), (PacingMode::Vsync, false));
+        settings.vsync = false;
+        assert_eq!(pacing(&settings, true), (PacingMode::Immediate, false));
+    }
+
+    fn decoded(ready_us: u64) -> Decoded {
+        let mut decoder =
+            media::VideoDecoder::open(media::Codec::Hevc, media::Hardware::None, 1, false).unwrap();
+        assert_eq!(
+            decoder.send(
+                include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin"),
+                0
+            ),
+            0
+        );
+        let media::Received::Frame(frame) = decoder.receive() else {
+            panic!("fixture did not decode");
+        };
+        Decoded {
+            frame,
+            setup: nightjar_core::session::VideoSetup {
+                format: nightjar_core::sdp::VIDEO_FORMAT_H265,
+                width: 128,
+                height: 128,
+                fps: 60,
+                chroma_packing: 1,
+                logical_width: 128,
+                logical_height: 64,
+                color_space: 1,
+                color_range: 1,
+            },
+            rtp: ready_us as u32,
+            receive_us: 0,
+            enqueue_us: 0,
+            ready_us,
+            host_latency: 0,
+        }
+    }
+
+    #[test]
+    fn immediate_pacing_takes_the_newest_ready_picture_without_holding_it() {
+        let mut pacer = Pacer::new(PacingMode::Immediate, 16_667);
         assert!(pacer.next_due().is_none());
-        let (none, dropped) = pacer.take_due(10);
-        assert!(none.is_none() && dropped == 0);
+        for ready in [10, 20, 30] {
+            pacer.accept(decoded(ready));
+        }
+        let (picture, dropped) = pacer.take_due(25);
+        let picture = picture.unwrap();
+        assert_eq!(picture.decoded.ready_us, 20);
+        assert_eq!(picture.present_us, 20);
+        assert_eq!(picture.hold_us, 0);
+        assert_eq!(dropped, 1);
+        assert_eq!(pacer.next_due(), Some(30));
+        let (picture, dropped) = pacer.take_due(30);
+        assert_eq!(picture.unwrap().decoded.ready_us, 30);
+        assert_eq!(dropped, 0);
+        assert!(pacer.next_due().is_none());
     }
 }

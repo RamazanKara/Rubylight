@@ -35,7 +35,7 @@ use gamepad::Gamepads;
 use gui::{Gui, Scale};
 use hosts::{Apps, Event as HostEvent, Hosts};
 use media::Hardware;
-use stream::present::PacingMode;
+use stream::present::{pacing, PacingMode};
 use stream::{Connecting, Display, Exit, LaunchPlan, Streaming};
 use ui::{Command, ConnectingView, Dialog, Launcher, Screen, View};
 
@@ -738,20 +738,6 @@ impl App {
         }
     }
 
-    fn pacing(&self, s: &config::Settings) -> PacingMode {
-        if s.vrr && self.launcher.tearing_supported {
-            if s.present_at_host_times {
-                PacingMode::HostTimes
-            } else {
-                PacingMode::Immediate
-            }
-        } else if s.vsync {
-            PacingMode::Vsync
-        } else {
-            PacingMode::Immediate
-        }
-    }
-
     fn hardware(&self, settings: &config::Settings) -> Hardware {
         if settings.decoder == DecoderPreference::Software {
             return Hardware::None;
@@ -826,6 +812,7 @@ impl App {
         };
         let display = display_of(self.window);
         self.launcher.display = display;
+        let (pacing, vrr) = pacing(&settings, self.launcher.tearing_supported);
         let plan = LaunchPlan {
             host_id,
             record: host.record.clone(),
@@ -837,7 +824,8 @@ impl App {
             display,
             hardware: self.hardware(&settings),
             packed_modes,
-            pacing: self.pacing(&settings),
+            pacing,
+            vrr,
             gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
             prepared_controllers: if settings.controllers { self.pads.prepare(settings.controller_motion) } else { String::new() },
             microphone_muted: false,

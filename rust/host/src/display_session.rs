@@ -2190,7 +2190,7 @@ mod tests {
                 .extra
                 .insert("virtual_display_mode".into(), mode.into());
             assert_eq!(
-                virtual_display_mode(&config, &launch.client, Some(&app), true),
+                virtual_display_mode(&config, &launch.client, Some(&app)),
                 "per_client"
             );
             assert_eq!(

@@ -202,8 +202,7 @@ fn probe(request: &Request) -> Result<Reply> {
             "invalid packed probe request"
         );
         gpu.values.extend(request.encoder_options.clone());
-        let mut encoder =
-            Encoder::new_options(mode, gpu.get("encoder", "auto"), &request.output, &gpu)?;
+        let mut encoder = Encoder::new_options(mode, &request.output, &gpu)?;
         let mut count = 0;
         let deadline = Instant::now() + Duration::from_secs(3);
         for frame in 0..3 {

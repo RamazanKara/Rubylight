@@ -96,51 +96,6 @@ fn srgb_table() -> &'static [f32; 256] {
         })
     })
 }
-fn bt2020_sdr(linear: f32) -> f32 {
-    let linear = linear.clamp(0., 1.);
-    if linear <= 0.018 {
-        4.5 * linear
-    } else {
-        1.099 * linear.powf(0.45) - 0.099
-    }
-}
-/// Convert SDR desktop sRGB/Rec.709 into the BT.2020 primaries and 10-bit
-/// SDR transfer advertised by the encoder. Keep 16-bit RGB until swscale
-/// writes YUV so the gamut conversion does not quantize a ten-bit stream
-/// through an eight-bit intermediate. The caller validates the BGRA layout.
-pub(crate) fn sdr_bt2020_rgba(image: &Image, out: &mut Vec<u8>) {
-    debug_assert_eq!(image.pixel, Pixel::Bgra8);
-    out.resize(image.width as usize * image.height as usize * 8, 0);
-    let table = srgb_table();
-    for (source, target) in image
-        .bytes
-        .chunks_exact(image.stride)
-        .zip(out.chunks_exact_mut(image.width as usize * 8))
-    {
-        for (pixel, target) in source[..image.width as usize * 4]
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .zip(target.as_chunks_mut::<8>().0)
-        {
-            let [r, g, b] = [
-                table[pixel[2] as usize],
-                table[pixel[1] as usize],
-                table[pixel[0] as usize],
-            ];
-            let rgb = [
-                0.627404 * r + 0.329283 * g + 0.043313 * b,
-                0.069097 * r + 0.919540 * g + 0.011362 * b,
-                0.016391 * r + 0.088013 * g + 0.895595 * b,
-            ];
-            for (channel, value) in rgb.into_iter().enumerate() {
-                let code = (bt2020_sdr(value) * 65535.).round() as u16;
-                target[channel * 2..channel * 2 + 2].copy_from_slice(&code.to_le_bytes());
-            }
-            target[6..].copy_from_slice(&u16::MAX.to_le_bytes());
-        }
-    }
-}
 fn pool() -> Option<&'static rayon::ThreadPool> {
     static POOL: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
     POOL.get_or_init(|| {
@@ -278,43 +233,6 @@ pub fn hdr_rgba_scaled_luminance(
 mod tests {
     use super::*;
     use std::time::Instant;
-    #[test]
-    fn sdr_bt2020_maps_primaries_and_transfer_without_pq() {
-        // Rec.709 red mapped through the linear-light gamut matrix and
-        // BT.2020 10-bit SDR OETF. Gray also distinguishes that OETF from
-        // sRGB; black/white must stay at the endpoints, independent of HDR.
-        let colors = [
-            [0, 0, 255, 255],
-            [128, 128, 128, 255],
-            [0, 0, 0, 255],
-            [255; 4],
-        ];
-        let mut bytes = colors.concat();
-        bytes.extend_from_slice(&[0xab; 8]); // source row padding
-        let image = Image {
-            width: 4,
-            height: 1,
-            stride: 24,
-            bytes,
-            captured: Instant::now(),
-            pixel: Pixel::Bgra8,
-        };
-        let mut output = vec![];
-        sdr_bt2020_rgba(&image, &mut output);
-        assert_eq!(output.len(), 32);
-        let values: Vec<_> = output
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|p| u16::from_le_bytes(*p))
-            .collect();
-        for (actual, expected) in values.into_iter().zip([
-            51906_u16, 15151, 4834, 65535, 29640, 29640, 29640, 65535, 0, 0, 0, 65535, 65535,
-            65535, 65535, 65535,
-        ]) {
-            assert!(actual.abs_diff(expected) <= 1, "{actual} != {expected}");
-        }
-    }
     #[test]
     fn pq_matches_hdr10_reference_points() {
         assert!((pq(100.) - 0.5080784).abs() < 0.00002);

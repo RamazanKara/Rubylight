@@ -30,29 +30,6 @@ fn standard_chroma_is_left_sited_and_pyrowave_remains_center_sited() -> Result<(
         csc_mode: 2,
         ..Default::default()
     };
-    let mut cpu =
-        crate::encoder::Convert::new_config(&config, crate::ff::AVPixelFormat_AV_PIX_FMT_P010LE)?;
-    cpu.convert(&image)?;
-    // SAFETY: The live converter owns an initialized 64-word UV row.
-    unsafe {
-        let uv = (*cpu.frame).data[1].cast::<u16>();
-        let left = [*uv.add(4) >> 6, *uv.add(5) >> 6];
-        let right = [*uv.add(6) >> 6, *uv.add(7) >> 6];
-        assert!(
-            left[0] < 512 && left[1] > 512,
-            "CPU lost chroma impulse: {left:?}"
-        );
-        for (a, b) in left.into_iter().zip(right) {
-            assert!(
-                a.abs_diff(b) <= 1,
-                "CPU chroma impulse is not centered between left-sited samples: {left:?}, {right:?}"
-            );
-        }
-        assert_eq!(
-            (*cpu.frame).chroma_location,
-            crate::ff::AVChromaLocation_AVCHROMA_LOC_LEFT
-        );
-    }
     let check_standard = |output: &[u16]| {
         // BT.709 limited range, with 75% red at x=0 and 25% at x=4/6.
         for (x, expected) in [
@@ -108,8 +85,8 @@ fn standard_chroma_is_left_sited_and_pyrowave_remains_center_sited() -> Result<(
 }
 
 #[test]
-#[ignore = "requires D3D11 P010 conversion and the packaged FFmpeg libraries"]
-fn sdr_bt2020_cpu_and_gpu_match_reference_primaries_and_transfer() -> Result<()> {
+#[ignore = "requires D3D11 P010 conversion"]
+fn sdr_bt2020_gpu_matches_reference_primaries_and_transfer() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
     for (bgra, linear, expected) in [
@@ -132,23 +109,6 @@ fn sdr_bt2020_cpu_and_gpu_match_reference_primaries_and_transfer() -> Result<()>
             csc_mode: 4,
             ..Default::default()
         };
-        let mut cpu = crate::encoder::Convert::new_config(
-            &config,
-            crate::ff::AVPixelFormat_AV_PIX_FMT_P010LE,
-        )?;
-        cpu.convert(&image)?;
-        // SAFETY: The live converter owns initialized 64x64 P010 planes.
-        let cpu_codes = unsafe {
-            let y = (*cpu.frame).data[0].cast::<u16>();
-            let uv = (*cpu.frame).data[1].cast::<u16>();
-            [*y >> 6, *uv >> 6, *uv.add(1) >> 6]
-        };
-        for (actual, expected) in cpu_codes.into_iter().zip(expected) {
-            assert!(
-                actual.abs_diff(expected) <= 2,
-                "CPU: {actual} != {expected}"
-            );
-        }
         // Advanced-color Windows desktops can deliver the same SDR picture
         // as FP16 scRGB, with 100-nit SDR white represented by 1.25.
         for image in [image, make_image(&[linear], 64, 64)] {

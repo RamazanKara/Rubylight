@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires Windows process loopback (build 20348+) and the Windows Audio service"]
+    #[ignore = "requires Windows process loopback and the Windows Audio service"]
     fn native_process_audio_survives_repeated_activation_and_cancellation() -> Result<()> {
         let _com = crate::capture::ComGuard::new()?;
         let process = current_process();

@@ -78,6 +78,7 @@ fn key_of(code: SDL_Keycode) -> Option<Key> {
         SDLK_PAGEDOWN => Key::PageDown,
         SDLK_SPACE => Key::Space,
         SDLK_INSERT => Key::Insert,
+        SDLK_F2 => Key::F2,
         SDLK_F11 => Key::F11,
         _ => {
             let c = char::from_u32(code.0)?;

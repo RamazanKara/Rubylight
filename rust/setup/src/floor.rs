@@ -5,12 +5,23 @@
 //! The Windows build is read here. The GPU is judged by the package's own host
 //! (`butterpollo.exe --floor-check`, which checks for RDNA 2 and asks AMF for the HEVC encoder), and the display
 //! driver by the package's `install-local.ps1 -CheckOnly` (Smart App Control, S mode, App
-//! Control): both run from a verified copy of the package in a temporary folder, removed
-//! afterwards.
+//! Control): both run from a verified copy of the package in a folder only SYSTEM and
+//! Administrators can write (never the user's %TEMP%), removed afterwards.
 use crate::floor_rules::{Part, Pc, Unmet};
-use crate::{log::line, payload, payload::Payload, system};
+use crate::{log::line, payload::Payload, system};
 use anyhow::{Context, Result, anyhow, bail};
 use std::{path::Path, time::Duration};
+
+/// The folder under the profile root the floor check unpacks the package into.
+const FLOOR_STAGING: &str = "floor-check";
+
+/// Where the floor check stages the package. `install::stage` locks it to SYSTEM and
+/// Administrators; it is never in a folder a user process can write to.
+fn staging_folder() -> std::path::PathBuf {
+    system::program_data()
+        .join("Butterpollo")
+        .join(FLOOR_STAGING)
+}
 
 /// The last Rubylight for a PC below this floor.
 pub const LAST_RELEASE_BELOW: &str = "2.6.x";
@@ -64,13 +75,12 @@ fn unmet(payload: &mut Payload) -> Result<Vec<Unmet>> {
     if let Some(windows) = windows.into_iter().find(|u| u.part == Part::Windows) {
         return Ok(vec![windows]);
     }
-    let work = std::env::temp_dir().join(format!("rubylight-floor-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&work);
+    // Setup is elevated and runs the staged host and script: stage them where
+    // only SYSTEM and Administrators can write, never in the user's %TEMP%.
+    let work = staging_folder();
     let result = (|| {
-        payload
-            .extract(&work)
+        crate::install::stage(payload, FLOOR_STAGING)
             .context("unpacking the package to check this PC")?;
-        payload::verify(&work).context("verifying the package")?;
         let mut missing = Vec::new();
         let mut pc = host_check(&work)?;
         pc.windows_build = windows_build;
@@ -175,6 +185,18 @@ fn forced() -> Option<Unmet> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_floor_check_stages_the_package_where_users_cannot_write() {
+        let staging = staging_folder();
+        assert!(staging.starts_with(system::program_data()));
+        assert!(!staging.starts_with(std::env::temp_dir()));
+        // The same locked-down staging the install uses, not a bare create_dir_all.
+        let source = include_str!("floor.rs");
+        let body = &source[source.find("fn unmet(").unwrap()..source.find("fn host_check").unwrap()];
+        assert!(body.contains("crate::install::stage("));
+        assert!(!body.contains("temp_dir"));
+    }
 
     #[test]
     fn the_driver_check_reads_the_scripts_verdict_and_fails_loudly_otherwise() {

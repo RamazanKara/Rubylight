@@ -110,8 +110,8 @@ fn hevc_encoder(luid: windows::Win32::Foundation::LUID) -> Result<()> {
     // call returns is live until released here, in reverse order; names are terminated
     // temporaries AMF copies synchronously.
     unsafe {
-        let library =
-            libloading::Library::new("amfrt64.dll").context("AMD AMF runtime unavailable")?;
+        let library = crate::telemetry::system_library("amfrt64.dll")
+            .context("AMD AMF runtime unavailable")?;
         let init: libloading::Symbol<
             unsafe extern "C" fn(u64, *mut *mut AMFFactory) -> AMF_RESULT,
         > = library.get(b"AMFInit\0")?;

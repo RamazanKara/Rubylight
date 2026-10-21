@@ -334,8 +334,8 @@ impl Encoder {
         // Property names are terminated temporaries and variant tags match initialized
         // members; AMF copies them synchronously and retains interface-valued properties.
         unsafe {
-            let library =
-                libloading::Library::new("amfrt64.dll").context("AMD AMF runtime unavailable")?;
+            let library = crate::telemetry::system_library("amfrt64.dll")
+                .context("AMD AMF runtime unavailable")?;
             let init: libloading::Symbol<
                 unsafe extern "C" fn(u64, *mut *mut AMFFactory) -> AMF_RESULT,
             > = library.get(b"AMFInit\0")?;

@@ -458,7 +458,14 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
 /// Unpack and verify the package in the profile's setup folder.
 fn unpack(payload: &mut Payload, progress: &Progress) -> Result<(PathBuf, Vec<payload::Entry>)> {
     progress.set("Unpacking Rubylight…");
-    let staging = system::program_data().join("Butterpollo").join("setup");
+    stage(payload, "setup")
+}
+
+/// Unpack and verify the package in the locked-down folder `name` under the
+/// profile root. Anything elevated setup runs from the package must come
+/// from here, never from a folder a user process can write to.
+pub fn stage(payload: &mut Payload, name: &str) -> Result<(PathBuf, Vec<payload::Entry>)> {
+    let staging = system::program_data().join("Butterpollo").join(name);
     let staging_root = staging.parent().context("staging folder has no parent")?;
     std::fs::create_dir_all(staging_root)?;
     system::restrict(staging_root, true)?;

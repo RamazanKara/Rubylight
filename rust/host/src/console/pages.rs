@@ -85,7 +85,7 @@ fn readiness(meta: &Value) -> String {
             if display_ready {
                 "Ready to stream on a virtual display."
             } else if driver_installed {
-                "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows to stream."
+                "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows to stream. If this persists after a restart, run Rubylight setup again to repair the display driver."
             } else {
                 "Rubylight's display driver is not installed or not running. Run Rubylight setup again to repair the installation."
             },
@@ -1018,7 +1018,7 @@ mod tests {
             ),
             (
                 json!({"capable":true,"ready":false}),
-                "Restart Windows to stream.",
+                "Restart Windows to stream. If this persists after a restart, run Rubylight setup again to repair the display driver.",
             ),
             (
                 json!({"capable":false,"ready":false}),

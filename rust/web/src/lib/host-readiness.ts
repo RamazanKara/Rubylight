@@ -72,7 +72,7 @@ function virtualDisplay(meta: Metadata): Check {
       tone: 'warn',
       state: 'Restart needed',
       text: 'The display driver was updated and runs only after Windows restarts.',
-      help: 'Restart Windows, then start the stream again.',
+      help: 'Restart Windows, then start the stream again. If this persists after a restart, run Rubylight setup again to repair the display driver.',
       detail,
     };
   }

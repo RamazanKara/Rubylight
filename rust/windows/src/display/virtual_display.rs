@@ -33,7 +33,7 @@ impl std::error::Error for DriverRestartRequired {}
 impl DriverRestartRequired {
     /// The console warning's code.
     pub const CODE: &'static str = "display_driver_restart";
-    pub const MESSAGE: &'static str = "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows, then start the stream again.";
+    pub const MESSAGE: &'static str = "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows, then start the stream again. If this persists after a restart, run Rubylight setup again to repair the display driver.";
 }
 /// Whether a driver reporting `caps` can carry a stream's frames.
 pub(crate) fn fence_ring(caps: u32) -> Result<()> {
@@ -805,6 +805,11 @@ mod tests {
             let error = super::fence_ring(caps).unwrap_err();
             assert!(error.is::<super::DriverRestartRequired>(), "{caps:#x}");
             assert!(error.to_string().contains("Restart Windows"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("If this persists after a restart, run Rubylight setup again to repair the display driver.")
+            );
         }
     }
     #[test]

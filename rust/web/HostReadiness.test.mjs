@@ -52,13 +52,14 @@ test('host readiness writes notes in the text face and opens them only for probl
 });
 
 test('host readiness says an updated display driver needs a Windows restart', () => {
-  const reason = "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows, then start the stream again.";
+  const reason = "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows, then start the stream again. If this persists after a restart, run Rubylight setup again to repair the display driver.";
   const healthy = { warnings: [], encoder_status: { ...metadata.encoder_status, state: 'ready', h264: true } };
   const pending = html({ ...healthy, virtual_display: { capable: true, ready: false, reason, protocol: 'idd-push' } });
   assert.match(pending, /Restart needed/);
   assert.match(pending, /Restart Windows, then start the stream again\./);
+  assert.match(pending, /If this persists after a restart, run Rubylight setup again to repair the display driver\./);
   assert.match(pending, /<details open/);
-  assert.doesNotMatch(pending, /Run Rubylight setup again/);
+  assert.doesNotMatch(pending, /driver is missing or isn't running/);
 });
 
 test('host readiness no longer shows a capture method or a physical display', () => {

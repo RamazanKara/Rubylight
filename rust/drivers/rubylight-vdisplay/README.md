@@ -106,7 +106,8 @@ The fence ring is the only transport from this driver to the host. There is no s
 (`idd_push_fence_ring` is retired and dropped from `sunshine.conf` with a report). It
 requires the driver capability `CAP_FENCE_RING`; a driver without it, such as an update
 that runs only after Windows restarts, makes the host refuse the stream and the console
-says to restart Windows or repair the installation. The host's compute conversion reads the
+says to restart Windows and, if that does not help, to run Rubylight setup again to repair
+the display driver. The host's compute conversion reads the
 textures in place (`idd_push_zero_copy = true`, the default) or its D3D11 device copies
 them (`false`).
 

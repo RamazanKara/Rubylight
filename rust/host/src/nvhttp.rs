@@ -5,22 +5,21 @@ use crate::{
 use anyhow::{Context, Result, bail};
 #[cfg(not(test))]
 use butterpollo_windows::{
-    display::stream_driver_ready,
-    process::ensure_streaming_session as ensure_windows_streaming_session,
+    display::driver_caps, process::ensure_streaming_session as ensure_windows_streaming_session,
 };
 #[cfg(test)]
 use parity_tests::ensure_streaming_session as ensure_windows_streaming_session;
 #[cfg(test)]
-fn stream_driver_ready() -> Result<()> {
+fn driver_caps() -> Result<u32> {
     bail!("no display driver in tests")
 }
 /// What Artemis reads as `VirtualDisplayDriverReady`: the driver can carry a stream. A driver
 /// that answers but lacks the fence ring (an update waiting for a restart) is not ready.
 fn driver_ready() -> bool {
-    driver_ready_from(stream_driver_ready())
+    driver_ready_with(driver_caps())
 }
-fn driver_ready_from(check: Result<()>) -> bool {
-    check.is_ok()
+fn driver_ready_with(opened: Result<u32>) -> bool {
+    butterpollo_windows::display::driver_can_stream(opened).is_ok()
 }
 use axum::{
     Extension, Router,
@@ -2086,11 +2085,11 @@ mod tests {
     use super::stream_key_id;
     #[test]
     fn a_driver_that_needs_a_restart_is_not_ready_for_artemis() {
-        use super::driver_ready_from;
-        use butterpollo_windows::display::DriverRestartRequired;
-        assert!(driver_ready_from(Ok(())));
-        assert!(!driver_ready_from(Err(DriverRestartRequired.into())));
-        assert!(!driver_ready_from(Err(anyhow::anyhow!("no driver"))));
+        use super::driver_ready_with;
+        // Every capability, then none: a driver that opens with no fence ring is not ready.
+        assert!(driver_ready_with(Ok(u32::MAX)));
+        assert!(!driver_ready_with(Ok(0)));
+        assert!(!driver_ready_with(Err(anyhow::anyhow!("no driver"))));
     }
     #[test]
     fn a_slow_teardown_blocks_the_next_launch_after_the_wait() {

@@ -31,8 +31,8 @@ pub use topology::{Monitor, Topology, edid_refresh, monitors};
 pub(crate) use virtual_display::fence_ring;
 pub use virtual_display::{
     DriverRestartRequired, RenderAdapter, VirtualDisplay, VirtualOptions,
-    configured_render_adapter, ensure_virtual_display_available, stream_driver_ready,
-    virtual_display_available, virtual_display_status,
+    configured_render_adapter, driver_can_stream, driver_caps, ensure_virtual_display_available,
+    stream_driver_ready, virtual_display_available, virtual_display_status,
 };
 
 fn check(code: i32) -> Result<()> {

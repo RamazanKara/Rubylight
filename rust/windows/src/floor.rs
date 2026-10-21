@@ -82,7 +82,12 @@ pub fn adapters() -> Result<Vec<Adapter>> {
 /// Whether Rubylight's display driver can carry a stream: it runs and has the fence ring.
 /// An older driver that merely answers does not count; it needs a restart or a repair.
 pub fn display_driver() -> bool {
-    crate::display::stream_driver_ready().is_ok()
+    driver_present(crate::display::driver_caps())
+}
+
+/// The floor's reading of the driver as [`crate::display::driver_caps`] found it.
+fn driver_present(opened: Result<u32>) -> bool {
+    crate::display::driver_can_stream(opened).is_ok()
 }
 
 /// This PC as the floor sees it.
@@ -167,9 +172,12 @@ mod tests {
     #[test]
     fn the_floor_counts_a_driver_only_when_it_can_carry_a_stream() {
         use rubylight_vdisplay_proto::control::{CAP_FENCE_RING, CAP_HDR};
-        // A driver that answers without the fence ring is not present for the floor.
-        assert!(crate::display::stream_driver_ready().is_ok() == super::display_driver());
-        assert!(crate::display::fence_ring(CAP_HDR).is_err());
-        assert!(crate::display::fence_ring(CAP_FENCE_RING).is_ok());
+        // A driver whose control device opens but lacks the fence ring is not present.
+        assert!(!super::driver_present(Ok(CAP_HDR)));
+        assert!(!super::driver_present(Ok(0)));
+        assert!(!super::driver_present(Err(anyhow::anyhow!(
+            "no control device"
+        ))));
+        assert!(super::driver_present(Ok(CAP_FENCE_RING)));
     }
 }

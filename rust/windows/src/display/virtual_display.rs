@@ -42,16 +42,25 @@ pub(crate) fn fence_ring(caps: u32) -> Result<()> {
     }
     Ok(())
 }
-/// Every stream needs the driver, running with the fence ring. The error says what to do:
-/// restart Windows ([`DriverRestartRequired`]), or set the driver up again.
-pub fn stream_driver_ready() -> Result<()> {
-    let control = Control::open().map_err(|error| {
+/// The capabilities the running display driver reports, or why it cannot be opened.
+pub fn driver_caps() -> Result<u32> {
+    Control::open().map(|control| control.info.caps)
+}
+/// Whether the driver, as [`driver_caps`] found it, can carry a stream. A driver that opens but
+/// lacks the fence ring is not ready. The error says what to do: restart Windows
+/// ([`DriverRestartRequired`]), or set the driver up again.
+pub fn driver_can_stream(opened: Result<u32>) -> Result<()> {
+    let caps = opened.map_err(|error| {
         anyhow::anyhow!(
             "{} Streams need it: run Rubylight setup again to repair the installation, then start the stream again.",
             driver_problem(&error)
         )
     })?;
-    fence_ring(control.info.caps)
+    fence_ring(caps)
+}
+/// Every stream needs the driver, running with the fence ring.
+pub fn stream_driver_ready() -> Result<()> {
+    driver_can_stream(driver_caps())
 }
 pub fn virtual_display_status() -> serde_json::Value {
     match Control::open() {
@@ -797,6 +806,17 @@ impl Drop for VirtualDisplay {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_driver_that_opens_without_the_fence_ring_cannot_stream() {
+        use rubylight_vdisplay_proto::control::{CAP_FENCE_RING, CAP_HDR};
+        assert!(super::driver_can_stream(Ok(CAP_FENCE_RING | CAP_HDR)).is_ok());
+        let old = super::driver_can_stream(Ok(CAP_HDR)).unwrap_err();
+        assert!(old.is::<super::DriverRestartRequired>());
+        let closed = super::driver_can_stream(Err(anyhow::anyhow!("no control device")));
+        let closed = closed.unwrap_err();
+        assert!(!closed.is::<super::DriverRestartRequired>());
+        assert!(closed.to_string().contains("run Rubylight setup again"));
+    }
     #[test]
     fn a_driver_without_the_fence_ring_asks_for_a_restart() {
         use rubylight_vdisplay_proto::control::{CAP_FENCE_RING, CAP_HDR, CAP_SCOPED_CLEAR};

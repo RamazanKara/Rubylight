@@ -4,6 +4,8 @@ Windows game-streaming host for Moonlight clients, in Rust (formerly Butterpollo
 
 The docs are thorough, so read the relevant section instead of exploring: [docs/building.md](docs/building.md) (build, SDK env, options), [rust/README.md](rust/README.md) (workspace, running, entry points), [docs/architecture.md](docs/architecture.md), [rust/release/README.md](rust/release/README.md) (release and hardware harness), [rust/PERFORMANCE.md](rust/PERFORMANCE.md) (measurement history).
 
+3.0 work follows [docs/rubylight-3.0-plan.md](docs/rubylight-3.0-plan.md). Keep its status table current.
+
 ## Layout
 - `rust/core` (`-p butterpollo-core`): protocol, crypto, FEC, input, state. OS-independent.
 - `rust/windows` (`-p butterpollo-windows`): capture, GPU conversion, AMF/PyroWave/NVENC codecs, audio, input, displays. `rust/host` (`-p butterpollo`, not `butterpollo-host`): HTTP/TLS, RTSP, ENet, UDP, stream lifecycle. `rust/setup`: installer. `rust/vulkan-layer`: HDR layer.

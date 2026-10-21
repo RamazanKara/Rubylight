@@ -1,6 +1,8 @@
 use crate::media;
 use sdl3_sys::everything::*;
-use std::{ffi::c_void, ptr};
+#[cfg(windows)]
+use std::ffi::c_void;
+use std::ptr;
 
 pub fn probe(renderer: *mut SDL_Renderer, hardware: media::Hardware) -> Result<u8, String> {
     if hardware == media::Hardware::None {
@@ -219,6 +221,7 @@ extern "C" {
 }
 
 pub struct Reconstruction {
+    #[cfg(windows)]
     native: *mut c_void,
     device: *mut SDL_GPUDevice,
     buffer: *mut SDL_GPUBuffer,
@@ -231,10 +234,11 @@ pub struct Reconstruction {
 impl Reconstruction {
     pub fn new(
         renderer: *mut SDL_Renderer,
-        target: *mut SDL_Texture,
+        _target: *mut SDL_Texture,
         parameters: &[u32; 12],
     ) -> Option<Self> {
         let mut result = Self {
+            #[cfg(windows)]
             native: ptr::null_mut(),
             device: ptr::null_mut(),
             buffer: ptr::null_mut(),
@@ -248,7 +252,7 @@ impl Reconstruction {
             #[cfg(windows)]
             {
                 let texture = SDL_GetPointerProperty(
-                    SDL_GetTextureProperties(target),
+                    SDL_GetTextureProperties(_target),
                     SDL_PROP_TEXTURE_D3D11_TEXTURE_POINTER,
                     ptr::null_mut(),
                 );

@@ -276,9 +276,10 @@ say) so it outranks the 0.1.0.x development builds, and puts it under
 `drivers\rubylight-display` with `install-local.ps1`, the bundled `nefconc.exe` and setup's
 `remove-libvirtualdisplay.ps1`:
 
-- Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM unless
-  setup ran with `--no-display-driver`. A failure becomes a setup note, like the gamepad
-  driver's.
+- Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM. 3.0
+  needs the driver, so `--no-display-driver` is refused, a quiet update of a 2.6.x install
+  that declined it keeps 2.6.x, and an interactive install installs it and clears that
+  record. A failure becomes a setup note, like the gamepad driver's.
 - Once Rubylight's device runs (no note, no restart pending), they also run
   `remove-libvirtualdisplay.ps1 -InstallerBestEffort`, which removes the libvirtualdisplay
   device, driver packages and HDR layer earlier versions installed (a note when it cannot; the

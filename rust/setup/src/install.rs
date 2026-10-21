@@ -23,6 +23,8 @@ pub struct Options {
     /// End active streams instead of refusing to install. The user chose
     /// this; tests and automatic updates never set it.
     pub end_streams: bool,
+    /// The floor verdict was already taken (before the install dialogs).
+    pub floor_checked: bool,
 }
 pub struct Outcome {
     pub install: PathBuf,
@@ -156,7 +158,9 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     found.check_version()?;
     line(format!("found: {found:#?}"));
     // Before anything changes: below the floor an installed Rubylight stays as it is.
-    crate::floor::check(&mut payload)?;
+    if !options.floor_checked {
+        crate::floor::check(&mut payload)?;
+    }
     let install = system::win32_path(&detect::install_dir(&found, options.install_dir.clone()))?;
     let profile = profile();
     let target = target(&found, &install)?;
@@ -1184,8 +1188,8 @@ fn driver_lock(wait: Duration) -> Option<std::fs::File> {
     }
 }
 const REPAIR_RECORD: &str = "driver-repair.json";
-/// A new installation may repair the display driver again, unless it was
-/// installed with --no-display-driver.
+/// An installation that installs the display driver clears the record of an
+/// earlier --no-display-driver (2.6.x); 3.0 always installs the driver.
 fn remember_driver_choice(profile: &Path, display_driver: bool) {
     let record = profile.join(REPAIR_RECORD);
     let _ = if display_driver {
@@ -1233,18 +1237,19 @@ pub fn repair_drivers(progress: &Progress) -> Result<bool> {
     }
     Ok(restart)
 }
-/// Whether setup ran with --no-display-driver.
+/// Whether a 2.6.x setup ran with --no-display-driver. 3.0 needs the driver,
+/// so a quiet update refuses and an install clears the record.
 pub(crate) fn display_driver_declined() -> bool {
-    std::fs::read(profile().join(REPAIR_RECORD))
+    declined_in(&profile())
+}
+fn declined_in(profile: &Path) -> bool {
+    std::fs::read(profile.join(REPAIR_RECORD))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .is_some_and(|record| record["declined"] == true)
 }
 fn repair_skipped(record: Option<&[u8]>, version: &str, now: u64) -> Option<&'static str> {
     let record: serde_json::Value = serde_json::from_slice(record?).ok()?;
-    if record["declined"] == true {
-        return Some("it was left out with --no-display-driver");
-    }
     (record["version"] == version
         && record["unix"]
             .as_u64()
@@ -1461,6 +1466,8 @@ mod tests {
     }
     /// Below the floor an installed Rubylight (2.6, Vibepollo) stays exactly as it
     /// is: the verdict comes before setup stops, replaces, removes or writes anything.
+    /// (The install dialogs come after it: `floor_then_asks_only_when_the_floor_is_met`
+    /// in main.rs.)
     #[test]
     fn the_floor_is_checked_before_setup_changes_anything() {
         let install = include_str!("install.rs");
@@ -1678,7 +1685,7 @@ mod tests {
         assert!(notes.is_empty());
     }
     #[test]
-    fn the_display_driver_is_repaired_once_a_day_per_version_unless_declined() {
+    fn the_display_driver_is_repaired_once_a_day_per_version() {
         let day = 86_400;
         let record = |text: &str| Some(text.as_bytes().to_vec());
         let skipped =
@@ -1695,7 +1702,20 @@ mod tests {
             ),
             None
         );
-        assert!(skipped(record(r#"{"declined":true}"#), day).is_some());
+        // 3.0 needs the driver: a record of --no-display-driver no longer skips the repair.
+        assert_eq!(skipped(record(r#"{"declined":true}"#), day), None);
+    }
+    #[test]
+    fn installing_the_display_driver_clears_the_record_of_declining_it() {
+        let profile =
+            std::env::temp_dir().join(format!("rubylight-declined-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&profile);
+        assert!(!declined_in(&profile));
+        remember_driver_choice(&profile, false);
+        assert!(declined_in(&profile));
+        remember_driver_choice(&profile, true);
+        assert!(!declined_in(&profile));
+        let _ = std::fs::remove_dir_all(&profile);
     }
     #[test]
     fn setup_refuses_streams_pending_connections_and_apps() {

@@ -26,6 +26,33 @@ fn staging_folder() -> std::path::PathBuf {
 /// The last Rubylight for a PC below this floor.
 pub const LAST_RELEASE_BELOW: &str = "2.6.x";
 
+/// Said to a user whose earlier setup left the display driver out.
+pub const DECLINED_DRIVER_NOTICE: &str = "An earlier setup left out Rubylight's display driver. Rubylight 3.0 streams only to its own virtual display, so it needs the driver, and setup installs it now.";
+
+/// A 2.6.x installation that declined the display driver cannot run 3.0, which refuses every
+/// stream without it. A quiet update therefore keeps 2.6.x, and says why in the log.
+pub fn update_refusal(declined: bool) -> Option<anyhow::Error> {
+    if !declined {
+        return None;
+    }
+    let missing = [Unmet {
+        part: Part::DisplayDriver,
+        message: "This installation was set up without Rubylight's display driver (--no-display-driver), and 3.0 needs it. Run Rubylight setup yourself to install it.".into(),
+    }];
+    for unmet in &missing {
+        line(format!("floor: {:?}: {}", unmet.part, unmet.message));
+    }
+    Some(refusal(&missing))
+}
+
+/// Why `--no-display-driver` is refused.
+pub fn display_driver_required() -> anyhow::Error {
+    anyhow!(
+        "Rubylight {} needs Rubylight's display driver, so --no-display-driver is no longer accepted. {LAST_RELEASE_BELOW} is the release without it.",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
 /// Refuse unless this PC meets the floor.
 pub fn check(payload: &mut Payload) -> Result<()> {
     let missing = unmet(payload)?;
@@ -193,9 +220,29 @@ mod tests {
         assert!(!staging.starts_with(std::env::temp_dir()));
         // The same locked-down staging the install uses, not a bare create_dir_all.
         let source = include_str!("floor.rs");
-        let body = &source[source.find("fn unmet(").unwrap()..source.find("fn host_check").unwrap()];
+        let body =
+            &source[source.find("fn unmet(").unwrap()..source.find("fn host_check").unwrap()];
         assert!(body.contains("crate::install::stage("));
         assert!(!body.contains("temp_dir"));
+    }
+
+    #[test]
+    fn a_declined_display_driver_refuses_the_update_and_names_the_last_release() {
+        assert!(update_refusal(false).is_none());
+        let refusal = format!(
+            "{:#}",
+            update_refusal(true).expect("a declined driver refuses")
+        );
+        assert!(refusal.contains("display driver"), "{refusal}");
+        assert!(refusal.contains("Nothing was changed"), "{refusal}");
+        assert!(refusal.contains(LAST_RELEASE_BELOW), "{refusal}");
+    }
+
+    #[test]
+    fn no_display_driver_is_refused_with_the_release_that_has_none() {
+        let message = format!("{:#}", display_driver_required());
+        assert!(message.contains("display driver"), "{message}");
+        assert!(message.contains(LAST_RELEASE_BELOW), "{message}");
     }
 
     #[test]

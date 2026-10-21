@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.6.0 installer is named `rubylight-setup-2.6.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **The host is AMD-only from 3.0.** NVENC, Quick Sync, the FFmpeg software encoders (x264, x265, SVT-AV1) and Windows 10 support are removed, along with their settings, console controls and libraries. AMF encodes H.264, HEVC and AV1, and PyroWave keeps its own encoder. Settings that named a removed encoder migrate to `amf` or `auto` and the host reports the change once. NVIDIA and Intel users stay on the 2.6.x line.
+
 ## New in 2.6.0
 
 - **A simpler console for everyday play.** Home leads with setup, ready, streaming or attention status, followed by your game shelf. Home, Games & apps, Devices and Settings form the main navigation; Help & diagnostics holds logs and recovery tools. The refreshed console uses comfortable spacing, larger controls, light/dark/system appearance and a compact mobile drawer.

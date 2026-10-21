@@ -13,7 +13,7 @@ Rubylight 3.0 is an AMD-only Windows host meant as the successor to AMD Link. Yo
 | Area | State | Evidence |
 |---|---|---|
 | AMD-only host | Done on the unmerged `claude/rubylight-2.5` branch: 63 commits, 241 files, +17.8k/−30.7k lines. It removes NVENC, QSV, software and FFmpeg encoders. The floor is RDNA 2, a working AMF HEVC encoder, Windows 26200 and the IddCx 1.11 D3D12 driver. It also makes the host D3D12-only, streams on virtual displays only and adds the fence ring. Gates 1 and 4 passed but need a re-run on a new tip. Gates 2, 3 and 5–8 never ran. Main is 96 commits ahead, and the `claude/floor` tip is not in the branch. | `rust/release/v25-gates/HANDOFF.md` and `rust/release/floor.json` on that branch |
-| Non-AMD encoders on main | NVENC (native) and QSV (through FFmpeg) still ship | `rust/windows/src/nvenc.rs`, `rust/windows/src/encoder.rs:424` |
+| Non-AMD encoders on main | Removed in phase 2 of the 2.5 port: NVENC, QSV, software encoders and FFmpeg are gone. NVIDIA and Intel users stay on 2.6.x. | `rust/windows/src/encoder.rs` |
 | AMF | H.264, HEVC and AV1, HDR10, intra refresh, rate control. Packed 4:4:4 over 4:2:0 exists but is experimental and off by default. | `rust/windows/src/amf/`, `gpu_color/packed444_*`, `rust/RELEASE_NOTES.md` |
 | Slices and tiles | 2 or 4 slices or tiles left per-frame encode time unchanged on the RX 7900 XT (about 6.3 and 5.2 ms at 3840×2160), and the driver never engaged split-frame. Every run used whole-frame output. AMF 1.5.2, which we build against, has `OutputMode`/`HevcOutputMode` = SLICE and `AV1OutputMode` = TILE. Those modes return each unit as soon as it is encoded. They are **untested**. | `rust/PERFORMANCE.md` "October 7: AMF split-frame encoding", AMF `VideoEncoderVCE.h:232`, `VideoEncoderHEVC.h:215`, `VideoEncoderAV1.h:245` |
 | Timing | Clock sync (0x5537), present timing, network pacing, the pace-based AMF frame cap, the 1000 Hz VRR EDID on the virtual display, and 5 s `stream timings` log lines. Nothing records per-frame stage timing across host and client. | `rust/core/src/clock_sync.rs`, `rust/windows/src/present_timing.rs`, `docs/control-messages.md` |
@@ -173,7 +173,7 @@ Each track starts with a spike and needs the user's go-ahead.
 | Slice | State | Notes |
 |---|---|---|
 | A0 release tooling | done | `bump.py` accepts alpha/beta and labels them with the full version; the elevated task accepts them; CI tag trigger covers `v3.*` |
-| A1 port 2.5 (5 phases) | phase 1 done | Phase 1: 4 of 9 picked; main already had the fence ring (keyed mutex default, fence opt-in), so phase 3 must decide the default. Driver 0.2.0 not yet loaded on hardware. Next: phase 2, AMD only |
+| A1 port 2.5 (5 phases) | phases 1 and 2 done | Phase 1: 4 of 9 picked; main already had the fence ring (keyed mutex default, fence opt-in), so phase 3 must decide the default. Driver 0.2.0 not yet loaded on hardware. Phase 2 (AMD only): all 15 picks landed, plus removal of the main-only non-AMD code. Next: phase 3 |
 | A2 floor experience | pending | |
 | A3 native API v1 | pending | |
 | A4 session state machine | pending | |

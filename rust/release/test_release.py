@@ -78,6 +78,9 @@ class ReleaseVersions(unittest.TestCase):
         readme.write_text(f'[Download {self.version}](https://github.com/RamazanKara/Rubylight/releases/tag/v{self.version})\n'
                           f'`rubylight-setup-{self.version}.exe`\n', encoding='utf-8')
         notes = self.root / 'rust/RELEASE_NOTES.md'
+        # Pending notes would replace the empty bullet this test fills in.
+        notes.write_text(re.sub(r'(?ms)^## Unreleased\n.*?(?=^## )', '', notes.read_text(encoding='utf-8')),
+                         encoding='utf-8')
         for new in ('3.0.0-alpha.1', '3.0.0-alpha.2', '3.0.0-beta.1'):
             with self.subTest(new=new):
                 result = self.run_tool('bump.py', f'v{new}')

@@ -290,7 +290,7 @@ fn packed_formats_preserve_logical_geometry_and_native_codec_ids_on_the_host() {
         assert_eq!(n.coded_size(), (2560, 2880));
         assert_eq!((n.codec, n.ten_bit(), n.yuv444), (codec, ten_bit, false));
         assert_eq!(n.chroma_packing, packed444::VERSION);
-        assert_eq!(n.bitrate_kbps, 160_000);
+        assert_eq!(n.bitrate_kbps, 140_000);
         assert_eq!(
             n.csc_mode,
             ((config.color_space as u8) << 1) | config.color_range as u8

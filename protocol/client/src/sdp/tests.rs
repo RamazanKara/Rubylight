@@ -39,6 +39,35 @@ fn params<'a>(
 const SUNSHINE: [i32; 4] = [7, 1, 431, -1];
 
 #[test]
+fn packed_bitrate_reserves_packet_overhead_and_fec() {
+    for (budget, location, video) in [
+        (80_000, StreamLocation::Local, 56_000),
+        (200_000, StreamLocation::Local, 140_000),
+        (200_000, StreamLocation::Remote, 139_500),
+        (300_000, StreamLocation::Local, 140_000),
+    ] {
+        let config = StreamConfig {
+            bitrate_kbps: budget,
+            location,
+            packet_size: 1392,
+            encryption_flags: ENCFLG_ALL,
+            experimental_packed_444: true,
+            ..Default::default()
+        };
+        let mut p = params(&config, SUNSHINE, "::1", VIDEO_FORMAT_H265);
+        p.encryption_supported = SS_ENC_VIDEO;
+        let sdp = generate(&p);
+        assert_eq!(sdp.packet_size, 1360);
+        assert!(sdp.text.contains(&format!(
+            "a=x-nv-vqos[0].bw.maximumBitrateKbps:{video} \r\n"
+        )));
+        assert!(sdp
+            .text
+            .contains(&format!("a=x-ml-video.configuredBitrateKbps:{budget} \r\n")));
+    }
+}
+
+#[test]
 fn sunshine_hevc_1080p60_local_stereo_encrypted() {
     let config = StreamConfig {
         width: 1920,

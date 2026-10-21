@@ -318,15 +318,20 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
     a.add("x-nv-video[0].timeoutLengthMs", "7000");
     a.add("x-nv-video[0].framesWithInvalidRefThreshold", "0");
 
-    // 20% of the bitrate is FEC; remote streams leave 500 Kbps for audio and control. GFE caps
-    // video at 100 Mbps.
+    // Packed streams also reserve room for encrypted packet headers and keyframe
+    // overshoot: the legacy 20% reserve exceeds the wire budget with 20% FEC.
     let remote = c.location == StreamLocation::Remote;
-    let mut adjusted = (c.bitrate_kbps as f64 * 0.80) as i32;
+    let video_share = if c.experimental_packed_444 {
+        0.70
+    } else {
+        0.80
+    };
+    let mut adjusted = (c.bitrate_kbps as f64 * video_share) as i32;
     if remote && adjusted > 500 {
         adjusted -= 500;
     }
     adjusted = adjusted.min(if c.experimental_packed_444 {
-        160_000
+        140_000
     } else {
         100_000
     });

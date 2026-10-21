@@ -73,6 +73,7 @@ fn link_iddcx_stub() {
     // A folder with a newer stub than the installed kit has (IddCx 1.11 ships in WDK 28000's
     // NuGet package, not in the 26100 kit).
     println!("cargo:rerun-if-env-changed=RLVD_IDDCX_LIB");
+    println!("cargo:rustc-check-cfg=cfg(rlvd_iddcx_newer_stub)");
     if let Ok(dir) = std::env::var("RLVD_IDDCX_LIB") {
         let dir = std::path::PathBuf::from(dir);
         assert!(
@@ -82,6 +83,13 @@ fn link_iddcx_stub() {
         );
         println!("cargo:rustc-link-search={}", dir.display());
         println!("cargo:rustc-link-lib=static=IddCxStub");
+        // The newer stub's table has the IddCx 1.11 slots, so the driver may probe them
+        // (`wdk_iddcx::check_os_feature_support`). Its client config is still the 1.10 one,
+        // which IddCxDeviceInitConfig rejects: such a build is for the DriverEntry probe only.
+        println!("cargo:rustc-cfg=rlvd_iddcx_newer_stub");
+        println!(
+            "cargo:warning=RLVD_IDDCX_LIB is set: this driver is probe-only (IddCxDeviceInitConfig rejects its client config); do not package or install it"
+        );
         return;
     }
     const ROOTS: [&str; 2] = [

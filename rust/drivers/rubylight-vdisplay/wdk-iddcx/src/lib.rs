@@ -183,8 +183,8 @@ iddcx_ddi!(
         @ IddCxGetVersionTableIndex as PFN_IDDCXGETVERSION
 );
 
-/// How many DDIs the running framework provides: a DDI with a table index at or past this
-/// count is missing (the WDK's `IDD_IS_FUNCTION_AVAILABLE`).
+/// How many DDIs the running framework provides. Like the WDK's `IddFunctionCount`, it is
+/// only valid when [`client_newer_than_framework`] is true; otherwise it is not set.
 ///
 /// # Safety
 /// Only valid once the IddCx runtime has loaded the driver.
@@ -192,6 +192,25 @@ iddcx_ddi!(
 pub unsafe fn function_count() -> u32 {
     // SAFETY: reads the stub-populated count; valid after load.
     unsafe { (&raw const iddcx::IddFunctionCount).read() }
+}
+
+/// The WDK's `IddClientVersionHigherThanFramework`: the driver was built against a newer
+/// IddCx than the framework it runs on, so [`function_count`] says which DDIs exist.
+///
+/// # Safety
+/// Only valid once the IddCx runtime has loaded the driver.
+#[must_use]
+pub unsafe fn client_newer_than_framework() -> bool {
+    // SAFETY: reads the stub-populated flag; valid after load.
+    unsafe { (&raw const iddcx::IddClientVersionHigherThanFramework).read() != 0 }
+}
+
+/// The WDK's `IDD_IS_FUNCTION_AVAILABLE` for a DDI past the always-available ones: a driver
+/// built for an IddCx no newer than the framework has every DDI of its own table, and a
+/// newer one only those below the framework's count.
+#[must_use]
+pub const fn function_available(index: u32, client_newer: bool, count: u32) -> bool {
+    !client_newer || index < count
 }
 
 /// `IDARG_OUT_FEATURES_SUPPORTED` from the IddCx 1.11 header, which the WDK these bindings
@@ -210,31 +229,63 @@ pub const FEATURES_1_11_D3D12: u32 = 0x1;
 /// `IddCxCheckOsFeatureSupportTableIndex` in the IddCx 1.11 header.
 const CHECK_OS_FEATURE_SUPPORT_INDEX: u32 = 36;
 
-/// `IddCxCheckOsFeatureSupport` (IddCx 1.11), or `None` when the running framework has no
-/// such DDI. IddCx requires the call before any adapter is created.
+/// `IddCxCheckOsFeatureSupport` (IddCx 1.11), or `None` when the driver cannot call it or the
+/// running framework has no such DDI. IddCx requires the call before any adapter is created.
+///
+/// `stub_has_slot` says the linked `IddCxStub.lib` is IddCx 1.11 or newer, so its table has
+/// the slot. The default build links the 1.10 stub, whose table ends at slot 35: reading slot
+/// 36 there would run past it, so with `false` this returns `None` without touching the table.
 ///
 /// # Safety
 /// Only valid once the IddCx runtime has loaded the driver, before `IddCxAdapterInitAsync`.
-pub unsafe fn check_os_feature_support() -> Option<(NTSTATUS, FeaturesSupported)> {
+/// `stub_has_slot` must be true only for a stub whose table holds slot 36.
+pub unsafe fn check_os_feature_support(
+    stub_has_slot: bool,
+) -> Option<(NTSTATUS, FeaturesSupported)> {
     type Pfn = Option<
         unsafe extern "C" fn(iddcx::PIDD_DRIVER_GLOBALS, *mut FeaturesSupported) -> NTSTATUS,
     >;
+    if !stub_has_slot {
+        return None;
+    }
     // SAFETY: valid after load (this function's contract).
-    if unsafe { function_count() } <= CHECK_OS_FEATURE_SUPPORT_INDEX {
+    let (newer, count) = unsafe { (client_newer_than_framework(), function_count()) };
+    if !function_available(CHECK_OS_FEATURE_SUPPORT_INDEX, newer, count) {
         return None;
     }
     let mut out = FeaturesSupported {
         size: core::mem::size_of::<FeaturesSupported>() as u32,
         features_1_11: 0,
     };
-    // SAFETY: the framework provides the slot (count checked above), and the 1.11 header pins
-    // its type to `PFN_IDDCXCHECKOSFEATURESUPPORT`, which `Pfn` matches.
+    // SAFETY: the stub's table holds the slot (`stub_has_slot`) and the framework provides it
+    // (checked above); the 1.11 header pins its type to `PFN_IDDCXCHECKOSFEATURESUPPORT`,
+    // which `Pfn` matches.
     let f: Pfn = unsafe { ddi(CHECK_OS_FEATURE_SUPPORT_INDEX as i32) };
     // SAFETY: reads the stub-provided globals pointer; valid after load.
     let g = unsafe { globals() };
     // SAFETY: a populated DDI called with the stub globals and a valid out block.
     let status = unsafe { (f?)(g, &mut out) };
     Some((status, out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::function_available;
+
+    #[test]
+    fn a_driver_not_newer_than_the_framework_has_every_ddi_of_its_table() {
+        // The count is not set in this case; whatever it holds must not matter.
+        assert!(function_available(36, false, 0));
+        assert!(function_available(36, false, 36));
+    }
+
+    #[test]
+    fn a_newer_driver_has_only_the_ddis_below_the_frameworks_count() {
+        assert!(function_available(35, true, 36));
+        assert!(!function_available(36, true, 36));
+        assert!(function_available(36, true, 37));
+        assert!(!function_available(36, true, 0));
+    }
 }
 
 /// Every struct the driver builds or reads must stay `Sized`: this fails to compile if the

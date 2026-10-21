@@ -164,10 +164,20 @@ fn log_framework() {
     let mut version = iddcx::IDARG_OUT_GETVERSION::default();
     // SAFETY: IddCx loaded the driver; `version` is a valid out block.
     let status = unsafe { wdk_iddcx::IddCxGetVersion(&mut version) };
+    // The DDI count is only set when the driver is newer than the framework.
     // SAFETY: as above.
-    let count = unsafe { wdk_iddcx::function_count() };
-    // SAFETY: as above, and no adapter exists yet.
-    let d3d12 = match unsafe { wdk_iddcx::check_os_feature_support() } {
+    let count = if unsafe { wdk_iddcx::client_newer_than_framework() } {
+        // SAFETY: as above.
+        format!(", {} DDIs", unsafe { wdk_iddcx::function_count() })
+    } else {
+        String::new()
+    };
+    // The IddCx 1.11 stub (`RLVD_IDDCX_LIB`, see build.rs) is the only one with the DDI's slot.
+    // SAFETY: as above, no adapter exists yet, and only that stub sets the cfg.
+    let d3d12 = match unsafe { wdk_iddcx::check_os_feature_support(cfg!(rlvd_iddcx_newer_stub)) } {
+        None if !cfg!(rlvd_iddcx_newer_stub) => {
+            "unknown: this build links the IddCx 1.10 stub, which cannot call IddCxCheckOsFeatureSupport".into()
+        }
         None => "unknown: the framework has no IddCxCheckOsFeatureSupport (IddCx 1.11)".into(),
         Some((st, _)) if !nt_success(st) => {
             format!("unknown: IddCxCheckOsFeatureSupport -> {st:#x}")
@@ -181,7 +191,7 @@ fn log_framework() {
         }
     };
     dbglog!(
-        "[rlvd] IddCx framework version {:#x} (IddCxGetVersion -> {status:#x}, {count} DDIs); D3D12 swap chain: {d3d12}",
+        "[rlvd] IddCx framework version {:#x} (IddCxGetVersion -> {status:#x}{count}); D3D12 swap chain: {d3d12}",
         version.IddCxVersion
     );
 }

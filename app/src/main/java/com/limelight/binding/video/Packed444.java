@@ -25,9 +25,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 final class Packed444 {
-    final int width, height, paddedWidth, paddedHeight, colorSpace, colorRange;
+    final int version, width, height, paddedWidth, paddedHeight, colorSpace, colorRange;
 
-    Packed444(int width, int height, int colorSpace, int colorRange) {
+    Packed444(int version, int width, int height, int colorSpace, int colorRange) {
+        this.version = version;
         this.width = width;
         this.height = height;
         this.paddedWidth = (width + 63) & ~63;

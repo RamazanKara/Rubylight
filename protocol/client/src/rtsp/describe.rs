@@ -20,6 +20,7 @@ pub struct DescribeInfo {
     /// The base64 HEVC VPS prefix (hosts label HEVC as H264).
     pub hevc: bool,
     pub packed444_modes: u8,
+    pub packed444_layered_modes: u8,
     /// A `PYROWAVE/90000` rtpmap and the supported bitstream revision.
     pub pyrowave: bool,
     pub reference_frame_invalidation: bool,
@@ -135,6 +136,15 @@ impl DescribeInfo {
                 }
             },
             pyrowave: offers_pyrowave(sdp),
+            packed444_layered_modes: lines(sdp)
+                .find_map(|line| {
+                    let (key, value) = line.strip_prefix("a=")?.split_once(':')?;
+                    (key == rubylight_protocol::packed444::LAYERED_MODES_ATTRIBUTE)
+                        .then(|| value.parse::<u8>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0)
+                & rubylight_protocol::packed444::ALL_MODES,
             reference_frame_invalidation: sdp.contains("x-nv-video[0].refPicInvalidation"),
             sunshine_feature_flags: sdp_attribute_u32(sdp, "x-ss-general.featureFlags")
                 .unwrap_or(0),
@@ -239,6 +249,21 @@ impl DescribeInfo {
         Err(RtspError::Unsupported(
             "requested packed codec and bit depth are not supported by both endpoints".into(),
         ))
+    }
+
+    pub fn packed_version(&self, format: u32) -> u8 {
+        use rubylight_protocol::packed444;
+        let codec = if format & VIDEO_FORMAT_MASK_AV1 != 0 {
+            2
+        } else {
+            1
+        };
+        let bit = packed444::mode_bit(codec, format & VIDEO_FORMAT_MASK_10BIT != 0);
+        if self.packed444_modes & self.packed444_layered_modes & bit != 0 {
+            packed444::LAYERED_VERSION
+        } else {
+            packed444::VERSION
+        }
     }
 }
 

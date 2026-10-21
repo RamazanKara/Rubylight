@@ -142,6 +142,8 @@ pub struct StreamConfig {
     pub experimental_packed_444: bool,
     /// Packed modes verified by the platform's raw-plane renderer and decoder.
     pub packed444_modes: u8,
+    /// Selected by the RTSP handshake, independently of the saved preference.
+    pub packed444_version: u8,
     /// The display's refresh rate x 100; 0 when unknown.
     pub client_refresh_rate_x100: i32,
     pub color_space: i32,
@@ -180,6 +182,7 @@ impl Default for StreamConfig {
             supported_video_formats: VIDEO_FORMAT_H264,
             experimental_packed_444: false,
             packed444_modes: 0,
+            packed444_version: rubylight_protocol::packed444::VERSION,
             client_refresh_rate_x100: 0,
             color_space: COLORSPACE_REC_709,
             color_range: COLOR_RANGE_LIMITED,
@@ -304,7 +307,7 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
     if c.experimental_packed_444 {
         a.add(
             rubylight_protocol::packed444::REQUEST_ATTRIBUTE,
-            rubylight_protocol::packed444::VERSION,
+            c.packed444_version,
         );
     }
     a.add("x-nv-video[0].clientViewportHt", c.height);

@@ -836,6 +836,9 @@ impl Handshake {
             )
         };
         let pyrowave = format & sdp::VIDEO_FORMAT_MASK_PYROWAVE != 0;
+        if config.experimental_packed_444 {
+            self.out.config.packed444_version = info.packed_version(format);
+        }
         self.out.pyrowave_records_enabled = pyrowave && config.pyrowave_records_supported;
         if pyrowave {
             self.out.video_capabilities &= !sdp::CAPABILITY_DIRECT_SUBMIT;

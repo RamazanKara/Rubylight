@@ -265,6 +265,45 @@ fn packed_chroma_requires_distinct_capabilities_and_keeps_codec_ids() {
 }
 
 #[test]
+fn layered_packing_is_negotiated_per_codec_and_falls_back_to_version_one() {
+    for (format, layered, expected) in [
+        (VIDEO_FORMAT_H265, "", 1),
+        (VIDEO_FORMAT_H265, "0", 1),
+        (VIDEO_FORMAT_H265, "4", 1),
+        (VIDEO_FORMAT_H265, "1", 2),
+        (VIDEO_FORMAT_H265, "15", 2),
+        (VIDEO_FORMAT_H265, "256", 1),
+        (VIDEO_FORMAT_H265, "bad", 1),
+        (VIDEO_FORMAT_H265, "10", 1),
+        (VIDEO_FORMAT_H265_MAIN10, "10", 2),
+        (VIDEO_FORMAT_AV1_MAIN8, "10", 1),
+        (VIDEO_FORMAT_AV1_MAIN10, "10", 2),
+        (VIDEO_FORMAT_H265_MAIN10, "8", 1),
+        (VIDEO_FORMAT_AV1_MAIN10, "2", 1),
+    ] {
+        let mut request = params(None);
+        request.server_codec_mode_support |= SCM_AV1_MAIN8 | SCM_AV1_MAIN10;
+        request.config.experimental_packed_444 = true;
+        request.config.packed444_modes = 15;
+        request.config.supported_video_formats = format;
+        request.config.packed444_version = 255;
+        let mut handshake = Handshake::new(request).unwrap();
+        let sent = run(&mut handshake, |method, target| {
+            if method == "DESCRIBE" {
+                ok(2, "", &format!("{DESCRIBE}a=rtpmap:98 AV1/90000\r\na=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:15\r\na=x-rl-video.packed444LayeredModes:{layered}\r\n"))
+            } else {
+                sunshine_host(method, target)
+            }
+        });
+        let outcome = handshake.finish().unwrap();
+        assert_eq!(outcome.config.packed444_version, expected);
+        assert!(sent.iter().any(|message| message.starts_with("ANNOUNCE ")
+            && message.contains(&format!("a=x-rl-video[0].chromaPacking:{expected}"))));
+        assert_eq!(outcome.negotiated_video_format, format);
+    }
+}
+
+#[test]
 fn gamestream_before_3_22_plays_each_stream() {
     let mut p = params(None);
     p.app_version = "7.1.415.0".into();

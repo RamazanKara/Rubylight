@@ -170,6 +170,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         GLES30.glUniform1i(GLES30.glGetUniformLocation(upscaleProgram, "source"), 0);
         transformUniform = GLES30.glGetUniformLocation(upscaleProgram, "textureTransform");
         if (packing != null) {
+            GLES30.glUniform1i(GLES30.glGetUniformLocation(upscaleProgram, "packingVersion"), packing.version);
             GLES30.glUniform4i(GLES30.glGetUniformLocation(upscaleProgram, "picture"),
                     packing.width, packing.height, packing.paddedWidth, packing.paddedHeight);
             updateHdr();

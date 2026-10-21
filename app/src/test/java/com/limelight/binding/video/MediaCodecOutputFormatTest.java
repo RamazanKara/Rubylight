@@ -25,7 +25,7 @@ import static org.junit.Assert.*;
 public class MediaCodecOutputFormatTest {
     @Test
     public void packedChromaSeparatesDisplaySizeFromCodedPadding() {
-        Packed444 geometry = new Packed444(2559, 1439, 2, 0);
+        Packed444 geometry = new Packed444(1, 2559, 1439, 2, 0);
         assertEquals(2559, geometry.width);
         assertEquals(1439, geometry.height);
         assertEquals(2560, geometry.paddedWidth);
@@ -61,7 +61,9 @@ public class MediaCodecOutputFormatTest {
             prefs.experimentalPacked444 = true;
             assertEquals(-1, renderer.setChromaPacking(1, 2560, 1440, 1, 0));
             prefs.rustEngine = true;
-            assertEquals(-1, renderer.setChromaPacking(2, 2560, 1440, 1, 0));
+            assertEquals(-1, renderer.setChromaPacking(3, 2560, 1440, 1, 0));
+            assertEquals(0, renderer.setChromaPacking(2, 2560, 1440, 1, 0));
+            assertEquals(2, ((Packed444) ReflectionHelpers.getField(renderer, "packing")).version);
             assertEquals(0, renderer.setChromaPacking(1, 2560, 1440, 1, 0));
             assertEquals(0, renderer.setChromaPacking(0, 2560, 1440, 1, 0));
             assertNull(ReflectionHelpers.getField(renderer, "packing"));

@@ -767,7 +767,7 @@ fn start(
             height: coded.1 as i32,
             fps: stream.fps,
             chroma_packing: if stream.experimental_packed_444 {
-                rubylight_protocol::packed444::VERSION
+                stream.packed444_version
             } else {
                 0
             },

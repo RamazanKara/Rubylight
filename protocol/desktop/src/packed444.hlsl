@@ -8,7 +8,7 @@ cbuffer Picture : register(b0) {
 #endif
     uint width; uint height; uint paddedWidth; uint paddedHeight;
     uint tenBit; uint fullRange; uint colorMatrix; uint hdr;
-    float sdrWhite; float padding0; float padding1; float padding2;
+    float sdrWhite; uint packing; float padding1; float padding2;
 };
 
 #ifdef SDR_PRESENT
@@ -58,7 +58,17 @@ float3 linearRgb(float3 yuv) {
 
 float3 reconstruct(uint2 p) {
     float2 uv;
-    if ((p.x & 1) == 0) uv = readUV(uint2(p.x / 2, p.y));
+    if (packing == 2) {
+        float2 base = readUV(p / 2);
+        if ((p.x & 1) != 0) {
+            uv = float2(readY(uint2(p.x / 2, paddedHeight + p.y)),
+                         readY(uint2(paddedWidth / 2 + p.x / 2, paddedHeight + p.y)));
+        } else if ((p.y & 1) != 0) {
+            uv = readUV(uint2(p.x / 2, paddedHeight / 2 + p.y / 2));
+        } else return linearRgb(float3(readY(p), base));
+        uv = clamp(base + 2 * (uv - (tenBit != 0 ? 512 : 128)), 0, tenBit != 0 ? 1023 : 255);
+    }
+    else if ((p.x & 1) == 0) uv = readUV(uint2(p.x / 2, p.y));
     else uv = float2(readY(uint2(p.x / 2, paddedHeight + p.y)),
                      readY(uint2(paddedWidth / 2 + p.x / 2, paddedHeight + p.y)));
     return linearRgb(float3(readY(p), uv));
@@ -75,6 +85,7 @@ cbuffer Presentation : register(b1) {
 };
 
 float3 reconstructRow(uint2 p, float weight) {
+    if (packing == 2) return lerp(reconstruct(p), reconstruct(uint2(min(p.x + 1, width - 1), p.y)), weight);
     // Decode the even and odd samples together to avoid divergent packed-region reads.
     uint evenX = (p.x + 1) / 2;
     uint oddX = p.x / 2;

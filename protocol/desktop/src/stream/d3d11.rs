@@ -123,6 +123,7 @@ impl Packed {
         width: i32,
         height: i32,
         ten_bit: bool,
+        hdr: bool,
     ) -> windows::core::Result<Self> {
         let target = ID3D11Texture2D::from_raw_borrowed(&target);
         let device = ID3D11Device::from_raw_borrowed(&device).unwrap();
@@ -191,6 +192,8 @@ impl Packed {
         )?;
         let fragment_code = if target.is_some() {
             compile(include_bytes!("../packed444.hlsl"), s!("fragment"), s!("ps_5_0"))?
+        } else if hdr {
+            compile(include_bytes!("../packed444.hlsl"), s!("present"), s!("ps_5_0"))?
         } else {
             let source = [b"#define SDR_PRESENT 1\n".as_slice(), include_bytes!("../packed444.hlsl")].concat();
             compile(&source, s!("present"), s!("ps_5_0"))?

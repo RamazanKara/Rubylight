@@ -1144,7 +1144,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public int preparePacked444Modes(int formats, int width, int height, int fps) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || prefs.useTextureView) return 0;
-        Packed444 geometry = new Packed444(width, height, 0, 0);
+        Packed444 geometry = new Packed444(1, width, height, 0, 0);
         int modes = 0;
         MediaCodecInfo[] decoders = {hevcDecoder, av1Decoder};
         String[] codecs = {"hevc", "av1"};
@@ -1184,9 +1184,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             packing = null;
             return 0;
         }
-        if (version != 1 || !prefs.experimentalPacked444 || !prefs.rustEngine ||
+        if ((version != 1 && version != 2) || !prefs.experimentalPacked444 || !prefs.rustEngine ||
                 width < 64 || height < 64 || width > 16384 || height > 8192) return -1;
-        packing = new Packed444(width, height, colorSpace, colorRange);
+        packing = new Packed444(version, width, height, colorSpace, colorRange);
         packingFailed = false;
         return 0;
     }

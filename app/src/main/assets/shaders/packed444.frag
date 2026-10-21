@@ -6,6 +6,7 @@ uniform highp __samplerExternal2DY2YEXT source;
 uniform mat4 textureTransform;
 uniform ivec4 picture; // logical width/height, padded width/height
 uniform ivec4 colorimetry; // ten bit, full range, matrix, HDR
+uniform int packingVersion;
 in vec2 uv;
 out vec4 color;
 
@@ -20,7 +21,18 @@ vec3 reconstruct(ivec2 pixel) {
     float maximum = colorimetry.x != 0 ? 1023.0 : 255.0;
     float y = raw(vec2(pixel) + 0.5).x * maximum;
     vec2 chroma;
-    if ((pixel.x & 1) == 0) {
+    if (packingVersion == 2) {
+        vec2 base = raw(vec2((pixel / 2) * 2 + 1)).yz * maximum;
+        if ((pixel.x & 1) != 0) {
+            chroma = vec2(raw(vec2(pixel.x / 2, picture.w + pixel.y) + 0.5).x,
+                          raw(vec2(picture.z / 2 + pixel.x / 2, picture.w + pixel.y) + 0.5).x) * maximum;
+        } else if ((pixel.y & 1) != 0) {
+            chroma = raw(vec2(pixel.x + 1, picture.w + (pixel.y / 2) * 2 + 1)).yz * maximum;
+        } else {
+            chroma = vec2(colorimetry.x != 0 ? 512.0 : 128.0);
+        }
+        chroma = clamp(base + 2.0 * (chroma - (colorimetry.x != 0 ? 512.0 : 128.0)), 0.0, maximum);
+    } else if ((pixel.x & 1) == 0) {
         chroma = raw(vec2(pixel.x + 1, pixel.y * 2 + 1)).yz * maximum;
     } else {
         chroma = vec2(raw(vec2(pixel.x / 2, picture.w + pixel.y) + 0.5).x,

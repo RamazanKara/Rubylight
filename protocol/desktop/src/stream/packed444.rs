@@ -27,7 +27,7 @@ pub fn probe(renderer: *mut SDL_Renderer, hardware: media::Hardware) -> Result<u
     let mut modes = 0;
     let mut failures = Vec::new();
     for (mode, (codec, data)) in fixtures.into_iter().enumerate() {
-        match verify(renderer, hardware, codec, data, mode % 2 != 0) {
+        match [1, 2].into_iter().try_for_each(|packing| verify(renderer, hardware, codec, data, mode % 2 != 0, packing)) {
             Ok(()) => modes |= 1 << mode,
             Err(reason) => {
                 let failure = format!(
@@ -52,6 +52,7 @@ fn verify(
     codec: media::Codec,
     data: &[u8],
     ten_bit: bool,
+    packing: u32,
 ) -> Result<(), String> {
     let mut decoder = media::VideoDecoder::open(codec, hardware, 1, true)?;
     let status = decoder.send(data, 0);
@@ -95,7 +96,7 @@ fn verify(
             1,
             u32::from(ten_bit),
             2.0f32.to_bits(),
-            0,
+            packing,
             0,
             0,
         ];
@@ -123,7 +124,7 @@ fn verify(
                         );
                         for x in 0..128 {
                             let expected =
-                                fixture_rgb(x, y, ten_bit)
+                                fixture_rgb(x, y, ten_bit, packing)
                                     .map(|v| if ten_bit { v / 2.0 } else { v });
                             let matches =
                                 expected.iter().zip(&row[x * 4..x * 4 + 3]).all(|(&a, &b)| {
@@ -152,10 +153,26 @@ fn verify(
     }
 }
 
-fn fixture_rgb(x: usize, y: usize, ten_bit: bool) -> [f32; 3] {
+fn fixture_rgb(x: usize, y: usize, ten_bit: bool, packing: u32) -> [f32; 3] {
     let maximum = if ten_bit { 1023 } else { 255 };
     let luma = ((x + y * 13) & maximum) as f32;
-    let (u, v) = if x % 2 == 0 {
+    let (u, v) = if packing == 2 {
+        let base = (x / 2 * 7 + y / 2 * 19 + 17) & maximum;
+        let mut uv = [base, maximum - base];
+        let detail = if x % 2 != 0 {
+            Some([(x / 2 + (64 + y) * 13) & maximum, (64 + x / 2 + (64 + y) * 13) & maximum])
+        } else if y % 2 != 0 {
+            let u = (x / 2 * 7 + (32 + y / 2) * 19 + 17) & maximum;
+            Some([u, maximum - u])
+        } else { None };
+        if let Some(detail) = detail {
+            for plane in 0..2 {
+                uv[plane] = (uv[plane] as i32 + 2 * detail[plane] as i32 - maximum as i32 - 1)
+                    .clamp(0, maximum as i32) as usize;
+            }
+        }
+        (uv[0], uv[1])
+    } else if x % 2 == 0 {
         let u = (x / 2 * 7 + y * 19 + 17) & maximum;
         (u, maximum - u)
     } else {
@@ -242,6 +259,7 @@ impl Reconstruction {
                         parameters[2] as i32,
                         parameters[3] as i32 * 2,
                         parameters[4] != 0,
+                        parameters[7] != 0,
                     ).map_err(|e| eprintln!("nightjar: packed reconstruction: {e}")).ok();
                     return result.native.is_some().then_some(result);
                 }
@@ -517,6 +535,8 @@ mod tests {
             );
             assert!(!target.is_null());
             assert!(SDL_SetTextureScaleMode(target, SDL_SCALEMODE_LINEAR));
+            let linear_output = SDL_GetNumberProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_OUTPUT_COLORSPACE_NUMBER, 0)
+                == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0);
             for (codec, format, data) in [
                 (
                     media::Codec::Hevc,
@@ -527,6 +547,16 @@ mod tests {
                     media::Codec::Av1,
                     nightjar_core::sdp::VIDEO_FORMAT_AV1_MAIN8,
                     &include_bytes!("../../../../app/src/main/assets/packed444/av1-8.bin")[..],
+                ),
+                (
+                    media::Codec::Hevc,
+                    nightjar_core::sdp::VIDEO_FORMAT_H265_MAIN10,
+                    &include_bytes!("../../../../app/src/main/assets/packed444/hevc-10.bin")[..],
+                ),
+                (
+                    media::Codec::Av1,
+                    nightjar_core::sdp::VIDEO_FORMAT_AV1_MAIN10,
+                    &include_bytes!("../../../../app/src/main/assets/packed444/av1-10.bin")[..],
                 ),
             ] {
                 let mut decoder = media::VideoDecoder::open(codec, hardware, 1, true).unwrap();
@@ -553,21 +583,27 @@ mod tests {
                     ready_us: 0,
                     host_latency: 0,
                 };
-                let mut parameters = [128, 64, 128, 64, 0, 1, 1, 0, 1.0f32.to_bits(), 0, 0, 0];
+                let ten_bit = format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
+                let mut parameters = [128, 64, 128, 64, u32::from(ten_bit), 1, 1, 0, 1.0f32.to_bits(), 0, 0, 0];
                 let mut reference = Reconstruction::new(renderer, target, &parameters).unwrap();
                 let mut video = VideoTexture::default();
-                for range in 0..=1 {
+                video.set_hdr_mode(false, None);
+                for (range, packing, hdr) in (0..=1).flat_map(|range| (1..=2).flat_map(move |packing| [false, true].into_iter().filter(move |&hdr| !hdr || (ten_bit && linear_output)).map(move |hdr| (range, packing, hdr)))) {
+                    decoded.setup.chroma_packing = packing;
+                    parameters[7] = u32::from(hdr);
+                    parameters[9] = u32::from(packing);
+                    let mut direct_hdr = hdr.then(|| Reconstruction::new(renderer, ptr::null_mut(), &parameters).unwrap());
+                    if let Some(direct) = &mut direct_hdr { assert!(direct.upload(&decoded.frame)); }
                     for matrix in 0..=2 {
                         decoded.setup.color_range = range;
                         decoded.setup.color_space = matrix;
                         parameters[5] = range as u32;
                         parameters[6] = matrix as u32;
                         assert!(reference.draw(renderer, target, &decoded.frame, &parameters));
-                        assert!(video.upload(renderer, &decoded));
-                        assert!(
-                            video.texture.is_null(),
-                            "direct presentation allocated an intermediate RGB texture"
-                        );
+                        if !hdr {
+                            assert!(video.upload(renderer, &decoded));
+                            assert!(video.texture.is_null(), "direct presentation allocated an intermediate RGB texture");
+                        }
                         for (width, height) in [(128, 64), (240, 160), (99, 59)] {
                             assert!(SDL_SetWindowSize(window, width, height));
                             SDL_PumpEvents();
@@ -587,13 +623,18 @@ mod tests {
                                 ));
                                 overlay(renderer);
                                 let expected = pixels(renderer);
+                                // The reference stores FP16 and uses fixed-point hardware
+                                // filtering. Bound HDR interpolation error by its scene range.
+                                let hdr_range = if hdr {
+                                    expected.iter().fold(1.0f32, |peak, value| peak.max(value.abs()))
+                                } else { 1.0 };
                                 assert!(SDL_RenderPresent(renderer));
                                 // Redraws after Present and resize must retain the uploaded picture.
                                 for _ in 0..2 {
                                     assert!(SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255));
                                     assert!(SDL_RenderClear(renderer));
                                     assert!(
-                                        video.draw(renderer, (w, h)),
+                                        if let Some(direct) = &mut direct_hdr { direct.present(renderer, &parameters, &destination) } else { video.draw(renderer, (w, h)) },
                                         "{}",
                                         crate::sdl::error()
                                     );
@@ -602,15 +643,18 @@ mod tests {
                                     assert_eq!(actual.len(), expected.len());
                                     let mut maximum = 0.0f32;
                                     let mut sum = 0.0;
+                                    let mut worst = (0.0, 0.0);
                                     for (&a, &b) in expected.iter().zip(&actual) {
                                         assert!(b.is_finite());
-                                        let error = (a - b).abs();
+                                        let error = (a - b).abs() / hdr_range;
+                                        if error > maximum { worst = (a, b); }
                                         maximum = maximum.max(error);
                                         sum += error;
                                     }
                                     let mean = sum / actual.len() as f32;
-                                    assert!(maximum < 0.01 && mean < 0.0008,
-                                        "{codec:?} range={range} matrix={matrix} {w}x{h} scale={scale}: max={maximum}, mean={mean}");
+                                    let tolerance = if hdr && destination.w == 128.0 && destination.h == 64.0 { 0.001 } else { 0.01 };
+                                    assert!(maximum < tolerance && mean < 0.0008,
+                                        "{codec:?} ten_bit={ten_bit} packing={packing} hdr={hdr} range={range} matrix={matrix} {w}x{h} scale={scale}: max={maximum}, mean={mean}, worst={worst:?}");
                                     assert!(SDL_RenderPresent(renderer));
                                 }
                             }
@@ -618,6 +662,33 @@ mod tests {
                     }
                 }
                 video.destroy();
+                if ten_bit && linear_output {
+                    // Emulate display limits to exercise path selection without changing Windows HDR.
+                    let properties = SDL_GetRendererProperties(renderer);
+                    let enabled = SDL_GetBooleanProperty(properties, SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, false);
+                    let white = SDL_GetFloatProperty(properties, SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0);
+                    let headroom = SDL_GetFloatProperty(properties, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0);
+                    assert!(SDL_SetBooleanProperty(properties, SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, true));
+                    assert!(SDL_SetFloatProperty(properties, SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 2.0));
+                    for direct in [true, false] {
+                        let mut video = VideoTexture::new(direct);
+                        for (peak, available) in [(320, 16.0), (4000, 16.0), (320, 16.0), (320, 1.0), (320, 16.0)] {
+                            assert!(SDL_SetFloatProperty(properties, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, available));
+                            video.set_hdr_mode(true, Some(nightjar_core::control::HdrMetadata {
+                                max_content_light_level: peak,
+                                ..Default::default()
+                            }));
+                            assert!(video.upload(renderer, &decoded));
+                            assert_eq!(video.texture.is_null(), direct && peak == 320 && available == 16.0);
+                            assert!(video.draw(renderer, (99, 59)));
+                            assert!(SDL_RenderPresent(renderer));
+                        }
+                        video.destroy();
+                    }
+                    SDL_SetBooleanProperty(properties, SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, enabled);
+                    SDL_SetFloatProperty(properties, SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, white);
+                    SDL_SetFloatProperty(properties, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, headroom);
+                }
                 drop(reference);
             }
             SDL_DestroyTexture(target);

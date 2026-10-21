@@ -343,7 +343,7 @@ impl VideoTexture {
             ) else {
                 return false;
             };
-            if setup.chroma_packing != rubylight_protocol::packed444::VERSION
+            if !rubylight_protocol::packed444::supported(setup.chroma_packing)
                 || layout.coded_size() != (info.width as u32, info.height as u32)
                 || (info.ten_bit != 0)
                     != (setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0)
@@ -368,7 +368,7 @@ impl VideoTexture {
                 setup.color_space as u32,
                 u32::from(hdr),
                 white_level.to_bits(),
-                0,
+                u32::from(setup.chroma_packing),
                 0,
                 0,
             ];
@@ -379,11 +379,21 @@ impl VideoTexture {
                 self.destroy();
             }
             #[cfg(windows)]
-            if self.direct_packed && !hdr
+            if self.direct_packed && (!hdr || unsafe {
+                let properties = SDL_GetRendererProperties(renderer);
+                let peak = self.hdr_metadata.map_or(0, |m| {
+                    if m.max_content_light_level != 0 { m.max_content_light_level } else { m.max_display_luminance }
+                });
+                // Keep SDL's texture path when metadata calls for tone mapping.
+                SDL_GetNumberProperty(properties, SDL_PROP_RENDERER_OUTPUT_COLORSPACE_NUMBER, 0)
+                    == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0)
+                    && f32::from(peak) / (80.0 * white_level)
+                        <= SDL_GetFloatProperty(properties, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0)
+            })
                 && !crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER)
                     .is_null()
             {
-                if self.packed.is_none() {
+                if self.packed.is_none() || !self.texture.is_null() {
                     self.destroy();
                     self.packed = super::packed444::Reconstruction::new(
                         renderer,
@@ -506,6 +516,8 @@ impl VideoTexture {
             unsafe { SDL_DestroyTexture(self.texture) };
         }
         *self = Self {
+            #[cfg(windows)]
+            direct_packed: self.direct_packed,
             hdr_mode: self.hdr_mode,
             hdr_metadata: self.hdr_metadata,
             ..Self::default()

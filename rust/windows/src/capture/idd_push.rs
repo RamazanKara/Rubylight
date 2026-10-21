@@ -140,8 +140,14 @@ impl FenceFaults {
         self.0 = 0;
     }
     /// Count `error` if it is a fence fault. The error to end the stream with once the limit
-    /// is reached, naming the driver and how to repair it.
+    /// is reached, naming the driver and how to repair it. A device loss (a TDR, a driver
+    /// reset) is not counted whatever it wraps: the device-loss recovery handles it, and it
+    /// starts the count again, as a fault before it says nothing about the recreated device.
     pub fn fault(&mut self, error: &anyhow::Error) -> Option<anyhow::Error> {
+        if crate::device_loss::DeviceLost::from_error(error).is_some() {
+            self.0 = 0;
+            return None;
+        }
         let fault = error.downcast_ref::<FenceFault>()?;
         self.0 += 1;
         (self.0 >= FENCE_FAULTS_BEFORE_STOP).then(|| {
@@ -1142,6 +1148,21 @@ mod tests {
             assert!(faults.fault(&fault()).is_none());
             faults.delivered();
         }
+        // A device loss wrapping a fence fault is not counted, and it forgives the faults before it.
+        let lost = || {
+            fault().context(crate::device_loss::DeviceLost(
+                windows::Win32::Graphics::Dxgi::DXGI_ERROR_DEVICE_REMOVED.0,
+            ))
+        };
+        for _ in 0..10 {
+            assert!(faults.fault(&lost()).is_none());
+        }
+        assert!(faults.fault(&fault()).is_none());
+        assert!(faults.fault(&lost()).is_none());
+        for _ in 1..FENCE_FAULTS_BEFORE_STOP {
+            assert!(faults.fault(&fault()).is_none(), "the count started again");
+        }
+        faults.delivered();
         // Other errors neither count nor end anything.
         assert!(
             faults

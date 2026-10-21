@@ -960,6 +960,8 @@ impl Media {
                                 if let Some(loss) = DeviceLost::from_error(&e) {
                                     worker.device_lost(loss, &capture_warnings, Instant::now())?;
                                     worker.take_device_restart()?;
+                                    // The recovery starts the count again.
+                                    fence_faults.delivered();
                                 } else {
                                     capture_warnings.set("capture_recovery", format!("Capture interrupted ({e:#}); reopening capture, with a frozen picture until frames resume. If this repeats, keep the display mode stable and check the display driver and graphics driver."));
                                 }

@@ -61,6 +61,18 @@ fn packed444_hevc_minimum_width() -> Result<()> {
 }
 
 #[test]
+#[ignore = "compares packed layouts at 1080p60/20 Mbps using AMD AMF and an independent decoder"]
+fn packed444_layered_quality() -> Result<()> {
+    verify(
+        &[(1920, 1080)],
+        &[(false, false), (true, true)],
+        &[1, 2],
+        60,
+        20_000,
+    )
+}
+
+#[test]
 #[ignore = "requires AMD AMF at 1440p120, D3D11/D3D12 and an independent FFmpeg decoder"]
 fn packed444_target_geometry() -> Result<()> {
     verify(
@@ -116,17 +128,21 @@ fn verify(
             })
             .collect();
         let hdr_image = make_image(&colors, 1, height as usize);
-        for &(ten_bit, hdr) in formats {
+        for ((ten_bit, hdr), packing) in formats
+            .iter()
+            .copied()
+            .flat_map(|format| [1, 2].map(|packing| (format, packing)))
+        {
             let image = if hdr { &hdr_image } else { &image };
             let uploaded = GpuImage::upload(&gpu, image)?;
-            eprintln!("Packing {width}x{height}, ten_bit={ten_bit}, hdr={hdr}");
+            eprintln!("Packing v{packing} {width}x{height}, ten_bit={ten_bit}, hdr={hdr}");
             let config = Negotiated {
                 width,
                 height,
                 codec: 1,
                 sdr_10bit: ten_bit,
                 hdr,
-                chroma_packing: 1,
+                chroma_packing: packing,
                 fps,
                 bitrate_kbps,
                 ..Default::default()
@@ -144,7 +160,13 @@ fn verify(
                 .map(|texture| Ok(codes(&plane_bytes(&gpu, texture)?, ten_bit, true)))
                 .collect::<Result<_>>()?;
             let mut expected = vec![0; layout.samples()];
-            assert!(layout.pack([&planes[0], &planes[1], &planes[2]], &mut expected));
+            let source = [&planes[0][..], &planes[1][..], &planes[2][..]];
+            let maximum = if ten_bit { 1023 } else { 255 };
+            assert!(if packing == 2 {
+                layout.pack_layered(source, &mut expected, maximum)
+            } else {
+                layout.pack(source, &mut expected)
+            });
             for compute in [false, true] {
                 let mut converter = Converter::new(&gpu, &config, (width, height, image.pixel))?;
                 if !compute {
@@ -211,6 +233,10 @@ fn verify(
                     eprintln!("Drained frame {i}, packets={}", packets.len());
                 }
                 assert_eq!(packets.len(), 8);
+                eprintln!(
+                    "packing={packing}, codec={codec}, ten_bit={ten_bit}: {} encoded bytes",
+                    packets.iter().map(|p| p.bytes.len()).sum::<usize>()
+                );
                 eprintln!("Decoding {} packets independently", packets.len());
                 let path = directory.path().join(if codec == 1 {
                     "packed.hevc"
@@ -270,7 +296,11 @@ fn verify(
                 let reference: Vec<_> = planes.iter().flatten().copied().collect();
                 let mut restored = vec![0; width as usize * height as usize * 3];
                 for (frame, decoded) in decoded.chunks_exact(layout.samples()).enumerate() {
-                    assert!(layout.unpack(decoded, &mut restored));
+                    assert!(if packing == 2 {
+                        layout.unpack_layered(decoded, &mut restored, maximum)
+                    } else {
+                        layout.unpack(decoded, &mut restored)
+                    });
                     let error: f64 = restored
                         .iter()
                         .zip(&reference)

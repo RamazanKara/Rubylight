@@ -120,6 +120,7 @@ pub(crate) fn constants(
         (luminance[0] / 80.).to_bits(),
         luminance[1].to_bits(),
     ]);
+    values[11] = u32::from(config.chroma_packing);
     values[12..].copy_from_slice(&pointer_constants(pointer));
     values
 }

@@ -198,11 +198,13 @@ async fn connection(
                             use butterpollo_core::packed444;
                             body.extend_from_slice(
                                 format!(
-                                    "a={}:{}\r\na={}:{}\r\n",
+                                    "a={}:{}\r\na={}:{}\r\na={}:{}\r\n",
                                     packed444::VERSION_ATTRIBUTE,
                                     packed444::VERSION,
                                     packed444::MODES_ATTRIBUTE,
-                                    modes
+                                    modes,
+                                    packed444::LAYERED_MODES_ATTRIBUTE,
+                                    modes & packed444::LAYERED_MODES
                                 )
                                 .as_bytes(),
                             );

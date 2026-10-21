@@ -2031,7 +2031,7 @@ dependencies = [
 [[package]]
 name = "rubylight-protocol"
 version = "0.1.0"
-source = "git+https://github.com/RamazanKara/rubylight-android?rev=d25c4d4d028f4b52fcc2d11693c0e3e1781502b6#d25c4d4d028f4b52fcc2d11693c0e3e1781502b6"
+source = "git+https://github.com/RamazanKara/rubylight-android?rev=9bd9b9bd8a2336f26725b7a4fea2227a264f0b71#9bd9b9bd8a2336f26725b7a4fea2227a264f0b71"
 
 [[package]]
 name = "rubylight-vdisplay-proto"

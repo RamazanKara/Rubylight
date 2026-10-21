@@ -223,17 +223,33 @@ float3 yuv444(float2 p) {
 // extends the logical edge before conversion, without a chroma filter.
 uint2 packedSize() { return (targetSize + uint2(63, 7)) & ~uint2(63, 7); }
 float3 packedRgb(uint2 at) { return nonlinear(float2(min(at, targetSize - 1))); }
+// The extra chroma regions are signed half-differences in version 2. Keeping
+// their full range avoids modular wraparound when the codec quantizes them.
+float2 packedDetail(float2 value, float2 base) {
+    float unit = tenBit != 0 ? 65535.0 / 64 : 255;
+    float maximum = tenBit != 0 ? 1023 : 255;
+    float center = tenBit != 0 ? 512 : 128;
+    return clamp(floor((round(value * unit) - round(base * unit)) * 0.5 + center + 0.5), 0, maximum) / unit;
+}
 float packedY(uint2 at) {
     uint2 size = packedSize();
     if (at.y < size.y) return lumaCode(packedRgb(at));
     uint plane = at.x >= size.x / 2 ? 1 : 0;
-    float2 uv = chromaCode(packedRgb(uint2((at.x % (size.x / 2)) * 2 + 1, at.y - size.y)));
+    uint2 pixel = uint2((at.x % (size.x / 2)) * 2 + 1, at.y - size.y);
+    float2 uv = chromaCode(packedRgb(pixel));
+    if (padding == 2) uv = packedDetail(uv, chromaCode(packedRgb(pixel & ~uint2(1, 1))));
     return plane == 0 ? uv.x : uv.y;
 }
 float4 chroma_pack_y(float4 p : SV_Position) : SV_Target {
     return float4(packedY(uint2(p.xy)), 0, 0, 1);
 }
 float4 chroma_pack_uv(float4 p : SV_Position) : SV_Target {
+    if (padding == 2) {
+        uint2 size = packedSize();
+        uint2 at = uint2(uint(p.x) * 2, (uint(p.y) % (size.y / 2)) * 2);
+        float2 base = chromaCode(packedRgb(at));
+        return float4(uint(p.y) < size.y / 2 ? base : packedDetail(chromaCode(packedRgb(at + uint2(0, 1))), base), 0, 1);
+    }
     return float4(chromaCode(packedRgb(uint2(uint(p.x) * 2, uint(p.y)))), 0, 1);
 }
 [numthreads(8, 8, 1)]
@@ -243,6 +259,30 @@ void chroma_pack_cs(uint3 id : SV_DispatchThreadID) {
     uint2 at = uint2(id.x * 2, id.y);
     float3 even = packedRgb(at);
     float3 odd = packedRgb(at + uint2(1, 0));
+    if (padding == 2) {
+        // Each thread owns one complete 2x2 block and reuses the anchor for
+        // all three enhancement samples; the lower half of the dispatch exits.
+        if (id.y >= size.y / 2) return;
+        at.y = id.y * 2;
+        even = packedRgb(at);
+        odd = packedRgb(at + uint2(1, 0));
+        float3 bottomLeft = packedRgb(at + uint2(0, 1));
+        float3 bottomRight = packedRgb(at + uint2(1, 1));
+        float2 base = chromaCode(even);
+        float2 topDetail = packedDetail(chromaCode(odd), base);
+        float2 bottomDetail = packedDetail(chromaCode(bottomRight), base);
+        lumaPlane[at] = lumaCode(even);
+        lumaPlane[at + uint2(1, 0)] = lumaCode(odd);
+        lumaPlane[at + uint2(0, 1)] = lumaCode(bottomLeft);
+        lumaPlane[at + uint2(1, 1)] = lumaCode(bottomRight);
+        lumaPlane[uint2(id.x, size.y + at.y)] = topDetail.x;
+        lumaPlane[uint2(size.x / 2 + id.x, size.y + at.y)] = topDetail.y;
+        lumaPlane[uint2(id.x, size.y + at.y + 1)] = bottomDetail.x;
+        lumaPlane[uint2(size.x / 2 + id.x, size.y + at.y + 1)] = bottomDetail.y;
+        chromaPlane[id.xy] = base;
+        chromaPlane[uint2(id.x, size.y / 2 + id.y)] = packedDetail(chromaCode(bottomLeft), base);
+        return;
+    }
     float2 uv = chromaCode(odd);
     lumaPlane[at] = lumaCode(even);
     lumaPlane[at + uint2(1, 0)] = lumaCode(odd);

@@ -231,7 +231,7 @@ impl Default for Negotiated {
 }
 impl Negotiated {
     pub fn coded_size(&self) -> (u32, u32) {
-        if self.chroma_packing == crate::packed444::VERSION {
+        if crate::packed444::supported(self.chroma_packing) {
             crate::packed444::Geometry::new(self.width, self.height)
                 .expect("validated packed geometry")
                 .coded_size()
@@ -338,7 +338,7 @@ impl Negotiated {
     }
     pub fn validate(&self) -> Result<()> {
         if self.chroma_packing != 0
-            && (self.chroma_packing != crate::packed444::VERSION
+            && (!crate::packed444::supported(self.chroma_packing)
                 || self.yuv444
                 || crate::packed444::mode_bit(self.codec, self.ten_bit()) == 0
                 || crate::packed444::Geometry::new(self.width, self.height).is_none())
@@ -683,7 +683,7 @@ mod tests {
         assert!(!config.yuv444);
         assert_eq!(Negotiated::default().chroma_packing, 0);
         for suffix in [
-            "a=x-rl-video[0].chromaPacking:2",
+            "a=x-rl-video[0].chromaPacking:3",
             "a=x-ss-video[0].chromaSamplingType:1",
             "a=x-nv-vqos[0].bitStreamFormat:0",
             "a=x-nv-video[0].clientViewportWd:0",
@@ -692,6 +692,12 @@ mod tests {
             invalid.extend_from_slice(suffix.as_bytes());
             assert!(Negotiated::from_sdp(&invalid).is_err());
         }
+        let layered = Negotiated::from_sdp(
+            &[request.as_slice(), b"a=x-rl-video[0].chromaPacking:2"].concat(),
+        )
+        .unwrap();
+        assert_eq!(layered.chroma_packing, 2);
+        assert_eq!(layered.coded_size(), config.coded_size());
     }
     #[test]
     fn packed_hevc_rejects_coded_width_below_amfs_documented_minimum() {

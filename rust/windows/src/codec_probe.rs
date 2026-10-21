@@ -77,7 +77,7 @@ pub fn pyrowave(config: &Config) -> Result<u32> {
 pub fn packed(config: &Config, stream: &Negotiated) -> Result<()> {
     stream.validate()?;
     ensure!(
-        stream.chroma_packing == butterpollo_core::packed444::VERSION,
+        butterpollo_core::packed444::supported(stream.chroma_packing),
         "invalid packed probe request"
     );
     let flag = u32::from(butterpollo_core::packed444::mode_bit(
@@ -198,7 +198,7 @@ fn probe(request: &Request) -> Result<Reply> {
     if let Some(mode) = &request.packed {
         mode.validate()?;
         ensure!(
-            mode.chroma_packing == butterpollo_core::packed444::VERSION,
+            butterpollo_core::packed444::supported(mode.chroma_packing),
             "invalid packed probe request"
         );
         gpu.values.extend(request.encoder_options.clone());

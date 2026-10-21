@@ -3,11 +3,20 @@ use butterpollo_core::{packet::VideoPacketizer, rtsp::Negotiated};
 use std::time::Duration;
 
 #[test]
-#[ignore = "renders a synthetic 1440p scene and compares eight bounded AMD encoding runs"]
+#[ignore = "renders a synthetic 1440p scene and compares twelve bounded AMD encoding runs"]
 fn packed444_synthetic_performance() -> Result<()> {
+    compare(2560, 1440, 120, 140_000)
+}
+
+#[test]
+#[ignore = "compares packed layouts at 1080p60 through AMD encoding and transport framing"]
+fn packed444_1080p60_performance() -> Result<()> {
+    compare(1920, 1080, 60, 20_000)
+}
+
+fn compare(width: u32, height: u32, fps: usize, bitrate_kbps: u32) -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    let (width, height) = (2560, 1440);
     let mut image = GpuImage::upload(
         &gpu,
         &make_image(&[[0.; 3]], width as usize, height as usize),
@@ -115,20 +124,20 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
         )
     };
     let timer = crate::timing::Timer::new()?;
-    let period = Duration::from_nanos(1_000_000_000 / 120);
+    let period = Duration::from_nanos(1_000_000_000 / fps as u64);
     let mut accepted = true;
     for codec in [1, 2] {
         for hdr in [false, true] {
             let mut baseline = 0.;
-            for packing in [0, 1] {
+            for packing in [0, 1, 2] {
                 let config = Negotiated {
                     width,
                     height,
                     codec,
                     hdr,
                     chroma_packing: packing,
-                    fps: 120,
-                    bitrate_kbps: 140_000,
+                    fps: fps as u32,
+                    bitrate_kbps,
                     ..Default::default()
                 };
                 let mut encoder = crate::amf::Encoder::new_device(&config, gpu.clone())?;
@@ -160,7 +169,7 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
                         if observed == 1 {
                             first_packet = Some((frame.bytes, frame.idr, bytes));
                         }
-                        if observed > 120 {
+                        if observed > fps {
                             latencies.push(
                                 frame
                                     .presentation
@@ -179,7 +188,7 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
                 let mut measured = Instant::now();
                 let mut due = Instant::now();
                 eprintln!("Synthetic scene: codec={codec}, hdr={hdr}, packing={packing}");
-                for frame in 0..1320 {
+                for frame in 0..fps * 11 {
                     while Instant::now() < due {
                         received += consume(encoder.poll()?)?;
                         timer.until((Instant::now() + Duration::from_micros(250)).min(due));
@@ -188,14 +197,14 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
                         Instant::now().saturating_duration_since(due) < Duration::from_secs(1),
                         "synthetic scene stalled; stopping GPU tests"
                     );
-                    if frame == 120 {
+                    if frame == fps {
                         measured = Instant::now();
                     }
                     image.captured = Instant::now();
                     let values = [
                         width as f32,
                         height as f32,
-                        frame as f32 / 120.,
+                        frame as f32 / fps as f32,
                         u8::from(hdr) as f32,
                     ];
                     // SAFETY: This thread submits both the scene and conversion on the same
@@ -221,7 +230,7 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
                     }
                     received += consume(encoder.encode_gpu(
                         &image,
-                        frame % 240 == 0,
+                        frame % (fps * 2) == 0,
                         config.bitrate_kbps,
                     )?)?;
                     maximum_pending = maximum_pending.max(frame + 1 - received);
@@ -247,8 +256,8 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
                     expected_wire_bytes,
                     packets.iter().map(|p| p.len() + 40 + 8 + 38).sum::<usize>()
                 );
-                assert_eq!(received, 1320);
-                assert_eq!(latencies.len(), 1200);
+                assert_eq!(received, fps * 11);
+                assert_eq!(latencies.len(), fps * 10);
                 latencies.sort_by(f64::total_cmp);
                 let p95 = latencies[(latencies.len() - 1) * 95 / 100];
                 if packing == 0 {
@@ -256,19 +265,22 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
                 }
                 let mbps = wire.iter().sum::<usize>() as f64 * 8. / seconds / 1_000_000.;
                 let peak_mbps = wire
-                    .windows(120)
+                    .windows(fps)
                     .map(|w| w.iter().sum::<usize>())
                     .max()
                     .unwrap() as f64
                     * 8.
                     / 1_000_000.;
-                let fps = 1200. / seconds;
-                let passed =
-                    fps >= 119. && mbps <= 200. && peak_mbps <= 200. && p95 - baseline <= 8.33;
+                let actual_fps = (fps * 10) as f64 / seconds;
+                let wire_budget = f64::from(bitrate_kbps) / 700.;
+                let passed = actual_fps >= fps as f64 - 1.
+                    && mbps <= wire_budget
+                    && peak_mbps <= wire_budget
+                    && p95 - baseline <= 1000. / fps as f64;
                 accepted &= passed;
                 eprintln!(
                     "{}",
-                    serde_json::json!({"scope":"synthetic GPU scene through completed host encoding; excludes network and client presentation; transport bytes use the actual FEC layout", "adapter":gpu.display.adapter, "codec":codec, "hdr":hdr, "packing":packing, "fps":fps, "frames":1200, "p95_ms":p95, "added_p95_ms":p95-baseline, "maximum_pending":maximum_pending, "wire_mbps":mbps, "peak_120_frame_wire_mbps":peak_mbps, "passed":passed})
+                    serde_json::json!({"scope":"synthetic GPU scene through completed host encoding; excludes network and client presentation; transport bytes use the actual FEC layout", "adapter":gpu.display.adapter, "codec":codec, "hdr":hdr, "packing":packing, "fps":actual_fps, "frames":fps * 10, "p95_ms":p95, "added_p95_ms":p95-baseline, "maximum_pending":maximum_pending, "wire_mbps":mbps, "peak_one_second_wire_mbps":peak_mbps, "passed":passed})
                 );
             }
         }

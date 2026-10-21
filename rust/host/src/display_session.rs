@@ -645,6 +645,24 @@ fn frame_policy(
     Ok((framegen, device_mode))
 }
 
+/// The scale a stream's display gets: the configured virtual display scale for a
+/// virtual display or a remote monitor's retained one, and 0 (leave it alone) for a
+/// physical display, whose scale belongs to the user.
+fn virtual_display_scale(virtual_layout: bool, configured: i64) -> i64 {
+    if virtual_layout { configured } else { 0 }
+}
+
+/// Puts the configured virtual display scale on `output`, whichever display it is: a stream's
+/// own, or a remote monitor's retained one, which nothing else scales.
+fn scale_display(
+    output: &str,
+    configured: i64,
+    (width, height): (u32, u32),
+    set: impl FnOnce(&str, i64, u32, u32) -> Result<()>,
+) -> Result<()> {
+    set(output, configured, width, height)
+}
+
 impl Prepared {
     fn capture_target(&self) -> (String, u64) {
         self._retained.as_ref().map_or_else(
@@ -680,15 +698,13 @@ impl Prepared {
             }
         }
         if self.recovery.due(std::time::Instant::now()) {
-            // A remote monitor's scale is set by its lease.
-            if self._retained.is_none() {
-                butterpollo_windows::display::virtual_scale(
-                    &self.output,
-                    self.recovery_scale,
-                    self.recovery_dimensions.0,
-                    self.recovery_dimensions.1,
-                )?;
-            }
+            // The lease does not set a remote monitor's scale; it needs it again as well.
+            scale_display(
+                &self.output,
+                self.recovery_scale,
+                self.recovery_dimensions,
+                butterpollo_windows::display::virtual_scale,
+            )?;
             if let Some(arrangement) = &self._arrangement {
                 arrangement.reapply(&self.output, &self.remote_monitors())?;
             }
@@ -1011,18 +1027,21 @@ impl Prepared {
             .map(|d| d.current_output())
             .or_else(|| display.as_ref().map(|d| d.output.clone()))
             .context("display lease unavailable")?;
-        if virtual_mode {
-            butterpollo_windows::display::virtual_scale(
-                &output,
-                config.integer("dd_virtual_display_scale", 0),
-                width,
-                height,
-            )?;
-        }
         // A remote monitor is a virtual display even when this device's
         // streams otherwise use a physical one, so it follows the virtual
         // display layout.
         let virtual_layout = virtual_mode || retained.is_some();
+        // A remote monitor's retained display too: the lease never sets the scale.
+        let scale = virtual_display_scale(
+            virtual_layout,
+            config.integer("dd_virtual_display_scale", 0),
+        );
+        scale_display(
+            &output,
+            scale,
+            (width, height),
+            butterpollo_windows::display::virtual_scale,
+        )?;
         // The client's choice for this stream comes before the device, app
         // and host layouts.
         let selection = if virtual_layout {
@@ -1205,7 +1224,7 @@ impl Prepared {
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
                 mode_report,
-                recovery_scale: config.integer("dd_virtual_display_scale", 0),
+                recovery_scale: scale,
                 recovery_dimensions: (width, height),
                 recovery_profile,
                 host: Arc::downgrade(h),
@@ -1588,6 +1607,29 @@ mod tests {
     use super::*;
     use std::cell::Cell;
     use std::sync::mpsc;
+
+    #[test]
+    fn the_configured_scale_reaches_every_stream_display_including_remote_monitors() {
+        let mut seen = None;
+        let display = r"\\.\DISPLAY7";
+        scale_display(
+            display,
+            125,
+            (2560, 1440),
+            |output, scale, width, height| {
+                seen = Some((output.to_owned(), scale, width, height));
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(seen, Some((display.to_owned(), 125, 2560, 1440)));
+        // A display that cannot be scaled is a loud failure, not a silent skip.
+        assert!(scale_display("x", 125, (1, 1), |_, _, _, _| anyhow::bail!("no")).is_err());
+        // A physical display keeps the user's own scale; a retained remote monitor
+        // and a virtual display take the configured one.
+        assert_eq!(virtual_display_scale(false, 125), 0);
+        assert_eq!(virtual_display_scale(true, 125), 125);
+    }
 
     fn test_prepared(host: &Shared) -> Prepared {
         let framegen = Policy::resolve(

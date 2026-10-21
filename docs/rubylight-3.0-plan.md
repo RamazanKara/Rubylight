@@ -173,7 +173,7 @@ Each track starts with a spike and needs the user's go-ahead.
 | Slice | State | Notes |
 |---|---|---|
 | A0 release tooling | done | `bump.py` accepts alpha/beta and labels them with the full version; the elevated task accepts them; CI tag trigger covers `v3.*` |
-| A1 port 2.5 (7 phases) | pending | |
+| A1 port 2.5 (5 phases) | phase 1 done | Phase 1: 4 of 9 picked; main already had the fence ring (keyed mutex default, fence opt-in), so phase 3 must decide the default. Driver 0.2.0 not yet loaded on hardware. Next: phase 2, AMD only |
 | A2 floor experience | pending | |
 | A3 native API v1 | pending | |
 | A4 session state machine | pending | |

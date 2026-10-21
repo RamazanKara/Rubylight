@@ -7,8 +7,10 @@
 //! display_poke \\.\DISPLAY9 mode 1920x1080        (keeps the refresh rate)
 //! ```
 //!
-//! The mode change is temporary (`CDS_FULLSCREEN`) and the HDR state is the display's own;
-//! the stream's display recovery restores both when it ends. Run it in the signed-in session.
+//! `hdr` takes `on` or `off` and anything else is an error. The HDR state is the display's own
+//! and stays as set. The mode change is `CDS_FULLSCREEN`, so Windows may undo it when this
+//! process exits; the stream's display recovery restores only what the stream itself changed,
+//! not either of these. Run it in the signed-in session.
 #[cfg(not(windows))]
 fn main() {}
 
@@ -25,7 +27,12 @@ fn main() -> anyhow::Result<()> {
                 .into_iter()
                 .find(|m| m.display_name.eq_ignore_ascii_case(name))
                 .with_context(|| format!("no active display {name}"))?;
-            butterpollo_windows::display::set_hdr(&monitor, value == "on")?;
+            let enable = match value.as_str() {
+                "on" => true,
+                "off" => false,
+                _ => bail!("hdr is on or off, not {value:?}"),
+            };
+            butterpollo_windows::display::set_hdr(&monitor, enable)?;
         }
         "mode" => {
             let parts: Vec<u32> = value

@@ -1452,6 +1452,35 @@ mod tests {
             }
         }
     }
+    /// Below the floor an installed Rubylight (2.6, Vibepollo) stays exactly as it
+    /// is: the verdict comes before setup stops, replaces, removes or writes anything.
+    #[test]
+    fn the_floor_is_checked_before_setup_changes_anything() {
+        let install = include_str!("install.rs");
+        let code = install.split("#[cfg(test)]").next().unwrap();
+        let body = &code[code.find("pub fn install(").unwrap()..];
+        let floor = body.find("crate::floor::check(").expect("install checks the floor");
+        for change in [
+            "prepare_install(",
+            "prepare_profile(",
+            "ensure_idle(",
+            "install_service(",
+            "remember_driver_choice(",
+            "update::run(",
+            "install_drivers(",
+            "secure_install(",
+            "secure_profile(",
+        ] {
+            let at = body.find(change).unwrap_or_else(|| panic!("{change} left install"));
+            assert!(floor < at, "{change} runs before the floor check");
+        }
+        // The quiet update the console starts checks it before replacing files.
+        let main = include_str!("main.rs");
+        let update = &main[main.find("} else if args.update {").unwrap()..];
+        let floor = update.find("floor::check(").expect("the update checks the floor");
+        let replace = update.find("update::run(").expect("the update replaces files");
+        assert!(floor < replace, "the update replaces files before the floor check");
+    }
     #[test]
     fn setup_removes_the_root_by_the_name_the_host_gives_it() {
         assert_eq!(

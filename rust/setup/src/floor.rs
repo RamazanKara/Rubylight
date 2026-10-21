@@ -13,7 +13,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use std::{path::Path, time::Duration};
 
 /// The last Rubylight for a PC below this floor.
-pub const LAST_RELEASE_BELOW: &str = "2.4.5";
+pub const LAST_RELEASE_BELOW: &str = "2.6.x";
 
 /// Refuse unless this PC meets the floor.
 pub fn check(payload: &mut Payload) -> Result<()> {

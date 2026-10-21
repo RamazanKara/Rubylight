@@ -105,6 +105,7 @@ fn unmet(payload: &mut Payload) -> Result<Vec<Unmet>> {
     // Setup is elevated and runs the staged host and script: stage them where
     // only SYSTEM and Administrators can write, never in the user's %TEMP%.
     let work = staging_folder();
+    let root_existed = work.parent().is_some_and(|root| root.exists());
     let result = (|| {
         crate::install::stage(payload, FLOOR_STAGING)
             .context("unpacking the package to check this PC")?;
@@ -120,8 +121,19 @@ fn unmet(payload: &mut Payload) -> Result<Vec<Unmet>> {
         }
         Ok(missing)
     })();
-    let _ = std::fs::remove_dir_all(&work);
+    clean_staging(&work, root_existed);
     result
+}
+
+/// Removes the floor check's staging folder `work`, and the profile root above it when the
+/// check created it (`root_existed` is false) and nothing else lives there, so a refused
+/// check leaves the PC as it found it. A root that was there before is left alone.
+fn clean_staging(work: &Path, root_existed: bool) {
+    let _ = std::fs::remove_dir_all(work);
+    if !root_existed && let Some(root) = work.parent() {
+        // Not recursive: a root with anything else in it stays.
+        let _ = std::fs::remove_dir(root);
+    }
 }
 
 /// This PC as the package's host sees it.
@@ -224,6 +236,33 @@ mod tests {
             &source[source.find("fn unmet(").unwrap()..source.find("fn host_check").unwrap()];
         assert!(body.contains("crate::install::stage("));
         assert!(!body.contains("temp_dir"));
+    }
+
+    #[test]
+    fn a_refused_check_leaves_no_profile_root_it_created() {
+        let temp = tempfile::tempdir().unwrap();
+        // The check made the root and its staging folder: both go.
+        let root = temp.path().join("made");
+        let work = root.join(FLOOR_STAGING);
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::write(work.join("butterpollo.exe"), b"x").unwrap();
+        clean_staging(&work, false);
+        assert!(!root.exists());
+        // A root that was there before stays, and so does what lives in it.
+        let root = temp.path().join("before");
+        let work = root.join(FLOOR_STAGING);
+        std::fs::create_dir_all(&work).unwrap();
+        clean_staging(&work, true);
+        assert!(root.is_dir());
+        assert!(!work.exists());
+        // A root the check made but another process has since put something in stays.
+        let root = temp.path().join("shared");
+        let work = root.join(FLOOR_STAGING);
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        clean_staging(&work, false);
+        assert!(root.join("config").is_dir());
+        assert!(!work.exists());
     }
 
     #[test]

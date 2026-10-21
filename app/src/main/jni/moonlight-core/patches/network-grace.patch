@@ -9,7 +9,6 @@ before including ControlStream.c so a loopback test does not wait 10 seconds.
 Applies after control-teardown.patch.
 
 diff --git a/src/ControlStream.c b/src/ControlStream.c
-diff --git a/src/ControlStream.c b/src/ControlStream.c
 index d7acbc7..fa6a64d 100644
 --- a/src/ControlStream.c
 +++ b/src/ControlStream.c

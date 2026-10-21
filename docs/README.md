@@ -1,6 +1,6 @@
 # Rubylight documentation
 
-[Rubylight](../README.md) · [Download 2.5.11](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.11) · [Release notes](../rust/RELEASE_NOTES.md)
+[Rubylight](../README.md) · [Download 2.5.12](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.12) · [Release notes](../rust/RELEASE_NOTES.md)
 
 Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play from. These guides take you from a first desktop stream to HDR, virtual displays and the Radeon frame pipeline.
 

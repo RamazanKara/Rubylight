@@ -1,10 +1,18 @@
-# Rubylight 2.5.11 for Windows
+# Rubylight 2.5.12 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.11 installer is named `rubylight-setup-2.5.11.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.12 installer is named `rubylight-setup-2.5.12.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.5.12
+
+- **Experimental full-chroma HEVC and AV1 for AMD.** A reversible packed 4:2:0 layout preserves every quantized luma and chroma sample before hardware compression, with 8-bit SDR and 10-bit HDR modes. Enable the experimental packed 4:4:4 option on both Rubylight and Nightjar 0.7.18. It is off by default; stock clients retain their existing modes. Compression remains lossy.
+- **Explicit capability and geometry checks.** The host probes each codec and bit depth separately, keeps display dimensions separate from the packed coded dimensions, and rejects unsupported requests without substituting 4:2:0 or software encoding. Unsupported narrow HEVC surfaces are rejected before AMF initialization.
+- **Keep the 200 Mbps transport budget.** Nightjar reserves space for packet headers, encryption and FEC, limiting packed video payload to 140 Mbps at a configured 200 Mbps total budget.
+
+**Verification and limits:** Exact packing tests, independent FFmpeg decoding, protocol checks, Windows reconstruction tests, Linux desktop checks and Android builds passed. On an AMD Radeon 780M, all four packed modes reached approximately 1440p120 in bounded synthetic tests (10 measured seconds per mode): calculated peak transport bandwidth including 20% FEC and packet headers was at most 192.8 Mbps, with at most 3.58 ms added host p95 latency versus matched 4:2:0. This does not establish sustained end-to-end performance. Physical HDR presentation on Android/Linux and Windows HDR output remain unverified. An earlier workstation crash remains unexplained; the later bounded tests completed without a crash. Keep the feature experimental and disabled on unverified devices.
 
 ## New in 2.5.11
 

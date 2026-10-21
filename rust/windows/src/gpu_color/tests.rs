@@ -8,6 +8,8 @@ mod color_contract;
 mod downscale;
 #[path = "packed444_tests.rs"]
 mod packed444;
+#[path = "packed444_performance_tests.rs"]
+mod packed444_performance;
 
 #[test]
 #[ignore = "requires D3D11 native P010 views and GPU timestamp queries"]

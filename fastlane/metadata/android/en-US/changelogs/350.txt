@@ -1,0 +1,1 @@
+Experimental full-chroma HEVC/AV1 streaming with Rubylight 2.5.12, off by default. Requires the new streaming engine and verified raw YUV decoding on Android. Adds HDR reconstruction on compatible outputs and reserves bandwidth for FEC and packet headers. Unsupported packed modes report an error. Physical Android/Linux HDR and full end-to-end performance remain unverified.

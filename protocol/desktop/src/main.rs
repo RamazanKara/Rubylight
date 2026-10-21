@@ -1193,6 +1193,16 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
                     if back.clicked() { s.toggle_menu(window, pads); }
                     ui.checkbox(&mut s.overlay_visible, "Performance overlay");
+                    let current = s.video_scaling();
+                    let (mut scaling, mut top) = current;
+                    egui::ComboBox::from_id_salt("stream-scaling").selected_text(scaling.label()).show_ui(ui, |ui| {
+                        use config::VideoScaling;
+                        for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
+                            ui.selectable_value(&mut scaling, mode, mode.label());
+                        }
+                    });
+                    ui.checkbox(&mut top, "Align video to top");
+                    if (scaling, top) != current { s.set_video_scaling(scaling, top); }
                     if ui.button("Export statistics (last hour)").clicked() { s.export_statistics = true; }
                     if s.microphone_available() {
                         let mut muted = s.microphone_muted;

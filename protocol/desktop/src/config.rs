@@ -45,6 +45,21 @@ pub enum MouseMode {
     Absolute,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoScaling {
+    #[default]
+    Fit,
+    Fill,
+    Stretch,
+    Native,
+}
+
+impl VideoScaling {
+    pub fn label(self) -> &'static str {
+        match self { Self::Fit => "Fit", Self::Fill => "Fill (crop)", Self::Stretch => "Stretch", Self::Native => "Native pixels (1:1)" }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DecoderPreference {
     Auto,
@@ -105,6 +120,8 @@ pub struct Settings {
     pub audio: AudioChannels,
     pub play_audio_on_host: bool,
     pub window_mode: WindowMode,
+    pub video_scaling: VideoScaling,
+    pub align_video_top: bool,
     /// The display has variable refresh (G-Sync, FreeSync, HDMI VRR).
     pub vrr: bool,
     /// With VRR: show each frame at the PC's frame time plus a steady delay.
@@ -178,6 +195,8 @@ impl Default for Settings {
             audio: AudioChannels::Stereo,
             play_audio_on_host: false,
             window_mode: WindowMode::Borderless,
+            video_scaling: VideoScaling::Fit,
+            align_video_top: false,
             vrr: true,
             present_at_host_times: true,
             vsync: true,

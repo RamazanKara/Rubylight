@@ -519,7 +519,7 @@ mod tests {
     #[cfg(windows)]
     unsafe fn direct_matches_reconstruction(window: *mut SDL_Window, renderer: *mut SDL_Renderer) {
         use super::super::pipeline::Decoded;
-        use super::super::present::{letterbox, VideoTexture};
+        use super::super::present::{viewport, VideoTexture};
         // SAFETY: The test owns the window, renderer, textures and decoder on this thread.
         unsafe {
             let hardware = media::Hardware::D3d11(crate::sdl::renderer_pointer(
@@ -610,52 +610,55 @@ mod tests {
                             let (mut w, mut h) = (0, 0);
                             assert!(SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h));
                             assert_eq!((w, h), (width, height));
-                            let destination = letterbox((128, 64), (w, h));
-                            for scale in [1.0, 0.6] {
-                                assert!(SDL_SetRenderColorScale(renderer, scale));
-                                assert!(SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255));
-                                assert!(SDL_RenderClear(renderer));
-                                assert!(SDL_RenderTexture(
-                                    renderer,
-                                    target,
-                                    ptr::null(),
-                                    &destination
-                                ));
-                                overlay(renderer);
-                                let expected = pixels(renderer);
-                                // The reference stores FP16 and uses fixed-point hardware
-                                // filtering. Bound HDR interpolation error by its scene range.
-                                let hdr_range = if hdr {
-                                    expected.iter().fold(1.0f32, |peak, value| peak.max(value.abs()))
-                                } else { 1.0 };
-                                assert!(SDL_RenderPresent(renderer));
-                                // Redraws after Present and resize must retain the uploaded picture.
-                                for _ in 0..2 {
+                            for (mode, top) in [(crate::config::VideoScaling::Fit, false), (crate::config::VideoScaling::Fill, false),
+                                (crate::config::VideoScaling::Stretch, false), (crate::config::VideoScaling::Native, false), (crate::config::VideoScaling::Fit, true)] {
+                                let destination = viewport((128, 64), (w, h), mode, top);
+                                for scale in [1.0, 0.6] {
+                                    assert!(SDL_SetRenderColorScale(renderer, scale));
                                     assert!(SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255));
                                     assert!(SDL_RenderClear(renderer));
-                                    assert!(
-                                        if let Some(direct) = &mut direct_hdr { direct.present(renderer, &parameters, &destination) } else { video.draw(renderer, (w, h)) },
-                                        "{}",
-                                        crate::sdl::error()
-                                    );
+                                    assert!(SDL_RenderTexture(
+                                        renderer,
+                                        target,
+                                        ptr::null(),
+                                        &destination
+                                    ));
                                     overlay(renderer);
-                                    let actual = pixels(renderer);
-                                    assert_eq!(actual.len(), expected.len());
-                                    let mut maximum = 0.0f32;
-                                    let mut sum = 0.0;
-                                    let mut worst = (0.0, 0.0);
-                                    for (&a, &b) in expected.iter().zip(&actual) {
-                                        assert!(b.is_finite());
-                                        let error = (a - b).abs() / hdr_range;
-                                        if error > maximum { worst = (a, b); }
-                                        maximum = maximum.max(error);
-                                        sum += error;
-                                    }
-                                    let mean = sum / actual.len() as f32;
-                                    let tolerance = if hdr && destination.w == 128.0 && destination.h == 64.0 { 0.001 } else { 0.01 };
-                                    assert!(maximum < tolerance && mean < 0.0008,
-                                        "{codec:?} ten_bit={ten_bit} packing={packing} hdr={hdr} range={range} matrix={matrix} {w}x{h} scale={scale}: max={maximum}, mean={mean}, worst={worst:?}");
+                                    let expected = pixels(renderer);
+                                    // The reference stores FP16 and uses fixed-point hardware
+                                    // filtering. Bound HDR interpolation error by its scene range.
+                                    let hdr_range = if hdr {
+                                        expected.iter().fold(1.0f32, |peak, value| peak.max(value.abs()))
+                                    } else { 1.0 };
                                     assert!(SDL_RenderPresent(renderer));
+                                    // Redraws after Present and resize must retain the uploaded picture.
+                                    for _ in 0..2 {
+                                        assert!(SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255));
+                                        assert!(SDL_RenderClear(renderer));
+                                        assert!(
+                                            if let Some(direct) = &mut direct_hdr { direct.present(renderer, &parameters, &destination) } else { video.draw(renderer, &destination) },
+                                            "{}",
+                                            crate::sdl::error()
+                                        );
+                                        overlay(renderer);
+                                        let actual = pixels(renderer);
+                                        assert_eq!(actual.len(), expected.len());
+                                        let mut maximum = 0.0f32;
+                                        let mut sum = 0.0;
+                                        let mut worst = (0.0, 0.0);
+                                        for (&a, &b) in expected.iter().zip(&actual) {
+                                            assert!(b.is_finite());
+                                            let error = (a - b).abs() / hdr_range;
+                                            if error > maximum { worst = (a, b); }
+                                            maximum = maximum.max(error);
+                                            sum += error;
+                                        }
+                                        let mean = sum / actual.len() as f32;
+                                        let tolerance = if hdr && destination.w == 128.0 && destination.h == 64.0 { 0.001 } else { 0.01 };
+                                        assert!(maximum < tolerance && mean < 0.0008,
+                                            "{codec:?} ten_bit={ten_bit} packing={packing} hdr={hdr} range={range} matrix={matrix} {w}x{h} scale={scale} {mode:?} top={top}: max={maximum}, mean={mean}, worst={worst:?}");
+                                        assert!(SDL_RenderPresent(renderer));
+                                    }
                                 }
                             }
                         }
@@ -680,7 +683,7 @@ mod tests {
                             }));
                             assert!(video.upload(renderer, &decoded));
                             assert_eq!(video.texture.is_null(), direct && peak == 320 && available == 16.0);
-                            assert!(video.draw(renderer, (99, 59)));
+                            assert!(video.draw(renderer, &viewport((128, 64), (99, 59), crate::config::VideoScaling::Fit, false)));
                             assert!(SDL_RenderPresent(renderer));
                         }
                         video.destroy();

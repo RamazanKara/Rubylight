@@ -487,21 +487,20 @@ impl VideoTexture {
         }
     }
 
-    pub fn draw(&mut self, renderer: *mut SDL_Renderer, area: (i32, i32)) -> bool {
-        let destination = letterbox(self.size(), area);
+    pub fn draw(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect) -> bool {
         #[cfg(windows)]
         if self.texture.is_null() {
             if let Some(packed) = &mut self.packed {
                 return packed.present(
                     renderer,
                     self.packed_format.as_ref().unwrap(),
-                    &destination,
+                    destination,
                 );
             }
         }
         if !self.texture.is_null() {
             // SAFETY: The renderer and its video texture are live on this thread.
-            unsafe { SDL_RenderTexture(renderer, self.texture, std::ptr::null(), &destination) };
+            unsafe { SDL_RenderTexture(renderer, self.texture, std::ptr::null(), destination) };
         }
         true
     }
@@ -526,14 +525,29 @@ impl VideoTexture {
 }
 
 /// The largest rectangle of the picture's aspect ratio inside `area`, centred.
+#[cfg(test)]
 pub fn letterbox(picture: (i32, i32), area: (i32, i32)) -> SDL_FRect {
-    let (pw, ph) = (picture.0.max(1) as f32, picture.1.max(1) as f32);
+    viewport(picture, area, crate::config::VideoScaling::Fit, false)
+}
+
+pub fn viewport(picture: (i32, i32), area: (i32, i32), scaling: crate::config::VideoScaling, top: bool) -> SDL_FRect {
+    use crate::config::VideoScaling;
     let (aw, ah) = (area.0 as f32, area.1 as f32);
-    let scale = (aw / pw).min(ah / ph);
-    let (w, h) = ((pw * scale).round(), (ph * scale).round());
+    if picture.0 <= 0 || picture.1 <= 0 || area.0 <= 0 || area.1 <= 0 {
+        return SDL_FRect { x: 0.0, y: 0.0, w: aw.max(1.0), h: ah.max(1.0) };
+    }
+    let (pw, ph) = (picture.0 as f32, picture.1 as f32);
+    let (w, h) = match scaling {
+        VideoScaling::Stretch => (aw, ah),
+        VideoScaling::Native => (pw, ph),
+        VideoScaling::Fit | VideoScaling::Fill => {
+            let scale = if scaling == VideoScaling::Fit { (aw / pw).min(ah / ph) } else { (aw / pw).max(ah / ph) };
+            ((pw * scale).round(), (ph * scale).round())
+        }
+    };
     SDL_FRect {
-        x: ((aw - w) / 2.0).floor(),
-        y: ((ah - h) / 2.0).floor(),
+        x: ((aw - w) / 2.0).trunc(),
+        y: if top && matches!(scaling, VideoScaling::Fit | VideoScaling::Native) { 0.0 } else { ((ah - h) / 2.0).trunc() },
         w,
         h,
     }
@@ -542,6 +556,25 @@ pub fn letterbox(picture: (i32, i32), area: (i32, i32)) -> SDL_FRect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scaling_matches_android_fit_fill_stretch_native_and_top_alignment() {
+        use crate::config::VideoScaling::*;
+        for (mode, top, expected) in [
+            (Fit, false, [0.0, 152.0, 1280.0, 720.0]),
+            (Fit, true, [0.0, 0.0, 1280.0, 720.0]),
+            (Fill, false, [-270.0, 0.0, 1820.0, 1024.0]),
+            (Fill, true, [-270.0, 0.0, 1820.0, 1024.0]),
+            (Stretch, true, [0.0, 0.0, 1280.0, 1024.0]),
+            (Native, false, [-320.0, -28.0, 1920.0, 1080.0]),
+            (Native, true, [-320.0, 0.0, 1920.0, 1080.0]),
+        ] {
+            let r = viewport((1920, 1080), (1280, 1024), mode, top);
+            assert_eq!([r.x, r.y, r.w, r.h], expected);
+        }
+        let r = viewport((0, 0), (1280, 1024), Native, true);
+        assert_eq!([r.x, r.y, r.w, r.h], [0.0, 0.0, 1280.0, 1024.0]);
+    }
 
     #[test]
     fn letterbox_keeps_the_aspect_ratio() {

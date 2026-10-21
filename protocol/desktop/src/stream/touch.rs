@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use nightjar_core::input::{packets::touch_event, InputQueue};
 use sdl3_sys::everything::*;
 
-use super::present::letterbox;
-
 #[derive(Default)]
 pub struct Touch {
     contacts: HashMap<(u64, u64), u32>,
@@ -23,9 +21,8 @@ struct Pen {
     down: bool,
 }
 
-fn position(x: f32, y: f32, picture: (i32, i32), area: (i32, i32), clamp: bool) -> Option<(f32, f32)> {
-    if !x.is_finite() || !y.is_finite() || area.0 <= 0 || area.1 <= 0 { return None; }
-    let rect = letterbox(picture, area);
+fn position(x: f32, y: f32, rect: SDL_FRect, clamp: bool) -> Option<(f32, f32)> {
+    if !x.is_finite() || !y.is_finite() || rect.w <= 0.0 || rect.h <= 0.0 { return None; }
     let (x, y) = ((x - rect.x) / rect.w, (y - rect.y) / rect.h);
     if !clamp && (!(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y)) { return None; }
     Some((x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)))
@@ -64,7 +61,7 @@ impl Touch {
         }
     }
 
-    pub fn handle(&mut self, event: &SDL_Event, picture: (i32, i32), area: (i32, i32), density: f32, queue: &mut InputQueue) {
+    pub fn handle(&mut self, event: &SDL_Event, rect: SDL_FRect, area: (i32, i32), density: f32, queue: &mut InputQueue) {
         // SAFETY: each union member is selected by its SDL event type.
         unsafe {
             let kind = SDL_EventType(event.r#type);
@@ -72,7 +69,7 @@ impl Touch {
                 let finger = event.tfinger;
                 let key = (finger.touchID.0, finger.fingerID.0);
                 let down = kind == SDL_EVENT_FINGER_DOWN;
-                let Some((x, y)) = position(finger.x * area.0 as f32, finger.y * area.1 as f32, picture, area, !down) else { return; };
+                let Some((x, y)) = position(finger.x * area.0 as f32, finger.y * area.1 as f32, rect, !down) else { return; };
                 let id = if down {
                     if self.contacts.contains_key(&key) { return; }
                     let Some(id) = (0..32).find(|id| !self.contacts.values().any(|value| value == id)) else { return; };
@@ -126,7 +123,7 @@ impl Touch {
                     _ => return,
                 }
             }
-            let Some(position) = position(x * density, y * density, picture, area, pen.down) else {
+            let Some(position) = position(x * density, y * density, rect, pen.down) else {
                 if pen.sent { pen.send(touch_event::HOVER_LEAVE, queue); pen.sent = false; }
                 return;
             };
@@ -149,19 +146,35 @@ impl Touch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::present::letterbox;
     use nightjar_core::control::HostCapabilities;
+
+    #[test]
+    fn touch_coordinates_follow_cropping_stretching_and_top_alignment() {
+        use crate::config::VideoScaling::*;
+        for mode in [Fit, Fill, Stretch, Native] {
+            let rect = super::super::present::viewport((1920, 1080), (1280, 1024), mode, false);
+            assert_eq!(position(640.0, 512.0, rect, false), Some((0.5, 0.5)));
+        }
+        let rect = super::super::present::viewport((1920, 1080), (1280, 1024), Native, true);
+        assert_eq!(position(0.0, 0.0, rect, false), Some((1.0 / 6.0, 0.0)));
+        let rect = super::super::present::viewport((1920, 1080), (1280, 1024), Fit, true);
+        assert_eq!(position(640.0, 0.0, rect, false), Some((0.5, 0.0)));
+        assert_eq!(position(640.0, 900.0, rect, false), None);
+        assert_eq!(position(640.0, 900.0, rect, true), Some((0.5, 1.0)));
+    }
 
     #[test]
     fn contacts_respect_bars_and_device_ids_and_cancel_on_release() {
         let mut touch = Touch::default();
         let mut q = InputQueue::new(&HostCapabilities { feature_flags: 1, ..Default::default() });
         let mut event = SDL_TouchFingerEvent { r#type: SDL_EVENT_FINGER_DOWN, touchID: SDL_TouchID(1), fingerID: SDL_FingerID(3), x: 0.5, y: 0.0, pressure: 0.4, ..Default::default() };
-        touch.handle(&SDL_Event { tfinger: event }, (1920, 1080), (2560, 1600), 2.0, &mut q);
+        touch.handle(&SDL_Event { tfinger: event }, letterbox((1920, 1080), (2560, 1600)), (2560, 1600), 2.0, &mut q);
         assert!(touch.contacts.is_empty());
         event.y = 0.5;
         for device in [1, 2] {
             event.touchID = SDL_TouchID(device);
-            touch.handle(&SDL_Event { tfinger: event }, (1920, 1080), (2560, 1600), 2.0, &mut q);
+            touch.handle(&SDL_Event { tfinger: event }, letterbox((1920, 1080), (2560, 1600)), (2560, 1600), 2.0, &mut q);
         }
         assert_eq!(touch.contacts.len(), 2);
         assert_ne!(touch.contacts[&(1, 3)], touch.contacts[&(2, 3)]);
@@ -170,8 +183,8 @@ mod tests {
         let mut packets = Vec::new();
         q.drain(std::time::Instant::now(), false, &mut packets);
         assert_eq!(packets.last().unwrap().data[8], touch_event::CANCEL_ALL);
-        assert_eq!(position(1280.0, 800.0, (1920, 1080), (2560, 1600), false), Some((0.5, 0.5)));
-        assert_eq!(position(f32::NAN, 0.0, (1920, 1080), (2560, 1600), true), None);
+        assert_eq!(position(1280.0, 800.0, letterbox((1920, 1080), (2560, 1600)), false), Some((0.5, 0.5)));
+        assert_eq!(position(f32::NAN, 0.0, letterbox((1920, 1080), (2560, 1600)), true), None);
     }
 
     #[test]
@@ -180,7 +193,7 @@ mod tests {
         let mut q = InputQueue::new(&HostCapabilities { feature_flags: 1, ..Default::default() });
         let event = SDL_PenTouchEvent { r#type: SDL_EVENT_PEN_DOWN, which: SDL_PenID(7), x: 50.0, y: 50.0,
             pen_state: SDL_PEN_INPUT_DOWN | SDL_PEN_INPUT_BUTTON_1 | SDL_PEN_INPUT_ERASER_TIP, down: true, ..Default::default() };
-        touch.handle(&SDL_Event { ptouch: event }, (100, 100), (100, 100), 1.0, &mut q);
+        touch.handle(&SDL_Event { ptouch: event }, letterbox((100, 100), (100, 100)), (100, 100), 1.0, &mut q);
         assert!(touch.pen.as_ref().unwrap().down);
         touch.release(&mut q);
         let mut packets = Vec::new();

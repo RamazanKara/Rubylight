@@ -1047,6 +1047,15 @@ impl Launcher {
                     ui.add(egui::Slider::new(&mut s.upscale_sharpness, 0..=100).suffix("%"))
                 });
             }
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["video_scaling"], "Video size", "Fit shows the whole stream; Fill crops the edges; Native uses one display pixel per stream pixel.", |ui, s| {
+                use crate::config::VideoScaling;
+                egui::ComboBox::from_id_salt("video-scaling").selected_text(s.video_scaling.label()).show_ui(ui, |ui| {
+                    for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
+                        ui.selectable_value(&mut s.video_scaling, mode, mode.label());
+                    }
+                }).response
+            });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["align_video_top"], "Align video to top", "Moves Fit and Native video to the top of the window.", |ui, s| toggle(ui, &mut s.align_video_top));
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["hdr"], "HDR",
                 "Streams 10-bit HDR to an HDR-enabled display. Enable HDR in the operating system first.",
                 |ui, s| toggle(ui, &mut s.hdr),

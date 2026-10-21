@@ -43,7 +43,7 @@ use crate::hosts::Waker;
 use crate::keymap;
 use crate::media::Hardware;
 use pipeline::{lock, Notice, Shared};
-use present::{letterbox, PacingMode, Pacer, VideoTexture};
+use present::{viewport, PacingMode, Pacer, VideoTexture};
 
 /// What the display offers, for "native" resolution and "display" refresh.
 #[derive(Clone, Copy, Debug)]
@@ -843,6 +843,15 @@ impl Streaming {
         self.settings.microphone && (self.session.microphone_available() || self.controller_audio_available()) && self.facts.role != AppRole::RemoteMonitor
     }
 
+    pub fn video_scaling(&self) -> (config::VideoScaling, bool) { (self.settings.video_scaling, self.settings.align_video_top) }
+
+    pub fn set_video_scaling(&mut self, mode: config::VideoScaling, top: bool) {
+        self.settings.video_scaling = mode;
+        self.settings.align_video_top = top;
+        self.session.input(|q| self.touch.release(q));
+        self.needs_redraw = true;
+    }
+
     pub fn controller_audio_available(&self) -> bool {
         self.settings.controllers && self.settings.controller_audio && self.facts.role != AppRole::RemoteMonitor
     }
@@ -1331,13 +1340,14 @@ impl Streaming {
             SDL_RenderClear(renderer);
             let (mut w, mut h) = (0, 0);
             SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h);
+            let dst = viewport(self.texture.size(), (w, h), self.settings.video_scaling, self.settings.align_video_top);
             if !self.texture.texture.is_null() {
-                let dst = letterbox(self.texture.size(), (w, h));
                 let mut texture = self.texture.texture;
                 let output = (dst.w as i32, dst.h as i32);
                 let input = self.texture.size();
                 let use_upscaler = self.settings.upscaling != config::Upscaling::Bilinear && !self.upscale_failed
-                    && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input;
+                    && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input
+                    && output.0 <= 16384 && output.1 <= 16384;
                 if use_upscaler {
                     if !self.upscaler.as_ref().is_some_and(|u| u.matches(input, output, self.settings.upscaling)) {
                         self.upscaler = upscale::Upscaler::new(renderer, input, output, self.settings.upscaling);
@@ -1352,7 +1362,7 @@ impl Streaming {
                     }
                 } else { self.upscaler = None; }
                 SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
-            } else if !self.texture.draw(renderer, (w, h)) {
+            } else if !self.texture.draw(renderer, &dst) {
                 self.exit = Some(Exit::Ended(Some("Packed full-chroma presentation failed.".into())));
             }
         }
@@ -1706,7 +1716,8 @@ impl Streaming {
                     SDL_GetCurrentRenderOutputSize(renderer, &mut area.0, &mut area.1);
                     let picture = if self.facts.role == AppRole::InputOnly { area } else { self.texture.size() };
                     let density = SDL_GetWindowPixelDensity(window).max(0.01);
-                    self.session.input(|q| self.touch.handle(event, picture, area, density, q));
+                    let rect = viewport(picture, area, self.settings.video_scaling, self.settings.align_video_top);
+                    self.session.input(|q| self.touch.handle(event, rect, area, density, q));
                 }
                 SDL_EVENT_GAMEPAD_ADDED => {
                     pads.added(event.gdevice.which);
@@ -1757,7 +1768,7 @@ impl Streaming {
             (SDL_GetWindowPixelDensity(window).max(0.01), size)
         };
         let picture = if self.facts.role == AppRole::InputOnly { (w, h) } else { self.texture.size() };
-        let rect = letterbox(picture, (w, h));
+        let rect = viewport(picture, (w, h), self.settings.video_scaling, self.settings.align_video_top);
         let (px, py) = (x * density - rect.x, y * density - rect.y);
         let (rw, rh) = (rect.w.max(1.0), rect.h.max(1.0));
         let cx = px.clamp(0.0, rw - 1.0);

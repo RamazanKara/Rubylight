@@ -256,8 +256,14 @@ impl Packed {
         let mut target = None;
         if device.CreateRenderTargetView(&buffer, None, Some(&mut target)).is_err() { return false; }
         let presentation = [destination[0], destination[1], destination[2], destination[3], u32::from(linear) as f32, scale, 0.0, 0.0];
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        buffer.GetDesc(&mut desc);
+        let x = destination[0].max(0.0);
+        let y = destination[1].max(0.0);
+        let clipped = [x, y, (destination[0] + destination[2]).min(desc.Width as f32) - x,
+            (destination[1] + destination[3]).min(desc.Height as f32) - y];
         // Release the swapchain buffer and view before SDL next resizes the window.
-        self.render(&[target], parameters, destination, Some(&presentation))
+        self.render(&[target], parameters, &clipped, Some(&presentation))
     }
 
     fn render(&self, target: &[Option<ID3D11RenderTargetView>; 1], parameters: &[u32; 12], destination: &[f32; 4], presentation: Option<&[f32; 8]>) -> bool {

@@ -28,6 +28,9 @@ pub enum Command {
     ProfileSettings(u64),
     SaveProfile(u64),
     SaveProfiles,
+    ControllerSettings,
+    EditController { key: String, name: String },
+    SaveControllerMapping,
     CancelPair,
     AddHost(String),
     Unpair(u64),
@@ -47,6 +50,7 @@ pub enum Screen {
     AppSettings(u64),
     Profiles,
     ProfileSettings(u64),
+    Controllers,
 }
 
 impl Screen {
@@ -56,6 +60,7 @@ impl Screen {
             Self::HostSettings(id) => Some(Command::SaveHostSettings(id)),
             Self::AppSettings(id) => Some(Command::SaveAppSettings(id)),
             Self::ProfileSettings(id) => Some(Command::SaveProfile(id)),
+            Self::Controllers => Some(Command::SaveControllerMapping),
             _ => None,
         }
     }
@@ -91,6 +96,9 @@ pub struct Launcher {
     pub editing_app: Option<nightjar_core::http::App>,
     pub edit_name: String,
     pub settings_dirty: bool,
+    pub controller_key: String,
+    pub controller_mapping: crate::gamepad::Mapping,
+    pub controller_test: bool,
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
@@ -104,6 +112,7 @@ pub struct Launcher {
 /// What the launcher shows, borrowed from the app each frame.
 pub struct View<'a> {
     pub hosts: &'a Hosts,
+    pub pads: &'a crate::gamepad::Gamepads,
     pub connecting: Option<ConnectingView>,
 }
 
@@ -209,6 +218,9 @@ impl Launcher {
             editing_app: None,
             edit_name: String::new(),
             settings_dirty: false,
+            controller_key: String::new(),
+            controller_mapping: crate::gamepad::Mapping::default(),
+            controller_test: false,
             logo: None,
             focus_screen: true,
             focus_dialog: false,
@@ -264,6 +276,10 @@ impl Launcher {
                     self.go(self.settings_return);
                 }
                 Screen::Profiles => self.go(Screen::Settings),
+                Screen::Controllers => {
+                    commands.push(Command::SaveControllerMapping);
+                    self.go(Screen::Settings);
+                }
             },
             Dialog::Pairing { .. } => {
                 commands.push(Command::CancelPair);
@@ -310,6 +326,7 @@ impl Launcher {
                 Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
                 Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &mut commands),
                 Screen::Profiles => self.profiles_page(ui, &mut commands),
+                Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
             }
         });
         if blocked {
@@ -357,6 +374,10 @@ impl Launcher {
                     }
                     ui.label(RichText::new("Profiles").font(semibold(22.0)).color(PAPER));
                 }
+                Screen::Controllers => {
+                    if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
+                    ui.label(RichText::new("Controller mappings").font(semibold(22.0)).color(PAPER));
+                }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 22.0;
@@ -391,7 +412,7 @@ impl Launcher {
                         }
                     }
                 }
-                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) => {}
+                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers => {}
                 }
             });
         });
@@ -597,6 +618,85 @@ impl Launcher {
         }
     }
 
+    fn controllers_page(&mut self, ui: &mut Ui, pads: &crate::gamepad::Gamepads, commands: &mut Vec<Command>) {
+        use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, Mapping};
+        ui.label("Mappings apply to controllers of the same model. Local menu and disconnect chords always use physical buttons.");
+        let selected = if self.controller_key.is_empty() { "Choose a controller" } else { &self.controller_mapping.name };
+        egui::ComboBox::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
+            for pad in &pads.pads {
+                if ui.selectable_label(pad.key == self.controller_key, &pad.name).clicked() {
+                    commands.push(Command::EditController { key: pad.key.clone(), name: pad.name.clone() });
+                }
+            }
+            for (key, mapping) in &pads.mappings {
+                if !pads.pads.iter().any(|p| &p.key == key)
+                    && ui.selectable_label(*key == self.controller_key, format!("{} (disconnected)", mapping.name)).clicked() {
+                    commands.push(Command::EditController { key: key.clone(), name: mapping.name.clone() });
+                }
+            }
+        });
+        if self.controller_key.is_empty() {
+            ui.label("Connect a controller to create a mapping.");
+            return;
+        }
+        ui.horizontal(|ui| {
+            if quiet_button(ui, "Reset mapping").clicked() {
+                self.controller_mapping = Mapping { name: self.controller_mapping.name.clone(), ..Default::default() };
+            }
+            ui.checkbox(&mut self.controller_test, "Test input (pause controller navigation)");
+        });
+        let mapping = &mut self.controller_mapping;
+        scroll(ui, "controller-mapping", |ui| {
+            if self.controller_test {
+                let connected: Vec<_> = pads.pads.iter().filter(|p| p.key == self.controller_key).collect();
+                if connected.is_empty() { ui.label("This controller is disconnected."); }
+                for pad in connected {
+                    let report = pad.preview(mapping, self.settings.swap_face_buttons);
+                    let held = BUTTON_MAP.iter().zip(BUTTON_NAMES).filter_map(|(flag, name)| (report.buttons & flag != 0).then_some(name)).collect::<Vec<_>>().join(", ");
+                    ui.label(format!("Controller {}: {}", pad.index + 1, if held.is_empty() { "No buttons held" } else { &held }));
+                    ui.label(format!("Left: {}, {}    Right: {}, {}    Triggers: {}, {}", report.ls.0, report.ls.1, report.rs.0, report.rs.1, report.lt, report.rt));
+                }
+                ui.separator();
+            }
+            row(ui, "Stick dead zone", "Ignore small movements near the center, then scale smoothly to full travel.", |ui| {
+                ui.add(egui::Slider::new(&mut mapping.deadzone, 0..=50).suffix("%"))
+            });
+            section(ui, "Axes");
+            for (i, name) in AXIS_NAMES.iter().enumerate() {
+                let source = mapping.axes[i];
+                let selected = if source == 0 { "Disabled".to_owned() }
+                    else { format!("{}{}", AXIS_NAMES[source.unsigned_abs() as usize - 1], if source < 0 { " (inverted)" } else { "" }) };
+                row(ui, name, "Choose the physical axis that drives this output.", |ui| {
+                    egui::ComboBox::from_id_salt(("axis-mapping", i)).selected_text(selected).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut mapping.axes[i], 0, "Disabled");
+                        let range = if i < 4 { 0..4 } else { 4..6 };
+                        for j in range {
+                            ui.selectable_value(&mut mapping.axes[i], (j + 1) as i8, AXIS_NAMES[j]);
+                            if i < 4 { ui.selectable_value(&mut mapping.axes[i], -((j + 1) as i8), format!("{} (inverted)", AXIS_NAMES[j])); }
+                        }
+                    }).response
+                });
+            }
+            section(ui, "Buttons");
+            for (i, name) in BUTTON_NAMES.iter().enumerate() {
+                let selected = match mapping.buttons[i] {
+                    None => "Default",
+                    Some(0) => "Disabled",
+                    Some(flag) => BUTTON_NAMES[BUTTON_MAP.iter().position(|b| *b == flag).expect("validated button")],
+                };
+                row(ui, name, "Default follows the Nintendo layout setting. Explicit mappings take priority.", |ui| {
+                    egui::ComboBox::from_id_salt(("button-mapping", i)).selected_text(selected).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut mapping.buttons[i], None, "Default");
+                        ui.selectable_value(&mut mapping.buttons[i], Some(0), "Disabled");
+                        for (target, label) in BUTTON_MAP.iter().zip(BUTTON_NAMES) {
+                            ui.selectable_value(&mut mapping.buttons[i], Some(*target), label);
+                        }
+                    }).response
+                });
+            }
+        });
+    }
+
     fn profiles_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
         ui.label("Profiles change the settings used for your next stream. Each PC and game can override them.");
         let before = self.profiles.active;
@@ -669,6 +769,9 @@ impl Launcher {
                 commands.push(Command::SaveSettings);
                 self.go(Screen::Profiles);
                 return;
+            }
+            if row(ui, "Controller mappings", "Customize buttons, axes and stick dead zones for each controller model.", |ui| quiet_button(ui, "Configure controllers")).clicked() {
+                commands.push(Command::ControllerSettings);
             }
         }
         let inherited = self.inherited_settings.clone();

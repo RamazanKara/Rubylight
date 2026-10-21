@@ -154,6 +154,7 @@ fn run() -> Result<(), String> {
     let store = Store::open().map_err(|e| format!("No config directory: {e}"))?;
     let settings = store.settings();
     let profiles = store.profiles();
+    let mappings = store.controller_mappings();
     let gpu = settings.experimental_packed_444 || settings.hdr || settings.codec.is_pyrowave() || settings.upscaling != config::Upscaling::Bilinear || store.hosts().iter()
         .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
         || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
@@ -238,6 +239,7 @@ fn run() -> Result<(), String> {
         hosts,
         launcher,
         pads: Gamepads {
+            mappings,
             swap_face_buttons: settings.swap_face_buttons,
             motion: settings.controller_motion,
             ..Default::default()
@@ -370,7 +372,9 @@ impl App {
                 SDL_EVENT_GAMEPAD_REMOVED => {
                     self.pads.removed(event.gdevice.which);
                 }
-                SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION => self.navigate(event),
+                SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION => {
+                    if self.launcher.screen != Screen::Controllers || !self.launcher.controller_test { self.navigate(event); }
+                }
                 SDL_EVENT_KEY_DOWN if event.key.scancode == SDL_SCANCODE_F12 => {
                     self.screenshot_requested = true;
                 }
@@ -506,11 +510,13 @@ impl App {
         let mut commands = Vec::new();
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
+        let pads = &self.pads;
         let output = self.gui.run(self.window, self.renderer, |ui| {
             commands = launcher.ui(
                 ui,
                 View {
                     hosts,
+                    pads,
                     connecting: connecting.as_ref().map(|c| ConnectingView {
                         app: c.app.clone(),
                         host: c.host.clone(),
@@ -619,6 +625,34 @@ impl App {
             Command::SaveProfiles => {
                 if let Err(e) = self.store.save_profiles(&self.launcher.profiles) {
                     self.launcher.message("Could not save profiles", e.to_string());
+                }
+            }
+            Command::ControllerSettings => {
+                self.command(Command::SaveSettings);
+                self.launcher.go(Screen::Controllers);
+                if self.launcher.controller_key.is_empty() {
+                    if let Some(pad) = self.pads.pads.first() {
+                        self.command(Command::EditController { key: pad.key.clone(), name: pad.name.clone() });
+                    }
+                }
+            }
+            Command::EditController { key, name } => {
+                self.command(Command::SaveControllerMapping);
+                self.launcher.controller_mapping = self.pads.mappings.get(&key).cloned().unwrap_or_default();
+                self.launcher.controller_mapping.name = name;
+                self.launcher.controller_key = key;
+            }
+            Command::SaveControllerMapping => {
+                if !self.launcher.controller_key.is_empty() {
+                    let key = &self.launcher.controller_key;
+                    let mapping = &self.launcher.controller_mapping;
+                    for pad in &mut self.pads.pads {
+                        if &pad.key == key { pad.mapping = mapping.clone(); }
+                    }
+                    self.pads.mappings.insert(key.clone(), mapping.clone());
+                    if let Err(e) = self.store.save_controller_mappings(&self.pads.mappings) {
+                        self.launcher.message("Could not save controller mapping", e.to_string());
+                    }
                 }
             }
             Command::CancelPair => self.hosts.cancel_pairing(),

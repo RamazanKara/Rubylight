@@ -409,6 +409,16 @@ impl Store {
         write_json(&self.dir.join("profiles.json"), profiles)
     }
 
+    pub fn controller_mappings(&self) -> BTreeMap<String, crate::gamepad::Mapping> {
+        let mut mappings: BTreeMap<String, crate::gamepad::Mapping> = read_json(&self.dir.join("controllers.json")).unwrap_or_default();
+        mappings.retain(|_, mapping| mapping.valid());
+        mappings
+    }
+
+    pub fn save_controller_mappings(&self, mappings: &BTreeMap<String, crate::gamepad::Mapping>) -> std::io::Result<()> {
+        write_json(&self.dir.join("controllers.json"), mappings)
+    }
+
     pub fn identity(&self) -> Option<Identity> {
         read_json(&self.dir.join("identity.json"))
     }
@@ -506,6 +516,13 @@ mod tests {
         profiles.active = Some(id);
         store.save_profiles(&profiles).unwrap();
         assert_eq!(store.profiles(), profiles);
+        let mapping = crate::gamepad::Mapping { name: "Test pad".into(), deadzone: 12, ..Default::default() };
+        let mut mappings = BTreeMap::from([("usb:1234:0001".into(), mapping)]);
+        store.save_controller_mappings(&mappings).unwrap();
+        assert_eq!(store.controller_mappings(), mappings);
+        mappings.get_mut("usb:1234:0001").unwrap().axes[0] = -128;
+        store.save_controller_mappings(&mappings).unwrap();
+        assert!(store.controller_mappings().is_empty());
         let mut hosts = vec![HostRecord {
             unique_id: "ABC".into(),
             name: "Desk".into(),

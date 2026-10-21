@@ -8,6 +8,7 @@
 
 use nightjar_core::input::packets::{button, capability, motion_type, touch_event};
 use nightjar_core::input::InputQueue;
+use serde::{Deserialize, Serialize};
 use sdl3_sys::everything::*;
 
 /// `LI_CTYPE_*`.
@@ -27,7 +28,7 @@ const BATTERY_PERCENT_UNKNOWN: u8 = 0xFF;
 const MAX_PADS: usize = 16;
 
 /// SDL gamepad buttons in `SDL_GamepadButton` order, as Moonlight button flags.
-const BUTTON_MAP: [u32; 21] = [
+pub const BUTTON_MAP: [u32; 21] = [
     button::A,
     button::B,
     button::X,
@@ -51,12 +52,93 @@ const BUTTON_MAP: [u32; 21] = [
     button::TOUCHPAD,
 ];
 
+pub const BUTTON_NAMES: [&str; 21] = [
+    "A / South", "B / East", "X / West", "Y / North", "Back / Select", "Guide", "Start",
+    "Left stick click", "Right stick click", "Left shoulder", "Right shoulder",
+    "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Share / Misc",
+    "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Touchpad click",
+];
+pub const AXIS_NAMES: [&str; 6] = ["Left stick X", "Left stick Y", "Right stick X", "Right stick Y", "Left trigger", "Right trigger"];
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Mapping {
+    pub name: String,
+    pub buttons: [Option<u32>; 21],
+    /// Zero disables an axis; otherwise the signed source index plus one.
+    pub axes: [i8; 6],
+    pub deadzone: u8,
+}
+
+impl Default for Mapping {
+    fn default() -> Self {
+        Self { name: String::new(), buttons: [None; 21], axes: [1, 2, 3, 4, 5, 6], deadzone: 0 }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Report {
+    pub buttons: u32,
+    pub lt: u8,
+    pub rt: u8,
+    pub ls: (i16, i16),
+    pub rs: (i16, i16),
+}
+
+impl Mapping {
+    pub fn valid(&self) -> bool {
+        self.deadzone <= 50
+            && self.buttons.iter().flatten().all(|b| *b == 0 || BUTTON_MAP.contains(b))
+            && self.axes.iter().enumerate().all(|(i, source)| {
+                *source == 0 || if i < 4 { (1..=4).contains(&source.unsigned_abs()) } else { (5..=6).contains(source) }
+            })
+    }
+
+    pub fn map_buttons(&self, raw: u32, swap: bool) -> u32 {
+        self.buttons.iter().enumerate().filter(|(i, _)| raw & (1 << i) != 0).fold(0, |buttons, (i, target)| {
+            buttons | target.unwrap_or(BUTTON_MAP[if swap && i < 4 { i ^ 1 } else { i }])
+        })
+    }
+
+    pub fn apply(&self, buttons: u32, axes: [i16; 6], swap: bool) -> Report {
+        let mut mapped = [0; 6];
+        for (value, source) in mapped.iter_mut().zip(self.axes) {
+            if source != 0 {
+                *value = axes[source.unsigned_abs() as usize - 1];
+                if source < 0 { *value = invert(*value); }
+            }
+        }
+        let trigger = |v: i16| (i32::from(v.max(0)) * 255 / 32767) as u8;
+        Report {
+            buttons: self.map_buttons(buttons, swap),
+            lt: trigger(mapped[4]), rt: trigger(mapped[5]),
+            ls: deadzone((mapped[0], invert(mapped[1])), self.deadzone),
+            rs: deadzone((mapped[2], invert(mapped[3])), self.deadzone),
+        }
+    }
+}
+
+fn deadzone(value: (i16, i16), percent: u8) -> (i16, i16) {
+    if percent == 0 { return value; }
+    let (x, y) = (f32::from(value.0), f32::from(value.1));
+    let length = x.hypot(y);
+    let edge = f32::from(percent) * 32767.0 / 100.0;
+    if length <= edge { return (0, 0); }
+    let scale = ((length - edge) / (32767.0 - edge)).min(1.0) * 32767.0 / length;
+    ((x * scale).round() as i16, (y * scale).round() as i16)
+}
+
 pub struct Pad {
     pub audio: Option<crate::controller_audio::Audio>,
     pub id: SDL_JoystickID,
     pub handle: *mut SDL_Gamepad,
     /// Host controller number.
     pub index: u8,
+    pub key: String,
+    pub name: String,
+    pub mapping: Mapping,
+    raw_buttons: u32,
+    raw_axes: [i16; 6],
     buttons: u32,
     lt: u8,
     rt: u8,
@@ -66,6 +148,25 @@ pub struct Pad {
 }
 
 impl Pad {
+    pub fn preview(&self, mapping: &Mapping, swap: bool) -> Report {
+        // Read physical state so the test view works without sending input to a PC.
+        unsafe {
+            let buttons = (0..21).filter(|i| SDL_GetGamepadButton(self.handle, SDL_GamepadButton(*i)))
+                .fold(0, |bits, i| bits | (1 << i));
+            let axes = std::array::from_fn(|i| SDL_GetGamepadAxis(self.handle, SDL_GamepadAxis(i as i32)));
+            mapping.apply(buttons, axes, swap)
+        }
+    }
+
+    fn update(&mut self, swap: bool) {
+        let state = self.mapping.apply(self.raw_buttons, self.raw_axes, swap);
+        self.buttons = state.buttons;
+        self.lt = state.lt;
+        self.rt = state.rt;
+        self.ls = state.ls;
+        self.rs = state.rs;
+    }
+
     pub fn supports_audio(&self) -> bool {
         unsafe { SDL_GetGamepadType(self.handle) == SDL_GAMEPAD_TYPE_PS5
             && SDL_GetGamepadConnectionState(self.handle) == SDL_JOYSTICK_CONNECTION_WIRED }
@@ -85,6 +186,7 @@ pub struct Gamepads {
     pub pads: Vec<Pad>,
     pub swap_face_buttons: bool,
     pub motion: bool,
+    pub mappings: std::collections::BTreeMap<String, Mapping>,
 }
 
 fn invert(value: i16) -> i16 {
@@ -107,11 +209,23 @@ impl Gamepads {
             unsafe { SDL_CloseGamepad(handle) };
             return;
         };
+        let name = unsafe {
+            let name = SDL_GetGamepadName(handle);
+            if name.is_null() { "Controller".into() } else { std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned() }
+        };
+        let (vendor, product) = unsafe { (SDL_GetGamepadVendor(handle), SDL_GetGamepadProduct(handle)) };
+        let key = if vendor != 0 || product != 0 { format!("usb:{vendor:04x}:{product:04x}") } else { format!("name:{name}") };
+        let mapping = self.mappings.get(&key).cloned().unwrap_or_default();
         self.pads.push(Pad {
             audio: None,
             id,
             handle,
             index,
+            key,
+            name,
+            mapping,
+            raw_buttons: 0,
+            raw_axes: [0; 6],
             buttons: 0,
             lt: 0,
             rt: 0,
@@ -179,6 +293,8 @@ impl Gamepads {
     pub fn release(&mut self, queue: &mut InputQueue) {
         let mask = self.active_mask();
         for pad in &mut self.pads {
+            pad.raw_buttons = 0;
+            pad.raw_axes = [0; 6];
             pad.buttons = 0;
             pad.lt = 0;
             pad.rt = 0;
@@ -203,48 +319,32 @@ impl Gamepads {
                 SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP => {
                     let b = event.gbutton;
                     let pad = self.find(b.which)?;
-                    let mut index = usize::from(b.button);
-                    if swap {
-                        index = match index {
-                            0 => 1,
-                            1 => 0,
-                            2 => 3,
-                            3 => 2,
-                            other => other,
-                        };
-                    }
-                    let flag = *BUTTON_MAP.get(index)?;
+                    if usize::from(b.button) >= BUTTON_MAP.len() { return None; }
+                    let flag = 1 << b.button;
                     if b.down {
-                        pad.buttons |= flag;
+                        pad.raw_buttons |= flag;
                     } else {
-                        pad.buttons &= !flag;
+                        pad.raw_buttons &= !flag;
                     }
-                    let quit = button::PLAY | button::BACK | button::LB | button::RB;
-                    if pad.buttons == quit {
-                        pad.buttons = 0;
+                    // Local escape chords use physical buttons even when remapped or disabled.
+                    let menu = (1 << SDL_GAMEPAD_BUTTON_START.0) | (1 << SDL_GAMEPAD_BUTTON_BACK.0);
+                    let quit = menu | (1 << SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0) | (1 << SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0);
+                    if b.down && (pad.raw_buttons == quit || pad.raw_buttons == menu) {
+                        let action = if pad.raw_buttons == quit { Action::Quit } else { Action::Menu };
+                        pad.raw_buttons = 0;
+                        pad.raw_axes = [0; 6];
+                        pad.update(swap);
                         send_state(pad, mask, queue);
-                        return Some(Action::Quit);
+                        return Some(action);
                     }
-                    if pad.buttons == button::PLAY | button::BACK {
-                        pad.buttons = 0;
-                        send_state(pad, mask, queue);
-                        return Some(Action::Menu);
-                    }
+                    pad.update(swap);
                     send_state(pad, mask, queue);
                 }
                 SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     let a = event.gaxis;
                     let pad = self.find(a.which)?;
-                    let trigger = |v: i16| (i32::from(v.max(0)) * 255 / 32767) as u8;
-                    match SDL_GamepadAxis(i32::from(a.axis)) {
-                        SDL_GAMEPAD_AXIS_LEFTX => pad.ls.0 = a.value,
-                        SDL_GAMEPAD_AXIS_LEFTY => pad.ls.1 = invert(a.value),
-                        SDL_GAMEPAD_AXIS_RIGHTX => pad.rs.0 = a.value,
-                        SDL_GAMEPAD_AXIS_RIGHTY => pad.rs.1 = invert(a.value),
-                        SDL_GAMEPAD_AXIS_LEFT_TRIGGER => pad.lt = trigger(a.value),
-                        SDL_GAMEPAD_AXIS_RIGHT_TRIGGER => pad.rt = trigger(a.value),
-                        _ => return None,
-                    }
+                    *pad.raw_axes.get_mut(usize::from(a.axis))? = a.value;
+                    pad.update(swap);
                     send_state(pad, mask, queue);
                 }
                 SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN
@@ -472,7 +572,7 @@ fn describe(pad: &Pad) -> (u8, u32, u16) {
         let mut supported = 0u32;
         for (i, flag) in BUTTON_MAP.iter().enumerate() {
             if SDL_GamepadHasButton(pad.handle, SDL_GamepadButton(i as i32)) {
-                supported |= flag;
+                supported |= pad.mapping.buttons[i].unwrap_or(*flag);
             }
         }
         let props = SDL_GetGamepadProperties(pad.handle);
@@ -604,12 +704,29 @@ mod tests {
             assert_eq!(pads.pads[0].ls.1, 32767, "stick up is positive for the host");
             assert!(queue.len() > queued, "controller state queued");
 
+            pads.pads[0].mapping.buttons[0] = Some(button::X);
+            pads.pads[0].mapping.buttons[1] = Some(button::X);
+            SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_EAST.0, true);
+            SDL_UpdateJoysticks();
+            while SDL_PollEvent(&mut event) { pads.handle(&event, &mut queue); }
+            assert_eq!(pads.pads[0].buttons, button::X);
+            SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH.0, false);
+            SDL_UpdateJoysticks();
+            while SDL_PollEvent(&mut event) { pads.handle(&event, &mut queue); }
+            assert_eq!(pads.pads[0].buttons, button::X, "a second physical button still holds the target");
+            SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_EAST.0, false);
+            SDL_UpdateJoysticks();
+            while SDL_PollEvent(&mut event) { pads.handle(&event, &mut queue); }
+            assert_eq!(pads.pads[0].buttons, 0);
+
             pads.rumble(0, 0x1234, 0x5678);
             assert_eq!(RUMBLE.load(std::sync::atomic::Ordering::SeqCst), 0x1234_5678);
 
             pads.release(&mut queue);
             assert_eq!(pads.pads[0].buttons, 0);
             assert_eq!(pads.pads[0].ls, (0, 0));
+            pads.pads[0].mapping.buttons[SDL_GAMEPAD_BUTTON_START.0 as usize] = Some(0);
+            pads.pads[0].mapping.buttons[SDL_GAMEPAD_BUTTON_BACK.0 as usize] = Some(0);
             SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_START.0, true);
             SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_BACK.0, true);
             SDL_UpdateJoysticks();
@@ -632,6 +749,32 @@ mod tests {
         assert_eq!(BUTTON_MAP[SDL_GAMEPAD_BUTTON_START.0 as usize], button::PLAY);
         assert_eq!(BUTTON_MAP[SDL_GAMEPAD_BUTTON_DPAD_RIGHT.0 as usize], button::RIGHT);
         assert_eq!(BUTTON_MAP[SDL_GAMEPAD_BUTTON_TOUCHPAD.0 as usize], button::TOUCHPAD);
+    }
+
+    #[test]
+    fn mappings_apply_once_preserve_explicit_bindings_and_scale_dead_zones() {
+        let mut mapping = Mapping::default();
+        assert_eq!(mapping.map_buttons(1, true), button::B);
+        mapping.buttons[0] = Some(button::X);
+        mapping.buttons[2] = Some(button::Y);
+        assert_eq!(mapping.map_buttons(1, true), button::X);
+        assert_eq!(mapping.map_buttons(1 | 4, false), button::X | button::Y);
+        mapping.axes = [-4, 3, 0, -1, 6, 0];
+        let report = mapping.apply(0, [-32768, 1000, -2000, 32767, 0, 32767], false);
+        assert_eq!(report.ls, (-32767, 2000));
+        assert_eq!(report.rs, (0, -32767));
+        assert_eq!((report.lt, report.rt), (255, 0));
+        assert_eq!(deadzone((3000, 3000), 20), (0, 0));
+        assert_eq!(deadzone((32767, 0), 20), (32767, 0));
+        let middle = deadzone((20000, 0), 20);
+        assert!((16000..18000).contains(&middle.0));
+        assert_eq!(middle.1, 0);
+        assert!(mapping.valid());
+        mapping.axes[4] = -6;
+        assert!(!mapping.valid());
+        mapping.axes[4] = 6;
+        mapping.buttons[0] = Some(button::A | button::B);
+        assert!(!mapping.valid());
     }
 
     #[test]

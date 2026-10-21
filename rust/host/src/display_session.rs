@@ -619,14 +619,25 @@ fn frame_policy(
     Ok((framegen, device_mode))
 }
 
-/// Puts the configured virtual display scale on `output`, whichever display it is: a stream's
-/// own, or a remote monitor's retained one, which nothing else scales.
+/// Whether the configured virtual display scale goes on a stream's display: on every one, a
+/// remote monitor's retained display (`retained`) included, because nothing else scales it. The
+/// lease does not.
+fn should_scale(retained: bool, configured: i64) -> bool {
+    let _ = retained;
+    configured != 0
+}
+
+/// Puts the configured virtual display scale on `output` where [`should_scale`] says so.
 fn scale_display(
     output: &str,
+    retained: bool,
     configured: i64,
     (width, height): (u32, u32),
     set: impl FnOnce(&str, i64, u32, u32) -> Result<()>,
 ) -> Result<()> {
+    if !should_scale(retained, configured) {
+        return Ok(());
+    }
     set(output, configured, width, height)
 }
 
@@ -668,6 +679,7 @@ impl Prepared {
             // The lease does not set a remote monitor's scale; it needs it again as well.
             scale_display(
                 &self.output,
+                self._retained.is_some(),
                 self.recovery_scale,
                 self.recovery_dimensions,
                 butterpollo_windows::display::virtual_scale,
@@ -890,6 +902,7 @@ impl Prepared {
         // A remote monitor's retained display too: the lease never sets the scale.
         scale_display(
             &output,
+            retained.is_some(),
             config.integer("dd_virtual_display_scale", 0),
             (width, height),
             butterpollo_windows::display::virtual_scale,
@@ -1495,21 +1508,31 @@ mod tests {
 
     #[test]
     fn the_configured_scale_reaches_every_stream_display_including_remote_monitors() {
-        let mut seen = None;
-        let display = r"\\.\DISPLAY7";
-        scale_display(
-            display,
-            125,
-            (2560, 1440),
-            |output, scale, width, height| {
-                seen = Some((output.to_owned(), scale, width, height));
-                Ok(())
-            },
-        )
-        .unwrap();
-        assert_eq!(seen, Some((display.to_owned(), 125, 2560, 1440)));
+        for retained in [false, true] {
+            assert!(should_scale(retained, 125), "retained: {retained}");
+            assert!(should_scale(retained, -1), "retained: {retained}");
+            assert!(!should_scale(retained, 0), "retained: {retained}");
+            let mut seen = None;
+            let display = r"\\.\DISPLAY7";
+            scale_display(
+                display,
+                retained,
+                125,
+                (2560, 1440),
+                |output, scale, width, height| {
+                    seen = Some((output.to_owned(), scale, width, height));
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                seen,
+                Some((display.to_owned(), 125, 2560, 1440)),
+                "retained: {retained}"
+            );
+        }
         // A display that cannot be scaled is a loud failure, not a silent skip.
-        assert!(scale_display("x", 125, (1, 1), |_, _, _, _| anyhow::bail!("no")).is_err());
+        assert!(scale_display("x", true, 125, (1, 1), |_, _, _, _| anyhow::bail!("no")).is_err());
     }
 
     fn test_prepared(host: &Shared) -> Prepared {

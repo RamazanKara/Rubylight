@@ -43,6 +43,7 @@ fn any_value(_: &str) -> bool {
 const VIRTUAL_ONLY: &str = "every stream runs on its own virtual display";
 const DRIVER: &str = "Rubylight's display driver creates every virtual display";
 const CAPTURE: &str = "every stream captures its virtual display from the Rubylight display driver";
+const FENCE_RING: &str = "the GPU fence ring is the only transport from the display driver";
 pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
     RetiredSetting {
         key: "encoder",
@@ -85,6 +86,12 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
         retired: any_value,
         current: "",
         reason: CAPTURE,
+    },
+    RetiredSetting {
+        key: "idd_push_fence_ring",
+        retired: any_value,
+        current: "",
+        reason: FENCE_RING,
     },
     RetiredSetting {
         key: "capture_predictive_poll",
@@ -1634,6 +1641,33 @@ port = 48123
                 .values
                 .is_empty()
             );
+        }
+    }
+    #[test]
+    fn the_fence_ring_option_migrates_because_the_ring_is_the_only_transport() {
+        for value in ["true", "false", "\"true\""] {
+            let (config, retired) = Config::parse_retiring(&format!(
+                "idd_push_fence_ring = {value}
+idd_push_zero_copy = false
+port = 48123
+"
+            ))
+            .unwrap();
+            assert_eq!(
+                config.values,
+                BTreeMap::from([
+                    ("idd_push_zero_copy".into(), "false".into()),
+                    ("port".into(), "48123".into()),
+                ])
+            );
+            let keys: Vec<_> = retired.iter().map(|r| r.key.as_str()).collect();
+            assert_eq!(keys, ["idd_push_fence_ring"]);
+            let warning = retired_warning(&retired).unwrap();
+            assert!(warning.contains("idd_push_fence_ring"), "{warning}");
+            assert!(warning.contains("fence ring is the only transport"), "{warning}");
+            // What the host writes back reads without a report.
+            let (_, again) = Config::parse_retiring(&config.text()).unwrap();
+            assert!(again.is_empty());
         }
     }
     #[test]

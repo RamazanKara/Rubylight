@@ -91,7 +91,6 @@ pub const GLOBAL: &[Setting] = settings! {
         "frame_pacing_smoothing", "Smooth capture pacing", Bool;
         "stream_reconfigure", "Follow client size and frame rate changes", Bool;
         "gpu_compute_conversion", "Copy and convert captures on a compute queue", Bool;
-        "idd_push_fence_ring", "Experimental GPU fence transport for direct driver push (off by default)", Bool;
         "compute_queue_realtime", "Run that compute queue at real-time GPU priority", Bool;
         "fec_percentage", "Forward error correction (%)", Number;
         "adaptive_fec", "Adapt error correction to reported packet loss", Bool;

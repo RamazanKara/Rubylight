@@ -35,6 +35,15 @@ pub fn retired(name: &str) -> bool {
     )
 }
 
+/// The `--encoder` of the measurement probes. Older repro commands pass
+/// `--encoder amf`; it and `auto` still mean the only encoder there is.
+pub fn probe_option(value: &str) -> Result<()> {
+    match value {
+        "amf" | "auto" => Ok(()),
+        other => bail!("--encoder {other} is not available: Rubylight 3.0 is AMF-only"),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
     Integer(i64),
@@ -523,6 +532,16 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_probe_accepts_amf_and_auto_and_rejects_any_other_encoder() {
+        assert!(super::probe_option("amf").is_ok());
+        assert!(super::probe_option("auto").is_ok());
+        for other in ["nvenc", "qsv", "software", "amdvce", ""] {
+            let error = super::probe_option(other).unwrap_err().to_string();
+            assert!(error.contains("AMF-only"), "{other}: {error}");
+        }
+    }
+
     use super::*;
     #[test]
     fn amf_preanalysis_and_quality_rc_require_eight_bit_sdr() {

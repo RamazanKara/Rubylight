@@ -37,6 +37,7 @@ fn main() -> anyhow::Result<()> {
                 "Rubylight encoder performance probe\n\
 Repeat-frame throughput excludes capture, network, decoding and display latency.\n\
 --width 1920 --height 1080 --fps 120 --seconds 8 --bitrate 20000\n\
+--encoder amf|auto (accepted for older commands; 3.0 is AMF-only)\n\
 --codec hevc (h264/hevc/av1/pyrowave) --capture wgc --display NAME\n\
 --synthetic 16: moving pictures; --idr-interval N: request a recovery keyframe every N measured submissions (0: none)\n\
 --hdr: HDR10 output; --sdr-10bit; --yuv444; --slices N: slices (AV1 tiles) a client asks for; --intra-refresh; --records: PyroWave record framing; --cpu: CPU conversion/readback path; --paced: requested frame cadence; --live-capture: keep the shared capture device active; --arrival: with --live-capture, encode each new picture as it arrives"
@@ -72,6 +73,7 @@ Repeat-frame throughput excludes capture, network, decoding and display latency.
                 | "--synthetic"
                 | "--slices"
                 | "--idr-interval"
+                | "--encoder"
         ) {
             fields.insert(key, args.next().context("option requires a value")?);
         } else {
@@ -80,6 +82,7 @@ Repeat-frame throughput excludes capture, network, decoding and display latency.
     }
     let option =
         |key: &str, default: &str| fields.get(key).cloned().unwrap_or_else(|| default.into());
+    butterpollo_core::encoder_policy::probe_option(&option("--encoder", "auto"))?;
     let number = |key: &str, default: &str| option(key, default).parse::<u32>();
     let rate = butterpollo_core::framegen::Rate::parse(&option("--fps", "120"))?;
     let config = Negotiated {

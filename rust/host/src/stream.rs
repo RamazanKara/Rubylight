@@ -901,6 +901,8 @@ impl Media {
                         capture_config.integer("capture_poll_interval_us", 500).clamp(100, 1000) as u64,
                     );
                     let mut last_frame = Instant::now();
+                    // Per display: this thread captures one.
+                    let mut fence_faults = butterpollo_windows::capture::FenceFaults::default();
                     while !worker_stop.load(Ordering::Acquire) {
                         if Instant::now() >= check_target {
                             check_target = Instant::now() + Duration::from_millis(100);
@@ -930,6 +932,7 @@ impl Media {
                         match captured {
                             Ok(Some(mut image)) => {
                                 last_frame = Instant::now();
+                                fence_faults.delivered();
                                 capture_warnings.clear("capture_recovery");
                                 let captured = image.captured;
                                 image.published = Instant::now();
@@ -948,6 +951,12 @@ impl Media {
                                 }
                             }
                             Err(e) => {
+                                // A ring that keeps faulting would reopen for ever behind a
+                                // frozen picture: end the stream, loudly.
+                                if let Some(ended) = fence_faults.fault(&e) {
+                                    capture_warnings.set("capture_recovery", format!("{ended:#}"));
+                                    return Err(ended);
+                                }
                                 if let Some(loss) = DeviceLost::from_error(&e) {
                                     worker.device_lost(loss, &capture_warnings, Instant::now())?;
                                     worker.take_device_restart()?;

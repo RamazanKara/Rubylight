@@ -853,6 +853,7 @@ fn qpc_timestamps_at(
     (captured, stamp)
 }
 mod idd_push;
+pub use idd_push::{FENCE_FAULTS_BEFORE_STOP, FenceFault, FenceFaults};
 
 /// A stream's capture: the frames Rubylight's display driver pushes for its
 /// virtual display.

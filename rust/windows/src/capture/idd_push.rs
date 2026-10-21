@@ -110,6 +110,50 @@ fn fence_fault(
     None
 }
 
+/// The fence transport stopped (see [`fence_fault`]). The capture worker reopens after it, with a
+/// frozen picture until frames resume; [`FenceFaults`] ends the stream when that keeps failing.
+#[derive(Debug)]
+pub struct FenceFault(pub &'static str);
+impl std::fmt::Display for FenceFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "GPU fence transport {}; recreate the capture device",
+            self.0
+        )
+    }
+}
+impl std::error::Error for FenceFault {}
+
+/// Fence faults in a row on one display's capture before the stream ends. The first fault gets
+/// one reopen with a fresh device; the second, with no frame delivered in between, is a driver
+/// or GPU that keeps failing (the limit the ring had before it fell back to another capture).
+pub const FENCE_FAULTS_BEFORE_STOP: u32 = 2;
+
+/// Consecutive fence faults of one display's capture, ended by a delivered frame. Without the
+/// count, a ring that keeps faulting reopens forever while the picture stays frozen.
+#[derive(Debug, Default)]
+pub struct FenceFaults(u32);
+impl FenceFaults {
+    /// A frame arrived: the transport works.
+    pub fn delivered(&mut self) {
+        self.0 = 0;
+    }
+    /// Count `error` if it is a fence fault. The error to end the stream with once the limit
+    /// is reached, naming the driver and how to repair it.
+    pub fn fault(&mut self, error: &anyhow::Error) -> Option<anyhow::Error> {
+        let fault = error.downcast_ref::<FenceFault>()?;
+        self.0 += 1;
+        (self.0 >= FENCE_FAULTS_BEFORE_STOP).then(|| {
+            anyhow::anyhow!(
+                "Rubylight's display driver keeps failing the GPU fence transport ({}; {} times with no frame in between). Restart Windows; if this persists, run Rubylight setup again to repair the display driver.",
+                fault.0,
+                self.0
+            )
+        })
+    }
+}
+
 /// Microseconds from QPC `from` to `to`, zero when `to` is earlier or either is missing.
 fn qpc_micros(from: u64, to: u64, frequency: i64) -> u64 {
     if from == 0 || to <= from || frequency <= 0 {
@@ -752,7 +796,7 @@ impl Session {
             fences.failed.load(Ordering::Acquire),
             fences.compute.is_stuck(),
         ) {
-            bail!("GPU fence transport {fault}; recreate the capture device");
+            return Err(FenceFault(fault).into());
         }
         match verdict(header.status(), header.surface(), self.started) {
             Verdict::Fine => {}
@@ -1087,6 +1131,39 @@ mod tests {
         assert!(stalled(10_000_000, 50_000_000, frequency, limit));
         // A stamp ahead of this process's clock read is not a stall.
         assert!(!stalled(60_000_000, 50_000_000, frequency, limit));
+    }
+
+    #[test]
+    fn a_ring_that_keeps_faulting_ends_the_stream_and_a_frame_resets_the_count() {
+        let fault = || anyhow::Error::from(FenceFault("lost GPU ordering"));
+        let mut faults = FenceFaults::default();
+        // One fault is reopened; a delivered frame forgives it, however often that repeats.
+        for _ in 0..10 {
+            assert!(faults.fault(&fault()).is_none());
+            faults.delivered();
+        }
+        // Other errors neither count nor end anything.
+        assert!(
+            faults
+                .fault(&anyhow::anyhow!("capture interrupted"))
+                .is_none()
+        );
+        for _ in 1..FENCE_FAULTS_BEFORE_STOP {
+            assert!(faults.fault(&fault()).is_none());
+        }
+        let ended = faults.fault(&fault()).expect("the limit ends the stream");
+        let ended = format!("{ended:#}");
+        assert!(ended.contains("lost GPU ordering"), "{ended}");
+        assert!(
+            ended.contains("run Rubylight setup again to repair the display driver"),
+            "{ended}"
+        );
+        const {
+            assert!(
+                FENCE_FAULTS_BEFORE_STOP >= 2,
+                "the first fault must get its reopen"
+            )
+        };
     }
 
     #[test]

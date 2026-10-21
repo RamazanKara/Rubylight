@@ -1,10 +1,18 @@
-# Rubylight 2.5.12 for Windows
+# Rubylight 2.5.13 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.12 installer is named `rubylight-setup-2.5.12.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.13 installer is named `rubylight-setup-2.5.13.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.5.13
+
+- **Bound the wait for a predicted capture.** When the next predicted capture does not arrive, its detection allowance now stays inside the existing prediction budget. In the deterministic 90 fps reproduction, the fallback claim moves from 13.89 ms to 11.61 ms after the previous claim, reducing the extra wait by 2.28 ms. Fresh captures can still replace the pending frame.
+- **Move large frames to the existing sender before pacing their packets.** The handoff now accounts for the actual encoded frame size, packet headers, encryption and the frame's FEC, rather than relying only on the average bitrate. A large keyframe can therefore avoid holding up capture and encoding while its packets are paced. Wire-rate limits and queue bounds are unchanged.
+- **Include the latest background-stream and process-audio fixes from main.** Background isolation stays fixed across reconnects, waits for its own display instead of falling back to the PC's monitor, and keeps window and audio tracking tied to the launched game. Process audio activation now preserves parameter ownership and retrieves the audio interface on its audio thread.
+
+**Verification and limits:** Regression tests cover missed predictions at 59.94, 90, 120, 144 and 240 fps, large recovery frames on a gigabit link, and encrypted and unencrypted sender handoffs with packet numbering preserved. The 2.28 ms result is a timing-policy reproduction, not a measured end-to-end improvement. The reported RX 9070 to RTX 2050 setup and its camera-measured latency spread have not been retested.
 
 ## New in 2.5.12
 

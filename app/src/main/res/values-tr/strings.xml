@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="title_packed_444">Deneysel tam kroma</string>
+    <string name="summary_packed_444">Rubylight’ın deneysel tam kroma seçeneği, yeni akış motoru ve uyumlu bir HEVC/AV1 donanım çözücüsü gerekir. Desteklenmeyen modlar bağlantıyı durdurur. HDR ayrıca uyumlu bir 10 bit HDR görüntüleme yüzeyi gerektirir.</string>
     <string name="scut_deleted_pc">Bilgisayar silindi</string>
     <string name="scut_not_paired">Bilgisayar eşleştirilmedi</string>
     <string name="scut_pc_not_found">Bilgisayar bulunamadı</string>

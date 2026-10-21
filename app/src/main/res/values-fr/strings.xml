@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="title_packed_444">Chroma complet expérimental</string>
+    <string name="summary_packed_444">Nécessite l’option expérimentale de chroma complet de Rubylight, le nouveau moteur de streaming et un décodeur matériel HEVC/AV1 compatible. Les modes non pris en charge interrompent la connexion. Le HDR nécessite aussi une surface d’affichage HDR 10 bits compatible.</string>
     <string name="scut_deleted_pc">PC supprimé</string>
     <string name="scut_not_paired">PC non associé</string>
     <string name="scut_pc_not_found">PC introuvable</string>

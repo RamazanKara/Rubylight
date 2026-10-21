@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="title_packed_444">実験的なフルクロマ</string>
+    <string name="summary_packed_444">Rubylight の実験的なフルクロマ設定、新しいストリーミングエンジン、対応する HEVC/AV1 ハードウェアデコーダーが必要です。未対応のモードでは接続を停止します。HDR には対応する 10 ビット HDR 表示サーフェスも必要です。</string>
     <string name="scut_deleted_pc">PC は削除されています</string>
     <string name="scut_not_paired">PC はペアリングされていません</string>
     <string name="scut_pc_not_found">PC が見つかりません</string>

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="title_packed_444">Experimentelle volle Farbauflösung</string>
+    <string name="summary_packed_444">Benötigt Rubylights experimentelle Option für volle Farbauflösung, die neue Streaming-Engine und einen kompatiblen HEVC/AV1-Hardwaredecoder. Nicht unterstützte Modi beenden die Verbindung. HDR benötigt zusätzlich eine kompatible 10-Bit-HDR-Anzeigefläche.</string>
     <string name="scut_deleted_pc">PC gelöscht</string>
     <string name="scut_not_paired">PC nicht gekoppelt</string>
     <string name="scut_pc_not_found">PC nicht gefunden</string>

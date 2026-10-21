@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="title_packed_444">Crominanza completa sperimentale</string>
+    <string name="summary_packed_444">Richiede l’opzione sperimentale di crominanza completa di Rubylight, il nuovo motore di streaming e un decoder hardware HEVC/AV1 compatibile. Le modalità non supportate interrompono la connessione. HDR richiede anche una superficie di visualizzazione HDR a 10 bit compatibile.</string>
     <string name="scut_deleted_pc">PC eliminato</string>
     <string name="scut_not_paired">PC non accoppiato</string>
     <string name="scut_pc_not_found">PC non trovato</string>

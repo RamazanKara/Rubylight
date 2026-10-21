@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="title_packed_444">Sắc độ đầy đủ thử nghiệm</string>
+    <string name="summary_packed_444">Cần tùy chọn sắc độ đầy đủ thử nghiệm của Rubylight, bộ máy truyền phát mới và bộ giải mã phần cứng HEVC/AV1 tương thích. Chế độ không được hỗ trợ sẽ dừng kết nối. HDR cũng cần bề mặt hiển thị HDR 10 bit tương thích.</string>
     <string name="scut_deleted_pc">Đã xóa PC</string>
     <string name="scut_not_paired">Chưa ghép đôi PC</string>
     <string name="scut_pc_not_found">Không tìm thấy PC</string>

@@ -44,7 +44,7 @@ pub enum DecoderPreference {
     Software,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// 0x0 is the display's native resolution.
@@ -54,6 +54,7 @@ pub struct Settings {
     pub fps: u32,
     /// 0 picks a bitrate for the resolution and rate.
     pub bitrate_kbps: u32,
+    pub adaptive_bitrate: bool,
     pub codec: CodecPreference,
     pub hdr: bool,
     pub experimental_packed_444: bool,
@@ -77,6 +78,40 @@ pub struct Settings {
     /// Keep sending controller input while the window is in the background.
     pub background_controllers: bool,
     pub decoder: DecoderPreference,
+    pub microphone: bool,
+    pub cursor_shapes: bool,
+    pub network_grace_ms: u32,
+    pub auto_reconnect: bool,
+    pub virtual_display: bool,
+    pub virtual_display_scale: u32,
+    pub host_display: HostDisplay,
+    pub full_range: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostDisplay {
+    #[default]
+    HostDefault,
+    Exclusive,
+    ExtendedPrimary,
+    Extended,
+    ExtendedIsolated,
+    ExtendedPrimaryIsolated,
+    Physical,
+}
+
+impl From<HostDisplay> for nightjar_core::http::HostDisplay {
+    fn from(value: HostDisplay) -> Self {
+        match value {
+            HostDisplay::HostDefault => Self::HostDefault,
+            HostDisplay::Exclusive => Self::Exclusive,
+            HostDisplay::ExtendedPrimary => Self::ExtendedPrimary,
+            HostDisplay::Extended => Self::Extended,
+            HostDisplay::ExtendedIsolated => Self::ExtendedIsolated,
+            HostDisplay::ExtendedPrimaryIsolated => Self::ExtendedPrimaryIsolated,
+            HostDisplay::Physical => Self::Physical,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -86,6 +121,7 @@ impl Default for Settings {
             height: 0,
             fps: 0,
             bitrate_kbps: 0,
+            adaptive_bitrate: false,
             codec: CodecPreference::Auto,
             hdr: false,
             experimental_packed_444: false,
@@ -103,6 +139,14 @@ impl Default for Settings {
             controller_motion: true,
             background_controllers: false,
             decoder: DecoderPreference::Auto,
+            microphone: false,
+            cursor_shapes: true,
+            network_grace_ms: 3000,
+            auto_reconnect: false,
+            virtual_display: false,
+            virtual_display_scale: 100,
+            host_display: HostDisplay::HostDefault,
+            full_range: false,
         }
     }
 }
@@ -144,6 +188,13 @@ pub struct HostRecord {
     pub mac: Option<String>,
     /// Added by hand rather than found on the network.
     pub manual: bool,
+    pub settings: Option<Settings>,
+}
+
+impl HostRecord {
+    pub fn settings<'a>(&'a self, global: &'a Settings) -> &'a Settings {
+        self.settings.as_ref().unwrap_or(global)
+    }
 }
 
 pub struct Store {
@@ -306,5 +357,19 @@ mod tests {
         assert_eq!(store.settings().fps, 90);
         assert!(store.settings().present_at_host_times);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn host_settings_inherit_until_overridden() {
+        let mut host: HostRecord = serde_json::from_str(r#"{"address":"pc.local"}"#).unwrap();
+        let mut global = Settings { fps: 120, ..Default::default() };
+        assert_eq!(host.settings(&global).fps, 120);
+        host.settings = Some(Settings { fps: 60, microphone: true, ..global.clone() });
+        global.fps = 144;
+        let saved: HostRecord = serde_json::from_str(&serde_json::to_string(&host).unwrap()).unwrap();
+        assert_eq!(saved.settings(&global).fps, 60);
+        assert!(saved.settings(&global).microphone);
+        host.settings = None;
+        assert_eq!(host.settings(&global).fps, 144);
     }
 }

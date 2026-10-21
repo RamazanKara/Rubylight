@@ -58,6 +58,37 @@ pub fn hdr_available(renderer: *mut SDL_Renderer) -> bool {
     }
 }
 
+pub fn display_caps(renderer: *mut SDL_Renderer) -> rubylight_protocol::control::DisplayCaps {
+    let caps = rubylight_protocol::control::DisplayCaps {
+        hdr: hdr_available(renderer),
+        ..Default::default()
+    };
+    #[cfg(windows)]
+    {
+        use windows::core::Interface;
+        use windows::Win32::Graphics::Dxgi::{IDXGIOutput6, IDXGISwapChain};
+        let chain = renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER);
+        let desc = unsafe {
+            IDXGISwapChain::from_raw_borrowed(&chain)
+                .and_then(|chain| chain.GetContainingOutput().ok())
+                .and_then(|output| output.cast::<IDXGIOutput6>().ok())
+                .and_then(|output| output.GetDesc1().ok())
+        };
+        if let Some(desc) = desc {
+            let measured = rubylight_protocol::control::DisplayCaps {
+                max_centinits: (desc.MaxLuminance * 100.0).round() as u32,
+                max_average_centinits: (desc.MaxFullFrameLuminance * 100.0).round() as u32,
+                min_decimillinits: (desc.MinLuminance * 10_000.0).round() as u32,
+                ..caps
+            };
+            if rubylight_protocol::control::DisplayCaps::decode(&measured.encode()).is_some() {
+                return measured;
+            }
+        }
+    }
+    caps
+}
+
 pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer {
     // SAFETY: The window is live, and all property strings are static.
     unsafe {

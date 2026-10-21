@@ -39,11 +39,17 @@ pub struct Decoded {
 
 /// Something the UI should know about.
 pub enum Notice {
+    Reconnecting(usize),
     Stage(Stage),
     Started,
     Terminated(i32),
     Control(ControlEvent),
     DecoderFallback(String),
+    MicrophoneFailed(String),
+    Clipboard(Result<Option<String>, String>),
+    ServerCommand(Result<Vec<u8>, String>),
+    Bitrate { requested: u32, result: Result<u32, String> },
+    AdaptiveBitrate(Result<(u32, u32), String>),
 }
 
 #[derive(Default)]
@@ -63,6 +69,7 @@ pub struct Counters {
 }
 
 pub struct Shared {
+    pub host_client: Mutex<Option<Arc<nightjar_core::http::HostClient>>>,
     pub frames: Mutex<VecDeque<Decoded>>,
     pub notices: Mutex<Vec<Notice>>,
     pub decoder_name: Mutex<String>,
@@ -75,6 +82,7 @@ pub struct Shared {
 impl Shared {
     pub fn new(waker: Waker, queue_limit: usize) -> Arc<Self> {
         Arc::new(Self {
+            host_client: Mutex::new(None),
             frames: Mutex::new(VecDeque::new()),
             notices: Mutex::new(Vec::new()),
             decoder_name: Mutex::new(String::new()),
@@ -86,6 +94,10 @@ impl Shared {
 
     pub fn notify(&self, notice: Notice) {
         lock(&self.notices).push(notice);
+        self.wake();
+    }
+
+    pub fn wake(&self) {
         (self.waker)();
     }
 }

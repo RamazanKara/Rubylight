@@ -18,6 +18,7 @@ mod sdl;
 mod stream;
 mod theme;
 mod ui;
+mod wol;
 
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
@@ -151,6 +152,9 @@ fn run() -> Result<(), String> {
     }
     let store = Store::open().map_err(|e| format!("No config directory: {e}"))?;
     let settings = store.settings();
+    let gpu = settings.experimental_packed_444 || settings.hdr || store.hosts().iter()
+        .filter_map(|host| host.settings.as_ref())
+        .any(|settings| settings.experimental_packed_444 || settings.hdr);
 
     // SAFETY: window and renderer creation on the main thread.
     let (window, renderer, wake_event) = unsafe {
@@ -165,7 +169,7 @@ fn run() -> Result<(), String> {
         }
         SDL_SetWindowMinimumSize(window, 720, 480);
         let renderer =
-            sdl::create_renderer(window, settings.experimental_packed_444 || settings.hdr);
+            sdl::create_renderer(window, gpu);
         if renderer.is_null() {
             return Err(format!("No renderer: {}", sdl::error()));
         }
@@ -278,6 +282,11 @@ fn run() -> Result<(), String> {
 
 impl App {
     fn shutdown(&mut self) {
+        match self.launcher.screen {
+            Screen::HostSettings(host) => self.command(Command::SaveHostSettings(host)),
+            Screen::Settings => self.command(Command::SaveSettings),
+            _ => {}
+        }
         if let Some((streaming, _)) = self.streaming.take() {
             streaming.finish(self.window, &mut self.pads);
         }
@@ -307,7 +316,7 @@ impl App {
         unsafe {
             match SDL_EventType(event.r#type) {
                 SDL_EVENT_GAMEPAD_BUTTON_DOWN => {
-                    let swap = self.launcher.settings.swap_face_buttons;
+                    let swap = if self.streaming.is_some() { self.pads.swap_face_buttons } else { self.launcher.settings.swap_face_buttons };
                     let key = match SDL_GamepadButton(i32::from(event.gbutton.button)) {
                         SDL_GAMEPAD_BUTTON_DPAD_UP => Some(egui::Key::ArrowUp),
                         SDL_GAMEPAD_BUTTON_DPAD_DOWN => Some(egui::Key::ArrowDown),
@@ -317,7 +326,10 @@ impl App {
                         SDL_GAMEPAD_BUTTON_EAST => Some(if swap { egui::Key::Enter } else { egui::Key::Escape }),
                         SDL_GAMEPAD_BUTTON_BACK => Some(egui::Key::Escape),
                         SDL_GAMEPAD_BUTTON_START => {
-                            if matches!(self.launcher.dialog, Dialog::None) && self.connecting.is_none() {
+                            if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && self.connecting.is_none() {
+                                if let Screen::HostSettings(host) = self.launcher.screen {
+                                    self.command(Command::SaveHostSettings(host));
+                                }
                                 self.launcher.go(Screen::Settings);
                             }
                             None
@@ -422,7 +434,7 @@ impl App {
         }
         for event in events {
             match event {
-                HostEvent::Paired { id, result } => {
+                HostEvent::Paired { id, result, .. } => {
                     if !matches!(self.launcher.dialog, Dialog::Pairing { host, .. } if host == id) {
                         continue;
                     }
@@ -449,6 +461,11 @@ impl App {
                         self.launcher.message("Could not quit the app", e);
                     }
                 },
+                HostEvent::Wake { result, .. } => match result {
+                    Ok(()) => self.launcher.message("Wake request sent", "The PC should appear online shortly if Wake-on-LAN is enabled."),
+                    Err(e) => self.launcher.message("Could not wake the PC", e),
+                },
+                HostEvent::Action { result: Err(e), .. } => self.launcher.message("The PC action failed", e),
                 _ => {}
             }
         }
@@ -538,6 +555,7 @@ impl App {
         match command {
             Command::Launch { host, app, resume } => self.launch(host, app, resume),
             Command::QuitApp(host) => self.hosts.quit_app(host),
+            Command::ControlAction { host, app } => self.hosts.control_action(host, app),
             Command::QuitAndLaunch { host, app } => {
                 self.pending_launch = Some((host, app));
                 self.hosts.quit_app(host);
@@ -548,7 +566,25 @@ impl App {
                     host,
                     pin: pin.clone(),
                 };
-                self.hosts.pair(host, pin);
+                self.hosts.pair(host, pin, None);
+            }
+            Command::PairOtp { host, pin, passphrase } => {
+                self.launcher.dialog = Dialog::Pairing { host, pin: String::new() };
+                self.hosts.pair(host, pin, Some(passphrase));
+            }
+            Command::Wake(host) => self.hosts.wake(host),
+            Command::HostSettings(id) => {
+                if let Some(host) = self.hosts.get(id) {
+                    self.launcher.host_settings = host.record.settings(&self.launcher.settings).clone();
+                    self.launcher.use_host_settings = host.record.settings.is_some();
+                    self.launcher.go(Screen::HostSettings(id));
+                }
+            }
+            Command::SaveHostSettings(id) => {
+                if let Some(host) = self.hosts.get_mut(id) {
+                    host.record.settings = self.launcher.use_host_settings.then(|| self.launcher.host_settings.clone());
+                    self.save_hosts();
+                }
             }
             Command::CancelPair => self.hosts.cancel_pairing(),
             Command::AddHost(text) => match config::parse_address(&text) {
@@ -595,8 +631,7 @@ impl App {
         }
     }
 
-    fn pacing(&self) -> PacingMode {
-        let s = &self.launcher.settings;
+    fn pacing(&self, s: &config::Settings) -> PacingMode {
         if s.vrr && self.launcher.tearing_supported {
             if s.present_at_host_times {
                 PacingMode::HostTimes
@@ -610,8 +645,8 @@ impl App {
         }
     }
 
-    fn hardware(&self) -> Hardware {
-        if self.launcher.settings.decoder == DecoderPreference::Software {
+    fn hardware(&self, settings: &config::Settings) -> Hardware {
+        if settings.decoder == DecoderPreference::Software {
             return Hardware::None;
         }
         if cfg!(windows) {
@@ -631,12 +666,30 @@ impl App {
         if self.connecting.is_some() {
             return;
         }
-        if self.launcher.settings.hdr && !sdl::hdr_available(self.renderer) {
+        let Some(host) = self.hosts.get(host_id) else {
+            return;
+        };
+        let Apps::Loaded(apps) = &host.apps else { return; };
+        let Some(app) = apps.iter().find(|app| app.id == app_id).cloned() else { return; };
+        if app.is_control_action() {
+            self.hosts.control_action(host_id, app_id);
+            return;
+        }
+        let mut settings = host.record.settings(&self.launcher.settings).clone();
+        if app.role(false) == nightjar_core::http::AppRole::InputOnly {
+            settings.hdr = false;
+            settings.experimental_packed_444 = false;
+            settings.codec = config::CodecPreference::H264;
+            settings.width = 1280;
+            settings.height = 720;
+            settings.fps = 60;
+        }
+        if settings.hdr && !sdl::hdr_available(self.renderer) {
             self.launcher.message("HDR output unavailable", "Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.");
             return;
         }
-        let packed_modes = if self.launcher.settings.experimental_packed_444 {
-            match stream::packed444::probe(self.renderer, self.hardware()) {
+        let packed_modes = if settings.experimental_packed_444 {
+            match stream::packed444::probe(self.renderer, self.hardware(&settings)) {
                 Ok(modes) => modes,
                 Err(reason) => {
                     self.launcher.message("Full chroma unavailable", reason);
@@ -656,12 +709,6 @@ impl App {
             self.launcher.message("The PC is offline", "Nightjar has not reached this PC yet.");
             return;
         };
-        let Apps::Loaded(apps) = &host.apps else {
-            return;
-        };
-        let Some(app) = apps.iter().find(|a| a.id == app_id).cloned() else {
-            return;
-        };
         let display = display_of(self.window);
         self.launcher.display = display;
         let plan = LaunchPlan {
@@ -670,12 +717,16 @@ impl App {
             info,
             app,
             resume,
-            settings: self.launcher.settings.clone(),
+            settings: settings.clone(),
             identity,
             display,
-            hardware: self.hardware(),
+            hardware: self.hardware(&settings),
             packed_modes,
-            pacing: self.pacing(),
+            pacing: self.pacing(&settings),
+            gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
+            prepared_controllers: if settings.controllers { self.pads.prepare(settings.controller_motion) } else { String::new() },
+            microphone_muted: false,
+            recovery: None,
         };
         self.cancelled = false;
         self.connecting = Some(Connecting::start(plan, self.waker.clone()));
@@ -683,6 +734,8 @@ impl App {
 
     fn begin_stream(&mut self, connecting: Connecting, session: nightjar_core::session::Session, facts: stream::Facts) {
         let settings = connecting.settings.clone();
+        self.pads.swap_face_buttons = settings.swap_face_buttons;
+        self.pads.motion = settings.controller_motion;
         let display = display_of(self.window);
         let pacing = connecting.pacing;
         eprintln!(
@@ -697,7 +750,7 @@ impl App {
         // SAFETY: window and renderer calls on the main thread.
         unsafe {
             SDL_SetRenderVSync(self.renderer, if pacing == PacingMode::Vsync { 1 } else { 0 });
-            match settings.window_mode {
+            match if facts.role == nightjar_core::http::AppRole::InputOnly { WindowMode::Windowed } else { settings.window_mode } {
                 WindowMode::Fullscreen => {
                     let mut mode: SDL_DisplayMode = std::mem::zeroed();
                     let id = SDL_GetDisplayForWindow(self.window);
@@ -724,13 +777,17 @@ impl App {
             SDL_SyncWindow(self.window);
         }
         let mut streaming = Streaming::new(connecting, session, facts, display);
-        streaming.session.input(|q| self.pads.announce_all(q));
+        streaming.display_changed(self.renderer);
+        if settings.adaptive_bitrate { streaming.enable_adaptive_bitrate(true); }
+        if settings.controllers && streaming.facts.role != nightjar_core::http::AppRole::RemoteMonitor {
+            streaming.session.input(|q| self.pads.announce_all(q));
+        }
         // SAFETY: a live window.
         let focused = unsafe { SDL_GetWindowFlags(self.window) & SDL_WINDOW_INPUT_FOCUS != 0 };
         if focused {
             streaming.set_capture(self.window, true);
         }
-        streaming.show_toast("Ctrl+Alt+Shift+Q leaves the stream, +Z releases input");
+        streaming.show_toast("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input");
         self.streaming = Some((streaming, TimerResolution::begin()));
     }
 
@@ -739,11 +796,16 @@ impl App {
             return;
         };
         let host = streaming.host_id;
+        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable() {
+            streaming.reconnect_plan(!matches!(exit, Exit::Reconnect))
+        } else { None };
         eprintln!(
             "nightjar: stream ended ({})",
             match &exit {
                 Exit::User => "left by the user".to_owned(),
                 Exit::CloseWindow => "window closed".to_owned(),
+                Exit::Reconnect => "reconnecting".to_owned(),
+                Exit::Terminated(code) => format!("host or transport error {code}"),
                 Exit::Ended(None) => "ended by the PC".to_owned(),
                 Exit::Ended(Some(m)) => m.clone(),
             }
@@ -755,10 +817,23 @@ impl App {
             SDL_SetRenderVSync(self.renderer, 1);
         }
         self.hosts.poll_one(host);
+        if let Some(mut plan) = reconnect {
+            plan.display = display_of(self.window);
+            plan.gamepad_mask = if plan.settings.controllers { u32::from(self.pads.active_mask()) } else { 0 };
+            plan.prepared_controllers = if plan.settings.controllers { self.pads.prepare(plan.settings.controller_motion) } else { String::new() };
+            self.cancelled = false;
+            self.connecting = Some(Connecting::start(plan, self.waker.clone()));
+        } else {
         match exit {
             Exit::CloseWindow => self.running = false,
-            Exit::User | Exit::Ended(None) => {}
+            Exit::User | Exit::Reconnect | Exit::Ended(None) => {}
+            Exit::Terminated(code) => {
+                if let Some(message) = stream::termination_text(code) {
+                    self.launcher.message("The stream ended", message);
+                }
+            }
             Exit::Ended(Some(message)) => self.launcher.message("The stream ended", message),
+        }
         }
         // egui forgets held modifiers from before the stream.
         self.gui.push(egui::Event::WindowFocused(true));
@@ -772,6 +847,9 @@ impl App {
             return;
         };
         streaming.pump();
+        if streaming.export_statistics {
+            streaming.save_statistics(&self.store.dir().join("statistics"));
+        }
         streaming.drain_notices(&self.pads);
         // Wait for input, a decoded picture or the next present time.
         // SAFETY: event calls on the main thread.
@@ -808,10 +886,11 @@ impl App {
             }
         }
         let gui = &mut self.gui;
+        let pads = &mut self.pads;
         let screenshot = std::mem::take(&mut self.screenshot_requested);
         let dir = self.screenshot_dir.clone();
         streaming.present(renderer, |s, renderer| {
-            draw_overlay(gui, window, renderer, s);
+            draw_overlay(gui, window, renderer, s, pads);
             if screenshot {
                 let stamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -824,10 +903,9 @@ impl App {
             }
         });
         // No picture for 12 s after the start means the stream never came up.
-        if !streaming.has_picture() && streaming.since_start() > Duration::from_secs(12) && streaming.exit.is_none() {
-            streaming.exit = Some(Exit::Ended(Some(
-                "No video arrived from the PC. Check its firewall for UDP ports 47998-48010.".into(),
-            )));
+        if streaming.facts.role != nightjar_core::http::AppRole::InputOnly
+            && !streaming.has_picture() && streaming.since_start() > Duration::from_secs(12) && streaming.exit.is_none() {
+            streaming.exit = Some(Exit::Terminated(nightjar_core::session::error::NO_VIDEO_TRAFFIC));
         }
         if let Some(exit) = streaming.exit.take() {
             self.end_stream(exit);
@@ -862,14 +940,43 @@ impl App {
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
+        if matches!(kind, SDL_EVENT_WINDOW_HDR_STATE_CHANGED | SDL_EVENT_WINDOW_DISPLAY_CHANGED) {
+            streaming.display_changed(self.renderer);
+        }
+        if streaming.menu_visible {
+            let back_button = if self.pads.swap_face_buttons { SDL_GAMEPAD_BUTTON_SOUTH } else { SDL_GAMEPAD_BUTTON_EAST };
+            let close_menu = (kind == SDL_EVENT_KEY_DOWN && unsafe {
+                let key = event.key;
+                key.scancode == SDL_SCANCODE_ESCAPE || (key.scancode == SDL_SCANCODE_TAB
+                    && key.r#mod.0 & SDL_KMOD_CTRL.0 != 0 && key.r#mod.0 & SDL_KMOD_ALT.0 != 0
+                    && key.r#mod.0 & SDL_KMOD_SHIFT.0 != 0)
+            }) || (kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && unsafe { event.gbutton.button } == back_button.0 as u8);
+            if close_menu {
+                streaming.toggle_menu(self.window, &mut self.pads);
+                return;
+            }
+            if matches!(kind, SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION) {
+                streaming.needs_redraw = true;
+                self.navigate(event);
+                return;
+            }
+            if !matches!(kind, SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED
+                | SDL_EVENT_WINDOW_FOCUS_LOST | SDL_EVENT_WINDOW_FOCUS_GAINED
+                | SDL_EVENT_GAMEPAD_ADDED | SDL_EVENT_GAMEPAD_REMOVED) {
+                self.gui.handle(event, Scale::of(self.window));
+                streaming.needs_redraw = true;
+                return;
+            }
+        }
         streaming.handle(event, self.window, self.renderer, &mut self.pads);
     }
 }
 
 /// The overlay and toasts, drawn with egui over the picture.
-fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming) {
+fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads) {
     let toast = s.toast.as_ref().map(|(t, _)| t.clone());
-    if !s.overlay_visible && toast.is_none() {
+    let input_only = s.facts.role == nightjar_core::http::AppRole::InputOnly;
+    if !s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible {
         return;
     }
     let lines = s.overlay.lines.clone();
@@ -877,6 +984,73 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
     let title = format!("{} · {}", s.facts.app_name, s.facts.host_name);
     let output = gui.run(window, renderer, |ui| {
         let ctx = ui.ctx().clone();
+        if input_only {
+            egui::Area::new(egui::Id::unique("input-only"))
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    ui.label(egui::RichText::new("Remote Input connected").font(theme::semibold(26.0)).color(theme::MOON));
+                    ui.label(&title);
+                    ui.label("Keyboard, mouse and controllers control the PC. Ctrl+Alt+Shift+Q disconnects.");
+                });
+        }
+        if s.menu_visible {
+            egui::Window::new("Stream controls")
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .collapsible(false).resizable(false).vscroll(true)
+                .show(&ctx, |ui| {
+                    ui.label(&title);
+                    let back = ui.button("Return to stream");
+                    if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
+                    if back.clicked() { s.toggle_menu(window, pads); }
+                    ui.checkbox(&mut s.overlay_visible, "Performance overlay");
+                    if ui.button("Export statistics (last hour)").clicked() { s.export_statistics = true; }
+                    if s.microphone_available() {
+                        let mut muted = s.microphone_muted;
+                        if ui.checkbox(&mut muted, "Mute microphone").changed() { s.mute_microphone(muted); }
+                    }
+                    ui.add_enabled_ui(s.facts.clipboard, |ui| {
+                        if ui.button("Send clipboard to PC").clicked() { s.clipboard(true); }
+                        if ui.button("Copy PC clipboard here").clicked() { s.clipboard(false); }
+                    });
+                    if s.facts.runtime_bitrate {
+                        if s.facts.role == nightjar_core::http::AppRole::Stream {
+                            let mut enabled = s.adaptive_bitrate;
+                            if ui.add_enabled(!s.bitrate_busy, egui::Checkbox::new(&mut enabled, "Adapt bitrate to the connection")).changed() {
+                                s.enable_adaptive_bitrate(enabled);
+                            }
+                        }
+                        ui.horizontal(|ui| {
+                            ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::DragValue::new(&mut s.bitrate_kbps).range(1..=2_000_000).speed(100).suffix(" kbps"));
+                            if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new("Apply bitrate")).clicked() {
+                                s.set_bitrate();
+                            }
+                        });
+                    }
+                    if !s.facts.server_commands.is_empty() {
+                        ui.separator();
+                        ui.label("PC commands");
+                        for (index, name) in s.facts.server_commands.iter().enumerate() {
+                            if !name.is_empty() && ui.button(name).clicked() {
+                                s.pending_command = Some(index);
+                            }
+                        }
+                        if let Some(index) = s.pending_command {
+                            ui.label(format!("Run ‘{}’ on the PC?", s.facts.server_commands[index]));
+                            ui.horizontal(|ui| {
+                                if ui.button("Run command").clicked() {
+                                    s.pending_command = None;
+                                    s.server_command(index);
+                                }
+                                if ui.button("Cancel").clicked() { s.pending_command = None; }
+                            });
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Reconnect").clicked() { s.exit = Some(Exit::Reconnect); }
+                    if ui.button("Disconnect").clicked() { s.exit = Some(Exit::User); }
+                    ui.label("Ctrl+Alt+Shift+Tab or Start+Select opens this menu.");
+                });
+        }
         if visible {
             egui::Area::new(egui::Id::unique("overlay"))
                 .fixed_pos(egui::pos2(16.0, 16.0))
@@ -917,5 +1091,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 });
         }
     });
+    if s.menu_visible {
+        gui.platform(window, &output.platform_output);
+    }
     gui.paint(renderer, output);
 }

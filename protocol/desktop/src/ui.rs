@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::config::{
-    default_bitrate_kbps, AudioChannels, CodecPreference, DecoderPreference, MouseMode, Settings, WindowMode,
+    default_bitrate_kbps, AudioChannels, CodecPreference, DecoderPreference, HostDisplay, MouseMode, Settings, WindowMode,
 };
 use crate::hosts::{Apps, Art, Host, Hosts, Reach};
 use crate::stream::{stream_mode, Display};
@@ -16,8 +16,13 @@ use crate::theme::*;
 pub enum Command {
     Launch { host: u64, app: i32, resume: bool },
     QuitApp(u64),
+    ControlAction { host: u64, app: i32 },
     QuitAndLaunch { host: u64, app: i32 },
     Pair(u64),
+    PairOtp { host: u64, pin: String, passphrase: String },
+    Wake(u64),
+    HostSettings(u64),
+    SaveHostSettings(u64),
     CancelPair,
     AddHost(String),
     Unpair(u64),
@@ -33,14 +38,17 @@ pub enum Screen {
     Hosts,
     Apps(u64),
     Settings,
+    HostSettings(u64),
 }
 
 pub enum Dialog {
     None,
     AddHost { text: String, error: Option<String> },
     Pairing { host: u64, pin: String },
+    Otp { host: u64, pin: String, passphrase: String, error: Option<String> },
     Message { title: String, body: String },
     ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String },
+    ConfirmAction { host: u64, app: i32, name: String },
 }
 
 /// The connecting card's content.
@@ -54,10 +62,13 @@ pub struct Launcher {
     pub screen: Screen,
     pub dialog: Dialog,
     pub settings: Settings,
+    pub host_settings: Settings,
+    pub use_host_settings: bool,
     pub settings_dirty: bool,
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
+    settings_return: Screen,
     /// The display's tearing support, for the VRR setting's note.
     pub tearing_supported: bool,
     pub display: Display,
@@ -165,10 +176,13 @@ impl Launcher {
             screen: Screen::Hosts,
             dialog: Dialog::None,
             settings,
+            host_settings: Settings::default(),
+            use_host_settings: false,
             settings_dirty: false,
             logo: None,
             focus_screen: true,
             focus_dialog: false,
+            settings_return: Screen::Hosts,
             tearing_supported: false,
             display,
             identity_ready: false,
@@ -176,6 +190,9 @@ impl Launcher {
     }
 
     pub fn go(&mut self, screen: Screen) {
+        if matches!(screen, Screen::HostSettings(_)) && !matches!(self.screen, Screen::HostSettings(_)) {
+            self.settings_return = self.screen;
+        }
         if self.screen == Screen::Settings && screen != Screen::Settings && self.settings_dirty {
             self.settings_dirty = false;
         }
@@ -211,6 +228,10 @@ impl Launcher {
                 Screen::Settings => {
                     commands.push(Command::SaveSettings);
                     self.go(Screen::Hosts);
+                }
+                Screen::HostSettings(host) => {
+                    commands.push(Command::SaveHostSettings(host));
+                    self.go(self.settings_return);
                 }
             },
             Dialog::Pairing { .. } => {
@@ -256,7 +277,7 @@ impl Launcher {
             match self.screen {
                 Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
                 Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
-                Screen::Settings => self.settings_page(ui),
+                Screen::Settings | Screen::HostSettings(_) => self.settings_page(ui),
             }
         });
         if blocked {
@@ -292,6 +313,14 @@ impl Launcher {
                     }
                     ui.label(RichText::new("Settings").font(semibold(22.0)).color(PAPER));
                 }
+                Screen::HostSettings(host) => {
+                    if text_button(ui, "‹  Back").clicked() {
+                        commands.push(Command::SaveHostSettings(host));
+                        self.go(self.settings_return);
+                    }
+                    let name = view.hosts.get(host).map_or("PC", |h| h.display_name());
+                    ui.label(RichText::new(format!("{name} settings")).font(semibold(22.0)).color(PAPER));
+                }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 22.0;
@@ -309,6 +338,9 @@ impl Launcher {
                     }
                 }
                 Screen::Apps(id) => {
+                    if text_button(ui, "PC settings").clicked() {
+                        commands.push(Command::HostSettings(id));
+                    }
                     if let Some(host) = view.hosts.get(id) {
                         if host.running_app().is_some() && text_button(ui, "Quit running app").clicked() {
                             self.dialog = Dialog::ConfirmQuit {
@@ -323,7 +355,7 @@ impl Launcher {
                         }
                     }
                 }
-                Screen::Settings => {}
+                Screen::Settings | Screen::HostSettings(_) => {}
                 }
             });
         });
@@ -387,6 +419,27 @@ impl Launcher {
                             }
                         }
                         response.context_menu(|ui| {
+                            if host.record.mac.is_some() && ui.button("Wake up").clicked() {
+                                commands.push(Command::Wake(host.id));
+                                ui.close();
+                            }
+                            if ui.button("PC settings").clicked() {
+                                commands.push(Command::HostSettings(host.id));
+                                ui.close();
+                            }
+                            if !host.paired()
+                                && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::OtpPairing))
+                                && ui.button("Pair with one-time PIN").clicked()
+                            {
+                                self.dialog = Dialog::Otp {
+                                    host: host.id,
+                                    pin: String::new(),
+                                    passphrase: String::new(),
+                                    error: None,
+                                };
+                                self.focus_dialog = true;
+                                ui.close();
+                            }
                             if ui.button("Check again").clicked() {
                                 commands.push(Command::Refresh(host.id));
                                 ui.close();
@@ -456,7 +509,12 @@ impl Launcher {
                                     self.focus_screen = false;
                                 }
                                 if response.clicked() {
-                                    if is_running {
+                                    if app.is_control_action() {
+                                        self.dialog = Dialog::ConfirmAction { host: id, app: app.id, name: app.name.clone() };
+                                        self.focus_dialog = true;
+                                    } else if app.control != nightjar_core::http::AppControl::None {
+                                        commands.push(Command::Launch { host: id, app: app.id, resume: false });
+                                    } else if is_running {
                                         commands.push(Command::Launch {
                                             host: id,
                                             app: app.id,
@@ -493,7 +551,19 @@ impl Launcher {
     fn settings_page(&mut self, ui: &mut Ui) {
         let display = self.display;
         let tearing = self.tearing_supported;
-        let s = &mut self.settings;
+        let host_settings = matches!(self.screen, Screen::HostSettings(_));
+        if host_settings {
+            let response = row(ui, "Use settings for this PC", "Off uses your current global settings.", |ui| {
+                toggle(ui, &mut self.use_host_settings)
+            });
+            if response.changed() && self.use_host_settings {
+                self.host_settings = self.settings.clone();
+            }
+            if !self.use_host_settings {
+                return;
+            }
+        }
+        let s = if host_settings { &mut self.host_settings } else { &mut self.settings };
         let before = s.clone();
         let focus_first = std::mem::take(&mut self.focus_screen);
         scroll(ui, "settings", |ui| {
@@ -524,6 +594,15 @@ impl Launcher {
             });
             if focus_first {
                 first.request_focus();
+            }
+            if s.width != 0 {
+                row(ui, "Custom resolution", "Width and height in pixels.", |ui| {
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.add(egui::DragValue::new(&mut s.width).range(320..=7680));
+                        ui.label("×");
+                        ui.add(egui::DragValue::new(&mut s.height).range(240..=4320));
+                    }).response
+                });
             }
             let display_fps = display.refresh_hz.round() as u32;
             let fps_text = if s.fps == 0 {
@@ -581,6 +660,9 @@ impl Launcher {
                     },
                 );
             }
+            row(ui, "Adapt bitrate to the connection", "Reduce bitrate during sustained congestion and recover gradually. Requires a compatible host.", |ui| {
+                toggle(ui, &mut s.adaptive_bitrate)
+            });
             row(ui, "Codec", "Automatic picks HEVC when the PC encodes it, else H.264.", |ui| {
                 egui::ComboBox::from_id_salt("codec")
                     .selected_text(match s.codec {
@@ -605,6 +687,7 @@ impl Launcher {
             );
             row(ui, "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
                 |ui| toggle(ui, &mut s.experimental_packed_444));
+            row(ui, "Full color range", "Request the full RGB range from the host.", |ui| toggle(ui, &mut s.full_range));
             row(ui, "Decoder", "Automatic uses the GPU (D3D11VA, VAAPI) and falls back to the CPU.", |ui| {
                 egui::ComboBox::from_id_salt("decoder")
                     .selected_text(match s.decoder {
@@ -618,6 +701,21 @@ impl Launcher {
                     .response
             });
 
+            section(ui, "PC display");
+            row(ui, "Virtual display", "Use a separate display on hosts that support it.", |ui| toggle(ui, &mut s.virtual_display));
+            row(ui, "Display arrangement", "Applied only to normal streams on hosts that support display modes.", |ui| {
+                egui::ComboBox::from_id_salt("host-display")
+                    .selected_text(host_display_name(s.host_display))
+                    .show_ui(ui, |ui| {
+                        for mode in [HostDisplay::HostDefault, HostDisplay::Exclusive, HostDisplay::ExtendedPrimary,
+                            HostDisplay::Extended, HostDisplay::ExtendedIsolated, HostDisplay::ExtendedPrimaryIsolated, HostDisplay::Physical] {
+                            ui.selectable_value(&mut s.host_display, mode, host_display_name(mode));
+                        }
+                    }).response
+            });
+            row(ui, "PC display scaling", "Text and interface size on the virtual display.", |ui| {
+                ui.add(egui::Slider::new(&mut s.virtual_display_scale, 100..=300).step_by(25.0).suffix("%"))
+            });
             section(ui, "Display");
             row(ui, "Window", "Borderless covers the display without changing its mode.", |ui| {
                 egui::ComboBox::from_id_salt("window")
@@ -674,6 +772,9 @@ impl Launcher {
             row(ui, "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui| {
                 toggle(ui, &mut s.play_audio_on_host)
             });
+            row(ui, "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui| {
+                toggle(ui, &mut s.microphone)
+            });
 
             section(ui, "Input");
             row(ui, "Mouse", "Captured suits games; desktop pointer suits remote work. Ctrl+Alt+Shift+M switches.", |ui| {
@@ -694,6 +795,22 @@ impl Launcher {
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
                 |ui| toggle(ui, &mut s.capture_system_keys),
             );
+            row(ui, "Local cursor", "Show the PC's cursor without video delay in desktop pointer mode when the host supports it.", |ui| {
+                toggle(ui, &mut s.cursor_shapes)
+            });
+            section(ui, "Connection");
+            row(ui, "Reconnect after an interruption", "Try to resume the same running app up to five times within one minute.", |ui| {
+                toggle(ui, &mut s.auto_reconnect)
+            });
+            row(ui, "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui| {
+                egui::ComboBox::from_id_salt("network-grace")
+                    .selected_text(format!("{} seconds", s.network_grace_ms / 1000))
+                    .show_ui(ui, |ui| {
+                        for ms in [0, 3000, 5000, 10000, 15000] {
+                            ui.selectable_value(&mut s.network_grace_ms, ms, format!("{} seconds", ms / 1000));
+                        }
+                    }).response
+            });
 
             section(ui, "Controllers");
             row(ui, "Controllers", "Every connected controller becomes a controller on the PC.", |ui| {
@@ -735,6 +852,64 @@ impl Launcher {
         let mut focused = false;
         match &mut self.dialog {
             Dialog::None => return,
+            Dialog::ConfirmAction { host, app, name } => {
+                egui::Modal::new(Id::unique("host-action"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new(format!("{name}?")).font(semibold(22.0)));
+                        ui.label("This changes the session running on the PC. Ending an app can lose unsaved progress.");
+                        ui.horizontal(|ui| {
+                            let button = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                button.request_focus();
+                                focused = true;
+                            }
+                            if button.clicked() { close = true; }
+                            if primary_button(ui, "Continue").clicked() {
+                                commands.push(Command::ControlAction { host: *host, app: *app });
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::Otp { host, pin, passphrase, error } => {
+                egui::Modal::new(Id::unique("otp"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new("Pair with one-time PIN").font(semibold(22.0)));
+                        ui.label("Enter the PIN and passphrase created on the PC.");
+                        let edit = ui.add(egui::TextEdit::singleline(pin).hint_text("PIN"));
+                        if focus_first {
+                            edit.request_focus();
+                            focused = true;
+                        }
+                        ui.add(egui::TextEdit::singleline(passphrase).password(true).hint_text("Passphrase"));
+                        if let Some(error) = error {
+                            ui.label(RichText::new(error.as_str()).color(ERROR));
+                        }
+                        ui.horizontal(|ui| {
+                            if primary_button(ui, "Pair").clicked() {
+                                if pin.len() != 4 || !pin.bytes().all(|b| b.is_ascii_digit()) || passphrase.chars().count() < 4 {
+                                    *error = Some("Enter four PIN digits and a passphrase of at least four characters.".into());
+                                } else {
+                                    commands.push(Command::PairOtp {
+                                        host: *host,
+                                        pin: std::mem::take(pin),
+                                        passphrase: std::mem::take(passphrase),
+                                    });
+                                    close = true;
+                                }
+                            }
+                            if quiet_button(ui, "Cancel").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
             Dialog::AddHost { text, error } => {
                 egui::Modal::new(Id::unique("add-host"))
                     .frame(frame)
@@ -782,10 +957,12 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
                         ui.label(RichText::new(format!("Pair with {name}")).font(semibold(22.0)));
-                        ui.label(
-                            RichText::new("Enter this PIN on the PC: in the host's web page (Sunshine, Apollo, Vibepollo and Rubylight have a PIN page), or in the prompt GeForce Experience shows.")
-                                .color(ON_SURFACE_VARIANT),
-                        );
+                        if !pin.is_empty() {
+                            ui.label(
+                                RichText::new("Enter this PIN on the PC: in the host's web page (Sunshine, Apollo, Vibepollo and Rubylight have a PIN page), or in the prompt GeForce Experience shows.")
+                                    .color(ON_SURFACE_VARIANT),
+                            );
+                        }
                         ui.add_space(18.0);
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 12.0;
@@ -919,6 +1096,18 @@ fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
             .content_margin(Margin::same(6))
             .show(ui, add);
     });
+}
+
+fn host_display_name(mode: HostDisplay) -> &'static str {
+    match mode {
+        HostDisplay::HostDefault => "Host default",
+        HostDisplay::Exclusive => "Virtual display only",
+        HostDisplay::ExtendedPrimary => "Extend as primary",
+        HostDisplay::Extended => "Extend",
+        HostDisplay::ExtendedIsolated => "Extend, isolated",
+        HostDisplay::ExtendedPrimaryIsolated => "Extend as primary, isolated",
+        HostDisplay::Physical => "Physical display",
+    }
 }
 
 fn running_name(host: &Host) -> String {

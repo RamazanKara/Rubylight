@@ -69,6 +69,7 @@ pub struct Pad {
 pub enum Action {
     /// Start+Select+LB+RB: leave the stream.
     Quit,
+    Menu,
 }
 
 #[derive(Default)]
@@ -94,7 +95,10 @@ impl Gamepads {
             return;
         }
         let used: Vec<u8> = self.pads.iter().map(|p| p.index).collect();
-        let index = (0..MAX_PADS as u8).find(|i| !used.contains(i)).unwrap_or(0);
+        let Some(index) = (0..MAX_PADS as u8).find(|i| !used.contains(i)) else {
+            unsafe { SDL_CloseGamepad(handle) };
+            return;
+        };
         self.pads.push(Pad {
             id,
             handle,
@@ -117,8 +121,19 @@ impl Gamepads {
         Some(pad.index)
     }
 
-    fn active_mask(&self) -> u16 {
+    pub fn active_mask(&self) -> u16 {
         self.pads.iter().fold(0, |m, p| m | (1 << p.index))
+    }
+
+    pub fn prepare(&self, motion: bool) -> String {
+        self.pads.iter().map(|pad| {
+            let (kind, buttons, mut caps) = describe(pad);
+            if !motion {
+                caps &= !(capability::ACCEL | capability::GYRO);
+            }
+            let kind = if kind == CTYPE_UNKNOWN { CTYPE_XBOX } else { kind };
+            format!("{}:{kind}:{caps}:{buttons}", pad.index)
+        }).collect::<Vec<_>>().join(",")
     }
 
     pub fn find(&mut self, id: SDL_JoystickID) -> Option<&mut Pad> {
@@ -133,14 +148,14 @@ impl Gamepads {
     pub fn announce_all(&mut self, queue: &mut InputQueue) {
         let mask = self.active_mask();
         for pad in &mut self.pads {
-            announce(pad, mask, queue);
+            announce(pad, mask, self.motion, queue);
         }
     }
 
     pub fn announce_new(&mut self, queue: &mut InputQueue) {
         let mask = self.active_mask();
         for pad in self.pads.iter_mut().filter(|p| !p.announced) {
-            announce(pad, mask, queue);
+            announce(pad, mask, self.motion, queue);
         }
     }
 
@@ -148,6 +163,20 @@ impl Gamepads {
     pub fn send_removed(&self, index: u8, queue: &mut InputQueue) {
         let mask = self.active_mask();
         let _ = queue.send_controller(u16::from(index), mask, 0, 0, 0, (0, 0), (0, 0));
+    }
+
+    pub fn release(&mut self, queue: &mut InputQueue) {
+        let mask = self.active_mask();
+        for pad in &mut self.pads {
+            pad.buttons = 0;
+            pad.lt = 0;
+            pad.rt = 0;
+            pad.ls = (0, 0);
+            pad.rs = (0, 0);
+            if pad.announced {
+                send_state(pad, mask, queue);
+            }
+        }
     }
 
     /// Applies an SDL gamepad event to the host's controller state. Returns an action for
@@ -184,6 +213,11 @@ impl Gamepads {
                         pad.buttons = 0;
                         send_state(pad, mask, queue);
                         return Some(Action::Quit);
+                    }
+                    if pad.buttons == button::PLAY | button::BACK {
+                        pad.buttons = 0;
+                        send_state(pad, mask, queue);
+                        return Some(Action::Menu);
                     }
                     send_state(pad, mask, queue);
                 }
@@ -276,6 +310,17 @@ impl Gamepads {
         }
     }
 
+    pub fn adaptive_triggers(&self, index: u16, flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], right: &[u8; 10]) {
+        if let Some(pad) = self.by_index(index) {
+            unsafe {
+                if SDL_GetGamepadType(pad.handle) == SDL_GAMEPAD_TYPE_PS5 {
+                    let effect = trigger_effect(flags, type_left, type_right, left, right);
+                    SDL_SendGamepadEffect(pad.handle, effect.as_ptr().cast(), effect.len() as i32);
+                }
+            }
+        }
+    }
+
     /// The host wants motion data from a controller (rate 0 stops it).
     pub fn set_motion(&self, index: u16, kind: u8, rate_hz: u16) {
         if !self.motion {
@@ -295,6 +340,9 @@ impl Gamepads {
 
     /// Stops every motor and sensor (stream end).
     pub fn reset(&mut self) {
+        for pad in &self.pads {
+            self.adaptive_triggers(u16::from(pad.index), 0x0C, 0x05, 0x05, &[0; 10], &[0; 10]);
+        }
         for pad in &mut self.pads {
             // SAFETY: open gamepads.
             unsafe {
@@ -320,6 +368,17 @@ impl Gamepads {
     }
 }
 
+// SDL's DS5EffectsState_t excludes the USB/Bluetooth report framing and CRC.
+fn trigger_effect(flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], right: &[u8; 10]) -> [u8; 47] {
+    let mut effect = [0; 47];
+    effect[0] = flags & 0x0C;
+    effect[10] = type_right;
+    effect[11..21].copy_from_slice(right);
+    effect[21] = type_left;
+    effect[22..32].copy_from_slice(left);
+    effect
+}
+
 fn send_state(pad: &Pad, mask: u16, queue: &mut InputQueue) {
     let _ = queue.send_controller(
         u16::from(pad.index),
@@ -332,7 +391,7 @@ fn send_state(pad: &Pad, mask: u16, queue: &mut InputQueue) {
     );
 }
 
-fn announce(pad: &mut Pad, mask: u16, queue: &mut InputQueue) {
+fn describe(pad: &Pad) -> (u8, u32, u16) {
     // SAFETY: an open gamepad; read-only queries.
     unsafe {
         let kind = match SDL_GetGamepadType(pad.handle) {
@@ -383,11 +442,19 @@ fn announce(pad: &mut Pad, mask: u16, queue: &mut InputQueue) {
         if state != SDL_POWERSTATE_UNKNOWN && state != SDL_POWERSTATE_NO_BATTERY && state != SDL_POWERSTATE_ERROR {
             caps |= capability::BATTERY_STATE;
         }
-        let _ = queue.send_controller_arrival(pad.index, mask, kind, supported, caps);
-        pad.announced = true;
-        if caps & capability::BATTERY_STATE != 0 {
-            send_battery(pad, state, percent, queue);
-        }
+        (kind, supported, caps)
+    }
+}
+
+fn announce(pad: &mut Pad, mask: u16, motion: bool, queue: &mut InputQueue) {
+    let (kind, supported, mut caps) = describe(pad);
+    if !motion { caps &= !(capability::ACCEL | capability::GYRO); }
+    let _ = queue.send_controller_arrival(pad.index, mask, kind, supported, caps);
+    pad.announced = true;
+    if caps & capability::BATTERY_STATE != 0 {
+        let mut percent = -1;
+        let state = unsafe { SDL_GetGamepadPowerInfo(pad.handle, &mut percent) };
+        send_battery(pad, state, percent, queue);
     }
 }
 
@@ -473,6 +540,19 @@ mod tests {
             pads.rumble(0, 0x1234, 0x5678);
             assert_eq!(RUMBLE.load(std::sync::atomic::Ordering::SeqCst), 0x1234_5678);
 
+            pads.release(&mut queue);
+            assert_eq!(pads.pads[0].buttons, 0);
+            assert_eq!(pads.pads[0].ls, (0, 0));
+            SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_START.0, true);
+            SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_BACK.0, true);
+            SDL_UpdateJoysticks();
+            let mut menu = false;
+            while SDL_PollEvent(&mut event) {
+                menu |= pads.handle(&event, &mut queue) == Some(Action::Menu);
+            }
+            assert!(menu);
+            assert_eq!(pads.pads[0].buttons, 0);
+
             pads.close_all();
             SDL_DetachVirtualJoystick(id);
             SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
@@ -485,5 +565,17 @@ mod tests {
         assert_eq!(BUTTON_MAP[SDL_GAMEPAD_BUTTON_START.0 as usize], button::PLAY);
         assert_eq!(BUTTON_MAP[SDL_GAMEPAD_BUTTON_DPAD_RIGHT.0 as usize], button::RIGHT);
         assert_eq!(BUTTON_MAP[SDL_GAMEPAD_BUTTON_TOUCHPAD.0 as usize], button::TOUCHPAD);
+    }
+
+    #[test]
+    fn dualsense_effect_changes_only_requested_triggers() {
+        let effect = trigger_effect(0xFF, 0x21, 0x26, &[3; 10], &[7; 10]);
+        assert_eq!(effect[0], 0x0C);
+        assert_eq!(&effect[1..10], &[0; 9]);
+        assert_eq!(effect[10], 0x26);
+        assert_eq!(&effect[11..21], &[7; 10]);
+        assert_eq!(effect[21], 0x21);
+        assert_eq!(&effect[22..32], &[3; 10]);
+        assert_eq!(&effect[32..], &[0; 15]);
     }
 }

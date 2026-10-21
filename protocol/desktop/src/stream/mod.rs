@@ -9,6 +9,10 @@
 pub mod packed444;
 pub mod pipeline;
 pub mod present;
+mod microphone;
+mod cursor;
+mod bitrate;
+mod recovery;
 #[cfg(windows)]
 mod d3d11;
 
@@ -19,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nightjar_core::control::{ClientMessage, ControlEvent};
-use nightjar_core::http::{App, ClientIdentity, HostClient, LaunchRequest, ServerInfo};
+use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, LaunchRequest, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, Session, SessionConfig, Stage};
@@ -43,6 +47,7 @@ pub struct Display {
     pub refresh_hz: f32,
 }
 
+#[derive(Clone)]
 pub struct LaunchPlan {
     pub host_id: u64,
     pub record: HostRecord,
@@ -55,11 +60,16 @@ pub struct LaunchPlan {
     pub hardware: Hardware,
     pub packed_modes: u8,
     pub pacing: PacingMode,
+    pub gamepad_mask: u32,
+    pub prepared_controllers: String,
+    pub microphone_muted: bool,
+    pub recovery: Option<recovery::Recovery>,
 }
 
 /// The stream's negotiated shape.
 #[derive(Clone, Debug)]
 pub struct Facts {
+    pub role: AppRole,
     pub width: i32,
     pub height: i32,
     pub fps: i32,
@@ -67,6 +77,11 @@ pub struct Facts {
     pub format: u32,
     pub host_timing: bool,
     pub clock_sync: bool,
+    pub display_caps: bool,
+    pub cursor_shapes: bool,
+    pub clipboard: bool,
+    pub server_commands: Vec<String>,
+    pub runtime_bitrate: bool,
     pub app_name: String,
     pub host_name: String,
 }
@@ -194,11 +209,13 @@ pub struct Connecting {
     pub host_id: u64,
     pub pacing: PacingMode,
     pub settings: Settings,
-    result: Receiver<Result<(Session, Facts), String>>,
+    plan: LaunchPlan,
+    result: Receiver<Result<(Session, Facts, LaunchPlan), ConnectError>>,
 }
 
 impl Connecting {
-    pub fn start(plan: LaunchPlan, waker: Waker) -> Self {
+    pub fn start(mut plan: LaunchPlan, waker: Waker) -> Self {
+        if let Some(recovery) = &mut plan.recovery { recovery.begin(Instant::now()); }
         // Host-time pacing schedules every picture; the other modes keep only the newest.
         let limit = if plan.pacing == PacingMode::HostTimes { 8 } else { 2 };
         let shared = Shared::new(waker.clone(), limit);
@@ -209,10 +226,12 @@ impl Connecting {
         let (host_id, pacing, settings) = (plan.host_id, plan.pacing, plan.settings.clone());
         let worker_shared = shared.clone();
         let worker_interrupt = interrupt.clone();
+        let mut worker_plan = plan.clone();
         let _ = std::thread::Builder::new()
             .name("connect".into())
             .spawn(move || {
-                let result = connect(plan, worker_shared, &worker_interrupt);
+                let result = connect_with_recovery(&mut worker_plan, worker_shared, &worker_interrupt)
+                    .map(|(session, facts)| (session, facts, worker_plan));
                 let _ = sender.send(result);
                 waker();
             });
@@ -225,17 +244,24 @@ impl Connecting {
             host_id,
             pacing,
             settings,
+            plan,
             result,
         }
     }
 
     /// Ok(Some) once streaming, Err with a message on failure.
     pub fn poll(&mut self) -> Result<Option<(Session, Facts)>, String> {
+        let expired = self.plan.recovery.as_ref().is_some_and(|r| r.remaining(Instant::now()).is_zero());
+        if expired { self.cancel(); }
         let notices = std::mem::take(&mut *lock(&self.shared.notices));
         let mut keep = Vec::new();
         for notice in notices {
             match notice {
                 Notice::Stage(stage) => self.stage = stage_text(stage).into(),
+                Notice::Reconnecting(attempt) => {
+                    keep.clear();
+                    self.stage = format!("Reconnecting · attempt {attempt} of 5");
+                }
                 // The rest is for the stream.
                 other => keep.push(other),
             }
@@ -246,8 +272,16 @@ impl Connecting {
             *queue = keep;
         }
         match self.result.try_recv() {
-            Ok(Ok(session)) => Ok(Some(session)),
-            Ok(Err(e)) => Err(e),
+            Ok(Ok((session, facts, plan))) => {
+                if expired {
+                    session.stop();
+                    Err("Automatic recovery stopped after one minute.".into())
+                } else {
+                    self.plan = plan;
+                    Ok(Some((session, facts)))
+                }
+            }
+            Ok(Err(e)) => Err(if expired { "Automatic recovery stopped after one minute.".into() } else { e.message }),
             Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
             Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("The connection attempt ended.".into()),
         }
@@ -255,11 +289,49 @@ impl Connecting {
 
     pub fn cancel(&self) {
         self.interrupt.interrupt();
+        if let Some(client) = &*lock(&self.shared.host_client) {
+            client.cancel_pending_requests();
+        }
     }
 }
 
-fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), String> {
+struct ConnectError {
+    message: String,
+    retryable: bool,
+}
+
+impl From<String> for ConnectError {
+    fn from(message: String) -> Self { Self { message, retryable: false } }
+}
+
+impl From<&str> for ConnectError {
+    fn from(message: &str) -> Self { message.to_owned().into() }
+}
+
+fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
+    loop {
+        if let Some(recovery) = &mut plan.recovery {
+            let delay = recovery.next_delay(Instant::now()).ok_or("Automatic recovery exhausted its retry budget.")?;
+            shared.notify(Notice::Reconnecting(recovery.attempts));
+            let until = Instant::now() + delay;
+            while Instant::now() < until {
+                if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
+                std::thread::sleep(Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())));
+            }
+        }
+        match connect(plan, shared.clone(), interrupt) {
+            Err(error) if error.retryable && plan.recovery.is_some() && !interrupt.is_interrupted() => {
+                lock(&shared.frames).clear();
+                lock(&shared.notices).clear();
+            }
+            result => return result,
+        }
+    }
+}
+
+fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
     let settings = &plan.settings;
+    let role = plan.app.role(false);
     let (width, height, fps, bitrate) = stream_mode(settings, plan.display);
     let audio = match settings.audio {
         AudioChannels::Stereo => AudioConfiguration::STEREO,
@@ -273,7 +345,7 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
     let request = LaunchRequest {
         app_id: plan.app.id,
         app_uuid: plan.app.uuid.clone(),
-        role: plan.app.role(false),
+        role,
         width,
         height,
         fps,
@@ -284,7 +356,13 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
         ri_key,
         ri_key_id,
         play_local_audio: settings.play_audio_on_host,
-        gamepad_mask: 0xFFFF,
+        gamepad_mask: plan.gamepad_mask,
+        prepared_controllers: if role != AppRole::RemoteMonitor && plan.info.capabilities.has(Feature::ControllerPreparation) {
+            plan.prepared_controllers.clone()
+        } else { String::new() },
+        virtual_display: settings.virtual_display,
+        virtual_display_scale: settings.virtual_display_scale,
+        host_display: settings.host_display.into(),
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {
@@ -301,6 +379,20 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
         .and_then(|c| c.with_server_certificate_pem(pem))
         .map_err(|e| e.to_string())?
         .with_https_port(plan.info.https_port);
+    let client = Arc::new(client);
+    *lock(&shared.host_client) = Some(client.clone());
+    if interrupt.is_interrupted() {
+        client.cancel_pending_requests();
+        return Err("Cancelled.".into());
+    }
+    if plan.resume {
+        plan.info = client.server_info_https().map_err(|e| ConnectError {
+            retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"),
+        })?;
+        if !plan.info.paired || !plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref()) {
+            return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
+        }
+    }
     let launched = if plan.resume {
         client.resume(&request, &plan.info)
     } else {
@@ -310,9 +402,9 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
         Ok(Some(launched)) => launched,
         Ok(None) => return Err("The PC declined to start the app.".into()),
         Err(nightjar_core::http::Error::Status { code, message }) => {
-            return Err(format!("The PC could not start the app ({code}: {message})."))
+            return Err(format!("The PC could not start the app ({code}: {message}).").into())
         }
-        Err(e) => return Err(format!("Starting the app failed: {e}")),
+        Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}") }),
     };
     if interrupt.is_interrupted() {
         return Err("Cancelled.".into());
@@ -343,7 +435,8 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
         packed444_modes: plan.packed_modes,
         client_refresh_rate_x100: refresh_x100 as i32,
         color_space: if settings.hdr { COLORSPACE_REC_2020 } else { COLORSPACE_REC_709 },
-        color_range: COLOR_RANGE_LIMITED,
+        color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
+        microphone: settings.microphone && role != AppRole::RemoteMonitor,
         encryption_flags: ENCFLG_ALL,
         remote_input_aes_key: ri_key,
         remote_input_aes_iv: iv,
@@ -362,17 +455,18 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
         SessionConfig {
             stream,
             location: Location::Auto,
-            network_grace: Duration::from_secs(3),
-            input_only: false,
+            network_grace: Duration::from_millis(u64::from(settings.network_grace_ms)),
+            input_only: role == AppRole::InputOnly,
         },
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware)),
         Box::new(pipeline::Audio::new(shared.clone())),
         Arc::new(pipeline::Events { shared }),
         interrupt,
     )
-    .map_err(|e| format!("Could not start the stream: {e}"))?;
+    .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}") })?;
     let outcome = session.outcome();
     let facts = Facts {
+        role,
         width: outcome.config.width,
         height: outcome.config.height,
         fps: outcome.config.fps,
@@ -380,6 +474,13 @@ fn connect(plan: LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Resu
         format: outcome.negotiated_video_format,
         host_timing: outcome.host_control_messages.contains(&HOST_TIMING_MESSAGE_TYPE),
         clock_sync: outcome.host_control_messages.contains(&CLOCK_SYNC_MESSAGE_TYPE),
+        display_caps: outcome.host_control_messages.contains(&rubylight_protocol::control::DISPLAY_CAPS_MESSAGE_TYPE),
+        cursor_shapes: plan.info.capabilities.has(Feature::CursorShape) && outcome.host_control_messages.contains(&0x5540),
+        clipboard: plan.info.capabilities.has(Feature::Clipboard) && role != AppRole::RemoteMonitor,
+        server_commands: if plan.info.capabilities.has(Feature::ServerCommands) && role != AppRole::RemoteMonitor {
+            plan.info.server_commands.iter().take(256).cloned().collect()
+        } else { Vec::new() },
+        runtime_bitrate: plan.info.capabilities.has(Feature::RuntimeBitrate) && role != AppRole::InputOnly,
         app_name: plan.app.name.clone(),
         host_name: plan.record.name.clone(),
     };
@@ -392,8 +493,16 @@ pub enum Exit {
     User,
     /// The window was closed: leave Nightjar too.
     CloseWindow,
+    Reconnect,
+    Terminated(i32),
     /// The host ended it or the connection failed; Some carries the message.
     Ended(Option<String>),
+}
+
+impl Exit {
+    pub fn retryable(&self) -> bool {
+        matches!(self, Self::Terminated(code) if recovery::transient_termination(*code))
+    }
 }
 
 /// One-second statistics for the overlay.
@@ -450,7 +559,27 @@ pub struct Streaming {
     pub toast: Option<(String, Instant)>,
     pub host_id: u64,
     settings: Settings,
+    plan: LaunchPlan,
+    microphone: Option<microphone::Microphone>,
+    cursor: cursor::Cursor,
+    cursor_warning: bool,
+    clipboard_busy: bool,
+    command_busy: bool,
+    last_command: Option<Instant>,
+    pub pending_command: Option<usize>,
+    pub bitrate_busy: bool,
+    pub bitrate_kbps: u32,
+    pub adaptive_bitrate: bool,
+    bitrate_policy: Option<bitrate::Bitrate>,
+    last_arrival: Option<(u32, u64)>,
+    jitter_ms: f64,
+    focused: bool,
+    pub microphone_muted: bool,
+    pub export_statistics: bool,
+    statistics: VecDeque<String>,
+    pub menu_visible: bool,
     keys_down: HashSet<u16>,
+    mouse_down: HashSet<u8>,
     captured: bool,
     absolute: bool,
     relative_remainder: (f32, f32),
@@ -486,6 +615,21 @@ impl Streaming {
             let _ = session.send(ClientMessage::HostTimingRequest(HostTimingRequest { enabled: true }));
         }
         let settings = connecting.settings.clone();
+        let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
+            if session.microphone_available() {
+                match microphone::Microphone::open(connecting.shared.clone()) {
+                    Ok(microphone) => Some(microphone),
+                    Err(error) => {
+                        connecting.shared.notify(Notice::MicrophoneFailed(error));
+                        None
+                    }
+                }
+            } else {
+                connecting.shared.notify(Notice::MicrophoneFailed("The PC did not offer an encrypted microphone stream.".into()));
+                None
+            }
+        } else { None };
+        let bitrate_kbps = facts.bitrate_kbps.max(1) as u32;
         Self {
             session,
             shared: connecting.shared,
@@ -499,7 +643,27 @@ impl Streaming {
             host_id: connecting.host_id,
             absolute: settings.mouse_mode == MouseMode::Absolute,
             settings,
+            microphone,
+            cursor: cursor::Cursor::default(),
+            cursor_warning: false,
+            clipboard_busy: false,
+            command_busy: false,
+            last_command: None,
+            pending_command: None,
+            bitrate_busy: false,
+            bitrate_kbps,
+            adaptive_bitrate: false,
+            bitrate_policy: None,
+            last_arrival: None,
+            jitter_ms: -1.0,
+            focused: false,
+            microphone_muted: connecting.plan.microphone_muted,
+            plan: connecting.plan,
+            export_statistics: false,
+            statistics: VecDeque::new(),
+            menu_visible: false,
             keys_down: HashSet::new(),
+            mouse_down: HashSet::new(),
             captured: false,
             relative_remainder: (0.0, 0.0),
             offset: ClockOffset::default(),
@@ -517,16 +681,83 @@ impl Streaming {
 
     pub fn show_toast(&mut self, text: impl Into<String>) {
         self.toast = Some((text.into(), Instant::now()));
+        self.needs_redraw = true;
+    }
+
+    pub fn reconnect_plan(&self, automatic: bool) -> Option<LaunchPlan> {
+        if automatic && (!self.settings.auto_reconnect || !self.focused || self.facts.role != AppRole::Stream) {
+            return None;
+        }
+        let mut plan = self.plan.clone();
+        plan.resume = self.facts.role == AppRole::Stream;
+        if plan.resume && plan.app.control != nightjar_core::http::AppControl::None {
+            if plan.info.current_game == 0 { return None; }
+            plan.app.id = plan.info.current_game;
+            plan.app.uuid = plan.info.current_game_uuid.clone().unwrap_or_default();
+            plan.app.control = nightjar_core::http::AppControl::None;
+        }
+        plan.microphone_muted = self.microphone_muted;
+        if automatic {
+            let recovery = plan.recovery.get_or_insert_with(Default::default);
+            recovery.reset_after(self.started.elapsed());
+        } else {
+            plan.recovery = None;
+        }
+        Some(plan)
+    }
+
+    pub fn display_changed(&self, renderer: *mut SDL_Renderer) {
+        if self.facts.display_caps && self.facts.role != AppRole::InputOnly {
+            let _ = self.session.send(ClientMessage::DisplayCaps(crate::sdl::display_caps(renderer)));
+        }
+    }
+
+    pub fn microphone_available(&self) -> bool {
+        self.settings.microphone && self.session.microphone_available() && self.facts.role != AppRole::RemoteMonitor
+    }
+
+    pub fn mute_microphone(&mut self, muted: bool) {
+        self.microphone_muted = muted;
+        self.microphone = None;
+        if !muted && self.microphone_available() {
+            match microphone::Microphone::open(self.shared.clone()) {
+                Ok(microphone) => self.microphone = Some(microphone),
+                Err(error) => {
+                    self.microphone_muted = true;
+                    self.show_toast(error);
+                }
+            }
+        }
+    }
+
+    pub fn save_statistics(&mut self, directory: &std::path::Path) {
+        self.export_statistics = false;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
+        let path = directory.join(format!("nightjar-{stamp}.csv"));
+        let mut csv = String::from("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_ms,latency_ms,bitrate_kbps\n");
+        for row in &self.statistics { csv.push_str(row); }
+        match std::fs::create_dir_all(directory).and_then(|_| std::fs::write(&path, csv)) {
+            Ok(()) => self.show_toast(format!("Statistics saved to {}", path.display())),
+            Err(error) => self.show_toast(format!("Could not save statistics: {error}")),
+        }
     }
 
     /// Mouse capture: relative motion with a hidden, confined pointer.
     pub fn set_capture(&mut self, window: *mut SDL_Window, on: bool) {
+        self.focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
+        let on = on && self.facts.role != AppRole::RemoteMonitor;
         self.captured = on;
+        let cursor_shapes = on && self.absolute && self.settings.cursor_shapes && self.facts.cursor_shapes;
+        if cursor_shapes != self.cursor.enabled
+            && self.session.send(ClientMessage::CursorShapeRequest { enabled: cursor_shapes }).is_ok() {
+            self.cursor.clear();
+            self.cursor.enabled = cursor_shapes;
+        }
         // SAFETY: a live window.
         unsafe {
             if self.absolute {
                 SDL_SetWindowRelativeMouseMode(window, false);
-                if on {
+                if on && !self.cursor.enabled {
                     SDL_HideCursor();
                 } else {
                     SDL_ShowCursor();
@@ -541,9 +772,13 @@ impl Streaming {
 
     pub fn raise_all_keys(&mut self) {
         let keys: Vec<u16> = self.keys_down.drain().collect();
+        let buttons: Vec<u8> = self.mouse_down.drain().collect();
         self.session.input(|q| {
             for key in keys {
                 let _ = q.send_keyboard(0x8000 | key, false, 0, 0);
+            }
+            for button in buttons {
+                let _ = q.send_mouse_button(button, false);
             }
         });
     }
@@ -555,11 +790,74 @@ impl Streaming {
         for notice in notices {
             match notice {
                 Notice::Terminated(code) => {
-                    self.exit.get_or_insert(Exit::Ended(termination_text(code)));
+                    self.exit.get_or_insert(Exit::Terminated(code));
                 }
                 Notice::DecoderFallback(text) => self.show_toast(text),
+                Notice::MicrophoneFailed(text) => {
+                    self.microphone = None;
+                    self.microphone_muted = true;
+                    self.show_toast(text);
+                }
+                Notice::Clipboard(result) => {
+                    self.clipboard_busy = false;
+                    match result {
+                        Ok(Some(text)) => {
+                            let text = std::ffi::CString::new(text);
+                            if text.as_ref().is_ok_and(|text| unsafe { SDL_SetClipboardText(text.as_ptr()) }) {
+                                self.show_toast("PC clipboard copied to this device.");
+                            } else {
+                                self.show_toast("Could not copy the PC clipboard to this device.");
+                            }
+                        }
+                        Ok(None) => self.show_toast("Clipboard sent to the PC."),
+                        Err(error) => self.show_toast(error),
+                    }
+                }
                 Notice::Control(event) => self.control_event(event, pads),
-                Notice::Stage(_) | Notice::Started => {}
+                Notice::ServerCommand(result) => {
+                    self.command_busy = false;
+                    match result {
+                        Ok(payload) => match self.session.send(ClientMessage::ServerCommand(payload)) {
+                            Ok(()) => self.show_toast("Command sent to the PC."),
+                            Err(error) => self.show_toast(format!("Could not send the command: {error}")),
+                        },
+                        Err(error) => self.show_toast(error),
+                    }
+                }
+                Notice::AdaptiveBitrate(result) => {
+                    self.bitrate_busy = false;
+                    match result {
+                        Ok((ceiling, current)) => {
+                            self.facts.bitrate_kbps = current as i32;
+                            self.bitrate_kbps = current;
+                            self.bitrate_policy = Some(bitrate::Bitrate::new(ceiling, current, self.facts.fps, self.started.elapsed().as_millis() as u64));
+                        }
+                        Err(error) => {
+                            self.adaptive_bitrate = false;
+                            self.show_toast(error);
+                        }
+                    }
+                }
+                Notice::Bitrate { requested, result } => {
+                    self.bitrate_busy = false;
+                    match result {
+                        Ok(kbps) => {
+                            self.facts.bitrate_kbps = kbps as i32;
+                            self.bitrate_kbps = kbps;
+                            if let Some(policy) = &mut self.bitrate_policy {
+                                policy.applied(requested, kbps, self.started.elapsed().as_millis() as u64);
+                            } else {
+                                self.show_toast(format!("Bitrate set to {kbps} kbps."));
+                            }
+                        }
+                        Err(error) => {
+                            self.adaptive_bitrate = false;
+                            self.bitrate_policy = None;
+                            self.show_toast(error);
+                        }
+                    }
+                }
+                Notice::Stage(_) | Notice::Reconnecting(_) | Notice::Started => {}
             }
         }
     }
@@ -575,6 +873,9 @@ impl Streaming {
                 pads.rumble_triggers(controller, left, right)
             }
             ControlEvent::SetControllerLed { controller, r, g, b } => pads.set_led(controller, r, g, b),
+            ControlEvent::AdaptiveTriggers { controller, event_flags, type_left, type_right, left, right } => {
+                pads.adaptive_triggers(controller, event_flags, type_left, type_right, &left, &right);
+            }
             ControlEvent::SetMotionEventState {
                 controller,
                 motion_type,
@@ -599,14 +900,148 @@ impl Streaming {
                 self.texture.set_hdr_mode(enabled, metadata);
                 self.needs_redraw = true;
             }
+            ControlEvent::CursorShape(shape) => {
+                if let Err(error) = self.cursor.apply(shape) {
+                    self.cursor_error(error);
+                }
+            }
+            ControlEvent::CursorShapeRejected(reason) if self.cursor.enabled => {
+                self.cursor.default_cursor();
+                self.cursor_error(reason.to_owned());
+            }
             _ => {}
         }
     }
 
+    fn cursor_error(&mut self, error: String) {
+        eprintln!("nightjar: cursor: {error}");
+        if !self.cursor_warning {
+            self.cursor_warning = true;
+            self.show_toast("The PC's cursor could not be drawn; using the default pointer.");
+        }
+    }
+
+    pub fn clipboard(&mut self, send: bool) {
+        if !self.facts.clipboard || self.clipboard_busy { return; }
+        let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
+        let text = if send {
+            unsafe {
+                let text = SDL_GetClipboardText();
+                if text.is_null() {
+                    self.show_toast("Could not read the local clipboard.");
+                    return;
+                }
+                let value = std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned();
+                SDL_free(text.cast());
+                Some(value)
+            }
+        } else { None };
+        let shared = self.shared.clone();
+        self.clipboard_busy = true;
+        std::thread::spawn(move || {
+            let result = client.server_info_https().map_err(|e| e.to_string()).and_then(|info| {
+                let permission = if send { nightjar_core::http::PERMISSION_CLIPBOARD_SET } else { nightjar_core::http::PERMISSION_CLIPBOARD_READ };
+                if !info.capabilities.has(Feature::Clipboard) || info.permission.is_some_and(|p| p & permission == 0) {
+                    return Err("The PC denied clipboard access.".into());
+                }
+                match text {
+                    Some(text) => client.send_clipboard(&text).map(|_| None),
+                    None => client.clipboard().map(Some),
+                }.map_err(|e| e.to_string())
+            });
+            shared.notify(Notice::Clipboard(result));
+        });
+    }
+
+    pub fn server_command(&mut self, index: usize) {
+        if self.command_busy || self.last_command.is_some_and(|at| at.elapsed() < Duration::from_secs(1)) {
+            self.show_toast("Wait one second between PC commands.");
+            return;
+        }
+        let Some(name) = self.facts.server_commands.get(index).cloned() else { return; };
+        let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
+        let shared = self.shared.clone();
+        self.command_busy = true;
+        self.last_command = Some(Instant::now());
+        std::thread::spawn(move || {
+            let result = client.server_info_https().map_err(|e| e.to_string()).and_then(|info| {
+                if !info.capabilities.has(Feature::ServerCommands)
+                    || info.server_commands.get(index) != Some(&name) {
+                    return Err("The command changed or permission was denied. Reconnect to refresh the PC commands.".into());
+                }
+                Ok(if info.capabilities.family() == nightjar_core::http::Family::Rubylight {
+                    vec![index as u8]
+                } else { vec![index as u8, 0, 0, 0] })
+            });
+            shared.notify(Notice::ServerCommand(result));
+        });
+    }
+
+    pub fn set_bitrate(&mut self) {
+        if !self.facts.runtime_bitrate || self.bitrate_busy { return; }
+        let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
+        let shared = self.shared.clone();
+        let bitrate = self.bitrate_kbps;
+        self.bitrate_busy = true;
+        std::thread::spawn(move || {
+            let result = client.server_info_https().map_err(|e| e.to_string()).and_then(|info| {
+                if !info.capabilities.has(Feature::RuntimeBitrate) {
+                    return Err("The PC does not allow bitrate changes.".into());
+                }
+                client.set_bitrate(bitrate).map_err(|e| e.to_string())
+            });
+            shared.notify(Notice::Bitrate { requested: bitrate, result });
+        });
+    }
+
+    pub fn enable_adaptive_bitrate(&mut self, enabled: bool) {
+        if self.bitrate_busy { return; }
+        self.bitrate_policy = None;
+        self.adaptive_bitrate = enabled && self.facts.runtime_bitrate && self.facts.role == AppRole::Stream;
+        if !self.adaptive_bitrate { return; }
+        let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
+        let shared = self.shared.clone();
+        self.bitrate_busy = true;
+        std::thread::spawn(move || {
+            let result = client.server_info_https().map_err(|e| e.to_string()).and_then(|info| {
+                if !info.capabilities.has(Feature::RuntimeBitrate) || info.encoder_bitrate_kbps == 0 || info.initial_encoder_bitrate_kbps == 0 {
+                    return Err("The PC did not provide an encoder budget for automatic bitrate.".into());
+                }
+                let applied = client.set_bitrate(info.encoder_bitrate_kbps).map_err(|e| e.to_string())?;
+                Ok((info.initial_encoder_bitrate_kbps.max(applied), applied))
+            });
+            shared.notify(Notice::AdaptiveBitrate(result));
+        });
+    }
+
+    pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+        self.menu_visible = !self.menu_visible;
+        self.raise_all_keys();
+        self.session.input(|q| pads.release(q));
+        self.set_capture(window, !self.menu_visible);
+        self.needs_redraw = true;
+    }
+
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
+        if let Some(microphone) = &self.microphone {
+            while let Ok(packet) = microphone.packets.try_recv() {
+                if let Err(error) = self.session.send_microphone(&packet) {
+                    self.shared.notify(Notice::MicrophoneFailed(format!("Microphone forwarding stopped: {error}")));
+                    break;
+                }
+            }
+        }
         let frames: Vec<_> = lock(&self.shared.frames).drain(..).collect();
         for decoded in frames {
+            if let Some((rtp, received)) = self.last_arrival {
+                let ticks = decoded.rtp.wrapping_sub(rtp) as i32;
+                if ticks > 0 && decoded.receive_us >= received {
+                    let delta = ((decoded.receive_us - received) as f64 / 1000.0 - f64::from(ticks) / 90.0).abs();
+                    self.jitter_ms = if self.jitter_ms < 0.0 { delta } else { self.jitter_ms + (delta - self.jitter_ms) / 16.0 };
+                }
+            }
+            self.last_arrival = Some((decoded.rtp, decoded.receive_us));
             self.pacer.accept(decoded);
         }
         if self.facts.clock_sync && self.last_probe.elapsed() >= Duration::from_millis(250) {
@@ -742,6 +1177,13 @@ impl Streaming {
         };
         let w = std::mem::take(&mut self.window);
         let avg = |sum: f64, n: u32| if n > 0 { sum / f64::from(n) } else { 0.0 };
+        let measured = |sum: f64, n: u32| if n > 0 { format!("{:.3}", sum / f64::from(n) / 1000.0) } else { String::new() };
+        self.statistics.push_back(format!("{},{:.3},{:.3},{:.3},{loss:.3},{},{decode_ms:.3},{},{},{},{}\n",
+            self.started.elapsed().as_millis(), received as f64 / secs, decoded as f64 / secs, f64::from(w.shown) / secs,
+            stats.rtt.map_or_else(String::new, |(rtt, _)| format!("{:.3}", rtt.as_secs_f64() * 1000.0)),
+            measured(w.render_us as f64, w.shown), measured(w.timing_host_us as f64, w.timing_n),
+            measured(w.latency_us as f64, w.latency_n), self.facts.bitrate_kbps));
+        if self.statistics.len() > 3600 { self.statistics.pop_front(); }
         let mut lines = Vec::new();
         let f = &self.facts;
         lines.push((
@@ -844,7 +1286,24 @@ impl Streaming {
             audio.push_str(&format!(", {} underruns", now.5 - last.5));
         }
         lines.push(("Audio".into(), audio));
+        lines.push(("Bitrate".into(), format!("{:.1} Mbps{}", f64::from(self.facts.bitrate_kbps) / 1000.0,
+            if self.adaptive_bitrate { ", automatic" } else { "" })));
         self.overlay = Overlay { lines };
+        if !self.bitrate_busy {
+            if let Some(policy) = &mut self.bitrate_policy {
+                if self.menu_visible || !self.focused {
+                    policy.suspend();
+                } else {
+                    let recent = decoded > 0 && self.last_arrival.is_some_and(|(_, at)| session::now_us().saturating_sub(at) < 500_000);
+                    let poor = stats.connection_status == Some(nightjar_core::control::ConnectionStatus::Poor);
+                    if let Some(target) = policy.sample(self.started.elapsed().as_millis() as u64, recent, poor,
+                        if completed + drops > 0 { loss } else { -1.0 }, if decoded > 0 { decode_ms } else { -1.0 }, self.jitter_ms) {
+                        self.bitrate_kbps = target;
+                        self.set_bitrate();
+                    }
+                }
+            }
+        }
         self.window.started = Some(Instant::now());
         true
     }
@@ -873,16 +1332,21 @@ impl Streaming {
                 SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED => {
                     self.exit = Some(Exit::CloseWindow);
                 }
-                SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, window),
+                SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, window, pads),
                 SDL_EVENT_WINDOW_FOCUS_LOST => {
+                    self.focused = false;
                     self.raise_all_keys();
+                    if !self.settings.background_controllers {
+                        self.session.input(|q| pads.release(q));
+                    }
                     if self.captured {
                         self.set_capture(window, false);
                         self.captured = true; // recapture on focus
                     }
                 }
                 SDL_EVENT_WINDOW_FOCUS_GAINED => {
-                    if self.captured {
+                    self.focused = true;
+                    if self.captured && !self.menu_visible {
                         self.set_capture(window, true);
                     }
                 }
@@ -925,6 +1389,11 @@ impl Streaming {
                         SDL_BUTTON_X2 => mouse_button::X2,
                         _ => return,
                     };
+                    if b.down {
+                        self.mouse_down.insert(button);
+                    } else {
+                        self.mouse_down.remove(&button);
+                    }
                     self.session.input(|q| {
                         let _ = q.send_mouse_button(button, b.down);
                     });
@@ -947,22 +1416,28 @@ impl Streaming {
                 }
                 SDL_EVENT_GAMEPAD_ADDED => {
                     pads.added(event.gdevice.which);
-                    self.session.input(|q| pads.announce_new(q));
+                    if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor {
+                        self.session.input(|q| pads.announce_new(q));
+                    }
                 }
                 SDL_EVENT_GAMEPAD_REMOVED => {
                     if let Some(index) = pads.removed(event.gdevice.which) {
-                        self.session.input(|q| pads.send_removed(index, q));
+                        if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor {
+                            self.session.input(|q| pads.send_removed(index, q));
+                        }
                     }
                 }
                 _ => {
                     let focused = SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0;
-                    if !self.settings.controllers || (!focused && !self.settings.background_controllers) {
+                    if self.facts.role == AppRole::RemoteMonitor || !self.settings.controllers || (!focused && !self.settings.background_controllers) {
                         return;
                     }
                     let mut action = None;
                     self.session.input(|q| action = pads.handle(event, q));
-                    if action == Some(Action::Quit) {
-                        self.exit = Some(Exit::User);
+                    match action {
+                        Some(Action::Quit) => self.exit = Some(Exit::User),
+                        Some(Action::Menu) => self.toggle_menu(window, pads),
+                        None => {}
                     }
                 }
             }
@@ -976,7 +1451,8 @@ impl Streaming {
             SDL_GetCurrentRenderOutputSize(renderer, &mut size.0, &mut size.1);
             (SDL_GetWindowPixelDensity(window).max(0.01), size)
         };
-        let rect = letterbox(self.texture.size(), (w, h));
+        let picture = if self.facts.role == AppRole::InputOnly { (w, h) } else { self.texture.size() };
+        let rect = letterbox(picture, (w, h));
         let (px, py) = (x * density - rect.x, y * density - rect.y);
         let (rw, rh) = (rect.w.max(1.0), rect.h.max(1.0));
         let cx = px.clamp(0.0, rw - 1.0);
@@ -992,7 +1468,7 @@ impl Streaming {
         });
     }
 
-    fn key(&mut self, k: &SDL_KeyboardEvent, window: *mut SDL_Window) {
+    fn key(&mut self, k: &SDL_KeyboardEvent, window: *mut SDL_Window, pads: &mut Gamepads) {
         if k.repeat {
             return;
         }
@@ -1000,6 +1476,18 @@ impl Streaming {
         let has = |flag: SDL_Keymod| m & flag.0 != 0;
         if k.down && has(SDL_KMOD_CTRL) && has(SDL_KMOD_ALT) && has(SDL_KMOD_SHIFT) {
             match k.scancode {
+                SDL_SCANCODE_TAB => {
+                    self.toggle_menu(window, pads);
+                    return;
+                }
+                SDL_SCANCODE_C => {
+                    self.clipboard(false);
+                    return;
+                }
+                SDL_SCANCODE_V => {
+                    self.clipboard(true);
+                    return;
+                }
                 SDL_SCANCODE_Q => {
                     self.exit = Some(Exit::User);
                     return;
@@ -1082,8 +1570,13 @@ impl Streaming {
 
     /// Ends the stream: releases input, stops the session.
     pub fn finish(mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+        self.microphone = None;
+        if let Some(client) = &*lock(&self.shared.host_client) {
+            client.cancel_pending_requests();
+        }
         self.raise_all_keys();
         self.set_capture(window, false);
+        self.cursor.clear();
         // SAFETY: a live window.
         unsafe { SDL_ShowCursor() };
         pads.reset();

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nightjar_core::http::{
-    App, ClientIdentity, HostClient, PairResult, ServerInfo, DEFAULT_HTTP_PORT,
+    App, AppControl, ClientIdentity, HostClient, PairResult, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
 use crate::config::{HostRecord, Store};
@@ -89,6 +89,7 @@ pub enum Event {
     },
     Paired {
         id: u64,
+        request: u64,
         result: Result<String, String>,
     },
     Apps {
@@ -104,6 +105,14 @@ pub enum Event {
         id: u64,
         result: Result<(), String>,
     },
+    Wake {
+        id: u64,
+        result: Result<(), String>,
+    },
+    Action {
+        id: u64,
+        result: Result<(), String>,
+    },
 }
 
 pub struct Hosts {
@@ -114,6 +123,7 @@ pub struct Hosts {
     waker: Waker,
     next_id: u64,
     pairing: Option<(u64, Arc<HostClient>)>,
+    pairing_generation: u64,
     _mdns: Option<mdns_sd::ServiceDaemon>,
 }
 
@@ -200,6 +210,7 @@ impl Hosts {
             waker,
             next_id: 1,
             pairing: None,
+            pairing_generation: 0,
             _mdns: None,
         };
         for record in records {
@@ -238,7 +249,7 @@ impl Hosts {
         self.list.iter().find(|h| h.id == id)
     }
 
-    fn get_mut(&mut self, id: u64) -> Option<&mut Host> {
+    pub fn get_mut(&mut self, id: u64) -> Option<&mut Host> {
         self.list.iter_mut().find(|h| h.id == id)
     }
 
@@ -381,7 +392,9 @@ impl Hosts {
     }
 
     /// Starts pairing with `pin`; the host's user types it in its web UI.
-    pub fn pair(&mut self, id: u64, pin: String) {
+    pub fn pair(&mut self, id: u64, pin: String, passphrase: Option<String>) {
+        self.cancel_pairing();
+        let request = self.pairing_generation;
         let Some(identity) = self.identity.clone() else {
             return;
         };
@@ -393,7 +406,7 @@ impl Hosts {
         let client = match client_for(&identity, &record, &record.address) {
             Ok(client) => Arc::new(client),
             Err(e) => {
-                let _ = self.sender.send(Event::Paired { id, result: Err(e) });
+                let _ = self.sender.send(Event::Paired { id, request, result: Err(e) });
                 return;
             }
         };
@@ -401,7 +414,10 @@ impl Hosts {
         self.spawn("pair", move || {
             let result = client
                 .server_info_http(true)
-                .and_then(|info| client.pair(&info, &pin))
+                .and_then(|info| match &passphrase {
+                    Some(passphrase) => client.pair_with_passphrase(&info, &pin, passphrase),
+                    None => client.pair(&info, &pin),
+                })
                 .map_err(|e| describe(&e))
                 .and_then(|result| match result {
                     PairResult::Paired {
@@ -413,14 +429,21 @@ impl Hosts {
                     }
                     PairResult::Failed(f) => Err(format!("The PC declined pairing ({f:?}).")),
                 });
-            Some(Event::Paired { id, result })
+            Some(Event::Paired { id, request, result })
         });
     }
 
     pub fn cancel_pairing(&mut self) {
+        self.pairing_generation += 1;
         if let Some((_, client)) = self.pairing.take() {
             client.cancel_pending_requests();
         }
+    }
+
+    pub fn wake(&self, id: u64) {
+        let Some(host) = self.get(id) else { return };
+        let record = host.record.clone();
+        self.spawn("wake", move || Some(Event::Wake { id, result: crate::wol::wake(&record) }));
     }
 
     pub fn unpair(&mut self, id: u64) {
@@ -527,6 +550,44 @@ impl Hosts {
         });
     }
 
+    pub fn control_action(&mut self, id: u64, app_id: i32) {
+        let Some(identity) = self.identity.clone() else { return };
+        let Some(host) = self.get(id) else { return };
+        let Apps::Loaded(apps) = &host.apps else { return };
+        let Some(app) = apps.iter().find(|app| app.id == app_id && app.is_control_action()) else { return };
+        let request = nightjar_core::http::LaunchRequest {
+            app_id,
+            app_uuid: app.uuid.clone(),
+            role: app.role(false),
+            ..Default::default()
+        };
+        let control = app.control;
+        let record = host.record.clone();
+        self.spawn("host-action", move || {
+            let result = client_for(&identity, &record, &record.address).and_then(|client| {
+                let info = client.server_info_https().map_err(|e| describe(&e))?;
+                let apps = client.app_list(&info.capabilities).map_err(|e| describe(&e))?;
+                if !apps.iter().any(|app| app.id == request.app_id && app.uuid == request.app_uuid && app.control == control) {
+                    return Err("The PC action changed. Refresh the library and try again.".into());
+                }
+                let mut result = client.launch(&request, &info);
+                if control == AppControl::Terminate && matches!(&result,
+                    Err(nightjar_core::http::Error::Status { code: 410, message })
+                    if message == "This will close the active stream but leave Remote Monitor and Remote Input connected. Launch Terminate again within 60 seconds to confirm this was intentional.") {
+                    // The launcher already obtained confirmation for this action.
+                    result = client.launch(&request, &info);
+                }
+                match result {
+                    Ok(Some(_)) => Ok(()),
+                    Ok(None) => Err("The PC declined the action.".into()),
+                    Err(error) if completed_action(control, &error) => Ok(()),
+                    Err(error) => Err(describe(&error)),
+                }
+            });
+            Some(Event::Action { id, result })
+        });
+    }
+
     /// Applies queued events. Returns those the UI reacts to (pairing, quit) after the list
     /// has taken them in, and whether the stored hosts changed.
     pub fn drain(&mut self, ctx: &egui::Context) -> (Vec<Event>, bool) {
@@ -544,17 +605,18 @@ impl Hosts {
                     addresses,
                     port,
                 } => self.apply_discovery(name, addresses, port),
-                Event::Paired { id, result } => {
-                    if self.pairing.as_ref().is_some_and(|(p, _)| *p == id) {
-                        self.pairing = None;
+                Event::Paired { id, request, result } => {
+                    if request != self.pairing_generation {
+                        continue;
                     }
+                    self.pairing = None;
                     if let (Ok(pem), Some(host)) = (&result, self.get_mut(id)) {
                         host.record.server_certificate = Some(pem.clone());
                         host.apps = Apps::NotLoaded;
                         changed = true;
                         self.poll_one(id);
                     }
-                    out.push(Event::Paired { id, result });
+                    out.push(Event::Paired { id, request, result });
                 }
                 Event::Apps { id, result } => {
                     if let Some(host) = self.get_mut(id) {
@@ -584,6 +646,15 @@ impl Hosts {
                     self.poll_one(id);
                     out.push(Event::Quit { id, result });
                 }
+                Event::Wake { id, result } => {
+                    self.poll_one(id);
+                    out.push(Event::Wake { id, result });
+                }
+                Event::Action { id, result } => {
+                    self.poll_one(id);
+                    self.load_apps(id);
+                    out.push(Event::Action { id, result });
+                }
             }
         }
         (out, changed)
@@ -611,6 +682,9 @@ impl Hosts {
                 let dropped = self.list[drop].record.clone();
                 let kept = &mut self.list[keep].record;
                 kept.manual |= dropped.manual;
+                if kept.settings.is_none() {
+                    kept.settings = dropped.settings;
+                }
                 for a in std::iter::once(dropped.address).chain(dropped.other_addresses) {
                     if a != kept.address && !kept.other_addresses.contains(&a) {
                         kept.other_addresses.push(a);
@@ -648,9 +722,13 @@ impl Hosts {
                     host.record.name = info.hostname.clone();
                     changed = true;
                 }
-                host.record.https_port = info.https_port;
+                if host.record.https_port != info.https_port {
+                    host.record.https_port = info.https_port;
+                    changed = true;
+                }
                 if host.record.mac.is_none() && info.mac_address.is_some() {
                     host.record.mac = info.mac_address.clone();
+                    changed = true;
                 }
                 // The host forgot this client: drop the pin so the user can pair again.
                 if !info.paired && host.record.server_certificate.is_some() {
@@ -692,6 +770,18 @@ impl Hosts {
     }
 }
 
+fn completed_action(control: AppControl, error: &nightjar_core::http::Error) -> bool {
+    let nightjar_core::http::Error::Status { code: 410, message } = error else { return false; };
+    let message = message.trim().trim_end_matches('.');
+    let known: &[&str] = match control {
+        AppControl::DisconnectMonitor => &["Remote monitor disconnected", "Remote Monitor disconnected successfully"],
+        AppControl::DisconnectInput => &["Remote input disconnected", "Remote Input disconnected successfully"],
+        AppControl::Terminate => &["Application terminated", "Active stream terminated. Remote Monitor and Remote Input remain connected", "App terminated"],
+        _ => &[],
+    };
+    known.iter().any(|known| message.eq_ignore_ascii_case(known))
+}
+
 fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
     let image = image::load_from_memory(bytes).ok()?.to_rgba8();
     let size = [image.width() as usize, image.height() as usize];
@@ -709,5 +799,15 @@ mod tests {
             assert_eq!(pin.len(), 4);
             assert!(pin.bytes().all(|b| b.is_ascii_digit()));
         }
+    }
+
+    #[test]
+    fn action_completion_requires_a_known_message_for_the_selected_action() {
+        use nightjar_core::http::Error;
+        let terminated = Error::Status { code: 410, message: "Application terminated.".into() };
+        assert!(completed_action(AppControl::Terminate, &terminated));
+        assert!(!completed_action(AppControl::DisconnectInput, &terminated));
+        assert!(!completed_action(AppControl::Terminate, &Error::Status { code: 410, message: "Confirm termination".into() }));
+        assert!(!completed_action(AppControl::Terminate, &Error::Status { code: 500, message: "Application terminated".into() }));
     }
 }

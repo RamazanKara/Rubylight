@@ -812,7 +812,7 @@ mod tests {
         use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
         let missing =
             anyhow::Error::new(windows::core::Error::from(ERROR_NO_MORE_ITEMS.to_hresult()));
-        let refused = "Smart App Control is on, and it refuses a display driver signed on this PC, so streams use a physical display.";
+        let refused = "Smart App Control is on, and it refuses a display driver signed on this PC, and Rubylight streams only through it.";
         assert_eq!(super::problem_text(&missing, Some(refused.into())), refused);
         // Nothing recorded, or an empty value: the error explains it.
         for recorded in [None, Some(" ".into())] {

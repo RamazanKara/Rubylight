@@ -1591,12 +1591,12 @@ mod tests {
     #[test]
     fn a_pc_that_refuses_the_locally_signed_driver_gets_a_note_naming_why() {
         let mut notes = Vec::new();
-        let output = "WARNUNG: [RubylightVirtualDisplay] DRIVER_UNSUPPORTED: This PC refuses a display driver signed on the PC (Smart App Control is on). A signed Rubylight release installs it; until then streams use a physical display.\n";
+        let output = "WARNUNG: [RubylightVirtualDisplay] DRIVER_UNSUPPORTED: This PC refuses a display driver signed on the PC (Smart App Control is on). A signed Rubylight release installs it; until then Rubylight cannot stream on this PC.\n";
         assert!(!driver_result(0, output, &mut notes, "virtual display"));
         assert_eq!(
             notes,
             [
-                "The virtual display driver was not installed: This PC refuses a display driver signed on the PC (Smart App Control is on). A signed Rubylight release installs it; until then streams use a physical display."
+                "The virtual display driver was not installed: This PC refuses a display driver signed on the PC (Smart App Control is on). A signed Rubylight release installs it; until then Rubylight cannot stream on this PC."
             ]
         );
     }
@@ -1606,7 +1606,7 @@ mod tests {
         // Smart App Control, S mode, App Control or a failed install: the
         // driver step added a note, and the old driver stays.
         let mut notes = Vec::new();
-        let refused = "WARNING: [RubylightVirtualDisplay] DRIVER_UNSUPPORTED: Smart App Control is on, and it refuses a display driver signed on this PC, so streams use a physical display.\n";
+        let refused = "WARNING: [RubylightVirtualDisplay] DRIVER_UNSUPPORTED: Smart App Control is on, and it refuses a display driver signed on this PC, and Rubylight streams only through it.\n";
         let restart = driver_result(0, refused, &mut notes, "virtual display");
         assert!(!libvirtualdisplay_replaced(!notes.is_empty(), restart));
         let mut notes = Vec::new();

@@ -118,7 +118,6 @@ fn readiness(meta: &Value) -> String {
     for (label, detail) in [
         ("Virtual display", text(&meta["virtual_display"], "reason")),
         ("Audio", text(meta, "audio_error")),
-        ("Screen capture", text(&meta["capture_status"], "error")),
     ] {
         if !detail.is_empty() {
             out += &format!(
@@ -610,10 +609,10 @@ async fn settings(
             .to_owned()
     };
     let mut content =
-        "<p class=\"intro\">Choose the capture, encoder, display, and sound for your stream.</p>"
+        "<p class=\"intro\">Choose the encoder, display, and sound for your stream.</p>"
             .to_owned();
     content += "<p class=\"muted\">Automatic encodes H.264, HEVC and AV1 with AMF, the AMD GPU's encoder, and PyroWave streams with PyroWave's own encoder. If AMF cannot start, the stream fails with AMF's error in the log; there is no other encoder to fall back to.</p>";
-    content += "<p class=\"muted\">For screen capture, Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays. Select Windows Graphics Capture or Desktop Duplication to use those methods instead. If driver push is unavailable, capture falls back to Windows Graphics Capture.</p>";
+    content += "<p class=\"muted\">Every stream runs on a Rubylight virtual display and captures it through Rubylight's display driver.</p>";
     let editor = field(
         "sunshine_name",
         "Host name",

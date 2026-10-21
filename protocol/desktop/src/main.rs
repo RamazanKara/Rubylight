@@ -10,6 +10,7 @@
 
 mod config;
 mod controller_audio;
+mod controller_mouse;
 mod gamepad;
 mod gui;
 mod hosts;
@@ -239,6 +240,9 @@ fn run() -> Result<(), String> {
     let screenshot_dir = std::env::var_os("NIGHTJAR_SCREENSHOT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| store.dir().join("screenshots"));
+    let mut pads = Gamepads::default();
+    pads.mappings = mappings;
+    pads.configure(&settings);
     let mut app = App {
         window,
         renderer,
@@ -246,12 +250,7 @@ fn run() -> Result<(), String> {
         store,
         hosts,
         launcher,
-        pads: Gamepads {
-            mappings,
-            swap_face_buttons: settings.swap_face_buttons,
-            motion: settings.controller_motion,
-            ..Default::default()
-        },
+        pads,
         connecting: None,
         cancelled: false,
         streaming: None,
@@ -786,8 +785,7 @@ impl App {
             }
             Command::SaveSettings => {
                 let s = &self.launcher.settings;
-                self.pads.swap_face_buttons = s.swap_face_buttons;
-                self.pads.motion = s.controller_motion;
+                self.pads.configure(s);
                 if let Err(e) = self.store.save_settings(s) {
                     eprintln!("nightjar: saving settings failed: {e}");
                 }
@@ -910,8 +908,7 @@ impl App {
 
     fn begin_stream(&mut self, connecting: Connecting, session: nightjar_core::session::Session, facts: stream::Facts) {
         let settings = connecting.settings.clone();
-        self.pads.swap_face_buttons = settings.swap_face_buttons;
-        self.pads.motion = settings.controller_motion;
+        self.pads.configure(&settings);
         let display = display_of(self.window);
         let pacing = connecting.pacing;
         eprintln!(
@@ -1140,7 +1137,9 @@ impl App {
                 key.scancode == SDL_SCANCODE_ESCAPE || (key.scancode == SDL_SCANCODE_TAB
                     && key.r#mod.0 & SDL_KMOD_CTRL.0 != 0 && key.r#mod.0 & SDL_KMOD_ALT.0 != 0
                     && key.r#mod.0 & SDL_KMOD_SHIFT.0 != 0)
-            }) || (kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && unsafe { event.gbutton.button } == back_button.0 as u8);
+            }) || (kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && unsafe {
+                event.gbutton.button == back_button.0 as u8 || event.gbutton.button == SDL_GAMEPAD_BUTTON_BACK.0 as u8
+            });
             if close_menu {
                 streaming.toggle_menu(self.window, &mut self.pads);
                 return;
@@ -1152,7 +1151,8 @@ impl App {
             }
             if !matches!(kind, SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED
                 | SDL_EVENT_WINDOW_FOCUS_LOST | SDL_EVENT_WINDOW_FOCUS_GAINED
-                | SDL_EVENT_GAMEPAD_ADDED | SDL_EVENT_GAMEPAD_REMOVED) {
+                | SDL_EVENT_GAMEPAD_ADDED | SDL_EVENT_GAMEPAD_REMOVED
+                | SDL_EVENT_AUDIO_DEVICE_ADDED | SDL_EVENT_AUDIO_DEVICE_REMOVED) {
                 self.gui.handle(event, Scale::of(self.window));
                 streaming.needs_redraw = true;
                 return;

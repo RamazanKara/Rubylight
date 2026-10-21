@@ -610,6 +610,7 @@ pub struct Streaming {
     command_busy: bool,
     last_command: Option<Instant>,
     audio_status: ([u8; 16], Instant),
+    controller_mouse_active: bool,
     pub pending_command: Option<usize>,
     pub bitrate_busy: bool,
     pub bitrate_kbps: u32,
@@ -708,6 +709,7 @@ impl Streaming {
             command_busy: false,
             last_command: None,
             audio_status: ([0; 16], Instant::now() - Duration::from_secs(1)),
+            controller_mouse_active: false,
             pending_command: None,
             bitrate_busy: false,
             bitrate_kbps,
@@ -1037,6 +1039,10 @@ impl Streaming {
         }
         self.route_microphones(pads);
         *lock(&self.shared.controller_audio) = pads.pads.iter().filter_map(|p| p.audio.as_ref().map(|audio| Arc::downgrade(&audio.playback))).collect();
+        self.controller_mouse_active = false;
+        if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor && !self.menu_visible && (self.focused || self.settings.background_controllers) {
+            self.session.input(|q| self.controller_mouse_active = pads.update_mouse(q));
+        }
         let mut status = [0u8; 16];
         if self.controller_audio_available() {
             for pad in &pads.pads {
@@ -1287,7 +1293,7 @@ impl Streaming {
                     Wait::For(Duration::from_micros(due - now))
                 }
             }
-            None => Wait::For(Duration::from_millis(if self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
+            None => Wait::For(Duration::from_millis(if self.controller_mouse_active || self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
         }
     }
 
@@ -1652,7 +1658,8 @@ impl Streaming {
                         self.absolute_position(m.x, m.y, window, renderer);
                     } else {
                         let (rx, ry) = self.relative_remainder;
-                        let (dx, dy) = (m.xrel + rx, m.yrel + ry);
+                        let speed = self.settings.mouse_speed.clamp(25, 400) as f32 / 100.0;
+                        let (dx, dy) = (m.xrel * speed + rx, m.yrel * speed + ry);
                         let (ix, iy) = (dx.trunc(), dy.trunc());
                         self.relative_remainder = (dx - ix, dy - iy);
                         if ix != 0.0 || iy != 0.0 {
@@ -1679,8 +1686,8 @@ impl Streaming {
                         SDL_BUTTON_LEFT => mouse_button::LEFT,
                         SDL_BUTTON_MIDDLE => mouse_button::MIDDLE,
                         SDL_BUTTON_RIGHT => mouse_button::RIGHT,
-                        SDL_BUTTON_X1 => mouse_button::X1,
-                        SDL_BUTTON_X2 => mouse_button::X2,
+                        SDL_BUTTON_X1 if self.settings.mouse_nav_buttons => mouse_button::X1,
+                        SDL_BUTTON_X2 if self.settings.mouse_nav_buttons => mouse_button::X2,
                         _ => return,
                     };
                     if b.down {
@@ -1727,6 +1734,7 @@ impl Streaming {
                     }
                 }
                 SDL_EVENT_GAMEPAD_REMOVED => {
+                    self.session.input(|q| pads.release_mouse(event.gdevice.which, q));
                     if let Some(index) = pads.removed(event.gdevice.which) {
                         if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor {
                             self.session.input(|q| pads.send_removed(index, q));
@@ -1753,6 +1761,7 @@ impl Streaming {
                     match action {
                         Some(Action::Quit) => self.exit = Some(Exit::User),
                         Some(Action::Menu) => self.toggle_menu(window, pads),
+                        Some(Action::Mouse(active)) => self.show_toast(if active { "Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad." } else { "Controller mouse disabled." }),
                         None => {}
                     }
                 }
@@ -1858,20 +1867,22 @@ impl Streaming {
             return;
         }
         let system_keys = self.settings.capture_system_keys;
-        let Some((code, flags)) = keymap::virtual_key(k.scancode, system_keys) else {
+        let right_alt_as_meta = self.settings.right_alt_as_meta;
+        let scancode = if right_alt_as_meta && k.scancode == SDL_SCANCODE_RALT { SDL_SCANCODE_RGUI } else { k.scancode };
+        let Some((code, flags)) = keymap::virtual_key(scancode, system_keys || (right_alt_as_meta && k.scancode == SDL_SCANCODE_RALT)) else {
             return;
         };
         let mut modifiers = 0u8;
         if has(SDL_KMOD_CTRL) {
             modifiers |= modifier::CTRL;
         }
-        if has(SDL_KMOD_ALT) {
+        if has(SDL_KMOD_LALT) || (!right_alt_as_meta && has(SDL_KMOD_RALT)) {
             modifiers |= modifier::ALT;
         }
         if has(SDL_KMOD_SHIFT) {
             modifiers |= modifier::SHIFT;
         }
-        if has(SDL_KMOD_GUI) && system_keys {
+        if (has(SDL_KMOD_GUI) && system_keys) || (right_alt_as_meta && has(SDL_KMOD_RALT)) {
             modifiers |= modifier::META;
         }
         if k.down {
@@ -1891,6 +1902,7 @@ impl Streaming {
             client.cancel_pending_requests();
         }
         self.raise_all_keys();
+        self.session.input(|q| pads.release(q));
         self.set_capture(window, false);
         self.cursor.clear();
         for controller in 0..16 {

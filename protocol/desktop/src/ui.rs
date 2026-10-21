@@ -1174,6 +1174,9 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["cursor_shapes"], "Local cursor", "Show the PC's cursor without video delay in desktop pointer mode when the host supports it.", |ui, s| {
                 toggle(ui, &mut s.cursor_shapes)
             });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_speed"], "Mouse speed", "Sensitivity of the captured pointer.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_nav_buttons"], "Mouse navigation buttons", "Send the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
             section(ui, "Connection");
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["auto_reconnect"], "Reconnect after an interruption", "Try to resume the same running app up to five times within one minute.", |ui, s| {
                 toggle(ui, &mut s.auto_reconnect)
@@ -1193,11 +1196,26 @@ impl Launcher {
                 toggle(ui, &mut s.controllers)
             });
             ui.add_enabled_ui(s.controllers, |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["back_opens_menu"], "Back opens stream controls", "Use the controller's Back / Select button to open the menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_mouse"], "Controller mouse mode", "Hold Start for 750 ms, then release. A/B click and the D-pad scrolls.", |ui, s| toggle(ui, &mut s.controller_mouse));
+                if s.controller_mouse {
+                    setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["analog_scrolling"], "Stick for scrolling", "The other stick moves the pointer. Off lets both sticks move it.", |ui, s| {
+                        use crate::config::AnalogScrolling;
+                        egui::ComboBox::from_id_salt("analog-scrolling").selected_text(match s.analog_scrolling { AnalogScrolling::Off => "Off", AnalogScrolling::Left => "Left", AnalogScrolling::Right => "Right" }).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Off, "Off");
+                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Left, "Left");
+                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Right, "Right");
+                        }).response
+                    });
+                    setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_fixed_step"], "Precise controller mouse", "Hold X for fixed pixel steps. Press Y to double the step from 1 to 128 pixels.", |ui, s| toggle(ui, &mut s.mouse_fixed_step));
+                }
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["gamepad_touchpad_as_mouse"], "Controller touchpad as mouse", "Move with one finger, scroll with two. Press the pad for a left click, or with two fingers for a right click.", |ui, s| toggle(ui, &mut s.gamepad_touchpad_as_mouse));
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["disable_rumble"], "Disable vibration", "Turn off controller rumble, trigger rumble, and waveform haptics.", |ui, s| toggle(ui, &mut s.disable_rumble));
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["swap_face_buttons"], "Nintendo button layout", "Swap A/B and X/Y.", |ui, s| toggle(ui, &mut s.swap_face_buttons));
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_motion"], "Motion controls", "Send gyro and accelerometer data when a game asks for it.", |ui, s| {
                     toggle(ui, &mut s.controller_motion)
                 });
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_audio"], "DualSense USB audio", "Enable waveform haptics and controller speaker audio. Select the four-channel controller output in stream controls if more than one is connected.", |ui, s| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_audio"], "DualSense USB audio", "Use waveform haptics, speaker, headset and microphone. Choose devices in stream controls; microphone forwarding also needs Microphone enabled.", |ui, s| {
                     toggle(ui, &mut s.controller_audio)
                 });
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["background_controllers"], "Input in the background", "Keep controllers working when Nightjar is not focused.", |ui, s| {

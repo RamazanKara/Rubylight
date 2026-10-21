@@ -139,6 +139,8 @@ pub struct Pad {
     pub mapping: Mapping,
     raw_buttons: u32,
     raw_axes: [i16; 6],
+    mouse: crate::controller_mouse::Mouse,
+    touchpad: crate::controller_mouse::Touchpad,
     buttons: u32,
     lt: u8,
     rt: u8,
@@ -171,6 +173,8 @@ impl Pad {
         unsafe { SDL_GetGamepadType(self.handle) == SDL_GAMEPAD_TYPE_PS5
             && SDL_GetGamepadConnectionState(self.handle) == SDL_JOYSTICK_CONNECTION_WIRED }
     }
+
+    fn report(&self) -> Report { Report { buttons: self.buttons, lt: self.lt, rt: self.rt, ls: self.ls, rs: self.rs } }
 }
 
 /// What a controller asked the UI to do.
@@ -179,6 +183,7 @@ pub enum Action {
     /// Start+Select+LB+RB: leave the stream.
     Quit,
     Menu,
+    Mouse(bool),
 }
 
 #[derive(Default)]
@@ -187,6 +192,12 @@ pub struct Gamepads {
     pub swap_face_buttons: bool,
     pub motion: bool,
     pub mappings: std::collections::BTreeMap<String, Mapping>,
+    back_opens_menu: bool,
+    mouse_emulation: bool,
+    analog_scrolling: crate::config::AnalogScrolling,
+    mouse_fixed_step: bool,
+    touchpad_as_mouse: bool,
+    disable_rumble: bool,
 }
 
 fn invert(value: i16) -> i16 {
@@ -194,6 +205,17 @@ fn invert(value: i16) -> i16 {
 }
 
 impl Gamepads {
+    pub fn configure(&mut self, settings: &crate::config::Settings) {
+        self.swap_face_buttons = settings.swap_face_buttons;
+        self.motion = settings.controller_motion;
+        self.back_opens_menu = settings.back_opens_menu;
+        self.mouse_emulation = settings.controller_mouse;
+        self.analog_scrolling = settings.analog_scrolling;
+        self.mouse_fixed_step = settings.mouse_fixed_step;
+        self.touchpad_as_mouse = settings.gamepad_touchpad_as_mouse;
+        self.disable_rumble = settings.disable_rumble;
+    }
+
     /// Opens a newly attached gamepad.
     pub fn added(&mut self, id: SDL_JoystickID) {
         if self.pads.iter().any(|p| p.id == id) {
@@ -226,6 +248,8 @@ impl Gamepads {
             mapping,
             raw_buttons: 0,
             raw_axes: [0; 6],
+            mouse: crate::controller_mouse::Mouse::default(),
+            touchpad: crate::controller_mouse::Touchpad::default(),
             buttons: 0,
             lt: 0,
             rt: 0,
@@ -293,6 +317,8 @@ impl Gamepads {
     pub fn release(&mut self, queue: &mut InputQueue) {
         let mask = self.active_mask();
         for pad in &mut self.pads {
+            pad.mouse.release(queue);
+            pad.touchpad.release(queue);
             pad.raw_buttons = 0;
             pad.raw_axes = [0; 6];
             pad.buttons = 0;
@@ -312,6 +338,10 @@ impl Gamepads {
         let swap = self.swap_face_buttons;
         let motion = self.motion;
         let mask = self.active_mask();
+        let back_opens_menu = self.back_opens_menu;
+        let mouse_emulation = self.mouse_emulation;
+        let precision = self.mouse_fixed_step;
+        let touchpad_as_mouse = self.touchpad_as_mouse;
         // SAFETY: union members read by event type.
         unsafe {
             let kind = SDL_EventType(event.r#type);
@@ -320,6 +350,13 @@ impl Gamepads {
                     let b = event.gbutton;
                     let pad = self.find(b.which)?;
                     if usize::from(b.button) >= BUTTON_MAP.len() { return None; }
+                    if touchpad_as_mouse && i32::from(b.button) == SDL_GAMEPAD_BUTTON_TOUCHPAD.0 {
+                        pad.touchpad.button(b.down, queue);
+                        return None;
+                    }
+                    if back_opens_menu && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0 {
+                        return b.down.then_some(Action::Menu);
+                    }
                     let flag = 1 << b.button;
                     if b.down {
                         pad.raw_buttons |= flag;
@@ -333,12 +370,16 @@ impl Gamepads {
                         let action = if pad.raw_buttons == quit { Action::Quit } else { Action::Menu };
                         pad.raw_buttons = 0;
                         pad.raw_axes = [0; 6];
+                        pad.mouse.release(queue);
+                        pad.touchpad.release(queue);
                         pad.update(swap);
                         send_state(pad, mask, queue);
                         return Some(action);
                     }
                     pad.update(swap);
+                    let action = pad.mouse.update(pad.report(), mouse_emulation, precision, std::time::Instant::now(), queue);
                     send_state(pad, mask, queue);
+                    return action.map(Action::Mouse);
                 }
                 SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     let a = event.gaxis;
@@ -352,6 +393,7 @@ impl Gamepads {
                 | SDL_EVENT_GAMEPAD_TOUCHPAD_UP => {
                     let t = event.gtouchpad;
                     let pad = self.find(t.which)?;
+                    if touchpad_as_mouse { pad.touchpad.touch(&t, queue); return None; }
                     let phase = match kind {
                         SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN => touch_event::DOWN,
                         SDL_EVENT_GAMEPAD_TOUCHPAD_UP => touch_event::UP,
@@ -401,6 +443,7 @@ impl Gamepads {
 
     /// Rumble from the host; motor speeds 0-65535.
     pub fn rumble(&self, index: u16, low: u16, high: u16) {
+        if self.disable_rumble { return; }
         if let Some(pad) = self.by_index(index) {
             if pad.audio.as_ref().is_some_and(|audio| audio.active()) { return; }
             // SAFETY: an open gamepad. A long duration; the host sends 0 to stop.
@@ -409,6 +452,7 @@ impl Gamepads {
     }
 
     pub fn rumble_triggers(&self, index: u16, left: u16, right: u16) {
+        if self.disable_rumble { return; }
         if let Some(pad) = self.by_index(index) {
             // SAFETY: an open gamepad.
             unsafe { SDL_RumbleGamepadTriggers(pad.handle, left, right, 30_000) };
@@ -471,6 +515,8 @@ impl Gamepads {
             pad.rt = 0;
             pad.ls = (0, 0);
             pad.rs = (0, 0);
+            pad.mouse = crate::controller_mouse::Mouse::default();
+            pad.touchpad = crate::controller_mouse::Touchpad::default();
         }
     }
 
@@ -552,6 +598,7 @@ impl Gamepads {
     }
 
     pub fn pcm(&mut self, pcm: nightjar_core::control::haptics::Pcm, speaker: bool) {
+        if !speaker && self.disable_rumble { return; }
         if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.index) == pcm.controller) {
             if let Some(audio) = &mut pad.audio { audio.offer(pcm, speaker); audio.update(pad.handle); }
         }
@@ -563,6 +610,20 @@ impl Gamepads {
         if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.index) == index) {
             if let Some(audio) = &mut pad.audio { audio.control(payload, pad.handle); }
         }
+    }
+
+    pub fn update_mouse(&mut self, queue: &mut InputQueue) -> bool {
+        let now = std::time::Instant::now();
+        let mut active = false;
+        for pad in &mut self.pads {
+            active |= pad.mouse.active;
+            pad.mouse.tick(pad.report(), self.analog_scrolling, self.mouse_fixed_step, now, queue);
+        }
+        active
+    }
+
+    pub fn release_mouse(&mut self, id: SDL_JoystickID, queue: &mut InputQueue) {
+        if let Some(pad) = self.find(id) { pad.mouse.release(queue); pad.touchpad.release(queue); }
     }
 }
 
@@ -578,14 +639,15 @@ fn trigger_effect(flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], rig
 }
 
 fn send_state(pad: &Pad, mask: u16, queue: &mut InputQueue) {
+    let report = if pad.mouse.active { Report::default() } else { pad.report() };
     let _ = queue.send_controller(
         u16::from(pad.index),
         mask,
-        pad.buttons,
-        pad.lt,
-        pad.rt,
-        pad.ls,
-        pad.rs,
+        report.buttons,
+        report.lt,
+        report.rt,
+        report.ls,
+        report.rs,
     );
 }
 
@@ -754,6 +816,9 @@ mod tests {
 
             pads.rumble(0, 0x1234, 0x5678);
             assert_eq!(RUMBLE.load(std::sync::atomic::Ordering::SeqCst), 0x1234_5678);
+            pads.disable_rumble = true;
+            pads.rumble(0, 0x4321, 0x8765);
+            assert_eq!(RUMBLE.load(std::sync::atomic::Ordering::SeqCst), 0x1234_5678);
 
             pads.release(&mut queue);
             assert_eq!(pads.pads[0].buttons, 0);
@@ -768,6 +833,11 @@ mod tests {
                 menu |= pads.handle(&event, &mut queue) == Some(Action::Menu);
             }
             assert!(menu);
+            assert_eq!(pads.pads[0].buttons, 0);
+            pads.back_opens_menu = true;
+            let event = SDL_Event { gbutton: SDL_GamepadButtonEvent { r#type: SDL_EVENT_GAMEPAD_BUTTON_DOWN,
+                which: id, button: SDL_GAMEPAD_BUTTON_BACK.0 as u8, down: true, ..Default::default() } };
+            assert_eq!(pads.handle(&event, &mut queue), Some(Action::Menu));
             assert_eq!(pads.pads[0].buttons, 0);
 
             pads.close_all();

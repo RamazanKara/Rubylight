@@ -60,6 +60,14 @@ impl VideoScaling {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnalogScrolling {
+    Off,
+    #[default]
+    Right,
+    Left,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DecoderPreference {
     Auto,
@@ -130,6 +138,9 @@ pub struct Settings {
     pub vsync: bool,
     pub overlay: bool,
     pub mouse_mode: MouseMode,
+    pub mouse_speed: u32,
+    pub mouse_nav_buttons: bool,
+    pub right_alt_as_meta: bool,
     /// Send Alt+Tab, the Windows key and similar to the host while the stream has focus.
     pub capture_system_keys: bool,
     pub controllers: bool,
@@ -137,6 +148,12 @@ pub struct Settings {
     pub swap_face_buttons: bool,
     pub controller_motion: bool,
     pub controller_audio: bool,
+    pub back_opens_menu: bool,
+    pub controller_mouse: bool,
+    pub analog_scrolling: AnalogScrolling,
+    pub mouse_fixed_step: bool,
+    pub gamepad_touchpad_as_mouse: bool,
+    pub disable_rumble: bool,
     /// Keep sending controller input while the window is in the background.
     pub background_controllers: bool,
     pub decoder: DecoderPreference,
@@ -202,11 +219,20 @@ impl Default for Settings {
             vsync: true,
             overlay: false,
             mouse_mode: MouseMode::Capture,
+            mouse_speed: 100,
+            mouse_nav_buttons: true,
+            right_alt_as_meta: false,
             capture_system_keys: true,
             controllers: true,
             swap_face_buttons: false,
             controller_motion: true,
             controller_audio: false,
+            back_opens_menu: false,
+            controller_mouse: true,
+            analog_scrolling: AnalogScrolling::Right,
+            mouse_fixed_step: false,
+            gamepad_touchpad_as_mouse: false,
+            disable_rumble: false,
             background_controllers: false,
             decoder: DecoderPreference::Auto,
             microphone: false,

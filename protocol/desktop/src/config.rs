@@ -318,11 +318,29 @@ pub struct Profile {
 pub struct Profiles {
     pub active: Option<u64>,
     pub entries: Vec<Profile>,
+    pub automatic: bool,
+    pub mobile: Option<u64>,
+    pub home: Option<u64>,
+    pub wifi: Option<u64>,
+    pub home_wifi: Vec<String>,
+    pub mobile_limit_kbps: u32,
 }
 
 impl Profiles {
-    pub fn settings(&self, base: &Settings) -> Settings {
-        self.entries.iter().find(|p| Some(p.id) == self.active).map_or_else(|| base.clone(), |p| p.settings.apply(base))
+    pub fn selected(&self, network: crate::network::Kind) -> Option<u64> {
+        let rule = if self.automatic {
+            match network { crate::network::Kind::Mobile => self.mobile, crate::network::Kind::HomeWifi => self.home,
+                crate::network::Kind::Wifi => self.wifi, crate::network::Kind::Other => None }
+        } else { None };
+        rule.or(self.active)
+    }
+
+    pub fn settings(&self, base: &Settings, network: crate::network::Kind) -> Settings {
+        self.entries.iter().find(|p| Some(p.id) == self.selected(network)).map_or_else(|| base.clone(), |p| p.settings.apply(base))
+    }
+
+    pub fn bitrate_limit(&self, network: crate::network::Kind) -> u32 {
+        if network == crate::network::Kind::Mobile { self.mobile_limit_kbps } else { 0 }
     }
 
     pub fn check_name(&self, name: &str, except: Option<u64>) -> Result<(), &'static str> {
@@ -345,6 +363,9 @@ impl Profiles {
     pub fn delete(&mut self, id: u64) {
         self.entries.retain(|p| p.id != id);
         if self.active == Some(id) { self.active = None; }
+        for rule in [&mut self.mobile, &mut self.home, &mut self.wifi] {
+            if *rule == Some(id) { *rule = None; }
+        }
     }
 }
 
@@ -582,7 +603,7 @@ mod tests {
         let mut host = HostRecord { settings: Some(serde_json::from_str(r#"{"fps":60}"#).unwrap()), ..Default::default() };
         host.save_app_settings("game-a", 1, serde_json::from_str(r#"{"hdr":true,"microphone":false}"#).unwrap());
         global.upscale_sharpness = 80;
-        let base = host.settings(&profiles.settings(&global));
+        let base = host.settings(&profiles.settings(&global, crate::network::Kind::Other));
         let game = host.app_settings("game-a", 1).unwrap().apply(&base);
         assert_eq!(game.fps, 60);
         assert_eq!(game.codec, CodecPreference::Av1);
@@ -596,7 +617,41 @@ mod tests {
         assert!(host.app_settings.is_empty());
         profiles.delete(id);
         assert_eq!(profiles.active, None);
-        assert_eq!(profiles.settings(&global), global);
+        assert_eq!(profiles.settings(&global, crate::network::Kind::Other), global);
+    }
+
+    #[test]
+    fn network_choices_fall_back_and_deleted_rules_do_not_select_reused_ids() {
+        use crate::network::{Kind, Network};
+        let mut profiles = Profiles::default();
+        let active = profiles.create("Default", serde_json::from_str(r#"{"fps":60}"#).unwrap()).unwrap();
+        let travel = profiles.create("Travel", serde_json::from_str(r#"{"fps":30}"#).unwrap()).unwrap();
+        profiles.active = Some(active);
+        profiles.mobile = Some(travel);
+        profiles.wifi = Some(travel);
+        profiles.home = Some(active);
+        profiles.home_wifi.push("Home".into());
+        profiles.mobile_limit_kbps = 5000;
+        let mut network = Network { wifi: true, ssid: Some("Home".into()), ..Default::default() };
+        assert_eq!(network.kind(&profiles.home_wifi), Kind::HomeWifi);
+        assert_eq!(profiles.selected(Kind::Mobile), Some(active));
+        profiles.automatic = true;
+        assert_eq!(profiles.settings(&Settings::default(), Kind::Mobile).fps, 30);
+        assert_eq!(profiles.selected(Kind::Other), Some(active));
+        network.metered = true;
+        assert_eq!(network.kind(&profiles.home_wifi), Kind::Mobile);
+        assert_eq!(profiles.bitrate_limit(Kind::Mobile), 5000);
+        assert_eq!(profiles.bitrate_limit(Kind::HomeWifi), 0);
+        network.metered = false;
+        network.ssid = None;
+        assert_eq!(network.kind(&profiles.home_wifi), Kind::Wifi);
+        profiles.delete(travel);
+        assert_eq!((profiles.mobile, profiles.wifi), (None, None));
+        assert_eq!(profiles.selected(Kind::Mobile), Some(active));
+        profiles.mobile = Some(999);
+        assert_eq!(profiles.settings(&Settings::default(), Kind::Mobile), Settings::default());
+        let restored: Profiles = serde_json::from_str(&serde_json::to_string(&profiles).unwrap()).unwrap();
+        assert_eq!(restored, profiles);
     }
 
     #[test]

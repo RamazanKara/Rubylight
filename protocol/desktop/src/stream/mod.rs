@@ -70,6 +70,7 @@ pub struct LaunchPlan {
     pub gamepad_mask: u32,
     pub prepared_controllers: String,
     pub microphone_muted: bool,
+    pub bitrate_limit_kbps: u32,
     pub recovery: Option<recovery::Recovery>,
 }
 
@@ -151,6 +152,10 @@ pub fn stream_mode(settings: &Settings, display: Display) -> (u32, u32, u32, u32
         bitrate.max(pyrowave::minimum_bitrate(w, h, fps, settings.codec == CodecPreference::PyroWave444, settings.hdr))
     } else { bitrate };
     (w, h, fps, bitrate)
+}
+
+fn capped_bitrate(bitrate: u32, limit: u32) -> u32 {
+    if limit == 0 { bitrate } else { bitrate.min(limit) }
 }
 
 /// The formats offered for a codec preference, limited to what the host encodes.
@@ -356,6 +361,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let settings = &plan.settings;
     let role = plan.app.role(false);
     let (width, height, fps, bitrate) = stream_mode(settings, plan.display);
+    let bitrate = capped_bitrate(bitrate, plan.bitrate_limit_kbps);
     let audio = match settings.audio {
         AudioChannels::Stereo => AudioConfiguration::STEREO,
         AudioChannels::Surround51 => AudioConfiguration::SURROUND_51,
@@ -1117,6 +1123,7 @@ impl Streaming {
         if !self.facts.runtime_bitrate || self.bitrate_busy { return; }
         let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
         let shared = self.shared.clone();
+        self.bitrate_kbps = capped_bitrate(self.bitrate_kbps, self.plan.bitrate_limit_kbps);
         let bitrate = self.bitrate_kbps;
         self.bitrate_busy = true;
         std::thread::spawn(move || {
@@ -1138,13 +1145,14 @@ impl Streaming {
         let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
         let shared = self.shared.clone();
         self.bitrate_busy = true;
+        let limit = self.plan.bitrate_limit_kbps;
         std::thread::spawn(move || {
             let result = client.server_info_https().map_err(|e| e.to_string()).and_then(|info| {
                 if !info.capabilities.has(Feature::RuntimeBitrate) || info.encoder_bitrate_kbps == 0 || info.initial_encoder_bitrate_kbps == 0 {
                     return Err("The PC did not provide an encoder budget for automatic bitrate.".into());
                 }
-                let applied = client.set_bitrate(info.encoder_bitrate_kbps).map_err(|e| e.to_string())?;
-                Ok((info.initial_encoder_bitrate_kbps.max(applied), applied))
+                let applied = client.set_bitrate(capped_bitrate(info.encoder_bitrate_kbps, limit)).map_err(|e| e.to_string())?;
+                Ok((capped_bitrate(info.initial_encoder_bitrate_kbps.max(applied), limit), applied))
             });
             shared.notify(Notice::AdaptiveBitrate(result));
         });
@@ -1838,6 +1846,17 @@ mod tests {
             height: 1440,
             refresh_hz: 143.9,
         }
+    }
+
+    #[test]
+    fn metered_limit_caps_fixed_auto_and_pyrowave_bitrates() {
+        let settings = Settings { codec: CodecPreference::PyroWave, ..Default::default() };
+        let display = Display { width: 1920, height: 1080, refresh_hz: 60.0 };
+        let (_, _, _, bitrate) = stream_mode(&settings, display);
+        assert!(bitrate > 5_000);
+        assert_eq!(capped_bitrate(bitrate, 5_000), 5_000);
+        assert_eq!(capped_bitrate(4_000, 5_000), 4_000);
+        assert_eq!(capped_bitrate(bitrate, 0), bitrate);
     }
 
     #[test]

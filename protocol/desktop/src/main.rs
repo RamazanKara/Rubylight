@@ -15,6 +15,7 @@ mod gui;
 mod hosts;
 mod keymap;
 mod media;
+mod network;
 mod sdl;
 mod shortcuts;
 mod stream;
@@ -25,7 +26,7 @@ mod wol;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nightjar_core::http::ClientIdentity;
 use sdl3_sys::everything::*;
@@ -84,6 +85,9 @@ struct App {
     pending_launch: Option<(u64, i32)>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
     shortcut_file: Option<(bool, sdl::FileChoice)>,
+    network_query: Option<Receiver<network::Network>>,
+    network_launch: Option<(u64, i32, bool)>,
+    next_network_check: Instant,
     waker: hosts::Waker,
     wake_event: u32,
     screenshot_dir: PathBuf,
@@ -252,6 +256,9 @@ fn run() -> Result<(), String> {
         pending_launch: None,
         identity: None,
         shortcut_file: None,
+        network_query: Some(network::query(waker.clone())),
+        network_launch: None,
+        next_network_check: Instant::now(),
         waker,
         wake_event,
         screenshot_dir,
@@ -394,7 +401,7 @@ impl App {
 
     fn launcher_frame(&mut self) {
         // Wait for input or a worker; animate the spinner while something runs.
-        let busy = self.connecting.is_some()
+        let busy = self.connecting.is_some() || self.network_launch.is_some()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
             || self.identity.is_some();
         let timeout = if busy { 16 } else { 250 };
@@ -410,6 +417,16 @@ impl App {
         }
         if !self.running {
             return;
+        }
+        if let Some(receiver) = &self.network_query {
+            if let Ok(network) = receiver.try_recv() {
+                self.launcher.network = network;
+                self.network_query = None;
+                self.next_network_check = Instant::now() + Duration::from_secs(5);
+                if let Some((host, app, resume)) = self.network_launch.take() { self.launch_ready(host, app, resume); }
+            }
+        } else if Instant::now() >= self.next_network_check {
+            self.network_query = Some(network::query(self.waker.clone()));
         }
         if let Some((export, receiver)) = &self.shortcut_file {
             if let Ok(result) = receiver.try_recv() {
@@ -529,7 +546,11 @@ impl App {
             app: c.app_name.clone(),
             host: c.host_name.clone(),
             stage: c.stage.clone(),
-        });
+        }).or_else(|| self.network_launch.map(|(host, _, _)| ConnectingView {
+            app: "Starting stream".into(),
+            host: self.hosts.get(host).map_or(String::new(), |h| h.display_name().to_owned()),
+            stage: "Checking network profile".into(),
+        }));
         let mut commands = Vec::new();
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
@@ -601,7 +622,7 @@ impl App {
             Command::Wake(host) => self.hosts.wake(host),
             Command::HostSettings(id) => {
                 if let Some(host) = self.hosts.get(id) {
-                    self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings);
+                    self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi));
                     self.launcher.edit_overrides = host.record.settings.clone().unwrap_or_default();
                     self.launcher.edit_settings = self.launcher.edit_overrides.apply(&self.launcher.inherited_settings);
                     self.launcher.edit_name = format!("{} settings", host.display_name());
@@ -616,7 +637,7 @@ impl App {
             }
             Command::AppSettings { host: id, app } => {
                 if let Some(host) = self.hosts.get(id) {
-                    self.launcher.inherited_settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings));
+                    self.launcher.inherited_settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
                     self.launcher.edit_overrides = host.record.app_settings(&app.uuid, app.id).cloned().unwrap_or_default();
                     self.launcher.edit_settings = self.launcher.edit_overrides.apply(&self.launcher.inherited_settings);
                     self.launcher.edit_name = format!("{} settings", app.name);
@@ -730,6 +751,7 @@ impl App {
                 }
             }
             Command::CancelConnect => {
+                self.network_launch = None;
                 if let Some(c) = &self.connecting {
                     c.cancel();
                     self.cancelled = true;
@@ -756,6 +778,12 @@ impl App {
     }
 
     fn launch(&mut self, host_id: u64, app_id: i32, resume: bool) {
+        if self.connecting.is_some() || self.network_launch.is_some() { return; }
+        self.network_launch = Some((host_id, app_id, resume));
+        self.network_query = Some(network::query(self.waker.clone()));
+    }
+
+    fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool) {
         if self.connecting.is_some() {
             return;
         }
@@ -768,7 +796,7 @@ impl App {
             self.hosts.control_action(host_id, app_id);
             return;
         }
-        let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings));
+        let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
         if let Some(overrides) = host.record.app_settings(&app.uuid, app.id) { settings = overrides.apply(&settings); }
         if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
         if app.role(false) == nightjar_core::http::AppRole::InputOnly {
@@ -828,6 +856,7 @@ impl App {
             vrr,
             gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
             prepared_controllers: if settings.controllers { self.pads.prepare(settings.controller_motion) } else { String::new() },
+            bitrate_limit_kbps: self.launcher.profiles.bitrate_limit(self.launcher.network.kind(&self.launcher.profiles.home_wifi)),
             microphone_muted: false,
             recovery: None,
         };
@@ -891,7 +920,17 @@ impl App {
         if focused {
             streaming.set_capture(self.window, true);
         }
-        streaming.show_toast("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input");
+        let network = &self.launcher.network;
+        let profiles = &self.launcher.profiles;
+        let selected = profiles.selected(network.kind(&profiles.home_wifi));
+        let warning = if network.error.is_some() && (profiles.automatic || profiles.mobile_limit_kbps > 0) {
+            Some("Network details unavailable; automatic profiles and the mobile data limit could not be applied.")
+        } else if selected.is_some_and(|id| !profiles.entries.iter().any(|p| p.id == id)) {
+            Some("The selected profile is missing; main settings and PC/game overrides apply.")
+        } else if profiles.automatic && profiles.home.is_some() && !profiles.home_wifi.is_empty() && network.wifi && network.ssid.is_none() {
+            Some("Wi-Fi name unavailable; using the other Wi-Fi profile.")
+        } else { None };
+        streaming.show_toast(warning.unwrap_or("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input"));
         self.streaming = Some((streaming, TimerResolution::begin()));
     }
 

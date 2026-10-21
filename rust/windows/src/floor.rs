@@ -79,9 +79,10 @@ pub fn adapters() -> Result<Vec<Adapter>> {
     Ok(found)
 }
 
-/// Whether Rubylight's display driver is running (its control interface opens).
+/// Whether Rubylight's display driver can carry a stream: it runs and has the fence ring.
+/// An older driver that merely answers does not count; it needs a restart or a repair.
 pub fn display_driver() -> bool {
-    crate::display::rubylight_vdd::Control::open().is_ok()
+    crate::display::stream_driver_ready().is_ok()
 }
 
 /// This PC as the floor sees it.
@@ -158,5 +159,17 @@ fn hevc_encoder(luid: windows::Win32::Foundation::LUID) -> Result<()> {
         ((*(*context).pVtbl).Terminate.unwrap())(context);
         ((*(*context).pVtbl).Release.unwrap())(context);
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_floor_counts_a_driver_only_when_it_can_carry_a_stream() {
+        use rubylight_vdisplay_proto::control::{CAP_FENCE_RING, CAP_HDR};
+        // A driver that answers without the fence ring is not present for the floor.
+        assert!(crate::display::stream_driver_ready().is_ok() == super::display_driver());
+        assert!(crate::display::fence_ring(CAP_HDR).is_err());
+        assert!(crate::display::fence_ring(CAP_FENCE_RING).is_ok());
     }
 }

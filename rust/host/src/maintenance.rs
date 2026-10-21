@@ -24,13 +24,21 @@ fn compatible_release(release: &Value, config: &butterpollo_core::config::Config
 }
 
 /// Whether this PC meets the floor a release's notes carry. A release without the marker
-/// (from before it) has no floor to miss.
-fn meets_floor(release: &Value, pc: &butterpollo_core::floor::Pc) -> bool {
+/// (from before it) has no floor to miss. Where the PC could not be checked (`pc` is `None`),
+/// a release with a floor is not offered: the floor is not met, and the other releases still list.
+fn meets_floor(release: &Value, pc: Option<&butterpollo_core::floor::Pc>) -> bool {
     let Some(floor) = release["body"]
         .as_str()
         .and_then(butterpollo_core::floor::from_notes)
     else {
         return true;
+    };
+    let Some(pc) = pc else {
+        tracing::info!(
+            release = release["tag_name"].as_str().unwrap_or(""),
+            "update skipped: this PC could not be checked against the release's floor"
+        );
+        return false;
     };
     let missing = butterpollo_core::floor::unmet(&floor, pc, true);
     if !missing.is_empty() {
@@ -43,18 +51,40 @@ fn meets_floor(release: &Value, pc: &butterpollo_core::floor::Pc) -> bool {
     missing.is_empty()
 }
 
-/// This PC against release floors, checked once per process: the GPU check creates an AMF
-/// encoder, and neither the GPU nor the Windows build changes while the host runs.
-async fn floor_pc() -> Result<butterpollo_core::floor::Pc> {
-    static PC: tokio::sync::OnceCell<butterpollo_core::floor::Pc> =
+/// This PC against release floors. The GPU and the Windows build are checked once per process
+/// (the GPU check creates an AMF encoder, and neither changes while the host runs). The display
+/// driver is looked at every time: it restarts, updates and repairs while the host runs, and what
+/// one look saw would otherwise stick for the host's lifetime. `None` when the PC could not be
+/// checked, which counts as the floor not met rather than failing the whole release listing.
+async fn floor_pc() -> Option<butterpollo_core::floor::Pc> {
+    static HARDWARE: tokio::sync::OnceCell<butterpollo_core::floor::Pc> =
         tokio::sync::OnceCell::const_new();
-    PC.get_or_try_init(|| async {
-        tokio::task::spawn_blocking(butterpollo_windows::floor::pc)
-            .await
-            .context("the floor check stopped")?
-    })
-    .await
-    .cloned()
+    let hardware = HARDWARE
+        .get_or_try_init(|| async {
+            tokio::task::spawn_blocking(butterpollo_windows::floor::pc)
+                .await
+                .context("the floor check stopped")?
+        })
+        .await;
+    let hardware = match hardware {
+        Ok(pc) => pc,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "this PC could not be checked against release floors");
+            return None;
+        }
+    };
+    let driver = tokio::task::spawn_blocking(butterpollo_windows::floor::display_driver)
+        .await
+        .unwrap_or(false);
+    Some(with_driver(hardware, driver))
+}
+
+/// The cached GPU and build with the display driver as it is now.
+fn with_driver(hardware: &butterpollo_core::floor::Pc, ready: bool) -> butterpollo_core::floor::Pc {
+    butterpollo_core::floor::Pc {
+        display_driver: ready,
+        ..hardware.clone()
+    }
 }
 
 fn release_metadata(mut release: Value) -> Value {
@@ -110,13 +140,13 @@ pub fn trigger_update(h: &Shared, tell: bool) {
                 bytes.extend_from_slice(&chunk);
             }
             let releases: Vec<Value> = serde_json::from_slice(&bytes)?;
-            let pc = floor_pc().await?;
+            let pc = floor_pc().await;
             // This executable must never advertise an installer for the former C++ host.
             Ok::<_, anyhow::Error>(
                 releases
                     .into_iter()
                     .filter(|r| compatible_release(r, &h.config.read().unwrap()))
-                    .filter(|r| meets_floor(r, &pc))
+                    .filter(|r| meets_floor(r, pc.as_ref()))
                     .map(release_metadata)
                     .collect::<Vec<_>>(),
             )
@@ -492,25 +522,36 @@ mod tests {
 <!-- rubylight-floor {floor} -->
 ")})
         };
+        let pc = &pc;
         assert!(meets_floor(
             &json!({"tag_name":"2.4.6","body":"Notes from before the marker."}),
-            &pc
+            Some(pc)
         ));
         assert!(meets_floor(
             &release(
                 r#"{"windows_build":26200,"gpu":"amd-rdna2-hevc","display_driver":"rubylight-vdisplay-d3d12"}"#
             ),
-            &pc
+            Some(pc)
         ));
-        assert!(!meets_floor(&release(r#"{"windows_build":27000}"#), &pc));
-        assert!(!meets_floor(&release(r#"{"gpu":"something-newer"}"#), &pc));
-        let below = Pc {
-            display_driver: false,
-            ..pc.clone()
-        };
         assert!(!meets_floor(
-            &release(r#"{"display_driver":"rubylight-vdisplay-d3d12"}"#),
-            &below
+            &release(r#"{"windows_build":27000}"#),
+            Some(pc)
+        ));
+        assert!(!meets_floor(
+            &release(r#"{"gpu":"something-newer"}"#),
+            Some(pc)
+        ));
+        let driver = release(r#"{"display_driver":"rubylight-vdisplay-d3d12"}"#);
+        // The driver is judged as it is at the moment: the cached GPU and build do not remember it.
+        let down = with_driver(pc, false);
+        assert!(!meets_floor(&driver, Some(&down)));
+        assert!(meets_floor(&driver, Some(&with_driver(&down, true))));
+        assert!(pc.display_driver && !down.display_driver);
+        // A PC that could not be checked misses a release's floor, and leaves the others listed.
+        assert!(!meets_floor(&driver, None));
+        assert!(meets_floor(
+            &json!({"tag_name":"2.4.6","body":"Notes from before the marker."}),
+            None
         ));
     }
 

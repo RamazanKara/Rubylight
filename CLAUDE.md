@@ -8,7 +8,7 @@ The docs are thorough, so read the relevant section instead of exploring: [docs/
 
 ## Layout
 - `rust/core` (`-p butterpollo-core`): protocol, crypto, FEC, input, state. OS-independent.
-- `rust/windows` (`-p butterpollo-windows`): capture, GPU conversion, AMF/PyroWave/NVENC codecs, audio, input, displays. `rust/host` (`-p butterpollo`, not `butterpollo-host`): HTTP/TLS, RTSP, ENet, UDP, stream lifecycle. `rust/setup`: installer. `rust/vulkan-layer`: HDR layer.
+- `rust/windows` (`-p butterpollo-windows`): capture, GPU conversion, AMF/PyroWave codecs, audio, input, displays. `rust/host` (`-p butterpollo`, not `butterpollo-host`): HTTP/TLS, RTSP, ENet, UDP, stream lifecycle. `rust/setup`: installer. `rust/vulkan-layer`: HDR layer.
 - `rust/drivers/rubylight-vdisplay`: IddCx virtual display driver, outside the Cargo workspace.
 - `rust/web`: Svelte console. `site/`: Pages site. `third-party/`: submodules.
 - `rust/release`: release tooling and hardware harness. `rust/tests`: interop and hardware fixtures.
@@ -45,7 +45,7 @@ The docs are thorough, so read the relevant section instead of exploring: [docs/
 - Every fix gets a regression test. Failures are loud: no silent fallback such as AMF to software.
 - Don't change `PROTOCOL_VERSION`; stay compatible with Nonary's Moonlight.
 - No added latency. Prefer client-reported hints (`pyrowaveLinkMbps`, `pyrowavePaceMbps`) to host probes. Revert changes that measure worse.
-- `main` still supports NVENC and QSV. The AMD-only 2.5 work (RDNA 2+ with HEVC, Windows 26200+, `floor.json`) is on the unmerged `claude/rubylight-2.5` branch; see `rust/release/v25-gates/HANDOFF.md` there. Never write "RX 7000 or newer", and never drop hardware support silently.
+- `main` is the 3.0 line and AMD-only: NVENC, QSV and software encoders are gone. NVIDIA and Intel users stay on 2.6.x, with no backports unless the user asks. The rest of the 2.5 work (RDNA 2+ with HEVC, Windows 26200+, `floor.json`) is being ported from `claude/rubylight-2.5` per [docs/rubylight-3.0-plan.md](docs/rubylight-3.0-plan.md). Never write "RX 7000 or newer", and never drop hardware support silently.
 - Claims: only our own measurements; no first/only/fastest without evidence. Never install or measure competing hosts (Vibepollo, Apollo, Sunshine, punktfunk); cite "Against Vibepollo 2.0" in `rust/PERFORMANCE.md`. Don't mention punktfunk.
 - Before calling something unmeasured or reviving an old branch, check `rust/PERFORMANCE.md` and the release notes.
 - Keep the credits and fork history in `AGENTS.md`, `NOTICE` and the README intact.

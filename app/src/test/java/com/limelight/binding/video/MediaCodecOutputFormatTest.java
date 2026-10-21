@@ -35,15 +35,18 @@ public class MediaCodecOutputFormatTest {
     }
 
     @Test
+    @Config(sdk = {23, 28, 29})
     public void packedSamplesBypassDecoderColorConversion() {
         MediaFormat format = MediaFormat.createVideoFormat("video/hevc", 2560, 2880);
         format.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020);
         format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_ST2084);
         format.setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED);
+        format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, java.nio.ByteBuffer.allocate(25));
         Packed444.sampleDataFormat(format);
         assertEquals(MediaFormat.COLOR_STANDARD_BT709, format.getInteger(MediaFormat.KEY_COLOR_STANDARD));
         assertEquals(MediaFormat.COLOR_TRANSFER_SDR_VIDEO, format.getInteger(MediaFormat.KEY_COLOR_TRANSFER));
         assertEquals(MediaFormat.COLOR_RANGE_FULL, format.getInteger(MediaFormat.KEY_COLOR_RANGE));
+        assertNull(format.getByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO));
     }
 
     @Test

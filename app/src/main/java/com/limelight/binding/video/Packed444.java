@@ -11,6 +11,7 @@ import android.opengl.EGLDisplay;
 import android.opengl.EGLSurface;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES30;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.view.Surface;
@@ -135,6 +136,11 @@ final class Packed444 {
         format.setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_FULL);
         format.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT709);
         format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            format.removeKey(MediaFormat.KEY_HDR_STATIC_INFO);
+        } else {
+            format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, null);
+        }
     }
 
     private static void require(boolean value, String operation) {

@@ -1309,7 +1309,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // Set HDR metadata if present
         if (packing != null) {
             Packed444.sampleDataFormat(format);
-            format.removeKey(MediaFormat.KEY_HDR_STATIC_INFO);
             if (upscaler == null || upscaler.getInputSurface() == null ||
                     upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) {
                 throw new IllegalStateException("Packed full-chroma reconstruction is unavailable");

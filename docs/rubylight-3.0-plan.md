@@ -58,7 +58,13 @@ Changed from the draft:
 Goal: ship the 2.5 work on top of current main. Nightjar 0.7.x and stock Moonlight keep working unchanged.
 
 - **A0 Release tooling.** `bump.py` and `notes.py` accept `-alpha.N` and `-beta.N`, with cases in `test_release.py`. Check `check.ps1` too. (mechanic)
-- **A1 Port 2.5 one phase at a time,** in this order: amd-only, floor (check whether the `claude/floor` tip is still needed), d3d12-driver, d3d12-host, idd-push, virtual-only, fence-ring. Use one brief per phase and run the full `build.ps1` gate after each one. Leave out the gate-harness commit `45a9d2630`. Resolve conflicts in favour of main's newer console, library and chroma work.
+- **A1 Port 2.5 one phase at a time,** cherry-picking in the branch's own order (`git log --reverse main..origin/claude/rubylight-2.5`). Use one brief per phase and run the full `build.ps1` gate after each one; phases that touch the driver also build its package. Resolve conflicts in favour of main's newer console, library and chroma work.
+  1. Fence ring and IddCx probes: `64228293d`..`b83ca8038` (9 commits).
+  2. AMD only: `68b475905`..`c18e7bd60` (14).
+  3. Floor and virtual displays only: `43e2a09df`..`da98f3611` (16). `claude/floor`'s tip `65b955be4` is the same patch as `43e2a09df`, so it isn't needed.
+  4. D3D12-only host: `f6c250a21`..`e761de93a` (10).
+  5. D3D12 driver and docs: `b81aabe24`..`ba12dc2f9` (11).
+  6. Leave out the three `wip:` commits (`45a9d2630` and the two after it). Take the gate scripts from `rust/release/v25-gates/` when the alpha gate runs.
 - **A2 Floor experience.** The installer and the host explain a refusal in plain words: GPU, driver or Windows build, and what to do next. Release notes and README state the floor.
 
 Gate: the full build gate and CI pass. The HANDOFF.md gates re-run on the alpha tip. `check.ps1` and a 30-minute soak pass with no encoder hang. `check.ps1` latency does not regress against 2.6.0, and the numbers go into `PERFORMANCE.md`. Stock Moonlight pairs and streams. An upgrade from 2.6.0 works.

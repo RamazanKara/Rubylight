@@ -119,7 +119,8 @@ impl Pacer {
 
 /// The renderer's texture holding the current picture.
 pub struct VideoTexture {
-    pub direct_packed: bool,
+    #[cfg(windows)]
+    direct_packed: bool,
     pub texture: *mut SDL_Texture,
     width: i32,
     height: i32,
@@ -138,6 +139,7 @@ pub struct VideoTexture {
 impl Default for VideoTexture {
     fn default() -> Self {
         Self {
+            #[cfg(windows)]
             direct_packed: true,
             texture: std::ptr::null_mut(),
             width: 0,
@@ -175,8 +177,8 @@ fn colorspace(info: &FrameInfo) -> SDL_Colorspace {
 }
 
 impl VideoTexture {
-    pub fn new(direct_packed: bool) -> Self {
-        Self { direct_packed, ..Default::default() }
+    pub fn new(_direct_packed: bool) -> Self {
+        Self { #[cfg(windows)] direct_packed: _direct_packed, ..Default::default() }
     }
 
     pub fn set_hdr_mode(

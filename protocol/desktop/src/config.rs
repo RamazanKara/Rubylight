@@ -415,6 +415,19 @@ impl Store {
         mappings
     }
 
+    pub fn shortcuts(&self) -> crate::shortcuts::Shortcuts {
+        let path = self.dir.join("shortcuts.json");
+        if !path.exists() { return crate::shortcuts::Shortcuts::default(); }
+        crate::shortcuts::Shortcuts::read(&path).unwrap_or_else(|e| {
+            eprintln!("nightjar: ignoring {}: {e}", path.display());
+            crate::shortcuts::Shortcuts::default()
+        })
+    }
+
+    pub fn save_shortcuts(&self, shortcuts: &crate::shortcuts::Shortcuts) -> std::io::Result<()> {
+        write_json(&self.dir.join("shortcuts.json"), shortcuts)
+    }
+
     pub fn save_controller_mappings(&self, mappings: &BTreeMap<String, crate::gamepad::Mapping>) -> std::io::Result<()> {
         write_json(&self.dir.join("controllers.json"), mappings)
     }
@@ -516,6 +529,10 @@ mod tests {
         profiles.active = Some(id);
         store.save_profiles(&profiles).unwrap();
         assert_eq!(store.profiles(), profiles);
+        let mut shortcuts = crate::shortcuts::Shortcuts::default();
+        shortcuts.save(None, "Task manager", "CTRL + SHIFT + ESC").unwrap();
+        store.save_shortcuts(&shortcuts).unwrap();
+        assert_eq!(store.shortcuts(), shortcuts);
         let mapping = crate::gamepad::Mapping { name: "Test pad".into(), deadzone: 12, ..Default::default() };
         let mut mappings = BTreeMap::from([("usb:1234:0001".into(), mapping)]);
         store.save_controller_mappings(&mappings).unwrap();

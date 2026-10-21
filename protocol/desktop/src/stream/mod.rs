@@ -1157,6 +1157,16 @@ impl Streaming {
         self.needs_redraw = true;
     }
 
+    pub fn send_shortcut(&mut self, shortcut: &crate::shortcuts::Shortcut) {
+        if !self.focused || !self.captured || self.facts.role == AppRole::RemoteMonitor { return; }
+        if !self.settings.capture_system_keys && shortcut.keys.iter().any(|key| matches!(crate::shortcuts::key_code(key), Some(0x5B | 0x5C))) {
+            self.show_toast("Enable Send system keys to use shortcuts with the Windows key.");
+            return;
+        }
+        let result = self.session.input(|q| crate::shortcuts::send(&shortcut.keys, &self.keys_down, q));
+        if let Err(error) = result { self.show_toast(format!("Shortcut was not sent: {error}")); }
+    }
+
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
         if let Some(microphone) = &self.microphone {

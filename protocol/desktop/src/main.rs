@@ -16,6 +16,7 @@ mod hosts;
 mod keymap;
 mod media;
 mod sdl;
+mod shortcuts;
 mod stream;
 mod theme;
 mod ui;
@@ -82,6 +83,7 @@ struct App {
     streaming: Option<(Streaming, TimerResolution)>,
     pending_launch: Option<(u64, i32)>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
+    shortcut_file: Option<(bool, sdl::FileChoice)>,
     waker: hosts::Waker,
     wake_event: u32,
     screenshot_dir: PathBuf,
@@ -195,7 +197,7 @@ fn run() -> Result<(), String> {
     let gui = Gui::new();
     theme::apply(&gui.ctx);
     let display = display_of(window);
-    let mut launcher = Launcher::new(settings.clone(), profiles, display);
+    let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     #[cfg(windows)]
     {
         launcher.tearing_supported =
@@ -249,6 +251,7 @@ fn run() -> Result<(), String> {
         streaming: None,
         pending_launch: None,
         identity: None,
+        shortcut_file: None,
         waker,
         wake_event,
         screenshot_dir,
@@ -407,6 +410,26 @@ impl App {
         }
         if !self.running {
             return;
+        }
+        if let Some((export, receiver)) = &self.shortcut_file {
+            if let Ok(result) = receiver.try_recv() {
+                let export = *export;
+                self.shortcut_file = None;
+                match result {
+                    Ok(Some(path)) if export => {
+                        match std::fs::write(&path, self.launcher.shortcuts.encode()) {
+                            Ok(()) => self.launcher.message("Shortcuts exported", path.display().to_string()),
+                            Err(e) => self.launcher.message("Could not export shortcuts", e.to_string()),
+                        }
+                    }
+                    Ok(Some(path)) => match shortcuts::Shortcuts::read(&path) {
+                        Ok(entries) => self.launcher.dialog = Dialog::ImportShortcuts(entries),
+                        Err(e) => self.launcher.message("Could not import shortcuts", e),
+                    },
+                    Ok(None) => {}
+                    Err(e) => self.launcher.message("File dialog unavailable", e),
+                }
+            }
         }
         if let Some(receiver) = &self.identity {
             if let Ok(result) = receiver.try_recv() {
@@ -653,6 +676,21 @@ impl App {
                     if let Err(e) = self.store.save_controller_mappings(&self.pads.mappings) {
                         self.launcher.message("Could not save controller mapping", e.to_string());
                     }
+                }
+            }
+            Command::Shortcuts => {
+                self.command(Command::SaveSettings);
+                self.launcher.go(Screen::Shortcuts);
+            }
+            Command::SaveShortcuts => {
+                if let Err(e) = self.store.save_shortcuts(&self.launcher.shortcuts) {
+                    self.launcher.message("Could not save shortcuts", e.to_string());
+                }
+            }
+            Command::ImportShortcuts | Command::ExportShortcuts => {
+                if self.shortcut_file.is_none() {
+                    let export = matches!(command, Command::ExportShortcuts);
+                    self.shortcut_file = Some((export, sdl::choose_json_file(self.window, export)));
                 }
             }
             Command::CancelPair => self.hosts.cancel_pairing(),
@@ -968,10 +1006,11 @@ impl App {
         }
         let gui = &mut self.gui;
         let pads = &mut self.pads;
+        let shortcuts = &self.launcher.shortcuts;
         let screenshot = std::mem::take(&mut self.screenshot_requested);
         let dir = self.screenshot_dir.clone();
         streaming.present(renderer, |s, renderer| {
-            draw_overlay(gui, window, renderer, s, pads);
+            draw_overlay(gui, window, renderer, s, pads, shortcuts);
             if screenshot {
                 let stamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1054,7 +1093,7 @@ impl App {
 }
 
 /// The overlay and toasts, drawn with egui over the picture.
-fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads) {
+fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &shortcuts::Shortcuts) {
     let toast = s.toast.as_ref().map(|(t, _)| t.clone());
     let input_only = s.facts.role == nightjar_core::http::AppRole::InputOnly;
     if !s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible {
@@ -1093,6 +1132,16 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         if ui.button("Send clipboard to PC").clicked() { s.clipboard(true); }
                         if ui.button("Copy PC clipboard here").clicked() { s.clipboard(false); }
                     });
+                    if s.facts.role != nightjar_core::http::AppRole::RemoteMonitor && !shortcuts.data.is_empty() {
+                        ui.collapsing("Keyboard shortcuts", |ui| {
+                            for shortcut in &shortcuts.data {
+                                if ui.button(format!("{} · {}", shortcut.name, shortcut.keys.join(" + "))).clicked() {
+                                    s.toggle_menu(window, pads);
+                                    s.send_shortcut(shortcut);
+                                }
+                            }
+                        });
+                    }
                     if s.facts.runtime_bitrate {
                         if s.facts.role == nightjar_core::http::AppRole::Stream {
                             let mut enabled = s.adaptive_bitrate;

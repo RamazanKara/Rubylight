@@ -31,6 +31,10 @@ pub enum Command {
     ControllerSettings,
     EditController { key: String, name: String },
     SaveControllerMapping,
+    Shortcuts,
+    SaveShortcuts,
+    ImportShortcuts,
+    ExportShortcuts,
     CancelPair,
     AddHost(String),
     Unpair(u64),
@@ -51,6 +55,7 @@ pub enum Screen {
     Profiles,
     ProfileSettings(u64),
     Controllers,
+    Shortcuts,
 }
 
 impl Screen {
@@ -76,6 +81,9 @@ pub enum Dialog {
     ConfirmAction { host: u64, app: i32, name: String },
     ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
     DeleteProfile { id: u64, name: String },
+    Shortcut { id: Option<String>, name: String, chord: String, error: Option<String> },
+    DeleteShortcut { id: String, name: String },
+    ImportShortcuts(crate::shortcuts::Shortcuts),
 }
 
 /// The connecting card's content.
@@ -99,6 +107,7 @@ pub struct Launcher {
     pub controller_key: String,
     pub controller_mapping: crate::gamepad::Mapping,
     pub controller_test: bool,
+    pub shortcuts: crate::shortcuts::Shortcuts,
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
@@ -206,7 +215,7 @@ fn spinner(ui: &mut Ui, radius: f32) {
 }
 
 impl Launcher {
-    pub fn new(settings: Settings, profiles: Profiles, display: Display) -> Self {
+    pub fn new(settings: Settings, profiles: Profiles, shortcuts: crate::shortcuts::Shortcuts, display: Display) -> Self {
         Self {
             screen: Screen::Hosts,
             dialog: Dialog::None,
@@ -221,6 +230,7 @@ impl Launcher {
             controller_key: String::new(),
             controller_mapping: crate::gamepad::Mapping::default(),
             controller_test: false,
+            shortcuts,
             logo: None,
             focus_screen: true,
             focus_dialog: false,
@@ -275,7 +285,7 @@ impl Launcher {
                     commands.extend(self.screen.save_command());
                     self.go(self.settings_return);
                 }
-                Screen::Profiles => self.go(Screen::Settings),
+                Screen::Profiles | Screen::Shortcuts => self.go(Screen::Settings),
                 Screen::Controllers => {
                     commands.push(Command::SaveControllerMapping);
                     self.go(Screen::Settings);
@@ -327,6 +337,7 @@ impl Launcher {
                 Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &mut commands),
                 Screen::Profiles => self.profiles_page(ui, &mut commands),
                 Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
+                Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
             }
         });
         if blocked {
@@ -378,6 +389,10 @@ impl Launcher {
                     if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
                     ui.label(RichText::new("Controller mappings").font(semibold(22.0)).color(PAPER));
                 }
+                Screen::Shortcuts => {
+                    if text_button(ui, "‹  Settings").clicked() { self.go(Screen::Settings); }
+                    ui.label(RichText::new("Keyboard shortcuts").font(semibold(22.0)).color(PAPER));
+                }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 22.0;
@@ -412,7 +427,7 @@ impl Launcher {
                         }
                     }
                 }
-                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers => {}
+                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
                 }
             });
         });
@@ -618,11 +633,46 @@ impl Launcher {
         }
     }
 
+    fn shortcuts_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
+        ui.label("Send saved chords to the PC from stream controls. Import and export use Nightjar Android's shortcut format.");
+        ui.horizontal(|ui| {
+            let button = primary_button(ui, "New shortcut");
+            if std::mem::take(&mut self.focus_screen) { button.request_focus(); }
+            if button.clicked() {
+                self.dialog = Dialog::Shortcut { id: None, name: String::new(), chord: String::new(), error: None };
+                self.focus_dialog = true;
+            }
+            if quiet_button(ui, "Import…").clicked() { commands.push(Command::ImportShortcuts); }
+            if quiet_button(ui, "Export…").clicked() { commands.push(Command::ExportShortcuts); }
+        });
+        ui.add_space(16.0);
+        scroll(ui, "shortcuts", |ui| {
+            for shortcut in &self.shortcuts.data {
+                row(ui, &shortcut.name, &shortcut.keys.join(" + "), |ui| {
+                    ui.horizontal(|ui| {
+                        if quiet_button(ui, "Edit").clicked() {
+                            self.dialog = Dialog::Shortcut {
+                                id: Some(shortcut.id.clone()), name: shortcut.name.clone(), chord: shortcut.keys.join(" + "), error: None,
+                            };
+                            self.focus_dialog = true;
+                        }
+                        let button = quiet_button(ui, "Delete");
+                        if button.clicked() {
+                            self.dialog = Dialog::DeleteShortcut { id: shortcut.id.clone(), name: shortcut.name.clone() };
+                            self.focus_dialog = true;
+                        }
+                        button
+                    }).inner
+                });
+            }
+        });
+    }
+
     fn controllers_page(&mut self, ui: &mut Ui, pads: &crate::gamepad::Gamepads, commands: &mut Vec<Command>) {
         use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, Mapping};
         ui.label("Mappings apply to controllers of the same model. Local menu and disconnect chords always use physical buttons.");
         let selected = if self.controller_key.is_empty() { "Choose a controller" } else { &self.controller_mapping.name };
-        egui::ComboBox::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
+        let chooser = egui::ComboBox::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
             for pad in &pads.pads {
                 if ui.selectable_label(pad.key == self.controller_key, &pad.name).clicked() {
                     commands.push(Command::EditController { key: pad.key.clone(), name: pad.name.clone() });
@@ -635,6 +685,7 @@ impl Launcher {
                 }
             }
         });
+        if std::mem::take(&mut self.focus_screen) { chooser.response.request_focus(); }
         if self.controller_key.is_empty() {
             ui.label("Connect a controller to create a mapping.");
             return;
@@ -770,9 +821,14 @@ impl Launcher {
                 self.go(Screen::Profiles);
                 return;
             }
-            if row(ui, "Controller mappings", "Customize buttons, axes and stick dead zones for each controller model.", |ui| quiet_button(ui, "Configure controllers")).clicked() {
-                commands.push(Command::ControllerSettings);
-            }
+            row(ui, "Input customization", "Controller mappings, stick dead zones and saved keyboard chords.", |ui| {
+                ui.horizontal(|ui| {
+                    if quiet_button(ui, "Controllers").clicked() { commands.push(Command::ControllerSettings); }
+                    let button = quiet_button(ui, "Shortcuts");
+                    if button.clicked() { commands.push(Command::Shortcuts); }
+                    button
+                }).inner
+            });
         }
         let inherited = self.inherited_settings.clone();
         let overrides = &mut self.edit_overrides;
@@ -1088,6 +1144,69 @@ impl Launcher {
         let mut focused = false;
         match &mut self.dialog {
             Dialog::None => return,
+            Dialog::Shortcut { id, name, chord, error } => {
+                egui::Modal::new(Id::unique("shortcut-editor"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new(if id.is_some() { "Edit shortcut" } else { "New shortcut" }).font(semibold(22.0)));
+                        let edit = ui.add(egui::TextEdit::singleline(name).hint_text("Shortcut name"));
+                        if focus_first { edit.request_focus(); focused = true; }
+                        ui.add(egui::TextEdit::singleline(chord).hint_text("CTRL + ALT + DELETE"));
+                        ui.label("Use letters, digits, F1–F24, CTRL, SHIFT, ALT, WIN, TAB, ENTER, ESC, arrows or other key names.");
+                        if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
+                        ui.horizontal(|ui| {
+                            if primary_button(ui, "Save").clicked() {
+                                match self.shortcuts.save(id.as_deref(), name, chord) {
+                                    Ok(()) => { commands.push(Command::SaveShortcuts); close = true; }
+                                    Err(message) => *error = Some(message),
+                                }
+                            }
+                            if quiet_button(ui, "Cancel").clicked() { close = true; }
+                        });
+                    });
+            }
+            Dialog::DeleteShortcut { id, name } => {
+                egui::Modal::new(Id::unique("delete-shortcut"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new(format!("Delete {name}?")).font(semibold(22.0)));
+                        ui.horizontal(|ui| {
+                            let button = quiet_button(ui, "Cancel");
+                            if focus_first { button.request_focus(); focused = true; }
+                            if button.clicked() { close = true; }
+                            if primary_button(ui, "Delete").clicked() {
+                                self.shortcuts.data.retain(|entry| entry.id != *id);
+                                commands.push(Command::SaveShortcuts);
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ImportShortcuts(entries) => {
+                egui::Modal::new(Id::unique("import-shortcuts"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new("Import keyboard shortcuts?").font(semibold(22.0)));
+                        ui.label(format!("Replace your {} saved shortcuts with {} from this file.", self.shortcuts.data.len(), entries.data.len()));
+                        egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                            for entry in &entries.data { ui.label(format!("{} · {}", entry.name, entry.keys.join(" + "))); }
+                        });
+                        ui.horizontal(|ui| {
+                            if quiet_button(ui, "Cancel").clicked() { close = true; }
+                            if primary_button(ui, "Import").clicked() {
+                                self.shortcuts = entries.clone();
+                                commands.push(Command::SaveShortcuts);
+                                close = true;
+                            }
+                        });
+                    });
+            }
             Dialog::ProfileName { id, name, settings, error } => {
                 egui::Modal::new(Id::unique("profile-name"))
                     .frame(frame)

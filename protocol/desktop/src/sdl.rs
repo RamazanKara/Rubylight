@@ -13,6 +13,37 @@ pub fn error() -> String {
         .into_owned()
 }
 
+pub type FileChoice = std::sync::mpsc::Receiver<Result<Option<std::path::PathBuf>, String>>;
+
+pub fn choose_json_file(window: *mut SDL_Window, save: bool) -> FileChoice {
+    struct Request {
+        sender: std::sync::mpsc::Sender<Result<Option<std::path::PathBuf>, String>>,
+        filter: SDL_DialogFileFilter,
+    }
+    unsafe extern "C" fn chosen(userdata: *mut std::ffi::c_void, files: *const *const c_char, _: i32) {
+        // SDL calls once; the request keeps the filter alive until this callback.
+        let request = unsafe { Box::from_raw(userdata.cast::<Request>()) };
+        let result = if files.is_null() { Err(error()) }
+            else if unsafe { (*files).is_null() } { Ok(None) }
+            else { Ok(Some(std::path::PathBuf::from(unsafe { CStr::from_ptr(*files) }.to_string_lossy().into_owned()))) };
+        let _ = request.sender.send(result);
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let request = Box::into_raw(Box::new(Request {
+        sender,
+        filter: SDL_DialogFileFilter { name: c"JSON files".as_ptr(), pattern: c"json".as_ptr() },
+    }));
+    // SAFETY: invoked on the UI thread; SDL owns the callback's lifetime.
+    unsafe {
+        if save {
+            SDL_ShowSaveFileDialog(Some(chosen), request.cast(), window, &(*request).filter, 1, c"nightjar-shortcuts.json".as_ptr());
+        } else {
+            SDL_ShowOpenFileDialog(Some(chosen), request.cast(), window, &(*request).filter, 1, std::ptr::null(), false);
+        }
+    }
+    receiver
+}
+
 pub fn set_hint(name: *const c_char, value: &CStr) {
     // SAFETY: both are NUL-terminated strings.
     unsafe { SDL_SetHint(name, value.as_ptr()) };

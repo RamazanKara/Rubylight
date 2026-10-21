@@ -166,7 +166,7 @@ Each track starts with a spike and needs the user's go-ahead.
 
 | Slice | State | Notes |
 |---|---|---|
-| A0 release tooling | pending | |
+| A0 release tooling | done | `bump.py` accepts alpha/beta and labels them with the full version; the elevated task accepts them; CI tag trigger covers `v3.*` |
 | A1 port 2.5 (7 phases) | pending | |
 | A2 floor experience | pending | |
 | A3 native API v1 | pending | |

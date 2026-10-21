@@ -2,13 +2,17 @@
 
 Writes LF line endings on any platform.
 
-usage: python rust/release/bump.py 2.0.0-rc.14 [--notes FILE]
+usage: python rust/release/bump.py 3.0.0-alpha.1 [--notes FILE]
 
 Updates the workspace version (Cargo.toml and the workspace crates in
-Cargo.lock); the full version, "Download rc.N" and "For rc.N," in the
+Cargo.lock); the full version, "Download <label>" and "For <label>," in the
 READMEs and docs; the title, history and installer names in
 rust/RELEASE_NOTES.md; and adds a "## New in <label>" section above the
 previous one: the contents of --notes, or the bullets to fill in.
+
+The label is the version, except that 2.0 release candidates were "rc.N".
+Alpha and beta versions keep their full version so that 3.0.0-alpha.1 and
+3.1.0-alpha.1 get different sections.
 """
 import argparse, pathlib, re, sys
 
@@ -18,7 +22,8 @@ parser.add_argument('--notes', type=pathlib.Path)
 args = parser.parse_args()
 root = pathlib.Path(__file__).resolve().parents[2]
 new = args.version.removeprefix('v')
-assert re.fullmatch(r'\d+\.\d+\.\d+(-rc\.\d+)?', new), new
+VERSION = r'\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?'
+assert re.fullmatch(VERSION, new), new
 
 
 def label(version):
@@ -48,7 +53,7 @@ lock.write_text(text, encoding='utf-8', newline='')
 short = re.compile(r'(?<![\w.])%s(?![\w])' % re.escape(label(old)))
 # Only the short labels that name the release to download: a sentence about
 # what an older release measured or changed keeps its version.
-current = re.compile(r'(?<=Download )(?:\d+\.\d+\.\d+|rc\.\d+)(?![\w])|(?<=For )(?:\d+\.\d+\.\d+|rc\.\d+)(?=,)')
+current = re.compile(rf'(?<=Download )(?:{VERSION}|rc\.\d+)(?![\w])|(?<=For )(?:{VERSION}|rc\.\d+)(?=,)')
 for name in ('README.md', 'docs/README.md', 'docs/getting-started.md', 'rust/README.md'):
     path = root / name
     text = path.read_text(encoding='utf-8')
@@ -56,9 +61,9 @@ for name in ('README.md', 'docs/README.md', 'docs/getting-started.md', 'rust/REA
                   lambda m: f'{m[1]}v{new})', text)
     # Releases since rc.30 are named Rubylight; earlier ones Butterpollo.
     for setup in ('butterpollo-setup', 'rubylight-setup'):
-        text = re.sub(rf'{setup}-\d+\.\d+\.\d+(?:-rc\.\d+)?\.exe', f'rubylight-setup-{new}.exe', text)
+        text = re.sub(rf'{setup}-{VERSION}\.exe', f'rubylight-setup-{new}.exe', text)
     for package in ('butterpollo-rust', 'rubylight'):
-        text = re.sub(rf'{package}-\d+\.\d+\.\d+(?:-rc\.\d+)?-windows-x64\.zip', f'rubylight-{new}-windows-x64.zip', text)
+        text = re.sub(rf'{package}-{VERSION}-windows-x64\.zip', f'rubylight-{new}-windows-x64.zip', text)
     text = text.replace(f'The workspace version is **{old}**', f'The workspace version is **{new}**')
     path.write_text(current.sub(label(new), text), encoding='utf-8', newline='')
 

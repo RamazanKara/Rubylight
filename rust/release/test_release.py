@@ -73,6 +73,36 @@ class ReleaseVersions(unittest.TestCase):
         self.assertEqual(lock['version'], new)
         self.assertEqual(lock['packages']['']['version'], new)
 
+    def test_prerelease_keeps_its_full_version_as_label(self):
+        readme = self.root / 'README.md'
+        readme.write_text(f'[Download {self.version}](https://github.com/RamazanKara/Rubylight/releases/tag/v{self.version})\n'
+                          f'`rubylight-setup-{self.version}.exe`\n', encoding='utf-8')
+        notes = self.root / 'rust/RELEASE_NOTES.md'
+        for new in ('3.0.0-alpha.1', '3.0.0-alpha.2', '3.0.0-beta.1'):
+            with self.subTest(new=new):
+                result = self.run_tool('bump.py', f'v{new}')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                text = readme.read_text(encoding='utf-8')
+                self.assertIn(f'[Download {new}](https://github.com/RamazanKara/Rubylight/releases/tag/v{new})', text)
+                self.assertIn(f'`rubylight-setup-{new}.exe`', text)
+                history = notes.read_text(encoding='utf-8')
+                anchor = '#new-in-' + new.replace('.', '')
+                self.assertIn(f'[{new}]({anchor})', history)
+                self.assertEqual(history.count(f'## New in {new}\n'), 1)
+                notes.write_text(history.replace(f'## New in {new}\n\n- \n', f'## New in {new}\n\n- Change.\n', 1),
+                                 encoding='utf-8')
+                out = self.root / 'body.md'
+                result = self.run_tool('notes.py', f'v{new}', '--out', str(out))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                body = out.read_text(encoding='utf-8')
+                self.assertIn(f'### New in {new}', body)
+                self.assertIn('- Change.', body)
+
+    def test_bump_rejects_unknown_prerelease_kinds(self):
+        result = self.run_tool('bump.py', '3.0.0-preview.1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f'version = "{self.version}"', (self.root / 'Cargo.toml').read_text(encoding='utf-8'))
+
     def test_bump_carries_pending_notes_into_the_next_release(self):
         notes = self.root / 'rust/RELEASE_NOTES.md'
         history = notes.read_text(encoding='utf-8')

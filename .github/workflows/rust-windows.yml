@@ -5,7 +5,7 @@ on:
     branches: [main]
     # A release tag publishes the GitHub release (tag and publish below).
     # GitHub ignores paths for tag pushes, so a tag always runs.
-    tags: ['v2.*']
+    tags: ['v2.*', 'v3.*']
     # Changes to docs and Markdown alone don't run CI; a release of such a
     # commit builds it in the windows job.
     paths: ['rust/**', '!rust/**/*.md', 'Cargo.*', 'rust-toolchain.toml', '.cargo/**', 'clippy.toml', 'third-party/**', '.github/workflows/rust-windows.yml']

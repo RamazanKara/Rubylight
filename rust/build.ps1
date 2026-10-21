@@ -14,6 +14,10 @@ param(
     [switch]$Package
 )
 $ErrorActionPreference = 'Stop'
+if ($Package -and $env:RLVD_IDDCX_LIB) {
+    # A driver built against that IddCx stub is probe-only: IddCxDeviceInitConfig rejects its client config.
+    throw 'RLVD_IDDCX_LIB is set (a probe-only driver build); unset it before packaging'
+}
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
 $toolchain = '+1.98.1-x86_64-pc-windows-gnu'
 function Assert-NativeExit([string]$Operation) {

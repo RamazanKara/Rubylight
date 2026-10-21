@@ -166,6 +166,18 @@ ordinary test suite. To run just these regressions from the repository root (no 
 cargo test -p rubylight-vdisplay-proto frame_retry --locked
 ```
 
+### Probe-only builds (`RLVD_IDDCX_LIB`)
+
+The build links the newest `IddCxStub.lib` in the installed kit (IddCx 1.10, whose table ends
+at slot 35). Setting `RLVD_IDDCX_LIB` to a folder with a newer stub (IddCx 1.11 ships in the
+WDK 28000 NuGet package) links that one instead and enables the `rlvd_iddcx_newer_stub` cfg,
+so `DriverEntry` can call `IddCxCheckOsFeatureSupport` and log whether the OS reports D3D12
+swap chains. That build is **probe-only**: its client config is the 1.10 one, which
+`IddCxDeviceInitConfig` rejects, so no adapter is created. Cargo prints a warning when the
+variable is set, and `rustuild.ps1 -Package` refuses to run with it. Never package or
+install such a driver for streaming. Without the variable the probe is skipped (the 1.10
+stub has no slot for that DDI) and the log says so.
+
 ## Installing for a local test (needs the machine owner's consent)
 
 UMDF drivers need no kernel-mode driver signing, so **test-signing mode and Secure Boot stay

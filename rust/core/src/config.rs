@@ -424,10 +424,13 @@ impl Config {
         self.integer("hardware_metrics_interval", 1000)
             .clamp(500, 10000) as u64
     }
-    /// `virtual_display_mode`; unset, each device gets its own virtual
-    /// display.
-    pub fn virtual_display_mode(&self) -> &str {
-        self.get("virtual_display_mode", "per_client")
+    /// `virtual_display_mode`; unset, it is per client on Windows 11 and
+    /// disabled on Windows 10, as in Vibepollo.
+    pub fn virtual_display_mode(&self, windows_11: bool) -> &str {
+        self.get(
+            "virtual_display_mode",
+            if windows_11 { "per_client" } else { "disabled" },
+        )
     }
     pub fn log_level(&self) -> &'static str {
         match self

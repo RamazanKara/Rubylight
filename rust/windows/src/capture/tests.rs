@@ -517,38 +517,38 @@ fn the_graphics_card_setting_names_one_gpu_of_a_hybrid_pc() {
     twins[0].pnp_id = twins[1].pnp_id.clone();
     assert!(select_gpu(&twins, "", gpus[1].pnp_id.as_deref().unwrap()).is_err());
 }
-fn the_igpu_renders_the_display() -> GpuMismatch {
+fn intel_renders_the_display() -> GpuMismatch {
     GpuMismatch {
         display: r"\\.\DISPLAY24".into(),
-        owner: "AMD Radeon(TM) 780M Graphics".into(),
-        selected: "AMD Radeon RX 7600M XT".into(),
+        owner: "Intel(R) HD Graphics 530".into(),
+        selected: "AMD Radeon R7 M370".into(),
     }
 }
 #[test]
 fn desktop_duplication_moves_to_the_gpu_that_renders_the_display() {
-    // Issue #28: WGC was refused, and Desktop Duplication on the selected
-    // GPU was refused because the integrated GPU renders the display. The
-    // stream ended with no picture; it now captures and encodes on the
-    // integrated GPU and says so.
+    // Issue #28: Windows 10 refused WGC, and Desktop Duplication on the
+    // selected Radeon was refused because the Intel iGPU renders the virtual
+    // display. The stream ended with no picture; it now captures and encodes
+    // on the Intel GPU and says so.
     let warnings = butterpollo_core::session::Warnings::default();
     let capture = open_stream_capture("wgc", &warnings, |kind| match kind {
         "wgc" => bail!("The parameter is incorrect. (0x80070057)"),
         _ => duplication_device(
-            "device on AMD Radeon RX 7600M XT",
-            |_| Some(the_igpu_renders_the_display()),
-            || Ok("device on AMD Radeon(TM) 780M Graphics"),
+            "device on AMD Radeon R7 M370",
+            |_| Some(intel_renders_the_display()),
+            || Ok("device on Intel(R) HD Graphics 530"),
             &warnings,
         ),
     })
     .unwrap();
-    assert_eq!(capture, "device on AMD Radeon(TM) 780M Graphics");
+    assert_eq!(capture, "device on Intel(R) HD Graphics 530");
     let snapshot = warnings.snapshot();
     let adapter = snapshot
         .iter()
         .find(|w| w.code == "capture_adapter")
         .expect("the GPU fallback is reported");
     assert!(adapter.message.starts_with(
-        "Capturing and encoding on AMD Radeon(TM) 780M Graphics, not on the selected AMD Radeon RX 7600M XT"
+        "Capturing and encoding on Intel(R) HD Graphics 530, not on the selected AMD Radeon R7 M370"
     ));
     assert!(adapter.message.contains(r"\\.\DISPLAY24"));
     assert!(snapshot.iter().any(|w| w.code == "capture_backend"));
@@ -556,26 +556,26 @@ fn desktop_duplication_moves_to_the_gpu_that_renders_the_display() {
     // On the display's own GPU nothing is reopened or reported.
     let warnings = butterpollo_core::session::Warnings::default();
     let device = duplication_device(
-        "device on AMD Radeon(TM) 780M Graphics",
+        "device on Intel(R) HD Graphics 530",
         |_| None,
         || unreachable!("the selected GPU renders the display"),
         &warnings,
     )
     .unwrap();
-    assert_eq!(device, "device on AMD Radeon(TM) 780M Graphics");
+    assert_eq!(device, "device on Intel(R) HD Graphics 530");
     assert!(warnings.snapshot().is_empty());
 
     // A display GPU that cannot be opened fails loudly with both GPUs named.
     let error = duplication_device::<&str>(
-        "device on AMD Radeon RX 7600M XT",
-        |_| Some(the_igpu_renders_the_display()),
+        "device on AMD Radeon R7 M370",
+        |_| Some(intel_renders_the_display()),
         || bail!("selected capture display is unavailable"),
         &warnings,
     )
     .unwrap_err();
     let detail = format!("{error:#}");
-    assert!(detail.contains("only on the GPU it is connected to (AMD Radeon(TM) 780M Graphics)"));
-    assert!(detail.contains("not on AMD Radeon RX 7600M XT"));
+    assert!(detail.contains("only on the GPU it is connected to (Intel(R) HD Graphics 530)"));
+    assert!(detail.contains("not on AMD Radeon R7 M370"));
     assert!(detail.contains("selected capture display is unavailable"));
     assert!(warnings.snapshot().is_empty());
 }

@@ -243,6 +243,7 @@ async fn hardware_metrics_capability_requires_opt_in_and_viewer_permission() {
             &connection,
             &config,
             client.as_ref(),
+            true,
             String::new(),
             0,
             false,
@@ -286,6 +287,7 @@ async fn network_path_requires_paired_tls_viewer_and_returns_only_route_category
             &connection,
             &butterpollo_core::config::Config::default(),
             client.as_ref(),
+            true,
             String::new(),
             0,
             false,
@@ -319,6 +321,7 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
             &f.connection(true),
             &config,
             Some(&client),
+            true,
             "01:02:03:04:05:06".into(),
             1000,
             ready,
@@ -367,6 +370,7 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
         &c,
         &config,
         None,
+        true,
         "00:00:00:00:00:00".into(),
         0,
         false,
@@ -388,6 +392,7 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
         &f.connection(true),
         &config,
         Some(&restricted),
+        true,
         String::new(),
         0,
         false,
@@ -913,11 +918,17 @@ async fn launch_failures_preserve_the_actionable_cause() {
 #[tokio::test]
 async fn virtual_display_advertisement_matches_configuration_and_codecs() {
     let f = Fixture::new();
-    for (config, codecs, capable, hdr) in [
-        ("", 0x200, "true", "true"),
-        ("virtual_display_mode=disabled", 0x200, "false", "false"),
-        ("virtual_display_mode=shared", 1, "true", "false"),
-        ("virtual_display_mode=shared", 0x200, "true", "true"),
+    for (config, windows_11, codecs, capable, hdr) in [
+        ("", false, 0x200, "false", "false"),
+        (
+            "virtual_display_mode=disabled",
+            true,
+            0x200,
+            "false",
+            "false",
+        ),
+        ("virtual_display_mode=shared", true, 1, "true", "false"),
+        ("virtual_display_mode=shared", true, 0x200, "true", "true"),
     ] {
         let config = butterpollo_core::config::Config::parse(config).unwrap();
         f.host.codecs.store(codecs, Ordering::Release);
@@ -926,6 +937,7 @@ async fn virtual_display_advertisement_matches_configuration_and_codecs() {
             &f.connection(true),
             &config,
             None,
+            windows_11,
             String::new(),
             0,
             true,
@@ -970,6 +982,7 @@ async fn serverinfo_encoder_bitrate_tracks_only_own_video_sessions() {
             &connection,
             &config,
             Some(&client),
+            true,
             String::new(),
             0,
             false,
@@ -1034,6 +1047,7 @@ async fn serverinfo_encoder_bitrate_requires_authenticated_view_or_launch_permis
             &connection,
             &config,
             client.as_ref(),
+            true,
             String::new(),
             0,
             false,

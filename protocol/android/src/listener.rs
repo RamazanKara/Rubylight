@@ -44,20 +44,27 @@ impl Events {
     }
 }
 
-/// The 0x5536 payload `bridgeClHostTiming` hands to Java. A report whose records all have an
-/// extension keeps it (Java reads the same fields as `decode_report_with`); otherwise the base
-/// records go out alone, as a v1 report.
+/// An extension no record can fit (`capture_us + convert_us` above any `queue_us`), which Java
+/// drops for its record as the decoder did, so one bad record leaves the others' extensions.
+const UNUSABLE_EXTRA: HostTimingExtra = HostTimingExtra {
+    presented_at_us: 0,
+    capture_us: u32::MAX,
+    convert_us: u32::MAX,
+};
+
+/// The 0x5536 payload `bridgeClHostTiming` hands to Java, which reads it per record exactly as
+/// `decode_report_with` does. Records keep their own extension; one without sends an unusable
+/// one in its place. Without any extension the base records go out alone, as a v1 report.
 fn host_timing_payload(records: &[(HostTiming, Option<HostTimingExtra>)]) -> Vec<u8> {
-    let extended: Option<Vec<(HostTiming, HostTimingExtra)>> = records
-        .iter()
-        .map(|(timing, extra)| extra.map(|extra| (*timing, extra)))
-        .collect();
-    match extended {
-        Some(records) => HostTiming::encode_report_with(&records),
-        None => {
-            let base: Vec<HostTiming> = records.iter().map(|(timing, _)| *timing).collect();
-            HostTiming::encode_report(&base)
-        }
+    if records.iter().any(|(_, extra)| extra.is_some()) {
+        let extended: Vec<(HostTiming, HostTimingExtra)> = records
+            .iter()
+            .map(|(timing, extra)| (*timing, extra.unwrap_or(UNUSABLE_EXTRA)))
+            .collect();
+        HostTiming::encode_report_with(&extended)
+    } else {
+        let base: Vec<HostTiming> = records.iter().map(|(timing, _)| *timing).collect();
+        HostTiming::encode_report(&base)
     }
 }
 
@@ -278,8 +285,20 @@ mod tests {
         let records = vec![(timing(1), None), (timing(2), None)];
         let payload = host_timing_payload(&records);
         assert_eq!(payload, HostTiming::encode_report(&[timing(1), timing(2)]));
-        // One record without an extension sends the base records alone.
-        let mixed = vec![(timing(1), Some(EXTRA)), (timing(2), None)];
-        assert_eq!(host_timing_payload(&mixed), payload);
+    }
+
+    #[test]
+    fn one_record_without_an_extension_keeps_the_others() {
+        let mixed = vec![
+            (timing(1), Some(EXTRA)),
+            (timing(2), None),
+            (timing(3), Some(EXTRA)),
+        ];
+        let payload = host_timing_payload(&mixed);
+        assert_eq!(
+            HostTiming::decode_report_with(&payload).unwrap(),
+            mixed,
+            "the middle record is read without an extension, as Java reads it"
+        );
     }
 }

@@ -644,8 +644,8 @@ fn fence_ring_textures_open_on_a_second_d3d12_device_like_the_d3d12_driver_opens
             D3D12CreateDevice, ID3D12Device,
         },
         Dxgi::{
-            CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory4,
             Common::{DXGI_FORMAT, DXGI_SAMPLE_DESC},
+            CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory4,
         },
     };
     let _com = ComGuard::new()?;
@@ -686,10 +686,11 @@ fn fence_ring_textures_open_on_a_second_d3d12_device_like_the_d3d12_driver_opens
         // SAFETY: `driver` is live; the queue, allocator and list are made with it, and the
         // source is a plain texture of the ring's size and format.
         unsafe {
-            let queue: ID3D12CommandQueue = driver.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
-                Type: D3D12_COMMAND_LIST_TYPE_COPY,
-                ..Default::default()
-            })?;
+            let queue: ID3D12CommandQueue =
+                driver.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
+                    Type: D3D12_COMMAND_LIST_TYPE_COPY,
+                    ..Default::default()
+                })?;
             let allocator: ID3D12CommandAllocator =
                 driver.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY)?;
             let list: ID3D12GraphicsCommandList =

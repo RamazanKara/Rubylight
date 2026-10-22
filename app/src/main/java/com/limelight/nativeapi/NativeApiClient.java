@@ -73,7 +73,7 @@ public final class NativeApiClient {
     }
 
     /** Writes settings of one GPU; needs the Host control permission. */
-    public NativeRadeon writeRadeon(long gpu, List<NativeRadeon.Change> changes) throws NativeApiException {
+    public NativeRadeon writeRadeon(int gpu, List<NativeRadeon.Change> changes) throws NativeApiException {
         try {
             return parseRadeon(call("radeon_write", NativeRadeon.writeJson(gpu, changes)));
         } catch (JSONException e) {

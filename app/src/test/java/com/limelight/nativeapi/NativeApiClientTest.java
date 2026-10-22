@@ -238,6 +238,30 @@ public class NativeApiClientTest {
         assertEquals(Arrays.asList("pc|radeon_write", "pc|radeon_restore"), transport.calls);
     }
 
+    @Test
+    public void aRadeonGpuIdIsASigned32BitNumberAndAWiderOneIsMalformed() throws Exception {
+        // The host's adapter id matches /api/hardware-metrics: signed, so a negative id is a real id.
+        transport.reply("pc", "radeon", ok("{\"revision\":1,\"state\":\"configurable\",\"host_control\":true,"
+                + "\"writable_now\":true,\"gpus\":[{\"id\":-2147483648,\"settings\":[]},{\"id\":2147483647,\"settings\":[]},"
+                + "{\"id\":-12,\"settings\":[]}]}"));
+        NativeRadeon radeon = client().radeon();
+        assertEquals(Integer.MIN_VALUE, radeon.gpus.get(0).id);
+        assertEquals(Integer.MAX_VALUE, radeon.gpus.get(1).id);
+        assertEquals(-12, radeon.gpus.get(2).id);
+        for (String id : new String[] {"2147483648", "-2147483649", "9223372036854775807"}) {
+            transport.reply("pc", "radeon", ok("{\"revision\":1,\"state\":\"configurable\",\"gpus\":[{\"id\":" + id + "}]}"));
+            try {
+                client().radeon();
+                fail(id);
+            } catch (NativeApiException e) {
+                assertEquals(id, NativeApiException.Kind.MALFORMED, e.getKind());
+            }
+        }
+        transport.reply("pc", "radeon_write", ok("{\"revision\":2,\"state\":\"configurable\",\"gpus\":[]}"));
+        client().writeRadeon(-12, Collections.singletonList(new NativeRadeon.Change("chill.enabled", true)));
+        assertEquals(-12, new JSONObject(transport.arguments.get(transport.arguments.size() - 1)).getInt("gpu"));
+    }
+
     private static String capabilities(boolean hostControl) {
         return ok("{\"api_version\":1,\"host\":{\"name\":\"GAMING-PC\",\"version\":\"3.0.0\",\"unique_id\":\"U\"},"
                 + "\"features\":[\"library\",\"session.close_game\"],\"permissions\":{\"list\":true,\"view\":true,"

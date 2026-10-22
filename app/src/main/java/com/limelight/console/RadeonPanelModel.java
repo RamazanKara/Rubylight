@@ -33,7 +33,7 @@ public final class RadeonPanelModel {
     public enum Mode { EDIT, VALUE, EXTERNAL_SETUP, UNSUPPORTED, UNAVAILABLE }
 
     public static final class Row {
-        public final long gpu;
+        public final int gpu;
         public final String id;
         public final NativeRadeon.Kind kind;
         public final Mode mode;
@@ -50,7 +50,7 @@ public final class RadeonPanelModel {
         public final String group;
         public final String field;
 
-        Row(long gpu, String id, String group, NativeRadeon.Kind kind, Mode mode, Object value, NativeRadeon.Range range,
+        Row(int gpu, String id, String group, NativeRadeon.Kind kind, Mode mode, Object value, NativeRadeon.Range range,
             List<NativeRadeon.Choice> options, String unit, String message, NativeRadeon.Restore restore) {
             this.gpu = gpu;
             this.id = id;
@@ -138,12 +138,12 @@ public final class RadeonPanelModel {
     }
 
     public static final class Gpu {
-        public final long id;
+        public final int id;
         public final String name;
         public final String driver;
         public final List<Row> rows;
 
-        Gpu(long id, String name, String driver, List<Row> rows) {
+        Gpu(int id, String name, String driver, List<Row> rows) {
             this.id = id;
             this.name = name;
             this.driver = driver;
@@ -198,7 +198,7 @@ public final class RadeonPanelModel {
         return new RadeonPanelModel(radeon.revision, notice, radeon.message, gpus);
     }
 
-    private static Row row(long gpu, NativeRadeon.Setting setting, boolean editable) {
+    private static Row row(int gpu, NativeRadeon.Setting setting, boolean editable) {
         Mode mode;
         switch (setting.state) {
             case CONFIGURABLE:

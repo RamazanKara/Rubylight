@@ -108,12 +108,13 @@ public final class NativeRadeon {
     }
 
     public static final class Gpu {
-        public final long id;
+        /** The host's signed 32-bit adapter id, the same number as in /api/hardware-metrics. */
+        public final int id;
         public final String name;
         public final String driver;
         public final List<Setting> settings;
 
-        Gpu(long id, String name, String driver, List<Setting> settings) {
+        Gpu(int id, String name, String driver, List<Setting> settings) {
             this.id = id;
             this.name = name;
             this.driver = driver;
@@ -151,7 +152,7 @@ public final class NativeRadeon {
             for (int j = 0; settings != null && j < settings.length(); j++) {
                 parsed.add(parseSetting(settings.getJSONObject(j)));
             }
-            gpus.add(new Gpu(gpu.getLong("id"), gpu.optString("name"), gpu.optString("driver"), parsed));
+            gpus.add(new Gpu(gpuId(gpu), gpu.optString("name"), gpu.optString("driver"), parsed));
         }
         return new NativeRadeon(json.optLong("revision"), ControlState.of(json.optString("state")),
                 text(json, "reason"), text(json, "message"), json.optBoolean("host_control"),
@@ -201,8 +202,17 @@ public final class NativeRadeon {
         }
     }
 
+    /** The adapter id is a signed 32-bit number; anything wider is a malformed reply, not a truncated id. */
+    private static int gpuId(JSONObject gpu) throws JSONException {
+        long id = gpu.getLong("id");
+        if (id < Integer.MIN_VALUE || id > Integer.MAX_VALUE) {
+            throw new JSONException("gpu id out of range: " + id);
+        }
+        return (int) id;
+    }
+
     /** The body of a Radeon write for one GPU. */
-    static String writeJson(long gpu, List<Change> changes) throws JSONException {
+    static String writeJson(int gpu, List<Change> changes) throws JSONException {
         JSONArray array = new JSONArray();
         for (Change change : changes) {
             array.put(new JSONObject().put("id", change.id).put("value", change.value));

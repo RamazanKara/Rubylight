@@ -315,6 +315,48 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn native_api_version_decides_the_native_api() {
+        let native = |reply: &str| ServerInfo::parse(reply, 47989).unwrap().capabilities.availability(Feature::NativeApi);
+        let with = |version: &str| RUBYLIGHT.replace("<NetworkPathVersion>",
+            &format!("<NativeApiVersion>{version}</NativeApiVersion><NetworkPathVersion>"));
+        assert_eq!(native(&with("1")), Availability::Supported);
+        // A newer host also serves v1.
+        assert_eq!(native(&with("2")), Availability::Supported);
+        // A Rubylight host before 3.0 has no field: update it. Never a silent classic fallback.
+        assert_eq!(native(RUBYLIGHT), Availability::Unsupported(Some(Reason::UpdateHost)));
+        // 0: plain HTTP or an unpaired certificate.
+        assert_eq!(native(&with("0")), Availability::Unsupported(Some(Reason::Pair)));
+        assert_eq!(native(&with("1").replace("<PairStatus>1", "<PairStatus>0")),
+            Availability::Unsupported(Some(Reason::Pair)));
+        let info = ServerInfo::parse(&with("1"), 47989).unwrap();
+        assert_eq!(info.capabilities.evidence().unwrap().native_api_version, 1);
+        assert_eq!(ServerInfo::parse(RUBYLIGHT, 47989).unwrap().capabilities.evidence().unwrap().native_api_version, -1);
+    }
+
+    #[test]
+    fn hosts_without_the_field_get_the_classic_grid() {
+        // Sunshine, GFE and Apollo-style 2.6 replies carry no NativeApiVersion: never supported,
+        // and nothing a user could change on the host alters that.
+        let sunshine = "<root status_code=\"200\"><hostname>S</hostname><appversion>7.1.431.-1</appversion>\
+            <uniqueid>abc</uniqueid><HttpsPort>47984</HttpsPort><PairStatus>1</PairStatus><currentgame>0</currentgame>\
+            <state>SUNSHINE_SERVER_FREE</state></root>";
+        let gfe = "<root status_code=\"200\"><appversion>7.1.431.0</appversion><GfeVersion>2.1.0</GfeVersion>\
+            <uniqueid>gfe</uniqueid><PairStatus>1</PairStatus><currentgame>0</currentgame>\
+            <state>MJOLNIR_STATE_SERVER_AVAILABLE</state></root>";
+        let apollo = sunshine.replace("<currentgame>", "<Permission>119480064</Permission><currentgame>");
+        for reply in [sunshine.to_owned(), gfe.to_owned(), apollo] {
+            let caps = ServerInfo::parse(&reply, 47989).unwrap().capabilities;
+            assert_eq!(caps.evidence().unwrap().native_api_version, -1, "{reply}");
+            assert_eq!(caps.availability(Feature::NativeApi), Availability::Unsupported(None), "{reply}");
+            assert!(!caps.has(Feature::NativeApi) && !caps.supported().contains(&Feature::NativeApi));
+        }
+        // A host never reached rules nothing out, but doesn't offer it either.
+        assert!(!HostCapabilities::UNKNOWN.has(Feature::NativeApi));
+        // The 2.6.x Rubylight reply (what the host's own test fixture carries) is also classic.
+        assert!(!ServerInfo::parse(RUBYLIGHT, 47989).unwrap().capabilities.has(Feature::NativeApi));
+    }
+
+    #[test]
     fn sunshine_and_gamestream_replies() {
         let sunshine = "<root status_code=\"200\"><hostname></hostname><appversion>7.1.431.-1</appversion>\
             <uniqueid>abc</uniqueid><HttpsPort>0</HttpsPort><PairStatus>0</PairStatus><currentgame>0</currentgame>\

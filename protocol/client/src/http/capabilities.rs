@@ -42,10 +42,12 @@ pub enum Feature {
     HostTiming,
     WebUi,
     CursorShape,
+    /// The Rubylight native API (`/api/native/v1`): library, session actions, Radeon state.
+    NativeApi,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 24] = [
+    pub const ALL: [Feature; 25] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -70,6 +72,7 @@ impl Feature {
         Feature::HostTiming,
         Feature::WebUi,
         Feature::CursorShape,
+        Feature::NativeApi,
     ];
 }
 
@@ -145,6 +148,9 @@ pub struct Evidence {
     pub controller_preparation: bool,
     pub current_game_uuid: bool,
     pub cursor_shape_version: i32,
+    /// -1 when the host has no native API, 0 when it has one but not for this request (plain
+    /// HTTP or an unpaired certificate), 1 or more for the highest version it serves.
+    pub native_api_version: i32,
 }
 
 /// A host's capabilities. [`HostCapabilities::UNKNOWN`] is a host never reached.
@@ -216,6 +222,7 @@ impl Evidence {
             hardware_metrics_version: -1,
             network_path_version: -1,
             cursor_shape_version: -1,
+            native_api_version: -1,
             ..Default::default()
         };
         let (mut encoder, mut initial_encoder) = (false, false);
@@ -250,6 +257,7 @@ impl Evidence {
                 "NetworkPathVersion" => e.network_path_version = i32::from(text.trim() == "1"),
                 "ControllerPreparation" => e.controller_preparation = text.trim() == "1",
                 "CursorShapeVersion" => e.cursor_shape_version = unsigned(&text, 0xFFFF) as i32,
+                "NativeApiVersion" => e.native_api_version = unsigned(&text, 0xFFFF) as i32,
                 "currentgameuuid" => e.current_game_uuid = true,
                 _ => {}
             }
@@ -559,6 +567,20 @@ impl Evidence {
                     Supported
                 } else {
                     self.absent(false)
+                }
+            }
+            // The host reports 0 over plain HTTP and to an unpaired certificate.
+            Feature::NativeApi => {
+                if self.native_api_version == -1 {
+                    if rubylight {
+                        update
+                    } else {
+                        self.absent(false)
+                    }
+                } else if !self.paired || self.native_api_version < 1 {
+                    pair
+                } else {
+                    Supported
                 }
             }
         }

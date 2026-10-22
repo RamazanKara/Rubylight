@@ -3,6 +3,10 @@
 use anyhow::{Context, Result, bail};
 use libloading::Library;
 use windows::Win32::System::Threading::GetCurrentProcess;
+use windows::{
+    Win32::Graphics::Dxgi::{IDXGIDevice, IDXGIDevice1},
+    core::Interface,
+};
 /// High GPU scheduling for the host's process. Process-wide realtime would also raise the encoder
 /// and graphics queues, even when realtime compute queues are disabled.
 const HIGH: i32 = 4;
@@ -67,14 +71,23 @@ pub(crate) fn restore() -> Result<()> {
     state.previous = None;
     Ok(())
 }
-/// Raise this process's GPU scheduling class for a stream, and record whether the compute
-/// queues ask for realtime priority (`compute_queue_realtime`). Queue priorities replace the
-/// per-device GPU thread priority a D3D11 device had.
-pub fn configure(config: &butterpollo_core::config::Config) -> Result<()> {
+pub fn configure(
+    gpu: &crate::capture::Device,
+    config: &butterpollo_core::config::Config,
+) -> Result<()> {
     crate::compute::set_realtime(config.boolean("compute_queue_realtime", false));
     // SAFETY: the symbol types match the D3DKMT exports, every pointer passed is a live local, and
     // `library` outlives each symbol.
     unsafe {
+        let device = gpu.device.cast::<IDXGIDevice>()?;
+        // These device settings are independent of the privileged process
+        // scheduling class. Preserve them even if that later request is denied.
+        if let Err(error) = device.SetGPUThreadPriority(7) {
+            tracing::debug!(%error, "capture GPU thread priority remains at its default");
+        }
+        if let Err(error) = gpu.device.cast::<IDXGIDevice1>()?.SetMaximumFrameLatency(1) {
+            tracing::debug!(%error, "capture GPU frame latency remains at its default");
+        }
         let directory = std::env::var_os("SystemRoot").context("Windows directory missing")?;
         let library = Library::new(std::path::PathBuf::from(directory).join("System32/gdi32.dll"))?;
         let set = library.get::<unsafe extern "system" fn(*mut std::ffi::c_void, i32) -> i32>(

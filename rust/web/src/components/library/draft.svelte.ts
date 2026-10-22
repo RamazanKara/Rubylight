@@ -28,9 +28,12 @@ export const FLAGS = {
   'allow-client-commands': true,
   'exclude-global-state-cmd': false,
   'exclude-global-prep-cmd': false,
+  'virtual-display': false,
   'virtual-display-primary': false,
   'use-app-identity': false,
   'per-client-app-identity': false,
+  'gen1-framegen-fix': false,
+  'frame-gen-limiter-fix': false,
   'lossless-scaling-enabled': false,
   'lossless-scaling-legacy-auto-detect': false,
   'background-stream': false,
@@ -56,6 +59,8 @@ export type NumberKey =
 export type TextKey =
   | 'virtual-display-mode'
   | 'virtual-display-layout'
+  | 'display-output'
+  | 'dd-configuration-option'
   | 'frame-generation-mode'
   | 'gamepad'
   | 'lossless-scaling-profile';

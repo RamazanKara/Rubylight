@@ -1,121 +1,92 @@
-//! Native driver-transport checks: a fake driver writes the ring on a D3D12 copy queue; no
-//! driver installation.
+//! Native driver-transport checks using two GPU devices; no driver installation.
 use super::*;
-use windows::Win32::Graphics::Direct3D12::{
-    D3D12_COMMAND_LIST_TYPE_COPY, D3D12_COMMAND_QUEUE_DESC, D3D12_FENCE_FLAG_NONE,
-    D3D12_RESOURCE_DIMENSION_TEXTURE2D, ID3D12CommandAllocator, ID3D12CommandList, ID3D12Device,
-    ID3D12GraphicsCommandList, ID3D12Resource,
-};
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT;
 
-/// The driver's half of a fence ring, as WUDFHost has it: the ring's textures and fences
-/// opened from their NT handles on a D3D12 device, written on a copy queue.
+/// The driver's half of either ring, on a second D3D11 device as WUDFHost has: the
+/// ring's textures and fences opened from their NT handles.
 struct FakeDriver {
-    queue: ID3D12CommandQueue,
-    allocator: ID3D12CommandAllocator,
-    list: ID3D12GraphicsCommandList,
-    textures: Vec<ID3D12Resource>,
-    written: ID3D12Fence,
-    released: ID3D12Fence,
-    /// The copy queue's own progress, so the allocator is reset only once it is idle.
-    copied: ID3D12Fence,
-    copies: u64,
+    gpu: Device,
+    textures: Vec<ID3D11Texture2D>,
+    written: Option<ID3D11Fence>,
+    released: Option<ID3D11Fence>,
+    mutexes: Vec<IDXGIKeyedMutex>,
+    context: ID3D11DeviceContext4,
     picker: ring::Picker,
 }
 
 impl FakeDriver {
-    fn open(ring: &Ring, gpu: &Device) -> Result<Self> {
-        Self::open_on(ring, gpu.compute.device.clone())
-    }
-
-    /// Open the ring on `device`, which may be a different device than the host's.
-    fn open_on(ring: &Ring, device: ID3D12Device) -> Result<Self> {
-        let fences = &ring.fences;
+    fn open(ring: &Ring) -> Result<Self> {
+        let gpu = Device::new("")?;
+        let device1: ID3D11Device1 = gpu.device.cast()?;
+        let device5: ID3D11Device5 = gpu.device.cast()?;
         let mut textures = Vec::new();
+        let mut mutexes = Vec::new();
         for slot in &ring.slots {
-            let mut texture: Option<ID3D12Resource> = None;
-            // SAFETY: a live shared NT handle of a D3D12 texture; `texture` is a live local.
-            unsafe { device.OpenSharedHandle(HANDLE(slot.shared.as_raw_handle()), &mut texture)? };
-            let texture = texture.context("no texture")?;
-            // The driver's checks before it adopts a ring (frame_ring.rs).
-            // SAFETY: a live resource; GetDesc only reads it.
-            let desc = unsafe { texture.GetDesc() };
-            anyhow::ensure!(
-                desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
-                    && (desc.Width, desc.Height)
-                        == (u64::from(ring.layout.width), ring.layout.height)
-                    && desc.Format.0 as u32 == ring.layout.format
-                    && desc.DepthOrArraySize == 1
-                    && desc.MipLevels == 1
-                    && desc.SampleDesc.Count == 1,
-                "a fence ring texture the driver refuses: {desc:?}"
-            );
+            // SAFETY: a live shared NT handle of a D3D12 texture.
+            let texture: ID3D11Texture2D =
+                unsafe { device1.OpenSharedResource1(HANDLE(slot.shared.as_raw_handle()))? };
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            // SAFETY: live texture, live local.
+            unsafe { texture.GetDesc(&mut desc) };
+            if ring.fences.is_some() {
+                anyhow::ensure!(
+                    desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0 as u32 == 0,
+                    "a fence ring texture has no keyed mutex"
+                );
+            } else {
+                mutexes.push(texture.cast()?);
+            }
             textures.push(texture);
         }
-        let open = |handle: &OwnedHandle| -> Result<ID3D12Fence> {
+        let open = |handle: &OwnedHandle| -> Result<ID3D11Fence> {
             let mut fence = None;
             // SAFETY: a live shared fence handle; `fence` is a live local.
-            unsafe { device.OpenSharedHandle(HANDLE(handle.as_raw_handle()), &mut fence)? };
+            unsafe { device5.OpenSharedFence(HANDLE(handle.as_raw_handle()), &mut fence)? };
             fence.context("no fence")
         };
-        // SAFETY: `device` is live; the list records into the allocator made with it and is
-        // closed until the first copy.
-        unsafe {
-            let queue: ID3D12CommandQueue =
-                device.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
-                    Type: D3D12_COMMAND_LIST_TYPE_COPY,
-                    ..Default::default()
-                })?;
-            let allocator: ID3D12CommandAllocator =
-                device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY)?;
-            let list: ID3D12GraphicsCommandList =
-                device.CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, &allocator, None)?;
-            list.Close()?;
-            Ok(Self {
-                written: open(&fences.handles[0])?,
-                released: open(&fences.handles[1])?,
-                copied: device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?,
-                copies: 0,
-                queue,
-                allocator,
-                list,
-                textures,
-                picker: ring::Picker::new(ring.slots.len()),
-            })
-        }
-    }
-
-    /// Copy `source` into `slot` on the copy queue and signal the written fence with `seq`.
-    fn write(&mut self, slot: usize, seq: u32, source: &ID3D12Resource) -> Result<()> {
-        until("the fake driver's last copy", || {
-            // SAFETY: a plain read of a live fence.
-            unsafe { self.copied.GetCompletedValue() >= self.copies }
-        })?;
-        self.copies += 1;
-        // SAFETY: same device, size and format; the slot is ours in `Writing`, and the
-        // allocator's last copy has finished (waited above).
-        unsafe {
-            self.allocator.Reset()?;
-            self.list.Reset(&self.allocator, None)?;
-            self.list.CopyResource(&self.textures[slot], source);
-            self.list.Close()?;
-            self.queue
-                .ExecuteCommandLists(&[Some(self.list.cast::<ID3D12CommandList>()?)]);
-            self.queue.Signal(&self.written, u64::from(seq))?;
-            self.queue.Signal(&self.copied, self.copies)?;
-        }
-        Ok(())
+        Ok(Self {
+            written: ring
+                .fences
+                .as_ref()
+                .map(|fences| open(&fences.handles[0]))
+                .transpose()?,
+            released: ring
+                .fences
+                .as_ref()
+                .map(|fences| open(&fences.handles[1]))
+                .transpose()?,
+            mutexes,
+            context: gpu.context.cast()?,
+            textures,
+            gpu,
+            picker: ring::Picker::new(ring.slots.len()),
+        })
     }
 
     /// Copy `source` into a free slot, signal the written fence and publish, as the
     /// driver's swap-chain worker does. `None` when it drops the frame.
-    fn push(&mut self, header: &Header<'_>, source: &ID3D12Resource) -> Result<Option<u32>> {
-        let released = self.released();
-        let Some(claim) = self.picker.claim_fenced(header, released) else {
+    fn push(&mut self, header: &Header<'_>, source: &ID3D11Texture2D) -> Result<Option<u32>> {
+        let claim = if self.written.is_some() {
+            self.picker.claim_fenced(header, self.released())
+        } else {
+            self.picker
+                .claim(|index, key| acquire(&self.mutexes[index], key).unwrap_or(false))
+        };
+        let Some(claim) = claim else {
             return Ok(None);
         };
         let seq = self.picker.next_seq();
-        self.write(claim.slot(), seq, source)?;
+        // SAFETY: same device, size and format; the slot is ours in `Writing`.
+        unsafe {
+            self.gpu
+                .context
+                .CopyResource(&self.textures[claim.slot()], source);
+            if let Some(written) = &self.written {
+                self.context.Signal(written, u64::from(seq))?;
+            } else {
+                self.mutexes[claim.slot()].ReleaseSync(ring::KEY_HOST)?;
+            }
+            self.gpu.context.Flush();
+        }
         header.write_slot(
             claim.slot(),
             SlotMeta {
@@ -123,7 +94,11 @@ impl FakeDriver {
                 ..Default::default()
             },
         );
-        anyhow::ensure!(self.picker.publish_fenced(header, claim.slot(), seq));
+        if self.written.is_some() {
+            anyhow::ensure!(self.picker.publish_fenced(header, claim.slot(), seq));
+        } else {
+            self.picker.published(claim.slot(), seq);
+        }
         header.publish(ring::Token {
             generation: header.layout().unwrap().generation,
             seq,
@@ -133,17 +108,10 @@ impl FakeDriver {
     }
 
     fn released(&self) -> u64 {
-        // SAFETY: a plain read of a fence opened on this device.
-        unsafe { self.released.GetCompletedValue() }
-    }
-}
-
-impl Drop for FakeDriver {
-    fn drop(&mut self) {
-        let _ = until("the fake driver's copies", || {
-            // SAFETY: a plain read of a live fence.
-            unsafe { self.copied.GetCompletedValue() >= self.copies }
-        });
+        self.released.as_ref().map_or(0, |fence| {
+            // SAFETY: a plain read of a fence opened on this device.
+            unsafe { fence.GetCompletedValue() }
+        })
     }
 }
 
@@ -179,26 +147,12 @@ fn until(what: &str, mut done: impl FnMut() -> bool) -> Result<()> {
     Ok(())
 }
 
-/// A ring of `slots` 16x16 textures read in place.
-fn small_ring(gpu: &Device, slots: u32) -> Result<Ring> {
-    Ring::fenced(
-        gpu.compute.clone(),
-        Layout {
-            slot_count: slots,
-            width: 16,
-            height: 16,
-            format: ring::FORMAT_BGRA8,
-            generation: 1,
-        },
-        release_queue(gpu, None),
-    )
-}
-
 #[test]
-#[ignore = "requires native D3D12 sharing and compute conversion"]
-fn a_fence_ring_carries_frames_both_ways() -> Result<()> {
+#[ignore = "requires native D3D11/D3D12 sharing and compute conversion"]
+fn a_fence_ring_carries_frames_both_ways_without_keyed_mutexes() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
     for (in_place, pixel) in [
         (true, Pixel::Bgra8),
         (false, Pixel::Bgra8),
@@ -206,41 +160,32 @@ fn a_fence_ring_carries_frames_both_ways() -> Result<()> {
         (false, Pixel::RgbaF16),
     ] {
         let layout = Layout {
+            kind: Kind::Fence,
             slot_count: 2,
             width: 16,
             height: 16,
             format: crate::compute::format(pixel).0 as u32,
             generation: 1,
         };
-        let mut pool = (!in_place)
-            .then(|| GpuPool::new(gpu.compute.clone()))
-            .transpose()?;
-        let ring = Ring::fenced(
-            gpu.compute.clone(),
-            layout,
-            release_queue(&gpu, pool.as_ref()),
-        )?;
-        let fences = ring.fences.clone();
+        let ring = Ring::fenced(&gpu, compute.clone(), layout, in_place)?;
+        // The AMF and PyroWave compute paths take only textures they can share.
+        for slot in &ring.slots {
+            anyhow::ensure!(
+                crate::compute::shareable(&slot.texture),
+                "a D3D12 ring texture must look shareable to the encoders"
+            );
+            compute.open(&slot.texture)?;
+        }
+        let fences = ring.fences.clone().unwrap();
         let header = ring.section.header();
-        let mut driver = FakeDriver::open(&ring, &gpu)?;
+        let mut driver = FakeDriver::open(&ring)?;
         let mut consumer = Consumer::new(1, 2);
+        let mut pool = GpuPool::default();
         let ten_bit = pixel == Pixel::RgbaF16;
-        let config = butterpollo_core::rtsp::Negotiated {
-            width: 16,
-            height: 16,
-            codec: 1,
-            sdr_10bit: ten_bit,
-            ..Default::default()
-        };
-        let convert = |image: &GpuImage| -> Result<()> {
-            let mut converter =
-                crate::compute::Converter::new(gpu.compute.clone(), 16, 16, ten_bit)?;
-            converter.values = crate::compute::constants(&config, (16, 16, pixel), [100., 1.]);
-            converter.convert(image)?.wait()
-        };
+        let mut converter = crate::compute::Converter::new(compute.clone(), 16, 16, ten_bit)?;
         for (frame, value) in [(1u32, 40u8), (2, 80), (3, 120)] {
             let expected = pixels(16, 16, pixel, value);
-            let source = GpuImage::upload(&gpu, &expected)?;
+            let source = GpuImage::upload(&driver.gpu, &expected)?;
             let seq = driver
                 .push(&header, &source.texture)?
                 .context("a free slot")?;
@@ -248,34 +193,39 @@ fn a_fence_ring_carries_frames_both_ways() -> Result<()> {
             let (index, claimed) = consumer.claim(&header).context("the newest frame")?;
             assert_eq!(claimed, seq);
             consumer.consumed(u64::from(seq));
-            let image = match &mut pool {
-                None => {
-                    let lent = Lent {
-                        fences: fences.clone(),
-                        slot: index,
-                        seq,
-                    };
-                    let image =
-                        lend_fenced(&gpu, &ring.slots[index].texture, lent, fences.written(seq))?;
-                    // The compute conversion waits for the driver's copy on the GPU.
-                    convert(&image)?;
-                    anyhow::ensure!(
-                        matches!(header.slot_state(index), ring::SlotState::Reading { .. }),
-                        "lent until the image goes"
-                    );
-                    image
-                }
-                Some(pool) => {
-                    let image = pool
-                        .copy(&gpu, &ring.slots[index].texture, Some(&fences.written(seq)))?
-                        .context("a free pool texture")?;
-                    fences.free(index, seq)?;
-                    image
-                }
+            let image = if in_place {
+                let lent = Lent {
+                    fences: fences.clone(),
+                    slot: index,
+                    seq,
+                    d3d11: Mutex::new(false),
+                };
+                let ready =
+                    crate::compute::Ready::on(&compute, fences.written.clone(), u64::from(seq));
+                let image = lend_fenced(&gpu, &ring.slots[index].texture, index, lent, ready)?;
+                // The compute conversion waits for the driver's copy on the GPU.
+                let opened = compute.open(&image.texture)?;
+                converter
+                    .convert(&opened, crate::compute::format(pixel), None, &image)?
+                    .wait()?;
+                anyhow::ensure!(
+                    matches!(header.slot_state(index), ring::SlotState::Reading { .. }),
+                    "lent until the image goes"
+                );
+                image
+            } else {
+                // SAFETY: the fence is opened on this context's device.
+                unsafe { fences.context.Wait(&fences.written11, u64::from(seq))? };
+                let image = pool.copy(&gpu, &ring.slots[index].texture)?.unwrap();
+                fences.free(index, seq, false)?;
+                image
             };
-            // A reader sees the driver's pixels, never an older frame.
+            // A D3D11 reader sees the driver's pixels, never an older frame.
             assert_eq!(image.readback(&mut None)?.bytes, expected.bytes);
             drop(image);
+            // The converter keeps the image of its last conversion until its slot
+            // comes round again; a new converter lets it go.
+            converter = crate::compute::Converter::new(compute.clone(), 16, 16, ten_bit)?;
             // Freed behind every read: the driver may reuse the slot once the released
             // fence passes the value recorded in it.
             let ring::SlotState::Free { release } = header.slot_state(index) else {
@@ -287,36 +237,70 @@ fn a_fence_ring_carries_frames_both_ways() -> Result<()> {
     Ok(())
 }
 
-fn claim_image(gpu: &Device, ring: &Ring, consumer: &mut Consumer) -> Result<GpuImage> {
+fn claim_image(
+    gpu: &Device,
+    ring: &Ring,
+    consumer: &mut Consumer,
+    lender: Option<&Arc<Mutex<crate::compute::Returns>>>,
+) -> Result<GpuImage> {
     let header = ring.section.header();
-    let fences = &ring.fences;
-    let (index, seq) = consumer
-        .claim(&header)
-        .context("claim newest fenced frame")?;
-    consumer.consumed(u64::from(seq));
-    let lent = Lent {
-        fences: fences.clone(),
-        slot: index,
-        seq,
-    };
-    lend_fenced(gpu, &ring.slots[index].texture, lent, fences.written(seq))
+    if let Some(fences) = &ring.fences {
+        let (index, seq) = consumer
+            .claim(&header)
+            .context("claim newest fenced frame")?;
+        consumer.consumed(u64::from(seq));
+        let lent = Lent {
+            fences: fences.clone(),
+            slot: index,
+            seq,
+            d3d11: Mutex::new(false),
+        };
+        let ready =
+            crate::compute::Ready::on(&fences.compute, fences.written.clone(), u64::from(seq));
+        return lend_fenced(gpu, &ring.slots[index].texture, index, lent, ready);
+    }
+    let index = consumer
+        .wanted(header.latest())
+        .context("newest keyed frame")?;
+    let slot = &ring.slots[index];
+    let mutex = slot.mutex.as_ref().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !acquire(mutex, ring::KEY_HOST)? {
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "keyed texture never became available"
+        );
+        std::thread::yield_now();
+    }
+    consumer.consumed(header.slot(index).seq);
+    lend(gpu, slot, mutex, index, lender.unwrap().clone())
 }
 
 #[test]
-#[ignore = "requires native AMD D3D12 and the PyroWave runtime; does not install a driver"]
-fn pyrowave_encoding_frees_fence_ring_slots() -> Result<()> {
+#[ignore = "requires native AMD D3D11/D3D12 and the PyroWave runtime; does not install a driver"]
+fn pyrowave_encoding_returns_keyed_capture_slots() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
     let layout = Layout {
+        kind: Kind::KeyedMutex,
         slot_count: 4,
         width: 64,
         height: 64,
         format: crate::compute::format(Pixel::Bgra8).0 as u32,
         generation: 1,
     };
-    let ring = Ring::fenced(gpu.compute.clone(), layout, release_queue(&gpu, None))?;
-    let mut driver = FakeDriver::open(&ring, &gpu)?;
-    let source = GpuImage::upload(&gpu, &pixels(layout.width, layout.height, Pixel::Bgra8, 80))?;
+    let ring = Ring::keyed(&gpu, layout)?;
+    let mut returns = crate::compute::Returns::new(compute, &gpu)?;
+    for slot in &ring.slots {
+        returns.import(&slot.texture, HANDLE(slot.shared.as_raw_handle()))?;
+    }
+    let lender = Arc::new(Mutex::new(returns));
+    let mut driver = FakeDriver::open(&ring)?;
+    let source = GpuImage::upload(
+        &driver.gpu,
+        &pixels(layout.width, layout.height, Pixel::Bgra8, 80),
+    )?;
     let mut consumer = Consumer::new(1, layout.slot_count);
     let config = butterpollo_core::rtsp::Negotiated {
         width: layout.width,
@@ -345,7 +329,8 @@ fn pyrowave_encoding_frees_fence_ring_slots() -> Result<()> {
             );
             std::thread::sleep(Duration::from_millis(1));
         }
-        let image = claim_image(&gpu, &ring, &mut consumer)?;
+        let image = claim_image(&gpu, &ring, &mut consumer, Some(&lender))?;
+        assert!(image.cursor.is_none());
         encoder.restart_interval();
         assert_eq!(
             encoder.encode_gpu(&image, true, config.bitrate_kbps)?.len(),
@@ -357,21 +342,30 @@ fn pyrowave_encoding_frees_fence_ring_slots() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires native D3D12 shared textures; does not install a driver"]
+#[ignore = "requires native D3D11/D3D12 shared textures; does not install a driver"]
 fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    let ring = small_ring(&gpu, 2)?;
-    let owner = Arc::downgrade(&ring.fences);
-    let mut driver = FakeDriver::open(&ring, &gpu)?;
-    let source = solid(&gpu, 40)?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    let layout = Layout {
+        kind: Kind::Fence,
+        slot_count: 2,
+        width: 16,
+        height: 16,
+        format: ring::FORMAT_BGRA8,
+        generation: 1,
+    };
+    let ring = Ring::fenced(&gpu, compute.clone(), layout, true)?;
+    let owner = Arc::downgrade(ring.fences.as_ref().unwrap());
+    let mut driver = FakeDriver::open(&ring)?;
+    let source = solid(&driver.gpu, 40)?;
     let mut consumer = Consumer::new(1, 2);
     assert!(
         driver
             .push(&ring.section.header(), &source.texture)?
             .is_some()
     );
-    let first = claim_image(&gpu, &ring, &mut consumer)?;
+    let first = claim_image(&gpu, &ring, &mut consumer, None)?;
     let second_reader = first.clone();
     drop(first);
     assert!(
@@ -379,7 +373,7 @@ fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<
             .push(&ring.section.header(), &source.texture)?
             .is_some()
     );
-    let second = claim_image(&gpu, &ring, &mut consumer)?;
+    let second = claim_image(&gpu, &ring, &mut consumer, None)?;
     assert_eq!(
         driver.push(&ring.section.header(), &source.texture)?,
         None,
@@ -397,16 +391,19 @@ fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<
         vec![40; 16 * 16 * 4]
     );
     // A refresh/HDR reconfiguration can discard the session's old ring while an encoder
-    // still holds its last image. That image must still convert successfully.
+    // still holds its last image. That image must still import and convert successfully.
     drop(ring);
     assert!(owner.upgrade().is_some());
-    let mut converter = crate::compute::Converter::new(gpu.compute.clone(), 16, 16, false)?;
-    converter.convert(&second_reader)?.wait()?;
+    let input = compute.open(&second_reader.texture)?;
+    let mut converter = crate::compute::Converter::new(compute, 16, 16, false)?;
+    converter
+        .convert(&input, DXGI_FORMAT_B8G8R8A8_UNORM, None, &second_reader)?
+        .wait()?;
     drop(second_reader);
     drop(converter);
     assert!(
         owner.upgrade().is_none(),
-        "last reader releases the old ring's fences"
+        "last reader releases the old imports and fences"
     );
     Ok(())
 }
@@ -414,6 +411,8 @@ fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<
 #[test]
 #[ignore = "requires native shared GPU fences; verifies bounded delayed completion without a driver"]
 fn a_returned_slot_waits_for_gpu_completion_before_the_driver_reuses_it() -> Result<()> {
+    use windows::Win32::Graphics::Direct3D12::{D3D12_FENCE_FLAG_NONE, ID3D12Fence};
+
     // Even an assertion/error below must release the private gate before any resource
     // cleanup. No driver, GPU reset, or unbounded GPU wait is part of this test.
     struct Gate(ID3D12Fence);
@@ -426,16 +425,28 @@ fn a_returned_slot_waits_for_gpu_completion_before_the_driver_reuses_it() -> Res
 
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    let compute = gpu.compute.clone();
-    let ring = small_ring(&gpu, 2)?;
-    let mut driver = FakeDriver::open(&ring, &gpu)?;
-    let source = solid(&gpu, 40)?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    let ring = Ring::fenced(
+        &gpu,
+        compute.clone(),
+        Layout {
+            kind: Kind::Fence,
+            slot_count: 2,
+            width: 16,
+            height: 16,
+            format: ring::FORMAT_BGRA8,
+            generation: 1,
+        },
+        true,
+    )?;
+    let mut driver = FakeDriver::open(&ring)?;
+    let source = solid(&driver.gpu, 40)?;
     let mut consumer = Consumer::new(1, 2);
     let header = ring.section.header();
     anyhow::ensure!(driver.push(&header, &source.texture)?.is_some());
-    let first = claim_image(&gpu, &ring, &mut consumer)?;
+    let first = claim_image(&gpu, &ring, &mut consumer, None)?;
     anyhow::ensure!(driver.push(&header, &source.texture)?.is_some());
-    let second = claim_image(&gpu, &ring, &mut consumer)?;
+    let second = claim_image(&gpu, &ring, &mut consumer, None)?;
     // SAFETY: the new fence belongs to the compute queue's device.
     let gate = Gate(unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? });
     // SAFETY: this private wait is always released by Gate::drop, including unwinding.
@@ -466,10 +477,23 @@ fn a_returned_slot_waits_for_gpu_completion_before_the_driver_reuses_it() -> Res
 fn cpu_readback_waits_for_a_delayed_fence_producer() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    let ring = small_ring(&gpu, 2)?;
-    let mut driver = FakeDriver::open(&ring, &gpu)?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    let ring = Ring::fenced(
+        &gpu,
+        compute,
+        Layout {
+            kind: Kind::Fence,
+            slot_count: 2,
+            width: 16,
+            height: 16,
+            format: ring::FORMAT_BGRA8,
+            generation: 1,
+        },
+        true,
+    )?;
+    let mut driver = FakeDriver::open(&ring)?;
     let expected = pixels(16, 16, Pixel::Bgra8, 91);
-    let source = GpuImage::upload(&gpu, &expected)?;
+    let source = GpuImage::upload(&driver.gpu, &expected)?;
     let header = ring.section.header();
     let released = driver.released();
     let claim = driver
@@ -493,34 +517,47 @@ fn cpu_readback_waits_for_a_delayed_fence_producer() -> Result<()> {
         seq,
         slot: index as u8,
     });
-    let image = claim_image(&gpu, &ring, &mut Consumer::new(1, 2))?;
+    let image = claim_image(&gpu, &ring, &mut Consumer::new(1, 2), None)?;
     let before = Instant::now();
     let delay = Duration::from_millis(50);
     let producer = std::thread::spawn(move || -> Result<()> {
+        let _com = ComGuard::new()?;
         std::thread::sleep(delay);
-        // This is the only producer write for this sequence; the host cannot read until
-        // precisely this fence value.
-        driver.write(index, seq, &source.texture)
+        // SAFETY: this is the only producer write for this sequence; the host cannot read
+        // until precisely this fence value. Source and target match on one device.
+        unsafe {
+            driver
+                .gpu
+                .context
+                .CopyResource(&driver.textures[index], &*source.texture);
+            driver
+                .context
+                .Signal(driver.written.as_ref().unwrap(), u64::from(seq))?;
+            driver.gpu.context.Flush();
+        }
+        Ok(())
     });
     let readback = image.readback(&mut None);
     let elapsed = before.elapsed();
     producer.join().expect("delayed producer panicked")?;
     assert!(elapsed >= delay, "readback completed before its producer");
     assert_eq!(readback?.bytes, expected.bytes);
-    assert!(!ring.fences.failed.load(Ordering::Acquire));
+    assert!(!ring.fences.as_ref().unwrap().failed.load(Ordering::Acquire));
     Ok(())
 }
 
 #[test]
 #[ignore = "requires a native GPU; bounds a CPU-only fence wait without queueing GPU waits"]
 fn cpu_readback_rejects_missing_producer_completion_before_mapping() -> Result<()> {
+    use windows::Win32::Graphics::Direct3D12::D3D12_FENCE_FLAG_NONE;
+
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    let compute = gpu.compute.clone();
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
     let expected = pixels(16, 16, Pixel::Bgra8, 73);
     let mut image = GpuImage::upload(&gpu, &expected)?;
-    // An owned image isolates the readiness check: even if it regresses, no queue can be
-    // left waiting on this deliberately unsignalled producer fence.
+    // An owned image isolates the readiness check: even if it regresses, no D3D11/12
+    // queue can be left waiting on this deliberately unsignalled producer fence.
     // SAFETY: this private fence belongs to the live compute device and has no GPU users.
     let pending = unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
     image.ready = Some(crate::compute::Ready::on(&compute, pending, 1));
@@ -537,7 +574,7 @@ fn cpu_readback_rejects_missing_producer_completion_before_mapping() -> Result<(
     assert!(before.elapsed() < Duration::from_secs(5));
     assert!(
         staging.is_none(),
-        "failure must precede staging allocation, the copy and the map"
+        "failure must precede staging allocation, CopyResource and Map"
     );
     assert!(
         !compute.is_stuck(),
@@ -554,315 +591,120 @@ fn cpu_readback_rejects_missing_producer_completion_before_mapping() -> Result<(
 fn a_retired_compute_queue_is_not_reused_for_the_same_capture_device() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    let luid = gpu.compute.luid();
-    let first = crate::compute::Compute::for_adapter(luid)?;
-    let shared = crate::compute::Compute::for_adapter(luid)?;
+    let first = crate::compute::Compute::for_device(&gpu.device)?;
+    let shared = crate::compute::Compute::for_device(&gpu.device)?;
     assert!(Arc::ptr_eq(&first, &shared));
     first.retire();
     assert!(first.is_stuck());
-    let fresh = crate::compute::Compute::for_adapter(luid)?;
+    let fresh = crate::compute::Compute::for_device(&gpu.device)?;
     assert!(!Arc::ptr_eq(&first, &fresh));
     assert!(!fresh.is_stuck());
     Ok(())
 }
 
-/// The display driver of 2.6 is D3D11: it opens each ring texture with `OpenSharedResource1`,
-/// which fails with E_INVALIDARG unless the D3D12 texture allows render targets and
-/// simultaneous access (RX 7900 XT, October 16). The host keeps those flags so that a driver
-/// already installed keeps working; the D3D12 driver opens the same textures (next test).
-#[test]
-#[ignore = "requires native D3D12 sharing and a D3D11 device on the same GPU; no driver is installed"]
-fn fence_ring_textures_open_on_a_d3d11_device_like_the_driver_opens_them() -> Result<()> {
-    use windows::Win32::{
-        Foundation::HMODULE,
-        Graphics::{
-            Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
-            Direct3D11::{
-                D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
-                ID3D11Device1, ID3D11Texture2D,
-            },
-            Dxgi::{CreateDXGIFactory1, IDXGIAdapter, IDXGIAdapter1, IDXGIFactory4},
-        },
-    };
-    let _com = ComGuard::new()?;
+/// Component timing only: producer copy through completed conversion. No display, service,
+/// encoder, network or receiver is involved, so these are not end-to-end latency numbers.
+fn transport_probe(kind: Kind, pixel: Pixel, round: usize) -> Result<()> {
+    const WARMUP: usize = 8;
+    const SAMPLES: usize = 64;
     let gpu = Device::new("")?;
-    // SAFETY: the factory and adapter are live, and the device out-slot is a live local.
-    let driver: ID3D11Device1 = unsafe {
-        let factory: IDXGIFactory4 = CreateDXGIFactory1()?;
-        let adapter: IDXGIAdapter = factory
-            .EnumAdapterByLuid::<IDXGIAdapter1>(gpu.compute.luid())?
-            .cast()?;
-        let mut device: Option<ID3D11Device> = None;
-        D3D11CreateDevice(
-            &adapter,
-            D3D_DRIVER_TYPE_UNKNOWN,
-            HMODULE::default(),
-            D3D11_CREATE_DEVICE_FLAG(0),
-            None,
-            D3D11_SDK_VERSION,
-            Some(&mut device),
-            None,
-            None,
-        )?;
-        device.context("no D3D11 device")?.cast()?
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    let layout = Layout {
+        kind,
+        slot_count: 4,
+        width: 2560,
+        height: 1440,
+        format: crate::compute::format(pixel).0 as u32,
+        generation: 1,
     };
-    for pixel in [Pixel::Bgra8, Pixel::RgbaF16] {
-        let ring = Ring::fenced(
-            gpu.compute.clone(),
-            Layout {
-                slot_count: 2,
-                width: 64,
-                height: 32,
-                format: crate::compute::format(pixel).0 as u32,
-                generation: 1,
-            },
-            release_queue(&gpu, None),
-        )?;
+    let ring = if kind == Kind::Fence {
+        Ring::fenced(&gpu, compute.clone(), layout, true)?
+    } else {
+        Ring::keyed(&gpu, layout)?
+    };
+    let lender = if kind == Kind::KeyedMutex {
+        let mut returns = crate::compute::Returns::new(compute.clone(), &gpu)?;
         for slot in &ring.slots {
-            // SAFETY: a live shared NT handle of a D3D12 texture on the same adapter.
-            let texture: ID3D11Texture2D =
-                unsafe { driver.OpenSharedResource1(HANDLE(slot.shared.as_raw_handle())) }
-                    .with_context(|| {
-                        format!("the driver's D3D11 open of a {pixel:?} ring texture")
-                    })?;
-            let mut desc = Default::default();
-            // SAFETY: a live texture; GetDesc only writes the live local.
-            unsafe { texture.GetDesc(&mut desc) };
-            assert_eq!((desc.Width, desc.Height), (64, 32));
+            returns.import(&slot.texture, HANDLE(slot.shared.as_raw_handle()))?;
         }
-    }
-    Ok(())
-}
-
-/// A second, independent D3D12 device on the host's adapter, as WUDFHost's is. D3D12CreateDevice
-/// returns the process's one device per adapter, so the device factory makes this one.
-fn independent_device(gpu: &Device) -> Result<ID3D12Device> {
-    use windows::Win32::Graphics::{
-        Direct3D::D3D_FEATURE_LEVEL_11_0,
-        Direct3D12::{CLSID_D3D12DeviceFactory, D3D12GetInterface, ID3D12DeviceFactory},
-        Dxgi::{CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory4},
+        Some(Arc::new(Mutex::new(returns)))
+    } else {
+        None
     };
-    // SAFETY: the factory and adapter are live, and the out-slots are live locals.
-    let device = unsafe {
-        let mut device_factory: Option<ID3D12DeviceFactory> = None;
-        D3D12GetInterface(&CLSID_D3D12DeviceFactory, &mut device_factory)
-            .context("the D3D12 device factory")?;
-        let factory: IDXGIFactory4 = CreateDXGIFactory1()?;
-        let adapter: IDXGIAdapter1 = factory.EnumAdapterByLuid(gpu.compute.luid())?;
-        let mut device: Option<ID3D12Device> = None;
-        device_factory.context("no device factory")?.CreateDevice(
-            &adapter,
-            D3D_FEATURE_LEVEL_11_0,
-            &mut device,
-        )?;
-        device.context("no D3D12 device")?
-    };
-    anyhow::ensure!(
-        device.as_raw() != gpu.compute.device.as_raw(),
-        "the driver's device must be its own"
-    );
-    Ok(device)
-}
-
-/// A texture on `device` holding `image`, uploaded on a copy queue, standing in for the IddCx
-/// surface the driver copies from.
-fn texture_on(device: &ID3D12Device, image: &Image, format: DXGI_FORMAT) -> Result<ID3D12Resource> {
-    use windows::Win32::Graphics::{
-        Direct3D12::{
-            D3D12_CPU_PAGE_PROPERTY_UNKNOWN, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES,
-            D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_MEMORY_POOL_UNKNOWN,
-            D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RESOURCE_DESC,
-            D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
-            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON,
-            D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_SUBRESOURCE_FOOTPRINT,
-            D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
-            D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-            D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN,
-        },
-        Dxgi::Common::DXGI_SAMPLE_DESC,
-    };
-    anyhow::ensure!(
-        image.stride.is_multiple_of(256),
-        "the upload pitch must be 256-aligned"
-    );
-    let heap = |ty| D3D12_HEAP_PROPERTIES {
-        Type: ty,
-        CPUPageProperty: D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-        MemoryPoolPreference: D3D12_MEMORY_POOL_UNKNOWN,
-        ..Default::default()
-    };
-    let one = DXGI_SAMPLE_DESC {
-        Count: 1,
-        Quality: 0,
-    };
-    // SAFETY: `device` is live; every resource, queue and list below is made with it, the
-    // upload buffer is mapped for exactly its size, and the copy finishes (fence) before the
-    // upload buffer goes.
-    unsafe {
-        let mut texture: Option<ID3D12Resource> = None;
-        device.CreateCommittedResource(
-            &heap(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
-            &D3D12_RESOURCE_DESC {
-                Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-                Width: u64::from(image.width),
-                Height: image.height,
-                DepthOrArraySize: 1,
-                MipLevels: 1,
-                Format: format,
-                SampleDesc: one,
-                Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-                // Promotes to the copy states on a copy queue without barriers.
-                Flags: D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
-                Alignment: 0,
-            },
-            D3D12_RESOURCE_STATE_COMMON,
-            None,
-            &mut texture,
-        )?;
-        let texture = texture.context("no texture")?;
-        let mut upload: Option<ID3D12Resource> = None;
-        device.CreateCommittedResource(
-            &heap(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &D3D12_RESOURCE_DESC {
-                Dimension: D3D12_RESOURCE_DIMENSION_BUFFER,
-                Width: image.bytes.len() as u64,
-                Height: 1,
-                DepthOrArraySize: 1,
-                MipLevels: 1,
-                Format: DXGI_FORMAT(0),
-                SampleDesc: one,
-                Layout: D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-                Flags: D3D12_RESOURCE_FLAG_NONE,
-                Alignment: 0,
-            },
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            None,
-            &mut upload,
-        )?;
-        let upload = upload.context("no upload buffer")?;
-        let mut mapped = std::ptr::null_mut();
-        upload.Map(0, None, Some(&mut mapped))?;
-        std::ptr::copy_nonoverlapping(image.bytes.as_ptr(), mapped.cast::<u8>(), image.bytes.len());
-        upload.Unmap(0, None);
-        let queue: ID3D12CommandQueue = device.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
-            Type: D3D12_COMMAND_LIST_TYPE_COPY,
-            ..Default::default()
-        })?;
-        let allocator: ID3D12CommandAllocator =
-            device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY)?;
-        let list: ID3D12GraphicsCommandList =
-            device.CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, &allocator, None)?;
-        list.CopyTextureRegion(
-            &D3D12_TEXTURE_COPY_LOCATION {
-                pResource: std::mem::transmute_copy(&texture),
-                Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-                Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-                    SubresourceIndex: 0,
-                },
-            },
-            0,
-            0,
-            0,
-            &D3D12_TEXTURE_COPY_LOCATION {
-                pResource: std::mem::transmute_copy(&upload),
-                Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-                Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-                    PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
-                        Offset: 0,
-                        Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
-                            Format: format,
-                            Width: image.width,
-                            Height: image.height,
-                            Depth: 1,
-                            RowPitch: image.stride as u32,
-                        },
-                    },
-                },
-            },
-            None,
+    let mut driver = FakeDriver::open(&ring)?;
+    let expected = [
+        pixels(layout.width, layout.height, pixel, 40),
+        pixels(layout.width, layout.height, pixel, 80),
+    ];
+    let sources = expected
+        .iter()
+        .map(|image| GpuImage::upload(&driver.gpu, image))
+        .collect::<Result<Vec<_>>>()?;
+    let mut consumer = Consumer::new(1, layout.slot_count);
+    let mut converter = crate::compute::Converter::new(
+        compute.clone(),
+        layout.width,
+        layout.height,
+        pixel == Pixel::RgbaF16,
+    )?;
+    let mut completed = Vec::with_capacity(SAMPLES);
+    let mut claims = Vec::with_capacity(SAMPLES);
+    let mut submits = Vec::with_capacity(SAMPLES);
+    for sample in 0..WARMUP + SAMPLES {
+        converter.release_completed();
+        let before = Instant::now();
+        anyhow::ensure!(
+            driver
+                .push(&ring.section.header(), &sources[sample % 2].texture)?
+                .is_some(),
+            "driver unexpectedly exhausted its ring"
         );
-        list.Close()?;
-        queue.ExecuteCommandLists(&[Some(list.cast::<ID3D12CommandList>()?)]);
-        let done: ID3D12Fence = device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?;
-        queue.Signal(&done, 1)?;
-        until("the upload", || done.GetCompletedValue() >= 1)?;
-        Ok(texture)
-    }
-}
-
-/// The D3D12 display driver opens each ring texture and fence with `OpenSharedHandle` on its
-/// own device, copies into the texture on a copy queue and signals the written fence. The flags
-/// the D3D11 driver needs must not get in its way, and the host must read the driver's pixels.
-#[test]
-#[ignore = "requires an AMD GPU with native D3D12 sharing; the second device is made in this process, no driver is installed"]
-fn fence_ring_textures_open_on_a_second_d3d12_device_like_the_d3d12_driver_opens_them() -> Result<()>
-{
-    let _com = ComGuard::new()?;
-    let gpu = Device::new("")?;
-    let device = independent_device(&gpu)?;
-    for pixel in [Pixel::Bgra8, Pixel::RgbaF16] {
-        let format = crate::compute::format(pixel);
-        let ring = Ring::fenced(
-            gpu.compute.clone(),
-            Layout {
-                slot_count: 2,
-                width: 64,
-                height: 32,
-                format: format.0 as u32,
-                generation: 1,
-            },
-            release_queue(&gpu, None),
-        )?;
-        let fences = ring.fences.clone();
-        let header = ring.section.header();
-        let mut driver = FakeDriver::open_on(&ring, device.clone())?;
-        let mut consumer = Consumer::new(1, 2);
-        for (frame, value) in [(1u32, 40u8), (2, 80), (3, 120)] {
-            let expected = pixels(64, 32, pixel, value);
-            let source = texture_on(&device, &expected, DXGI_FORMAT(format.0))?;
-            let seq = driver.push(&header, &source)?.context("a free slot")?;
-            assert_eq!(seq, frame);
-            let (index, claimed) = consumer.claim(&header).context("the newest frame")?;
-            assert_eq!(claimed, seq);
-            consumer.consumed(u64::from(seq));
-            // The host waits for the other device's written fence, then reads its pixels.
-            let lent = Lent {
-                fences: fences.clone(),
-                slot: index,
-                seq,
-            };
-            let image = lend_fenced(&gpu, &ring.slots[index].texture, lent, fences.written(seq))?;
-            assert_eq!(
-                image.readback(&mut None)?.bytes,
-                expected.bytes,
-                "{pixel:?} frame {frame}"
-            );
-            drop(image);
-            let ring::SlotState::Free { release } = header.slot_state(index) else {
-                bail!("slot {index} still held: {:?}", header.slot_state(index));
-            };
-            until("the released fence", || driver.released() >= release)?;
+        let published = Instant::now();
+        let image = claim_image(&gpu, &ring, &mut consumer, lender.as_ref())?;
+        let claimed = Instant::now();
+        let input = compute.open(&image.texture)?;
+        converter
+            .convert(&input, crate::compute::format(pixel), None, &image)?
+            .wait()?;
+        let after = Instant::now();
+        if sample >= WARMUP {
+            completed.push(after.duration_since(before).as_secs_f64() * 1e6);
+            claims.push(claimed.duration_since(published).as_secs_f64() * 1e6);
+            submits.push(published.duration_since(before).as_secs_f64() * 1e6);
+        }
+        if sample + 1 == WARMUP + SAMPLES {
+            assert_eq!(image.readback(&mut None)?.bytes, expected[sample % 2].bytes);
+        }
+        drop(image);
+        let period = Duration::from_nanos(1_000_000_000 / 120);
+        if let Some(rest) = period.checked_sub(before.elapsed()) {
+            std::thread::sleep(rest);
         }
     }
+    completed.sort_by(f64::total_cmp);
+    let mean = |values: &[f64]| values.iter().sum::<f64>() / values.len() as f64;
+    println!(
+        "fence_transport_probe kind={kind:?} pixel={pixel:?} round={round} samples={SAMPLES} producer_us={:.3} claim_us={:.3} complete_mean_us={:.3} complete_p95_us={:.3} complete_p99_us={:.3}",
+        mean(&submits),
+        mean(&claims),
+        mean(&completed),
+        completed[SAMPLES * 95 / 100],
+        completed[SAMPLES * 99 / 100]
+    );
     Ok(())
 }
 
-/// `compute_queue_realtime` is read once, when the shared compute queue is made, so the stream's
-/// priority must be configured before the capture device exists. Hardware cannot show this
-/// without a display driver, so the order in the source is pinned.
 #[test]
-fn a_stream_configures_gpu_priority_before_it_creates_the_compute_queue() {
-    let source = include_str!("../idd_push.rs");
-    let configure = source
-        .find("crate::gpu_priority::configure(config)")
-        .expect("the stream configures GPU priority");
-    let device = source
-        .find("Device::for_display(")
-        .expect("the stream opens the capture device");
-    assert!(
-        configure < device,
-        "configure GPU priority before Device::for_display"
-    );
+#[ignore = "short ABBA GPU transport measurement, 1440p SDR/HDR; no installed driver changes"]
+fn keyed_and_fenced_transport_abba_probe() -> Result<()> {
+    let _com = ComGuard::new()?;
+    for pixel in [Pixel::Bgra8, Pixel::RgbaF16] {
+        for (round, kind) in [Kind::KeyedMutex, Kind::Fence, Kind::Fence, Kind::KeyedMutex]
+            .into_iter()
+            .enumerate()
+        {
+            transport_probe(kind, pixel, round + 1)?;
+        }
+    }
+    Ok(())
 }

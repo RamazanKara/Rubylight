@@ -112,7 +112,7 @@ mod tests {
         let warnings = Warnings::default();
         warnings.clear("encoder_recovery");
         assert_eq!(warnings.present.load(Ordering::Relaxed), 0);
-        warnings.set("display_virtual", "Display refresh differs");
+        warnings.set("display_virtual", "Physical display in use");
         warnings.event("network_send", "Packets dropped", Duration::ZERO);
         // An expired event disappears; a lasting condition stays.
         assert_eq!(
@@ -137,19 +137,19 @@ mod tests {
     #[test]
     fn warnings_survive_preparation_and_clear_after_recovery() {
         let launch = launch("warnings", Role::Stream);
-        launch.warnings.set("display", "Display refresh differs");
+        launch.warnings.set("display", "Physical display in use");
         let session = Session::new(launch.clone(), Negotiated::default());
         *session.encoder.write().unwrap() = "amf".into();
         let capture = Arc::new(Warnings::default());
         *session.capture_warnings.write().unwrap() = capture.clone();
-        capture.set("capture", "Capture interrupted");
-        launch.warnings.set("display", "Display refresh differs");
+        capture.set("capture", "Desktop Duplication in use");
+        launch.warnings.set("display", "Physical display in use");
         assert_eq!(session.info()["encoder"], "amf");
         assert_eq!(
             session.info()["warnings"],
             serde_json::json!([
-                {"code":"display", "message":"Display refresh differs"},
-                {"code":"capture", "message":"Capture interrupted"}
+                {"code":"display", "message":"Physical display in use"},
+                {"code":"capture", "message":"Desktop Duplication in use"}
             ])
         );
         capture.set("capture", "Capture recovering");

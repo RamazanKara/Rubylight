@@ -4,7 +4,8 @@
 [punktfunk](https://github.com/unom/punktfunk)'s `pf-vdisplay` by Enrico Bühler (unom),
 MIT OR Apache-2.0 (see `LICENSE-MIT`, `LICENSE-APACHE`). It creates virtual monitors on the
 Rubylight host's request and pushes every frame Windows composes for them to the host
-through shared GPU textures, which the host converts and encodes directly.
+through shared GPU textures, so the host converts and encodes them without WGC or Desktop
+Duplication.
 
 It is the host's only virtual display driver: every display the host creates for a stream
 comes from it, and the host reads those displays through its frame push. Setup installs it
@@ -35,40 +36,25 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
 
 ## How frames reach the host
 
-The fence ring (see [GPU fence transport](#gpu-fence-transport)) works like this:
+The standard transport uses keyed mutexes and remains the default:
 
 1. The host creates the display with `IOCTL_ADD` and
    keeps it alive with `IOCTL_HEARTBEAT` every second. A monitor belongs to the process that
    created it and departs when that process closes its handles or goes silent for 10 s.
-2. The capture backend `idd-push` creates, on the capture GPU's D3D12 device, four shared
-   textures, two shared fences (*written* and *released*), a one-page header section and an
-   event. It duplicates them into the driver's WUDFHost (its pid comes with the ADD reply) and
-   hands them over with `IOCTL_SET_FENCE_RING`. The driver owns the handles if, and only if,
-   that succeeds, and opens them on its own D3D12 device (`ID3D12Device::OpenSharedHandle`).
-3. The driver renders on D3D12 through IddCx 1.11's D3D12 swap chain: it binds its device with
-   `IddCxSwapChainSetDevice2` and receives each composed frame as `pD3D12Surface`. Every
-   `IddCxSwapChainReleaseAndAcquireBuffer2` names the one queue that reads the surface (a copy
-   queue per swap chain, at high priority; WUDFHost may not raise it to global realtime), so
-   the OS orders its writes to the surface before the driver's read, and nothing else is
-   submitted there.
-4. Each texture has a state word in the header, changed only by compare-and-swap: free (with
-   the released-fence value its last read ends at), writing, published or reading. For every
-   frame the driver takes a free texture whose value the released fence has reached
-   (`ID3D12Fence::GetCompletedValue`, never a wait), or reclaims the oldest published one the
-   host has not claimed. It copies the surface into it on the copy queue and signals the
-   written fence with the frame's sequence on the same queue, writes the sequence and the
-   frame's timing into the header, marks the texture published, publishes the slot and sets
-   the event. It never waits on the host or the GPU; with no texture to take, or every command
-   list of the copy queue still on the GPU, it drops the frame.
-5. The host claims the newest published slot, moving it to reading. Its compute queue waits for
-   the written fence on the GPU and converts the texture in place. Several streams' conversions
-   or a readback can read one frame: after the last of those reads the host signals the
-   released fence on the same queue and frees the slot with that value. With
-   `idd_push_zero_copy = false` a host compute queue instead waits for the written fence,
-   copies the texture into the host's own pool and signals the released fence behind the
-   copy, so the slot is free again at once. The image's present stamp is the driver's
-   acquire: IddCx's `PresentDisplayQPCTime` is the scan-out, about 6.8 ms later on a 120 Hz
-   display.
+2. The capture backend `idd-push` creates four `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` textures
+   on the GPU that renders the monitor, a one-page header section and an event, duplicates
+   them into the driver's WUDFHost (its pid comes with the ADD reply) and hands them over
+   with `IOCTL_SET_FRAME_RING`. The driver owns the handles if, and only if, that succeeds.
+3. For every frame from `IddCxSwapChainReleaseAndAcquireBuffer2` the driver takes a texture
+   whose keyed mutex it can get with key 0 (or reclaims the oldest unconsumed one with key 1),
+   copies the surface into it, writes the sequence and `PresentDisplayQPCTime` into the header,
+   releases with key 1, publishes the slot and sets the event. It never waits on the host.
+4. The host takes the newest published slot with key 1. On AMD its compute conversion reads
+   the texture in place: the host keeps the mutex until the conversion that read it is done,
+   then releases with key 0 (`idd_push_zero_copy = false` copies instead). Elsewhere it
+   copies the texture into its own pool and releases at once. The image's present stamp is
+   the driver's acquire: IddCx's `PresentDisplayQPCTime` is the scan-out, about 6.8 ms later
+   on a 120 Hz display.
 
 Four textures let capture overlap the host's GPU reads. If every slot is busy, the driver
 keeps the newest image in its own texture, copying it before reporting the IddCx frame
@@ -78,17 +64,8 @@ by a new frame, ring replacement or stop. A final desktop update can therefore r
 host after a slot becomes free even if Windows stops presenting the static desktop.
 Retries keep the original present/acquire timestamps and do not add acquisitions or
 dropped frames to the counters. Success stops retries; a newer acquisition supersedes
-the saved image. With no pending image that fits the ring, the normal idle heartbeat wait
-remains 125 ms.
-
-A host before `CAP_FENCE_RING` sends the older keyed-mutex ring (`IOCTL_SET_FRAME_RING`), which
-this driver refuses before adopting any handle (`STATUS_NOT_SUPPORTED`); the driver never
-reports `CAP_FRAME_RING`. A 3.0 host sends only the fence ring.
-
-The driver loads only where the OS reports the D3D12 swap chain: `DriverEntry` logs the IddCx
-framework version and `IddCxCheckOsFeatureSupport`'s answer, and fails with
-`STATUS_NOT_SUPPORTED` without it (`IddMinimumVersionRequired` is 11). Setup then reports that
-Windows did not start the driver.
+the saved image. This applies to both transports. With no pending image that fits the
+ring, the normal idle heartbeat wait remains 125 ms.
 
 `idd_push=debug` logs the counters every 5 s (acquired, pushed, dropped, overwritten), and
 `idd_push=trace` each frame's driver time (acquire to publish) and handoff (publish to the
@@ -123,43 +100,43 @@ The lifecycle and restart-selection policies have ordinary tests. Real sleep, hi
 PnP restart and multi-session capture still require separate hardware validation of the
 installed driver; compiling the DLL does not perform those transitions.
 
-### GPU fence transport
+### Optional GPU fence transport
 
-The fence ring is the only transport from this driver to the host. There is no setting for it
-(`idd_push_fence_ring` is retired and dropped from `sunshine.conf` with a report). It
-requires the driver capability `CAP_FENCE_RING`; a driver without it, such as an update
-that runs only after Windows restarts, makes the host refuse the stream and the console
-says to restart Windows and, if that does not help, to run Rubylight setup again to repair
-the display driver. The host's compute conversion reads the
-textures in place (`idd_push_zero_copy = true`, the default) or its compute queue copies
-them (`false`).
+The advanced Video setting **Experimental GPU fence transport** (`idd_push_fence_ring =
+true`) selects an additional transport for this driver's displays with `capture = auto`
+or `idd-push`. It defaults to `false`. End every stream before changing it, then start a
+new stream. It requires the driver capability `CAP_FENCE_RING`, compatible AMD compute
+capture (`gpu_compute_conversion = true`) and in-place reads (`idd_push_zero_copy = true`).
+An older display driver or an incompatible capture device keeps the standard transport
+and produces a console warning.
 
-The driver acquires and copies frames on **D3D12** (IddCx 1.11's D3D12 swap chain). The host
-creates D3D12-owned shared textures and two shared fences, then submits them with
-`IOCTL_SET_FENCE_RING` (`0xB0C`). The textures carry `ALLOW_RENDER_TARGET` and
-`ALLOW_SIMULTANEOUS_ACCESS`, so the D3D11 driver of 2.6 opens them with
-`OpenSharedResource1` and this driver with `OpenSharedHandle`. Atomic slot ownership prevents a producer overwrite while
+The driver continues acquiring and copying frames with **D3D11**. The host creates
+D3D12-owned shared textures and two shared fences, then submits them with
+`IOCTL_SET_FENCE_RING` (`0xB0C`). Atomic slot ownership prevents a producer overwrite while
 any host reader holds the image. A written fence orders conversion after the driver's
 copy; a release fence covers the last compute and graphics readers before the driver can
 reuse a returned slot. The driver picks another free slot or drops a frame instead of
 waiting for the host. The ring is replaced before its frame sequence could wrap.
 
-The driver needs IddCx 1.11 on the PC (see above). The transport itself is unchanged by
-that: a 3.0 host works with the D3D11 driver of 2.6 too, as long as that driver has
-`CAP_FENCE_RING`. Generation-scoped ring cleanup uses `IOCTL_CLEAR_FRAME_RING_GENERATION`
-(`0xB0B`).
+This option does not use IddCx's native D3D12 swap-chain API and does not add an IddCx 1.11
+requirement. WGC, Desktop Duplication, every encoder choice and the existing keyed IOCTL
+remain available. Driver and host capability negotiation allow an old host to use the new
+driver's keyed path, and a new host to use an old driver's keyed path. Generation-scoped
+ring cleanup uses `IOCTL_CLEAR_FRAME_RING_GENERATION` (`0xB0B`) when supported.
 
-If fence setup, shared-resource opening or the first frame fails, the host reports the
-failure and ends the stream; it does not fall back to another transport. A failed GPU
-ordering operation retires the ring without releasing a potentially busy texture. Device
-loss follows the normal capture recovery path.
+If fence setup, shared-resource opening or the first frame fails, the host retries the
+standard keyed ring. A failed GPU ordering operation also retires the fence ring without
+releasing a potentially busy texture. Device loss follows the normal capture recovery
+path, and the existing WGC fallback still applies if driver capture cannot recover. A
+console warning identifies fallback; enabling the setting alone does not prove the
+fence path is active.
 
 The two-device native tests in `rust/windows/src/capture/idd_push/fence_tests.rs` cover
 SDR/HDR pixels, multiple readers, ring replacement and delayed GPU completion without
 installing a driver. Its ignored ABBA transport probe measures producer copy through
 completed conversion. These component checks do not establish latency or picture quality
-for a live IddCx stream, encoder, network or receiver; the installed-driver evidence comes
-from the 3.0 alpha.1 hardware gate.
+for a live IddCx stream, encoder, network or receiver. Keep this option experimental until
+those measurements justify a wider default.
 
 ## Build
 
@@ -167,10 +144,7 @@ Prerequisites (all installed on the development PC on 2026-10-15):
 
 - Visual Studio 2022 Build Tools with `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`
 - Windows Driver Kit 10.0.26100 matching the installed SDK
-  (`winget install Microsoft.WindowsWDK.10.0.26100`). IddCx 1.11, which that kit lacks, comes
-  from the pinned WDK 10.0.28000.2526 NuGet package: `driver-env.ps1` runs `fetch-iddcx.ps1`,
-  which downloads it once (SHA-256 checked) and keeps only IddCx's headers and
-  `IddCxStub.lib` in `target\iddcx-1.11`.
+  (`winget install Microsoft.WindowsWDK.10.0.26100`)
 - LLVM for bindgen (`winget install LLVM.LLVM`)
 - `rustup toolchain install 1.98.1-x86_64-pc-windows-msvc` (pinned by `rust-toolchain.toml`)
 
@@ -191,6 +165,18 @@ ordinary test suite. To run just these regressions from the repository root (no 
 ```powershell
 cargo test -p rubylight-vdisplay-proto frame_retry --locked
 ```
+
+### Probe-only builds (`RLVD_IDDCX_LIB`)
+
+The build links the newest `IddCxStub.lib` in the installed kit (IddCx 1.10, whose table ends
+at slot 35). Setting `RLVD_IDDCX_LIB` to a folder with a newer stub (IddCx 1.11 ships in the
+WDK 28000 NuGet package) links that one instead and enables the `rlvd_iddcx_newer_stub` cfg,
+so `DriverEntry` can call `IddCxCheckOsFeatureSupport` and log whether the OS reports D3D12
+swap chains. That build is **probe-only**: its client config is the 1.10 one, which
+`IddCxDeviceInitConfig` rejects, so no adapter is created. Cargo prints a warning when the
+variable is set, and `rustuild.ps1 -Package` refuses to run with it. Never package or
+install such a driver for streaming. Without the variable the probe is skipped (the 1.10
+stub has no slot for that DDI) and the log says so.
 
 ## Installing for a local test (needs the machine owner's consent)
 
@@ -228,9 +214,10 @@ pnputil /enum-devices /deviceid "Root\RubylightVDisplay" /drivers
 ```
 
 `pnputil` has no command that creates a root-enumerated device, so `devcon install` creates
-the `Root\RubylightVDisplay` devnode and binds the driver. The host needs no setting: every
-stream captures through the frame push, and a failed push ends the stream with a console
-warning.
+the `Root\RubylightVDisplay` devnode and binds the driver. The host needs no setting:
+`capture = auto` (the default) uses the frame push for the displays it creates, and an
+explicit `capture = wgc` or `ddx` keeps those. A failed frame push falls back to WGC with a
+console warning.
 
 If the device shows code 31, enable the UMDF log
 (`wevtutil sl Microsoft-Windows-DriverFrameworks-UserMode/Operational /e:true`), restart the
@@ -293,10 +280,9 @@ say) so it outranks the 0.1.0.x development builds, and puts it under
 `drivers\rubylight-display` with `install-local.ps1`, the bundled `nefconc.exe` and setup's
 `remove-libvirtualdisplay.ps1`:
 
-- Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM. 3.0
-  needs the driver, so `--no-display-driver` is refused, a quiet update of a 2.6.x install
-  that declined it keeps 2.6.x, and an interactive install installs it and clears that
-  record. A failure becomes a setup note, like the gamepad driver's.
+- Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM unless
+  setup ran with `--no-display-driver`. A failure becomes a setup note, like the gamepad
+  driver's.
 - Once Rubylight's device runs (no note, no restart pending), they also run
   `remove-libvirtualdisplay.ps1 -InstallerBestEffort`, which removes the libvirtualdisplay
   device, driver packages and HDR layer earlier versions installed (a note when it cannot; the
@@ -316,7 +302,8 @@ Smart App Control, S mode and App Control (WDAC) policies refuse a driver signed
 `install-local.ps1` checks for them before it makes a certificate: it installs nothing,
 removes an earlier install so no device that cannot start stays, and records why in
 `HKLM\SOFTWARE\Rubylight\VirtualDisplay` (`Problem`), with what the user can do. Setup shows
-that as its note and the console as the reason there is no virtual display; streams are refused. A fresh install that fails, or whose device does not start, is rolled back
+that as its note and the console as the reason there is no virtual display; streams use a
+physical display. A fresh install that fails, or whose device does not start, is rolled back
 and recorded the same way. A SignPath-signed release installs on Smart App Control PCs.
 
 A signed release replaces the catalog with the one SignPath signed

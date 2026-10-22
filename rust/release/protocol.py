@@ -35,12 +35,15 @@ if case.exists():
     shutil.rmtree(case)
 profile = case / 'config'; (profile / 'logs').mkdir(parents=True)
 env = os.environ.copy(); env.update(PATH=str(build) + ';' + env['PATH'], RUST_LOG='info', NO_PROXY='*')
+diag = json.loads(subprocess.check_output([str(build / 'butterpollo.exe'), '--diagnostics'], env=env, text=True))
+monitor = next(m for m in diag['monitors'] if m['primary'])
 (profile / 'sunshine.conf').write_text('\n'.join([
-    'port = 48523', 'encoder = amf', 'virtual_display_layout = extended', 'dd_resolution_option = disabled',
+    'port = 48523', 'encoder = amf', 'capture = wgc', f"output_name = {monitor['device_id']}",
+    'virtual_display_mode = disabled', 'dd_configuration_option = disabled', 'dd_resolution_option = disabled',
     'dd_refresh_rate_option = disabled', 'dd_hdr_option = disabled', 'dd_always_restore_from_golden = false',
     'frame_limiter_enable = false', 'stream_audio = false', 'upnp = false', 'enable_discovery = false',
     'vulkan_hdr_layer = false', 'system_tray = false', 'update_check_interval = 0', 'pyrowave = false', '']))
-(profile / 'apps.json').write_text(json.dumps({'apps': [{'name': 'Desktop', 'cmd': ''}]}))
+(profile / 'apps.json').write_text(json.dumps({'apps': [{'name': 'Desktop', 'cmd': '', 'virtual-display': False}]}))
 # The test fixture's account (rust/tests/interop.py), in the previous host's format.
 salt = os.urandom(8).hex()
 (profile / 'sunshine_state.json').write_text(json.dumps({'username': 'test', 'salt': salt, 'password': hashlib.sha256(('rust-smoke-only' + salt).encode()).digest()[::-1].hex().upper()}))

@@ -54,16 +54,14 @@ struct Args {
     bind: Option<IpAddr>,
     #[arg(long)]
     diagnostics: bool,
-    /// Print this PC against a release floor (butterpollo_core::floor::Pc) as JSON, then
-    /// exit. Setup runs it from the package it is about to install.
-    #[arg(long)]
-    floor_check: bool,
     #[arg(long)]
     capture_smoke: bool,
     #[arg(long)]
     encoder_smoke: Option<String>,
     #[arg(long)]
     encoder_output: Option<PathBuf>,
+    #[arg(long, default_value = "wgc")]
+    capture: String,
     #[arg(long)]
     hdr: bool,
     #[arg(long, default_value = "h264")]
@@ -96,6 +94,10 @@ struct Args {
     codec_probe_parent: Option<u32>,
     #[arg(long, hide = true)]
     open_web: Option<u16>,
+    #[arg(long, hide = true, requires = "wgc_parent")]
+    wgc_worker: Option<String>,
+    #[arg(long, hide = true, requires = "wgc_worker")]
+    wgc_parent: Option<u32>,
     #[arg(long, hide = true, num_args = 2, value_names = ["SOURCE", "TARGET"])]
     playnite_install: Option<Vec<PathBuf>>,
     #[arg(long, hide = true, value_name = "TARGET")]
@@ -120,6 +122,9 @@ fn main() -> Result<()> {
     if let Some(pipe) = &args.codec_probe_worker {
         return butterpollo_windows::codec_probe::worker(pipe, args.codec_probe_parent.unwrap());
     }
+    if let Some(pipe) = &args.wgc_worker {
+        return butterpollo_windows::capture::run_wgc_worker(pipe, args.wgc_parent.unwrap());
+    }
     if let Some(source) = &args.import_config {
         // Setup keeps this output in its log: what was left out, and why.
         tracing_subscriber::fmt()
@@ -142,14 +147,6 @@ fn main() -> Result<()> {
                 .config_dir
                 .context("display watcher requires a config directory")?,
         );
-    }
-    if args.floor_check {
-        let _com = butterpollo_windows::capture::ComGuard::new()?;
-        println!(
-            "{}",
-            serde_json::to_string(&butterpollo_windows::floor::pc()?)?
-        );
-        return Ok(());
     }
     if args.diagnostics {
         let _com = butterpollo_windows::capture::ComGuard::new()?;
@@ -436,24 +433,9 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
 fn smoke(args: &Args) -> Result<()> {
     let _com = butterpollo_windows::capture::ComGuard::new()?;
     let _priority = butterpollo_windows::capture::Priority::new();
-    // Captures come from a virtual display; the smoke test makes its own.
-    let display = args
-        .capture_smoke
-        .then(|| {
-            butterpollo_windows::display::VirtualDisplay::create(
-                &uuid::Uuid::new_v4().to_string(),
-                640,
-                480,
-                30,
-            )
-        })
-        .transpose()?;
-    let image = if let Some(display) = &display {
-        let mut capture = butterpollo_windows::capture::Capture::open(
-            &display.name,
-            args.hdr,
-            &Default::default(),
-        )?;
+    let image = if args.capture_smoke {
+        let mut capture =
+            butterpollo_windows::capture::Capture::new_format("", &args.capture, args.hdr)?;
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             if let Some(image) = capture.next_frame()? {
@@ -474,7 +456,7 @@ fn smoke(args: &Args) -> Result<()> {
             pixel: butterpollo_windows::capture::Pixel::Bgra8,
         }
     };
-    let mut output = serde_json::json!({"capture":args.capture_smoke,"width":image.width,"height":image.height,"bytes":image.bytes.len()});
+    let mut output = serde_json::json!({"capture":args.capture,"width":image.width,"height":image.height,"bytes":image.bytes.len()});
     if let Some(name) = &args.encoder_smoke {
         let cfg = butterpollo_core::rtsp::Negotiated {
             width: if args.codec == "h264" { 128 } else { 256 },

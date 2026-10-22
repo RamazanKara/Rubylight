@@ -62,7 +62,7 @@ UmdfFileObjectPolicy=AllowNullAndUnknownFileObjects
 UmdfLibraryVersion=$UMDFVERSION$
 ServiceBinary=%12%\UMDF\rubylight_vdisplay.dll
 ; "IddCx0102" is the extension's registered identity string, kept by every IddCx release.
-; The real floor is the binary's exported IddMinimumVersionRequired = 11 (IddCx 1.11).
+; The real floor is the binary's exported IddMinimumVersionRequired = 10 (IddCx 1.10).
 UmdfExtensions=IddCx0102
 
 [WUDFRD_ServiceInstall]

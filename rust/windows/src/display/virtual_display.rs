@@ -20,56 +20,8 @@ pub fn virtual_display_available() -> bool {
 pub fn ensure_virtual_display_available() -> bool {
     Control::open_recovering().is_ok()
 }
-/// The running display driver cannot stream yet: an update installed a driver that Windows
-/// loads only after a restart, and the one running lacks the fence ring (`CAP_FENCE_RING`).
-#[derive(Debug)]
-pub struct DriverRestartRequired;
-impl std::fmt::Display for DriverRestartRequired {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(DriverRestartRequired::MESSAGE)
-    }
-}
-impl std::error::Error for DriverRestartRequired {}
-impl DriverRestartRequired {
-    /// The console warning's code.
-    pub const CODE: &'static str = "display_driver_restart";
-    pub const MESSAGE: &'static str = "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows, then start the stream again. If this persists after a restart, run Rubylight setup again to repair the display driver.";
-}
-/// Whether a driver reporting `caps` can carry a stream's frames.
-pub(crate) fn fence_ring(caps: u32) -> Result<()> {
-    if caps & rubylight_vdisplay_proto::control::CAP_FENCE_RING == 0 {
-        return Err(DriverRestartRequired.into());
-    }
-    Ok(())
-}
-/// The capabilities the running display driver reports, or why it cannot be opened.
-pub fn driver_caps() -> Result<u32> {
-    Control::open().map(|control| control.info.caps)
-}
-/// Whether the driver, as [`driver_caps`] found it, can carry a stream. A driver that opens but
-/// lacks the fence ring is not ready. The error says what to do: restart Windows
-/// ([`DriverRestartRequired`]), or set the driver up again.
-pub fn driver_can_stream(opened: Result<u32>) -> Result<()> {
-    let caps = opened.map_err(|error| {
-        anyhow::anyhow!(
-            "{} Streams need it: run Rubylight setup again to repair the installation, then start the stream again.",
-            driver_problem(&error)
-        )
-    })?;
-    fence_ring(caps)
-}
-/// Every stream needs the driver, running with the fence ring.
-pub fn stream_driver_ready() -> Result<()> {
-    driver_can_stream(driver_caps())
-}
 pub fn virtual_display_status() -> serde_json::Value {
     match Control::open() {
-        Ok(control) if fence_ring(control.info.caps).is_err() => serde_json::json!({
-            "capable": true,
-            "ready": false,
-            "reason": DriverRestartRequired::MESSAGE,
-            "protocol": "rubylight",
-        }),
         Ok(control) => serde_json::json!({
             "capable": true,
             "ready": true,
@@ -807,37 +759,11 @@ impl Drop for VirtualDisplay {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn a_driver_that_opens_without_the_fence_ring_cannot_stream() {
-        use rubylight_vdisplay_proto::control::{CAP_FENCE_RING, CAP_HDR};
-        assert!(super::driver_can_stream(Ok(CAP_FENCE_RING | CAP_HDR)).is_ok());
-        let old = super::driver_can_stream(Ok(CAP_HDR)).unwrap_err();
-        assert!(old.is::<super::DriverRestartRequired>());
-        let closed = super::driver_can_stream(Err(anyhow::anyhow!("no control device")));
-        let closed = closed.unwrap_err();
-        assert!(!closed.is::<super::DriverRestartRequired>());
-        assert!(closed.to_string().contains("run Rubylight setup again"));
-    }
-    #[test]
-    fn a_driver_without_the_fence_ring_asks_for_a_restart() {
-        use rubylight_vdisplay_proto::control::{CAP_FENCE_RING, CAP_HDR, CAP_SCOPED_CLEAR};
-        assert!(super::fence_ring(CAP_FENCE_RING | CAP_HDR | CAP_SCOPED_CLEAR).is_ok());
-        for caps in [0, CAP_SCOPED_CLEAR, CAP_HDR | CAP_SCOPED_CLEAR] {
-            let error = super::fence_ring(caps).unwrap_err();
-            assert!(error.is::<super::DriverRestartRequired>(), "{caps:#x}");
-            assert!(error.to_string().contains("Restart Windows"));
-            assert!(
-                error
-                    .to_string()
-                    .contains("If this persists after a restart, run Rubylight setup again to repair the display driver.")
-            );
-        }
-    }
-    #[test]
     fn the_console_names_why_setup_did_not_install_the_driver() {
         use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
         let missing =
             anyhow::Error::new(windows::core::Error::from(ERROR_NO_MORE_ITEMS.to_hresult()));
-        let refused = "Smart App Control is on, and it refuses a display driver signed on this PC, and Rubylight streams only through it.";
+        let refused = "Smart App Control is on, and it refuses a display driver signed on this PC, so streams use a physical display.";
         assert_eq!(super::problem_text(&missing, Some(refused.into())), refused);
         // Nothing recorded, or an empty value: the error explains it.
         for recorded in [None, Some(" ".into())] {

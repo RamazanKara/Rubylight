@@ -304,9 +304,8 @@ impl Pacer {
     /// Learn the dominant phase from observed capture
     /// timestamps. Apply it only when at least 32 recent observations show
     /// capture updates arriving at least 10% faster than the requested rate.
-    /// The host enables this with `frame_pacing_source_phase`; ordinary
-    /// arrival pacing is retained whenever the observed source does not meet
-    /// those conditions.
+    /// The host enables this for WGC; ordinary arrival pacing is retained
+    /// whenever the observed source does not meet those conditions.
     pub fn with_source_phase(mut self, enabled: bool) -> Self {
         self.source_phase = enabled.then(|| SourcePhase::new(self.period));
         self
@@ -406,8 +405,7 @@ impl Pacer {
     /// must be the original repeat deadline, not the current polling time or a
     /// previously deferred deadline; the result is fixed for the same inputs.
     /// A stale prediction adds no wait. This only delays repeats, so it also
-    /// protects fresh frames without a source phase and with VRR arrival
-    /// pacing.
+    /// protects fresh frames with Desktop Duplication and VRR arrival pacing.
     pub fn repeat_deadline(
         &self,
         due: Instant,
@@ -532,12 +530,14 @@ pub fn reencode_at(
 /// again only for the client's recovery request does not: it would hold the
 /// game's next frame back by up to a period, and leave every frame for about
 /// a second after it late while the credit is repaid.
-/// Whether claims wait for the capture's learned phase
-/// (`frame_pacing_source_phase`, off by default): Rubylight's display driver
-/// pushes every composed frame, and a wait for the next one under GPU load
-/// held claims up to 1.25 periods.
-pub fn source_phase(config: &Config) -> bool {
-    config.boolean("frame_pacing_source_phase", false)
+/// Whether claims wait for the capture's learned phase, for the backend that
+/// opened. Only WGC's frames arrive on a composition beat the wait can align
+/// with: Rubylight's display driver pushes every composed frame, and a wait for
+/// the next one under GPU load held claims up to 1.25 periods. Capture `auto`
+/// is planned as WGC before it opens, so the plan cannot decide this.
+/// `frame_pacing_source_phase` set either way wins.
+pub fn source_phase(config: &Config, backend: &str) -> bool {
+    config.boolean("frame_pacing_source_phase", backend == "wgc")
 }
 
 pub fn counts_toward_rate(fresh: bool, recovery: bool) -> bool {

@@ -18,6 +18,13 @@ interface Check {
 const list = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
+const CAPTURE: Record<string, string> = {
+  'idd-push': 'Direct driver push',
+  wgc: 'Windows Graphics Capture',
+  dxgi: 'Desktop Duplication',
+  ddx: 'Desktop Duplication',
+};
+
 function encoder(meta: Metadata): Check {
   const base = { title: 'Video encoder', href: '/settings/encoders', settings: 'Encoder settings' };
   const status = meta.encoder_status;
@@ -62,28 +69,27 @@ function encoder(meta: Metadata): Check {
 function virtualDisplay(meta: Metadata): Check {
   const base = { title: 'Virtual display', href: '/settings/display', settings: 'Display settings' };
   const driver = meta.virtual_display;
+  const on = meta.capture_status.virtual_display_configured;
   const detail = driver.reason || undefined;
   if (driver.ready) {
-    return { ...base, tone: 'ok', state: 'Ready', text: 'Streams use a virtual display.', detail };
+    return on
+      ? { ...base, tone: 'ok', state: 'Ready', text: 'Streams use a virtual display.' }
+      : { ...base, tone: 'neutral', state: 'Off', text: 'The driver is ready. Streams use a physical display.' };
   }
   if (driver.capable) {
+    return { ...base, tone: 'warn', state: 'Not ready', text: "The driver is installed but isn't ready yet.", detail };
+  }
+  if (on) {
     return {
       ...base,
-      tone: 'warn',
-      state: 'Restart needed',
-      text: 'The display driver was updated and runs only after Windows restarts.',
-      help: 'Restart Windows, then start the stream again. If this persists after a restart, run Rubylight setup again to repair the display driver.',
+      tone: 'danger',
+      state: 'Unavailable',
+      text: "It's turned on, but the driver can't be opened.",
+      help: 'Check that the Rubylight service is running, or turn off the virtual display to use a monitor.',
       detail,
     };
   }
-  return {
-    ...base,
-    tone: 'danger',
-    state: 'Unavailable',
-    text: "The display driver is missing or isn't running. Streams can't start without it.",
-    help: 'Run Rubylight setup again to repair the installation.',
-    detail,
-  };
+  return { ...base, tone: 'neutral', state: 'Off', text: 'Not available. Streams use a physical display.', detail };
 }
 
 function audio(meta: Metadata): Check {
@@ -114,6 +120,34 @@ function audio(meta: Metadata): Check {
   };
 }
 
+function capture(meta: Metadata): Check {
+  const base = { title: 'Screen capture', href: '/settings/video', settings: 'Video settings' };
+  const status = meta.capture_status;
+  const backend = status.configured_backend || 'auto';
+  const method = backend === 'auto'
+    ? 'Uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays.'
+    : backend === 'idd-push'
+      ? `Prefers ${CAPTURE[backend]} on Rubylight virtual displays, with Windows capture as fallback.`
+      : `Uses ${CAPTURE[backend] ?? 'the configured capture method'}.`;
+  if (status.error) {
+    return { ...base, tone: 'danger', state: 'Error', text: `${method} Displays can't be read.`, detail: status.error };
+  }
+  const displays = status.displays?.length ?? 0;
+  if (displays) {
+    return { ...base, tone: 'ok', state: 'Ready', text: `${method} ${plural(displays, 'display', 'displays')} found.` };
+  }
+  if (status.virtual_display_configured && meta.virtual_display.ready) {
+    return { ...base, tone: 'ok', state: 'Ready', text: `${method} No monitor is on; streams use the virtual display.` };
+  }
+  return {
+    ...base,
+    tone: 'warn',
+    state: 'No display',
+    text: `${method} No active display was found.`,
+    help: 'Turn on a monitor or set up a virtual display.',
+  };
+}
+
 export function hostChecks(metadata: Metadata): Check[] {
-  return [encoder(metadata), virtualDisplay(metadata), audio(metadata)];
+  return [encoder(metadata), virtualDisplay(metadata), audio(metadata), capture(metadata)];
 }

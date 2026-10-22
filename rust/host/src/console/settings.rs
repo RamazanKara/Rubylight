@@ -53,9 +53,10 @@ pub const GLOBAL: &[Setting] = settings! {
     ]
     "Displays and HDR" => [
         "virtual_display_layout", "Virtual display layout", Choice(&["exclusive","extended","extended_primary","extended_isolated","extended_primary_isolated"]);
+        "dd_configuration_option", "Display activation", Choice(&["disabled","verify_only","ensure_active","ensure_primary","ensure_only_display"]);
         "dd_resolution_option", "Resolution policy", Choice(&["disabled","auto","manual"]);
         "dd_manual_resolution", "Manual resolution (WIDTHxHEIGHT)", Text;
-        "dd_refresh_rate_option", "Refresh policy", Choice(&["disabled","auto","manual"]);
+        "dd_refresh_rate_option", "Refresh policy", Choice(&["disabled","auto","manual","prefer_highest"]);
         "dd_manual_refresh_rate", "Manual refresh rate (supports 59.94, 119.88)", Number;
         "dd_hdr_option", "HDR policy", Choice(&["disabled","auto"]);
         "dd_hdr_request_override", "Device HDR request", Choice(&["auto","force_on","force_off"]);
@@ -64,6 +65,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "dd_config_revert_delay", "Display restore delay (milliseconds)", Number;
         "dd_paused_virtual_display_timeout_secs", "Paused display timeout (seconds; 0 keeps it)", Number;
         "dd_always_restore_from_golden", "Always restore the saved display layout", Bool;
+        "dd_activate_virtual_display", "Activate virtual display", Bool;
         "dd_virtual_display_scale", "Virtual display scale (%)", Number;
         "dd_snapshot_exclude_devices", "Devices excluded from saved layout restore", Json;
         "dd_mode_remapping", "Resolution and refresh remapping", Json;
@@ -88,9 +90,13 @@ pub const GLOBAL: &[Setting] = settings! {
         "max_bitrate", "Maximum bitrate (kbps; 0 has no configured limit)", Number;
         "limit_framerate", "Use the launch frame rate for encoding (off by default: the stream runs at the rate its request asks for)", Bool;
         "minimum_fps_target", "Minimum frame rate for an unchanged desktop", Number;
-        "frame_pacing_smoothing", "Smooth capture pacing", Bool;
+        "wgc_pacing_smoothing", "Smooth capture pacing", Bool;
         "stream_reconfigure", "Follow client size and frame rate changes", Bool;
-        "compute_queue_realtime", "Run the capture compute queue at real-time GPU priority", Bool;
+        "wgc_direct_encoder_input", "Pass GPU capture directly to the encoder", Bool;
+        "gpu_compute_conversion", "Copy and convert captures on a compute queue", Bool;
+        "idd_push_fence_ring", "Experimental GPU fence transport for direct driver push (off by default)", Bool;
+        "compute_queue_realtime", "Run that compute queue at real-time GPU priority", Bool;
+        "wgc_slot_aligned_publish", "Align capture publication to frame slots", Bool;
         "fec_percentage", "Forward error correction (%)", Number;
         "adaptive_fec", "Adapt error correction to reported packet loss", Bool;
         "pyrowave", "Enable PyroWave for compatible devices", Bool;
@@ -195,21 +201,29 @@ pub const APP: &[Setting] = settings! {
         "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","vhf_switch"]);
     ]
     "App display and frame generation" => [
-        "virtual-display-mode", "Virtual display mode", Choice(&["per_client","shared"]);
+        "display-output", "Display override (sunshine:virtual_display selects a virtual display)", Text;
+        "virtual-display", "Use a virtual display", Bool;
+        "virtual-screen", "Use app virtual display preferences", Bool;
+        "virtual-display-mode", "Virtual display mode", Choice(&["disabled","per_client","shared"]);
         "virtual-display-layout", "Virtual display layout", Choice(&["exclusive","extended","extended_primary","extended_isolated","extended_primary_isolated"]);
         "virtual-display-primary", "Make the virtual display primary", Bool;
+        "dd-configuration-option", "Display activation override", Choice(&["disabled","verify_only","ensure_active","ensure_primary","ensure_only_display"]);
         "scale-factor", "Display resolution scale (%)", Number;
         "use-app-identity", "Keep one virtual display identity for this app", Bool;
         "per-client-app-identity", "Keep a display identity for each app and device", Bool;
         "prefer-10bit-sdr", "Prefer 10-bit SDR", Bool;
         "frame-generation-mode", "Frame generation", Choice(&["none","game-provided"]);
+        "gen1-framegen-fix", "Legacy frame generation capture fix", Bool;
+        "frame-gen-limiter-fix", "Frame generation limiter fix", Bool;
     ]
 };
 pub const CLIENT: &[Setting] = settings! {
     "Device preferences" => [
+        "output_name_override", "Display override", Text;
+        "always_use_virtual_display", "Always use a virtual display", Bool;
         "remember_display_mode", "Remember the virtual display resolution chosen in Windows", Bool;
         "background_stream", "Stream in the background (isolated display, controllers only)", Bool;
-        "virtual_display_mode", "Virtual display mode", Choice(&["per_client","shared"]);
+        "virtual_display_mode", "Virtual display mode", Choice(&["disabled","per_client","shared"]);
         "virtual_display_layout", "Virtual display layout", Choice(&["exclusive","extended","extended_primary","extended_isolated","extended_primary_isolated"]);
         "prefer_10bit_sdr", "Prefer 10-bit SDR", Bool;
         "hdr_profile", "HDR ICC profile filename", Text;
@@ -268,7 +282,12 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "extended_primary" => "Extend — make virtual display primary",
                             "extended_isolated" => "Isolate — keep PC display primary",
                             "extended_primary_isolated" => "Isolate — make virtual display primary",
+                            "verify_only" => "Only check that it is on",
+                            "ensure_active" => "Turn it on",
+                            "ensure_primary" => "Turn it on and make it primary",
+                            "ensure_only_display" => "Turn it on and other displays off",
                             "manual" => "Use a fixed value",
+                            "prefer_highest" => "Highest available",
                             "force_on" => "Always on",
                             "force_off" => "Always off",
                             "rtss" => "RivaTuner Statistics Server (RTSS)",

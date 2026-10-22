@@ -347,7 +347,6 @@ fn generate_gpio(out_path: &Path, config: &Config) -> Result<(), ConfigError> {
 #[cfg(feature = "iddcx")]
 fn generate_iddcx(out_path: &Path, config: &Config) -> Result<(), ConfigError> {
     info!("Generating bindings to WDK: iddcx.rs");
-    println!("cargo::rerun-if-env-changed=RLVD_IDDCX_ROOT");
 
     let header_contents =
         config.bindgen_header_contents([ApiSubset::Base, ApiSubset::Wdf, ApiSubset::Iddcx])?;
@@ -387,10 +386,6 @@ fn generate_iddcx(out_path: &Path, config: &Config) -> Result<(), ConfigError> {
             // referenced by an OPM struct.
             .allowlist_type("_?OPM_.*")
             .allowlist_type("_?D3DCOLORVALUE")
-            // IddCx 1.11's D3D12 swap chain hands over D3D12 interfaces by pointer only; the
-            // driver casts them to its `windows` crate types.
-            .allowlist_type("ID3D12(Device|Resource|CommandQueue)")
-            .opaque_type("ID3D12.*")
     };
     trace!(bindgen_builder = ?bindgen_builder);
 

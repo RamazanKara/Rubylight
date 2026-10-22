@@ -1,58 +1,51 @@
-//! A trivial GPU round trip on a graphics queue of its own: a fence signal on an empty queue,
-//! which completes once the GPU gets to it. A stalled GPU holds it back; a host thread stuck on
-//! its own work does not.
+//! A trivial GPU round trip on a device of its own: an event query, which
+//! completes once the GPU has run everything submitted before it. A stalled
+//! GPU holds it back; a host thread stuck on its own work does not.
 use crate::capture::Device;
-use anyhow::Result;
-use std::sync::atomic::{AtomicU64, Ordering};
-use windows::Win32::Graphics::Direct3D12::*;
+use anyhow::{Context, Result};
+use windows::{Win32::Graphics::Direct3D11::*, core::BOOL};
 
 pub struct Probe {
     gpu: Device,
-    queue: ID3D12CommandQueue,
-    fence: ID3D12Fence,
-    issued: AtomicU64,
+    query: ID3D11Query,
 }
 impl Probe {
     /// On the adapter showing `display` (the primary's if it is gone).
     pub fn new(display: &str) -> Result<Self> {
         let gpu = Device::new(display)?;
-        // SAFETY: `gpu.compute.device` is a live D3D12 device and the description outlives the
-        // call.
-        let (queue, fence) = unsafe {
-            let device = &gpu.compute.device;
-            let queue: ID3D12CommandQueue =
-                device.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
-                    Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
-                    ..Default::default()
-                })?;
-            let fence: ID3D12Fence = device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?;
-            (queue, fence)
+        let desc = D3D11_QUERY_DESC {
+            Query: D3D11_QUERY_EVENT,
+            MiscFlags: 0,
         };
+        let mut query = None;
+        // SAFETY: `desc` and `query` are live locals for the call.
+        unsafe { gpu.device.CreateQuery(&desc, Some(&mut query))? };
         Ok(Self {
             gpu,
-            queue,
-            fence,
-            issued: AtomicU64::new(0),
+            query: query.context("D3D11 returned no event query")?,
         })
     }
-    /// Submits the round trip to the GPU.
+    /// Submits the query to the GPU.
     pub fn issue(&self) {
-        let value = self.issued.load(Ordering::Relaxed) + 1;
-        // SAFETY: the queue and fence are on the same live device.
-        if unsafe { self.queue.Signal(&self.fence, value) }.is_ok() {
-            self.issued.store(value, Ordering::Relaxed);
+        // SAFETY: the query belongs to this device; only this probe uses its context.
+        unsafe {
+            self.gpu.context.End(&self.query);
+            self.gpu.context.Flush();
         }
     }
-    /// Whether the GPU has reached the round trip issued last.
+    /// Whether the GPU has reached the query issued last.
     pub fn done(&self) -> Result<bool> {
-        // SAFETY: a plain read of a live fence.
-        let completed = unsafe { self.fence.GetCompletedValue() };
-        // A removed device signals its fences to the maximum.
-        if completed == u64::MAX
-            && let Some(loss) = crate::device_loss::DeviceLost::d3d12(&self.gpu.compute.device)
-        {
-            return Err(loss.into());
-        }
-        Ok(completed >= self.issued.load(Ordering::Relaxed))
+        let mut done = BOOL(0);
+        // SAFETY: an event query writes one BOOL into the live local `done`,
+        // and only when it has completed.
+        unsafe {
+            self.gpu.context.GetData(
+                &self.query,
+                Some((&raw mut done).cast()),
+                size_of::<BOOL>() as u32,
+                0,
+            )?
+        };
+        Ok(done.as_bool())
     }
 }

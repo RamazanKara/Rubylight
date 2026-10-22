@@ -1,9 +1,7 @@
-//! Independent pixel-coverage checks of the D3D12 downscale filter.
-use super::{tests::p010_codes, *};
-use crate::capture::{ComGuard, Device, GpuImage, Image, Pixel};
-use std::time::Instant;
+//! Independent pixel-coverage checks and a short old/new shader comparison.
+use super::*;
 
-pub(super) fn pattern(width: usize, height: usize, phase: usize, hdr: bool) -> (Image, Vec<f64>) {
+fn pattern(width: usize, height: usize, phase: usize, hdr: bool) -> (Image, Vec<f64>) {
     let samples: Vec<_> = (0..width * height)
         .map(|i| {
             let (x, y) = (i % width, i / width);
@@ -151,6 +149,64 @@ fn downscale_reference_covers_pixels_skipped_by_bilinear() {
     assert_eq!(coverage(&[0., 0., 0., 1.], 2, 2, [1., 1., 3., 3.]), 1.);
 }
 
+/// Compile the former bilinear resize path into an otherwise identical shader,
+/// so comparison does not depend on a stale release or GPU settings. Bypass new
+/// integer fast paths too: the baseline must not accidentally use them.
+fn baseline_compute(gpu: &Device) -> Result<ID3D11ComputeShader> {
+    let needle = "rgb = resize(p, footprint);";
+    assert_eq!(SHADER.matches(needle).count(), 1);
+    let mut source = SHADER.replace(needle, "rgb = bilinear(p);");
+    for condition in [
+        "all(sourceSize == targetSize * 2)",
+        "all(sourceSize == targetSize * 3)",
+    ] {
+        assert_eq!(source.matches(condition).count(), 1);
+        source = source.replace(condition, "false");
+    }
+    // SAFETY: All shader strings and output slots remain live for their calls;
+    // the returned shader belongs to this live D3D11 device.
+    unsafe {
+        let mut bytecode = None;
+        let mut errors = None;
+        let result = D3DCompile(
+            source.as_ptr().cast(),
+            source.len(),
+            PCSTR::null(),
+            None,
+            None,
+            PCSTR(c"yuv420_cs".as_ptr().cast()),
+            PCSTR(c"cs_5_0".as_ptr().cast()),
+            D3DCOMPILE_OPTIMIZATION_LEVEL3,
+            0,
+            &mut bytecode,
+            Some(&mut errors),
+        );
+        if let Err(error) = result {
+            let detail = errors
+                .map(|blob| {
+                    String::from_utf8_lossy(std::slice::from_raw_parts(
+                        blob.GetBufferPointer().cast(),
+                        blob.GetBufferSize(),
+                    ))
+                    .into_owned()
+                })
+                .unwrap_or_default();
+            bail!("baseline shader: {error}: {detail}");
+        }
+        let bytecode = bytecode.context("baseline shader returned no bytecode")?;
+        let mut shader = None;
+        gpu.device.CreateComputeShader(
+            std::slice::from_raw_parts(
+                bytecode.GetBufferPointer().cast(),
+                bytecode.GetBufferSize(),
+            ),
+            None,
+            Some(&mut shader),
+        )?;
+        shader.context("no baseline compute shader")
+    }
+}
+
 fn error(actual: &[u16], expected: &[u16]) -> serde_json::Value {
     let squared = actual
         .iter()
@@ -166,11 +222,12 @@ fn error(actual: &[u16], expected: &[u16]) -> serde_json::Value {
 }
 
 #[test]
-#[ignore = "requires D3D12 compute with native P010 views; no display or encoder changes"]
+#[ignore = "requires D3D11/D3D12 native P010 views; no display or encoder changes"]
 fn gpu_downscale_coverage_matches_independent_reference() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    let compute = &gpu.compute;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    let baseline_shader = baseline_compute(&gpu)?;
     let mut reports = Vec::new();
     for hdr in [false, true] {
         for (source_width, source_height, width, height) in [
@@ -196,37 +253,118 @@ fn gpu_downscale_coverage_matches_independent_reference() -> Result<()> {
             };
             let pixel = if hdr { Pixel::RgbaF16 } else { Pixel::Bgra8 };
             let shape = (source_width, source_height, pixel);
-            let mut converter = Converter::new(compute.clone(), width, height, true)?;
-            converter.values = constants(&config, shape, [100., 1.]);
+            let mut graphics = Converter::new(&gpu, &config, shape)?;
+            graphics.compute = None;
+            let mut single = Converter::new(&gpu, &config, shape)?;
+            assert!(single.compute.is_some());
+            let mut baseline = Converter::new(&gpu, &config, shape)?;
+            baseline.compute = Some(baseline_shader.clone());
+            let mut d3d12 = crate::compute::Converter::new(compute.clone(), width, height, true)?;
+            d3d12.values = constants(&config, shape, [100., 1.], None);
             for phase in 0..3 {
                 let (image, samples) =
                     pattern(source_width as usize, source_height as usize, phase, hdr);
                 let source = GpuImage::upload(&gpu, &image)?;
+                // Complete upload before the independently owned D3D12 queue
+                // reads this texture; ordinary capture supplies its own fence.
+                source.readback(&mut None)?;
                 let expected = reference(
                     &samples,
                     (source_width as usize, source_height as usize),
                     (width as usize, height as usize),
                     hdr,
                 );
-                let converted = converter.convert(&source)?;
-                let actual = p010_codes(compute, &converted)?;
-                converter.release_completed();
-                assert_eq!(actual.len(), expected.len());
-                for (index, (a, e)) in actual.iter().zip(&expected).enumerate() {
-                    assert!(
-                        a.abs_diff(*e) <= 1,
-                        "{source_width}x{source_height} -> {width}x{height} HDR={hdr} phase={phase} index={index}: {a} versus {e}"
-                    );
+                let old = readback(&gpu, baseline.convert(&source)?.as_ref())?;
+                let d3d11 = readback(&gpu, single.convert(&source)?.as_ref())?;
+                let pixel_pass = readback(&gpu, graphics.convert(&source)?.as_ref())?;
+                let opened = compute.open(&source.texture)?;
+                let converted =
+                    d3d12.convert(&opened, crate::compute::format(pixel), None, &source)?;
+                converted.wait()?;
+                let compute_pass = readback_compute(&compute, &converted.texture)?;
+                for (name, actual) in [
+                    ("D3D11 compute", &d3d11),
+                    ("D3D11 pixel", &pixel_pass),
+                    ("D3D12 compute", &compute_pass),
+                ] {
+                    assert_eq!(actual.len(), expected.len());
+                    for (index, (a, e)) in actual.iter().zip(&expected).enumerate() {
+                        assert!(
+                            a.abs_diff(*e) <= 1,
+                            "{name} {source_width}x{source_height} -> {width}x{height} HDR={hdr} phase={phase} index={index}: {a} versus {e}"
+                        );
+                    }
+                }
+                if source_width == 96
+                    && matches!((width, height), (96, 48) | (144, 72) | (48, 24) | (8, 4))
+                {
+                    assert_eq!(d3d11, old, "native/enlargement/2x/extreme compatibility");
                 }
                 let luma = (width * height) as usize;
                 reports.push(
                     serde_json::json!({"source_width":source_width,"source_height":source_height,"width":width,"height":height,"hdr":hdr,"phase":phase,
-                    "candidate":error(&actual[..luma], &expected[..luma])}),
+                    "baseline":error(&old[..luma], &expected[..luma]),
+                    "candidate":error(&d3d11[..luma], &expected[..luma])}),
                 );
             }
         }
     }
-    let report = serde_json::json!({"scope":"GPU luma versus independent exact pixel coverage; grayscale scrolling patterns, 10-bit SDR and linear-light HDR; all Y/UV samples verified on D3D12 compute. Native/enlargement/extreme reduction are compatibility controls. Excludes encoding and perceptual/game quality.","adapter":gpu.display.adapter,"cases":reports});
+    let report = serde_json::json!({"scope":"GPU luma versus independent exact pixel coverage; grayscale scrolling patterns, 10-bit SDR and linear-light HDR; all Y/UV samples verified on D3D11 pixel/compute and D3D12 compute. Native/enlargement/2x/extreme reduction are compatibility controls. Excludes encoding and perceptual/game quality.","adapter":gpu.display.adapter,"cases":reports});
+    eprintln!("{report}");
+    if let Some(path) = std::env::var_os("BUTTERPOLLO_TEST_DOWNSCALE_REPORT") {
+        std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires native D3D11 video UAVs and an idle GPU; no display changes"]
+fn gpu_downscale_timing() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let baseline_shader = baseline_compute(&gpu)?;
+    let mut cases = Vec::new();
+    for hdr in [false, true] {
+        let (image, _) = pattern(3840, 2160, 0, hdr);
+        let source = GpuImage::upload(&gpu, &image)?;
+        source.readback(&mut None)?;
+        for (width, height) in [
+            (3840, 2160),
+            (2560, 1440),
+            (1920, 1080),
+            (1280, 720),
+            (480, 270),
+        ] {
+            let config = butterpollo_core::rtsp::Negotiated {
+                width,
+                height,
+                codec: 1,
+                hdr,
+                sdr_10bit: !hdr,
+                ..Default::default()
+            };
+            let shape = (image.width, image.height, image.pixel);
+            let mut candidate = Converter::new(&gpu, &config, shape)?;
+            assert!(candidate.compute.is_some());
+            let mut baseline = Converter::new(&gpu, &config, shape)?;
+            baseline.compute = Some(baseline_shader.clone());
+            let mut runs = Vec::new();
+            for improved in [false, true, true, false] {
+                let converter = if improved {
+                    &mut candidate
+                } else {
+                    &mut baseline
+                };
+                let stats = time_conversion(&gpu, || {
+                    converter.convert(&source)?;
+                    Ok(())
+                })?;
+                runs.push(serde_json::json!({"area_filter":improved,"stats":stats}));
+            }
+            cases.push(serde_json::json!({"width":width,"height":height,"hdr":hdr,"runs":runs}));
+        }
+    }
+    let report = serde_json::json!({"scope":"Identical D3D11 compute conversion except area versus previous bilinear resize; 4K source, ABBA, 128 GPU timestamps per arm; excludes capture, encoder, network, decoder and GPU game load.","adapter":gpu.display.adapter,"cases":cases});
     eprintln!("{report}");
     if let Some(path) = std::env::var_os("BUTTERPOLLO_TEST_DOWNSCALE_REPORT") {
         std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;

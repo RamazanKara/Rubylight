@@ -1,11 +1,6 @@
-use super::{tests::make_image, *};
-use crate::capture::{ComGuard, Device, GpuImage};
+use super::*;
 use butterpollo_core::{packet::VideoPacketizer, rtsp::Negotiated};
-use std::time::{Duration, Instant};
-use windows::{
-    Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile},
-    core::PCSTR,
-};
+use std::time::Duration;
 
 #[test]
 #[ignore = "renders a synthetic 1440p scene and compares twelve bounded AMD encoding runs"]
@@ -28,8 +23,11 @@ fn compare(width: u32, height: u32, fps: usize, bitrate_kbps: u32) -> Result<()>
     )?;
     let source = br#"
 cbuffer Scene : register(b0) { float width; float height; float time; float hdr; };
-RWTexture2D<float4> output : register(u0);
-float4 shade(float4 position) {
+float4 vertex(uint id : SV_VertexID) : SV_Position {
+    float2 p = float2((id << 1) & 2, id & 2);
+    return float4(p * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+float4 pixel(float4 position : SV_Position) : SV_Target {
     float2 uv = (2 * position.xy - float2(width, height)) / height;
     float3 origin = float3(sin(time * 0.4), 1.5, time * 1.5);
     float3 ray = normalize(float3(uv.x, -uv.y - 0.25, 1.5));
@@ -58,14 +56,73 @@ float4 shade(float4 position) {
     }
     return float4(rgb, 1);
 }
-[numthreads(8, 8, 1)]
-void scene(uint3 id : SV_DispatchThreadID) {
-    if (id.x < uint(width) && id.y < uint(height)) {
-        output[id.xy] = shade(float4(id.x + 0.5, id.y + 0.5, 0, 1));
-    }
-}
 "#;
-    let scene = Scene::new(&gpu, &mut image, source)?;
+    // SAFETY: The descriptors and shader bytes outlive each D3D11 call. All resources
+    // belong to this device and are used only on this test's thread.
+    let (target, vertex, pixel, constants) = unsafe {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        image.texture.GetDesc(&mut desc);
+        desc.BindFlags |= D3D11_BIND_RENDER_TARGET.0 as u32;
+        let mut texture = None;
+        gpu.device
+            .CreateTexture2D(&desc, None, Some(&mut texture))?;
+        image.texture = Arc::new(texture.context("synthetic scene texture")?);
+        let mut target = None;
+        gpu.device
+            .CreateRenderTargetView(image.texture.as_ref(), None, Some(&mut target))?;
+        let mut bytecode = Vec::new();
+        for (entry, profile) in [
+            (b"vertex\0".as_slice(), b"vs_5_0\0".as_slice()),
+            (b"pixel\0", b"ps_5_0\0"),
+        ] {
+            let mut code = None;
+            D3DCompile(
+                source.as_ptr().cast(),
+                source.len(),
+                PCSTR::null(),
+                None,
+                None,
+                PCSTR(entry.as_ptr()),
+                PCSTR(profile.as_ptr()),
+                D3DCOMPILE_OPTIMIZATION_LEVEL3,
+                0,
+                &mut code,
+                None,
+            )
+            .context("compile synthetic scene shader")?;
+            let code = code.context("synthetic scene shader")?;
+            bytecode.push(
+                std::slice::from_raw_parts(
+                    code.GetBufferPointer().cast::<u8>(),
+                    code.GetBufferSize(),
+                )
+                .to_vec(),
+            );
+        }
+        let mut vertex = None;
+        let mut pixel = None;
+        gpu.device
+            .CreateVertexShader(&bytecode[0], None, Some(&mut vertex))?;
+        gpu.device
+            .CreatePixelShader(&bytecode[1], None, Some(&mut pixel))?;
+        let mut constants = None;
+        gpu.device.CreateBuffer(
+            &D3D11_BUFFER_DESC {
+                ByteWidth: 16,
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
+                ..Default::default()
+            },
+            None,
+            Some(&mut constants),
+        )?;
+        (
+            target.context("scene target")?,
+            vertex.unwrap(),
+            pixel.unwrap(),
+            constants.unwrap(),
+        )
+    };
     let timer = crate::timing::Timer::new()?;
     let period = Duration::from_nanos(1_000_000_000 / fps as u64);
     let mut accepted = true;
@@ -150,9 +207,27 @@ void scene(uint3 id : SV_DispatchThreadID) {
                         frame as f32 / fps as f32,
                         u8::from(hdr) as f32,
                     ];
-                    // The scene and the conversion share the compute queue, so the next draw
-                    // cannot overwrite a pending read, and the conversion waits for the scene.
-                    scene.render(&gpu.compute, &mut image, values)?;
+                    // SAFETY: This thread submits both the scene and conversion on the same
+                    // immediate context, so the next draw cannot overwrite a pending read.
+                    unsafe {
+                        let c = &gpu.context;
+                        c.UpdateSubresource(&constants, 0, None, values.as_ptr().cast(), 0, 0);
+                        c.IASetInputLayout(None);
+                        c.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                        c.VSSetShader(&vertex, None);
+                        c.PSSetShader(&pixel, None);
+                        c.PSSetConstantBuffers(0, Some(&[Some(constants.clone())]));
+                        c.OMSetRenderTargets(Some(&[Some(target.clone())]), None);
+                        c.RSSetViewports(Some(&[D3D11_VIEWPORT {
+                            Width: width as f32,
+                            Height: height as f32,
+                            MinDepth: 0.,
+                            MaxDepth: 1.,
+                            ..Default::default()
+                        }]));
+                        c.Draw(3, 0);
+                        c.OMSetRenderTargets(None, None);
+                    }
                     received += consume(encoder.encode_gpu(
                         &image,
                         frame % (fps * 2) == 0,
@@ -215,204 +290,4 @@ void scene(uint3 id : SV_DispatchThreadID) {
         "synthetic host performance gate failed; keep packed mode experimental and disabled by default"
     );
     Ok(())
-}
-
-/// The synthetic scene as a D3D12 compute kernel that writes one FP16 texture in place.
-struct Scene {
-    root: ID3D12RootSignature,
-    pipeline: ID3D12PipelineState,
-    heap: ID3D12DescriptorHeap,
-    frames: std::cell::RefCell<Vec<(ID3D12CommandAllocator, ID3D12GraphicsCommandList, u64)>>,
-    next: std::cell::Cell<usize>,
-    size: (u32, u32),
-}
-impl Scene {
-    /// Replace `image`'s texture by one the kernel can write.
-    fn new(gpu: &Device, image: &mut GpuImage, source: &[u8]) -> Result<Self> {
-        let compute = &gpu.compute;
-        let (width, height) = (image.width, image.height);
-        // SAFETY: The descriptions and shader bytes outlive each D3D12 call, and every object
-        // belongs to the live compute device used only on this test's thread.
-        unsafe {
-            let texture = compute.texture(
-                width,
-                height,
-                DXGI_FORMAT_R16G16B16A16_FLOAT,
-                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                D3D12_HEAP_FLAG_NONE,
-            )?;
-            let mut code = None;
-            D3DCompile(
-                source.as_ptr().cast(),
-                source.len(),
-                PCSTR::null(),
-                None,
-                None,
-                PCSTR(c"scene".as_ptr().cast()),
-                PCSTR(c"cs_5_0".as_ptr().cast()),
-                D3DCOMPILE_OPTIMIZATION_LEVEL3,
-                0,
-                &mut code,
-                None,
-            )
-            .context("compile synthetic scene shader")?;
-            let code = code.context("synthetic scene shader")?;
-            let bytecode = std::slice::from_raw_parts(
-                code.GetBufferPointer().cast::<u8>(),
-                code.GetBufferSize(),
-            );
-            let range = D3D12_DESCRIPTOR_RANGE {
-                RangeType: D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
-                NumDescriptors: 1,
-                BaseShaderRegister: 0,
-                RegisterSpace: 0,
-                OffsetInDescriptorsFromTableStart: 0,
-            };
-            let parameters = [
-                D3D12_ROOT_PARAMETER {
-                    ParameterType: D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
-                    Anonymous: D3D12_ROOT_PARAMETER_0 {
-                        Constants: D3D12_ROOT_CONSTANTS {
-                            ShaderRegister: 0,
-                            RegisterSpace: 0,
-                            Num32BitValues: 4,
-                        },
-                    },
-                    ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
-                },
-                D3D12_ROOT_PARAMETER {
-                    ParameterType: D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
-                    Anonymous: D3D12_ROOT_PARAMETER_0 {
-                        DescriptorTable: D3D12_ROOT_DESCRIPTOR_TABLE {
-                            NumDescriptorRanges: 1,
-                            pDescriptorRanges: &range,
-                        },
-                    },
-                    ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
-                },
-            ];
-            let mut blob = None;
-            D3D12SerializeRootSignature(
-                &D3D12_ROOT_SIGNATURE_DESC {
-                    NumParameters: parameters.len() as u32,
-                    pParameters: parameters.as_ptr(),
-                    ..Default::default()
-                },
-                D3D_ROOT_SIGNATURE_VERSION_1,
-                &mut blob,
-                None,
-            )?;
-            let blob = blob.context("no scene root signature")?;
-            let root: ID3D12RootSignature = compute.device.CreateRootSignature(
-                0,
-                std::slice::from_raw_parts(
-                    blob.GetBufferPointer().cast::<u8>(),
-                    blob.GetBufferSize(),
-                ),
-            )?;
-            let pipeline: ID3D12PipelineState =
-                compute
-                    .device
-                    .CreateComputePipelineState(&D3D12_COMPUTE_PIPELINE_STATE_DESC {
-                        pRootSignature: std::mem::transmute_copy(&root),
-                        CS: D3D12_SHADER_BYTECODE {
-                            pShaderBytecode: bytecode.as_ptr().cast(),
-                            BytecodeLength: bytecode.len(),
-                        },
-                        ..Default::default()
-                    })?;
-            let heap: ID3D12DescriptorHeap =
-                compute
-                    .device
-                    .CreateDescriptorHeap(&D3D12_DESCRIPTOR_HEAP_DESC {
-                        Type: D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                        NumDescriptors: 1,
-                        Flags: D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
-                        NodeMask: 0,
-                    })?;
-            compute.device.CreateUnorderedAccessView(
-                &texture,
-                None,
-                Some(&D3D12_UNORDERED_ACCESS_VIEW_DESC {
-                    Format: DXGI_FORMAT_R16G16B16A16_FLOAT,
-                    ViewDimension: D3D12_UAV_DIMENSION_TEXTURE2D,
-                    Anonymous: D3D12_UNORDERED_ACCESS_VIEW_DESC_0 {
-                        Texture2D: D3D12_TEX2D_UAV {
-                            MipSlice: 0,
-                            PlaneSlice: 0,
-                        },
-                    },
-                }),
-                heap.GetCPUDescriptorHandleForHeapStart(),
-            );
-            let mut frames = Vec::new();
-            for _ in 0..4 {
-                let allocator: ID3D12CommandAllocator = compute
-                    .device
-                    .CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE)?;
-                let list: ID3D12GraphicsCommandList = compute.device.CreateCommandList(
-                    0,
-                    D3D12_COMMAND_LIST_TYPE_COMPUTE,
-                    &allocator,
-                    None,
-                )?;
-                list.Close()?;
-                frames.push((allocator, list, 0));
-            }
-            image.texture = Arc::new(texture);
-            Ok(Self {
-                root,
-                pipeline,
-                heap,
-                frames: frames.into(),
-                next: 0.into(),
-                size: (width, height),
-            })
-        }
-    }
-
-    /// Draw one frame into `image`; later work on the compute queue sees the result.
-    fn render(&self, compute: &Arc<Compute>, image: &mut GpuImage, values: [f32; 4]) -> Result<()> {
-        let index = self.next.get();
-        self.next.set((index + 1) % 4);
-        let (allocator, list, value) = self.frames.borrow()[index].clone();
-        compute.wait(value)?;
-        let mut barriers = [
-            transition(
-                &image.texture,
-                D3D12_RESOURCE_STATE_COMMON,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            ),
-            transition(
-                &image.texture,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                D3D12_RESOURCE_STATE_COMMON,
-            ),
-        ];
-        // SAFETY: The frame's previous submission finished (`wait`), and the list references only
-        // objects this scene and `image` keep alive until the fence value returned by `execute`.
-        let result = unsafe {
-            (|| -> Result<u64> {
-                allocator.Reset()?;
-                list.Reset(&allocator, &self.pipeline)?;
-                list.SetComputeRootSignature(&self.root);
-                list.SetDescriptorHeaps(&[Some(self.heap.clone())]);
-                list.SetComputeRoot32BitConstants(0, 4, values.as_ptr().cast(), 0);
-                list.SetComputeRootDescriptorTable(
-                    1,
-                    self.heap.GetGPUDescriptorHandleForHeapStart(),
-                );
-                list.ResourceBarrier(&barriers[..1]);
-                list.Dispatch(self.size.0.div_ceil(8), self.size.1.div_ceil(8), 1);
-                list.ResourceBarrier(&barriers[1..]);
-                list.Close()?;
-                compute.execute(&list)
-            })()
-        };
-        drop_barriers(&mut barriers);
-        let value = result?;
-        self.frames.borrow_mut()[index].2 = value;
-        image.ready = Some(Ready::on(compute, compute.fence.clone(), value));
-        Ok(())
-    }
 }

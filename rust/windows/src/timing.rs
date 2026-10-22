@@ -724,7 +724,8 @@ mod tests {
         // SAFETY: The pseudo handle is always valid for this process.
         let active_priority = unsafe { GetPriorityClass(GetCurrentProcess()) };
         assert_eq!(active_priority, HIGH_PRIORITY_CLASS.0);
-        crate::gpu_priority::configure(&Default::default())?;
+        let gpu = crate::capture::Device::new("")?;
+        crate::gpu_priority::configure(&gpu, &Default::default())?;
         let active_power = power()?;
         let active_gpu = gpu_priority();
         let second = StreamingScope::enter();

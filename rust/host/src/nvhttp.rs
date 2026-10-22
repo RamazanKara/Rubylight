@@ -5,21 +5,14 @@ use crate::{
 use anyhow::{Context, Result, bail};
 #[cfg(not(test))]
 use butterpollo_windows::{
-    display::driver_caps, process::ensure_streaming_session as ensure_windows_streaming_session,
+    display::virtual_display_available,
+    process::ensure_streaming_session as ensure_windows_streaming_session,
 };
 #[cfg(test)]
 use parity_tests::ensure_streaming_session as ensure_windows_streaming_session;
 #[cfg(test)]
-fn driver_caps() -> Result<u32> {
-    bail!("no display driver in tests")
-}
-/// What Artemis reads as `VirtualDisplayDriverReady`: the driver can carry a stream. A driver
-/// that answers but lacks the fence ring (an update waiting for a restart) is not ready.
-fn driver_ready() -> bool {
-    driver_ready_with(driver_caps())
-}
-fn driver_ready_with(opened: Result<u32>) -> bool {
-    butterpollo_windows::display::driver_can_stream(opened).is_ok()
+fn virtual_display_available() -> bool {
+    false
 }
 use axum::{
     Extension, Router,
@@ -324,7 +317,7 @@ async fn serverinfo(
                         )
                     },
                 );
-                let facts = (mac, link, driver_ready());
+                let facts = (mac, link, virtual_display_available());
                 h.serverinfo_cache
                     .lock()
                     .unwrap()
@@ -358,7 +351,8 @@ fn serverinfo_response(
 ) -> Response {
     let ports = config.ports().unwrap();
     let paired = client.is_some();
-    let (limiter, virtual_limiter, limit) = butterpollo_core::framegen::advertised(config);
+    let (limiter, virtual_limiter, limit) =
+        butterpollo_core::framegen::advertised(config, config.virtual_display_mode() != "disabled");
     let permission = client.as_ref().map_or(0, |client| client.perm);
     // Artemis lists these commands; a client runs one by its index.
     let commands: Vec<String> = if permission & 0x0010_0000 != 0 {
@@ -554,16 +548,19 @@ fn serverinfo_response(
             u8::from(virtual_limiter).to_string(),
         ),
         ("FrameLimiterFpsLimitMilliHz", limit.to_string()),
-        // Artemis offers virtual-display launches only when capable; every
-        // stream has a virtual display.
-        ("VirtualDisplayCapable", "true".into()),
+        // Artemis offers virtual-display launches only when capable.
+        (
+            "VirtualDisplayCapable",
+            (config.virtual_display_mode() != "disabled").to_string(),
+        ),
         ("VirtualDisplayDriverReady", driver_ready.to_string()),
         ("ControllerPreparation", "1".into()),
         (
             "VirtualDisplayHDRCapable",
-            (h.codecs.load(std::sync::atomic::Ordering::Acquire)
-                & (0x200 | 0x20000 | 0x2000000 | 0x4000000)
-                != 0)
+            (config.virtual_display_mode() != "disabled"
+                && h.codecs.load(std::sync::atomic::Ordering::Acquire)
+                    & (0x200 | 0x20000 | 0x2000000 | 0x4000000)
+                    != 0)
                 .to_string(),
         ),
     ];
@@ -1301,7 +1298,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         };
         Ok((reply.into(), format!("{scheme}://{host}:{rtsp_port}")))
     })();
-    let driver_ready = result.is_ok() && driver_ready();
+    let driver_ready = result.is_ok() && butterpollo_windows::display::virtual_display_available();
     launch_response(result, requested, reply, resume, driver_ready)
 }
 fn validate_launch_client(
@@ -2083,14 +2080,6 @@ async fn abr(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Re
 #[cfg(test)]
 mod tests {
     use super::stream_key_id;
-    #[test]
-    fn a_driver_that_needs_a_restart_is_not_ready_for_artemis() {
-        use super::driver_ready_with;
-        // Every capability, then none: a driver that opens with no fence ring is not ready.
-        assert!(driver_ready_with(Ok(u32::MAX)));
-        assert!(!driver_ready_with(Ok(0)));
-        assert!(!driver_ready_with(Err(anyhow::anyhow!("no driver"))));
-    }
     #[test]
     fn a_slow_teardown_blocks_the_next_launch_after_the_wait() {
         use super::{Duration, Instant, Mutex, Sessions, wait_for_teardown};

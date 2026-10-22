@@ -1,11 +1,17 @@
 
 Texture2D<float4> source : register(t0);
+Texture2D<float4> pointer : register(t1);
 cbuffer Config : register(b0) {
     uint2 sourceSize; uint2 targetSize;
     uint pixel; uint hdr; uint colorMatrix; uint fullRange;
     uint tenBit; float sdrWhiteScale; float hdrScale; uint padding;
-    uint4 reserved[2];
+    int2 pointerPosition; uint2 pointerSize;
+    uint pointerMode; uint3 pointerPadding;
 };
+float4 vertex(uint id : SV_VertexID) : SV_Position {
+    float2 p = float2((id << 1) & 2, id & 2);
+    return float4(p * float2(2, -2) + float2(-1, 1), 0, 1);
+}
 float3 srgb_linear(float3 rgb) { return lerp(pow((rgb + 0.055) / 1.055, 2.4), rgb / 12.92, step(rgb, 0.04045)); }
 float3 gamma(float3 rgb) { return lerp(1.055 * pow(max(rgb, 0), 1.0 / 2.4) - 0.055, rgb * 12.92, step(rgb, 0.0031308)); }
 // BT.2020's 10-bit SDR OETF (transfer_characteristics = 14), not sRGB or PQ.
@@ -27,9 +33,36 @@ float3 depq(float3 rgb) {
     float3 p = pow(clamp(rgb, 0, 1), 32.0 / 2523.0);
     return pow(max(p - 3424.0 / 4096.0, 0) / max(2413.0 / 128.0 - 2392.0 / 128.0 * p, 0.000001), 16384.0 / 2610.0);
 }
+float3 pointer_srgb(float3 rgb) {
+    if (pixel == 1) return saturate(gamma(rgb / sdrWhiteScale));
+    if (pixel == 2) {
+        float3 r = depq(rgb) * 125.0 / sdrWhiteScale;
+        return saturate(gamma(float3(dot(r, float3(1.660491,-0.587641,-0.072850)),
+                                     dot(r, float3(-0.124550,1.132900,-0.008349)),
+                                     dot(r, float3(-0.018151,-0.100579,1.118730)))));
+    }
+    return rgb;
+}
+float3 pointer_source(float3 rgb) {
+    if (pixel == 1) return srgb_linear(rgb) * sdrWhiteScale;
+    if (pixel == 2) return pq(gamut2020(srgb_linear(rgb)) * sdrWhiteScale / 125.0);
+    return rgb;
+}
 float3 load(int2 p) {
     p = clamp(p, int2(0, 0), int2(sourceSize) - 1);
     float3 rgb = source.Load(int3(p, 0)).rgb;
+    int2 at = p - pointerPosition;
+    if (pointerMode != 0 && all(at >= 0) && all(at < int2(pointerSize))) {
+        float4 c = pointer.Load(int3(at, 0));
+        if (pointerMode == 2 && c.a > 0.25 && c.a < 0.75) {
+            uint3 bits = uint3(round(saturate(pointer_srgb(rgb)) * 255)) ^ uint3(round(c.rgb * 255));
+            rgb = pointer_source(float3(bits) / 255);
+        } else if (pixel == 2) {
+            rgb = pq(lerp(depq(rgb), gamut2020(srgb_linear(c.rgb)) * sdrWhiteScale / 125.0, c.a));
+        } else {
+            rgb = lerp(rgb, pointer_source(c.rgb), c.a);
+        }
+    }
     if (hdr != 0 && pixel == 0) {
         rgb = srgb_linear(rgb);
         rgb *= sdrWhiteScale;
@@ -130,6 +163,7 @@ float3 nonlinear(float2 target) {
 }
 float3 weights() { return colorMatrix == 2 ? float3(0.2627, 0.6780, 0.0593) : colorMatrix == 0 ? float3(0.299, 0.587, 0.114) : float3(0.2126, 0.7152, 0.0722); }
 // The luma code of a pixel, and the chroma code of filtered nonlinear RGB.
+// Shared by the graphics and compute conversions, so both write the same codes.
 float lumaCode(float3 rgb) {
     float y = dot(rgb, weights());
     return tenBit != 0 ? floor(clamp((fullRange != 0 ? 1023 * y : 64 + 876 * y), 0, 1023) + 0.5) * 64 / 65535.0
@@ -151,8 +185,16 @@ float3 leftChroma(float2 at, float3 c00, float3 c10, float3 c01, float3 c11) {
     return (nonlinear(left) + nonlinear(left + float2(0, 1)) +
             2 * (c00 + c01) + c10 + c11) * 0.125;
 }
-// NV12 or P010 on a compute queue, which keeps running while a game fills the
-// graphics queue. The two views address the luma and chroma planes.
+float4 luma(float4 p : SV_Position) : SV_Target {
+    return float4(lumaCode(nonlinear(p.xy - 0.5)), 0, 0, 1);
+}
+float4 chroma(float4 p : SV_Position) : SV_Target {
+    float2 at = floor(p.xy) * 2;
+    return float4(chromaCode(leftChroma(at, nonlinear(at), nonlinear(at + float2(1, 0)),
+                             nonlinear(at + float2(0, 1)), nonlinear(at + float2(1, 1)))), 0, 1);
+}
+// The same conversion on a compute queue, which keeps running while a game
+// fills the graphics queue. The two views address the luma and chroma planes.
 RWTexture2D<float> lumaPlane : register(u0);
 RWTexture2D<float2> chromaPlane : register(u1);
 // One thread per 2x2 block: reuse its four luma samples for chroma, plus
@@ -182,6 +224,27 @@ float2 packedDetail(float2 value, float2 base) {
     float maximum = tenBit != 0 ? 1023 : 255;
     float center = tenBit != 0 ? 512 : 128;
     return clamp(floor((round(value * unit) - round(base * unit)) * 0.5 + center + 0.5), 0, maximum) / unit;
+}
+float packedY(uint2 at) {
+    uint2 size = packedSize();
+    if (at.y < size.y) return lumaCode(packedRgb(at));
+    uint plane = at.x >= size.x / 2 ? 1 : 0;
+    uint2 pixel = uint2((at.x % (size.x / 2)) * 2 + 1, at.y - size.y);
+    float2 uv = chromaCode(packedRgb(pixel));
+    if (padding == 2) uv = packedDetail(uv, chromaCode(packedRgb(pixel & ~uint2(1, 1))));
+    return plane == 0 ? uv.x : uv.y;
+}
+float4 chroma_pack_y(float4 p : SV_Position) : SV_Target {
+    return float4(packedY(uint2(p.xy)), 0, 0, 1);
+}
+float4 chroma_pack_uv(float4 p : SV_Position) : SV_Target {
+    if (padding == 2) {
+        uint2 size = packedSize();
+        uint2 at = uint2(uint(p.x) * 2, (uint(p.y) % (size.y / 2)) * 2);
+        float2 base = chromaCode(packedRgb(at));
+        return float4(uint(p.y) < size.y / 2 ? base : packedDetail(chromaCode(packedRgb(at + uint2(0, 1))), base), 0, 1);
+    }
+    return float4(chromaCode(packedRgb(uint2(uint(p.x) * 2, uint(p.y)))), 0, 1);
 }
 [numthreads(8, 8, 1)]
 void chroma_pack_cs(uint3 id : SV_DispatchThreadID) {
@@ -222,7 +285,7 @@ void chroma_pack_cs(uint3 id : SV_DispatchThreadID) {
     chromaPlane[id.xy] = chromaCode(even);
 }
 // PyroWave's planes hold codes over their full range (code / 1023 or 255),
-// one plane each.
+// one plane each. Shared by the graphics and compute conversions.
 float pyroLuma(float3 rgb) {
     float y = dot(rgb, weights());
     float maximum = tenBit != 0 ? 1023 : 255;
@@ -240,6 +303,30 @@ float2 pyroChroma(float3 rgb) {
 // Keep its 2x2 average separate from standard codecs' left-sited filter.
 float2 pyroBlock(float3 c00, float3 c10, float3 c01, float3 c11) {
     return pyroChroma((c00 + c10 + c01 + c11) * 0.25);
+}
+float4 pyro_y(float4 p : SV_Position) : SV_Target {
+    return float4(pyroLuma(nonlinear(p.xy - 0.5)),0,0,1);
+}
+float2 pyro_chroma(float2 p) {
+    if (padding != 0) return pyroChroma(nonlinear(p - 0.5));
+    float2 at = floor(p)*2;
+    return pyroBlock(nonlinear(at), nonlinear(at+float2(1,0)), nonlinear(at+float2(0,1)), nonlinear(at+float2(1,1)));
+}
+float4 pyro_u(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy).x,0,0,1); }
+float4 pyro_v(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy).y,0,0,1); }
+struct Pyro444 {
+    float y : SV_Target0;
+    float u : SV_Target1;
+    float v : SV_Target2;
+};
+Pyro444 pyro_444(float4 p : SV_Position) {
+    float3 rgb = nonlinear(p.xy - 0.5);
+    float2 uv = pyroChroma(rgb);
+    Pyro444 result;
+    result.y = pyroLuma(rgb);
+    result.u = uv.x;
+    result.v = uv.y;
+    return result;
 }
 // PyroWave's three planes on the compute queue, in one pass over 2x2 blocks,
 // beside a game that fills the graphics queue.

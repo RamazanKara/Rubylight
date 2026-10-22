@@ -55,9 +55,13 @@ fn scope_list(scopes: &[Value]) -> String {
 fn readiness(meta: &Value) -> String {
     let video = meta["encoder_status"]["h264"] == true;
     let checking = meta["encoder_status"]["state"] == "checking";
-    // Every stream runs on a virtual display of Rubylight's display driver.
-    let display_ready = meta["virtual_display"]["ready"] == true;
-    let driver_installed = meta["virtual_display"]["capable"] == true;
+    let displays = rows(&meta["capture_status"], "displays");
+    let virtual_requested = meta["capture_status"]["virtual_display_configured"] == true;
+    let display_ready = if virtual_requested {
+        meta["virtual_display"]["capable"] == true
+    } else {
+        !displays.is_empty()
+    };
     let audio_ready = !rows(meta, "audio_sinks").is_empty();
     let mut out = String::new();
     for warning in rows(meta, "warnings") {
@@ -83,11 +87,11 @@ fn readiness(meta: &Value) -> String {
             display_ready,
             "Display",
             if display_ready {
-                "Ready to stream on a virtual display."
-            } else if driver_installed {
-                "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows to stream. If this persists after a restart, run Rubylight setup again to repair the display driver."
+                "Ready to capture."
+            } else if virtual_requested {
+                "Virtual display is unavailable. Start the installed Rubylight service or select your physical display in Settings."
             } else {
-                "Rubylight's display driver is not installed or not running. Run Rubylight setup again to repair the installation."
+                "No active display found. Turn on a monitor or set up a virtual display in Settings."
             },
         ),
         (
@@ -118,6 +122,7 @@ fn readiness(meta: &Value) -> String {
     for (label, detail) in [
         ("Virtual display", text(&meta["virtual_display"], "reason")),
         ("Audio", text(meta, "audio_error")),
+        ("Screen capture", text(&meta["capture_status"], "error")),
     ] {
         if !detail.is_empty() {
             out += &format!(
@@ -215,7 +220,7 @@ async fn overview(
     let sessions = get(h, connection, headers, "/api/rtsp/sessions").await?;
     let active = rows(&sessions, "sessions");
     let mut content = format!(
-        "<p class=\"intro\">Manage your library, pair devices, and tune your stream.</p><div class=\"metrics\"><section class=\"card\"><span>Host</span><strong>{}</strong><small>Version {}</small></section><section class=\"card\"><span>Active streams</span><strong>{}</strong><small>Connected right now</small></section><section class=\"card\"><span>Encoder</span><strong>{}</strong><small>Capture: Rubylight virtual display</small></section></div>",
+        "<p class=\"intro\">Manage your library, pair devices, and tune your stream.</p><div class=\"metrics\"><section class=\"card\"><span>Host</span><strong>{}</strong><small>Version {}</small></section><section class=\"card\"><span>Active streams</span><strong>{}</strong><small>Connected right now</small></section><section class=\"card\"><span>Encoder</span><strong>{}</strong><small>Capture: {}</small></section></div>",
         i18n::data(text(&meta, "host_name")),
         i18n::data(text(&meta, "version")),
         active.len(),
@@ -225,6 +230,13 @@ async fn overview(
             "failed" => "Unavailable",
             _ => "Not available",
         },
+        match text(&meta["capture_status"], "configured_backend") {
+            "wgc" => "Windows Graphics Capture",
+            "dxgi" | "ddx" => "Desktop Duplication",
+            "idd-push" => "Direct driver push",
+            "auto" | "" => "Automatic",
+            _ => "Configured capture method",
+        }
     );
     let mut badges = String::new();
     for (key, name) in [
@@ -609,9 +621,10 @@ async fn settings(
             .to_owned()
     };
     let mut content =
-        "<p class=\"intro\">Choose the encoder, display, and sound for your stream.</p>".to_owned();
+        "<p class=\"intro\">Choose the capture, encoder, display, and sound for your stream.</p>"
+            .to_owned();
     content += "<p class=\"muted\">Automatic encodes H.264, HEVC and AV1 with AMF, the AMD GPU's encoder, and PyroWave streams with PyroWave's own encoder. If AMF cannot start, the stream fails with AMF's error in the log; there is no other encoder to fall back to.</p>";
-    content += "<p class=\"muted\">Every stream runs on a Rubylight virtual display and captures it through Rubylight's display driver.</p>";
+    content += "<p class=\"muted\">For screen capture, Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays. Select Windows Graphics Capture or Desktop Duplication to use those methods instead. If driver push is unavailable, capture falls back to Windows Graphics Capture.</p>";
     let editor = field(
         "sunshine_name",
         "Host name",
@@ -630,10 +643,29 @@ async fn settings(
             ("pyrowave", "PyroWave"),
         ],
     ) + &select(
+        "capture",
+        "Screen capture",
+        &value("capture", "auto"),
+        &[
+            ("auto", "Automatic"),
+            ("idd-push", "Direct driver push"),
+            ("wgc", "Windows Graphics Capture"),
+            ("dxgi", "Desktop Duplication"),
+        ],
+    ) + &field(
+        "output_name",
+        "Display (leave empty for the primary display)",
+        &value("output_name", ""),
+        "text",
+    ) + &select(
         "virtual_display_mode",
         "Virtual display",
         &value("virtual_display_mode", "per_client"),
-        &[("per_client", "One for each device"), ("shared", "Shared")],
+        &[
+            ("disabled", "Disabled"),
+            ("per_client", "One for each device"),
+            ("shared", "Shared"),
+        ],
     ) + &field(
         "audio_sink",
         "Audio device (leave empty for the Windows default)",
@@ -647,6 +679,8 @@ async fn settings(
         "version",
         "sunshine_name",
         "encoder",
+        "capture",
+        "output_name",
         "virtual_display_mode",
         "audio_sink",
     ] {
@@ -1007,29 +1041,5 @@ mod tests {
         meta["encoder_status"] = json!({"h264":true,"state":"ready"});
         meta["warnings"] = json!([]);
         assert!(!readiness(&meta).contains("No video encoder available"));
-    }
-    #[test]
-    fn readiness_says_how_to_get_the_display_driver_streaming() {
-        let mut meta = json!({"encoder_status":{"h264":true,"state":"ready"},"warnings":[]});
-        for (driver, says) in [
-            (
-                json!({"capable":true,"ready":true}),
-                "Ready to stream on a virtual display.",
-            ),
-            (
-                json!({"capable":true,"ready":false}),
-                "Restart Windows to stream. If this persists after a restart, run Rubylight setup again to repair the display driver.",
-            ),
-            (
-                json!({"capable":false,"ready":false}),
-                "Run Rubylight setup again",
-            ),
-            (Value::Null, "Run Rubylight setup again"),
-        ] {
-            meta["virtual_display"] = driver;
-            let html = readiness(&meta);
-            assert!(html.contains(says), "{html}");
-            assert!(!html.contains("physical"), "{html}");
-        }
     }
 }

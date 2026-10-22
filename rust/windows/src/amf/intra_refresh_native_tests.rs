@@ -14,7 +14,7 @@ const RECOVERY: usize = 733;
 #[test]
 #[ignore = "requires an idle AMD GPU, AMF and a task-owned report path"]
 fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
-    use windows::{Win32::Graphics::Direct3D12::*, core::Interface};
+    use windows::Win32::Graphics::Direct3D12::*;
     let report = std::path::PathBuf::from(
         std::env::var_os("BUTTERPOLLO_TEST_AMF_STATE_REPORT")
             .context("set BUTTERPOLLO_TEST_AMF_STATE_REPORT")?,
@@ -32,10 +32,22 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
     }
     let _com = crate::capture::ComGuard::new()?;
     let device = Device::new("")?;
-    let info: ID3D12InfoQueue = device.compute.device.cast()?;
+    let pointer_shape = windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+        Type: windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
+        Width: 9,
+        Height: 5,
+        Pitch: 9 * 4,
+        ..Default::default()
+    };
+    let cursors = [32u8, 224]
+        .into_iter()
+        .map(|colour| crate::cursor::Cursor::new(&device, &pointer_shape, &[colour; 9 * 5 * 4]))
+        .collect::<Result<Vec<_>>>()?;
+    let compute = crate::compute::Compute::for_device(&device.device)?;
+    let info: ID3D12InfoQueue = compute.device.cast()?;
     let mut reports = Vec::new();
     for (hdr, codec) in [(false, 1), (true, 1), (false, 2), (true, 2)] {
-        let picture = picture(&device, hdr, 0)?;
+        let mut picture = picture(&device, hdr, 0)?;
         let config = butterpollo_core::rtsp::Negotiated {
             width: 3840,
             height: 2160,
@@ -49,7 +61,12 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
             csc_mode: if hdr { 4 } else { 0 },
             ..Default::default()
         };
-        let mut encoder = Encoder::new_gpu(&config, device.clone(), &Default::default())?;
+        let mut encoder = Encoder::new_gpu(
+            &config,
+            device.clone(),
+            &Default::default(),
+            Some(compute.clone()),
+        )?;
         anyhow::ensure!(encoder.compute.is_some(), "requires D3D12 AMF");
         let format = if codec == 1 { "hevc" } else { "av1" };
         let range = if hdr { "hdr" } else { "sdr" };
@@ -57,6 +74,13 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
         let mut stream = std::io::BufWriter::new(fs::File::create(&stream_path)?);
         let mut states = Vec::new();
         for index in 0..32 {
+            // Exercise initial upload, a cached shape, replacement and hiding for
+            // every codec/format. Odd dimensions also require padded upload rows.
+            picture.cursor = match index / 8 {
+                0 | 1 => Some(cursors[0].clone()),
+                2 => Some(cursors[1].clone()),
+                _ => None,
+            };
             let started = Instant::now();
             let mut output = encoder.encode_gpu(&picture, index == 0, config.bitrate_kbps)?;
             while encoder.pending() {
@@ -81,7 +105,7 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
             states.push(frame_states);
         }
         stream.flush()?;
-        reports.push(serde_json::json!({"codec":codec,"hdr":hdr,"frames":states.len(),"stream":stream_path,"states":states}));
+        reports.push(serde_json::json!({"codec":codec,"hdr":hdr,"frames":states.len(),"cursor_shapes":cursors.len(),"cursor_hidden_frames":8,"stream":stream_path,"states":states}));
     }
     let mut errors = Vec::new();
     // SAFETY: The info queue owns its messages; each aligned buffer is sized from the
@@ -186,6 +210,8 @@ fn picture(device: &Device, hdr: bool, phase: usize) -> Result<GpuImage> {
             },
         },
     )?;
+    // Finish the initial D3D11 upload before a D3D12 queue reads it.
+    image.readback(&mut None)?;
     Ok(image)
 }
 
@@ -265,6 +291,7 @@ fn native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery() -> Result
     };
     let _com = crate::capture::ComGuard::new()?;
     let device = Device::new("")?;
+    let compute = crate::compute::Compute::for_device(&device.device)?;
     let timer = crate::timing::Timer::new()?;
     let mut reports = Vec::new();
     for hdr in [false, true] {
@@ -285,7 +312,12 @@ fn native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery() -> Result
         let pictures = (0..4)
             .map(|phase| picture(&device, hdr, phase))
             .collect::<Result<Vec<_>>>()?;
-        let mut encoder = Encoder::new_gpu(&config, device.clone(), &Default::default())?;
+        let mut encoder = Encoder::new_gpu(
+            &config,
+            device.clone(),
+            &Default::default(),
+            Some(compute.clone()),
+        )?;
         anyhow::ensure!(
             encoder.compute.is_some(),
             "D3D12 encoder input was not established"

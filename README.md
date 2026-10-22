@@ -55,7 +55,7 @@ Also built in: Steam and Playnite library sync, RTSS frame limits, Lossless Scal
 
 ## Install. Pair. Play.
 
-1. **Install.** Run **`rubylight-setup-2.6.0.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). It sets up the service, the virtual display driver and controller support. No test mode, no restart. Until releases are code-signed, setup signs the driver on your PC with a key it deletes at once; Smart App Control, S mode and App Control policies refuse such a driver, and Rubylight cannot stream there, because every stream runs on a virtual display.
+1. **Install.** Run **`rubylight-setup-2.6.0.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). It sets up the service, the virtual display driver and controller support. No test mode, no restart.
 2. **Sign in.** Open **`https://localhost:47990`** on the PC and create your account.
 3. **Pair and play.** Open Moonlight on your device, select your PC and enter its PIN on the console's **Devices** page. Once the device appears as paired, choose **Desktop** or a game in Moonlight to start streaming.
 

@@ -23,16 +23,14 @@ mod topology;
 mod virtual_display;
 
 pub use hdr::set_hdr;
-pub use modes::{dpi_scale, mode, set_dpi_scale, set_mode, virtual_scale};
+pub use modes::{dpi_scale, highest_refresh, mode, set_dpi_scale, set_mode, virtual_scale};
 pub use recovery::{
     Guard, Retained, Snapshot, apply_layout, baseline_nodes, leased_displays, restore_positions,
 };
 pub use topology::{Monitor, Topology, edid_refresh, monitors};
-pub(crate) use virtual_display::fence_ring;
 pub use virtual_display::{
-    DriverRestartRequired, RenderAdapter, VirtualDisplay, VirtualOptions,
-    configured_render_adapter, driver_can_stream, driver_caps, ensure_virtual_display_available,
-    stream_driver_ready, virtual_display_available, virtual_display_status,
+    RenderAdapter, VirtualDisplay, VirtualOptions, configured_render_adapter,
+    ensure_virtual_display_available, virtual_display_available, virtual_display_status,
 };
 
 fn check(code: i32) -> Result<()> {

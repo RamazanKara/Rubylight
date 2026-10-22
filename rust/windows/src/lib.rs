@@ -1,7 +1,7 @@
 //! Windows platform layer of the Rubylight host.
 //!
-//! Everything that calls Win32, Direct3D or a GPU vendor SDK lives here:
-//! capture from Rubylight's display driver, Radeon compute colour conversion, the AMF
+//! Everything that calls Win32, Direct3D, Windows Graphics Capture or a GPU
+//! vendor SDK lives here: capture, Radeon compute colour conversion, the AMF
 //! and PyroWave encoders, display and virtual display control,
 //! input injection, audio, process and service management.
 //!
@@ -22,7 +22,7 @@ pub mod codec_probe;
 pub mod color;
 pub mod compute;
 pub mod crash;
-pub mod d3d11_audit;
+mod cursor;
 pub mod device_loss;
 pub mod display;
 pub mod display_arrangement;
@@ -30,8 +30,8 @@ pub mod display_recovery;
 pub mod encoder;
 pub mod files;
 pub mod firewall;
-pub mod floor;
 pub mod foreground;
+mod gpu_color;
 pub mod gpu_priority;
 pub mod gpu_probe;
 pub mod hdr_profile;
@@ -47,6 +47,7 @@ pub mod lossless;
 pub mod mic;
 pub mod net;
 pub mod playnite;
+pub mod present_timing;
 pub mod process;
 pub mod pyrowave;
 pub mod rtss;

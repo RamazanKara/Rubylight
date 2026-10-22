@@ -822,7 +822,7 @@ impl Config {
             ApiSubset::Spb => self.spb_headers(),
             ApiSubset::Storage => self.storage_headers(),
             ApiSubset::Usb => return self.usb_headers().map(std::iter::IntoIterator::into_iter),
-            ApiSubset::Iddcx => return Ok(self.iddcx_headers()?.into_iter()),
+            ApiSubset::Iddcx => self.iddcx_headers(),
         };
         Ok(headers
             .into_iter()
@@ -832,30 +832,13 @@ impl Config {
     }
 
     #[tracing::instrument(level = "trace")]
-    fn iddcx_headers(&self) -> Result<Vec<String>, ConfigError> {
-        // IddCx (Indirect Display) is UMDF-only. Rubylight binds IddCx 1.11, which the
-        // installed kit (10.0.26100) does not have: its headers come from RLVD_IDDCX_ROOT
-        // (fetch-iddcx.ps1, dot-sourced by driver-env.ps1).
-        if !matches!(self.driver_config, DriverConfig::Umdf(_)) {
-            return Ok(vec![]);
+    fn iddcx_headers(&self) -> Vec<&'static str> {
+        // IddCx (Indirect Display) is UMDF-only. Versioned subpath like spb/1.1 and HidSpiCx/1.0.
+        if matches!(self.driver_config, DriverConfig::Umdf(_)) {
+            vec!["iddcx/1.10/IddCx.h"]
+        } else {
+            vec![]
         }
-        let root = std::env::var("RLVD_IDDCX_ROOT").map_err(|_| {
-            ConfigError::IoError(IoError::with_path(
-                "RLVD_IDDCX_ROOT",
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "set RLVD_IDDCX_ROOT to the IddCx 1.11 headers: dot-source driver-env.ps1",
-                ),
-            ))
-        })?;
-        let header = PathBuf::from(root).join("include").join("IddCx.h");
-        if !header.is_file() {
-            return Err(ConfigError::IoError(IoError::with_path(
-                header,
-                std::io::Error::new(std::io::ErrorKind::NotFound, "IddCx 1.11 header missing"),
-            )));
-        }
-        Ok(vec![header.to_string_lossy().replace('\\', "/")])
     }
 
     #[tracing::instrument(level = "trace")]

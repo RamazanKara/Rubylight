@@ -102,14 +102,17 @@ pub fn retired_generation(value: &str) -> bool {
 }
 /// The configured frame limiting Moonlight extensions report in serverinfo:
 /// whether limiting is on by default, whether virtual displays limit
-/// automatically, and the manual limit in millihertz. Every stream has a
-/// virtual display.
-pub fn advertised(config: &Config) -> (bool, bool, u32) {
+/// automatically, and the manual limit in millihertz.
+pub fn advertised(config: &Config, virtual_display_enabled: bool) -> (bool, bool, u32) {
     let virtual_limiter = virtual_refresh(config) != VirtualRefresh::Disabled;
     let manual = config.boolean("frame_limiter_enable", false)
         && Provider::parse(config.get("frame_limiter_provider", "auto")) != Provider::None;
     let limit = Rate::parse(config.get("frame_limiter_fps_limit", "0")).map_or(0, |r| r.0);
-    (manual || virtual_limiter, virtual_limiter, limit)
+    (
+        manual || (virtual_display_enabled && virtual_limiter),
+        virtual_limiter,
+        limit,
+    )
 }
 fn normalize(value: &str) -> String {
     value
@@ -147,12 +150,12 @@ pub fn virtual_refresh(config: &Config) -> VirtualRefresh {
         }
     }
 }
-pub fn display_rate(rate: Rate, mode: VirtualRefresh) -> Rate {
-    match mode {
-        VirtualRefresh::Legacy => Rate(rate.0.saturating_mul(2)),
-        VirtualRefresh::Enabled => Rate(rate.0.saturating_mul(4)),
-        VirtualRefresh::Vrr => Rate(1_000_000),
-        VirtualRefresh::Disabled => rate,
+pub fn display_rate(rate: Rate, virtual_display: bool, mode: VirtualRefresh) -> Rate {
+    match (virtual_display, mode) {
+        (true, VirtualRefresh::Legacy) => Rate(rate.0.saturating_mul(2)),
+        (true, VirtualRefresh::Enabled) => Rate(rate.0.saturating_mul(4)),
+        (true, VirtualRefresh::Vrr) => Rate(1_000_000),
+        _ => rate,
     }
 }
 pub fn generation_provider(value: &str) -> &'static str {
@@ -168,26 +171,27 @@ pub struct Policy {
     pub enabled: bool,
     pub provider: Provider,
     pub sync_limiter: u32,
+    pub capture: String,
 }
 impl Policy {
-    /// The frame limit for a stream on its virtual display. `generation`: the
-    /// app's frame generation; `runtime_sync`: an app or device sets the
-    /// RTSS limit mode itself.
     pub fn resolve(
         config: &Config,
         stream: Rate,
+        virtual_display: bool,
         generation: &str,
+        generation_enabled: bool,
         runtime_sync: bool,
     ) -> Result<Self> {
         let generation = generation_provider(generation);
+        let framegen = generation_enabled || generation != "none";
         let mode = virtual_refresh(config);
-        let automatic = mode != VirtualRefresh::Disabled;
+        let automatic = virtual_display && mode != VirtualRefresh::Disabled;
         let provider = Provider::parse(config.get("frame_limiter_provider", "auto"));
         let overridden = Rate::parse(config.get("frame_limiter_fps_limit", "0"))?;
         let rate = if overridden.0 > 0 { overridden } else { stream };
         let allow_sync_override = config.boolean("rtss_allow_virtual_display_override", false);
         let auto_sync = automatic && (!allow_sync_override || generation == "game-provided");
-        let sync = if !runtime_sync && auto_sync {
+        let sync = if !runtime_sync && (auto_sync || (!virtual_display && framegen)) {
             1
         } else {
             match normalize(config.get("rtss_frame_limit_type", "async")).as_str() {
@@ -196,17 +200,48 @@ impl Policy {
                 _ => 0,
             }
         };
+        let requested_capture = match config.get("capture", "").trim().to_ascii_lowercase() {
+            // Vibepollo's constant-rate WGC variant.
+            wgc if wgc == "wgcc" => "wgc".to_owned(),
+            // `idd-push`: frames pushed by Rubylight's own virtual display driver.
+            known
+                if matches!(
+                    known.as_str(),
+                    "" | "auto" | "wgc" | "ddx" | "dxgi" | "idd-push"
+                ) =>
+            {
+                known
+            }
+            other => {
+                crate::config::invalid("capture", &other);
+                String::new()
+            }
+        };
+        let capture = if requested_capture.is_empty() || requested_capture == "auto" {
+            // Resolve Auto before opening capture so the normal WGC path,
+            // including the service's user helper and DDX fallback, is used.
+            "wgc"
+        } else {
+            &requested_capture
+        }
+        .to_owned();
         Ok(Self {
             rate,
-            display_rate: display_rate(stream, mode),
-            enabled: config.boolean("frame_limiter_enable", false) || automatic,
+            display_rate: display_rate(stream, virtual_display, mode),
+            enabled: config.boolean("frame_limiter_enable", false)
+                || automatic
+                || (!virtual_display && framegen),
             provider,
             sync_limiter: sync,
+            capture,
         })
     }
-    pub fn with_vrr(mut self, config: &Config, requested: bool) -> Self {
-        if requested && virtual_refresh(config) != VirtualRefresh::Disabled {
+    pub fn with_vrr(mut self, config: &Config, virtual_display: bool, requested: bool) -> Self {
+        if virtual_display && requested && virtual_refresh(config) != VirtualRefresh::Disabled {
             self.display_rate = Rate(1_000_000);
+            if matches!(config.get("capture", "auto"), "" | "auto") {
+                self.capture = "wgc".into();
+            }
         }
         self
     }
@@ -216,46 +251,116 @@ mod tests {
     use super::*;
     #[test]
     fn advertised_limiter_flags_follow_manual_provider_virtual_policy_and_fractional_limits() {
-        for (text, expected) in [
-            ("", (true, true, 0)),
+        for (text, virtual_display, expected) in [
+            ("", false, (false, true, 0)),
+            ("", true, (true, true, 0)),
             (
                 "frame_limiter_auto_virtual_framegen=disabled",
+                true,
                 (false, false, 0),
             ),
             (
-                "frame_limiter_auto_virtual_framegen=disabled\nframe_limiter_enable=true\nframe_limiter_provider=none",
-                (false, false, 0),
+                "frame_limiter_enable=true\nframe_limiter_provider=none",
+                false,
+                (false, true, 0),
             ),
             (
                 "frame_limiter_enable=true\nframe_limiter_provider=rtss\nframe_limiter_fps_limit=59.94",
+                false,
                 (true, true, 59940),
             ),
         ] {
             assert_eq!(
-                advertised(&Config::parse(text).unwrap()),
+                advertised(&Config::parse(text).unwrap(), virtual_display),
                 expected,
                 "{text}"
             );
         }
     }
     #[test]
+    fn automatic_capture_prefers_wgc_on_physical_and_virtual_displays() {
+        for text in ["", "capture=", "capture=auto", "capture= Auto "] {
+            let config = Config::parse(text).unwrap();
+            let original = config.values.clone();
+            for virtual_display in [false, true] {
+                for generation in ["none", "game-provided"] {
+                    for rate in [Rate(59940), Rate(60000), Rate(120000)] {
+                        for vrr in [false, true] {
+                            let policy = Policy::resolve(
+                                &config,
+                                rate,
+                                virtual_display,
+                                generation,
+                                false,
+                                false,
+                            )
+                            .unwrap()
+                            .with_vrr(&config, virtual_display, vrr);
+                            assert_eq!(policy.capture, "wgc", "{text}, {generation}");
+                            assert_eq!(policy.rate, rate);
+                        }
+                    }
+                }
+            }
+            assert_eq!(config.values, original);
+        }
+    }
+    #[test]
+    fn explicit_capture_choices_survive_virtual_display_and_framegen_policy() {
+        for (setting, expected) in [
+            ("ddx", "ddx"),
+            (" DDX ", "ddx"),
+            ("dxgi", "dxgi"),
+            ("DXGI", "dxgi"),
+            ("wgc", "wgc"),
+            ("WGC", "wgc"),
+            ("wgcc", "wgc"),
+            // Rubylight's own display driver pushes the frames.
+            ("idd-push", "idd-push"),
+            (" IDD-Push ", "idd-push"),
+        ] {
+            let config = Config::parse(&format!("capture={setting}")).unwrap();
+            let original = config.values.clone();
+            for virtual_display in [false, true] {
+                for generation in ["none", "game-provided"] {
+                    for vrr in [false, true] {
+                        let policy = Policy::resolve(
+                            &config,
+                            Rate(59940),
+                            virtual_display,
+                            generation,
+                            true,
+                            false,
+                        )
+                        .unwrap()
+                        .with_vrr(&config, virtual_display, vrr);
+                        assert_eq!(policy.capture, expected, "{setting}, {generation}");
+                    }
+                }
+            }
+            assert_eq!(config.values, original);
+        }
+    }
+    #[test]
     fn vrr_virtual_display_uses_fixed_1000_hz_without_changing_stream_rate() {
         let c = Config::default();
-        let p = Policy::resolve(&c, Rate(119880), "none", false)
+        let p = Policy::resolve(&c, Rate(119880), true, "none", false, false)
             .unwrap()
-            .with_vrr(&c, true);
+            .with_vrr(&c, true, true);
         assert_eq!(p.display_rate, Rate(1_000_000));
         assert_eq!(p.rate, Rate(119880));
-        let c = Config::parse("frame_limiter_auto_virtual_framegen=disabled").unwrap();
-        let p = Policy::resolve(&c, Rate(119880), "none", false)
+        assert_eq!(p.capture, "wgc");
+        let c = Config::parse("frame_limiter_auto_virtual_framegen=disabled\ncapture=ddx").unwrap();
+        let p = Policy::resolve(&c, Rate(119880), true, "none", false, false)
             .unwrap()
-            .with_vrr(&c, true);
+            .with_vrr(&c, true, true);
         assert_eq!(p.display_rate, Rate(119880));
+        assert_eq!(p.capture, "ddx");
         let c = Config::parse("frame_limiter_auto_virtual_framegen=fixed-1000-hz").unwrap();
-        let p = Policy::resolve(&c, Rate(59940), "none", false)
+        let p = Policy::resolve(&c, Rate(59940), false, "none", false, false)
             .unwrap()
-            .with_vrr(&c, false);
-        assert_eq!(p.display_rate, Rate(1_000_000));
+            .with_vrr(&c, false, true);
+        assert_eq!(p.display_rate, Rate(59940));
     }
     #[test]
     fn a_device_display_mode_keeps_the_streams_limiter_rate() {
@@ -270,21 +375,29 @@ mod tests {
                     "{setting}\nframe_limiter_auto_virtual_framegen={mode}"
                 ))
                 .unwrap();
-                let mut p = Policy::resolve(&c, Rate(116_000), "none", false).unwrap();
-                p.display_rate = display_rate(Rate(60_000), virtual_refresh(&c));
-                assert_eq!(p.rate, Rate(limit));
-                assert_eq!(p.display_rate, Rate(display));
-                let p = p.with_vrr(&c, true);
-                assert_eq!(p.rate, Rate(limit));
-                assert_eq!(p.rate.rational(), (limit / 1000, 1));
-                assert_eq!(
-                    p.display_rate,
-                    Rate(if mode != "disabled" {
-                        1_000_000
-                    } else {
-                        60_000
-                    })
-                );
+                for virtual_display in [false, true] {
+                    let mut p =
+                        Policy::resolve(&c, Rate(116_000), virtual_display, "none", false, false)
+                            .unwrap();
+                    p.display_rate =
+                        display_rate(Rate(60_000), virtual_display, virtual_refresh(&c));
+                    assert_eq!(p.rate, Rate(limit));
+                    assert_eq!(
+                        p.display_rate,
+                        Rate(if virtual_display { display } else { 60_000 })
+                    );
+                    let p = p.with_vrr(&c, virtual_display, true);
+                    assert_eq!(p.rate, Rate(limit));
+                    assert_eq!(p.rate.rational(), (limit / 1000, 1));
+                    assert_eq!(
+                        p.display_rate,
+                        Rate(if virtual_display && mode != "disabled" {
+                            1_000_000
+                        } else {
+                            60_000
+                        })
+                    );
+                }
             }
         }
     }
@@ -297,13 +410,13 @@ mod tests {
             "frame_limiter_enable=true\nframe_limiter_provider=rtss\nframe_limiter_fps_limit=\"30\"",
         )
         .unwrap();
-        assert_eq!(advertised(&c), (true, true, 30_000));
-        let p = Policy::resolve(&c, Rate(60_000), "none", false).unwrap();
+        assert_eq!(advertised(&c, false), (true, true, 30_000));
+        let p = Policy::resolve(&c, Rate(60_000), false, "none", false, false).unwrap();
         assert_eq!(p.rate, Rate(30_000));
         let c = Config::parse("dd_refresh_rate_option=manual\ndd_manual_refresh_rate=\"119.88\"")
             .unwrap();
         assert_eq!(
-            c.display_request_rate(1920, 1080, Rate(60_000), false)
+            c.display_request_rate(1920, 1080, Rate(60_000), false, false)
                 .unwrap()
                 .refresh,
             Some(119_880)
@@ -327,22 +440,20 @@ mod tests {
         }
     }
     #[test]
-    fn inherited_framegen_keeps_the_sync_contract() {
-        let mut c = Config::parse(
-            "rtss_frame_limit_type=back_edge_sync\nrtss_allow_virtual_display_override=1",
-        )
-        .unwrap();
-        let p = Policy::resolve(&c, Rate(59940), "game-provided", false).unwrap();
+    fn inherited_framegen_keeps_explicit_capture_and_sync_contract() {
+        let mut c = Config::parse("capture=ddx\nrtss_frame_limit_type=back_edge_sync\nrtss_allow_virtual_display_override=1").unwrap();
+        let p = Policy::resolve(&c, Rate(59940), true, "game-provided", false, false).unwrap();
         assert_eq!(p.display_rate, Rate(119880));
         assert_eq!(p.sync_limiter, 1);
-        let p = Policy::resolve(&c, Rate(59940), "game-provided", true).unwrap();
+        assert_eq!(p.capture, "ddx");
+        let p = Policy::resolve(&c, Rate(59940), true, "game-provided", false, true).unwrap();
         assert_eq!(p.sync_limiter, 2);
         c.values.insert(
             "frame_limiter_auto_virtual_framegen".into(),
             "enabled".into(),
         );
         assert_eq!(
-            Policy::resolve(&c, Rate(59940), "game-provided", false)
+            Policy::resolve(&c, Rate(59940), true, "game-provided", false, false)
                 .unwrap()
                 .display_rate,
             Rate(239760)
@@ -364,7 +475,7 @@ mod tests {
         }
         assert_eq!(virtual_refresh(&Config::default()), VirtualRefresh::Legacy);
         let c = Config::parse("frame_limiter_auto_virtual_framegen=fixed-2x").unwrap();
-        let p = Policy::resolve(&c, Rate(60000), "none", false).unwrap();
+        let p = Policy::resolve(&c, Rate(60000), true, "none", false, false).unwrap();
         assert_eq!(p.display_rate, Rate(120000));
     }
 }

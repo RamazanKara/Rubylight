@@ -50,7 +50,7 @@
   /** The control's own messages first, then the row's description. */
   const describe = (...ids: (string | false | undefined)[]) => [...ids, describedby].filter(Boolean).join(' ') || undefined;
 
-  // ---------- choices: select, audio, adapter ----------
+  // ---------- choices: select, display, audio, adapter ----------
 
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
@@ -63,6 +63,19 @@
           options.push({ value: '', label: 'Not set' });
         }
         options.push(...control.options);
+        break;
+      case 'display':
+        options.push({ value: '', label: 'Automatic' });
+        for (const display of meta?.capture_status.displays ?? []) {
+          const name = display.display_name;
+          if (!name) continue;
+          // The host also matches the device id; keep the stored spelling selected.
+          const matches = current !== '' && [name, display.device_id].some((field) => field && same(field, current));
+          const choice = matches ? current : name;
+          if (options.some((option) => option.value === choice)) continue;
+          const text = display.friendly_name || `Display ${options.length}`;
+          options.push({ value: choice, label: display.primary ? `${text} · primary` : text });
+        }
         break;
       case 'audio':
         options.push({ value: '', label: 'System default' });
@@ -96,11 +109,14 @@
     return options;
   });
 
-  const listsHost = $derived(control.kind === 'audio' || control.kind === 'adapter');
+  const listsHost = $derived(control.kind === 'display' || control.kind === 'audio' || control.kind === 'adapter');
 
   const hostError = $derived.by(() => {
     const meta = session.metadata;
     if (!meta) return '';
+    if (control.kind === 'display') {
+      return meta.capture_status.error ? `Could not list displays: ${meta.capture_status.error}` : '';
+    }
     if (control.kind === 'adapter') return meta.gpu_error ? `Could not list graphics cards: ${meta.gpu_error}` : '';
     if (control.kind === 'audio') return meta.audio_error ? `Could not list audio devices: ${meta.audio_error}` : '';
     return '';

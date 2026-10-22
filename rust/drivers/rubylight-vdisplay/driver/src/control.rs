@@ -8,9 +8,9 @@
 //! is scoped to the calling process, and every IOCTL counts as that process's heartbeat.
 
 use rubylight_vdisplay_proto::control::{
-    self, AddReply, AddRequest, CAP_FENCE_RING, CAP_HDR, CAP_SCOPED_CLEAR, CAP_UPDATE_MODES,
-    ClearFrameRingRequest, INFO_MAGIC, InfoReply, RenderAdapterRequest, SessionRequest,
-    SetFenceRingRequest, SetFrameRingRequest, UpdateModesRequest,
+    self, AddReply, AddRequest, CAP_FENCE_RING, CAP_FRAME_RING, CAP_HDR, CAP_SCOPED_CLEAR,
+    CAP_UPDATE_MODES, ClearFrameRingRequest, INFO_MAGIC, InfoReply, RenderAdapterRequest,
+    SessionRequest, SetFenceRingRequest, SetFrameRingRequest, UpdateModesRequest,
 };
 use rubylight_vdisplay_proto::{PROTOCOL_VERSION, modes, ring};
 use wdk_sys::{NTSTATUS, WDFREQUEST};
@@ -47,8 +47,11 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
                 watchdog_timeout_ms: crate::watchdog::WATCHDOG_TIMEOUT_S * 1000,
                 max_monitors: modes::MAX_MONITOR_ID,
                 max_ring_slots: ring::MAX_SLOTS as u32,
-                // Never CAP_FRAME_RING: this driver refuses the older keyed-mutex ring.
-                caps: CAP_HDR | CAP_UPDATE_MODES | CAP_SCOPED_CLEAR | CAP_FENCE_RING,
+                caps: CAP_FRAME_RING
+                    | CAP_HDR
+                    | CAP_UPDATE_MODES
+                    | CAP_SCOPED_CLEAR
+                    | CAP_FENCE_RING,
                 driver_version: driver_version(),
             };
             reply_with(request, &reply.encode());
@@ -109,16 +112,25 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
                 SetFenceRingRequest::SIZE,
                 SetFenceRingRequest::decode,
             ) {
-                Ok(r) => set_ring(owner, request, &r.ring, (r.written_fence, r.released_fence)),
+                Ok(r) => set_ring(
+                    owner,
+                    request,
+                    &r.ring,
+                    Some((r.written_fence, r.released_fence)),
+                ),
                 Err(st) => request.complete(st),
             }
         }
-        // The older keyed-mutex ring, from a host before CAP_FENCE_RING: refused before any
-        // handle is adopted, so that host reaps them and captures through Windows Graphics
-        // Capture instead.
+        // The default keyed-mutex transport, also used by hosts before CAP_FENCE_RING.
         control::IOCTL_SET_FRAME_RING => {
-            dbglog!("[rlvd] SET_FRAME_RING: keyed-mutex rings are refused");
-            request.complete(STATUS_NOT_SUPPORTED);
+            match read(
+                &request,
+                SetFrameRingRequest::SIZE,
+                SetFrameRingRequest::decode,
+            ) {
+                Ok(r) => set_ring(owner, request, &r, None),
+                Err(st) => request.complete(st),
+            }
         }
         control::IOCTL_CLEAR_FRAME_RING => with_session(request, |s| {
             if crate::monitor::clear_frame_ring(owner, s) {
@@ -245,10 +257,10 @@ fn add(owner: u32, request: Request) {
     }
 }
 
-/// `IOCTL_SET_FENCE_RING`: adopt the ring's handles and its `(written, released)` fences for
-/// the caller's monitor. Success means the driver
+/// `IOCTL_SET_FENCE_RING` and `IOCTL_SET_FRAME_RING`: adopt the ring's handles (with a fence
+/// ring's `(written, released)` fences) for the caller's monitor. Success means the driver
 /// owns every handle in the request; any failure means it owns none.
-fn set_ring(owner: u32, request: Request, req: &SetFrameRingRequest, fences: (u64, u64)) {
+fn set_ring(owner: u32, request: Request, req: &SetFrameRingRequest, fences: Option<(u64, u64)>) {
     let Some(monitor) = crate::monitor::find_session(owner, req.session_id) else {
         request.complete(STATUS_NOT_FOUND);
         return;
@@ -260,11 +272,13 @@ fn set_ring(owner: u32, request: Request, req: &SetFrameRingRequest, fences: (u6
             return;
         }
     };
+    let kind = handles.kind();
     match monitor.set_ring(handles) {
         Ok(displaced) => {
             dbglog!(
-                "[rlvd] SET_FENCE_RING: target {} ring {} ({} slots {}x{} format {})",
+                "[rlvd] SET_FRAME_RING: target {} {:?} ring {} ({} slots {}x{} format {})",
                 monitor.target_id(),
+                kind,
                 req.generation,
                 req.slot_count,
                 req.width,

@@ -87,7 +87,7 @@ class SoakMeasurements(unittest.TestCase):
         self.assertEqual(load_limit(result), 'same-GPU decoder starved by the load; measure with a separate client')
         for failure in ('receiver interoperability failed', 'video was not fully decoded',
                         'the captured audio tone was silent or interrupted', 'missing measurements: decoder_mean_ms',
-                        'host logged an error', 'devices remained after teardown', 'cancel: failed'):
+                        'host logged an error', 'devices or capture helpers remained after teardown', 'cancel: failed'):
             with self.subTest(failure=failure):
                 self.assertIsNone(load_limit(result | dict(failures=result['failures'] + [failure])))
         self.assertIsNone(load_limit(result | dict(load=False)))
@@ -146,7 +146,7 @@ class SoakMeasurements(unittest.TestCase):
                         fresh_fps=58.1929172, picture_coverage=1.0, arrival_stutters=1, idr_frames=1),
                    dict(elapsed_seconds=13.0033206, seconds=6.6929036, frames=406,
                         fresh_fps=60.5118532, picture_coverage=1.0, arrival_stutters=0, idr_frames=0)]
-        for code in ('capture_recovery', 'encoder_recovery'):
+        for code in ('capture_recovery', 'encoder_recovery', 'encoder_compute_recovery'):
             with self.subTest(code=code):
                 log = f'2026-10-08T12:04:34.039415Z  WARN butterpollo_core::session: Capture interrupted; reopening capture. code="{code}"'
                 result = fault_outcome(samples, 8.5164757, 0, log, windows, 60)

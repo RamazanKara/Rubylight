@@ -4,16 +4,16 @@
 
 Start with the current stream's settings, the console and the logs. Record the time of a failure before changing anything, and change one setting at a time. Capture and performance probes add work to the GPU; use an idle session for those comparisons.
 
-**Find a symptom:** [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Black screen](#black-picture-or-no-display) · [Audio](#audio-cuts-out-or-lags) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Display restoration](#monitors-stay-on-or-the-display-layout-does-not-return) · [Controllers](#a-controller-or-other-input-does-nothing) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) · [Updates](#an-update-stays-queued) · [Logs and support](#logs-and-a-useful-report)
+**Find a symptom:** [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Black screen](#black-picture-no-display-or-wgc-fails) · [Audio](#audio-cuts-out-or-lags) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Display restoration](#monitors-stay-on-or-the-display-layout-does-not-return) · [Controllers](#a-controller-or-other-input-does-nothing) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) · [Updates](#an-update-stays-queued) · [Logs and support](#logs-and-a-useful-report)
 
 ## What the stream card warnings mean
 
 The stream card shows the active encoder and warnings for the current session. Each warning also writes a `WARN` log with its cause and a next step. Capture recovery and audio capture warnings clear when those paths recover. Dropped packets, frames and input, and audio device changes, stay on the card for 30 seconds after they last happened. A warning describes a fallback or limitation, not a measured latency penalty.
 
 - **Encoder failure:** AMF is the only encoder for H.264, HEVC and AV1. If it cannot start, the stream fails with AMF's error in the log; there is no other encoder to fall back to. Check that error and the AMD graphics driver.
-- **Capture interrupted:** the display driver's frames stopped arriving. A display size or colour-mode change causes capture to reopen. If the warning persists, check the log and the display driver's state on **Overview → Host readiness**.
-- **Display driver:** the stream was refused because Rubylight's display driver is missing or not running (run Rubylight setup again to repair it), or because an updated driver runs only after Windows restarts (restart Windows).
-- **Resolution, refresh, HDR or limiter:** the requested setup is unavailable, unsupported or owned by another stream on the same virtual display. Check the actual display mode and RTSS. A 60 Hz source cannot supply 116 fresh pictures per second.
+- **Graphics queue conversion/copies:** compute setup failed. A busy game can delay capture or conversion. Lower game GPU load or check the AMD driver.
+- **Desktop Duplication / capture interrupted:** WGC or its helper could not capture. UAC and lock screens can cause a temporary change. Unlock the desktop; if the warning persists, check the helper error. A display size change causes capture to reopen.
+- **Physical display, refresh, HDR or limiter:** the requested setup is unavailable, unsupported or owned by another stream. Check the actual display mode and RTSS. A 60 Hz source cannot supply 116 fresh pictures per second.
 - **Audio:** a missing virtual sink can send sound to the host's speakers. Device changes and capture failures can pause sound. The host-loss warning names what was lost: sound Windows dropped because the host's audio sender read too late (a busy CPU or a host problem, not bitrate), or audio packets the network adapter refused (lower the video bitrate or check the adapter).
 - **Bitrate, pacing or FEC:** the encoder/wire budget was limited, packets were dropped, or large frames lost FEC protection. Check Maximum bitrate and the client bitrate. Runtime bitrate updates have a 500 Mbps cap. Leave headroom for audio, packet headers and FEC.
 - **AMF rate-control limit rejected:** the driver accepted the target bitrate but refused a peak-rate, buffer or frame-size limit. Later bitrate changes retry using that limit's last accepted scaling basis; an unreadable property does not clear its warning. If it persists, reconnect at the desired bitrate or update the AMD driver.
@@ -39,12 +39,15 @@ The default base port is `47989`; the console uses `47990`. A changed **Base por
 
 For an installed host, check **Rubylight** in Windows Services. Its internal service name is `ApolloService`. If it is stopped, read `service.log` before starting it again. The [log locations below](#logs-and-a-useful-report) distinguish service and portable profiles.
 
-## Black picture or no display
+## Black picture, no display, or WGC fails
 
-1. On **Overview → Host readiness**, inspect **Video encoder** and **Virtual display**. Every stream runs on a virtual display, so the display driver must be ready. If it is not installed or not running, run Rubylight setup again to repair the installation; after a driver update, restart Windows.
-2. Check the `stream display selection` log entry for the virtual display and layout the stream got, and `capture backend opened` for its capture.
-3. A stream started while Windows is locked sets up its virtual display on the lock screen. If it cannot be set up there, the stream is refused; sign in, then start the stream again.
-4. If the virtual-display status reports access denied, use the installed Windows service and check that the bundled driver is ready. A portable host having administrator rights is not equivalent to the driver's service access.
+1. On **Overview → Host readiness**, inspect **Screen capture**, **Video encoder** and **Virtual display**. A physical monitor must be active, or the configured virtual display must be available.
+2. Check **Settings → Display → Display** and any app/device override. Confirm that the selected display is the one containing the desktop or game.
+3. For service-mode WGC, keep a Windows user signed in. Rubylight starts its WGC capture worker in that user's session. A locked or UAC desktop uses the Desktop Duplication recovery path; WGC is retried when the normal desktop returns. A stream started while Windows is locked sets up its display on the lock screen; if the virtual display cannot be set up there, the stream shows the physical display and the stream card says so. Start the stream again after signing in.
+4. Read the `capture backend opened` log entry for the backend that actually opened. `requested_capture=wgc` describes the request and can appear even when capture falls back.
+5. If the virtual-display status reports access denied, use the installed Windows service and check that the bundled driver is ready. A portable host having administrator rights is not equivalent to the driver's service access.
+
+For a controlled comparison, disconnect first, set **Settings → Video → Capture method** to **Desktop Duplication**, reconnect at the same resolution/rate, and record whether the symptom changes. Return to **Automatic** afterward unless the explicit choice is needed. Keep the original failure log so a successful fallback does not hide the WGC error.
 
 The installed service always runs the host in the session attached to the physical console. When Remote Desktop takes over a signed-in desktop, Windows gives the console a new session at the sign-in screen, and the host moves there. Closing the Remote Desktop window leaves that desktop disconnected. A Moonlight stream then shows the console's sign-in screen. Signing in there as the same user makes Windows reconnect the disconnected desktop to the console and end the sign-in session, which also ends that stream. Reconnect Moonlight once the desktop is back; the host restarts in that session within a few seconds. The host logs a warning naming the disconnected session when a stream starts in this state.
 
@@ -102,7 +105,7 @@ Compare the same moving scene at the same resolution, frame rate, codec and bitr
 
 None of the host timings measures the complete input-to-screen delay. Smoothness also depends on distinct pictures arriving regularly. The [performance guide](performance.md) separates host timings, measured picture age, fresh-picture rate and arrival gaps.
 
-If the problem starts when the GPU is fully occupied, compare with a lower game frame cap or lighter graphics settings. If client network loss rises, reduce bitrate or compare a wired connection. If decoder time rises, reduce resolution/rate or select another hardware-decoded codec. Keep the compute defaults for the baseline; use compute overrides only for a recorded comparison. The published local tests do not establish results for every Radeon model or Wi-Fi connection.
+If the problem starts when the GPU is fully occupied, compare with a lower game frame cap or lighter graphics settings. If client network loss rises, reduce bitrate or compare a wired connection. If decoder time rises, reduce resolution/rate or select another hardware-decoded codec. Keep WGC and compute defaults for the baseline; use capture/compute overrides only for a recorded comparison. The published local tests do not establish results for every Radeon model or Wi-Fi connection.
 
 ## The picture freezes while audio and input continue
 
@@ -114,7 +117,7 @@ If you explicitly use **Software** with HEVC, 2.2.18 also fixes recovery request
 
 Start from the default encoder settings: `amd_usage=ultralowlatency`, `amd_lowlatency_mode=auto`, `amd_input_queue_size=0`, `amd_preanalysis=disabled`, `amd_split_frame=auto` and `compute_queue_realtime=false`. Use `amd_smart_access_video=disabled` while diagnosing a freeze. Install AMD's current Recommended driver for your card from [AMD's driver page](https://www.amd.com/en/support/download/drivers.html).
 
-If the freeze returns, reconnect once with `idd_push_zero_copy` off and once with it on, and note whether that changes the result.
+If the freeze returns, change one setting per reconnect (WGC against Desktop Duplication, then `gpu_compute_conversion` on against off) and note which one changes the result.
 
 Send the host log **from `CLIENT CONNECTED` through `CLIENT DISCONNECTED`**, plus startup/probe failures and the client log around the failure time. The default **Information** log level already writes encoder settings, display setup and the 5-second `stream timings` lines. **Debug** (`min_log_level=debug`) adds GPU scheduling and probe details; the change applies right away. Preserve whole lines, including fields. In particular include:
 
@@ -166,7 +169,7 @@ Set **Log level** to **Debug** before reproducing so the log includes `Playnite 
 
 Open **Maintenance → Frame limiter** during the affected stream. Record **Configured**, **Active now**, RTSS detection/running state and **RTSS folder**. A missing tray icon alone does not establish whether the limiter is active.
 
-In **Settings → Frame limiting**, check **Limiter**, **Frame limit**, **Virtual display refresh** and **RTSS folder**. **None** disables limiting. Turn on **Limit every stream** if you want a cap on every stream; virtual-display policy can apply its own cap. A frame limit of `0` follows the stream rate, including fractional values such as 59.94.
+In **Settings → Frame limiting**, check **Limiter**, **Frame limit**, **Virtual display refresh** and **RTSS folder**. **None** disables limiting. Physical-monitor streams need **Limit every stream** if you want a cap on every stream; virtual-display policy can apply its own cap. A frame limit of `0` follows the stream rate, including fractional values such as 59.94.
 
 The folder must contain the RTSS executable and its hook library, not just a shortcut. If the log says RTSS requires administrator privileges, start RTSS as administrator before streaming or use Rubylight's installed service. If it is found and running but one game ignores the limit, check that game's RTSS profile and include the game/API in the report. If RTSS's window keeps your own limit during a stream, Rubylight could not reach the elevated RTSS: use the installed service, or run a portable copy as administrator. RTSS 7.3.7 ignores edits of its settings file and takes a new limit only through its own interface, which Rubylight uses from rc.27; the log line "RTSS frame limit applied and verified" names the RTSS version.
 
@@ -228,14 +231,6 @@ The host only follows what Moonlight announces when a controller connects. With 
 - **Shutdown hangs after a failed USB/IP attachment:** 2.2.18 depends on a second loopback connection to wake its idle controller server. If Windows blocks that connection, teardown can wait indefinitely. [2.2.19](../rust/RELEASE_NOTES.md#new-in-2219) wakes the server without making a connection. A working loopback connection is still required to attach the controller.
 
 See [Steam Deck](configuration.md#steam-deck).
-
-## Setup says Rubylight cannot be installed on this PC
-
-From 3.0, Rubylight runs only on an AMD Radeon RX 6000 (RDNA 2) or newer whose video encoder creates HEVC streams, on Windows 11 build 26200 (25H2) or newer, with its own display driver running. Setup checks all three before it changes anything and lists each one this PC misses. Nothing is changed: an installed Rubylight keeps working, and the 2.6.x line stays available for that PC. The in-app updater does not offer 3.0 to such a PC either.
-
-- **Windows build:** install the current Windows 11 feature update, then run setup again.
-- **GPU:** the message names each GPU setup found and why it did not count (not AMD, older than RDNA 2, or an encoder that could not create an HEVC stream). A Radeon that fails the HEVC check on supported hardware usually needs a current AMD driver.
-- **Display driver:** Windows refused to start the driver. Setup prints Windows' reason; Smart App Control, S mode and App Control policies refuse a locally signed driver.
 
 ## Setup rejects the profile folder's owner
 

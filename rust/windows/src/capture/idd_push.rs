@@ -2,40 +2,41 @@
 //!
 //! The driver copies every frame Windows composes for its monitor into textures this session
 //! creates and shares with it, stamps the frame's present QPC beside it and sets an event
-//! (`rubylight_vdisplay_proto::ring`). A frame is one GPU copy in the driver.
+//! (`rubylight_vdisplay_proto::ring`). No WGC and no Desktop Duplication run: a frame is one
+//! GPU copy in the driver.
 //!
-//! The ring is a fence ring (the driver reports `CAP_FENCE_RING`): its textures and two fences
-//! are D3D12 objects created on the capture GPU's compute device and shared by NT handle. The
-//! driver's D3D12 copy queue writes a texture and signals the written fence with the frame's
-//! sequence. By default the compute conversion reads the texture in place, waiting on the GPU
-//! for that fence, and the compute queue signals the released fence after the image's last
-//! read. With `idd_push_zero_copy = false` a compute queue of its own waits for the written
-//! fence, copies the texture into a pool texture the host owns, and signals the released fence
-//! after its copy.
+//! An opt-in fence ring uses `CAP_FENCE_RING`: its textures and fences
+//! are created on the capture GPU's D3D12 compute device. On AMD the compute conversion reads
+//! the ring texture in place, waiting on the GPU for the driver's written fence, and the
+//! compute queue signals the released fence once the conversion is done; no D3D11 work runs
+//! for it. Elsewhere (and with `idd_push_zero_copy = false`) the capture's D3D11 device waits
+//! for the written fence, copies the texture into the owned pool as every other capture's
+//! frames are, and signals the released fence after its copy.
 //!
-//! A driver without `CAP_FENCE_RING` is one an update installed that runs only after Windows
-//! restarts; streams are refused until then ([`crate::display::DriverRestartRequired`]).
-//! A fence fault ends the capture with an error; nothing falls back to another transport.
+//! The default keyed-mutex ring remains available, including when fence-ring initialization
+//! fails or the installed driver does not support it.
+//!
+//! It runs for every automatic capture of a display this host created, and for
+//! `capture = idd-push`; physical displays, and `capture = wgc` or `ddx`, keep WGC or Desktop
+//! Duplication.
 
 use super::*;
 use crate::display::rubylight_vdd::{Control, Owned, Remote, owned_display};
 use butterpollo_core::virtual_output::{PushedFrame, PushedFrames};
 use rubylight_vdisplay_proto::control::{
-    CAP_SCOPED_CLEAR, MonitorStatus, SetFenceRingRequest, SetFrameRingRequest,
+    CAP_FENCE_RING, CAP_SCOPED_CLEAR, MonitorStatus, SetFenceRingRequest, SetFrameRingRequest,
 };
-use rubylight_vdisplay_proto::ring::{self, Consumer, Counters, Header, Layout, SlotMeta};
+use rubylight_vdisplay_proto::ring::{self, Consumer, Counters, Header, Kind, Layout, SlotMeta};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
-use windows::Win32::Graphics::Direct3D12::{
-    D3D12_RESOURCE_DESC, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-    D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, ID3D12CommandQueue, ID3D12Fence,
-};
+use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_TIMEOUT};
+use windows::Win32::Graphics::Direct3D12::ID3D12Fence;
 use windows::Win32::System::Memory::{
     CreateFileMappingW, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile,
     PAGE_READWRITE, UnmapViewOfFile,
 };
+use windows::core::HRESULT;
 
 /// Shapes a ring may be rebuilt to before the first frame, when the driver reports the
 /// surface differs from the guess it was opened with.
@@ -45,11 +46,15 @@ const RESHAPES_BEFORE_FIRST_FRAME: u32 = 3;
 const DRAIN_STALL: Duration = Duration::from_secs(3);
 /// How long a ring may wait for its first frame before the capture gives up.
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
-/// A live producer that acquires frames but cannot publish through fences fails sooner. A
-/// display Windows has not started composing keeps its full startup allowance above.
+/// A live producer that acquires frames but cannot publish through fences gets the
+/// standard transport sooner. A display Windows has not started composing keeps its
+/// full startup allowance above.
 const FENCE_HANDOFF_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often the driver's frame counters are logged (`idd_push=debug`).
 const COUNTERS_EVERY: Duration = Duration::from_secs(5);
+
+/// Rings of one monitor that may fail before their first frame before its captures use WGC.
+const FAILURES_BEFORE_WGC: u32 = 2;
 
 /// The monitors this process captures from. The driver keeps one ring per monitor, so a
 /// second capture registering its own would take the frames from the first.
@@ -75,92 +80,150 @@ impl Drop for Exclusive {
     }
 }
 
-/// What stopped the fence transport, if it did. Every fault ends the capture with an error:
-/// there is no other transport to continue on. A fault before the first frame also counts as a
-/// ring failure; one after it makes the capture worker reopen with a fresh capture device.
-fn fence_fault(
+/// Monitors whose rings failed before delivering a frame, on which adapter, and how often.
+/// A failure the driver reports after the ring was accepted (textures that do not open, a
+/// surface that never settles, no frame at all) would repeat on every reopen, so after
+/// [`FAILURES_BEFORE_WGC`] the monitor's captures use WGC until it renders on another adapter
+/// or a ring delivers a frame. A new monitor has a new session id and starts clean.
+#[derive(Default)]
+struct Failures(Vec<(u64, (u32, i32), u32)>);
+
+impl Failures {
+    fn failed(&mut self, session_id: u64, adapter: (u32, i32)) -> u32 {
+        match self.0.iter_mut().find(|(id, _, _)| *id == session_id) {
+            Some((_, at, count)) if *at == adapter => {
+                *count += 1;
+                *count
+            }
+            Some(entry) => {
+                *entry = (session_id, adapter, 1);
+                1
+            }
+            None => {
+                self.0.push((session_id, adapter, 1));
+                1
+            }
+        }
+    }
+
+    fn delivered(&mut self, session_id: u64) {
+        self.0.retain(|(id, _, _)| *id != session_id);
+    }
+
+    /// The failures that send this monitor's captures to WGC on `adapter`, if it has them.
+    fn excluded(&self, session_id: u64, adapter: (u32, i32)) -> Option<u32> {
+        self.0
+            .iter()
+            .find(|(id, at, count)| {
+                *id == session_id && *at == adapter && *count >= FAILURES_BEFORE_WGC
+            })
+            .map(|(_, _, count)| *count)
+    }
+}
+
+static FAILURES: Mutex<Failures> = Mutex::new(Failures(Vec::new()));
+
+/// A capture reopen shares this identity; a real display recreation, driver restart or
+/// render-adapter change does not. Session ids alone are persistent client identities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FenceScope {
+    session: u64,
+    registration: u64,
+    driver_pid: u32,
+    adapter: (u32, i32),
+}
+
+impl FenceScope {
+    fn new(monitor: &Owned, adapter: (u32, i32)) -> Self {
+        Self {
+            session: monitor.session_id,
+            registration: monitor.registration,
+            driver_pid: monitor.wudf_pid,
+            adapter,
+        }
+    }
+}
+
+/// Remember a rejected transport through capture reopen, independently of the generic
+/// driver-to-WGC failures. A successful keyed frame must not enable the rejected path.
+#[derive(Default)]
+struct FenceFailures(Vec<FenceScope>);
+
+impl FenceFailures {
+    const LIMIT: usize = 64;
+
+    fn failed(&mut self, scope: FenceScope) {
+        self.clear(scope.session);
+        if self.0.len() == Self::LIMIT {
+            self.0.remove(0);
+        }
+        self.0.push(scope);
+    }
+
+    fn excluded(&self, scope: FenceScope) -> bool {
+        self.0.contains(&scope)
+    }
+
+    fn clear(&mut self, session: u64) {
+        self.0.retain(|entry| entry.session != session);
+    }
+}
+
+static FENCE_FAILURES: Mutex<FenceFailures> = Mutex::new(FenceFailures(Vec::new()));
+
+#[derive(Debug, PartialEq, Eq)]
+enum FenceRecovery {
+    /// No GPU work has read this ring yet, so its device can still serve a keyed ring.
+    Keyed {
+        reason: &'static str,
+        remember: bool,
+    },
+    /// A context may already wait behind failed work. Reopening creates a fresh device.
+    Reopen(&'static str),
+}
+
+fn fence_recovery(
     status: u32,
     started: bool,
     elapsed: Duration,
     counters: Counters,
     ordering_failed: bool,
     queue_stuck: bool,
-) -> Option<&'static str> {
+) -> Option<FenceRecovery> {
     if queue_stuck {
-        return Some("compute queue cannot be reused");
+        return Some(FenceRecovery::Reopen("compute queue cannot be reused"));
     }
     if ordering_failed {
-        return Some("lost GPU ordering");
+        return Some(FenceRecovery::Reopen("lost GPU ordering"));
     }
     if status == ring::STATUS_OPEN_FAILED {
         return Some(if started {
-            "shared resources stopped opening"
+            FenceRecovery::Reopen("shared resources stopped opening")
         } else {
-            "could not open shared resources"
+            FenceRecovery::Keyed {
+                reason: "could not open shared resources",
+                remember: true,
+            }
         });
     }
-    // Shape changes and device/adapter loss follow their existing recovery paths. Silence
-    // alone is not a fence fault: Windows may not have supplied any pixels yet, and the
-    // first-frame allowance in `check` covers it.
-    if !started
-        && matches!(status, ring::STATUS_WAITING | ring::STATUS_STREAMING)
-        && elapsed >= FENCE_HANDOFF_TIMEOUT
-        && counters.acquired > 0
-        && counters.pushed == 0
-    {
-        return Some("could not publish acquired frames");
+    // Shape changes and device/adapter loss follow their existing recovery paths.
+    if !started && matches!(status, ring::STATUS_WAITING | ring::STATUS_STREAMING) {
+        if elapsed >= FENCE_HANDOFF_TIMEOUT && counters.acquired > 0 && counters.pushed == 0 {
+            return Some(FenceRecovery::Keyed {
+                reason: "could not publish acquired frames",
+                remember: true,
+            });
+        }
+        if elapsed >= FIRST_FRAME_TIMEOUT {
+            return Some(FenceRecovery::Keyed {
+                reason: "did not deliver a frame",
+                // Silence alone does not identify a fence problem: Windows may not have
+                // supplied any pixels yet. A later capture may try fences again.
+                remember: false,
+            });
+        }
     }
     None
-}
-
-/// The fence transport stopped (see [`fence_fault`]). The capture worker reopens after it, with a
-/// frozen picture until frames resume; [`FenceFaults`] ends the stream when that keeps failing.
-#[derive(Debug)]
-pub struct FenceFault(pub &'static str);
-impl std::fmt::Display for FenceFault {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "GPU fence transport {}; recreate the capture device",
-            self.0
-        )
-    }
-}
-impl std::error::Error for FenceFault {}
-
-/// Fence faults in a row on one display's capture before the stream ends. The first fault gets
-/// one reopen with a fresh device; the second, with no frame delivered in between, is a driver
-/// or GPU that keeps failing (the limit the ring had before it fell back to another capture).
-pub const FENCE_FAULTS_BEFORE_STOP: u32 = 2;
-
-/// Consecutive fence faults of one display's capture, ended by a delivered frame. Without the
-/// count, a ring that keeps faulting reopens forever while the picture stays frozen.
-#[derive(Debug, Default)]
-pub struct FenceFaults(u32);
-impl FenceFaults {
-    /// A frame arrived: the transport works.
-    pub fn delivered(&mut self) {
-        self.0 = 0;
-    }
-    /// Count `error` if it is a fence fault. The error to end the stream with once the limit
-    /// is reached, naming the driver and how to repair it. A device loss (a TDR, a driver
-    /// reset) is not counted whatever it wraps: the device-loss recovery handles it, and it
-    /// starts the count again, as a fault before it says nothing about the recreated device.
-    pub fn fault(&mut self, error: &anyhow::Error) -> Option<anyhow::Error> {
-        if crate::device_loss::DeviceLost::from_error(error).is_some() {
-            self.0 = 0;
-            return None;
-        }
-        let fault = error.downcast_ref::<FenceFault>()?;
-        self.0 += 1;
-        (self.0 >= FENCE_FAULTS_BEFORE_STOP).then(|| {
-            anyhow::anyhow!(
-                "Rubylight's display driver keeps failing the GPU fence transport ({}; {} times with no frame in between). Restart Windows; if this persists, run Rubylight setup again to repair the display driver.",
-                fault.0,
-                self.0
-            )
-        })
-    }
 }
 
 /// Microseconds from QPC `from` to `to`, zero when `to` is earlier or either is missing.
@@ -169,6 +232,23 @@ fn qpc_micros(from: u64, to: u64, frequency: i64) -> u64 {
         return 0;
     }
     ((to - from) as u128 * 1_000_000 / frequency as u128) as u64
+}
+
+/// Whether this capture should come from the driver: asked for by name, or automatic on a
+/// display this host created. `capture = wgc` or `ddx` keeps those.
+pub(super) fn wanted(kind: &str, capture_setting: &str, own_display: bool) -> bool {
+    kind == "idd-push" || (matches!(capture_setting.trim(), "" | "auto") && own_display)
+}
+
+/// [`wanted`] for a stream on display `name`; the display lookup runs only when it decides.
+pub(super) fn wanted_for(
+    name: &str,
+    kind: &str,
+    config: &butterpollo_core::config::Config,
+) -> bool {
+    let setting = config.get("capture", "auto");
+    wanted(kind, setting, false)
+        || (wanted(kind, setting, true) && matches!(owned_display(name), Ok(Some(_))))
 }
 
 /// The ring to open: the surface the driver last composed when it reported one, otherwise
@@ -216,8 +296,8 @@ fn verdict(status: (u32, u32), surface: (u32, u32, u32), started: bool) -> Verdi
         ring::STATUS_SIZE_MISMATCH | ring::STATUS_FORMAT_MISMATCH => {
             let (width, height, format) = surface;
             if started {
-                // A size or colour-space change reopens the capture, so the encoder is
-                // rebuilt for it.
+                // As with WGC, a size or colour-space change reopens the capture, so the
+                // encoder is rebuilt for it.
                 Verdict::Fail(format!(
                     "the Rubylight display changed to {width}x{height} format {format}"
                 ))
@@ -257,6 +337,22 @@ fn qpc_now() -> i64 {
     // SAFETY: QueryPerformanceCounter writes only to the live local.
     let _ = unsafe { windows::Win32::System::Performance::QueryPerformanceCounter(&mut now) };
     now
+}
+
+/// Take a keyed mutex without waiting. AcquireSync's WAIT_TIMEOUT is a success HRESULT the
+/// `Result` binding would report as `Ok`, so the raw code is inspected (as the WGC helper
+/// transport does). Keyed-mutex ring only.
+fn acquire(mutex: &IDXGIKeyedMutex, key: u64) -> Result<bool> {
+    // SAFETY: `mutex` is a live keyed mutex; AcquireSync takes (this, key, timeout).
+    let status = unsafe { (mutex.vtable().AcquireSync)(mutex.as_raw(), key, 0) };
+    if status.0 == WAIT_TIMEOUT.0 as i32 {
+        return Ok(false);
+    }
+    anyhow::ensure!(
+        status == HRESULT(0),
+        "Rubylight frame ring mutex failed: {status:?}"
+    );
+    Ok(true)
 }
 
 /// The shared header: an unnamed section mapped here, its handle duplicated to the driver.
@@ -320,7 +416,9 @@ impl Drop for Section {
 }
 
 struct Slot {
-    texture: Arc<windows::Win32::Graphics::Direct3D12::ID3D12Resource>,
+    texture: ID3D11Texture2D,
+    /// Keyed-mutex ring only.
+    mutex: Option<IDXGIKeyedMutex>,
     shared: OwnedHandle,
 }
 
@@ -329,65 +427,115 @@ struct Slot {
 pub(super) struct Fences {
     section: Arc<Section>,
     compute: Arc<crate::compute::Compute>,
+    /// Imports stay available while any lent image can still be converted, even after the
+    /// session replaces the ring. Also rolls back a partially constructed ring.
+    imports: Mutex<Vec<ID3D11Texture2D>>,
     /// A failed ordering operation quarantines this ring. Never free a slot whose GPU
     /// readers may not be covered by its completion fence.
     failed: AtomicBool,
     /// The driver signals it with a frame's sequence once its copy is done.
     written: ID3D12Fence,
+    written11: ID3D11Fence,
     /// Signalled with each slot's release value after the host's last read of the slot.
     released: ID3D12Fence,
+    released11: ID3D11Fence,
     /// For the driver: `[written, released]`.
     handles: [OwnedHandle; 2],
-    /// The queue that reads the ring and signals the released fence: the compute queue when
-    /// the ring is read in place, else the copies' queue. Always the same one, so the values
-    /// reach the fence in the order they were handed out, each after the reads before it.
-    queue: ID3D12CommandQueue,
-    /// The last release value handed out.
-    value: Mutex<u64>,
+    context: ID3D11DeviceContext4,
+    /// D3D11 reads of a lent texture reach the compute queue through it, so the released
+    /// signal follows them.
+    bridge: (ID3D12Fence, ID3D11Fence),
+    /// Whose queue signals the released fence: the compute queue when the ring is read in
+    /// place, else the capture's D3D11 device. Always the same one, so the values reach the
+    /// fence in the order they were handed out.
+    on_compute: bool,
+    /// The last release and bridge values handed out.
+    values: Mutex<(u64, u64)>,
 }
+
+// SAFETY: the D3D12 fences and the compute queue are free-threaded, the D3D11 context's device
+// is multithread-protected (`capture::Device::create`), and the values are locked.
+unsafe impl Send for Fences {}
+// SAFETY: as above.
+unsafe impl Sync for Fences {}
 
 impl Fences {
     fn fail_ordering(&self) {
         self.failed.store(true, Ordering::Release);
-        if self.queue == self.compute.queue {
-            // Earlier readers may have queued a written-fence wait whose matching signal is now
-            // uncertain. A fresh capture device alone cannot retire it.
+        if self.on_compute {
+            // Earlier readers may have queued a written/bridge wait whose matching
+            // signal is now uncertain. A fresh D3D11 device alone cannot retire it.
             self.compute.retire();
         }
     }
 
+    fn order_d3d11(&self, seq: u32) -> Result<()> {
+        // SAFETY: the shared fence is opened on this multithread-protected context's device.
+        let waited = unsafe { self.context.Wait(&self.written11, u64::from(seq)) };
+        if waited.is_err() {
+            self.fail_ordering();
+        }
+        waited.context("order a driver frame's graphics reader")
+    }
+
     fn new(
+        gpu: &Device,
         compute: Arc<crate::compute::Compute>,
         section: Arc<Section>,
-        queue: ID3D12CommandQueue,
+        on_compute: bool,
     ) -> Result<Self> {
-        let (written, written_handle) = compute.share_fence()?;
-        let (released, released_handle) = compute.share_fence()?;
+        let device: ID3D11Device5 = gpu.device.cast()?;
+        let (written, written11, written_handle) = compute.share_fence(&device)?;
+        let (released, released11, released_handle) = compute.share_fence(&device)?;
+        let (bridge, bridge11, _) = compute.share_fence(&device)?;
         Ok(Self {
             section,
             compute,
+            imports: Mutex::new(Vec::new()),
             failed: AtomicBool::new(false),
             written,
+            written11,
             released,
+            released11,
             handles: [written_handle, released_handle],
-            queue,
-            value: Mutex::new(0),
+            context: gpu.context.cast()?,
+            bridge: (bridge, bridge11),
+            on_compute,
+            values: Mutex::new((0, 0)),
         })
     }
 
-    /// Free `slot`, claimed for frame `seq`, behind every read of it submitted so far on the
-    /// ring's queue.
-    fn free(&self, slot: usize, seq: u32) -> Result<()> {
-        let mut value = self.value.lock().unwrap();
+    /// Free `slot`, claimed for frame `seq`, behind every read of it submitted so far: on the
+    /// compute queue for a ring read in place (and on the D3D11 device too when `d3d11_read`),
+    /// else on the D3D11 device.
+    fn free(&self, slot: usize, seq: u32, d3d11_read: bool) -> Result<()> {
+        let mut values = self.values.lock().unwrap();
         anyhow::ensure!(
             !self.failed.load(Ordering::Acquire),
             "frame ring ordering failed"
         );
-        *value += 1;
-        let release = *value;
-        // SAFETY: the released fence and the queue are on the same D3D12 device and
-        // free-threaded.
-        let signalled = unsafe { self.queue.Signal(&self.released, release) };
+        values.0 += 1;
+        let release = values.0;
+        // SAFETY: every fence was created on the compute device and opened on this context's
+        // device; the context is multithread-protected and the queue free-threaded.
+        let signalled = unsafe {
+            if self.on_compute {
+                let bridged = if d3d11_read {
+                    values.1 += 1;
+                    self.context
+                        .Signal(&self.bridge.1, values.1)
+                        .map(|()| self.context.Flush())
+                        .and_then(|()| self.compute.queue.Wait(&self.bridge.0, values.1))
+                } else {
+                    Ok(())
+                };
+                bridged.and_then(|()| self.compute.queue.Signal(&self.released, release))
+            } else {
+                self.context
+                    .Signal(&self.released11, release)
+                    .map(|()| self.context.Flush())
+            }
+        };
         // A failed signal does not prove the reads completed. Keep the slot owned until
         // Session retires this ring; a later signal must not make an unsafe slot reusable.
         if let Err(error) = signalled {
@@ -395,7 +543,7 @@ impl Fences {
             return Err(error).context("free a Rubylight frame ring slot");
         }
         let freed = Consumer::release(&self.section.header(), slot, seq, release);
-        drop(value);
+        drop(values);
         if !freed {
             self.fail_ordering();
         }
@@ -405,10 +553,13 @@ impl Fences {
         );
         Ok(())
     }
+}
 
-    /// When the driver's copy of frame `seq` is complete.
-    fn written(&self, seq: u32) -> crate::compute::Ready {
-        crate::compute::Ready::on(&self.compute, self.written.clone(), u64::from(seq))
+impl Drop for Fences {
+    fn drop(&mut self) {
+        for texture in self.imports.get_mut().unwrap() {
+            self.compute.forget(texture);
+        }
     }
 }
 
@@ -418,70 +569,139 @@ pub(crate) struct Lent {
     fences: Arc<Fences>,
     slot: usize,
     seq: u32,
+    /// Whether a D3D11 reader waited for the driver's copy.
+    d3d11: Mutex<bool>,
 }
 
 impl Lent {
-    /// A bounded reader wait failed. Retain this slot and let capture reopen
-    /// without treating the unrelated compute queue as broken.
+    /// A bounded reader wait failed. Retain this slot and let capture reopen on the
+    /// standard transport without treating the unrelated compute queue as broken.
     pub(super) fn reject(&self) {
         self.fences.failed.store(true, Ordering::Release);
+    }
+
+    /// Make the capture's D3D11 device wait for the driver's copy before any D3D11 read of
+    /// the texture. Only readers other than the compute conversion need it.
+    pub(super) fn order_d3d11(&self) -> Result<()> {
+        let mut waited = self.d3d11.lock().unwrap();
+        if !*waited {
+            self.fences.order_d3d11(self.seq)?;
+            *waited = true;
+        }
+        Ok(())
     }
 }
 
 impl Drop for Lent {
     fn drop(&mut self) {
-        if let Err(error) = self.fences.free(self.slot, self.seq) {
+        let d3d11 = *self.d3d11.lock().unwrap();
+        if let Err(error) = self.fences.free(self.slot, self.seq, d3d11) {
             tracing::debug!(error = %format!("{error:#}"), slot = self.slot, "Rubylight frame ring slot retained after a GPU ordering error");
         }
     }
 }
 
-/// One fence ring: its header, textures and fences. The driver holds duplicates of every
-/// handle until the ring is replaced or cleared.
+/// One ring: its header and textures, and a fence ring's fences. The driver holds
+/// duplicates of every handle until the ring is replaced or cleared.
 struct Ring {
     section: Arc<Section>,
     slots: Vec<Slot>,
     layout: Layout,
-    fences: Arc<Fences>,
+    /// `None` for a keyed-mutex ring.
+    fences: Option<Arc<Fences>>,
 }
 
 impl Ring {
-    /// A fence ring on the compute device: textures the driver copies into and the compute
-    /// queue reads, and fences whose released value `queue` signals.
+    /// A fence ring: its textures and fences are created on the compute device's D3D12, the
+    /// textures opened on the capture's D3D11 device for its copies and readers.
     fn fenced(
+        gpu: &Device,
         compute: Arc<crate::compute::Compute>,
         layout: Layout,
-        queue: ID3D12CommandQueue,
+        read_in_place: bool,
     ) -> Result<Self> {
         let section = Arc::new(Section::new()?);
         section.header().init(layout);
-        let mut slots = Vec::with_capacity(layout.slot_count as usize);
+        let device: ID3D11Device1 = gpu.device.cast()?;
+        // Build the owner before importing textures: a later allocation/open failure must
+        // remove every preceding import from Compute's cache as this partially built ring
+        // drops, just as a complete ring does.
+        let fences = Fences::new(gpu, compute.clone(), section.clone(), read_in_place)?;
+        let mut ring = Self {
+            section,
+            slots: Vec::with_capacity(layout.slot_count as usize),
+            layout,
+            fences: Some(Arc::new(fences)),
+        };
         for _ in 0..layout.slot_count {
-            // The display driver of 2.6, which may still be installed, opens the texture on a
-            // D3D11 device, which accepts a D3D12 texture only if it may be a render target:
-            // without the flag OpenSharedResource1 fails with E_INVALIDARG (RX 7900 XT, October
-            // 16). The host's readers and a driver seed copy may read simultaneously on different
-            // devices, and the fences order the writers, which does not itself permit concurrent
-            // D3D12 access. The D3D12 driver opens the same textures with OpenSharedHandle, so
-            // keep both flags for as long as a 3.0 host must work with the D3D11 driver.
             let (texture, shared) = compute.share_texture(
+                &device,
                 layout.width,
                 layout.height,
                 DXGI_FORMAT(layout.format as i32),
-                D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
-                    | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
             )?;
-            slots.push(Slot {
-                texture: Arc::new(texture),
+            ring.fences
+                .as_ref()
+                .unwrap()
+                .imports
+                .lock()
+                .unwrap()
+                .push(texture.clone());
+            ring.slots.push(Slot {
+                texture,
+                mutex: None,
                 shared,
             });
         }
-        let fences = Fences::new(compute, section.clone(), queue)?;
+        Ok(ring)
+    }
+
+    /// The default keyed-mutex ring, also compatible with drivers before `CAP_FENCE_RING`.
+    fn keyed(gpu: &Device, layout: Layout) -> Result<Self> {
+        let section = Arc::new(Section::new()?);
+        section.header().init(layout);
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: layout.width,
+            Height: layout.height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT(layout.format as i32),
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0
+                | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
+        };
+        let mut slots = Vec::with_capacity(layout.slot_count as usize);
+        for _ in 0..layout.slot_count {
+            // SAFETY: `gpu.device` is live and `desc` describes a valid shareable texture; the
+            // shared NT handle is owned by the slot.
+            unsafe {
+                let mut texture = None;
+                gpu.device
+                    .CreateTexture2D(&desc, None, Some(&mut texture))?;
+                let texture = texture.context("frame ring texture missing")?;
+                let shared = texture.cast::<IDXGIResource1>()?.CreateSharedHandle(
+                    None,
+                    DXGI_SHARED_RESOURCE_READ.0 | DXGI_SHARED_RESOURCE_WRITE.0,
+                    None,
+                )?;
+                slots.push(Slot {
+                    mutex: Some(texture.cast()?),
+                    texture,
+                    shared: OwnedHandle::from_raw_handle(shared.0),
+                });
+            }
+        }
         Ok(Self {
             section,
             slots,
             layout,
-            fences: Arc::new(fences),
+            fences: None,
         })
     }
 }
@@ -519,12 +739,18 @@ pub struct Session {
     remote: Remote,
     adapter: (u32, i32),
     ring: Ring,
+    /// Where a fence ring's textures and fences live: the capture GPU's compute device.
+    /// `None` when the driver takes only keyed-mutex rings.
+    compute: Option<Arc<crate::compute::Compute>>,
     consumer: Consumer,
-    /// Pool textures the ring is copied into (`idd_push_zero_copy = false`); None when the
-    /// compute conversion reads ring textures in place.
-    pool: Option<GpuPool>,
+    pool: GpuPool,
+    /// Lends keyed-mutex ring textures to the compute conversion instead of copying them
+    /// (AMD). A fence ring lends without it.
+    lender: Option<Arc<Mutex<crate::compute::Returns>>>,
+    /// The compute conversion reads ring textures in place (AMD, `idd_push_zero_copy`).
+    zero_copy: bool,
     frame: Arc<crate::timing::Signal>,
-    staging: Option<crate::compute::Staging>,
+    staging: Option<ID3D11Texture2D>,
     started: bool,
     reshapes: u32,
     opened: Instant,
@@ -539,26 +765,26 @@ impl Session {
         name: &str,
         hdr: bool,
         config: &butterpollo_core::config::Config,
+        warnings: Arc<butterpollo_core::session::Warnings>,
     ) -> Result<Self> {
         let monitor = owned_display(name)?.with_context(|| {
             format!("{name} is not a display this host created with the Rubylight display driver")
         })?;
         let exclusive = Exclusive::claim(monitor.session_id).with_context(|| {
-            format!("{name} is already captured by another capture of this host")
+            format!("another stream with different capture settings already captures {name} from the Rubylight display driver")
         })?;
         let control = Control::open()?;
-        crate::display::fence_ring(control.info.caps)?;
         let status = control.query(monitor.session_id)?;
-        // Before the compute queue is made: it takes its priority from this setting once.
-        if let Err(error) = crate::gpu_priority::configure(config) {
-            tracing::debug!(%error, "GPU priority remains at the process default");
-        }
         let gpu = Device::for_display(
             name,
             config.get("adapter_name", ""),
             config.get("adapter_pnp_id", ""),
         )?;
-        let adapter = gpu.luid();
+        // SAFETY: the device is live; GetAdapter and GetDesc return owned values.
+        let adapter = unsafe {
+            let desc = gpu.device.cast::<IDXGIDevice>()?.GetAdapter()?.GetDesc()?;
+            (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart)
+        };
         let render = (status.render_luid_low, status.render_luid_high);
         if render != (0, 0) && render != adapter {
             bail!(
@@ -569,13 +795,48 @@ impl Session {
                 adapter.0
             );
         }
+        if let Some(failures) = FAILURES
+            .lock()
+            .unwrap()
+            .excluded(monitor.session_id, adapter)
+        {
+            bail!(
+                "its frame ring failed {failures} times before delivering a frame; capturing with WGC until the display is recreated or renders on another GPU"
+            );
+        }
+        if let Err(error) = crate::gpu_priority::configure(&gpu, config) {
+            tracing::debug!(%error, "GPU priority remains at the process default");
+        }
         let remote = Remote::open(monitor.wudf_pid)?;
-        let zero_copy = config.boolean("idd_push_zero_copy", true);
-        let pool = if zero_copy {
-            None
-        } else {
-            Some(GpuPool::new(gpu.compute.clone()).context("compute copies of the frame ring")?)
+        let mut pool = GpuPool {
+            warnings: warnings.clone(),
+            ..Default::default()
         };
+        if crate::compute::enabled(config) {
+            match crate::compute::Compute::for_device(&gpu.device)
+                .and_then(|compute| crate::compute::Handoff::new(compute, &gpu))
+            {
+                Ok(handoff) => pool.compute = Some(handoff),
+                Err(error) => warnings.set("capture_compute", format!("Compute capture copies unavailable ({error:#}); copying on the graphics queue. Lower game GPU load or update the AMD driver if capture stutters.")),
+            }
+        }
+        let zero_copy = pool.compute.is_some() && config.boolean("idd_push_zero_copy", true);
+        let requested = config.boolean("idd_push_fence_ring", false);
+        let scope = FenceScope::new(&monitor, adapter);
+        let rejected = {
+            let mut failures = FENCE_FAILURES.lock().unwrap();
+            if !requested {
+                failures.clear(monitor.session_id);
+            }
+            failures.excluded(scope)
+        };
+        let kind = ring_kind(control.info.caps, requested && !rejected, zero_copy);
+        warnings.clear("capture_fence_ring");
+        if requested && rejected {
+            warnings.set("capture_fence_ring", "Using the standard driver transport after GPU fences failed on this display. Recreate the display or restart the host to retry.");
+        } else if requested && kind != Kind::Fence {
+            warnings.set("capture_fence_ring", "The experimental GPU fence transport needs a compatible Rubylight display driver and AMD compute capture with in-place reads. Using the standard driver transport.");
+        }
         // Before the first frame the driver may not know the surface yet: guess from the
         // display's colour state, and rebuild once it reports the real one.
         let native_hdr = hdr
@@ -584,6 +845,7 @@ impl Session {
                 .is_some_and(|d| d.color_space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
         let (width, height, format) = ring_shape(&status, native_hdr);
         let layout = Layout {
+            kind,
             slot_count: ring::DEFAULT_SLOTS as u32,
             width,
             height,
@@ -591,8 +853,8 @@ impl Session {
             generation: next_generation(status.ring_generation),
         };
         let frame = Arc::new(crate::timing::Signal::new()?);
-        let queue = release_queue(&gpu, pool.as_ref());
-        let ring = Ring::fenced(gpu.compute.clone(), layout, queue)?;
+        let ring = Self::make_ring(&gpu, layout, zero_copy, &warnings, scope)?;
+        let compute = ring.fences.as_ref().map(|fences| fences.compute.clone());
         let now = Instant::now();
         let mut session = Self {
             gpu,
@@ -602,7 +864,10 @@ impl Session {
             adapter,
             consumer: Consumer::new(layout.generation, layout.slot_count),
             ring,
+            compute,
             pool,
+            lender: None,
+            zero_copy,
             frame,
             staging: None,
             started: false,
@@ -612,22 +877,124 @@ impl Session {
             counted: (now, Counters::default()),
             _exclusive: exclusive,
         };
-        session.deliver()?;
+        if let Err(error) = session.deliver() {
+            if session.ring.fences.is_none() {
+                return Err(error);
+            }
+            session.use_keyed_ring(&format!("initialization failed: {error:#}"), true)?;
+        }
         tracing::info!(
             output = %name,
             width,
             height,
             format,
+            ring = ?session.ring.layout.kind,
             target = session.monitor.target,
-            in_place = zero_copy,
-            compute_priority = session.gpu.compute.priority,
+            compute = session.pool.compute.is_some(),
+            in_place = session.zero_copy,
             "capturing from the Rubylight display driver's frame push"
         );
         Ok(session)
     }
 
-    /// Hand the current ring to the driver.
+    /// A failed experimental allocation never prevents the established capture path.
+    fn make_ring(
+        gpu: &Device,
+        mut layout: Layout,
+        zero_copy: bool,
+        warnings: &butterpollo_core::session::Warnings,
+        scope: FenceScope,
+    ) -> Result<Ring> {
+        if layout.kind == Kind::Fence {
+            match crate::compute::Compute::for_device(&gpu.device)
+                .and_then(|compute| Ring::fenced(gpu, compute, layout, zero_copy))
+            {
+                Ok(ring) => return Ok(ring),
+                Err(error) => {
+                    FENCE_FAILURES.lock().unwrap().failed(scope);
+                    warnings.set("capture_fence_ring", format!("Experimental GPU fence transport unavailable ({error:#}); using the standard driver transport."));
+                }
+            }
+        }
+        layout.kind = Kind::KeyedMutex;
+        Ring::keyed(gpu, layout)
+    }
+
+    /// Replace a refused or unopened fence ring with the established transport in this
+    /// session. Its generation changes, so a delayed completion from the old ring is ignored.
+    fn use_keyed_ring(&mut self, reason: &str, remember: bool) -> Result<()> {
+        if remember {
+            FENCE_FAILURES
+                .lock()
+                .unwrap()
+                .failed(FenceScope::new(&self.monitor, self.adapter));
+        }
+        self.pool.warnings.set(
+            "capture_fence_ring",
+            format!(
+                "Experimental GPU fence transport {reason}; using the standard driver transport."
+            ),
+        );
+        let mut layout = self.ring.layout;
+        layout.kind = Kind::KeyedMutex;
+        layout.generation = next_generation(layout.generation);
+        self.ring = Ring::keyed(&self.gpu, layout)?;
+        self.compute = None;
+        self.consumer = Consumer::new(layout.generation, layout.slot_count);
+        self.opened = Instant::now();
+        self.started = false;
+        self.deliver()
+    }
+
+    /// Never put a new ring behind an unresolved wait on the old capture context. The
+    /// capture worker recreates its D3D11 device; the rejection makes that reopen keyed.
+    fn reopen_keyed(&self, reason: &str) -> Result<()> {
+        FENCE_FAILURES
+            .lock()
+            .unwrap()
+            .failed(FenceScope::new(&self.monitor, self.adapter));
+        if let Some(fences) = &self.ring.fences {
+            fences.failed.store(true, Ordering::Release);
+        }
+        self.pool.warnings.set(
+            "capture_fence_ring",
+            format!("GPU fence transport {reason}; reopening with the standard driver transport."),
+        );
+        bail!("GPU fence transport {reason}; recreate the capture device")
+    }
+
+    /// Hand the current ring to the driver, after lending a keyed-mutex ring's textures to
+    /// the compute conversion or importing them into the compute copy.
     fn deliver(&mut self) -> Result<()> {
+        self.lender = None;
+        if self.ring.fences.is_none() && self.zero_copy {
+            let lent = crate::compute::Compute::for_device(&self.gpu.device)
+                .and_then(|compute| crate::compute::Returns::new(compute, &self.gpu))
+                .and_then(|mut returns| {
+                    for slot in &self.ring.slots {
+                        returns.import(&slot.texture, HANDLE(slot.shared.as_raw_handle()))?;
+                    }
+                    Ok(returns)
+                });
+            match lent {
+                Ok(returns) => self.lender = Some(Arc::new(Mutex::new(returns))),
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "the Rubylight frame ring cannot be read in place; copying it");
+                    self.zero_copy = false;
+                }
+            }
+        }
+        if !self.zero_copy
+            && let Some(handoff) = &mut self.pool.compute
+        {
+            let imported = self.ring.slots.iter().try_for_each(|slot| {
+                handoff.import_shared(&slot.texture, HANDLE(slot.shared.as_raw_handle()))
+            });
+            if let Err(error) = imported {
+                self.pool.warnings.set("capture_compute", format!("The Rubylight frame ring cannot use compute copies ({error:#}); copying on the graphics queue."));
+                self.pool.compute = None;
+            }
+        }
         let layout = self.ring.layout;
         let mut delivery = Delivery {
             remote: &self.remote,
@@ -652,18 +1019,27 @@ impl Session {
             event: delivery.send(self.frame.raw())?,
             textures,
         };
-        let [written, released] = &self.ring.fences.handles;
-        let request = SetFenceRingRequest {
-            ring: request,
-            written_fence: delivery.send(HANDLE(written.as_raw_handle()))?,
-            released_fence: delivery.send(HANDLE(released.as_raw_handle()))?,
-        };
-        request
-            .validate()
-            .map_err(|e| anyhow::anyhow!("frame ring request: {e}"))?;
-        self.control
-            .set_fence_ring(&request)
-            .context("the Rubylight display driver refused the frame ring")?;
+        let refused = "the Rubylight display driver refused the frame ring";
+        match &self.ring.fences {
+            Some(fences) => {
+                let [written, released] = &fences.handles;
+                let request = SetFenceRingRequest {
+                    ring: request,
+                    written_fence: delivery.send(HANDLE(written.as_raw_handle()))?,
+                    released_fence: delivery.send(HANDLE(released.as_raw_handle()))?,
+                };
+                request
+                    .validate()
+                    .map_err(|e| anyhow::anyhow!("frame ring request: {e}"))?;
+                self.control.set_fence_ring(&request).context(refused)?;
+            }
+            None => {
+                request
+                    .validate()
+                    .map_err(|e| anyhow::anyhow!("frame ring request: {e}"))?;
+                self.control.set_frame_ring(&request).context(refused)?;
+            }
+        }
         delivery.adopted = true;
         Ok(())
     }
@@ -686,28 +1062,55 @@ impl Session {
             format,
             "rebuilding the Rubylight frame ring for the composed surface"
         );
-        let queue = release_queue(&self.gpu, self.pool.as_ref());
-        self.ring = Ring::fenced(self.gpu.compute.clone(), layout, queue)?;
+        self.ring = Self::make_ring(
+            &self.gpu,
+            layout,
+            self.zero_copy,
+            &self.pool.warnings,
+            FenceScope::new(&self.monitor, self.adapter),
+        )?;
+        self.compute = self
+            .ring
+            .fences
+            .as_ref()
+            .map(|fences| fences.compute.clone());
         self.consumer = Consumer::new(layout.generation, layout.slot_count);
         self.opened = Instant::now();
-        self.deliver()
+        if let Err(error) = self.deliver() {
+            if self.ring.fences.is_none() {
+                return Err(error);
+            }
+            self.use_keyed_ring(&format!("ring rebuild failed: {error:#}"), true)?;
+        }
+        Ok(())
     }
 
     fn check(&mut self) -> Result<()> {
-        if let Some(loss) = crate::device_loss::DeviceLost::d3d12(&self.gpu.compute.device) {
+        if let Some(loss) = crate::device_loss::DeviceLost::d3d11(&self.gpu.device) {
+            return Err(loss.into());
+        }
+        if let Some(loss) = self
+            .compute
+            .as_ref()
+            .and_then(|compute| crate::device_loss::DeviceLost::d3d12(&compute.device))
+        {
             return Err(loss.into());
         }
         let header = self.ring.section.header();
-        let fences = &self.ring.fences;
-        if let Some(fault) = fence_fault(
-            header.status().0,
-            self.started,
-            self.opened.elapsed(),
-            header.counters(),
-            fences.failed.load(Ordering::Acquire),
-            fences.compute.is_stuck(),
-        ) {
-            return Err(FenceFault(fault).into());
+        if let Some(fences) = &self.ring.fences
+            && let Some(recovery) = fence_recovery(
+                header.status().0,
+                self.started,
+                self.opened.elapsed(),
+                header.counters(),
+                fences.failed.load(Ordering::Acquire),
+                fences.compute.is_stuck(),
+            )
+        {
+            return match recovery {
+                FenceRecovery::Keyed { reason, remember } => self.use_keyed_ring(reason, remember),
+                FenceRecovery::Reopen(reason) => self.reopen_keyed(reason),
+            };
         }
         match verdict(header.status(), header.surface(), self.started) {
             Verdict::Fine => {}
@@ -754,7 +1157,6 @@ impl Session {
     pub(super) fn frame_signal(&self) -> &crate::timing::Signal {
         &self.frame
     }
-
     pub(super) fn pending_frame(&self) -> bool {
         self.consumer
             .wanted(self.ring.section.header().latest())
@@ -771,12 +1173,21 @@ impl Session {
         let now = Instant::now();
         if now >= self.next_check {
             self.next_check = now + Duration::from_millis(100);
-            self.check()?;
+            if let Err(error) = self.check() {
+                if !self.started && crate::device_loss::DeviceLost::from_error(&error).is_none() {
+                    let failures = FAILURES
+                        .lock()
+                        .unwrap()
+                        .failed(self.monitor.session_id, self.adapter);
+                    tracing::warn!(error = %format!("{error:#}"), failures, "the Rubylight frame ring failed before its first frame");
+                }
+                return Err(error);
+            }
         }
         let Some((frame, mut image)) = self.take_newest()? else {
             return Ok(None);
         };
-        (image.captured, image.present_stamp) =
+        (image.captured, image.wgc_stamp) =
             qpc_timestamps(frame.presented().min(i64::MAX as u64) as i64);
         // This exact, immutable host timestamp also appears in the stream's claim
         // trace, joining driver identity to the selected image without changing
@@ -800,6 +1211,9 @@ impl Session {
             .section
             .header()
             .set_consumed(self.consumer.last());
+        if !self.started {
+            FAILURES.lock().unwrap().delivered(self.monitor.session_id);
+        }
         self.started = true;
         let frequency = qpc_frequency();
         tracing::trace!(
@@ -821,10 +1235,10 @@ impl Session {
 
     /// The newest frame of a fence ring. Read in place, the slot is the image's until its
     /// last clone drops, and the compute conversion waits for the driver's copy on the GPU;
-    /// copied, the copy queue waits for that copy, copies and frees the slot behind its copy
-    /// at once.
+    /// copied, the capture's D3D11 device waits for that copy, copies and frees the slot
+    /// behind its copy at once.
     fn take_fenced(&mut self, fences: &Arc<Fences>) -> Result<Option<(PushedFrame, GpuImage)>> {
-        if self.pool.as_ref().is_some_and(|pool| !pool.has_capacity()) {
+        if !self.zero_copy && !self.pool.has_capacity() {
             return Ok(None);
         }
         let header = self.ring.section.header();
@@ -836,19 +1250,24 @@ impl Session {
         let taken = qpc_now().max(0) as u64;
         let meta = header.slot(index);
         let slot = &self.ring.slots[index];
-        let Some(pool) = &mut self.pool else {
+        if self.zero_copy {
             let lent = Lent {
                 fences: fences.clone(),
                 slot: index,
                 seq,
+                d3d11: Mutex::new(false),
             };
-            let image = lend_fenced(&self.gpu, &slot.texture, lent, fences.written(seq))?;
+            let ready =
+                crate::compute::Ready::on(&fences.compute, fences.written.clone(), u64::from(seq));
+            let image = lend_fenced(&self.gpu, &slot.texture, index, lent, ready)?;
             return Ok(Some((self.finish(&meta, taken), image)));
-        };
-        let copied = pool.copy(&self.gpu, &slot.texture, Some(&fences.written(seq)));
-        // The copy is queued on the queue that signals the released fence, so freeing now
-        // cannot let the driver overwrite pixels still being read.
-        let freed = fences.free(index, seq);
+        }
+        let copied = fences
+            .order_d3d11(seq)
+            .and_then(|()| self.pool.copy(&self.gpu, &slot.texture));
+        // The copy is queued on this device (or ordered before it by the compute handoff),
+        // so freeing now cannot let the driver overwrite pixels still being read.
+        let freed = fences.free(index, seq, false);
         let image = copied?;
         freed?;
         let Some(image) = image else {
@@ -856,14 +1275,60 @@ impl Session {
         };
         Ok(Some((self.finish(&meta, taken), image)))
     }
+
+    /// The newest frame of the default keyed-mutex ring.
+    fn take_keyed(&mut self) -> Result<Option<(PushedFrame, GpuImage)>> {
+        // Leave the newest frame published while every snapshot is held: the driver keeps
+        // the texture updated, and it is taken once a snapshot frees. A lent texture needs
+        // no snapshot.
+        if self.lender.is_none() && !self.pool.has_capacity() {
+            return Ok(None);
+        }
+        let header = self.ring.section.header();
+        let Some(index) = self.consumer.wanted(header.latest()) else {
+            return Ok(None);
+        };
+        let slot = &self.ring.slots[index];
+        let mutex = slot.mutex.as_ref().context("a keyed-mutex ring's slot")?;
+        if !acquire(mutex, ring::KEY_HOST)? {
+            // The driver is refilling it with a newer frame; its publish wakes the next poll.
+            return Ok(None);
+        }
+        let taken = qpc_now().max(0) as u64;
+        let meta = header.slot(index);
+        let image = if !self.consumer.fresh(&meta) {
+            Ok(None)
+        } else if let Some(lender) = &self.lender {
+            match lend(&self.gpu, slot, mutex, index, lender.clone()) {
+                // The mutex goes back with the image's last clone.
+                Ok(image) => return Ok(Some((self.finish(&meta, taken), image))),
+                Err(error) => Err(error),
+            }
+        } else {
+            self.pool.copy(&self.gpu, &slot.texture)
+        };
+        // A copy is queued on this device (or ordered before it by the compute handoff), so
+        // releasing now cannot let the driver overwrite pixels still being read.
+        // SAFETY: this process took the mutex with KEY_HOST above; the context is this
+        // device's and multithread-protected.
+        unsafe {
+            mutex.ReleaseSync(ring::KEY_DRIVER)?;
+            self.gpu.context.Flush();
+        }
+        let Some(image) = image? else {
+            return Ok(None);
+        };
+        Ok(Some((self.finish(&meta, taken), image)))
+    }
 }
 
-/// The queue that signals a ring's released fence: the copies' queue when the ring is copied,
-/// else the compute queue the conversion reads it on.
-fn release_queue(gpu: &Device, pool: Option<&GpuPool>) -> ID3D12CommandQueue {
-    match pool {
-        Some(pool) => pool.copier.queue().clone(),
-        None => gpu.compute.queue.clone(),
+/// Fence transport is opt-in and initially limited to AMD's in-place compute path. Every
+/// other capture and an old installed driver retain the default keyed-mutex transport.
+fn ring_kind(caps: u32, requested: bool, zero_copy: bool) -> Kind {
+    if requested && zero_copy && caps & CAP_FENCE_RING != 0 {
+        Kind::Fence
+    } else {
+        Kind::KeyedMutex
     }
 }
 
@@ -871,16 +1336,17 @@ impl PushedFrames for Session {
     type Image = GpuImage;
 
     fn take_newest(&mut self) -> Result<Option<(PushedFrame, GpuImage)>> {
-        let fences = self.ring.fences.clone();
-        self.take_fenced(&fences)
+        match self.ring.fences.clone() {
+            Some(fences) => self.take_fenced(&fences),
+            None => self.take_keyed(),
+        }
     }
 }
 
-fn pixel_of(
-    texture: &windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-) -> Result<(D3D12_RESOURCE_DESC, Pixel)> {
-    // SAFETY: `texture` is a live resource; GetDesc only reads it.
-    let desc = unsafe { texture.GetDesc() };
+fn pixel_of(texture: &ID3D11Texture2D) -> Result<(D3D11_TEXTURE2D_DESC, Pixel)> {
+    let mut desc = D3D11_TEXTURE2D_DESC::default();
+    // SAFETY: `texture` is a live texture and `desc` a live local.
+    unsafe { texture.GetDesc(&mut desc) };
     let pixel = match desc.Format {
         DXGI_FORMAT_B8G8R8A8_UNORM => Pixel::Bgra8,
         DXGI_FORMAT_R16G16B16A16_FLOAT => Pixel::RgbaF16,
@@ -889,33 +1355,74 @@ fn pixel_of(
     Ok((desc, pixel))
 }
 
-/// An image of a fence-ring texture, read in place: the slot stays `Reading` until the image's
-/// last clone drops `lent`. GPU readers wait for `ready`, the driver's written fence.
-fn lend_fenced(
+fn in_place(
     gpu: &Device,
-    texture: &Arc<windows::Win32::Graphics::Direct3D12::ID3D12Resource>,
-    lent: Lent,
+    texture: &ID3D11Texture2D,
     ready: crate::compute::Ready,
+    lease: bridge::Lease,
 ) -> Result<GpuImage> {
     let (desc, pixel) = pixel_of(texture)?;
     let now = Instant::now();
     Ok(GpuImage {
-        width: u32::try_from(desc.Width)?,
+        cursor: None,
+        width: desc.Width,
         height: desc.Height,
         pixel,
         captured: now,
-        present_stamp: None,
+        wgc_stamp: None,
         acquired: now,
         published: now,
         gpu: gpu.clone(),
-        texture: texture.clone(),
+        texture: Arc::new(texture.clone()),
         ready: Some(ready),
-        lease: Some(Arc::new(lent)),
+        lease: Some(Arc::new(lease)),
     })
+}
+
+/// An image of fence-ring texture `index`, read in place: the slot stays `Reading` until the
+/// image's last clone drops `lent`. Compute work waits for `ready`, the driver's written fence.
+fn lend_fenced(
+    gpu: &Device,
+    texture: &ID3D11Texture2D,
+    index: usize,
+    lent: Lent,
+    ready: crate::compute::Ready,
+) -> Result<GpuImage> {
+    in_place(gpu, texture, ready, bridge::Lease::fenced(index, lent))
+}
+
+/// An image of keyed-mutex ring texture `index`, read in place: this process holds its keyed
+/// mutex (taken with KEY_HOST) until the image's lease hands it back with KEY_DRIVER.
+fn lend(
+    gpu: &Device,
+    slot: &Slot,
+    mutex: &IDXGIKeyedMutex,
+    index: usize,
+    returns: Arc<Mutex<crate::compute::Returns>>,
+) -> Result<GpuImage> {
+    // Checked before the D3D11 signal, so an unsupported texture hands nothing out.
+    pixel_of(&slot.texture)?;
+    let ready = returns.lock().unwrap().acquired()?;
+    in_place(
+        gpu,
+        &slot.texture,
+        ready,
+        bridge::Lease::ring(index, mutex.clone(), returns),
+    )
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
+        // A direct reader error can close the capture before its next periodic check.
+        // Preserve the rejection so that reopening cannot immediately retry this ring.
+        if self.ring.fences.as_ref().is_some_and(|fences| {
+            fences.failed.load(Ordering::Acquire) || fences.compute.is_stuck()
+        }) {
+            FENCE_FAILURES
+                .lock()
+                .unwrap()
+                .failed(FenceScope::new(&self.monitor, self.adapter));
+        }
         // The driver closes its duplicates; ours close with the ring. Only this ring is
         // cleared: one registered since (another process's, say) stays.
         let cleared = if self.control.info.caps & CAP_SCOPED_CLEAR != 0 {
@@ -929,6 +1436,11 @@ impl Drop for Session {
         }
     }
 }
+
+// SAFETY: the D3D11 objects live on a multithread-protected device, the section view is used
+// only through atomics, and every handle is owned; the session moves between threads with
+// the capture, never shared.
+unsafe impl Send for Session {}
 
 #[cfg(test)]
 mod tests {
@@ -946,6 +1458,41 @@ mod tests {
         drop(first);
         assert!(Exclusive::claim(u64::MAX - 1).is_some(), "released on drop");
         drop(other);
+    }
+
+    #[test]
+    fn rings_that_keep_failing_before_a_frame_send_the_monitor_to_wgc() {
+        let mut failures = Failures::default();
+        let gpu = (7, 0);
+        assert_eq!(failures.failed(1, gpu), 1);
+        assert_eq!(failures.excluded(1, gpu), None, "the first failure retries");
+        assert_eq!(failures.failed(1, gpu), FAILURES_BEFORE_WGC);
+        assert_eq!(failures.excluded(1, gpu), Some(FAILURES_BEFORE_WGC));
+        assert_eq!(failures.excluded(2, gpu), None, "another monitor");
+        assert_eq!(failures.excluded(1, (8, 0)), None, "another GPU retries");
+        // Failing on another GPU starts the count again.
+        assert_eq!(failures.failed(1, (8, 0)), 1);
+        assert_eq!(failures.excluded(1, gpu), None);
+        failures.failed(1, (8, 0));
+        assert!(failures.excluded(1, (8, 0)).is_some());
+        failures.delivered(1);
+        assert_eq!(
+            failures.excluded(1, (8, 0)),
+            None,
+            "a delivered frame clears it"
+        );
+    }
+
+    #[test]
+    fn idd_push_runs_when_asked_or_on_the_hosts_own_display_in_auto() {
+        assert!(wanted("idd-push", "wgc", false));
+        assert!(wanted("wgc", "auto", true));
+        assert!(wanted("wgc", "", true));
+        // A physical display, or a display another program created.
+        assert!(!wanted("wgc", "auto", false));
+        // An explicit WGC or DDX choice is kept.
+        assert!(!wanted("wgc", "wgc", true));
+        assert!(!wanted("ddx", "ddx", true));
     }
 
     #[test]
@@ -1046,114 +1593,117 @@ mod tests {
     }
 
     #[test]
-    fn a_ring_that_keeps_faulting_ends_the_stream_and_a_frame_resets_the_count() {
-        let fault = || anyhow::Error::from(FenceFault("lost GPU ordering"));
-        let mut faults = FenceFaults::default();
-        // One fault is reopened; a delivered frame forgives it, however often that repeats.
-        for _ in 0..10 {
-            assert!(faults.fault(&fault()).is_none());
-            faults.delivered();
-        }
-        // A device loss wrapping a fence fault is not counted, and it forgives the faults before it.
-        let lost = || {
-            fault().context(crate::device_loss::DeviceLost(
-                windows::Win32::Graphics::Dxgi::DXGI_ERROR_DEVICE_REMOVED.0,
-            ))
-        };
-        for _ in 0..10 {
-            assert!(faults.fault(&lost()).is_none());
-        }
-        assert!(faults.fault(&fault()).is_none());
-        assert!(faults.fault(&lost()).is_none());
-        for _ in 1..FENCE_FAULTS_BEFORE_STOP {
-            assert!(faults.fault(&fault()).is_none(), "the count started again");
-        }
-        faults.delivered();
-        // Other errors neither count nor end anything.
-        assert!(
-            faults
-                .fault(&anyhow::anyhow!("capture interrupted"))
-                .is_none()
+    fn fence_rings_require_opt_in_capability_and_in_place_compute() {
+        assert_eq!(
+            ring_kind(CAP_FENCE_RING | CAP_SCOPED_CLEAR, true, true),
+            Kind::Fence
         );
-        for _ in 1..FENCE_FAULTS_BEFORE_STOP {
-            assert!(faults.fault(&fault()).is_none());
-        }
-        let ended = faults.fault(&fault()).expect("the limit ends the stream");
-        let ended = format!("{ended:#}");
-        assert!(ended.contains("lost GPU ordering"), "{ended}");
-        assert!(
-            ended.contains("run Rubylight setup again to repair the display driver"),
-            "{ended}"
-        );
-        const {
-            assert!(
-                FENCE_FAULTS_BEFORE_STOP >= 2,
-                "the first fault must get its reopen"
-            )
-        };
-    }
-
-    #[test]
-    fn a_fence_fault_ends_the_capture_instead_of_changing_transport() {
-        let healthy = Counters::default();
-        for (ordering_failed, queue_stuck, reason) in [
-            (true, false, "lost GPU ordering"),
-            (false, true, "compute queue cannot be reused"),
+        for (caps, requested, zero_copy) in [
+            (CAP_FENCE_RING, false, true),
+            (CAP_FENCE_RING, true, false),
+            (CAP_SCOPED_CLEAR, true, true),
+            (0, true, true),
         ] {
-            assert_eq!(
-                fence_fault(
-                    ring::STATUS_STREAMING,
-                    true,
-                    Duration::ZERO,
-                    healthy,
-                    ordering_failed,
-                    queue_stuck
-                ),
-                Some(reason),
-                "even a healthy driver heartbeat/device cannot make a stuck queue reusable"
-            );
-        }
-        for (started, reason) in [
-            (false, "could not open shared resources"),
-            (true, "shared resources stopped opening"),
-        ] {
-            assert_eq!(
-                fence_fault(
-                    ring::STATUS_OPEN_FAILED,
-                    started,
-                    Duration::ZERO,
-                    healthy,
-                    false,
-                    false
-                ),
-                Some(reason)
-            );
+            assert_eq!(ring_kind(caps, requested, zero_copy), Kind::KeyedMutex);
         }
     }
 
     #[test]
-    fn fence_startup_distinguishes_missing_pixels_from_failed_handoff() {
+    fn a_failed_fence_transport_stays_keyed_through_capture_reopen() {
+        let monitor = Owned {
+            session_id: 41,
+            adapter: (3, 0),
+            target: 2,
+            wudf_pid: 55,
+            registration: 7,
+        };
+        let scope = FenceScope::new(&monitor, (9, 0));
+        let mut failures = FenceFailures::default();
+        failures.failed(scope);
+        assert_eq!(
+            ring_kind(CAP_FENCE_RING, !failures.excluded(scope), true),
+            Kind::KeyedMutex,
+            "reopening the same capture must not retry the rejected transport"
+        );
+        for changed in [
+            FenceScope {
+                registration: 8,
+                ..scope
+            },
+            FenceScope {
+                driver_pid: 56,
+                ..scope
+            },
+            FenceScope {
+                adapter: (10, 0),
+                ..scope
+            },
+            FenceScope {
+                session: 42,
+                ..scope
+            },
+        ] {
+            assert!(!failures.excluded(changed), "new owner/device can retry");
+        }
+        failures.clear(monitor.session_id);
+        assert!(
+            !failures.excluded(scope),
+            "an explicit keyed capture resets the opt-in"
+        );
+    }
+
+    #[test]
+    fn remembered_fence_failures_are_bounded_and_keep_recent_rejections() {
+        let mut failures = FenceFailures::default();
+        for session in 0..=FenceFailures::LIMIT as u64 {
+            failures.failed(FenceScope {
+                session,
+                registration: 1,
+                driver_pid: 2,
+                adapter: (3, 0),
+            });
+        }
+        assert_eq!(failures.0.len(), FenceFailures::LIMIT);
+        assert_eq!(failures.0[0].session, 1);
+        let latest = *failures.0.last().unwrap();
+        failures.failed(latest);
+        assert_eq!(failures.0.len(), FenceFailures::LIMIT);
+        assert!(failures.excluded(latest));
+    }
+
+    #[test]
+    fn fence_startup_recovery_distinguishes_missing_pixels_from_failed_handoff() {
+        let waiting = ring::STATUS_WAITING;
+        let idle = Counters::default();
         let acquired = Counters {
             acquired: 1,
-            ..Default::default()
+            ..idle
         };
-        let check = |elapsed, counters| {
-            fence_fault(
-                ring::STATUS_STREAMING,
-                false,
-                elapsed,
-                counters,
-                false,
-                false,
-            )
-        };
+        let check =
+            |elapsed, counters| fence_recovery(waiting, false, elapsed, counters, false, false);
+        assert_eq!(
+            check(FENCE_HANDOFF_TIMEOUT, idle),
+            None,
+            "Windows may still be starting the display"
+        );
         assert_eq!(
             check(FENCE_HANDOFF_TIMEOUT - Duration::from_millis(1), acquired),
             None
         );
         assert_eq!(
             check(FENCE_HANDOFF_TIMEOUT, acquired),
-            Some("could not publish acquired frames")
+            Some(FenceRecovery::Keyed {
+                reason: "could not publish acquired frames",
+                remember: true
+            })
+        );
+        assert_eq!(
+            check(FIRST_FRAME_TIMEOUT, idle),
+            Some(FenceRecovery::Keyed {
+                reason: "did not deliver a frame",
+                remember: false
+            }),
+            "no producer activity alone must not blacklist fences"
         );
         assert_eq!(
             check(
@@ -1164,24 +1714,63 @@ mod tests {
                 }
             ),
             None,
-            "a published frame is a working handoff"
+            "give a newly published frame to the consumer"
         );
         assert_eq!(
-            check(FIRST_FRAME_TIMEOUT, Counters::default()),
+            fence_recovery(
+                ring::STATUS_SIZE_MISMATCH,
+                false,
+                FIRST_FRAME_TIMEOUT,
+                acquired,
+                false,
+                false
+            ),
             None,
-            "Windows may not have supplied pixels yet; the first-frame timeout reports it"
+            "shape/device recovery must not identify a fence incompatibility"
         );
-        for status in [
-            ring::STATUS_SIZE_MISMATCH,
-            ring::STATUS_FORMAT_MISMATCH,
-            ring::STATUS_DEVICE_LOST,
+    }
+
+    #[test]
+    fn failed_fence_ordering_and_stalled_queues_reopen_the_capture_device() {
+        for (ordering_failed, queue_stuck, reason) in [
+            (true, false, "lost GPU ordering"),
+            (false, true, "compute queue cannot be reused"),
         ] {
             assert_eq!(
-                fence_fault(status, false, FIRST_FRAME_TIMEOUT, acquired, false, false),
-                None,
-                "shape/device recovery must not identify a fence fault"
+                fence_recovery(
+                    ring::STATUS_STREAMING,
+                    true,
+                    Duration::ZERO,
+                    Counters::default(),
+                    ordering_failed,
+                    queue_stuck
+                ),
+                Some(FenceRecovery::Reopen(reason)),
+                "even a healthy driver heartbeat/device cannot make a stuck queue reusable"
             );
         }
+        assert!(matches!(
+            fence_recovery(
+                ring::STATUS_OPEN_FAILED,
+                false,
+                Duration::ZERO,
+                Counters::default(),
+                false,
+                false
+            ),
+            Some(FenceRecovery::Keyed { remember: true, .. })
+        ));
+        assert!(matches!(
+            fence_recovery(
+                ring::STATUS_OPEN_FAILED,
+                true,
+                Duration::ZERO,
+                Counters::default(),
+                false,
+                false
+            ),
+            Some(FenceRecovery::Reopen(_))
+        ));
     }
 }
 

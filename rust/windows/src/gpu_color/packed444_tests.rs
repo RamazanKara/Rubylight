@@ -1,10 +1,5 @@
-use super::{
-    tests::{make_image, plane_codes, planes_for, yuv_codes},
-    *,
-};
-use crate::capture::{ComGuard, Device, GpuImage, Image, Pixel};
+use super::*;
 use butterpollo_core::{packed444::Geometry, rtsp::Negotiated};
-use std::time::Instant;
 use std::{os::windows::process::CommandExt, process::Command};
 
 fn planar420(samples: &[u16], layout: Geometry) -> Vec<u16> {
@@ -15,8 +10,28 @@ fn planar420(samples: &[u16], layout: Geometry) -> Vec<u16> {
     planar
 }
 
+fn codes(bytes: &[u8], ten_bit: bool, normalized: bool) -> Vec<u16> {
+    if ten_bit {
+        bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| {
+                let value = u16::from_le_bytes([b[0], b[1]]);
+                if normalized {
+                    (f64::from(value) * 1023. / 65535.).round() as u16
+                } else {
+                    value >> 6
+                }
+            })
+            .collect()
+    } else {
+        bytes.iter().map(|&b| u16::from(b)).collect()
+    }
+}
+
 #[test]
-#[ignore = "requires D3D12 NV12 and P010 GPU conversion"]
+#[ignore = "requires D3D11/D3D12 NV12 and P010 GPU conversion"]
 fn packed444_gpu_exact() -> Result<()> {
     verify(
         &[(66, 70), (320, 180)],
@@ -28,7 +43,7 @@ fn packed444_gpu_exact() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires AMD AMF, D3D12 and an independent FFmpeg decoder"]
+#[ignore = "requires AMD AMF, D3D11/D3D12 and an independent FFmpeg decoder"]
 fn packed444_independent_decoder() -> Result<()> {
     verify(
         &[(130, 70), (320, 180)],
@@ -40,7 +55,7 @@ fn packed444_independent_decoder() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires AMD HEVC, D3D12 and an independent FFmpeg decoder"]
+#[ignore = "requires AMD HEVC, D3D11/D3D12 and an independent FFmpeg decoder"]
 fn packed444_hevc_minimum_width() -> Result<()> {
     verify(&[(130, 70)], &[(false, false)], &[1], 60, 100_000)
 }
@@ -58,7 +73,7 @@ fn packed444_layered_quality() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires AMD AMF at 1440p120, D3D12 and an independent FFmpeg decoder"]
+#[ignore = "requires AMD AMF at 1440p120, D3D11/D3D12 and an independent FFmpeg decoder"]
 fn packed444_target_geometry() -> Result<()> {
     verify(
         &[(2560, 1440)],
@@ -137,18 +152,12 @@ fn verify(
                 yuv444: true,
                 ..config.clone()
             };
-            // PyroWave's planar conversion supplies the full-resolution 4:4:4 reference.
-            let mut full = Converter::new(gpu.compute.clone(), width, height, ten_bit)?;
-            full.values = constants(&reference, (width, height, image.pixel), [100., 1.]);
-            // PyroWave's full-resolution chroma.
-            full.values[11] = 1;
-            let full_planes = planes_for(&gpu.compute, &reference, true, 0)?;
-            full.convert_planes(&uploaded, &full_planes)?;
-            wait_fence(&full_planes.fence, full_planes.done)?;
-            let planes: Vec<Vec<u16>> = full_planes
-                .planes
+            let mut full = PlanarConverter::new(&gpu, &reference, (width, height, image.pixel))?;
+            full.convert(&uploaded, [100., 1.])?;
+            let planes: Vec<Vec<u16>> = full
+                .textures
                 .iter()
-                .map(|plane| plane_codes(&gpu.compute, plane, ten_bit))
+                .map(|texture| Ok(codes(&plane_bytes(&gpu, texture)?, ten_bit, true)))
                 .collect::<Result<_>>()?;
             let mut expected = vec![0; layout.samples()];
             let source = [&planes[0][..], &planes[1][..], &planes[2][..]];
@@ -158,24 +167,40 @@ fn verify(
             } else {
                 layout.pack(source, &mut expected)
             });
-            let compute = &gpu.compute;
-            let (cw, ch) = layout.coded_size();
-            let mut converter = Converter::new(compute.clone(), cw, ch, ten_bit)?;
-            converter.pack_chroma()?;
-            converter.values = constants(&config, (width, height, image.pixel), [100., 1.]);
-            let converted = converter.convert(&uploaded)?;
-            let actual = planar420(&yuv_codes(compute, &converted, ten_bit)?, layout);
-            if let Some(at) =
-                (0..expected.len().max(actual.len())).find(|&at| actual.get(at) != expected.get(at))
-            {
-                panic!(
-                    "D3D12 packing v{packing} {width}x{height}, ten_bit={ten_bit}: sample {at} is {:?}, expected {:?} ({} versus {} samples)",
-                    actual.get(at),
-                    expected.get(at),
-                    actual.len(),
-                    expected.len()
+            for compute in [false, true] {
+                let mut converter = Converter::new(&gpu, &config, (width, height, image.pixel))?;
+                if !compute {
+                    converter.compute = None;
+                }
+                let texture = converter.convert(&uploaded)?;
+                let bytes = plane_bytes(&gpu, &texture)?;
+                assert_eq!(
+                    planar420(&codes(&bytes, ten_bit, false), layout),
+                    expected,
+                    "D3D11 packing {width}x{height}, ten_bit={ten_bit}, compute={compute}"
                 );
             }
+            let compute = crate::compute::Compute::for_device(&gpu.device)?;
+            let (cw, ch) = layout.coded_size();
+            let mut converter = crate::compute::Converter::new(compute.clone(), cw, ch, ten_bit)?;
+            converter.pack_chroma()?;
+            converter.values = constants(&config, (width, height, image.pixel), [100., 1.], None);
+            let converted = converter.convert(
+                &compute.open(&uploaded.texture)?,
+                if hdr {
+                    DXGI_FORMAT_R16G16B16A16_FLOAT
+                } else {
+                    DXGI_FORMAT_B8G8R8A8_UNORM
+                },
+                None,
+                &uploaded,
+            )?;
+            converted.wait()?;
+            assert_eq!(
+                planar420(&readback_compute(&compute, &converted.texture)?, layout),
+                expected,
+                "D3D12 packing {width}x{height}, ten_bit={ten_bit}"
+            );
             if codecs.is_empty() {
                 continue;
             }

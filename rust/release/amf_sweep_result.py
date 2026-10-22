@@ -167,7 +167,7 @@ def summarize(directory):
              '32 pictures concatenate 16 pictures from each existing game clip, including a scene cut. '
              'HEVC/AV1 use 10-bit PQ converted from SDR; H.264 uses SDR. These are not native HDR game highlights. '
              'PSNR/SSIM measure code-value fidelity, not HDR appearance. Short-clip p99 and top-three selection are screening evidence.', '',
-             'Picture age uses the existing loopback motion/interop fixture with shorter helper lifetimes, display driver capture of a virtual display, extended layout and D3D11VA. '
+             'Picture age uses the existing loopback motion/interop fixture with shorter helper lifetimes, WGC, extended layout and D3D11VA. '
              'All four streaming arms use the original requested target. Values are means of two per-run statistics. '
              'Age ranks use paired p99 reduction, then mean age. The adapter replaces duplicate config keys (the host keeps the first). '
              'Missing samples, strict interoperability failures (including AV1 padding), or decoder starvation are unranked. '

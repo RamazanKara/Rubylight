@@ -47,8 +47,8 @@ pub struct Timing {
     /// Capture/encode output tick through entry to packetization, as Punktfunk's
     /// GameStream field: excludes the prepared packets' send queue and pacing.
     pub host: u64,
-    /// Legacy capture timestamp through the claim. The stamp may be clamped
-    /// to arrival; this is an age estimate.
+    /// Legacy capture timestamp through the claim. WGC's stamp is not app
+    /// Present time and may be clamped to arrival; this is an age estimate.
     /// Moonlight never sees this. Static repeats use a refreshed timestamp.
     pub age: u64,
     /// Claim through sending the final packet, including packetization and pacing.
@@ -58,14 +58,15 @@ pub struct Timing {
 /// its last packet. Static repeats have no present and are not recorded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Stamps {
-    /// The present stamp the display driver recorded. A stamp in the future
-    /// or over two seconds old is the capture's arrival instead, as the pacing
-    /// clock has it.
+    /// The capture's present stamp: Desktop Duplication's LastPresentTime or
+    /// WGC's SystemRelativeTime. A stamp in the future or over two seconds
+    /// old is the capture's arrival instead, as the pacing clock has it.
     pub presented: Instant,
-    /// The host submitted its own copy of the picture, or took the frame ring
+    /// The host submitted its own copy of the picture, or took a WGC helper
     /// texture to read in place.
     pub acquired: Instant,
-    /// Published to the stream threads.
+    /// Published to the stream threads. The WGC helper can hold a picture
+    /// between acquiring and publishing it, to publish on the claim grid.
     pub published: Instant,
     /// The stream thread took the picture to encode.
     pub claimed: Instant,

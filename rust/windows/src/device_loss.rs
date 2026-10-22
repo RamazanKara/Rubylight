@@ -1,7 +1,6 @@
-//! Typed device removal survives error context. The host's GPU work runs on D3D12 devices,
-//! whose removal reasons are the DXGI codes below.
+//! Typed device removal survives error context and the WGC helper boundary.
 use windows::{
-    Win32::Graphics::{Direct3D12::ID3D12Device, Dxgi::*},
+    Win32::Graphics::{Direct3D11::ID3D11Device, Direct3D12::ID3D12Device, Dxgi::*},
     core::HRESULT,
 };
 
@@ -26,6 +25,15 @@ impl DeviceLost {
                 .filter_map(|cause| cause.downcast_ref::<windows::core::Error>())
                 .find_map(|error| Self::from_code(error.code()))
         })
+    }
+    pub fn d3d11(device: &ID3D11Device) -> Option<Self> {
+        // SAFETY: This only queries the borrowed device; it does not wait for GPU work.
+        unsafe {
+            device
+                .GetDeviceRemovedReason()
+                .err()
+                .map(|error| Self(error.code().0))
+        }
     }
     pub fn d3d12(device: &ID3D12Device) -> Option<Self> {
         // SAFETY: This only queries the borrowed device; it does not wait for GPU work.

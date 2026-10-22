@@ -11,11 +11,6 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 mod detect;
-mod floor;
-// Setup uses the rules, not the release-notes marker.
-#[allow(dead_code)]
-#[path = "../../core/src/floor.rs"]
-mod floor_rules;
 mod install;
 mod log;
 mod payload;
@@ -31,7 +26,6 @@ mod usbip;
 #[path = "../../core/src/version.rs"]
 mod version;
 
-use anyhow::Context;
 use std::path::PathBuf;
 
 const TITLE: &str = "Rubylight setup";
@@ -143,14 +137,6 @@ fn main() {
             }
         });
     }
-    if args.no_display_driver && !args.uninstall && !args.repair_drivers {
-        // Before the UAC prompt: nothing setup could do would honour the option.
-        std::process::exit(failed(
-            args.quiet,
-            "Rubylight cannot be installed without its display driver",
-            &floor::display_driver_required(),
-        ));
-    }
     if !system::elevated() {
         std::process::exit(system::relaunch_elevated().unwrap_or(1));
     }
@@ -181,23 +167,13 @@ fn main() {
                     let mut notes = Vec::new();
                     let mut restart_needed = false;
                     let folder = system::win32_path(&folder)?;
-                    // A 2.6.x install that left the display driver out cannot run 3.0.
-                    if let Some(refusal) = floor::update_refusal(install::display_driver_declined())
-                    {
-                        return Err(refusal);
-                    }
-                    // Hosts from before the floor marker offer this release anyway.
-                    let mut payload =
-                        payload::Payload::open()?.context("this setup.exe carries no package")?;
-                    floor::check(&mut payload)?;
-                    drop(payload);
                     // As a reinstall does. In-app updates never set the
                     // drivers up, so hosts updated from the console since
                     // rc.22 had none.
                     update::run(&folder, true, end_streams, &progress, &mut || {
                         restart_needed |= install::install_drivers(
                             &folder,
-                            true,
+                            !install::display_driver_declined(),
                             true,
                             usbip_driver,
                             &progress,
@@ -242,9 +218,9 @@ fn main() {
     std::process::exit(code);
 }
 
-/// The install dialogs; `None` when the user cancelled.
-fn ask_install(args: &Arguments, found: &detect::Found) -> Option<Choices> {
-    let mut folder = detect::install_dir(found, args.install_dir.clone());
+fn run_install(args: &Arguments) -> i32 {
+    let found = detect::scan();
+    let mut folder = detect::install_dir(&found, args.install_dir.clone());
     let mut gamepad_driver = !args.no_gamepad_driver;
     let mut usbip_driver = usbip::selected(&install::profile(), args.usbip_driver);
     let mut end_streams = args.end_streams;
@@ -253,13 +229,9 @@ fn ask_install(args: &Arguments, found: &detect::Found) -> Option<Choices> {
         // Rubylight restarts and the client connects again afterwards, as
         // with Vibepollo's installer.
         let streaming = install::streaming(&install::profile());
-        let choosable = args.install_dir.is_none() && detect::folder_choosable(found);
+        let choosable = args.install_dir.is_none() && detect::folder_choosable(&found);
         loop {
-            let mut text = detect::summary(found, &folder);
-            if install::display_driver_declined() {
-                text.push_str("\n\n");
-                text.push_str(floor::DECLINED_DRIVER_NOTICE);
-            }
+            let mut text = detect::summary(&found, &folder);
             if streaming {
                 text.push_str("\n\nRubylight is streaming. Installing ends the stream and closes games started from Moonlight; connect again when setup has finished.");
             }
@@ -294,7 +266,7 @@ fn ask_install(args: &Arguments, found: &detect::Found) -> Option<Choices> {
                 continue;
             }
             if !choice.accepted {
-                return None;
+                return 1223;
             }
             end_streams |= streaming;
             break;
@@ -309,73 +281,15 @@ fn ask_install(args: &Arguments, found: &detect::Found) -> Option<Choices> {
                 Some(("Install USB audio and haptics support", usbip_driver)),
             );
             if !choice.accepted {
-                return None;
+                return 1223;
             }
             usbip_driver = choice.checked;
         }
     }
-    Some(Choices {
-        folder,
-        gamepad_driver,
-        usbip_driver,
-        end_streams,
-    })
-}
-
-/// What the install dialogs settled.
-struct Choices {
-    folder: PathBuf,
-    gamepad_driver: bool,
-    usbip_driver: bool,
-    end_streams: bool,
-}
-
-/// Runs `ask` only when `floor` says this PC can run this release, so nobody is walked
-/// through the folder, streaming and driver dialogs for an install that is then refused.
-fn floor_then<T>(
-    floor: impl FnOnce() -> anyhow::Result<()>,
-    ask: impl FnOnce() -> T,
-) -> anyhow::Result<T> {
-    floor()?;
-    Ok(ask())
-}
-
-/// The floor verdict for this PC, with a progress dialog while the package is checked.
-fn check_floor(quiet: bool) -> anyhow::Result<()> {
-    ui::progress(TITLE, "Checking this PC", quiet, |_progress| {
-        let mut payload = payload::Payload::open()?
-            .context("this setup.exe carries no package; build it with build.ps1 -Package")?;
-        floor::check(&mut payload)
-    })
-}
-
-fn run_install(args: &Arguments) -> i32 {
-    let found = detect::scan();
-    if install::display_driver_declined() {
-        log::line(format!("note: {}", floor::DECLINED_DRIVER_NOTICE));
-    }
-    let choices = match floor_then(|| check_floor(args.quiet), || ask_install(args, &found)) {
-        Ok(Some(choices)) => choices,
-        Ok(None) => return 1223,
-        Err(error) => {
-            return failed(
-                args.quiet,
-                "Rubylight cannot be installed on this PC",
-                &error,
-            );
-        }
-    };
-    let Choices {
-        folder,
-        gamepad_driver,
-        usbip_driver,
-        end_streams,
-    } = choices;
     let options = install::Options {
         install_dir: Some(folder),
         gamepad_driver,
-        display_driver: true,
-        floor_checked: true,
+        display_driver: !args.no_display_driver,
         usbip_driver,
         start: !args.no_start,
         end_streams,
@@ -473,24 +387,5 @@ fn open(url: &str) {
             None,
             windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn floor_then_asks_only_when_the_floor_is_met() {
-        let mut asked = false;
-        let refused = floor_then(
-            || Err(anyhow::anyhow!("below the floor")),
-            || {
-                asked = true;
-            },
-        );
-        assert!(refused.is_err());
-        assert!(!asked, "the user was asked before the floor verdict");
-        assert_eq!(floor_then(|| Ok(()), || 7).unwrap(), 7);
     }
 }

@@ -3,15 +3,12 @@
 //! frame ring.
 //!
 //! From punktfunk's pf-vdisplay `swap_chain_processor.rs` by Enrico Bühler (unom), MIT OR
-//! Apache-2.0, with the encode pool replaced by [`OpenRing`] and D3D11 by IddCx 1.11's D3D12
-//! swap chain.
+//! Apache-2.0, with the encode pool replaced by [`OpenRing`].
 //!
 //! The OS presents the composed desktop through the swap chain and the driver must consume it
 //! (acquire, then finished-processing) or the monitor stalls. Inside that window the worker
-//! submits exactly one GPU copy into a ring texture on its [`Copier`] queue, or drops the
-//! frame at the ring; it never waits on the host or the GPU there, because DWM waits on this
-//! window for the head. Every acquire names that queue, so the OS orders its writes to the
-//! surface before the copy.
+//! issues exactly one GPU copy into a ring texture, or drops the frame at the ring; it never
+//! waits on the host there, because DWM waits on this window for the head.
 //!
 //! The swap-chain DDIs return an HRESULT-shaped `NTSTATUS`, classified by hand: `>= 0`
 //! success, `E_PENDING` nothing composed yet, anything else an abandoned swap chain.
@@ -22,26 +19,22 @@ use std::thread::{self, JoinHandle};
 
 use rubylight_vdisplay_proto::ring;
 use wdk_sys::iddcx::{
-    IDARG_IN_RELEASEANDACQUIREBUFFER2, IDARG_IN_SWAPCHAINSETDEVICE2,
-    IDARG_IN_SWAPCHAINSETDEVICE2__bindgen_ty_1, IDARG_OUT_RELEASEANDACQUIREBUFFER2,
-    IDDCX_METADATA2_VALID_FLAGS, IDDCX_SWAPCHAIN, IDDCX_SWAPCHAIN_DEVICE_TYPE,
+    IDARG_IN_RELEASEANDACQUIREBUFFER2, IDARG_IN_SETREALTIMEGPUPRIORITY,
+    IDARG_IN_SWAPCHAINSETDEVICE, IDARG_OUT_RELEASEANDACQUIREBUFFER2, IDDCX_SWAPCHAIN,
 };
 use wdk_sys::{HANDLE, NTSTATUS, WDFOBJECT, call_unsafe_wdf_function_binding};
 use windows::Win32::Foundation::{HANDLE as WHANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
-use windows::Win32::Graphics::Direct3D12::{
-    D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_DESC,
-    D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON,
-    D3D12_TEXTURE_LAYOUT_UNKNOWN, ID3D12Resource,
+use windows::Win32::Graphics::Direct3D11::{
+    D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_SAMPLE_DESC};
-use windows::Win32::Graphics::Dxgi::IDXGIResource;
+use windows::Win32::Graphics::Dxgi::{IDXGIDevice, IDXGIResource};
 use windows::Win32::System::Threading::{SetEvent, WaitForMultipleObjects, WaitForSingleObject};
 use windows::core::Interface;
 
-use crate::copier::Copier;
 use crate::direct_3d_device::Direct3DDevice;
 use crate::frame_retry::PendingFrame;
-use crate::frame_ring::{Frame, OpenRing, Pushed, RingHandles, qpc_now, shape};
+use crate::frame_ring::{Frame, OpenRing, Pushed, RingHandles, qpc_now};
 use crate::monitor::Monitor;
 use crate::worker::{Mmcss, OwnedHandle, Sendable};
 
@@ -56,9 +49,9 @@ fn hr_success(hr: NTSTATUS) -> bool {
     hr >= 0
 }
 
-/// Run the copy queue at global realtime priority (default on), so a GPU-saturating game does
-/// not starve the copy every frame depends on. `RLVD_NO_RT_GPU` (any value, then a device
-/// restart) keeps it at high priority.
+/// Raise the swap chain's processing device to realtime GPU priority (default on), so a
+/// GPU-saturating game does not starve the copy every frame depends on. `RLVD_NO_RT_GPU`
+/// (any value, then a device restart) turns it off.
 fn rt_gpu_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
@@ -158,32 +151,38 @@ impl SwapChainProcessor {
         target_id: u32,
     ) {
         let (wake, available_buffer_event) = events;
-        let mut copier = match Copier::new(&device.device, rt_gpu_enabled()) {
-            Ok(c) => c,
+        // Borrow our reference; IddCx takes its own in SetDevice.
+        let dxgi_device = match device.device.cast::<IDXGIDevice>() {
+            Ok(d) => d,
             Err(e) => {
-                dbglog!(
-                    "[rlvd] swap-chain: copy queue creation failed: {e:?} (target={target_id})"
-                );
+                dbglog!("[rlvd] swap-chain: ID3D11Device is not an IDXGIDevice: {e:?}");
                 return;
             }
         };
-        // Borrow our reference; IddCx takes its own in SetDevice2.
-        let set_device = IDARG_IN_SWAPCHAINSETDEVICE2 {
-            Type: IDDCX_SWAPCHAIN_DEVICE_TYPE::IDDCX_SWAPCHAIN_DEVICE_TYPE_D3D12,
-            Device: IDARG_IN_SWAPCHAINSETDEVICE2__bindgen_ty_1 {
-                pD3d12Device: device.device.as_raw().cast(),
-            },
+        let set_device = IDARG_IN_SWAPCHAINSETDEVICE {
+            pDevice: dxgi_device.as_raw().cast(),
         };
         // A failure means the OS already unassigned this swap chain; returning lets the
         // epilogue delete it so a fresh one is assigned.
         // SAFETY: the swap chain is live; `set_device` points at local storage.
-        let hr = unsafe { wdk_iddcx::IddCxSwapChainSetDevice2(swap_chain, &set_device) };
+        let hr = unsafe { wdk_iddcx::IddCxSwapChainSetDevice(swap_chain, &set_device) };
         if !hr_success(hr) {
             dbglog!(
-                "[rlvd] swap-chain: SetDevice2 failed ({hr:#x}, target={target_id}); waiting for a fresh swap chain"
+                "[rlvd] swap-chain: SetDevice failed ({hr:#x}, target={target_id}); waiting for a fresh swap chain"
             );
             return;
         }
+        if rt_gpu_enabled() {
+            let rt = IDARG_IN_SETREALTIMEGPUPRIORITY {
+                pDevice: dxgi_device.as_raw().cast(),
+            };
+            // SAFETY: the bound swap chain and its device, alive across the synchronous call.
+            let hr = unsafe { wdk_iddcx::IddCxSetRealtimeGPUPriority(swap_chain, &rt) };
+            dbglog!(
+                "[rlvd] swap-chain: realtime GPU priority -> {hr:#x} (target={target_id}; RLVD_NO_RT_GPU disables)"
+            );
+        }
+        drop(dxgi_device);
 
         let mut rings = RingState::default();
         let mut logged_frame = false;
@@ -203,7 +202,7 @@ impl SwapChainProcessor {
             let Some(owner) = monitor.upgrade() else {
                 break;
             };
-            rings.refresh(&owner, device, &mut copier);
+            rings.refresh(&owner, device);
             // Hand the strong count back before anything blocks.
             drop(owner);
             rings.beat();
@@ -213,13 +212,10 @@ impl SwapChainProcessor {
             {
                 in_args.Size = size_of::<IDARG_IN_RELEASEANDACQUIREBUFFER2>() as u32;
             }
-            // Keep the GPU surface; no system-memory copy.
+            // Keep the GPU surface (MetaData.pSurface); no system-memory copy.
             in_args.AcquireSystemMemoryBuffer = 0;
-            // The queue that reads the surface: the OS orders its writes before it.
-            in_args.pD3D12CommandQueue = copier.queue().as_raw().cast();
             let mut buffer = IDARG_OUT_RELEASEANDACQUIREBUFFER2::default();
-            // SAFETY: the swap chain is live; in/out point at local storage, and the queue
-            // outlives every acquire of this worker.
+            // SAFETY: the swap chain is live; in/out point at local storage.
             let hr: NTSTATUS = unsafe {
                 wdk_iddcx::IddCxSwapChainReleaseAndAcquireBuffer2(
                     swap_chain,
@@ -235,7 +231,7 @@ impl SwapChainProcessor {
                 let Some(owner) = monitor.upgrade() else {
                     break;
                 };
-                if rings.retry(&owner, device, &mut copier) {
+                if rings.retry(&owner, device) {
                     break;
                 }
                 let wait_ms = rings.wait_ms();
@@ -261,41 +257,30 @@ impl SwapChainProcessor {
                 );
                 break;
             } else if hr_success(hr) {
-                let meta = &buffer.MetaData;
                 let frame = Frame {
-                    present_qpc: meta.PresentDisplayQPCTime,
+                    present_qpc: buffer.MetaData.PresentDisplayQPCTime,
                     acquire_qpc: qpc_now(),
-                    frame_number: u64::from(meta.PresentationFrameNumber),
+                    frame_number: u64::from(buffer.MetaData.PresentationFrameNumber),
                 };
-                // The acquire transfers one reference per surface it hands over: adopt each
-                // and release it before FinishedProcessingFrame, or every assign/unassign
-                // cycle leaks the swap chain's surfaces. The submitted copy survives the
-                // release.
-                let dxgi = meta.pSurface as *mut core::ffi::c_void;
-                // SAFETY: a non-null `pSurface` is a live surface IddCx just handed over,
-                // carrying the acquire's reference, which `from_raw` adopts exactly once.
-                let dxgi = (!dxgi.is_null()).then(|| unsafe { IDXGIResource::from_raw(dxgi) });
-                let d3d12 = IDDCX_METADATA2_VALID_FLAGS::IDDCX_METADATA2_VALID_FLAGS_D3D12_SURFACE;
-                let raw = meta.pD3D12Surface as *mut core::ffi::c_void;
-                let surface = (meta.ValidFlags & d3d12 != 0 && !raw.is_null())
-                    // SAFETY: as above, for the D3D12 surface the flag says is valid.
-                    .then(|| unsafe { ID3D12Resource::from_raw(raw) });
                 if !logged_frame {
-                    dbglog!(
-                        "[rlvd] swap-chain: first frame acquired (target={target_id}, D3D12 surface {}, DXGI surface {})",
-                        surface.is_some(),
-                        dxgi.is_some()
-                    );
+                    dbglog!("[rlvd] swap-chain: first frame acquired (target={target_id})");
                     logged_frame = true;
                 }
-                drop(dxgi);
                 let mut lost = false;
-                if let Some(surface) = &surface
-                    && let Some(owner) = monitor.upgrade()
-                {
-                    lost = rings.push(&owner, device, &mut copier, surface, frame);
+                // The acquire transfers one surface reference to the driver: adopt it and
+                // release it before FinishedProcessingFrame, or every assign/unassign cycle
+                // leaks the swap chain's surfaces. The queued copy survives the release.
+                let raw = buffer.MetaData.pSurface as *mut core::ffi::c_void;
+                if !raw.is_null() {
+                    // SAFETY: `raw` is the live surface IddCx just handed over, carrying the
+                    // acquire's reference, which `from_raw` adopts exactly once.
+                    let res = unsafe { IDXGIResource::from_raw(raw) };
+                    if let Ok(tex) = res.cast::<ID3D11Texture2D>()
+                        && let Some(owner) = monitor.upgrade()
+                    {
+                        lost = rings.push(&owner, device, &tex, frame);
+                    }
                 }
-                drop(surface);
                 // SAFETY: the swap chain is live.
                 let hr = unsafe { wdk_iddcx::IddCxSwapChainFinishedProcessingFrame(swap_chain) };
                 if !hr_success(hr) || lost {
@@ -336,7 +321,7 @@ struct RingState {
 /// instead. A busy current ring also retries this copy when the swap chain becomes idle.
 #[derive(Default)]
 struct Retained {
-    texture: Option<(ID3D12Resource, D3D12_RESOURCE_DESC)>,
+    texture: Option<(ID3D11Texture2D, D3D11_TEXTURE2D_DESC)>,
     /// Metadata for this owned image, and whether the current ring still needs it.
     pending: PendingFrame,
 }
@@ -350,45 +335,36 @@ impl Retained {
         width: u32,
         height: u32,
         format: DXGI_FORMAT,
-    ) -> Option<&ID3D12Resource> {
+    ) -> Option<&ID3D11Texture2D> {
         if !self
             .texture
             .as_ref()
-            .is_some_and(|(_, d)| shape(d) == (width, height, format.0 as u32))
+            .is_some_and(|(_, d)| (d.Width, d.Height, d.Format) == (width, height, format))
         {
             self.texture = None;
             self.pending.clear();
-            let desc = D3D12_RESOURCE_DESC {
-                Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-                Alignment: 0,
-                Width: u64::from(width),
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: width,
                 Height: height,
-                DepthOrArraySize: 1,
                 MipLevels: 1,
+                ArraySize: 1,
                 Format: format,
                 SampleDesc: DXGI_SAMPLE_DESC {
                     Count: 1,
                     Quality: 0,
                 },
-                Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-                Flags: D3D12_RESOURCE_FLAG_NONE,
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: 0,
+                CPUAccessFlags: 0,
+                MiscFlags: 0,
             };
-            let heap = D3D12_HEAP_PROPERTIES {
-                Type: D3D12_HEAP_TYPE_DEFAULT,
-                ..Default::default()
-            };
-            let mut texture: Option<ID3D12Resource> = None;
-            // SAFETY: `desc` describes a plain single-sample 2D texture on a default heap of
-            // the live device; `texture` is a live local.
+            let mut texture = None;
+            // SAFETY: `desc` describes a plain single-sample texture; `texture` is a live
+            // local.
             let made = unsafe {
-                device.device.CreateCommittedResource(
-                    &heap,
-                    D3D12_HEAP_FLAG_NONE,
-                    &desc,
-                    D3D12_RESOURCE_STATE_COMMON,
-                    None,
-                    &mut texture,
-                )
+                device
+                    .device
+                    .CreateTexture2D(&desc, None, Some(&mut texture))
             };
             if let Err(e) = made {
                 dbglog!("[rlvd] swap-chain: the retained frame texture failed: {e:?}");
@@ -403,49 +379,39 @@ impl Retained {
     fn keep(
         &mut self,
         device: &Direct3DDevice,
-        copier: &mut Copier,
-        surface: &ID3D12Resource,
-        desc: &D3D12_RESOURCE_DESC,
+        surface: &ID3D11Texture2D,
+        desc: &D3D11_TEXTURE2D_DESC,
         frame: Frame,
     ) {
         // An unretainable newer image must not leave an older image eligible for retry.
         self.pending.clear();
-        if desc.SampleDesc.Count != 1 || desc.DepthOrArraySize != 1 || desc.MipLevels > 1 {
+        if desc.SampleDesc.Count != 1 || desc.ArraySize != 1 || desc.MipLevels > 1 {
             return;
         }
-        let (width, height, _) = shape(desc);
-        let Some(texture) = self.texture(device, width, height, desc.Format) else {
+        let Some(texture) = self.texture(device, desc.Width, desc.Height, desc.Format) else {
             return;
         };
-        // Same size, format and sample count, on this device. The copy is queued before
-        // FinishedProcessingFrame; later retries read only our owned texture, never the IddCx
-        // surface after its next release/acquire.
-        match copier.copy(&[(texture, surface)], None) {
-            Ok(()) => self.pending.set(frame),
-            Err(e) => dbglog!("[rlvd] swap-chain: keeping the retained frame failed: {e:?}"),
-        }
+        // SAFETY: both live on this device with the same size, format and sample count. The
+        // copy is queued before FinishedProcessingFrame; later retries read only our owned
+        // texture, never the IddCx surface after its next release/acquire.
+        unsafe { device.device_context.CopyResource(texture, surface) };
+        self.pending.set(frame);
     }
 
     /// Take the newest image back from a ring that is going away.
-    fn take_from(
-        &mut self,
-        device: &Direct3DDevice,
-        copier: &mut Copier,
-        ring: &OpenRing,
-        handles: &RingHandles,
-    ) {
+    fn take_from(&mut self, device: &Direct3DDevice, ring: &OpenRing, handles: &RingHandles) {
         self.pending.clear();
         let format = DXGI_FORMAT(handles.format as i32);
         let Some(texture) = self.texture(device, handles.width, handles.height, format) else {
             return;
         };
-        if let Some(frame) = ring.copy_newest(copier, texture) {
+        if let Some(frame) = ring.copy_newest(device, texture) {
             self.pending.set(frame);
         }
     }
 
     /// Publish the newest image into a freshly opened ring that fits it.
-    fn seed(&mut self, device: &Direct3DDevice, copier: &mut Copier, ring: &mut OpenRing) {
+    fn seed(&mut self, device: &Direct3DDevice, ring: &mut OpenRing) {
         let (Some((texture, desc)), Some(current)) = (&self.texture, self.pending.current()) else {
             return;
         };
@@ -463,7 +429,7 @@ impl Retained {
         self.pending.set(frame);
         let pushed = self
             .pending
-            .retry(|frame| ring.seed(device, copier, texture, desc, frame));
+            .retry(|frame| ring.seed(device, texture, desc, frame));
         dbglog!("[rlvd] frame ring seeded with the retained frame: {pushed:?}");
     }
 
@@ -475,24 +441,19 @@ impl Retained {
                 .is_some_and(|(_, desc)| ring.fits(desc))
     }
 
-    fn retry(
-        &mut self,
-        device: &Direct3DDevice,
-        copier: &mut Copier,
-        ring: &mut OpenRing,
-    ) -> Option<Pushed> {
+    fn retry(&mut self, device: &Direct3DDevice, ring: &mut OpenRing) -> Option<Pushed> {
         if !self.fits(ring) {
             return None;
         }
         let (texture, desc) = self.texture.as_ref()?;
         self.pending
-            .retry(|frame| ring.retry(device, copier, texture, desc, frame))
+            .retry(|frame| ring.retry(device, texture, desc, frame))
     }
 }
 
 impl RingState {
     /// Re-read the ring when its generation moved, and open it on `device` once per ring.
-    fn refresh(&mut self, monitor: &Monitor, device: &Direct3DDevice, copier: &mut Copier) {
+    fn refresh(&mut self, monitor: &Monitor, device: &Direct3DDevice) {
         if self.seen == Some(monitor.ring_gen.load(Ordering::Acquire)) {
             return;
         }
@@ -506,7 +467,7 @@ impl RingState {
         if let (Some(open), Some(old)) = (&self.open, &self.handles)
             && self.retained.pending.current().is_none()
         {
-            self.retained.take_from(device, copier, open, old);
+            self.retained.take_from(device, open, old);
         }
         self.open = None;
         self.handles = handles;
@@ -525,7 +486,7 @@ impl RingState {
                     monitor.target_id()
                 );
                 monitor.stats.ring_open.store(true, Ordering::Release);
-                self.retained.seed(device, copier, &mut open);
+                self.retained.seed(device, &mut open);
                 self.open = Some(open);
             }
             Err((status, detail)) => {
@@ -547,11 +508,11 @@ impl RingState {
 
     /// Try the saved final image once without another swap-chain acquisition. Return true
     /// only for device loss, just as `push` does; slot ownership is never waited for here.
-    fn retry(&mut self, monitor: &Monitor, device: &Direct3DDevice, copier: &mut Copier) -> bool {
+    fn retry(&mut self, monitor: &Monitor, device: &Direct3DDevice) -> bool {
         let Some(open) = &mut self.open else {
             return false;
         };
-        match self.retained.retry(device, copier, open) {
+        match self.retained.retry(device, open) {
             Some(Pushed::Published) => {
                 monitor.stats.pushed.fetch_add(1, Ordering::AcqRel);
                 false
@@ -578,41 +539,46 @@ impl RingState {
         &mut self,
         monitor: &Monitor,
         device: &Direct3DDevice,
-        copier: &mut Copier,
-        surface: &ID3D12Resource,
+        surface: &ID3D11Texture2D,
         frame: Frame,
     ) -> bool {
-        // SAFETY: a plain query of the live surface.
-        let desc = unsafe { surface.GetDesc() };
-        let (width, height, format) = shape(&desc);
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        // SAFETY: `surface` is live; `desc` is a live local.
+        unsafe { surface.GetDesc(&mut desc) };
         // The host sizes its ring from these before it has one.
         let stats = &monitor.stats;
         stats.surface_size.store(
-            u64::from(width) | (u64::from(height) << 32),
+            u64::from(desc.Width) | (u64::from(desc.Height) << 32),
             Ordering::Release,
         );
-        stats.surface_format.store(format, Ordering::Release);
+        stats
+            .surface_format
+            .store(desc.Format.0 as u32, Ordering::Release);
         stats.acquired.fetch_add(1, Ordering::AcqRel);
         let Some(open) = &mut self.open else {
             if let Some(h) = &self.handles {
                 // A ring that did not open still reports what the surface is.
-                h.header().set_surface(width, height, format);
+                h.header()
+                    .set_surface(desc.Width, desc.Height, desc.Format.0 as u32);
             }
-            self.retained.keep(device, copier, surface, &desc, frame);
+            self.retained.keep(device, surface, &desc, frame);
             return false;
         };
-        match open.push(device, copier, surface, &desc, frame) {
+        match open.push(device, surface, &desc, frame) {
             Pushed::Published => {
                 stats.pushed.fetch_add(1, Ordering::AcqRel);
                 // The ring holds the newest image now; it is taken back if the ring goes.
                 self.retained.pending.clear();
                 false
             }
-            Pushed::Dropped | Pushed::Mismatch => {
-                // Every texture is the host's, the copy queue was busy, or the host rebuilds
-                // the ring at this surface's shape: this image is newer than any slot, and a
-                // rebuilt ring is seeded from it.
-                self.retained.keep(device, copier, surface, &desc, frame);
+            Pushed::Dropped => {
+                // Every texture is the host's; this image is newer than any of them.
+                self.retained.keep(device, surface, &desc, frame);
+                false
+            }
+            Pushed::Mismatch => {
+                // The host rebuilds the ring at this surface's shape; it is seeded from this.
+                self.retained.keep(device, surface, &desc, frame);
                 false
             }
             Pushed::DeviceLost => {

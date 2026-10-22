@@ -253,13 +253,12 @@ impl PairedState {
             }
             // A device's own settings, such as a ViGEmBus controller type,
             // take their current values; the host saves the state it loads.
-            crate::config::replace_retired_in_device(&mut c.extra);
             if let Some(overrides) = c
                 .extra
                 .get_mut("config_overrides")
                 .and_then(Value::as_object_mut)
             {
-                crate::config::replace_retired(overrides);
+                crate::config::replace_retired(overrides.iter_mut());
             }
             unique.push(c);
         }
@@ -639,39 +638,6 @@ mod tests {
             loaded.clients[0].extra["config_overrides"],
             json!({"gamepad": "vhf_xbox_one", "keyboard": "true"})
         );
-    }
-    #[test]
-    fn a_device_that_streamed_a_physical_display_gets_a_virtual_display() {
-        let d = tempfile::tempdir().unwrap();
-        let p = d.path().join("state.json");
-        let identity = crypto::Identity::generate().unwrap();
-        let mut s = PairedState::load(&p).unwrap();
-        s.add(
-            &p,
-            Client {
-                name: "Phone".into(),
-                cert: identity.certificate.clone(),
-                uuid: "a".into(),
-                perm: 0x071f_1f00,
-                enabled: true,
-                extra: BTreeMap::from([
-                    ("output_name_override".into(), json!("DISPLAY2")),
-                    ("always_use_virtual_display".into(), json!(false)),
-                    ("virtual_display_mode".into(), json!("disabled")),
-                    (
-                        "config_overrides".into(),
-                        json!({"capture": "wgc", "dd_configuration_option": "ensure_primary", "keyboard": "true"}),
-                    ),
-                ]),
-            },
-        )
-        .unwrap();
-        let loaded = PairedState::load(&p).unwrap();
-        let extra = &loaded.clients[0].extra;
-        assert!(!extra.contains_key("output_name_override"));
-        assert!(!extra.contains_key("always_use_virtual_display"));
-        assert_eq!(extra["virtual_display_mode"], json!("per_client"));
-        assert_eq!(extra["config_overrides"], json!({"keyboard": "true"}));
     }
     #[test]
     fn property_tree_empty_lists_and_unreadable_certificates_load() {

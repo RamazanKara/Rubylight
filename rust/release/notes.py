@@ -4,11 +4,9 @@ usage: python rust/release/notes.py TAG --out FILE [--run URL]
 
 Fails unless TAG names the workspace version in Cargo.toml and its
 "## New in <label>" section is filled in. The section goes into body.md;
-links relative to rust/ point at the tagged source. The release's floor
-(rust/release/floor.json) ends the text as a marker the host's updater reads
-(butterpollo-core's floor module).
+links relative to rust/ point at the tagged source.
 """
-import argparse, json, pathlib, re
+import argparse, pathlib, re
 
 parser = argparse.ArgumentParser()
 parser.add_argument('tag')
@@ -34,7 +32,5 @@ notes = re.sub(r'\]\((?!https?:|#)([^)]+)\)',
 body = (root / 'rust/release/body.md').read_text(encoding='utf-8')
 body = body.replace('{version}', version).replace('{tag}', tag).replace('{label}', label).replace('{notes}', notes)
 body = body.replace('{run}', args.run or f'https://github.com/{repo}/actions/workflows/rust-windows.yml')
-floor = json.loads((root / 'rust/release/floor.json').read_text(encoding='utf-8'))
-body = body.rstrip('\n') + '\n\n<!-- rubylight-floor ' + json.dumps(floor, separators=(',', ':')) + ' -->\n'
 args.out.write_text(body, encoding='utf-8', newline='\n')
 print(f'{version}: release text written to {args.out}')

@@ -40,6 +40,8 @@ export type Control =
   | { kind: 'commands' }
   /** Commands clients may run: [{name, cmd, elevated}]. */
   | { kind: 'server-commands' }
+  /** A display, chosen from the host's displays (empty = automatic). */
+  | { kind: 'display' }
   /** An audio endpoint, chosen from the host's endpoints (empty = default). */
   | { kind: 'audio' }
   /** A GPU, chosen by name from the host's adapters (empty = automatic). */

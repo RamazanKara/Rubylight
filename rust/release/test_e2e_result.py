@@ -44,35 +44,32 @@ class ReleaseMeasurements(unittest.TestCase):
             self.assertEqual(display_refresh('DISPLAY1'), 240)
             native.user32.EnumDisplaySettingsW.assert_called_once()
 
-    def test_capture_integrity_rejects_other_backends_missing_and_changed_sources(self):
+    def test_capture_integrity_rejects_fallback_missing_and_changed_sources(self):
         source = dict(width=1968, height=2184, refresh_hz=240, pixel='RgbaF16')
-        opened = 'INFO capture backend opened backend="idd-push" output=RubylightDisplay1\n'
-        configured = ('INFO stream configured width=1920 height=1080 '
+        opened = 'INFO capture backend opened requested=wgc backend="wgc" output=DISPLAY1\n'
+        configured = ('INFO stream configured width=1920 height=1080 requested_capture=wgc '
                       'source_width=1968 source_height=2184 source_refresh_hz=240 source_pixel=RgbaF16\n')
-        check = lambda log: evaluate(GOOD, 0, 'hevc', '1920x1080x60', host_log=log, requested_source=source)
+        check = lambda log: evaluate(GOOD, 0, 'hevc', '1920x1080x60', host_log=log,
+                                     requested_capture='wgc', requested_source=source)
         matched = check(opened + configured)
         self.assertTrue(matched['passed'], matched['failures'])
         self.assertEqual(matched['comparison'], 'matched')
         self.assertEqual(matched['capture_sources'], [{k: str(v) for k, v in source.items()}])
-        other = opened.replace('backend="idd-push"', 'backend="ddx"')
-        for log in (other + configured, opened + configured + other):
+        fallback = opened.replace('backend="wgc"', 'backend="ddx"')
+        for log in (fallback + configured, opened + configured + fallback):
             result = check(log)
             self.assertFalse(result['passed'])
             self.assertEqual(result['comparison'], 'fallback')
             self.assertIn('ddx', result['capture_backends'])
-            self.assertTrue(any('capture backend ddx is not the display driver' in f for f in result['failures']), result['failures'])
-        # A stream that opened no backend at all is not a driver capture either.
-        self.assertTrue(any('missing actual capture backend' in f for f in check(configured)['failures']))
         for log in ('', configured, opened, opened + configured.replace('source_pixel=RgbaF16', ''),
                     opened + configured + configured.replace('source_width=1968', 'source_width=1920')):
             self.assertFalse(check(log)['passed'])
         for key, wrong in [('width', '1920'), ('height', '1080'), ('refresh_hz', '120'), ('pixel', 'Bgra8')]:
             with self.subTest(key=key):
                 self.assertFalse(check(opened + configured.replace(f'source_{key}={source[key]}', f'source_{key}={wrong}'))['passed'])
-        # Without a requested source only the backend is judged.
-        for name in ('wgc', 'ddx', 'dxgi'):
-            self.assertFalse(evaluate(GOOD, 0, 'hevc', '1920x1080x60', host_log=opened.replace('idd-push', name))['passed'])
-        self.assertTrue(evaluate(GOOD, 0, 'hevc', '1920x1080x60', host_log=opened)['passed'])
+        alias = evaluate(GOOD, 0, 'hevc', '1920x1080x60', host_log=fallback + configured,
+                         requested_capture='dxgi', requested_source=source)
+        self.assertTrue(alias['passed'], alias['failures'])
 
     def test_picture_age_is_reported_for_every_codec(self):
         for codec in ('h264', 'hevc', 'av1', 'pyrowave'):

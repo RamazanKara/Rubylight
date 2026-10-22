@@ -18,9 +18,8 @@ pub const RETIRED_VALUES: &[(&str, &str, &str)] = &[
 /// Settings whose values select features Rubylight removed. A value of
 /// `key` that `retired` matches is replaced by `current` wherever the host
 /// reads settings, and a value read from sunshine.conf is reported once
-/// (see [`Config::load_retiring`]). An empty `current` drops the setting,
-/// and a `key` ending in `*` names every setting with that prefix. Another
-/// setting's removed values take one more row.
+/// (see [`Config::load_retiring`]). Another setting's removed values take
+/// one more row.
 pub struct RetiredSetting {
     pub key: &'static str,
     pub retired: fn(&str) -> bool,
@@ -28,22 +27,6 @@ pub struct RetiredSetting {
     /// Why the value no longer applies, for the warning.
     pub reason: &'static str,
 }
-impl RetiredSetting {
-    fn names(&self, key: &str) -> bool {
-        match self.key.strip_suffix('*') {
-            // A setting renamed to its current name is read, not dropped.
-            Some(prefix) => key.starts_with(prefix) && current_name(key) == key,
-            None => self.key == key,
-        }
-    }
-}
-fn any_value(_: &str) -> bool {
-    true
-}
-const VIRTUAL_ONLY: &str = "every stream runs on its own virtual display";
-const DRIVER: &str = "Rubylight's display driver creates every virtual display";
-const CAPTURE: &str = "every stream captures its virtual display from the Rubylight display driver";
-const FENCE_RING: &str = "the GPU fence ring is the only transport from the display driver";
 pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
     RetiredSetting {
         key: "encoder",
@@ -75,136 +58,6 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
         current: "none",
         reason: "driver frame generation needs an NVIDIA GPU",
     },
-    RetiredSetting {
-        key: "capture",
-        retired: any_value,
-        current: "",
-        reason: CAPTURE,
-    },
-    RetiredSetting {
-        key: "wgc_*",
-        retired: any_value,
-        current: "",
-        reason: CAPTURE,
-    },
-    RetiredSetting {
-        key: "idd_push_fence_ring",
-        retired: any_value,
-        current: "",
-        reason: FENCE_RING,
-    },
-    RetiredSetting {
-        key: "capture_predictive_poll",
-        retired: any_value,
-        current: "",
-        reason: CAPTURE,
-    },
-    RetiredSetting {
-        key: "gpu_compute_conversion",
-        retired: any_value,
-        current: "",
-        reason: "every frame is copied and converted on a D3D12 compute queue",
-    },
-    RetiredSetting {
-        key: "virtual_display_mode",
-        retired: crate::display_policy::disables_virtual_displays,
-        current: "per_client",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "virtual-display-mode",
-        retired: crate::display_policy::disables_virtual_displays,
-        current: "per_client",
-        reason: VIRTUAL_ONLY,
-    },
-    // The driver choice: Rubylight's own driver is the only one, and the host no longer reads
-    // either setting (Vibepollo profiles carry the second).
-    RetiredSetting {
-        key: "virtual_display_driver",
-        retired: any_value,
-        current: "",
-        reason: DRIVER,
-    },
-    RetiredSetting {
-        key: "dd_use_sunshine_virtual_display_driver",
-        retired: any_value,
-        current: "",
-        reason: DRIVER,
-    },
-    RetiredSetting {
-        key: "output_name",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "dd_configuration_option",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "dd_activate_virtual_display",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "dd_refresh_rate_option",
-        retired: |value| value.trim() == "prefer_highest",
-        current: "auto",
-        reason: "a virtual display runs at the refresh its stream asks for",
-    },
-    // An app's own physical display choices.
-    RetiredSetting {
-        key: "display-output",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "dd-configuration-option",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "virtual-display",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "virtual-screen",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "gen1-framegen-fix",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "frame-gen-limiter-fix",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    // A device's own.
-    RetiredSetting {
-        key: "output_name_override",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
-    RetiredSetting {
-        key: "always_use_virtual_display",
-        retired: any_value,
-        current: "",
-        reason: VIRTUAL_ONLY,
-    },
 ];
 /// A retired value the host replaced while reading the configuration.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -218,13 +71,7 @@ pub struct Retired {
 pub fn retired_warning(retired: &[Retired]) -> Option<String> {
     let changes: Vec<_> = retired
         .iter()
-        .map(|r| {
-            if r.current.is_empty() {
-                format!("{} {} was removed ({})", r.key, r.value, r.reason)
-            } else {
-                format!("{} {} is now {} ({})", r.key, r.value, r.current, r.reason)
-            }
-        })
+        .map(|r| format!("{} {} is now {} ({})", r.key, r.value, r.current, r.reason))
         .collect();
     (!changes.is_empty()).then(|| {
         format!(
@@ -254,8 +101,6 @@ pub const HARDWARE_METRICS: &[&str] = &[
 /// under both names.
 pub const RENAMED_KEYS: &[(&str, &str)] = &[
     ("rtss_path", "rtss_install_path"),
-    // Smooths the stream's pacing whatever captures it.
-    ("wgc_pacing_smoothing", "frame_pacing_smoothing"),
     (
         "dd_vdd_static_monitor_count",
         "dd_virtual_display_permanent_count",
@@ -310,49 +155,23 @@ fn retirement(key: &str, value: &str) -> Option<(&'static str, &'static str)> {
         .or_else(|| {
             RETIRED_SETTINGS
                 .iter()
-                .find(|setting| setting.names(key) && (setting.retired)(value))
+                .find(|setting| setting.key == key && (setting.retired)(value))
                 .map(|setting| (setting.current, setting.reason))
         })
 }
 
-/// What becomes of an app's or a device's JSON setting `key`: `None` keeps
-/// it, `Some(None)` drops it and `Some(Some(value))` replaces it.
-fn retire_json(key: &str, value: &serde_json::Value) -> Option<Option<serde_json::Value>> {
-    let text = match value {
-        serde_json::Value::String(text) => text.clone(),
-        serde_json::Value::Null => return None,
-        other => other.to_string(),
-    };
-    match replacement(key, &text)? {
-        "" => Some(None),
-        current => Some(Some(serde_json::Value::from(current))),
-    }
-}
-
 /// Replace retired values among an app's or a device's settings, which are
-/// JSON, and drop the retired settings. Returns whether anything changed.
-pub fn replace_retired(settings: &mut serde_json::Map<String, serde_json::Value>) -> bool {
+/// JSON. Returns whether anything changed.
+pub fn replace_retired<'a>(
+    settings: impl IntoIterator<Item = (&'a String, &'a mut serde_json::Value)>,
+) -> bool {
     let mut changed = false;
-    settings.retain(|key, value| match retire_json(key, value) {
-        None => true,
-        Some(current) => {
+    for (key, value) in settings {
+        if let Some(current) = value.as_str().and_then(|old| replacement(key, old)) {
+            *value = serde_json::Value::from(current);
             changed = true;
-            current.map(|current| *value = current).is_some()
         }
-    });
-    changed
-}
-
-/// [`replace_retired`] for a paired device's own settings.
-pub fn replace_retired_in_device(settings: &mut BTreeMap<String, serde_json::Value>) -> bool {
-    let mut changed = false;
-    settings.retain(|key, value| match retire_json(key, value) {
-        None => true,
-        Some(current) => {
-            changed = true;
-            current.map(|current| *value = current).is_some()
-        }
-    });
+    }
     changed
 }
 
@@ -360,12 +179,12 @@ pub fn replace_retired_in_device(settings: &mut BTreeMap<String, serde_json::Val
 /// Apollo and Vibepollo store them, and its `config-overrides`. Returns
 /// whether anything changed.
 pub fn replace_retired_in_app(app: &mut serde_json::Map<String, serde_json::Value>) -> bool {
-    let mut changed = replace_retired(app);
+    let mut changed = replace_retired(app.iter_mut());
     if let Some(overrides) = app
         .get_mut("config-overrides")
         .and_then(serde_json::Value::as_object_mut)
     {
-        changed |= replace_retired(overrides);
+        changed |= replace_retired(overrides.iter_mut());
     }
     changed
 }
@@ -468,9 +287,6 @@ impl Config {
                     current,
                     reason,
                 });
-                if current.is_empty() {
-                    continue;
-                }
             }
             values.insert(key.to_owned(), value);
         }
@@ -714,17 +530,8 @@ impl Config {
             }
             // A client or an old console sending a retired value saves its
             // replacement, as the file would be read.
-            match replacement(key, &value) {
-                Some("") => {
-                    next.values.remove(key);
-                }
-                Some(current) => {
-                    next.values.insert(key.clone(), current.to_owned());
-                }
-                None => {
-                    next.values.insert(key.clone(), value);
-                }
-            }
+            let value = replacement(key, &value).map_or(value, str::to_owned);
+            next.values.insert(key.clone(), value);
         }
         // Only what changes is checked: a value the file already had (the
         // host reads it leniently) must not block every other save.
@@ -796,6 +603,7 @@ impl Config {
             height,
             crate::framegen::Rate(fps.saturating_mul(1000)),
             false,
+            false,
         )?;
         request.refresh = request.refresh.map(|r| r.saturating_add(500) / 1000);
         Ok(request)
@@ -806,7 +614,16 @@ impl Config {
         height: u32,
         rate: crate::framegen::Rate,
         hdr: bool,
+        virtual_display: bool,
     ) -> Result<DisplayRequest> {
+        if !virtual_display && self.get("dd_configuration_option", "verify_only") == "disabled" {
+            return Ok(DisplayRequest {
+                resolution: None,
+                refresh: None,
+                prefer_highest: false,
+                hdr: None,
+            });
+        }
         let resolution_option = self.get("dd_resolution_option", "auto");
         let refresh_option = self.get("dd_refresh_rate_option", "auto");
         let resolution_option = match resolution_option {
@@ -817,7 +634,7 @@ impl Config {
             }
         };
         let refresh_option = match refresh_option {
-            "disabled" | "auto" | "manual" => refresh_option,
+            "disabled" | "auto" | "manual" | "prefer_highest" => refresh_option,
             other => {
                 fallback("dd_refresh_rate_option", other, "auto");
                 "auto"
@@ -845,6 +662,7 @@ impl Config {
                 }
                 Some(rate.0)
             }
+            "prefer_highest" => None,
             _ => bail!("invalid display refresh policy"),
         };
         let remapping_type = match (resolution_option == "auto", refresh_option == "auto") {
@@ -903,6 +721,7 @@ impl Config {
         Ok(DisplayRequest {
             resolution,
             refresh,
+            prefer_highest: refresh_option == "prefer_highest",
             hdr: if self.get("dd_hdr_option", "auto") == "disabled" {
                 None
             } else {
@@ -955,6 +774,7 @@ pub fn override_allowed(key: &str) -> bool {
         "stream_mic",
         "adapter_name",
         "adapter_pnp_id",
+        "dd_configuration_option",
         "dd_resolution_option",
         "dd_manual_resolution",
         "dd_refresh_rate_option",
@@ -968,6 +788,7 @@ pub fn override_allowed(key: &str) -> bool {
         "dd_snapshot_exclude_devices",
         "dd_snapshot_restore_hotkey",
         "dd_snapshot_restore_hotkey_modifiers",
+        "dd_activate_virtual_display",
         "dd_virtual_display_scale",
         "dd_virtual_display_permanent_count",
         "dd_mode_remapping",
@@ -985,6 +806,7 @@ pub fn override_allowed(key: &str) -> bool {
         "hevc_mode",
         "av1_mode",
         "experimental_packed_444",
+        "capture",
         "encoder",
         // Playnite focus
         "playnite_focus_attempts",
@@ -1144,6 +966,7 @@ fn bracket_depth(line: &str) -> i32 {
 pub struct DisplayRequest {
     pub resolution: Option<(u32, u32)>,
     pub refresh: Option<u32>,
+    pub prefer_highest: bool,
     pub hdr: Option<bool>,
 }
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -1608,186 +1431,6 @@ mod tests {
         assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
     }
     #[test]
-    fn compute_conversion_setting_migrates_with_a_report() {
-        // Either value once chose a queue; the host has only the compute queue now.
-        for value in ["false", "true"] {
-            let (config, retired) = Config::parse_retiring(&format!(
-                "gpu_compute_conversion = {value}
-port = 48123
-"
-            ))
-            .unwrap();
-            assert_eq!(
-                config.values,
-                BTreeMap::from([("port".into(), "48123".into())])
-            );
-            let warning = retired_warning(&retired).unwrap();
-            assert!(warning.contains("gpu_compute_conversion"), "{warning}");
-            assert!(warning.contains("D3D12 compute queue"), "{warning}");
-        }
-    }
-    /// A profile from a host that captured with WGC or Desktop Duplication,
-    /// or streamed a physical monitor.
-    const PHYSICAL_DISPLAYS: &str = "capture = ddx\nwgc_high_rate_capture = true\nwgc_pacing_smoothing = false\ncapture_predictive_poll = true\nvirtual_display_mode = disabled\noutput_name = DISPLAY2\ndd_configuration_option = ensure_primary\ndd_activate_virtual_display = true\ndd_refresh_rate_option = prefer_highest\nport = 48123\n";
-    #[test]
-    fn display_driver_choices_migrate_with_a_report() {
-        let (config, retired) = Config::parse_retiring(
-            "virtual_display_driver = rubylight
-dd_use_sunshine_virtual_display_driver = enabled
-port = 48123
-",
-        )
-        .unwrap();
-        assert_eq!(
-            config.values,
-            BTreeMap::from([("port".into(), "48123".into())])
-        );
-        let keys: Vec<_> = retired.iter().map(|r| r.key.as_str()).collect();
-        assert_eq!(
-            keys,
-            [
-                "virtual_display_driver",
-                "dd_use_sunshine_virtual_display_driver"
-            ]
-        );
-        let warning = retired_warning(&retired).unwrap();
-        assert!(
-            warning.contains("creates every virtual display"),
-            "{warning}"
-        );
-        // Whatever driver an earlier host or Vibepollo chose.
-        for value in ["sudovda", "vdd", "libvirtualdisplay"] {
-            assert!(
-                Config::parse(&format!(
-                    "virtual_display_driver = {value}
-"
-                ))
-                .unwrap()
-                .values
-                .is_empty()
-            );
-        }
-    }
-    #[test]
-    fn the_fence_ring_option_migrates_because_the_ring_is_the_only_transport() {
-        for value in ["true", "false", "\"true\""] {
-            let (config, retired) = Config::parse_retiring(&format!(
-                "idd_push_fence_ring = {value}
-idd_push_zero_copy = false
-port = 48123
-"
-            ))
-            .unwrap();
-            assert_eq!(
-                config.values,
-                BTreeMap::from([
-                    ("idd_push_zero_copy".into(), "false".into()),
-                    ("port".into(), "48123".into()),
-                ])
-            );
-            let keys: Vec<_> = retired.iter().map(|r| r.key.as_str()).collect();
-            assert_eq!(keys, ["idd_push_fence_ring"]);
-            let warning = retired_warning(&retired).unwrap();
-            assert!(warning.contains("idd_push_fence_ring"), "{warning}");
-            assert!(
-                warning.contains("fence ring is the only transport"),
-                "{warning}"
-            );
-            // What the host writes back reads without a report.
-            let (_, again) = Config::parse_retiring(&config.text()).unwrap();
-            assert!(again.is_empty());
-        }
-    }
-    #[test]
-    fn capture_and_physical_display_settings_migrate_with_one_report() {
-        let (config, retired) = Config::parse_retiring(PHYSICAL_DISPLAYS).unwrap();
-        assert_eq!(
-            config.values,
-            BTreeMap::from([
-                ("dd_refresh_rate_option".into(), "auto".into()),
-                ("frame_pacing_smoothing".into(), "false".into()),
-                ("port".into(), "48123".into()),
-                ("virtual_display_mode".into(), "per_client".into()),
-            ])
-        );
-        let keys: Vec<_> = retired.iter().map(|r| r.key.as_str()).collect();
-        assert_eq!(
-            keys,
-            [
-                "capture",
-                "wgc_high_rate_capture",
-                "capture_predictive_poll",
-                "virtual_display_mode",
-                "output_name",
-                "dd_configuration_option",
-                "dd_activate_virtual_display",
-                "dd_refresh_rate_option",
-            ]
-        );
-        let warning = retired_warning(&retired).unwrap();
-        assert!(warning.contains("capture ddx was removed"), "{warning}");
-        assert!(warning.contains("virtual_display_mode disabled is now per_client"));
-        assert!(warning.contains("output_name DISPLAY2 was removed"));
-        // What the host writes back reads without a report.
-        let (again, retired) = Config::parse_retiring(&config.text()).unwrap();
-        assert_eq!(again.values, config.values);
-        assert!(retired.is_empty());
-        // Any capture value goes, and the per-device and shared modes stay.
-        for value in ["auto", "wgc", "idd-push", "dxgi", "wgcc"] {
-            assert!(
-                Config::parse(&format!("capture = {value}\n"))
-                    .unwrap()
-                    .values
-                    .is_empty()
-            );
-        }
-        for (value, current) in [
-            ("off", "per_client"),
-            ("per_client", "per_client"),
-            ("shared", "shared"),
-        ] {
-            let config = Config::parse(&format!("virtual_display_mode = {value}\n")).unwrap();
-            assert_eq!(config.get("virtual_display_mode", ""), current);
-        }
-        // A save sending a removed setting drops it.
-        let mut config = Config::parse("capture = auto\n").unwrap();
-        change(&mut config, "capture", "wgc").unwrap();
-        change(&mut config, "virtual_display_mode", "disabled").unwrap();
-        assert_eq!(
-            config.values,
-            BTreeMap::from([("virtual_display_mode".into(), "per_client".into())])
-        );
-    }
-    #[test]
-    fn apps_and_devices_lose_their_physical_display_choices() {
-        let mut app = serde_json::json!({"name": "Game", "display-output": "DISPLAY2",
-            "virtual-display": true, "dd-configuration-option": "ensure_active",
-            "gen1-framegen-fix": true, "frame-gen-limiter-fix": false,
-            "virtual-display-mode": "disabled",
-            "config-overrides": {"capture": "ddx", "output_name": "DISPLAY2", "fec_percentage": 30}});
-        assert!(replace_retired_in_app(app.as_object_mut().unwrap()));
-        assert_eq!(
-            app,
-            serde_json::json!({"name": "Game", "virtual-display-mode": "per_client",
-                "config-overrides": {"fec_percentage": 30}})
-        );
-        assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
-        let mut device: BTreeMap<String, serde_json::Value> = serde_json::from_value(
-            serde_json::json!({"output_name_override": "DISPLAY2", "always_use_virtual_display": "true",
-                "virtual_display_mode": "disabled", "virtual_display_layout": "extended"}),
-        )
-        .unwrap();
-        assert!(replace_retired_in_device(&mut device));
-        assert_eq!(
-            serde_json::to_value(&device).unwrap(),
-            serde_json::json!({"virtual_display_mode": "per_client", "virtual_display_layout": "extended"})
-        );
-        // The device that follows the host setting keeps doing so.
-        let mut inherits: BTreeMap<String, serde_json::Value> =
-            BTreeMap::from([("virtual_display_mode".into(), "global".into())]);
-        assert!(!replace_retired_in_device(&mut inherits));
-    }
-    #[test]
     fn retired_vigem_controllers_become_their_vhf_pads() {
         let c = Config::parse("gamepad = x360\n").unwrap();
         assert_eq!(c.get("gamepad", ""), "vhf_xbox_one");
@@ -1827,7 +1470,7 @@ port = 48123
     }
     /// A Vibepollo or Rubylight 2.0 file with every setting under its
     /// earlier name, a setting this host does not know, and a comment.
-    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nwgc_pacing_smoothing = false\nport = 48123\nfuture_setting = kept\n";
+    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nport = 48123\nfuture_setting = kept\n";
     #[test]
     fn settings_under_an_earlier_name_are_read_under_the_current_one() {
         let c = Config::parse(EARLIER_NAMES).unwrap();
@@ -1836,7 +1479,6 @@ port = 48123
         assert_eq!(c.get("rtss_install_path", ""), "D:\\Tools\\RTSS");
         assert_eq!(c.integer("dd_virtual_display_permanent_count", -1), 2);
         assert_eq!(c.integer("hdr_peak_brightness", 0), 1400);
-        assert!(!c.boolean("frame_pacing_smoothing", true));
         for (old, _) in RENAMED_KEYS {
             assert!(!c.values.contains_key(*old), "{old}");
         }
@@ -1913,18 +1555,21 @@ port = 48123
         }
     }
     #[test]
-    fn exact_display_remapping_and_hdr_override() {
+    fn exact_display_remapping_hdr_override_and_disabled_policy() {
         let c = Config::parse("dd_mode_remapping={\"mixed\":[{\"requested_resolution\":\"1920x1080\",\"requested_fps\":\"59.94\",\"final_resolution\":\"2560x1440\",\"final_refresh_rate\":\"119.88\"}]}\ndd_hdr_request_override=force_off\n").unwrap();
         let r = c
-            .display_request_rate(1920, 1080, crate::framegen::Rate(59940), true)
+            .display_request_rate(1920, 1080, crate::framegen::Rate(59940), true, false)
             .unwrap();
         assert_eq!(r.resolution, Some((2560, 1440)));
         assert_eq!(r.refresh, Some(119880));
         assert_eq!(r.hdr, Some(false));
-        let c = Config::parse("dd_refresh_rate_option=manual\ndd_manual_refresh_rate=119.88\n")
+        let c = Config::parse("dd_configuration_option=disabled\ndd_refresh_rate_option=manual\ndd_manual_refresh_rate=119.88\n").unwrap();
+        let r = c
+            .display_request_rate(1920, 1080, crate::framegen::Rate(59940), true, false)
             .unwrap();
+        assert_eq!((r.resolution, r.refresh, r.hdr), (None, None, None));
         assert_eq!(
-            c.display_request_rate(1920, 1080, crate::framegen::Rate(59940), true)
+            c.display_request_rate(1920, 1080, crate::framegen::Rate(59940), true, true)
                 .unwrap()
                 .refresh,
             Some(119880)

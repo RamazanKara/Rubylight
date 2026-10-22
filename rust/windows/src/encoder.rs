@@ -92,6 +92,7 @@ impl Encoder {
         tuning: &butterpollo_core::config::Config,
         warnings: &std::sync::Arc<Warnings>,
     ) -> Result<Self> {
+        warnings.clear("encoder_conversion");
         warnings.clear("encoder_frame_size");
         // A replacement encoder establishes its own refresh policy. Discard
         // the previous AMF fallback before merging fresh startup warnings,
@@ -107,14 +108,47 @@ impl Encoder {
                 )?,
             )));
         }
-        // AMF encodes from D3D12, converting on the capture GPU's compute queue, which keeps
-        // running beside a game that fills the graphics queue. A failure is the stream's.
-        match crate::amf::Encoder::new_gpu(config, image.gpu.clone(), tuning) {
+        // Colour conversion on a compute queue keeps running beside a
+        // game that fills the GPU's graphics queue.
+        // AMF rejects 4:4:4 regardless of which queue converts the input.
+        let compute = if !config.yuv444
+            && crate::compute::enabled(tuning)
+            && crate::compute::shareable(&image.texture)
+        {
+            match crate::compute::Compute::for_device(&image.gpu.device) {
+                Ok(compute) => Some(compute),
+                Err(error) => {
+                    warnings.set("encoder_conversion", format!("AMF compute conversion unavailable ({error:#}); converting on the graphics queue. A busy game can delay frames; lower its GPU load or update the AMD driver."));
+                    None
+                }
+            }
+        } else {
+            if !config.yuv444 && crate::compute::enabled(tuning) {
+                warnings.set("encoder_conversion", "AMF compute conversion unavailable: the capture texture cannot be shared. Converting on the graphics queue; lower game GPU load or update the AMD driver if frames are delayed.");
+            }
+            None
+        };
+        let created = match crate::amf::Encoder::new_gpu(
+            config,
+            image.gpu.clone(),
+            tuning,
+            compute.clone(),
+        ) {
+            Err(error) if compute.is_some() => {
+                warnings.set("encoder_conversion", format!("AMF compute queue initialization failed ({error:#}); retrying conversion on the graphics queue. Lower game GPU load or update the AMD driver if frames are delayed."));
+                crate::amf::Encoder::new_gpu(config, image.gpu.clone(), tuning, None)
+            }
+            created => created,
+        };
+        match created {
             Ok(mut encoder) => {
                 attach_warnings(&mut encoder.warnings, warnings);
                 Ok(Self::Amf(Box::new(encoder)))
             }
-            Err(error) => Err(amf_failed(error, &image.gpu.display.adapter)),
+            Err(error) => {
+                warnings.clear("encoder_conversion");
+                Err(amf_failed(error, &image.gpu.display.adapter))
+            }
         }
     }
     pub fn encode_gpu(
@@ -290,7 +324,7 @@ mod tests {
             "driver cannot apply the requested cap",
         );
         let session = std::sync::Arc::new(Warnings::default());
-        session.set("encoder_intra_refresh", "retained refresh warning");
+        session.set("encoder_conversion", "retained conversion warning");
         attach_warnings(&mut encoder, &session);
         assert!(std::sync::Arc::ptr_eq(&encoder, &session));
         assert!(session.snapshot().iter().any(|warning| {
@@ -301,7 +335,7 @@ mod tests {
             session
                 .snapshot()
                 .iter()
-                .any(|warning| warning.code == "encoder_intra_refresh")
+                .any(|warning| warning.code == "encoder_conversion")
         );
         encoder.set("encoder_buffer", "later rate-control warning");
         assert!(

@@ -104,6 +104,8 @@ fn payload(h: &Shared, fields: &Fields) -> Result<Value, String> {
             for key in [
                 "sunshine_name",
                 "encoder",
+                "capture",
+                "output_name",
                 "virtual_display_mode",
                 "audio_sink",
             ] {

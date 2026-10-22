@@ -1,4 +1,4 @@
-use super::{Api, Plane, Timeline, check};
+use super::{Api, check};
 use crate::{
     capture::{ComGuard, Device, GpuImage, Image, Pixel},
     encoder::Encoder,
@@ -12,7 +12,16 @@ use butterpollo_core::{
     rtsp::Negotiated,
 };
 use std::{collections::BTreeMap, ffi::c_void, ptr, sync::Arc, time::Instant};
-use windows::Win32::Graphics::Dxgi::Common::*;
+use windows::{
+    Win32::{
+        Foundation::{CloseHandle, GENERIC_ALL},
+        Graphics::{
+            Direct3D11::*,
+            Dxgi::{Common::*, *},
+        },
+    },
+    core::{Interface, PCWSTR},
+};
 
 macro_rules! decoder_api {
     ($($name:ident: $ty:ty),* $(,)?) => {
@@ -38,38 +47,40 @@ decoder_api! {
     sync_object_cpu_wait: unsafe extern "C" fn(p::pyrowave_sync_object, u64, u64) -> p::pyrowave_result,
 }
 
-/// PyroWave's decoder writing into D3D12 planes on the capture GPU, as the encoder's planes
-/// are shared, read back after each picture.
 struct Decoder {
     api: Arc<Api>,
     calls: DecoderApi,
     device: p::pyrowave_device,
     decoder: p::pyrowave_decoder,
-    planes: Vec<Plane>,
-    timeline: Option<Timeline>,
+    images: Vec<p::pyrowave_image>,
+    textures: Vec<ID3D11Texture2D>,
     buffers: p::pyrowave_gpu_buffers,
+    sync: p::pyrowave_sync_object,
+    fence: Option<ID3D11Fence>,
     counter: u64,
 }
 impl Decoder {
     fn new(gpu: &Device, config: &Negotiated) -> Result<Self> {
         let api = Api::load()?;
-        // SAFETY: each create-info outlives its call, and `s` owns every PyroWave handle made
-        // here so Drop releases it on error.
+        // SAFETY: `gpu` is a live D3D11 device, each create-info outlives its call, and `s` owns
+        // every PyroWave handle made here so Drop releases it on error.
         unsafe {
             let mut s = Self {
                 calls: DecoderApi::load(&api._dll)?,
                 api,
                 device: ptr::null_mut(),
                 decoder: ptr::null_mut(),
-                planes: vec![],
-                timeline: None,
+                images: vec![],
+                textures: vec![],
                 buffers: std::mem::zeroed(),
+                sync: ptr::null_mut(),
+                fence: None,
                 counter: 0,
             };
-            let (low, high) = gpu.luid();
+            let desc = gpu.device.cast::<IDXGIDevice>()?.GetAdapter()?.GetDesc()?;
             let mut luid = p::pyrowave_luid { luid: [0; 8] };
-            luid.luid[..4].copy_from_slice(&low.to_le_bytes());
-            luid.luid[4..].copy_from_slice(&high.to_le_bytes());
+            luid.luid[..4].copy_from_slice(&desc.AdapterLuid.LowPart.to_le_bytes());
+            luid.luid[4..].copy_from_slice(&desc.AdapterLuid.HighPart.to_le_bytes());
             check((s.api.create_device_by_compat)(
                 0,
                 0,
@@ -91,32 +102,109 @@ impl Decoder {
             ))?;
             for plane in 0..3 {
                 let divisor = if plane == 0 || config.yuv444 { 1 } else { 2 };
-                let plane = Plane::new(
-                    s.api.clone(),
-                    s.device,
-                    &gpu.compute,
-                    (config.width / divisor, config.height / divisor),
-                    if config.ten_bit() {
-                        DXGI_FORMAT_R16_UNORM
-                    } else {
-                        DXGI_FORMAT_R8_UNORM
+                let (width, height) = (config.width / divisor, config.height / divisor);
+                let mut texture = None;
+                gpu.device.CreateTexture2D(
+                    &D3D11_TEXTURE2D_DESC {
+                        Width: width,
+                        Height: height,
+                        MipLevels: 1,
+                        ArraySize: 1,
+                        Format: if config.ten_bit() {
+                            DXGI_FORMAT_R16_UNORM
+                        } else {
+                            DXGI_FORMAT_R8_UNORM
+                        },
+                        SampleDesc: DXGI_SAMPLE_DESC {
+                            Count: 1,
+                            Quality: 0,
+                        },
+                        Usage: D3D11_USAGE_DEFAULT,
+                        BindFlags: (D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_UNORDERED_ACCESS.0)
+                            as u32,
+                        MiscFlags: (D3D11_RESOURCE_MISC_SHARED.0
+                            | D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0)
+                            as u32,
+                        ..Default::default()
                     },
-                    p::VkImageUsageFlagBits_VK_IMAGE_USAGE_STORAGE_BIT
+                    None,
+                    Some(&mut texture),
+                )?;
+                let texture = texture.unwrap();
+                let handle = texture.cast::<IDXGIResource1>()?.CreateSharedHandle(
+                    None,
+                    DXGI_SHARED_RESOURCE_READ.0 | DXGI_SHARED_RESOURCE_WRITE.0,
+                    PCWSTR::null(),
+                )?;
+                let image_info = p::VkImageCreateInfo {
+                    sType: p::VkStructureType_VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                    imageType: p::VkImageType_VK_IMAGE_TYPE_2D,
+                    format: if config.ten_bit() {
+                        p::VkFormat_VK_FORMAT_R16_UNORM
+                    } else {
+                        p::VkFormat_VK_FORMAT_R8_UNORM
+                    },
+                    extent: p::VkExtent3D {
+                        width,
+                        height,
+                        depth: 1,
+                    },
+                    mipLevels: 1,
+                    arrayLayers: 1,
+                    samples: p::VkSampleCountFlagBits_VK_SAMPLE_COUNT_1_BIT,
+                    tiling: p::VkImageTiling_VK_IMAGE_TILING_OPTIMAL,
+                    usage: p::VkImageUsageFlagBits_VK_IMAGE_USAGE_STORAGE_BIT
                         | p::VkImageUsageFlagBits_VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                )
-                .context("importing decoder output")?;
-                s.buffers.planes[s.planes.len()] = plane.view;
-                s.planes.push(plane);
+                    sharingMode: p::VkSharingMode_VK_SHARING_MODE_EXCLUSIVE,
+                    ..std::mem::zeroed()
+                };
+                let mut image = ptr::null_mut();
+                let result = (s.api.image_create)(&p::pyrowave_image_create_info {
+                    device: s.device,
+                    external_handle: handle.0 as usize,
+                    handle_type: p::VkExternalMemoryHandleTypeFlagBits_VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT,
+                    image_create_info: &image_info,
+                }, &mut image);
+                if result != 0 {
+                    let _ = CloseHandle(handle);
+                    check(result).context("importing decoder output")?;
+                }
+                s.images.push(image);
+                s.textures.push(texture);
+                check((s.api.image_get_image_view)(
+                    image,
+                    p::VkImageAspectFlagBits_VK_IMAGE_ASPECT_COLOR_BIT,
+                    p::VkImageUsageFlagBits_VK_IMAGE_USAGE_STORAGE_BIT,
+                    &mut s.buffers.planes[plane],
+                ))?;
             }
-            s.timeline = Some(Timeline::new(s.api.clone(), s.device, &gpu.compute)?);
+            gpu.device.cast::<ID3D11Device5>()?.CreateFence(
+                0,
+                D3D11_FENCE_FLAG_SHARED,
+                &mut s.fence,
+            )?;
+            let handle = s.fence.as_ref().unwrap().CreateSharedHandle(
+                None,
+                GENERIC_ALL.0,
+                PCWSTR::null(),
+            )?;
+            let result = (s.api.sync_object_create)(&p::pyrowave_sync_object_create_info {
+                device: s.device,
+                external_handle: handle.0 as usize,
+                handle_type: p::VkExternalSemaphoreHandleTypeFlagBits_VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,
+                semaphore_type: p::VkSemaphoreType_VK_SEMAPHORE_TYPE_TIMELINE,
+                import_flags: 0,
+            }, &mut s.sync);
+            if result != 0 {
+                let _ = CloseHandle(handle);
+                check(result)?;
+            }
             Ok(s)
         }
     }
 
     fn decode(&mut self, gpu: &Device, packets: &[&[u8]]) -> Result<Vec<Vec<u16>>> {
-        let timeline = self.timeline.as_ref().context("no timeline")?;
-        // SAFETY: `decoder`, `planes` and the timeline were made in `new`; arguments outlive each
-        // call.
+        // SAFETY: `decoder`, `images` and `sync` were made in `new`; arguments outlive each call.
         unsafe {
             (self.calls.decoder_clear)(self.decoder);
             ensure!(
@@ -140,20 +228,20 @@ impl Decoder {
                 (self.calls.decoder_decode_is_ready)(self.decoder, false),
                 "frame is incomplete"
             );
-            // Each preceding readback has completed. The old output can be discarded.
+            // Each preceding staging Map has completed. The old output can be discarded.
             let acquire_images: Vec<_> = self
-                .planes
+                .images
                 .iter()
-                .map(|plane| p::pyrowave_gpu_external_reference {
-                    image: plane.image,
+                .map(|&image| p::pyrowave_gpu_external_reference {
+                    image,
                     queue_family_index: u32::MAX,
                 })
                 .collect();
             let release_images: Vec<_> = self
-                .planes
+                .images
                 .iter()
-                .map(|plane| p::pyrowave_gpu_external_reference {
-                    image: plane.image,
+                .map(|&image| p::pyrowave_gpu_external_reference {
+                    image,
                     queue_family_index: u32::MAX - 1,
                 })
                 .collect();
@@ -167,7 +255,7 @@ impl Decoder {
                 images: release_images.as_ptr(),
                 num_images: 3,
                 sync: p::pyrowave_sync_point {
-                    semaphore: (self.api.sync_object_get_semaphore)(timeline.sync),
+                    semaphore: (self.api.sync_object_get_semaphore)(self.sync),
                     value: self.counter,
                 },
             };
@@ -178,36 +266,18 @@ impl Decoder {
                 &self.buffers,
             ))?;
             check((self.calls.sync_object_cpu_wait)(
-                timeline.sync,
+                self.sync,
                 self.counter,
                 10_000_000_000,
             ))
             .context("waiting for decode")?;
+            gpu.context
+                .cast::<ID3D11DeviceContext4>()?
+                .Wait(self.fence.as_ref().unwrap(), self.counter)?;
         }
-        let ready = crate::compute::Ready::on(&gpu.compute, timeline.fence.clone(), self.counter);
-        self.planes
+        self.textures
             .iter()
-            .map(|plane| {
-                let bytes = crate::compute::read_planes(
-                    &gpu.compute,
-                    &plane.texture,
-                    Some(&ready),
-                    &mut None,
-                )?
-                .remove(0);
-                // SAFETY: a live resource; GetDesc only reads it.
-                let sixteen = unsafe { plane.texture.GetDesc() }.Format == DXGI_FORMAT_R16_UNORM;
-                Ok(if sixteen {
-                    bytes
-                        .as_chunks::<2>()
-                        .0
-                        .iter()
-                        .map(|v| u16::from_le_bytes(*v))
-                        .collect()
-                } else {
-                    bytes.iter().map(|&v| u16::from(v)).collect()
-                })
-            })
+            .map(|texture| readback(gpu, texture))
             .collect()
     }
 }
@@ -218,12 +288,57 @@ impl Drop for Decoder {
             if !self.decoder.is_null() {
                 (self.calls.decoder_destroy)(self.decoder);
             }
-            self.planes.clear();
-            self.timeline = None;
+            for image in &self.images {
+                (self.api.image_destroy)(*image);
+            }
+            if !self.sync.is_null() {
+                (self.api.sync_object_destroy)(self.sync);
+            }
             if !self.device.is_null() {
                 (self.api.device_destroy)(self.device);
             }
         }
+    }
+}
+
+fn readback(gpu: &Device, texture: &ID3D11Texture2D) -> Result<Vec<u16>> {
+    // SAFETY: `staging` is a CPU-readable copy of `texture`, and each row read lies within the
+    // mapped `RowPitch * Height` bytes, which stay valid until Unmap below.
+    unsafe {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        texture.GetDesc(&mut desc);
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+        desc.MiscFlags = 0;
+        let mut staging = None;
+        gpu.device
+            .CreateTexture2D(&desc, None, Some(&mut staging))?;
+        let staging = staging.unwrap();
+        gpu.context.CopyResource(&staging, texture);
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        gpu.context
+            .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+        let mut values = Vec::with_capacity((desc.Width * desc.Height) as usize);
+        let sixteen = desc.Format == DXGI_FORMAT_R16_UNORM;
+        for y in 0..desc.Height as usize {
+            let row = std::slice::from_raw_parts(
+                (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
+                desc.Width as usize * if sixteen { 2 } else { 1 },
+            );
+            if sixteen {
+                values.extend(
+                    row.as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|v| u16::from_le_bytes(*v)),
+                );
+            } else {
+                values.extend(row.iter().map(|&v| u16::from(v)));
+            }
+        }
+        gpu.context.Unmap(&staging, 0);
+        Ok(values)
     }
 }
 
@@ -768,17 +883,18 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                 for kbps in [2_000_000, 400_000, 125_000, 30_000] {
                     config.bitrate_kbps = kbps;
                     for records in [false, true] {
-                        // Record framing changes each picture's budget (the wire budget since
-                        // 2.4.5), so each framing has its own baseline; within one, every
-                        // encoder and batch must decode the same pixels.
-                        let mut baseline: Vec<Option<Vec<Vec<u16>>>> = vec![None, None];
                         config.pyrowave_records = records;
-                        let mut encoders = (0..2)
-                            .map(|_| {
+                        // The two framing modes have different bitrate semantics
+                        // and reserve different parity. Compare conversion paths
+                        // and repeat frames at the same actual picture budget.
+                        let mut baseline: Vec<Option<Vec<Vec<u16>>>> = vec![None, None];
+                        let mut encoders = [false, true]
+                            .into_iter()
+                            .map(|compute| {
                                 Encoder::new_gpu_options(
                                     &config,
                                     &pictures[0].0,
-                                    &Config::default(),
+                                    &Config::parse(&format!("gpu_compute_conversion = {compute}"))?,
                                 )
                             })
                             .collect::<Result<Vec<_>>>()?;
@@ -788,8 +904,12 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                                 "PYROWAVE_BATCH {}",
                                 serde_json::json!({"width":width,"height":height,"format":format,"chroma":if yuv444 {444} else {420},"kbps":kbps,"records":records,"batch":batch,"stream":status})
                             );
-                            for instance in if batch % 2 == 0 { [0, 1] } else { [1, 0] } {
-                                let encoder = &mut encoders[instance];
+                            for compute in if batch % 2 == 0 {
+                                [false, true]
+                            } else {
+                                [true, false]
+                            } {
+                                let encoder = &mut encoders[usize::from(compute)];
                                 for (phase, (source, reference)) in pictures.iter().enumerate() {
                                     // Use the normal first-frame budget for every sample. CPU reference
                                     // and readback time must not increase the plain-packet bitrate budget.
@@ -803,8 +923,10 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                                         unreachable!()
                                     };
                                     ensure!(
-                                        native.planes.is_some(),
-                                        "the frame was not converted into the encoder's planes"
+                                        (native.compute.is_some()
+                                            && crate::compute::shareable(&source.texture))
+                                            == compute,
+                                        "requested conversion path was not used"
                                     );
                                     let mut wire = VideoPacketizer {
                                         sequence: 0,
@@ -844,7 +966,7 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                                                 .unwrap();
                                             ensure!(
                                                 difference == 0,
-                                                "decoded pixels differ by {difference} storage units: {format} {width}x{height} 444={yuv444} {kbps} records={records} encoder={instance} batch={batch} phase={phase} plane={plane}"
+                                                "decoded pixels differ by {difference} storage units: {format} {width}x{height} 444={yuv444} {kbps} records={records} compute={compute} batch={batch} phase={phase} plane={plane}"
                                             );
                                         }
                                     }
@@ -864,7 +986,7 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                                         .collect();
                                     println!(
                                         "PYROWAVE_RESULT {}",
-                                        serde_json::json!({"width":width,"height":height,"format":format,"chroma":if yuv444 {444} else {420},"kbps":kbps,"minimum_kbps":pyrowave::minimum_kbps(width,height,60000),"records":records,"encoder":instance,"batch":batch,"phase":phase,"source":format!("{:?}",source.pixel),"bytes":frame.len(),"datagrams":packets.len(),"planes":errors.iter().map(|e| &e[0]).collect::<Vec<_>>(),"panels":errors.iter().map(|e| &e[1..]).collect::<Vec<_>>()})
+                                        serde_json::json!({"width":width,"height":height,"format":format,"chroma":if yuv444 {444} else {420},"kbps":kbps,"minimum_kbps":pyrowave::minimum_kbps(width,height,60000),"records":records,"compute":compute,"batch":batch,"phase":phase,"source":format!("{:?}",source.pixel),"bytes":frame.len(),"datagrams":packets.len(),"planes":errors.iter().map(|e| &e[0]).collect::<Vec<_>>(),"panels":errors.iter().map(|e| &e[1..]).collect::<Vec<_>>()})
                                     );
                                     if kbps == 2_000_000 {
                                         ensure!(
@@ -944,12 +1066,9 @@ fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
             unreachable!()
         };
         let current: Vec<usize> = native
-            .planes
-            .as_ref()
-            .context("no planes after an encode")?
-            .planes
+            .interop
             .iter()
-            .map(|plane| plane.view.image as usize)
+            .map(|i| i.view.image as usize)
             .collect();
         // A new source format destroys the planes before it creates new ones.
         if previous.is_some_and(|previous| previous != phase) {
@@ -1036,7 +1155,7 @@ fn record_framing_keeps_the_wire_budget_and_decoded_pixels() -> Result<()> {
             encoder.restart_interval();
             let frames = encoder.encode_gpu(&source, true, kbps)?;
             assert_eq!(frames.len(), 1);
-            assert!(encoder.planes.is_some());
+            assert!(encoder.compute.is_some());
             let budget = pyrowave::budget(kbps, period, config.packet_size, true, 20);
             let packet = &encoder.packets[0];
             let raw = &encoder.bitstream[packet.offset..packet.offset + packet.size];
@@ -1109,7 +1228,7 @@ fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
         serde_json::json!({"adapter":gpu.display.adapter,"bitstream":pyrowave::BITSTREAM_ID})
     );
     let tuning = Config::parse(&format!(
-        "pyrowave_critical_fec_percentage = {critical_fec}"
+        "gpu_compute_conversion = true\npyrowave_critical_fec_percentage = {critical_fec}"
     ))?;
     for scene in [Scene::Desktop, Scene::Game, Scene::Dark] {
         for hdr in [false, true] {
@@ -1169,8 +1288,9 @@ fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
                                     unreachable!()
                                 };
                                 ensure!(
-                                    native.planes.is_some(),
-                                    "the frame was not converted into the encoder's planes"
+                                    native.compute.is_some()
+                                        && crate::compute::shareable(&source.texture),
+                                    "compute conversion was not used"
                                 );
                                 let mut wire = VideoPacketizer {
                                     sequence: 0,

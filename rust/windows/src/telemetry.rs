@@ -12,7 +12,7 @@ pub use butterpollo_core::config::HARDWARE_METRICS as METRICS;
 
 /// A driver DLL from System32 only, so no DLL earlier in the search order
 /// stands in for it.
-pub(crate) fn system_library(name: &str) -> Result<libloading::Library> {
+fn system_library(name: &str) -> Result<libloading::Library> {
     use windows::Win32::System::{
         LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32, SystemInformation::GetSystemDirectoryW,
     };
@@ -468,24 +468,6 @@ impl Drop for Adlx {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_amd_runtime_loads_from_system32_never_by_bare_name() {
-        // A bare name searches the application and current folders first: a planted
-        // amfrt64.dll would run inside the elevated setup's floor check.
-        assert!(system_library("kernel32.dll").is_ok());
-        assert!(system_library("no-such-rubylight-library.dll").is_err());
-        for (file, source) in [
-            ("amf.rs", include_str!("amf.rs")),
-            ("floor.rs", include_str!("floor.rs")),
-        ] {
-            assert!(
-                !source.contains("Library::new(\"amfrt64.dll\")"),
-                "{file} loads AMF by bare name"
-            );
-            assert!(source.contains("system_library(\"amfrt64.dll\")"));
-        }
-    }
     #[repr(C)]
     struct FakeMetrics {
         table: *const MetricsVtable,

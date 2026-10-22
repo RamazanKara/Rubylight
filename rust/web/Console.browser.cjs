@@ -30,7 +30,8 @@ async function fixture(t, options = {}) {
     version: '2.2.2', host_name: 'Fixture host', pc_address: '127.0.0.1', pc_addresses: [],
     paired_devices: 1, enable_pairing: options.pairing !== false, warnings: [],
     encoder_status: { state: 'ready', h264: true },
-    virtual_display: { capable: true, ready: true, reason: '', protocol: 'idd-push' }, audio_enabled: false, features: {}, ...options.metadata,
+    capture_status: { displays: [], virtual_display_configured: false },
+    virtual_display: { capable: false, ready: false }, audio_enabled: false, features: {}, ...options.metadata,
   };
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => { await page.close(); assert.deepEqual(errors, []); });
@@ -420,6 +421,7 @@ test('Home keeps loading, readiness, host errors and the library order distinct'
   await page.getByRole('heading', { name: 'Checking this PC…', exact: true }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Ready to play', exact: true }).count(), 0);
   metadata.encoder_status = { state: 'ready', h264: true };
+  metadata.capture_status = { virtual_display_configured: false, displays: [{ active: true, display_name: 'Monitor', width: 1920, height: 1080 }] };
   await page.clock.runFor(30_100);
   await page.getByRole('heading', { name: 'Let’s connect your device', exact: true }).waitFor();
   await page.getByRole('list', { name: 'Getting started' }).waitFor();
@@ -450,7 +452,7 @@ test('PIN submission waits for actual paired-device confirmation and keeps view-
   await page.getByRole('button', { name: 'Pair device', exact: true }).click();
   await page.getByText(/^PIN sent to Tablet/).waitFor();
   assert.equal(await page.getByText('Tablet is paired.', { exact: true }).count(), 0);
-  clients.push({ uuid: 'tablet', name: 'Tablet', enabled: true, connected: false, perm: 0x03000000, custom: 'keep', note: 'Other note' });
+  clients.push({ uuid: 'tablet', name: 'Tablet', enabled: true, connected: false, perm: 0x03000000, custom: 'keep', output_name_override: 'Other display' });
   await page.clock.runFor(5_100);
   await page.getByText('Tablet is paired.', { exact: true }).waitFor();
   await page.getByText('Can watch streams, but cannot start games or use controls.', { exact: true }).waitFor();
@@ -464,12 +466,12 @@ test('PIN submission waits for actual paired-device confirmation and keeps view-
   const saved = { ...clients[1], ...body };
   assert.equal(saved.perm, 0x03000000);
   assert.equal(saved.custom, 'keep');
-  assert.equal(saved.note, 'Other note');
+  assert.equal(saved.output_name_override, 'Other display');
 });
 
 
 test('console journeys reflow across themes and screen sizes with usable buttons', async t => {
-  const { page } = await fixture(t);
+  const { page } = await fixture(t, { metadata: { capture_status: { displays: [{ display_name: 'Monitor' }] } } });
   for (const colorScheme of ['light', 'dark']) {
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
     for (const viewport of [{ width: 1440, height: 900 }, { width: 834, height: 1112 }, { width: 390, height: 844 }, { width: 720, height: 450 }]) {

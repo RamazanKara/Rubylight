@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Troubleshooting](troubleshooting.md)
 
-Rubylight is a Windows x64 streaming host written in Rust, built for AMD Radeon and its own virtual display driver. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
+Rubylight is a Windows x64 streaming host written in Rust, with a GPU path tuned and measured on AMD Radeon. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
 
 **On this page:** [Before you start](#before-you-start) · [Install](#install-or-run-portable) · [Open the console](#open-the-console) · [Pair Moonlight](#pair-moonlight-and-start-desktop) · [Stream formats](#choose-your-stream-format) · [Displays and updates](#virtual-displays-and-updates) · [Import a profile](#bring-an-existing-profile) · [Upgrading](#upgrading)
 
@@ -10,10 +10,10 @@ Rubylight is a Windows x64 streaming host written in Rust, built for AMD Radeon 
 
 | What you need | Check |
 | --- | --- |
-| **Host PC** | An AMD Radeon RX 6000 (RDNA 2) or newer with a working HEVC encoder, on Windows 11 version 25H2 (build 26200) or newer. AV1 is offered where the GPU's encoder has it. Setup checks this and refuses, changing nothing, on a PC below it; the 2.6.x line stays available for other GPUs and older Windows. |
+| **Host PC** | Windows x64. Rubylight's tuning and measurements focus on AMD Radeon; the available stream formats depend on the GPU's encoder. |
 | **Client device** | Moonlight or a Sunshine-compatible client. Install Rubylight on the gaming PC and the client on the device you play from. |
 | **Local network** | Put both devices on the same network for the first pairing and stream. Close another streaming host if it is already using the default ports. |
-| **Display driver** | Every stream runs on a virtual display from Rubylight's display driver, which setup installs. Portable mode needs the drivers installed separately for virtual displays and emulated controllers. |
+| **Display to capture** | Use an active physical monitor, or the virtual display supplied with the installed service. Portable mode needs the drivers installed separately for virtual displays and emulated controllers. |
 
 **First stream:** [Install](#install-or-run-portable) → [open the console](#open-the-console) → [pair Moonlight](#pair-moonlight-and-start-desktop) → launch **Desktop** at **1080p60, HDR off**. Once picture, sound and input work, choose your final codec and display settings.
 
@@ -26,13 +26,13 @@ Download the Windows package from [Rubylight Releases](https://github.com/Ramaza
 | Package | How to start | Best fit |
 | --- | --- | --- |
 | `rubylight-setup-2.6.0.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use, automatic service startup and virtual displays. |
-| `rubylight-2.6.0-windows-x64.zip` | Extract the whole ZIP and open **Start Rubylight.exe**. | Trying the host on a PC that already has Rubylight's drivers. |
+| `rubylight-2.6.0-windows-x64.zip` | Extract the whole ZIP and open **Start Rubylight.exe**. | Trying the host with a physical display. |
 
 Releases up to 2.0.1 also list a `butterpollo-setup-<version>.exe`. It is the same file as `rubylight-setup-<version>.exe` under the name Rubylight had before; download either. Butterpollo and Rubylight are one product, so there is no separate Butterpollo download, and installing over a Butterpollo host keeps its settings, paired devices and apps.
 
 The installer sets up the host, the Windows service, Rubylight's own virtual display driver and, unless you untick it, the VHF driver for standard emulated controllers. The installer also bundles optional **Steam Deck and DualSense USB audio and haptics** support through usbip-win2. Select **Install USB audio and haptics support** to install it; it is off by default, and updates remember your choice. This can reconnect USB devices and require a restart. [USB audio and haptics setup](dualsense-haptics.md) covers quiet installation and portable packages. An upgrade preserves the existing Rubylight settings and paired devices and can migrate a detected Vibepollo installation.
 
-**The virtual display driver.** Rubylight's driver replaces libvirtualdisplay (SudoVDA), which setup removes from earlier installations once Rubylight's driver runs. Until releases are code-signed, setup signs the driver on this PC with a key it deletes at once: no test mode, no restart. Smart App Control, Windows in S mode and App Control policies refuse such a driver. Setup and the console then say so and what you can do, and nothing is left half-installed. Rubylight cannot stream on such a PC until releases are code-signed, because every stream runs on a virtual display.
+**The virtual display driver.** Rubylight's driver replaces libvirtualdisplay (SudoVDA), which setup removes from earlier installations once Rubylight's driver runs. Until releases are code-signed, setup signs the driver on this PC with a key it deletes at once: no test mode, no restart. Smart App Control, Windows in S mode and App Control policies refuse such a driver. Setup and the console then say so and what you can do, nothing is left half-installed, and streams use a physical display.
 
 - **Install folder.** A new installation goes to `C:\Program Files\Rubylight`; **Change folder…** in the setup window picks another folder on a drive of this PC. Picking a folder that already holds other files installs into a `Rubylight` folder inside it. A folder outside Program Files gets the same permissions Program Files has: only administrators can change the programs the service runs. An installed Rubylight is updated in its own folder. To move it, uninstall it (settings and paired devices stay in `%PROGRAMDATA%\Butterpollo`) and install again in the new folder. An installation inside a folder that users other than administrators own, such as `D:\Games\Rubylight`, cannot be updated where it is; the installer moves it to `C:\Program Files\Rubylight` instead (see [Troubleshooting](troubleshooting.md#an-update-says-rubylight-cannot-be-updated-in-its-folder)).
 - **Installing during a stream.** You can run the installer from inside a stream, for example from a PC on another floor. Setup says that Rubylight is streaming; **Install** then ends the stream and closes games started from Moonlight, installs, and starts Rubylight again. Connect again when setup has finished (16 seconds on the RX 7900 XT test host); the setup window shows the result on the host's desktop. **Maintenance → Updates → Install now** does the same from the console.
@@ -54,9 +54,11 @@ To set a new sign-in, open PowerShell as administrator on the host PC and run th
 
 Use a password of at least 8 characters, then sign in with the new name and password. Signed-in browsers sign in again. An installation upgraded from Butterpollo keeps its original install folder.
 
-On **Overview**, check **Host readiness** for the video encoder, virtual display and audio. An available encoder and a ready virtual display are enough for the first desktop stream. If the virtual display is not ready, the card says whether to restart Windows or run setup again.
+On **Overview**, check **Host readiness** for the video encoder, virtual display, audio and screen capture. An available encoder and an active physical display are enough for the first desktop stream. A virtual display showing **Off** is expected when you are streaming a physical monitor.
 
-A fresh configuration gives each device its own virtual display. The default **Exclusive** layout turns the other monitors off during the stream; choose **Extended** to keep them active. **Copy and convert on a compute queue** is enabled by default on the supported AMD path.
+A fresh configuration selects a virtual display for each device. For a portable first run with a monitor, select **Settings → Display → Virtual display: Off, stream a monitor**. If you use the installed virtual display, the default **Exclusive** layout turns the other monitors off during the stream; choose **Extended** to keep them active.
+
+For a fresh configuration, leave **Settings → Video → Capture method** on **Automatic**. This prefers Windows Graphics Capture (WGC), with Desktop Duplication as its startup fallback. **Copy and convert on a compute queue** is enabled by default on the supported AMD path. Imported explicit capture choices remain in effect.
 
 ## Pair Moonlight and start Desktop
 
@@ -68,7 +70,7 @@ A fresh configuration gives each device its own virtual display. The default **E
 
 **You are ready to tune the stream when** the desktop moves smoothly, audio plays and your input reaches the PC. Increase resolution and frame rate in the client, then enable HDR if both the client and captured display support it. The Overview stream card shows what was actually negotiated.
 
-If the host is missing, start with [discovery and pairing](troubleshooting.md#moonlight-cannot-find-or-pair-with-the-pc). If Desktop opens to a black picture, check [capture and displays](troubleshooting.md#black-picture-or-no-display).
+If the host is missing, start with [discovery and pairing](troubleshooting.md#moonlight-cannot-find-or-pair-with-the-pc). If Desktop opens to a black picture, check [capture and displays](troubleshooting.md#black-picture-no-display-or-wgc-fails).
 
 If pairing succeeds but launching is denied, check the device's enabled state and **List apps**, **View streams** and **Launch apps** permissions in **Devices → Edit**.
 
@@ -93,7 +95,7 @@ The Overview stream card shows the negotiated codec and an **HDR** badge. Check 
 
 ## Virtual displays and updates
 
-In **Settings → Display**, select **Virtual display: One for each device** or **One shared by all devices**. Choose **Extended** to add it beside the physical monitors; other layouts can make it primary or disable other displays. Per-app and per-device overrides can change the effective choice. The [configuration guide](configuration.md) explains those policies.
+In **Settings → Display**, select **Virtual display: One for each device** or **One shared by all devices** when you want a host-created screen. Choose **Extended** to add it beside the physical monitors; other layouts can make it primary or disable other displays. Per-app and per-device overrides can change the effective choice. The [configuration guide](configuration.md) explains those policies.
 
 Updates notify you first. **Maintenance → Updates** offers **Check now** and, for the installed service, **Install when idle** and **Install now**; the tray menu also has **Check for updates**. **Settings → General → Install updates automatically** is off by default. Enable **Include pre-releases** to receive release candidates.
 

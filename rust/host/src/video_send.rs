@@ -189,6 +189,7 @@ impl Slot {
 /// continues their frame, packet and IV numbering and their pacing.
 pub struct Handoff {
     pub packetizer: VideoPacketizer,
+    pub present_stamper: Option<butterpollo_windows::present_timing::Stamper>,
     pub last_stamp: Instant,
     pub pacing_due: Instant,
     pub send_loss: butterpollo_core::stream_policy::SendLossRecovery,
@@ -224,6 +225,7 @@ impl Sender {
     fn packetizer(s: Arc<Session>, start: Instant, handoff: Handoff) -> Result<Self> {
         let Handoff {
             mut packetizer,
+            mut present_stamper,
             mut last_stamp,
             ..
         } = handoff;
@@ -238,7 +240,9 @@ impl Sender {
                 } = queued;
                 packetizer.frame = packetizer.frame.wrapping_add(skipped);
                 let captured = frame.presentation.unwrap_or(claimed);
-                let stamp = captured.max(last_stamp + Duration::from_nanos(11_112));
+                let stamp = present_stamper.as_mut().map_or(captured, |stamper| {
+                    stamper.stamp(captured, &s.output.read().unwrap())
+                }).max(last_stamp + Duration::from_nanos(11_112));
                 last_stamp = stamp;
                 let timestamp = (stamp.saturating_duration_since(start).as_secs_f64() * 90000.) as u64 as u32;
                 if frame.bytes.is_empty() {

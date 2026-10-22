@@ -893,7 +893,7 @@ static ADLX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// initialize/terminate cycles on AMD Software 26.9.2. A later `ADLXInitialize` returns
 /// ADLX_ALREADY_INITIALIZED, which is fine, and nothing here ends telemetry's ADLX under it.
 static LIBRARY: std::sync::OnceLock<libloading::Library> = std::sync::OnceLock::new();
-fn library() -> Result<&'static libloading::Library> {
+pub(super) fn library() -> Result<&'static libloading::Library> {
     if let Some(library) = LIBRARY.get() {
         return Ok(library);
     }

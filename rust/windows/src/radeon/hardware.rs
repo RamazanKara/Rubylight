@@ -77,10 +77,15 @@ fn scratch_dir(label: &str) -> PathBuf {
 struct Restore {
     gpu: i32,
     originals: Vec<(String, Value)>,
+    /// Restore in a new process (the default), whose view of the driver is current. Only the
+    /// process that does the restoring sets this to false.
+    fresh: bool,
 }
 impl Restore {
     fn new(gpu: i32, start: &[Setting]) -> Self {
+        snapshot(start);
         Self {
+            fresh: true,
             gpu,
             originals: start
                 .iter()
@@ -109,6 +114,17 @@ impl Restore {
 }
 impl Drop for Restore {
     fn drop(&mut self) {
+        if self.fresh {
+            // Never trust this process's view: a stale one can say "already the original" while
+            // the driver holds the changed value.
+            if let Err(e) = try_fresh_restore() {
+                eprintln!("RESTORE FAILED: {e}");
+                if !std::thread::panicking() {
+                    panic!("{e}");
+                }
+            }
+            return;
+        }
         for _ in 0..3 {
             let differing = self.differing();
             if differing.is_empty() {
@@ -237,6 +253,7 @@ fn restore_snapshot() {
         serde_json::from_slice(&std::fs::read(&path).expect("snapshot")).expect("snapshot json");
     let gpu = first_gpu();
     let restore = Restore {
+        fresh: false,
         gpu,
         originals: wanted.into_iter().collect(),
     };
@@ -623,6 +640,30 @@ fn fresh_value(dir: &Path) -> String {
     std::fs::read_to_string(dir.join("value.txt")).expect("value.txt")
 }
 
+/// Put every setting back to the snapshot in a new process, whose view of the driver is current.
+/// This process's own view can be stale, and a write of the value it believes is already set was
+/// seen to be dropped, so the safety net never relies on it.
+fn fresh_restore() {
+    try_fresh_restore().expect("fresh restore");
+}
+fn try_fresh_restore() -> Result<(), String> {
+    let status = Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
+        .args([
+            "--exact",
+            "radeon::hardware::restore_snapshot",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .status()
+        .map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("the fresh restore process failed: {status}"))
+    }
+}
+
 fn run_child(test: &str, dir: &Path, exit: bool) -> std::process::ExitStatus {
     let mut child = Command::new(std::env::current_exe().expect("test binary"));
     child
@@ -741,4 +782,92 @@ fn crash_then_recover() {
         tried.display(),
         held
     );
+}
+
+/// What makes this process see a write another process made? After an `abort()` of the writer
+/// this process kept reading the old value for 30 s, while a new process saw the new one at once.
+/// Each method is tried against a fresh abort: re-reading (every read already re-acquires the
+/// services and interfaces), one `ADLXTerminate` before the next read, and
+/// `ADLXInitializeWithIncompatibleDriver`.
+#[test]
+#[ignore = "changes real driver settings"]
+fn measure_view_refresh() {
+    let _exclusive = exclusive();
+    assert_host_idle();
+    let gpu = first_gpu();
+    let start = AdlxBackend.read(gpu).expect("read");
+    let _restore = Restore::new(gpu, &start);
+    snapshot(&start);
+    let (id, tried) = crash_target(&start);
+    let original = start
+        .iter()
+        .find(|s| s.id == id)
+        .and_then(|s| s.value.clone())
+        .expect("value");
+    let read_target = || {
+        AdlxBackend
+            .read(gpu)
+            .expect("read")
+            .into_iter()
+            .find(|s| s.id == id)
+            .and_then(|s| s.value)
+    };
+    // `terminate` crashed this process with an access violation the one time it was tried
+    // (0xC0000005 on the read after it), so it only runs when asked for.
+    let methods = std::env::var("RADEON_REFRESH_METHODS")
+        .unwrap_or_else(|_| "re-read,incompatible-driver,wait".into());
+    for method in methods.split(',') {
+        assert_host_idle();
+        assert_eq!(read_target().as_ref(), Some(&original));
+        let dir = scratch_dir("refresh");
+        let status = run_child("crash_child", &dir, false);
+        assert!(!status.success(), "the child should have died: {status}");
+        let fresh = fresh_value(&dir);
+        let library = super::adlx::library().expect("library");
+        let began = std::time::Instant::now();
+        let mut seen = None;
+        let mut applied = String::new();
+        while began.elapsed() < Duration::from_secs(12) && seen.is_none() {
+            if applied.is_empty() {
+                applied = match method {
+                    "terminate" => {
+                        // SAFETY: No ADLX session is alive on this thread.
+                        let result = unsafe {
+                            library
+                                .get::<unsafe extern "C" fn() -> i32>(b"ADLXTerminate\0")
+                                .map(|f| f())
+                        };
+                        format!("ADLXTerminate -> {result:?}")
+                    }
+                    "incompatible-driver" => {
+                        let mut system = std::ptr::null_mut();
+                        type Init = unsafe extern "C" fn(u64, *mut crate::telemetry::Handle) -> i32;
+                        // SAFETY: Same signature as ADLXInitialize; the output is a live pointer.
+                        let result = unsafe {
+                            library
+                                .get::<Init>(b"ADLXInitializeWithIncompatibleDriver\0")
+                                .map(|f| f(crate::telemetry::ADLX_VERSION, &mut system))
+                        };
+                        format!("ADLXInitializeWithIncompatibleDriver -> {result:?}")
+                    }
+                    _ => "nothing".into(),
+                };
+            }
+            if read_target().as_ref() == Some(&tried) {
+                seen = Some(began.elapsed());
+            } else {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        println!(
+            "REFRESH {method}: a new process read {fresh}; this process {} ({applied})",
+            seen.map_or("did not see it within 12 s".to_string(), |t| format!(
+                "saw it after {t:?}"
+            ))
+        );
+        // This process's own writes are not trusted while its view is stale (a write of the value
+        // it believes is current may be dropped), so a new process puts it back.
+        fresh_restore();
+        assert_eq!(fresh_value(&dir), original.display(), "{id} not back");
+    }
 }

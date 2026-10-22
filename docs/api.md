@@ -122,7 +122,7 @@ New in 3.0. Nightjar and other paired clients use `/api/native/v1` on the stream
 
 The client presents the TLS certificate it paired with. The host looks the device up on every request, so a change in the console applies to the next call.
 
-- Not paired (no certificate, an unknown or disabled device): `403 not_paired`.
+- Not paired (no certificate, or an unknown, disabled or permission-less device): `403 not_paired`.
 - The permissions are the usual List, View and Launch. A missing one is `403 permission_required`, and the message names it.
 - **Host control** is a separate per-device flag, off by default, that only the console can turn on (Devices → device → Other). It is required for `close-game` and for every `POST /radeon/*`. Reads never need it. Turning it off applies to the next request and does not end a stream.
 - Over plain HTTP, every `/api/native/v1` path is `404`: the API exists on HTTPS only.
@@ -134,7 +134,7 @@ The client presents the TLS certificate it paired with. The host looks the devic
 | Value | Meaning |
 |---|---|
 | missing | No native API (2.6, Sunshine, Apollo, Vibepollo): use the classic app grid |
-| `0` | The host has it, but not for this request: plain HTTP, or a certificate that is not paired |
+| `0` | The host has it, but not for this request: plain HTTP, or a certificate that is not paired, is disabled or has no permissions (`perm` 0) |
 | `1` | A paired HTTPS request may call `/api/native/v1/capabilities` |
 
 Stock Moonlight ignores the field. Every other `/serverinfo` field, `/applist` and `/cancel` answer exactly as before, which the host tests pin byte for byte.
@@ -161,7 +161,7 @@ Session states are `idle`, `preparing`, `launching`, `streaming`, `suspended` an
 
 ### Errors
 
-Every non-2xx answer has one body shape. Clients branch on `code` and keep the HTTP status:
+Every non-2xx answer over HTTPS has one body shape. (Over plain HTTP the native paths do not exist, and the host's router answers a bare `404`.) Clients branch on `code` and keep the HTTP status:
 
 ```json
 { "error": { "code": "host_control_required", "message": "Turn on Host control for this device in the Rubylight console.", "setting": null, "retry_after_ms": null } }
@@ -172,7 +172,7 @@ Every non-2xx answer has one body shape. Clients branch on `code` and keep the H
 | 403 | `not_paired` | No certificate, or the device is unknown or disabled |
 | 403 | `permission_required` | List, View or Launch is off |
 | 403 | `host_control_required` | A write or Close game without Host control |
-| 404 | `not_found` | Unknown path or method under the prefix, a GPU or setting id the host does not list, or a host without Radeon controls |
+| 404 | `not_found` | Unknown path or method under the prefix, a GPU or setting id the host does not list. On a host without Radeon controls the POSTs are `404`, while `GET /radeon` answers `200` with state `unsupported` and reason `no_radeon` |
 | 400 | `invalid_request` | Malformed JSON, unknown fields in a write, a content type other than JSON or text, or a body over 16 KiB |
 | 422 | `invalid_value`, `not_writable` | Wrong type or range, or the setting is not `configurable`. `setting` names it |
 | 409 | `no_session`, `not_session_owner`, `session_busy` | The caller owns no session, another device owns it, or a launch or teardown is in progress (`retry_after_ms` says when to retry) |
@@ -198,7 +198,7 @@ A setting is `configurable` only if the hardware probe proved it on the installe
 
 A write is validated as a whole first (ids, types, range and step), so a bad request changes nothing. Before a setting changes for the first time in a session, the host writes its original value to a journal on disk. The changes then apply in order. If the driver refuses one, the earlier ones are undone and the answer is `driver_rejected`. The response is the re-read state, so settings the driver changed in turn show up too. While a change is pending, the setting carries `restore: { "original", "written" }`.
 
-**Restore.** The host puts the original values back when the session ends (End session, Close game, grace period over, a stock `/cancel`, the stream ending with no grace), when the device is unpaired or disabled, on host shutdown, on `POST /radeon/restore`, and at the next host start if a journal survived a crash. It does not restore at Disconnect: a suspended session keeps its settings until it resumes or ends. A setting is put back only if it still has the value the host wrote. A change made on the PC meanwhile wins and the entry is dropped. A restore that fails goes into the host log, stays in the journal, is retried, and keeps showing in `GET /radeon`.
+**Restore.** The host puts the original values back when the session ends (End session, Close game, grace period over, a stock `/cancel`, the stream ending with no grace), when the device is unpaired or disabled, on host shutdown, on `POST /radeon/restore`, and at the next host start if a journal survived a crash. It does not restore at Disconnect: a suspended session keeps its settings until the session ends, and resuming does not restore either. A setting is put back only if it still has the value the host wrote. A change made on the PC meanwhile wins and the entry is dropped. A restore that fails goes into the host log, stays in the journal, is retried, and keeps showing in `GET /radeon`.
 
 ### Versioning
 
@@ -206,4 +206,4 @@ The path carries the major version. Inside v1, changes only add: fields, feature
 
 ### Compatibility
 
-Stock Moonlight and Nightjar 0.7.x never call these paths. Against a 3.0 host their `/serverinfo`, `/applist` and `/cancel` requests give the same answers as before apart from the new field, `/cancel` still needs only Launch permission, and native requests change nothing they can see. The tests are in [compat.rs](../rust/host/src/nvhttp/native_tests/compat.rs) and [native_tests.rs](../rust/host/src/nvhttp/native_tests.rs). A Nightjar 3.0 client that finds the field missing shows the classic grid.
+Stock Moonlight and Nightjar 0.7.x never call these paths. Against a 3.0 host their `/serverinfo`, `/applist` and `/cancel` requests give the same answers as before apart from the new field, `/cancel` still needs only Launch permission, and reading the native API, or an action that is refused, changes nothing they can see. A successful End session or Close game does change `/serverinfo` (`currentgame`, `state`), as a stock quit would. The tests are in [compat.rs](../rust/host/src/nvhttp/native_tests/compat.rs) and [native_tests.rs](../rust/host/src/nvhttp/native_tests.rs). A Nightjar 3.0 client that finds the field missing shows the classic grid.

@@ -76,7 +76,43 @@ async fn serverinfo_over_plain_http_and_unpaired_is_version_0_with_every_stock_f
             "0"
         );
         assert!(!without_the_field(&xml).contains("NativeApi"));
+        assert_same_as_before(&f, &xml, SERVERINFO_UNPAIRED);
     }
+}
+
+/// `xml` without `NativeApiVersion` is the pre-native-API answer `golden`, element by
+/// element. The host name, address, MAC and the live session and link readings come from the
+/// machine, so only their presence is compared. The exact bytes are pinned in `native_tests.rs`.
+fn assert_same_as_before(f: &Fixture, xml: &str, golden_template: &str) {
+    let elements = |xml: &str| -> Vec<(String, String)> {
+        let root = xmltree::Element::parse(xml.as_bytes()).unwrap();
+        root.children
+            .iter()
+            .filter_map(|node| node.as_element())
+            .map(|element| {
+                let text = element.get_text().unwrap_or_default().into_owned();
+                let volatile = [
+                    "hostname",
+                    "LocalIP",
+                    "mac",
+                    "RustHostSessionCount",
+                    "RustHostPendingSessionCount",
+                    "RustHostApplicationActive",
+                    "RustHostProfile",
+                    "PyroWaveHostLinkMbps",
+                ]
+                .contains(&element.name.as_str());
+                (
+                    element.name.clone(),
+                    if volatile { String::new() } else { text },
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        elements(&without_the_field(xml)),
+        elements(&golden(golden_template, f))
+    );
 }
 
 #[tokio::test]
@@ -85,30 +121,30 @@ async fn serverinfo_for_a_paired_device_over_https_is_version_1() {
     f.client(0x071f1f00);
     let https = serverinfo_request(&f, true).await.text();
     assert_eq!(native_api_version(&https), "1");
+    assert_same_as_before(&f, &https, SERVERINFO_PAIRED);
     // The same device on plain HTTP cannot be identified: version 0.
     let http = serverinfo_request(&f, false).await.text();
     assert_eq!(native_api_version(&http), "0");
 }
 
 #[tokio::test]
-async fn serverinfo_drops_back_to_version_0_when_the_device_is_disabled_or_removed() {
+async fn serverinfo_drops_back_to_version_0_when_the_device_is_disabled_has_no_permissions_or_is_removed()
+ {
     let f = Fixture::new();
-    f.client(ALL);
-    assert_eq!(
-        native_api_version(&serverinfo_request(&f, true).await.text()),
-        "1"
-    );
+    let client = f.client(ALL);
+    let version = async || native_api_version(&serverinfo_request(&f, true).await.text());
+    assert_eq!(version().await, "1");
     f.host.paired.write().unwrap().clients[0].enabled = false;
-    assert_eq!(
-        native_api_version(&serverinfo_request(&f, true).await.text()),
-        "0"
-    );
+    assert_eq!(version().await, "0");
     f.host.paired.write().unwrap().clients[0].enabled = true;
+    assert_eq!(version().await, "1");
     f.host.paired.write().unwrap().clients[0].perm = 0;
-    assert_eq!(
-        native_api_version(&serverinfo_request(&f, true).await.text()),
-        "0"
-    );
+    assert_eq!(version().await, "0");
+    f.host.paired.write().unwrap().clients[0].perm = client.perm;
+    assert_eq!(version().await, "1");
+    // Unpaired: the next request already sees it.
+    f.host.paired.write().unwrap().clients.clear();
+    assert_eq!(version().await, "0");
 }
 
 #[tokio::test]
@@ -152,11 +188,14 @@ async fn native_requests_do_not_change_what_moonlight_sees() {
 
 #[tokio::test]
 async fn stock_cancel_with_launch_permission_alone_ends_the_streams_and_the_game() {
-    // No Host control: decision 2 freezes `/cancel`, which needs Launch only.
-    let s = Setup::new();
+    // No Host control and no List or View: decision 2 freezes `/cancel`, which needs Launch only.
+    let s = Setup::with(LAUNCH);
     let stream = s.streaming();
     let reply = send(&s.f, true, &s.connection, "GET", "/cancel", None, vec![]).await;
-    assert_eq!(reply.text(), CANCEL);
+    assert_eq!(
+        (reply.status, reply.text().as_str()),
+        (StatusCode::OK, CANCEL)
+    );
     assert!(stream.stopping());
     assert!(!s.game_running());
     assert_eq!(s.state(), SessionState::Idle);
@@ -197,6 +236,7 @@ async fn stock_cancel_without_launch_permission_is_refused_and_leaves_the_game()
     s.run_game();
     let reply = send(&s.f, true, &s.connection, "GET", "/cancel", None, vec![]).await;
     // Moonlight's convention: HTTP 200 with the refusal in the XML status.
+    assert_eq!(reply.status, StatusCode::OK);
     assert!(
         reply.text().contains(r#"status_code="401""#),
         "{}",

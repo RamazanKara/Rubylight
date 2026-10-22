@@ -242,12 +242,19 @@ impl Machine {
 
     /// Teardown starts. `owner` names the game's owner when no session does
     /// (Close game on a game End session left running), so a stopping session
-    /// always has one.
-    pub fn stopping(&mut self, owner: Option<&str>, app: Option<SessionApp>, now: u64) {
+    /// always has one. Returns whether this call entered `stopping`: a launch
+    /// call that still runs owns the session, and a teardown that already
+    /// runs is the one that finishes it.
+    #[must_use]
+    pub fn stopping(&mut self, owner: Option<&str>, app: Option<SessionApp>, now: u64) -> bool {
+        if self.launching || self.state == State::Stopping {
+            return false;
+        }
         if self.owner.is_none() {
             self.set_session(owner.map(str::to_owned), app);
         }
         self.enter(State::Stopping, now);
+        true
     }
     /// The transport of the owner's stream was stopped (Disconnect).
     pub fn disconnected(&mut self, facts: &Facts, now: u64) {
@@ -275,7 +282,11 @@ impl Machine {
             app: self.app.clone(),
             since_unix_ms: (self.state != State::Idle).then_some(self.since_ms),
             suspended_until_unix_ms: (self.state == State::Suspended)
-                .then(|| self.suspended_at_ms.zip(grace_ms).map(|(at, grace)| at + grace))
+                .then(|| {
+                    self.suspended_at_ms
+                        .zip(grace_ms)
+                        .map(|(at, grace)| at + grace)
+                })
                 .flatten(),
         }
     }
@@ -390,7 +401,10 @@ mod tests {
         assert_eq!(m.state(), State::Launching);
         assert!(m.observe(&facts(&["me"], &["me"]), 15));
         assert_eq!(m.state(), State::Streaming);
-        assert_eq!(m.snapshot(&facts(&["me"], &[]), None).since_unix_ms, Some(15));
+        assert_eq!(
+            m.snapshot(&facts(&["me"], &[]), None).since_unix_ms,
+            Some(15)
+        );
     }
 
     #[test]
@@ -497,7 +511,10 @@ mod tests {
     fn a_suspended_session_reports_when_its_grace_period_ends() {
         let m = suspended_machine();
         let f = facts(&[], &["me"]);
-        assert_eq!(m.snapshot(&f, Some(7_200)).suspended_until_unix_ms, Some(7_220));
+        assert_eq!(
+            m.snapshot(&f, Some(7_200)).suspended_until_unix_ms,
+            Some(7_220)
+        );
         // A grace period of zero seconds in the settings means it never ends.
         assert_eq!(m.snapshot(&f, None).suspended_until_unix_ms, None);
         // Only a suspended session has a deadline.
@@ -532,16 +549,19 @@ mod tests {
         let mut busy = Machine::default();
         busy.begin("me", None, 1);
         assert_eq!(busy.plan_disconnect(), Ok(Plan::Skip));
-        busy.stopping(None, None, 2);
-        assert_eq!(busy.plan_disconnect(), Ok(Plan::Skip));
+        // A launch that still runs cannot be torn down from underneath.
+        assert!(!busy.stopping(None, None, 2));
+        assert_eq!(busy.state(), State::Preparing);
     }
 
     #[test]
     fn end_session_leaves_the_game_running_and_the_session_idle() {
         for mut m in [streaming_machine(), suspended_machine()] {
             assert_eq!(m.plan_end(), Ok(Plan::Run));
-            m.stopping(None, None, 50);
+            assert!(m.stopping(None, None, 50));
             assert_eq!(m.state(), State::Stopping);
+            // A second teardown joins the first.
+            assert!(!m.stopping(None, None, 50));
             assert_eq!(m.owner(), Some("me"));
             assert_eq!(m.journal().unwrap().state, State::Stopping);
             // A repeat while stopping does nothing.
@@ -566,7 +586,7 @@ mod tests {
     fn close_game_also_closes_a_game_that_end_session_left_running() {
         let mut m = Machine::default();
         assert_eq!(m.plan_close(true), Ok(Plan::Run));
-        m.stopping(Some("me"), Some(game(5)), 60);
+        assert!(m.stopping(Some("me"), Some(game(5)), 60));
         // A stopping session always has an owner.
         assert_eq!(m.owner(), Some("me"));
         m.stopped(&nothing(), 61);

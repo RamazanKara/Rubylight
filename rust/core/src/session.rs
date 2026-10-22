@@ -2020,6 +2020,20 @@ impl<P, A> Sessions<P, A> {
             && self.teardown.is_empty()
             && !self.pending.values().any(Launch::live)
     }
+    /// A stream launch waits for its client, or is still being prepared.
+    pub fn stream_pending(&self) -> bool {
+        self.pending
+            .values()
+            .any(|p| p.role == Role::Stream && p.live())
+    }
+    /// The devices with a running (not stopping) stream session.
+    pub fn streaming_devices(&self) -> std::collections::BTreeSet<String> {
+        self.active
+            .values()
+            .filter(|s| s.launch.role == Role::Stream && !s.stopping())
+            .map(|s| s.launch.client.uuid.clone())
+            .collect()
+    }
     #[must_use = "drop canceled launches after releasing the sessions lock"]
     pub fn stop_role(&mut self, role: Role, client: Option<&str>) -> Vec<Launch<P, A>> {
         let canceled =

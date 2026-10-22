@@ -5,7 +5,7 @@
 //! (`rubylight_vdisplay_proto::ring`). No WGC and no Desktop Duplication run: a frame is one
 //! GPU copy in the driver.
 //!
-//! An opt-in fence ring uses `CAP_FENCE_RING`: its textures and fences
+//! The default fence ring uses `CAP_FENCE_RING`: its textures and fences
 //! are created on the capture GPU's D3D12 compute device. On AMD the compute conversion reads
 //! the ring texture in place, waiting on the GPU for the driver's written fence, and the
 //! compute queue signals the released fence once the conversion is done; no D3D11 work runs
@@ -13,8 +13,9 @@
 //! for the written fence, copies the texture into the owned pool as every other capture's
 //! frames are, and signals the released fence after its copy.
 //!
-//! The default keyed-mutex ring remains available, including when fence-ring initialization
-//! fails or the installed driver does not support it.
+//! The keyed-mutex ring remains available with `idd_push_fence_ring = false`. It is also used,
+//! with a warning, when fence-ring initialization fails or the installed driver does not
+//! support the fence ring.
 //!
 //! It runs for every automatic capture of a display this host created, and for
 //! `capture = idd-push`; physical displays, and `capture = wgc` or `ddx`, keep WGC or Desktop
@@ -656,7 +657,7 @@ impl Ring {
         Ok(ring)
     }
 
-    /// The default keyed-mutex ring, also compatible with drivers before `CAP_FENCE_RING`.
+    /// The keyed-mutex ring, also compatible with drivers before `CAP_FENCE_RING`.
     fn keyed(gpu: &Device, layout: Layout) -> Result<Self> {
         let section = Arc::new(Section::new()?);
         section.header().init(layout);
@@ -821,7 +822,7 @@ impl Session {
             }
         }
         let zero_copy = pool.compute.is_some() && config.boolean("idd_push_zero_copy", true);
-        let requested = config.boolean("idd_push_fence_ring", false);
+        let requested = config.idd_push_fence_ring();
         let scope = FenceScope::new(&monitor, adapter);
         let rejected = {
             let mut failures = FENCE_FAILURES.lock().unwrap();
@@ -830,12 +831,12 @@ impl Session {
             }
             failures.excluded(scope)
         };
-        let kind = ring_kind(control.info.caps, requested && !rejected, zero_copy);
+        let RingChoice { kind, warning } =
+            choose_ring(control.info.caps, requested, rejected, zero_copy);
         warnings.clear("capture_fence_ring");
-        if requested && rejected {
-            warnings.set("capture_fence_ring", "Using the standard driver transport after GPU fences failed on this display. Recreate the display or restart the host to retry.");
-        } else if requested && kind != Kind::Fence {
-            warnings.set("capture_fence_ring", "The experimental GPU fence transport needs a compatible Rubylight display driver and AMD compute capture with in-place reads. Using the standard driver transport.");
+        if let Some(warning) = warning {
+            tracing::warn!(output = %name, "{warning}");
+            warnings.set("capture_fence_ring", warning);
         }
         // Before the first frame the driver may not know the surface yet: guess from the
         // display's colour state, and rebuild once it reports the real one.
@@ -897,7 +898,7 @@ impl Session {
         Ok(session)
     }
 
-    /// A failed experimental allocation never prevents the established capture path.
+    /// A failed fence allocation never prevents the keyed-mutex capture path.
     fn make_ring(
         gpu: &Device,
         mut layout: Layout,
@@ -912,7 +913,11 @@ impl Session {
                 Ok(ring) => return Ok(ring),
                 Err(error) => {
                     FENCE_FAILURES.lock().unwrap().failed(scope);
-                    warnings.set("capture_fence_ring", format!("Experimental GPU fence transport unavailable ({error:#}); using the standard driver transport."));
+                    let message = format!(
+                        "GPU fence transport unavailable ({error:#}); using the keyed-mutex driver transport."
+                    );
+                    tracing::warn!("{message}");
+                    warnings.set("capture_fence_ring", message);
                 }
             }
         }
@@ -929,12 +934,10 @@ impl Session {
                 .unwrap()
                 .failed(FenceScope::new(&self.monitor, self.adapter));
         }
-        self.pool.warnings.set(
-            "capture_fence_ring",
-            format!(
-                "Experimental GPU fence transport {reason}; using the standard driver transport."
-            ),
-        );
+        let message =
+            format!("GPU fence transport {reason}; using the keyed-mutex driver transport.");
+        tracing::warn!("{message}");
+        self.pool.warnings.set("capture_fence_ring", message);
         let mut layout = self.ring.layout;
         layout.kind = Kind::KeyedMutex;
         layout.generation = next_generation(layout.generation);
@@ -956,10 +959,11 @@ impl Session {
         if let Some(fences) = &self.ring.fences {
             fences.failed.store(true, Ordering::Release);
         }
-        self.pool.warnings.set(
-            "capture_fence_ring",
-            format!("GPU fence transport {reason}; reopening with the standard driver transport."),
+        let message = format!(
+            "GPU fence transport {reason}; reopening with the keyed-mutex driver transport."
         );
+        tracing::warn!("{message}");
+        self.pool.warnings.set("capture_fence_ring", message);
         bail!("GPU fence transport {reason}; recreate the capture device")
     }
 
@@ -1322,14 +1326,42 @@ impl Session {
     }
 }
 
-/// Fence transport is opt-in and initially limited to AMD's in-place compute path. Every
-/// other capture and an old installed driver retain the default keyed-mutex transport.
+/// The fence transport is the default, and is limited to AMD's in-place compute path. A
+/// capture without it and an old installed driver use the keyed-mutex transport.
 fn ring_kind(caps: u32, requested: bool, zero_copy: bool) -> Kind {
     if requested && zero_copy && caps & CAP_FENCE_RING != 0 {
         Kind::Fence
     } else {
         Kind::KeyedMutex
     }
+}
+
+/// The transport a session opens with, and why a requested fence ring was not used. Turning
+/// the fence ring off explicitly is a choice and never has a reason.
+#[derive(Debug, PartialEq, Eq)]
+struct RingChoice {
+    kind: Kind,
+    warning: Option<&'static str>,
+}
+
+fn choose_ring(caps: u32, requested: bool, rejected: bool, zero_copy: bool) -> RingChoice {
+    let kind = ring_kind(caps, requested && !rejected, zero_copy);
+    let warning = if !requested || kind == Kind::Fence {
+        None
+    } else if rejected {
+        Some(
+            "Using the keyed-mutex driver transport after GPU fences failed on this display. Recreate the display or restart the host to retry.",
+        )
+    } else if caps & CAP_FENCE_RING == 0 {
+        Some(
+            "The installed Rubylight display driver does not support the GPU fence transport, so capture uses the keyed-mutex ring. Update the display driver, or set idd_push_fence_ring = false to use the keyed-mutex ring without this warning.",
+        )
+    } else {
+        Some(
+            "The GPU fence transport needs AMD compute capture with in-place reads, so capture uses the keyed-mutex ring. Enable gpu_compute_conversion and idd_push_zero_copy, or set idd_push_fence_ring = false to use the keyed-mutex ring without this warning.",
+        )
+    };
+    RingChoice { kind, warning }
 }
 
 impl PushedFrames for Session {
@@ -1593,7 +1625,7 @@ mod tests {
     }
 
     #[test]
-    fn fence_rings_require_opt_in_capability_and_in_place_compute() {
+    fn fence_rings_require_the_request_capability_and_in_place_compute() {
         assert_eq!(
             ring_kind(CAP_FENCE_RING | CAP_SCOPED_CLEAR, true, true),
             Kind::Fence
@@ -1606,6 +1638,54 @@ mod tests {
         ] {
             assert_eq!(ring_kind(caps, requested, zero_copy), Kind::KeyedMutex);
         }
+    }
+
+    #[test]
+    fn the_fence_ring_is_the_default_and_an_explicit_false_selects_the_keyed_ring() {
+        let caps = CAP_FENCE_RING | CAP_SCOPED_CLEAR;
+        let configured = |text: &str| {
+            let config = butterpollo_core::config::Config::parse(text).unwrap();
+            choose_ring(caps, config.idd_push_fence_ring(), false, true)
+        };
+        let fence = RingChoice {
+            kind: Kind::Fence,
+            warning: None,
+        };
+        assert_eq!(configured(""), fence);
+        assert_eq!(configured("idd_push_fence_ring = true"), fence);
+        // Choosing the keyed ring is not a fault: no warning.
+        assert_eq!(
+            configured("idd_push_fence_ring = false"),
+            RingChoice {
+                kind: Kind::KeyedMutex,
+                warning: None
+            }
+        );
+    }
+
+    #[test]
+    fn a_fence_ring_that_cannot_be_used_stays_keyed_and_says_why() {
+        let driver = choose_ring(CAP_SCOPED_CLEAR, true, false, true);
+        assert_eq!(driver.kind, Kind::KeyedMutex);
+        let driver = driver.warning.expect("an old driver is reported");
+        assert!(driver.contains("Update the display driver"), "{driver}");
+        assert!(driver.contains("idd_push_fence_ring = false"), "{driver}");
+        let compute = choose_ring(CAP_FENCE_RING, true, false, false);
+        assert_eq!(compute.kind, Kind::KeyedMutex);
+        let compute = compute.warning.expect("in-place compute is reported");
+        assert!(compute.contains("gpu_compute_conversion"), "{compute}");
+        assert!(compute.contains("idd_push_fence_ring = false"), "{compute}");
+        let failed = choose_ring(CAP_FENCE_RING, true, true, true);
+        assert_eq!(failed.kind, Kind::KeyedMutex);
+        assert!(failed.warning.unwrap().contains("fences failed"));
+        // Without the request there is nothing to explain, whatever else is missing.
+        assert_eq!(
+            choose_ring(0, false, false, false),
+            RingChoice {
+                kind: Kind::KeyedMutex,
+                warning: None
+            }
+        );
     }
 
     #[test]

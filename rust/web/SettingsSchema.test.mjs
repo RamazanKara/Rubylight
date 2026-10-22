@@ -146,7 +146,7 @@ test('capture-specific controls follow the selected method and remain available 
   const predictive = settings.get('capture_predictive_poll');
   const aligned = settings.get('wgc_slot_aligned_publish');
   const fences = settings.get('idd_push_fence_ring');
-  assert.equal(fences.default, false);
+  assert.equal(fences.default, true);
   for (const [capture, polling, alignment] of [
     ['auto', true, true], ['idd-push', false, false],
     ['wgc', false, true], ['wgcc', false, true],

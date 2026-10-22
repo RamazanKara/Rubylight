@@ -77,15 +77,15 @@ const video: Setting[] = [
   },
   {
     key: 'idd_push_fence_ring',
-    label: 'Experimental GPU fence transport',
+    label: 'GPU fence transport',
     description:
-      'Tries GPU fences for direct driver push on AMD. Requires a compatible Rubylight display driver and compute conversion.',
+      'On by default. Turn it off to use the keyed-mutex ring for frames from the Rubylight display driver.',
     details:
-      'Off by default while performance is evaluated. Keeps the standard driver transport if unavailable. Physical displays and other capture methods are unaffected. End all streams before comparing.',
+      'Needs a compatible Rubylight display driver and compute conversion on AMD. Without them, capture uses the keyed-mutex ring and the console shows a warning. Physical displays and other capture methods are unaffected. End all streams before changing it.',
     category: 'video',
     group: 'Capture',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
     visibleWhen: (values) => ['auto', 'idd-push'].includes(capture(values)),
     advanced: true,
   },

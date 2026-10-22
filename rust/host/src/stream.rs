@@ -695,7 +695,7 @@ impl CaptureKey {
                 && config.boolean("wgc_drain_to_newest", false),
             wgc_helper_scheduling: !matches!(kind, "ddx" | "dxgi")
                 && config.boolean("wgc_helper_streaming_scope", false),
-            idd_fence_ring: config.boolean("idd_push_fence_ring", false),
+            idd_fence_ring: config.idd_push_fence_ring(),
             background: butterpollo_core::background::enabled(config),
         }
     }
@@ -4177,11 +4177,17 @@ mod tests {
             .values
             .insert("wgc_user_helper".into(), "true".into());
         assert_ne!(default, key(&helper, "first"));
-        let mut fenced = config.clone();
-        fenced
+        // The fence ring is the default: only turning it off changes the capture's identity.
+        let mut explicit = config.clone();
+        explicit
             .values
             .insert("idd_push_fence_ring".into(), "true".into());
-        assert_ne!(default, key(&fenced, "first"));
+        assert_eq!(default, key(&explicit, "first"));
+        let mut keyed = config.clone();
+        keyed
+            .values
+            .insert("idd_push_fence_ring".into(), "false".into());
+        assert_ne!(default, key(&keyed, "first"));
         let mut changed = config.clone();
         changed
             .values

@@ -337,6 +337,12 @@ impl Config {
             })
             .unwrap_or(default)
     }
+    /// Whether direct driver push (`idd-push`) uses the GPU fence ring. It is the default;
+    /// `idd_push_fence_ring = false` selects the keyed-mutex ring. Capture reuse and capture
+    /// itself read this one answer so they cannot disagree.
+    pub fn idd_push_fence_ring(&self) -> bool {
+        self.boolean("idd_push_fence_ring", true)
+    }
     /// How long a disconnected stream may keep its display. Exclusive layouts
     /// must release even when an older profile disables restoration: otherwise
     /// the local user's physical displays can remain off for hours.
@@ -999,6 +1005,16 @@ impl Ports {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn direct_driver_push_defaults_to_the_fence_ring_unless_turned_off() {
+        let fence = |text: &str| super::Config::parse(text).unwrap().idd_push_fence_ring();
+        assert!(fence(""));
+        assert!(fence("port = 47989"));
+        assert!(fence("idd_push_fence_ring = true"));
+        assert!(!fence("idd_push_fence_ring = false"));
+        assert!(!fence("idd_push_fence_ring = off"));
+        assert!(super::Config::default().idd_push_fence_ring());
+    }
     #[test]
     fn removed_rtx_hdr_settings_go_quietly_and_its_peak_brightness_is_renamed() {
         // Profiles, apps and devices saved before RTX HDR was removed.

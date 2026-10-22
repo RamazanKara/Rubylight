@@ -94,7 +94,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "stream_reconfigure", "Follow client size and frame rate changes", Bool;
         "wgc_direct_encoder_input", "Pass GPU capture directly to the encoder", Bool;
         "gpu_compute_conversion", "Copy and convert captures on a compute queue", Bool;
-        "idd_push_fence_ring", "Experimental GPU fence transport for direct driver push (off by default)", Bool;
+        "idd_push_fence_ring", "GPU fence transport for direct driver push (on by default; turn off to use the keyed-mutex ring)", Bool;
         "compute_queue_realtime", "Run that compute queue at real-time GPU priority", Bool;
         "wgc_slot_aligned_publish", "Align capture publication to frame slots", Bool;
         "fec_percentage", "Forward error correction (%)", Number;

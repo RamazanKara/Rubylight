@@ -55,7 +55,7 @@ impl std::fmt::Display for Refusal {
             ),
             Self::NotAmdAdapter { adapter, amd } => write!(
                 f,
-                "{adapter} is not an AMD graphics card, and Rubylight 3.0 encodes only on AMD. This PC also has {amd}: connect the monitor to it, or choose it under Graphics card in the console's settings, then reconnect."
+                "{adapter} is not an AMD graphics card, and Rubylight 3.0 encodes only on AMD. This PC also has {amd}: connect the monitor to it, choose it under Graphics card in the console's settings, or use WGC capture, then reconnect."
             ),
         }
     }
@@ -111,9 +111,29 @@ pub fn preferred(vendors: &[u32]) -> usize {
     vendors.iter().position(|v| is_amd(*v)).unwrap_or(0)
 }
 
+/// The AMD adapter a stream pins to when no GPU is chosen, by index among
+/// `vendors`: only on a PC that also has a non-AMD adapter, where Windows would
+/// otherwise render and capture on the wrong one. None leaves the choice alone,
+/// as on a PC with only AMD adapters (or none).
+pub fn pinned(vendors: &[u32]) -> Option<usize> {
+    let amd = vendors.iter().position(|v| is_amd(*v))?;
+    vendors.iter().any(|v| !is_amd(*v)).then_some(amd)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hybrid_pc_pins_the_stream_to_its_amd_adapter() {
+        assert_eq!(pinned(&[0x10de, 0x1002]), Some(1));
+        assert_eq!(pinned(&[0x8086, 0x1002, 0x1002]), Some(1));
+        assert_eq!(pinned(&[0x1002, 0x10de]), Some(0));
+        // Nothing to pin on an all-AMD PC, or one with no AMD adapter.
+        assert_eq!(pinned(&[0x1002, 0x1002]), None);
+        assert_eq!(pinned(&[0x10de, 0x8086]), None);
+        assert_eq!(pinned(&[]), None);
+    }
 
     fn adapter(name: &str, vendor: u32) -> Adapter {
         Adapter {

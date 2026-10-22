@@ -219,6 +219,44 @@ pub fn amd_adapters(gpus: &[Gpu]) -> Vec<amd_gpu::Adapter> {
         })
         .collect()
 }
+/// The GPU choice a stream that encodes on the capture device opens it with.
+/// A chosen GPU stays. With none chosen on a PC that also has a non-AMD GPU it
+/// is the AMD GPU, so that WGC captures and AMF encodes there whichever GPU
+/// drives the monitor, as the probe already assumes.
+fn pinned_choice(gpus: &[Gpu], adapter_name: &str, pnp_id: &str) -> (String, String) {
+    if adapter_name.is_empty() && pnp_id.is_empty() {
+        let vendors: Vec<u32> = gpus.iter().map(|gpu| gpu.vendor).collect();
+        if let Some(gpu) = amd_gpu::pinned(&vendors).map(|index| &gpus[index]) {
+            return (gpu.name.clone(), gpu.pnp_id.clone().unwrap_or_default());
+        }
+    }
+    (adapter_name.to_string(), pnp_id.to_string())
+}
+/// `pinned_choice` for this PC's GPUs; the choice as given when they cannot be listed.
+pub fn stream_adapter(adapter_name: &str, pnp_id: &str) -> (String, String) {
+    match gpus() {
+        Ok(gpus) => pinned_choice(&gpus, adapter_name, pnp_id),
+        Err(error) => {
+            tracing::debug!(%error, "the GPUs could not be listed; the GPU choice stays as configured");
+            (adapter_name.to_string(), pnp_id.to_string())
+        }
+    }
+}
+/// Whether the probe's device skips the display's adapter for the AMD one: no
+/// GPU is chosen, the display is on a non-AMD adapter, and an AMD one exists.
+fn probe_skips_display(display_vendor: u32, chosen: bool, vendors: &[u32]) -> bool {
+    !chosen && !amd_gpu::is_amd(display_vendor) && vendors.iter().any(|v| amd_gpu::is_amd(*v))
+}
+/// Whether capture on `gpu` can be encoded, for Desktop Duplication, which can
+/// capture a display only on the GPU that drives it: the refusal otherwise.
+fn require_amd_duplication(name: &str, vendor: u32, all: &[Gpu]) -> Result<()> {
+    let adapter = amd_gpu::Adapter {
+        name: name.to_string(),
+        vendor,
+    };
+    amd_gpu::check_adapter(&adapter, &amd_adapters(all))?;
+    Ok(())
+}
 impl ComGuard {
     pub fn new() -> Result<Self> {
         // SAFETY: CoInitializeEx takes no pointers here, and only a successful call yields the
@@ -407,12 +445,16 @@ impl Device {
             }
             // With no GPU chosen, a monitor on an NVIDIA or Intel card must
             // not hide an AMD card that can encode (an AMD iGPU beside an
-            // NVIDIA dGPU): the stream itself says if its display is elsewhere.
-            if adapter_name.is_empty()
-                && pnp_id.is_empty()
-                && !amd_gpu::is_amd(desc.VendorId)
-                && gpus().is_ok_and(|all| all.iter().any(|gpu| amd_gpu::is_amd(gpu.vendor)))
-            {
+            // NVIDIA dGPU). The stream then captures and encodes on that card
+            // too (`stream_adapter`), so the probe promises what it delivers.
+            if gpus().is_ok_and(|all| {
+                let vendors: Vec<u32> = all.iter().map(|gpu| gpu.vendor).collect();
+                probe_skips_display(
+                    desc.VendorId,
+                    !adapter_name.is_empty() || !pnp_id.is_empty(),
+                    &vendors,
+                )
+            }) {
                 return Self::without_display(adapter_name, pnp_id);
             }
         }
@@ -574,6 +616,7 @@ impl Device {
 struct GpuMismatch {
     display: String,
     owner: String,
+    owner_vendor: u32,
     selected: String,
 }
 impl GpuMismatch {
@@ -601,6 +644,7 @@ impl GpuMismatch {
             .then(|| Self {
                 display: gpu.display.display_name.clone(),
                 owner: from_wide(&owner.Description),
+                owner_vendor: owner.VendorId,
                 selected: from_wide(&device.Description),
             })
     }
@@ -622,7 +666,9 @@ impl GpuMismatch {
 /// Desktop Duplication duplicates a display only on the GPU that renders it.
 /// A device on the selected GPU is replaced by one on that GPU: the encoder
 /// follows the captured frames, so the stream encodes there and says so
-/// instead of ending without a picture.
+/// instead of ending without a picture. Rubylight 3.0 encodes only on AMD, so
+/// a display driven by another vendor's GPU fails with the refusal, which
+/// suggests WGC capture, instead of moving there.
 fn duplication_device<D>(
     selected: D,
     mismatch: impl FnOnce(&D) -> Option<GpuMismatch>,
@@ -633,6 +679,9 @@ fn duplication_device<D>(
         return Ok(selected);
     };
     drop(selected);
+    if !amd_gpu::is_amd(mismatch.owner_vendor) {
+        bail!("{}", mismatch.refusal());
+    }
     let device = owner().with_context(|| mismatch.refusal())?;
     let message = mismatch.fallback();
     tracing::warn!("{message}");
@@ -1815,11 +1864,21 @@ impl Capture {
                 name, hdr, config, warnings,
             )?)));
         }
-        let gpu = Device::for_display(
-            name,
-            config.get("adapter_name", ""),
-            config.get("adapter_pnp_id", ""),
-        )?;
+        // WGC captures a display on any GPU, so it opens on the AMD one; Desktop
+        // Duplication needs the GPU that drives the display and is refused when
+        // that is not AMD.
+        let (adapter_name, pnp_id) = if matches!(kind, "ddx" | "dxgi") {
+            (
+                config.get("adapter_name", "").to_string(),
+                config.get("adapter_pnp_id", "").to_string(),
+            )
+        } else {
+            stream_adapter(
+                config.get("adapter_name", ""),
+                config.get("adapter_pnp_id", ""),
+            )
+        };
+        let gpu = Device::for_display(name, &adapter_name, &pnp_id)?;
         if let Err(error) = crate::gpu_priority::configure(&gpu, config) {
             tracing::debug!(%error, "GPU priority remains at the process default");
         }
@@ -1838,6 +1897,11 @@ impl Capture {
                 },
                 &warnings,
             )?;
+            // A display on another vendor's GPU captures there and could only
+            // be encoded there.
+            if !amd_gpu::is_amd(gpu.vendor) {
+                require_amd_duplication(&gpu.display.adapter, gpu.vendor, &gpus()?)?;
+            }
             let mut duplication = Duplication::new_device(gpu, hdr)?;
             duplication.owned.warnings = warnings.clone();
             if crate::compute::enabled(config) {

@@ -16,7 +16,7 @@ Rubylight 3.0 encodes only on an AMD Radeon GPU, through the AMF video encoder i
 | "...Windows lists no graphics card with a working driver..." | Windows shows no graphics driver, only the basic display adapter. If the PC has a Radeon, install the AMD Radeon graphics driver from amd.com/support, then run setup again. On any other graphics card, stay on 2.6.x. |
 | "...its driver has no AMF video encoder (amfrt64.dll is missing...)" | The AMD GPU is there, but its driver lacks the encoder. Install the latest AMD Radeon graphics driver (the full Adrenalin package, not only Windows Update's basic driver), restart Windows if it asks, then run setup again. |
 | "AMF could not start on ..." in the console | The AMD driver is present but AMF did not start. Update the Radeon driver. At the sign-in screen, or after a disconnected Remote Desktop session, sign in at the PC first. |
-| "... is not an AMD graphics card ... This PC also has AMD ..." | A monitor or the Graphics card setting points at the NVIDIA or Intel GPU of a PC that also has an AMD GPU. Connect the monitor to the AMD GPU, or choose it under **Settings → Video → Graphics card**, and reconnect. |
+| "... is not an AMD graphics card ... This PC also has AMD ..." | A monitor or the Graphics card setting points at the NVIDIA or Intel GPU of a PC that also has an AMD GPU. Connect the monitor to the AMD GPU, choose it under **Settings → Video → Graphics card**, or switch to WGC capture (Desktop Duplication captures on the GPU that drives the monitor), and reconnect. |
 
 A Moonlight client that cannot start a stream on such a PC shows "No video encoder is ready" with the same advice. The console's warnings and `butterpollo.log` hold the specific reason.
 

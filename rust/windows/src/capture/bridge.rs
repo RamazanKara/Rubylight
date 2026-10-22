@@ -356,11 +356,11 @@ impl Session {
             desktop_available(),
             "WGC requires the unlocked user desktop"
         );
-        let gpu = Device::for_display(
-            name,
+        let (adapter_name, pnp_id) = crate::capture::stream_adapter(
             config.get("adapter_name", ""),
             config.get("adapter_pnp_id", ""),
-        )?;
+        );
+        let gpu = Device::for_display(name, &adapter_name, &pnp_id)?;
         let _ = crate::gpu_priority::configure(&gpu, config);
         let (pipe, pipe_name) = Pipe::server(PIPE_PREFIX)?;
         let program = std::env::current_exe()?;
@@ -815,11 +815,11 @@ fn worker(pipe: &Pipe) -> Result<()> {
         .boolean("wgc_helper_streaming_scope", false)
         .then(crate::timing::StreamingScope::enter);
     let timer = crate::timing::Timer::new()?;
-    let gpu = Device::for_display(
-        &name,
+    let (adapter_name, pnp_id) = crate::capture::stream_adapter(
         config.get("adapter_name", ""),
         config.get("adapter_pnp_id", ""),
-    )?;
+    );
+    let gpu = Device::for_display(&name, &adapter_name, &pnp_id)?;
     ensure!(
         gpu.display.display_name == name,
         "WGC output disappeared before helper startup"

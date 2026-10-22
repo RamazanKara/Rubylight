@@ -10,7 +10,10 @@ pub struct Probe {
     query: ID3D11Query,
 }
 impl Probe {
-    /// On the adapter showing `display` (the primary's if it is gone).
+    /// On the adapter showing `display` (the primary's if it is gone), or on
+    /// the AMD adapter when `display` is on another vendor's GPU of a PC that
+    /// has one: the stall to detect is the AMD encoder's, and a stream
+    /// captures and encodes there.
     pub fn new(display: &str) -> Result<Self> {
         let gpu = Device::new(display)?;
         let desc = D3D11_QUERY_DESC {

@@ -117,14 +117,17 @@ pub struct RenderAdapter {
     pub luid: (u32, i32),
 }
 /// The GPU the Graphics card setting names, for virtual displays to render on
-/// as Apollo and Vibepollo do. Automatic leaves the choice to Windows.
+/// as Apollo and Vibepollo do. Automatic leaves the choice to Windows, except
+/// on a PC with an AMD and a non-AMD GPU, where it is the AMD GPU: the stream
+/// encodes only there, and the probe already counts on it.
 pub fn configured_render_adapter(
     config: &butterpollo_core::config::Config,
 ) -> Option<RenderAdapter> {
-    let (name, pnp_id) = (
+    let (name, pnp_id) = crate::capture::stream_adapter(
         config.get("adapter_name", ""),
         config.get("adapter_pnp_id", ""),
     );
+    let (name, pnp_id) = (name.as_str(), pnp_id.as_str());
     if name.is_empty() && pnp_id.is_empty() {
         return None;
     }

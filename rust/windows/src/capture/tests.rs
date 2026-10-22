@@ -517,38 +517,40 @@ fn the_graphics_card_setting_names_one_gpu_of_a_hybrid_pc() {
     twins[0].pnp_id = twins[1].pnp_id.clone();
     assert!(select_gpu(&twins, "", gpus[1].pnp_id.as_deref().unwrap()).is_err());
 }
-fn intel_renders_the_display() -> GpuMismatch {
+fn gpu_renders_the_display(owner: &str, owner_vendor: u32, selected: &str) -> GpuMismatch {
     GpuMismatch {
         display: r"\\.\DISPLAY24".into(),
-        owner: "Intel(R) HD Graphics 530".into(),
-        selected: "AMD Radeon R7 M370".into(),
+        owner: owner.into(),
+        owner_vendor,
+        selected: selected.into(),
     }
 }
 #[test]
-fn desktop_duplication_moves_to_the_gpu_that_renders_the_display() {
-    // Issue #28: Windows 10 refused WGC, and Desktop Duplication on the
-    // selected Radeon was refused because the Intel iGPU renders the virtual
-    // display. The stream ended with no picture; it now captures and encodes
-    // on the Intel GPU and says so.
+fn desktop_duplication_moves_to_the_amd_gpu_that_renders_the_display() {
+    // Issue #28: Desktop Duplication on the selected GPU was refused because
+    // another GPU renders the virtual display. The stream ended with no
+    // picture; when that GPU is AMD it now captures and encodes there and
+    // says so.
+    let amd_renders = || gpu_renders_the_display("AMD Radeon(TM) 680M", 0x1002, "NVIDIA RTX 3050");
     let warnings = butterpollo_core::session::Warnings::default();
     let capture = open_stream_capture("wgc", &warnings, |kind| match kind {
         "wgc" => bail!("The parameter is incorrect. (0x80070057)"),
         _ => duplication_device(
-            "device on AMD Radeon R7 M370",
-            |_| Some(intel_renders_the_display()),
-            || Ok("device on Intel(R) HD Graphics 530"),
+            "device on NVIDIA RTX 3050",
+            |_| Some(amd_renders()),
+            || Ok("device on AMD Radeon(TM) 680M"),
             &warnings,
         ),
     })
     .unwrap();
-    assert_eq!(capture, "device on Intel(R) HD Graphics 530");
+    assert_eq!(capture, "device on AMD Radeon(TM) 680M");
     let snapshot = warnings.snapshot();
     let adapter = snapshot
         .iter()
         .find(|w| w.code == "capture_adapter")
         .expect("the GPU fallback is reported");
     assert!(adapter.message.starts_with(
-        "Capturing and encoding on Intel(R) HD Graphics 530, not on the selected AMD Radeon R7 M370"
+        "Capturing and encoding on AMD Radeon(TM) 680M, not on the selected NVIDIA RTX 3050"
     ));
     assert!(adapter.message.contains(r"\\.\DISPLAY24"));
     assert!(snapshot.iter().any(|w| w.code == "capture_backend"));
@@ -556,28 +558,112 @@ fn desktop_duplication_moves_to_the_gpu_that_renders_the_display() {
     // On the display's own GPU nothing is reopened or reported.
     let warnings = butterpollo_core::session::Warnings::default();
     let device = duplication_device(
-        "device on Intel(R) HD Graphics 530",
+        "device on AMD Radeon(TM) 680M",
         |_| None,
         || unreachable!("the selected GPU renders the display"),
         &warnings,
     )
     .unwrap();
-    assert_eq!(device, "device on Intel(R) HD Graphics 530");
+    assert_eq!(device, "device on AMD Radeon(TM) 680M");
     assert!(warnings.snapshot().is_empty());
 
     // A display GPU that cannot be opened fails loudly with both GPUs named.
     let error = duplication_device::<&str>(
-        "device on AMD Radeon R7 M370",
-        |_| Some(intel_renders_the_display()),
+        "device on NVIDIA RTX 3050",
+        |_| Some(amd_renders()),
         || bail!("selected capture display is unavailable"),
         &warnings,
     )
     .unwrap_err();
     let detail = format!("{error:#}");
-    assert!(detail.contains("only on the GPU it is connected to (Intel(R) HD Graphics 530)"));
-    assert!(detail.contains("not on AMD Radeon R7 M370"));
+    assert!(detail.contains("only on the GPU it is connected to (AMD Radeon(TM) 680M)"));
+    assert!(detail.contains("not on NVIDIA RTX 3050"));
     assert!(detail.contains("selected capture display is unavailable"));
     assert!(warnings.snapshot().is_empty());
+}
+#[test]
+fn desktop_duplication_on_a_display_driven_by_another_vendor_suggests_wgc() {
+    // The monitor sits on the Intel iGPU and AMD is selected: moving there
+    // would encode on Intel, which 3.0 refuses, so it fails with WGC advice.
+    let warnings = butterpollo_core::session::Warnings::default();
+    let error = duplication_device::<&str>(
+        "device on AMD Radeon R7 M370",
+        |_| {
+            Some(gpu_renders_the_display(
+                "Intel(R) HD Graphics 530",
+                0x8086,
+                "AMD Radeon R7 M370",
+            ))
+        },
+        || unreachable!("the Intel GPU is not opened for capture"),
+        &warnings,
+    )
+    .unwrap_err();
+    let detail = format!("{error:#}");
+    assert!(detail.contains("only on the GPU it is connected to (Intel(R) HD Graphics 530)"));
+    assert!(detail.contains("use WGC capture"));
+    assert!(warnings.snapshot().is_empty());
+
+    // No GPU chosen, so the device is already the Intel one: the refusal.
+    let all = [
+        Gpu {
+            name: "Intel(R) HD Graphics 530".into(),
+            vendor: 0x8086,
+            dedicated_memory: 0,
+            luid: (1, 0),
+            pnp_id: None,
+        },
+        {
+            let [amd, _] = hybrid_gpus();
+            amd
+        },
+    ];
+    let error = require_amd_duplication("Intel(R) HD Graphics 530", 0x8086, &all).unwrap_err();
+    let detail = format!("{error:#}");
+    assert!(detail.starts_with("Intel(R) HD Graphics 530 is not an AMD graphics card"));
+    assert!(detail.contains("AMD Radeon(TM) 680M"));
+    assert!(detail.contains("use WGC capture"));
+    assert!(require_amd_duplication("AMD Radeon(TM) 680M", 0x1002, &all).is_ok());
+}
+#[test]
+fn a_stream_pins_to_the_amd_gpu_when_the_pc_has_another_vendors_too() {
+    let mut gpus = hybrid_gpus();
+    gpus[0].vendor = 0x8086;
+    gpus[0].name = "Intel(R) UHD Graphics".into();
+    // Automatic: the AMD GPU, by its identity.
+    assert_eq!(
+        pinned_choice(&gpus, "", ""),
+        (
+            "AMD Radeon RX 6850M XT".to_string(),
+            gpus[1].pnp_id.clone().unwrap()
+        )
+    );
+    // A chosen GPU stays, whatever its vendor.
+    assert_eq!(
+        pinned_choice(&gpus, "Intel(R) UHD Graphics", ""),
+        ("Intel(R) UHD Graphics".to_string(), String::new())
+    );
+    // An all-AMD PC, or one with no AMD GPU, leaves Automatic alone.
+    assert_eq!(
+        pinned_choice(&hybrid_gpus(), "", ""),
+        (String::new(), String::new())
+    );
+    gpus[1].vendor = 0x10de;
+    assert_eq!(pinned_choice(&gpus, "", ""), (String::new(), String::new()));
+    assert_eq!(pinned_choice(&[], "", ""), (String::new(), String::new()));
+}
+#[test]
+fn the_probe_skips_a_non_amd_display_only_when_no_gpu_is_chosen_and_an_amd_one_exists() {
+    let (nvidia, amd, intel) = (0x10de, 0x1002, 0x8086);
+    // The monitor on NVIDIA, an AMD iGPU beside it, Graphics card Automatic.
+    assert!(probe_skips_display(nvidia, false, &[nvidia, amd]));
+    assert!(probe_skips_display(intel, false, &[amd, intel]));
+    // A chosen GPU is probed as chosen; an AMD monitor stays as it is.
+    assert!(!probe_skips_display(nvidia, true, &[nvidia, amd]));
+    assert!(!probe_skips_display(amd, false, &[nvidia, amd]));
+    // Nothing AMD to move to: the encoder says why on the display's GPU.
+    assert!(!probe_skips_display(nvidia, false, &[nvidia, intel]));
+    assert!(!probe_skips_display(nvidia, false, &[]));
 }
 
 #[test]

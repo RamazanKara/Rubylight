@@ -260,6 +260,24 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void aNativeHostGetsTheNativePageAndOthersDoNot() {
+        assertTrue(items(StreamMenu.mainPage(options(nativeApiHost(), NvApp.Role.STREAM))).contains(NATIVE_PAGE));
+        assertFalse(items(StreamMenu.mainPage(options(nativeApiHost(), NvApp.Role.INPUT_ONLY))).contains(NATIVE_PAGE));
+        assertFalse(items(StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.STREAM))).contains(NATIVE_PAGE));
+    }
+
+    @Test
+    public void theNativePageOffersResumeDisconnectAndEndSessionAndClosesTheGameOnlyWithHostControl() {
+        StreamMenu.Options options = options(nativeApiHost(), NvApp.Role.STREAM);
+        options.nativeHostControl = true;
+        assertEquals(Arrays.asList(NATIVE_RESUME, DISCONNECT, END_HOST_SESSION, CLOSE_GAME), items(StreamMenu.nativePage(options)));
+        options.nativeHostControl = false;
+        List<StreamMenu.Item> without = items(StreamMenu.nativePage(options));
+        assertEquals(Arrays.asList(NATIVE_RESUME, DISCONNECT, END_HOST_SESSION, QUIT_GAME), without);
+        assertFalse("Close game needs host control", without.contains(CLOSE_GAME));
+    }
+
+    @Test
     public void everyExistingActionIsStillReachable() {
         Set<StreamMenu.Item> reachable = EnumSet.noneOf(StreamMenu.Item.class);
         for (NvApp.Role role : NvApp.Role.values()) {
@@ -267,6 +285,7 @@ public class StreamMenuTest {
             StreamMenu.Options withControl = options(nativeApiHost(), role);
             withControl.nativeHostControl = true;
             reachable.addAll(items(StreamMenu.mainPage(withControl)));
+            reachable.addAll(items(StreamMenu.nativePage(withControl)));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.mouseConnected = options.onscreenControls = options.gameControls = true;

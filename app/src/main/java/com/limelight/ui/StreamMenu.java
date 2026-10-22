@@ -8,6 +8,8 @@ import androidx.core.view.ViewCompat;
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
 import com.limelight.binding.video.PerformanceOverlay;
+import com.limelight.console.ConnectionInfo;
+import com.limelight.console.NativeMenuController;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -31,13 +33,14 @@ public final class StreamMenu {
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
+        NATIVE_PAGE, NATIVE_RESUME,
         OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG, OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST
     }
 
     public enum Section {
         QUICK(0), INPUT(R.string.stream_section_input), DISPLAY(R.string.stream_section_display),
         QUALITY(R.string.stream_section_quality), HOST(R.string.stream_section_host), SESSION(0),
-        OVERLAY_STYLE(0), DIAGNOSTICS(0);
+        OVERLAY_STYLE(0), DIAGNOSTICS(0), NATIVE_SESSION(R.string.native_section_session);
 
         public final int title;
 
@@ -46,7 +49,7 @@ public final class StreamMenu {
         }
     }
 
-    public enum Page { MAIN, OVERLAY }
+    public enum Page { MAIN, OVERLAY, NATIVE }
 
     /** What this stream and its host offer right now; the stream activity fills it each time the menu opens. */
     public static final class Options {
@@ -72,6 +75,8 @@ public final class StreamMenu {
         public boolean webUiAddress;
         /** A native API host lets this device close the game (the host control permission); without it Quit app does. */
         public boolean nativeHostControl;
+        /** Host, codec, size, bitrate and link for the native page; null leaves the connection facts out. */
+        public ConnectionInfo connection;
 
         public Options(NvApp.Role role, ComputerDetails host) {
             this.role = role;
@@ -108,7 +113,7 @@ public final class StreamMenu {
         }
 
         public boolean opensPage() {
-            return item == Item.OVERLAY_PAGE;
+            return item == Item.OVERLAY_PAGE || item == Item.NATIVE_PAGE;
         }
 
         @Override
@@ -189,6 +194,10 @@ public final class StreamMenu {
             }
         }
 
+        // A native API host adds its own page: the session actions, the connection and the Radeon settings.
+        if (o.role == NvApp.Role.STREAM && caps.has(HostCapabilities.Feature.NATIVE_API)) {
+            entries.add(action(Section.HOST, Item.NATIVE_PAGE, R.string.native_menu_row, R.drawable.ic_tune));
+        }
         if (o.role != NvApp.Role.REMOTE_MONITOR && host.canRunServerCommand(0)) {
             entries.add(action(Section.HOST, Item.SERVER_COMMANDS, R.string.stream_server_commands, R.drawable.ic_terminal));
         }
@@ -222,6 +231,24 @@ public final class StreamMenu {
                 entries.add(new Entry(Section.SESSION, Item.END_SESSION, o.role == NvApp.Role.REMOTE_MONITOR ?
                         R.string.stream_end_monitor : R.string.stream_end_input, R.drawable.ic_stop, null, true));
             }
+        }
+        return entries;
+    }
+
+    /**
+     * The native page's actions: Resume closes the menu, Disconnect leaves the session suspended, End session
+     * ends it, and the game is closed with Close game when this device has host control, else with Quit app.
+     * The connection facts and the Radeon panel follow them.
+     */
+    public static List<Entry> nativePage(Options o) {
+        List<Entry> entries = new ArrayList<>();
+        entries.add(action(Section.NATIVE_SESSION, Item.NATIVE_RESUME, R.string.native_resume, R.drawable.ic_play));
+        entries.add(action(Section.NATIVE_SESSION, Item.DISCONNECT, R.string.stream_disconnect, R.drawable.ic_close));
+        if (o.host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
+            entries.add(new Entry(Section.NATIVE_SESSION, Item.END_HOST_SESSION, R.string.stream_end_session, R.drawable.ic_stop, null, true));
+            entries.add(o.nativeHostControl
+                    ? new Entry(Section.NATIVE_SESSION, Item.CLOSE_GAME, R.string.stream_close_game, R.drawable.ic_stop, null, true)
+                    : new Entry(Section.NATIVE_SESSION, Item.QUIT_GAME, R.string.stream_quit_game, R.drawable.ic_stop, null, true));
         }
         return entries;
     }
@@ -262,14 +289,32 @@ public final class StreamMenu {
     private final Map<Item, MaterialButton> rows = new EnumMap<>(Item.class);
     private Page page = Page.MAIN;
     private List<Entry> entries = new ArrayList<>();
+    private final NativeMenuController radeon;
+    private RadeonPanelView radeonView;
 
     public StreamMenu(Activity activity, Supplier<Options> options, Listener listener) {
+        this(activity, options, listener, null);
+    }
+
+    /** {@code radeon} reads and writes the host's Radeon settings for the native page; null leaves the panel out. */
+    public StreamMenu(Activity activity, Supplier<Options> options, Listener listener, NativeMenuController radeon) {
         this.activity = activity;
         this.options = options;
         this.listener = listener;
+        this.radeon = radeon;
         Options current = options.get();
         sheet = new ActionSheet(activity, activity.getString(title(current.role)));
+        sheet.setOnClosed(this::stopRadeon);
         render(Page.MAIN, current, null);
+    }
+
+    // The panel polls the host only while its page is on screen.
+    private void stopRadeon() {
+        if (radeonView != null) {
+            radeonView.detach();
+            radeonView = null;
+        }
+        if (radeon != null) radeon.stop();
     }
 
     public ActionSheet sheet() {
@@ -291,17 +336,19 @@ public final class StreamMenu {
 
     /** Back: from a page to the first page; the first page closes. */
     public void back() {
-        if (page != Page.MAIN) render(Page.MAIN, options.get(), Item.OVERLAY_PAGE);
+        if (page != Page.MAIN) render(Page.MAIN, options.get(), page == Page.NATIVE ? Item.NATIVE_PAGE : Item.OVERLAY_PAGE);
         else sheet.dismiss();
     }
 
     private void render(Page target, Options o, Item focus) {
         page = target;
+        stopRadeon();
         sheet.clearActions();
         rows.clear();
-        sheet.setHeading(activity.getString(target == Page.MAIN ? title(o.role) : R.string.stream_overlay_page));
+        sheet.setHeading(activity.getString(target == Page.MAIN ? title(o.role) :
+                target == Page.NATIVE ? R.string.native_menu_row : R.string.stream_overlay_page));
         sheet.setBackHandler(target == Page.MAIN ? null : this::back);
-        entries = target == Page.MAIN ? mainPage(o) : overlayPage(o);
+        entries = target == Page.MAIN ? mainPage(o) : target == Page.NATIVE ? nativePage(o) : overlayPage(o);
         if ((activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
                 == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
             entries.removeIf(entry -> entry.item == Item.TOUCH_MODE || entry.item == Item.ONSCREEN_CONTROLS ||
@@ -329,9 +376,24 @@ public final class StreamMenu {
             rows.put(entry.item, button);
             button.setOnClickListener(view -> choose(entry));
         }
+        if (target == Page.NATIVE) addNativeFacts(o);
         sheet.focusFirstAction();
         MaterialButton focused = focus == null ? null : rows.get(focus);
         if (focused != null && !focused.isInTouchMode()) focused.requestFocus();
+    }
+
+    // The connection facts and the Radeon panel under the native page's actions.
+    private void addNativeFacts(Options o) {
+        if (o.connection != null) {
+            sheet.addSection(R.string.native_section_connection);
+            for (ConnectionInfo.Line line : o.connection.lines(activity)) {
+                sheet.addInfo(activity.getString(line.label), line.value);
+            }
+        }
+        if (radeon != null) {
+            radeonView = new RadeonPanelView(sheet, sheet.addGroup(), radeon::write);
+            radeon.start(radeonView::show);
+        }
     }
 
     // A choice of several: a check on the chosen one, announced as selected.
@@ -345,7 +407,7 @@ public final class StreamMenu {
 
     private void choose(Entry entry) {
         if (entry.opensPage()) {
-            render(Page.OVERLAY, options.get(), null);
+            render(entry.item == Item.NATIVE_PAGE ? Page.NATIVE : Page.OVERLAY, options.get(), null);
             return;
         }
         listener.onStreamMenuItem(entry.item);

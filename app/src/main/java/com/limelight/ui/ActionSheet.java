@@ -28,6 +28,7 @@ public final class ActionSheet extends BottomSheetDialog {
     private final boolean television;
     private MaterialButton firstAction;
     private Runnable backHandler;
+    private Runnable onClosed;
     // Enabled only while a page is shown, so Back returns to the page before instead of closing.
     private final OnBackPressedCallback pageBack = new OnBackPressedCallback(false) {
         @Override public void handleOnBackPressed() {
@@ -259,10 +260,7 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     private void claimFirstAction(MaterialButton button) {
-        if (television) {
-            button.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.card_stroke));
-            button.setStateListAnimator(android.animation.AnimatorInflater.loadStateListAnimator(getContext(), R.animator.tv_control_focus));
-        }
+        styleRow(button);
         if (firstAction == null) {
             firstAction = button;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) button.setFocusedByDefault(true);
@@ -270,13 +268,92 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     public void addSection(int title) {
+        content.addView(sectionHeading(title));
+    }
+
+    private TextView sectionHeading(int title) {
         TextView heading = new TextView(getContext());
         heading.setText(title);
         heading.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Label);
         heading.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
         heading.setPadding(spacing, spacing * 2, spacing, spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
-        content.addView(heading);
+        return heading;
+    }
+
+    public int spacing() {
+        return spacing;
+    }
+
+    /**
+     * A vertical box in the sheet that a page can fill and refill by itself, for rows that change while
+     * the sheet is open. Its rows come from the {@code ViewGroup} variants below.
+     */
+    public LinearLayout addGroup() {
+        LinearLayout group = new LinearLayout(getContext());
+        group.setOrientation(LinearLayout.VERTICAL);
+        if (television) group.setClipChildren(false);
+        content.addView(group, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        return group;
+    }
+
+    public void addSection(android.view.ViewGroup parent, int title) {
+        parent.addView(sectionHeading(title));
+    }
+
+    public MaterialButton addAction(android.view.ViewGroup parent, int icon, CharSequence label) {
+        return addAction(parent, icon, label, com.google.android.material.R.attr.colorOnSurface,
+                com.google.android.material.R.attr.colorOnSurfaceVariant);
+    }
+
+    /** Text under a row, or on its own: quiet, or in the error colour. */
+    public TextView addNote(android.view.ViewGroup parent, CharSequence text, boolean error) {
+        TextView note = new TextView(getContext());
+        note.setText(text);
+        note.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Supporting);
+        note.setTextColor(MaterialColors.getColor(getContext(), error ?
+                androidx.appcompat.R.attr.colorError : com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
+        note.setPadding(spacing, 0, spacing, spacing);
+        parent.addView(note, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        return note;
+    }
+
+    public void addInfo(CharSequence label, CharSequence value) {
+        addInfo(content, label, value);
+    }
+
+    /** A fact with its label at the start and its value at the end. */
+    public void addInfo(android.view.ViewGroup parent, CharSequence label, CharSequence value) {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(spacing, spacing / 2, spacing, spacing / 2);
+        TextView name = new TextView(getContext());
+        name.setText(label);
+        name.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Supporting);
+        name.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
+        TextView text = new TextView(getContext());
+        text.setText(value);
+        text.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Body);
+        text.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurface, 0));
+        text.setGravity(Gravity.END);
+        row.addView(name, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        valueParams.setMarginStart(spacing * 2);
+        row.addView(text, valueParams);
+        row.setContentDescription(label + ": " + value);
+        parent.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+    }
+
+    /** The TV focus look of a row, for rows a page adds itself. */
+    public void styleRow(MaterialButton button) {
+        if (television) {
+            button.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.card_stroke));
+            button.setStateListAnimator(android.animation.AnimatorInflater.loadStateListAnimator(getContext(), R.animator.tv_control_focus));
+        }
     }
 
     public MaterialButton addAction(int icon, CharSequence label) {
@@ -311,6 +388,10 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     private MaterialButton addAction(int icon, CharSequence label, int textColor, int iconColor) {
+        return addAction(content, icon, label, textColor, iconColor);
+    }
+
+    private MaterialButton addAction(android.view.ViewGroup parent, int icon, CharSequence label, int textColor, int iconColor) {
         MaterialButton button = new MaterialButton(getContext(), null, androidx.appcompat.R.attr.borderlessButtonStyle);
         button.setText(label);
         button.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Body);
@@ -325,9 +406,13 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setIconTint(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(getContext(), iconColor, 0)));
         button.setIconPadding(spacing * 2);
         button.setIconSize(spacing * 3);
-        content.addView(button, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+        parent.addView(button, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
-        claimFirstAction(button);
+        if (parent == content) {
+            claimFirstAction(button);
+        } else {
+            styleRow(button);
+        }
         return button;
     }
 
@@ -378,6 +463,17 @@ public final class ActionSheet extends BottomSheetDialog {
                     AppTheme.outlineOnBlack(getContext(), view.getBackground()));
         }
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
+    }
+
+    /** Runs when the sheet closes, however it closes; a page that polls the host stops there. */
+    public void setOnClosed(Runnable onClosed) {
+        this.onClosed = onClosed;
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (onClosed != null) onClosed.run();
     }
 
     @Override

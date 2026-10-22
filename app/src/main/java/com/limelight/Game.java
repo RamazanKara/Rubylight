@@ -2197,6 +2197,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     protected void onDestroy() {
+        if (nativeMenuThread != null) nativeMenuThread.shutdownNow();
         stopConnection();
         if (externalPresentation != null) {
             externalPresentation.setOnDismissListener(null);
@@ -2451,8 +2452,36 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         restoreInputAfterMenu = grabbedInput;
         // Whoever opens the menu knows how; the first-stream hint has done its job.
         dismissStreamMenuHint(true);
-        streamMenuSheet = new com.limelight.ui.StreamMenu(this, this::streamMenuOptions, this::onStreamMenuItem);
+        streamMenuSheet = new com.limelight.ui.StreamMenu(this, this::streamMenuOptions, this::onStreamMenuItem,
+                nativeMenuController());
         showStreamDialog(streamMenuSheet.sheet());
+    }
+
+    private com.limelight.console.NativeMenuController nativeMenuController;
+    private java.util.concurrent.ScheduledExecutorService nativeMenuThread;
+
+    // The Radeon panel's reads and writes: one background thread, never the render, decode or input threads.
+    private com.limelight.console.NativeMenuController nativeMenuController() {
+        if (conn == null || !conn.hasNativeSessionActions() || app.getRole() != NvApp.Role.STREAM) {
+            return null;
+        }
+        if (nativeMenuController == null) {
+            nativeMenuThread = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(task -> {
+                Thread thread = new Thread(task, "Native menu");
+                thread.setDaemon(true);
+                return thread;
+            });
+            Handler main = new Handler(Looper.getMainLooper());
+            nativeMenuController = new com.limelight.console.NativeMenuController(conn::nativeApiClient,
+                    (task, delayMs) -> {
+                        try {
+                            nativeMenuThread.schedule(task, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+                        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                            // The stream is over.
+                        }
+                    }, main::post);
+        }
+        return nativeMenuController;
     }
 
     // What the stream menu offers right now. Host features and permissions decide the rest.
@@ -2477,7 +2506,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.automaticQuality = supportsAdaptiveQuality();
         options.automaticBitrateOn = isAdaptiveBitrateEnabled();
         options.webUiAddress = hostWebUiUrl() != null;
+        options.connection = connectionInfo();
         return options;
+    }
+
+    // What the native page says about the stream; values the stream already holds, nothing read from the network.
+    private com.limelight.console.ConnectionInfo connectionInfo() {
+        if (decoderRenderer == null || prefConfig == null) return null;
+        ComputerDetails details = conn.getHostDetails();
+        return new com.limelight.console.ConnectionInfo(details.name, decoderRenderer.getActiveVideoFormat(),
+                prefConfig.width, prefConfig.height, prefConfig.fps, currentBitrate == 0 ? prefConfig.bitrate : currentBitrate,
+                wifiDiagnostics != null ? wifiDiagnostics.latest() : null,
+                com.limelight.console.ConnectionInfo.rttMs(MoonBridge.getEstimatedRttInfo()));
     }
 
     private void onStreamMenuItem(com.limelight.ui.StreamMenu.Item item) {

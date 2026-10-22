@@ -1262,6 +1262,17 @@ public class NvConnection {
         }, "Native capabilities").start();
     }
 
+    /**
+     * A native API client for the stream menu's Radeon panel, or null when this host or stream has no
+     * native API. Its calls block: run them off the render, decode and input threads.
+     */
+    public NativeApiClient nativeApiClient() {
+        if (isMonkey || context.streamConfig.getApp().getRole() != NvApp.Role.STREAM || !hasNativeSessionActions()) {
+            return null;
+        }
+        return nativeClient();
+    }
+
     private NativeApiClient nativeClient() {
         HostEndpoint endpoint = HostEndpoint.of(hostDetails.uuid, context.serverAddress, context.httpsPort,
                 context.serverCert, uniqueId, cryptoProvider);

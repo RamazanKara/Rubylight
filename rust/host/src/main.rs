@@ -104,12 +104,18 @@ struct Args {
     playnite_install: Option<Vec<PathBuf>>,
     #[arg(long, hide = true, value_name = "TARGET")]
     playnite_uninstall: Option<PathBuf>,
+    /// One Radeon read or write in a fresh process: stdin carries the request, stdout the answer.
+    #[arg(long, hide = true)]
+    radeon_helper: bool,
 }
 fn main() -> Result<()> {
     butterpollo_windows::capture::enable_dpi_awareness();
     let args = Args::parse();
     if args.crash_reporter {
         return butterpollo_windows::crash::reporter();
+    }
+    if args.radeon_helper {
+        std::process::exit(butterpollo_windows::radeon::helper::run());
     }
     if let Some(paths) = &args.playnite_install {
         std::process::exit(playnite::helper_exit_code(&playnite::install_worker(
@@ -312,19 +318,14 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "the previous host stopped during a session; it was cleared"
         );
     }
-    // Radeon settings a crashed run left changed go back before the first stream. With no
-    // journal this does not touch ADLX.
-    match butterpollo_windows::radeon::recover_on_startup(&h.directory) {
-        Ok(report) if report.outcomes.is_empty() => {}
-        Ok(report) => tracing::info!(
-            restored = report.outcomes.len(),
-            failed = report.failed().count(),
-            "Radeon settings from an interrupted session were recovered"
-        ),
-        Err(error) => tracing::error!(
-            error = format!("{error:#}"),
-            "Radeon settings from an interrupted session could not be recovered; they stay in the journal"
-        ),
+    // Radeon settings a crashed run left changed are put back by the Radeon worker thread, which
+    // owns every later Radeon write too and queues them behind the recovery. Startup does not
+    // wait for it, and with no journal it never touches ADLX. The worker logs failures and retries.
+    if let Err(error) = butterpollo_windows::radeon::worker::start_host(&h.directory) {
+        tracing::error!(
+            error = %error,
+            "the Radeon worker could not start; settings from an interrupted session stay in the journal"
+        );
     }
     // The service's keys: SYSTEM and Administrators only, also after a
     // profile was copied in or restored from a backup.

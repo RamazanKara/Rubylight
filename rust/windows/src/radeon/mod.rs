@@ -11,8 +11,10 @@ pub mod adlx;
 pub mod control;
 #[cfg(test)]
 mod hardware;
+pub mod helper;
 pub mod model;
 pub mod owner;
+pub mod worker;
 
 pub use adlx::{AdlxBackend, AdlxInfo, DriverInfo, GpuReport, Probe, probe};
 pub use control::{
@@ -21,24 +23,36 @@ pub use control::{
 };
 pub use model::{Kind, Setting, State, Writable};
 
-/// Put back any setting a crashed session left changed. The host calls this once at startup,
-/// before it accepts a stream; a failure is returned so the host can log it loudly.
-pub fn recover_on_startup(directory: &std::path::Path) -> anyhow::Result<RestoreReport> {
-    Controller::new(AdlxBackend, directory.join(control::JOURNAL_FILE)).recover_on_startup()
-}
-
 use serde::Serialize;
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn startup_recovery_with_no_journal_does_nothing_and_needs_no_adlx() {
-        let dir = std::env::temp_dir().join(format!("radeon-startup-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let report = super::recover_on_startup(&dir).unwrap();
-        assert!(report.outcomes.is_empty());
-        assert!(!dir.join(super::control::JOURNAL_FILE).exists());
-        std::fs::remove_dir_all(&dir).unwrap();
+        use super::{control::JOURNAL_FILE, worker::*};
+        struct NoDriver;
+        impl super::RadeonBackend for NoDriver {
+            fn read(&mut self, _: i32) -> Result<Vec<super::Setting>, super::BackendError> {
+                panic!("an empty journal needs no driver read")
+            }
+            fn write(
+                &mut self,
+                _: i32,
+                _: &str,
+                _: &super::model::Value,
+            ) -> Result<(), super::BackendError> {
+                panic!("an empty journal needs no driver write")
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let worker = Worker::start(NoDriver, dir.path().join(JOURNAL_FILE), Timing::default());
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while worker.status().phase == Phase::Recovering {
+            assert!(std::time::Instant::now() < end, "the recovery never ended");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(worker.status().phase, Phase::Ready);
+        assert!(!dir.path().join(JOURNAL_FILE).exists());
     }
 }
 

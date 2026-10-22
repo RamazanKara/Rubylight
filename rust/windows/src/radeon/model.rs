@@ -6,8 +6,23 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// A name read back from the helper process, as a `&'static str`. The set of setting ids, groups
+/// and labels is fixed by the code that builds them, so the pool stays small: each distinct name
+/// is leaked once.
+fn intern(text: &str) -> &'static str {
+    use std::{collections::BTreeSet, sync::Mutex};
+    static POOL: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
+    let mut pool = POOL.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(known) = pool.get(text) {
+        return known;
+    }
+    let leaked: &'static str = Box::leak(text.to_owned().into_boxed_str());
+    pool.insert(leaked);
+    leaked
+}
+
 /// The five states of plan decision 5, as named in `docs/native-api.md`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
     Configurable,
@@ -28,7 +43,7 @@ impl State {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     Toggle,
@@ -38,7 +53,7 @@ pub enum Kind {
 }
 
 /// Whether the setting can be written, decided without writing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Writable {
     /// ADLX reports the feature supported and, for integers, a usable range. The driver's
@@ -68,7 +83,7 @@ impl Value {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Range {
     pub min: i64,
     pub max: i64,
@@ -81,7 +96,7 @@ impl Range {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChoiceOption {
     pub value: String,
     pub raw: i32,
@@ -263,7 +278,7 @@ pub struct GroupRaw {
     pub fields: Vec<FieldRaw>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Relation {
     /// Cannot be on at the same time as the other.
@@ -280,6 +295,30 @@ pub struct Dependency {
     /// Whether the other feature is on right now, when the probe could tell.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<bool>,
+}
+/// `Dependency` as it comes back from the helper process, with owned text.
+impl<'de> Deserialize<'de> for Dependency {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        DependencyWire::deserialize(d).map(Self::from)
+    }
+}
+#[derive(Deserialize)]
+struct DependencyWire {
+    group: String,
+    relation: Relation,
+    note: String,
+    #[serde(default)]
+    active: Option<bool>,
+}
+impl From<DependencyWire> for Dependency {
+    fn from(wire: DependencyWire) -> Self {
+        Self {
+            group: intern(&wire.group),
+            relation: wire.relation,
+            note: intern(&wire.note),
+            active: wire.active,
+        }
+    }
 }
 
 /// From the "cannot be simultaneously enabled with" and "requires" sentences in I3DSettings*.h.
@@ -413,6 +452,63 @@ pub struct Setting {
     pub notes: Vec<String>,
     /// What ADLX answered to each call, for the record.
     pub adlx: BTreeMap<&'static str, String>,
+}
+/// `Setting` as it comes back from the helper process, with owned text. (A derived `Deserialize`
+/// on the `&'static str` fields would demand `'de: 'static`.)
+impl<'de> Deserialize<'de> for Setting {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        SettingWire::deserialize(d).map(Self::from)
+    }
+}
+#[derive(Deserialize)]
+struct SettingWire {
+    id: String,
+    group: String,
+    label: String,
+    interface: String,
+    kind: Kind,
+    state: State,
+    supported: Option<bool>,
+    readable: Option<bool>,
+    writable: Writable,
+    #[serde(default)]
+    value: Option<Value>,
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    range: Option<Range>,
+    #[serde(default)]
+    options: Vec<ChoiceOption>,
+    #[serde(default)]
+    depends: Vec<DependencyWire>,
+    notes: Vec<String>,
+    adlx: BTreeMap<String, String>,
+}
+impl From<SettingWire> for Setting {
+    fn from(wire: SettingWire) -> Self {
+        Self {
+            id: intern(&wire.id),
+            group: intern(&wire.group),
+            label: intern(&wire.label),
+            interface: intern(&wire.interface),
+            kind: wire.kind,
+            state: wire.state,
+            supported: wire.supported,
+            readable: wire.readable,
+            writable: wire.writable,
+            value: wire.value,
+            unit: wire.unit.as_deref().map(intern),
+            range: wire.range,
+            options: wire.options,
+            depends: wire.depends.into_iter().map(Dependency::from).collect(),
+            notes: wire.notes,
+            adlx: wire
+                .adlx
+                .into_iter()
+                .map(|(key, value)| (intern(&key), value))
+                .collect(),
+        }
+    }
 }
 
 fn answer<T>(query: &Query<T>) -> String {

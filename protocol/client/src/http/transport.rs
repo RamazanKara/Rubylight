@@ -162,7 +162,26 @@ pub(crate) fn get(request: &Request<'_>, cancel: &Cancel) -> Result<Response, Er
     send(request, cancel, None)
 }
 
-pub(crate) fn send(request: &Request<'_>, cancel: &Cancel, body: Option<&[u8]>) -> Result<Response, Error> {
+/// A POST body and its media type.
+#[derive(Clone, Copy)]
+pub(crate) struct Body<'a> {
+    pub bytes: &'a [u8],
+    pub content_type: &'static str,
+}
+
+impl<'a> Body<'a> {
+    /// The clipboard and the other classic actions send plain text.
+    pub fn text(bytes: &'a [u8]) -> Self {
+        Self { bytes, content_type: "text/plain; charset=utf-8" }
+    }
+
+    /// The native API.
+    pub fn json(bytes: &'a [u8]) -> Self {
+        Self { bytes, content_type: "application/json" }
+    }
+}
+
+pub(crate) fn send(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>) -> Result<Response, Error> {
     send_inner(request, cancel, body, None, &mut |_, _, _| Ok(()))
 }
 
@@ -172,7 +191,7 @@ pub(crate) fn probe(request: &Request<'_>, cancel: &Cancel, timeout: Duration, h
     send_inner(request, cancel, None, Some(timeout), headers)
 }
 
-fn send_inner(request: &Request<'_>, cancel: &Cancel, body: Option<&[u8]>, timeout: Option<Duration>, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
+fn send_inner(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>, timeout: Option<Duration>, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
@@ -201,7 +220,7 @@ fn connect(host: &Host, port: u16, timeout: Duration) -> Result<TcpStream, Error
     ))
 }
 
-fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<&[u8]>, headers: &mut HeaderHook<'_>, deadline: Option<std::time::Instant>) -> Result<Response, Error> {
+fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<Body<'_>>, headers: &mut HeaderHook<'_>, deadline: Option<std::time::Instant>) -> Result<Response, Error> {
     let peer = tcp.peer_addr()?;
     let mut headers = |status, fields: &[(String, String)]| headers(status, fields, peer);
     tcp.set_read_timeout(request.timeouts.read)?;
@@ -217,14 +236,14 @@ fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<&[u8]>, headers:
         request.port
     );
     if let Some(body) = body {
-        head.push_str(&format!("Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n", body.len()));
+        head.push_str(&format!("Content-Type: {}\r\nContent-Length: {}\r\n", body.content_type, body.bytes.len()));
     }
     head.push_str("\r\n");
     match &request.tls {
         None => {
             let mut tcp = tcp;
             tcp.write_all(head.as_bytes())?;
-            if let Some(body) = body { tcp.write_all(body)?; }
+            if let Some(body) = body { tcp.write_all(body.bytes)?; }
             read_response_with_headers(&mut tcp, request.body_limit, &mut headers)
         }
         Some(config) => {
@@ -240,7 +259,7 @@ fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<&[u8]>, headers:
                     .map_err(io_tls_error)?;
             }
             stream.write_all(head.as_bytes()).map_err(io_tls_error)?;
-            if let Some(body) = body { stream.write_all(body).map_err(io_tls_error)?; }
+            if let Some(body) = body { stream.write_all(body.bytes).map_err(io_tls_error)?; }
             stream.flush().map_err(io_tls_error)?;
             read_response_with_headers(&mut stream, request.body_limit, &mut headers)
         }

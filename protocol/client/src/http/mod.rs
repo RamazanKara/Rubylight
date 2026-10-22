@@ -12,6 +12,7 @@ mod crypto;
 mod der;
 mod identity;
 mod launch;
+mod native;
 mod pairing;
 pub mod pace;
 mod probe;
@@ -32,6 +33,9 @@ pub use launch::{
 };
 pub use pairing::{PairFailure, PairResult, PairStep};
 pub use serverinfo::ServerInfo;
+
+/// The Rubylight native API v1 wire types, for callers of the `HostClient` native methods.
+pub use rubylight_native_api as native_api;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -62,6 +66,12 @@ pub enum Error {
     },
     /// HTTP 404.
     NotFound(String),
+    /// A non-2xx answer from the native API, with the host's error body. `status` is the HTTP
+    /// status, which an `ErrorCode::Unknown` from a newer host is handled by.
+    Api {
+        status: u16,
+        error: native_api::error::ApiError,
+    },
     Malformed(String),
     /// HTTPS needs the host certificate from pairing.
     NotPaired,
@@ -79,6 +89,7 @@ impl std::fmt::Display for Error {
             Error::CertificateMismatch => f.write_str("Server certificate mismatch"),
             Error::Status { code, message } => write!(f, "host error {code}: {message}"),
             Error::NotFound(url) => write!(f, "not found: {url}"),
+            Error::Api { error, .. } => f.write_str(&error.message),
             Error::Malformed(e) => f.write_str(e),
             Error::NotPaired => f.write_str("the host is not paired"),
             Error::InvalidIdentity(e) => write!(f, "invalid client identity: {e}"),
@@ -521,7 +532,7 @@ impl HostClient {
                 body_limit: MAX_CLIPBOARD_BYTES,
             },
             &self.cancel,
-            text.map(str::as_bytes),
+            text.map(|text| transport::Body::text(text.as_bytes())),
         )?;
         if !(200..=299).contains(&response.status) {
             return Err(Error::Status { code: i32::from(response.status), message: response.reason });

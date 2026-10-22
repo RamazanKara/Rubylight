@@ -1,0 +1,758 @@
+//! Native API v1 projections: the host's state turned into the types of
+//! [`crate::native_api`].
+//!
+//! Pure functions over plain inputs, so the rules are tested here and the
+//! host's handlers only gather the facts. See `docs/native-api.md`.
+use std::collections::BTreeSet;
+
+use serde_json::Value;
+
+use crate::library::Source;
+use crate::native_api::error::ErrorCode;
+use crate::native_api::library::{Artwork, Game, Library, Store};
+use crate::native_api::session::{Action, ActionId, Owner, Session, SessionApp, State};
+use crate::remote;
+use crate::state::{App, Client};
+
+/// List apps, the same bits as `authenticated()` checks in `nvhttp.rs`.
+pub const LIST: u32 = 1 << 24;
+pub const VIEW: u32 = 1 << 25;
+pub const LAUNCH: u32 = 1 << 26;
+
+/// The games the host's last launcher scan found installed, by `game_id`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Scan {
+    installed: BTreeSet<String>,
+}
+impl Scan {
+    pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
+        Self {
+            installed: game_ids.into_iter().collect(),
+        }
+    }
+    pub fn from_games(games: &[crate::library::Game]) -> Self {
+        Self::new(
+            games
+                .iter()
+                .map(|game| format!("{}:{}", game.source.key(), game.id)),
+        )
+    }
+    pub fn contains(&self, game_id: &str) -> bool {
+        self.installed.contains(game_id)
+    }
+}
+
+/// The store an app belongs to and its `<source>:<id>` key, from
+/// `launcher-source` and `launcher-id`, or `steam-id` for Steam apps.
+fn store_of(app: &App) -> Option<(Store, String)> {
+    fn text<'a>(app: &'a App, key: &str) -> Option<&'a str> {
+        app.extra
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+    }
+    if let (Some(source), Some(id)) = (text(app, "launcher-source"), text(app, "launcher-id")) {
+        let name = Source::ALL
+            .into_iter()
+            .find(|candidate| candidate.key() == source)
+            .map_or_else(|| source.to_owned(), |known| known.name().to_owned());
+        return Some((
+            Store {
+                source: source.into(),
+                id: id.into(),
+                name,
+            },
+            format!("{source}:{id}"),
+        ));
+    }
+    let mut keys = serde_json::Map::new();
+    for key in ["steam-id", "uuid"] {
+        if let Some(value) = app.extra.get(key) {
+            keys.insert(key.into(), value.clone());
+        }
+    }
+    let id = crate::steam::app_id_of(&Value::Object(keys))?.to_string();
+    Some((
+        Store {
+            source: Source::Steam.key().into(),
+            name: Source::Steam.name().into(),
+            id: id.clone(),
+        },
+        format!("steam:{id}"),
+    ))
+}
+
+/// The app's `uuid` from `apps.json`. An app without one gets a v5 UUID of its
+/// name, which is stable until the app is renamed.
+pub fn install_id(app: &App) -> String {
+    match app.extra.get("uuid").and_then(Value::as_str) {
+        Some(uuid) if !uuid.is_empty() => uuid.into(),
+        _ => uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_URL,
+            format!("rubylight:app:{}", app.name).as_bytes(),
+        )
+        .to_string(),
+    }
+}
+
+fn hash(bytes: &[u8]) -> String {
+    format!("{:08x}", crc32fast::hash(bytes))
+}
+
+/// [`library_with`] with the app's `image-path` as the cover fingerprint.
+pub fn library(apps: &[App], scan: Option<&Scan>, current: Option<u32>) -> Library {
+    library_with(apps, scan, current, |app| {
+        app.extra
+            .get("image-path")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    })
+}
+
+/// The host's configured apps in console order, without the synthetic Remote
+/// session tiles. `scan` is the cached launcher scan (`None` before the first
+/// one), `current` the id of the host's current game. `cover` returns what
+/// identifies the cover image file, such as its path, size and mtime: the
+/// artwork `version` changes when it does.
+pub fn library_with(
+    apps: &[App],
+    scan: Option<&Scan>,
+    current: Option<u32>,
+    cover: impl Fn(&App) -> String,
+) -> Library {
+    let mut games = Vec::with_capacity(apps.len());
+    for app in apps {
+        let install_id = install_id(app);
+        let id = app.id();
+        if remote::identify(id, &install_id).is_some() {
+            continue;
+        }
+        let (store, game_id) = match store_of(app) {
+            Some((store, game_id)) => (Some(store), Some(game_id)),
+            None => (None, None),
+        };
+        let installed = match (&game_id, scan) {
+            (Some(game_id), Some(scan)) => Some(scan.contains(game_id)),
+            _ => None,
+        };
+        games.push(Game {
+            install_id,
+            app_id: id,
+            title: app.name.clone(),
+            game_id,
+            store,
+            installed,
+            running: false,
+            artwork: Artwork {
+                cover: Some(format!("/appasset?appid={id}&AssetType=2&AssetIdx=0")),
+                version: hash(cover(app).as_bytes()),
+            },
+        });
+    }
+    // The revision leaves `running` out, so starting a game doesn't make
+    // every client refetch the covers.
+    let revision = hash(&serde_json::to_vec(&games).unwrap_or_default());
+    for game in &mut games {
+        game.running = current == Some(game.app_id);
+    }
+    Library { revision, games }
+}
+
+/// Whether a stream is flowing, being torn down or absent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StreamPhase {
+    #[default]
+    None,
+    /// An active `Role::Stream` session that is not `stopping()`.
+    Active,
+    Stopping,
+}
+
+/// What the host knows about the session right now. The host fills it from
+/// its launch state, stream sessions, `current_app` and `app_display`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionSnapshot {
+    pub revision: u64,
+    /// A launch was accepted and has not finished starting.
+    pub pending_launch: bool,
+    /// The app process exists, so a pending launch is `launching`.
+    pub app_started: bool,
+    pub stream: StreamPhase,
+    /// There is a running `current_app`, whoever owns it.
+    pub game_running: bool,
+    /// The owner's display is still retained in `app_display`.
+    pub display_retained: bool,
+    /// The uuid of the device that owns the pending launch, the stream or the
+    /// current game.
+    pub owner: Option<String>,
+    pub app: Option<SessionApp>,
+    pub since_unix_ms: Option<u64>,
+    pub suspended_until_unix_ms: Option<u64>,
+}
+impl SessionSnapshot {
+    /// The pre-A4 derivation: a pending launch is `preparing` (`launching`
+    /// once the app process exists), an active stream is `streaming`, a
+    /// stopping one `stopping`, a running game whose owner's display is
+    /// retained is `suspended`, and anything else is `idle`.
+    pub fn state(&self) -> State {
+        if self.pending_launch {
+            if self.app_started {
+                State::Launching
+            } else {
+                State::Preparing
+            }
+        } else {
+            match self.stream {
+                StreamPhase::Active => State::Streaming,
+                StreamPhase::Stopping => State::Stopping,
+                StreamPhase::None if self.game_running && self.display_retained => State::Suspended,
+                StreamPhase::None => State::Idle,
+            }
+        }
+    }
+}
+
+/// Whether the administrator granted this device Host control. It is a
+/// separate key in the client's `extra`, not a `perm` bit, so an all-ones
+/// permission value can't switch it on. Only `true` and `"true"` count.
+pub fn host_control(client: &Client) -> bool {
+    client.enabled
+        && client
+            .extra
+            .get("host_control")
+            .is_some_and(|value| value == true || value == "true")
+}
+
+/// The session as `caller` may see it, with the actions it may run.
+pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
+    let state = snapshot.state();
+    let idle = state == State::Idle;
+    let owns = !idle && snapshot.owner.as_deref() == Some(caller.uuid.as_str());
+    let owner = if idle {
+        Owner::None
+    } else if owns {
+        Owner::You
+    } else {
+        Owner::OtherDevice
+    };
+    let can_see = caller.allows(VIEW) || caller.allows(LAUNCH);
+    let details = owns && can_see;
+    let host_control = host_control(caller);
+    let reason = |id: ActionId| -> Option<ErrorCode> {
+        // Another device's session is refused whatever the permissions.
+        if !idle && !owns {
+            return Some(ErrorCode::NotSessionOwner);
+        }
+        match id {
+            ActionId::Resume => {
+                if !caller.allows(VIEW) {
+                    return Some(ErrorCode::PermissionRequired);
+                }
+                match state {
+                    State::Suspended => None,
+                    State::Idle => Some(ErrorCode::NoSession),
+                    State::Preparing | State::Launching | State::Stopping => {
+                        Some(ErrorCode::SessionBusy)
+                    }
+                    // Already attached: nothing to say.
+                    State::Streaming | State::Unknown => None,
+                }
+            }
+            ActionId::Disconnect => {
+                if !can_see {
+                    return Some(ErrorCode::PermissionRequired);
+                }
+                match state {
+                    State::Streaming => None,
+                    State::Idle => Some(ErrorCode::NoSession),
+                    _ => Some(ErrorCode::NotStreaming),
+                }
+            }
+            ActionId::End => {
+                if !caller.allows(LAUNCH) {
+                    return Some(ErrorCode::PermissionRequired);
+                }
+                idle.then_some(ErrorCode::NoSession)
+            }
+            ActionId::CloseGame => {
+                if !caller.allows(LAUNCH) {
+                    return Some(ErrorCode::PermissionRequired);
+                }
+                if !host_control {
+                    return Some(ErrorCode::HostControlRequired);
+                }
+                // With no session, it closes a game End session left behind.
+                (idle && !snapshot.game_running).then_some(ErrorCode::NoSession)
+            }
+            ActionId::Unknown => Some(ErrorCode::Internal),
+        }
+    };
+    let actions = [
+        ActionId::Resume,
+        ActionId::Disconnect,
+        ActionId::End,
+        ActionId::CloseGame,
+    ]
+    .into_iter()
+    .map(|id| {
+        let reason = reason(id);
+        // Resume while streaming is refused without a reason: the stream
+        // is already up.
+        let allowed = reason.is_none() && !(id == ActionId::Resume && state != State::Suspended);
+        Action {
+            id,
+            allowed,
+            reason: if allowed { None } else { reason },
+        }
+    })
+    .collect();
+    Session {
+        revision: snapshot.revision,
+        state,
+        owner,
+        app: snapshot.app.clone().filter(|_| details),
+        game_running: snapshot.game_running,
+        since_unix_ms: snapshot.since_unix_ms.filter(|_| details),
+        suspended_until_unix_ms: snapshot
+            .suspended_until_unix_ms
+            .filter(|_| details && state == State::Suspended),
+        actions,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn app(value: Value) -> App {
+        serde_json::from_value(value).unwrap()
+    }
+    fn client(perm: u32, extra: Value) -> Client {
+        let mut client = json!({"name": "Phone", "cert": "", "uuid": "me", "perm": perm});
+        client
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(client).unwrap()
+    }
+    fn dota() -> App {
+        app(json!({
+            "name": "Dota 2", "uuid": "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f",
+            "launcher-source": "steam", "launcher-id": "570", "image-path": "dota.png"
+        }))
+    }
+    fn game(id: u32) -> SessionApp {
+        SessionApp {
+            install_id: "c6f1a9a4".into(),
+            app_id: id,
+            title: "Dota 2".into(),
+        }
+    }
+    fn snapshot(stream: StreamPhase, owner: &str) -> SessionSnapshot {
+        SessionSnapshot {
+            revision: 9,
+            stream,
+            game_running: true,
+            owner: Some(owner.into()),
+            app: Some(game(5)),
+            since_unix_ms: Some(10),
+            suspended_until_unix_ms: Some(20),
+            ..Default::default()
+        }
+    }
+    fn suspended(owner: &str) -> SessionSnapshot {
+        SessionSnapshot {
+            display_retained: true,
+            ..snapshot(StreamPhase::None, owner)
+        }
+    }
+    fn allowed(session: &Session, id: ActionId) -> bool {
+        session.actions.iter().find(|a| a.id == id).unwrap().allowed
+    }
+    fn reason(session: &Session, id: ActionId) -> Option<ErrorCode> {
+        session.actions.iter().find(|a| a.id == id).unwrap().reason
+    }
+    const ALL: u32 = LIST | VIEW | LAUNCH;
+
+    #[test]
+    fn library_ids_and_store() {
+        let library = library(&[dota()], None, None);
+        let game = &library.games[0];
+        assert_eq!(game.install_id, "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f");
+        assert_eq!(game.title, "Dota 2");
+        assert_eq!(game.game_id.as_deref(), Some("steam:570"));
+        let store = game.store.as_ref().unwrap();
+        assert_eq!(
+            (
+                store.source.as_str(),
+                store.id.as_str(),
+                store.name.as_str()
+            ),
+            ("steam", "570", "Steam")
+        );
+        assert_eq!(game.app_id, dota().id());
+        assert_eq!(
+            game.artwork.cover.as_deref(),
+            Some(format!("/appasset?appid={}&AssetType=2&AssetIdx=0", dota().id()).as_str())
+        );
+        assert_eq!(game.installed, None);
+        assert!(!game.running);
+    }
+
+    #[test]
+    fn manual_apps_have_no_game_id_store_or_installed_flag() {
+        let desktop =
+            app(json!({"name": "Desktop", "uuid": "8d4b3f55-0c2e-4f8a-9a61-2f1c6f0e9b17"}));
+        let scan = Scan::new(["steam:570".into()]);
+        let library = library(&[desktop], Some(&scan), None);
+        let game = &library.games[0];
+        assert!(game.game_id.is_none() && game.store.is_none() && game.installed.is_none());
+    }
+
+    #[test]
+    fn installed_comes_from_the_scan() {
+        let gone = app(
+            json!({"name": "Gone", "uuid": "g", "launcher-source": "epic", "launcher-id": "x"}),
+        );
+        let scan = Scan::new(["steam:570".into()]);
+        let library = library(&[dota(), gone], Some(&scan), None);
+        assert_eq!(library.games[0].installed, Some(true));
+        assert_eq!(library.games[1].installed, Some(false));
+        assert_eq!(library.games[1].store.as_ref().unwrap().name, "Epic Games");
+        let none = super::library(&[dota()], None, None);
+        assert_eq!(none.games[0].installed, None);
+    }
+
+    #[test]
+    fn scan_from_discovered_games() {
+        let found = crate::library::Game::new(
+            Source::Gog,
+            "1207658930".into(),
+            "Witcher".into(),
+            std::path::Path::new("C:/GOG/Witcher"),
+            None,
+        );
+        let scan = Scan::from_games(&[found]);
+        assert!(scan.contains("gog:1207658930"));
+        assert!(!scan.contains("gog:1"));
+    }
+
+    #[test]
+    fn steam_apps_without_launcher_keys_use_steam_id() {
+        let steam = app(json!({"name": "Half-Life", "uuid": "x", "steam-id": "70"}));
+        let game = &library(&[steam], None, None).games[0];
+        assert_eq!(game.game_id.as_deref(), Some("steam:70"));
+        assert_eq!(game.store.as_ref().unwrap().source, "steam");
+        let canonical = app(json!({"name": "Dota", "uuid": crate::steam::canonical_uuid(570)}));
+        assert_eq!(
+            library(&[canonical], None, None).games[0]
+                .game_id
+                .as_deref(),
+            Some("steam:570")
+        );
+    }
+
+    #[test]
+    fn running_marks_the_current_game_only() {
+        let other = app(json!({"name": "Other", "uuid": "o"}));
+        let current = dota().id();
+        let library = library(&[dota(), other], None, Some(current));
+        assert!(library.games[0].running);
+        assert!(!library.games[1].running);
+    }
+
+    #[test]
+    fn control_tiles_are_left_out() {
+        let tiles = [
+            app(json!({"name": "Resume", "uuid": "9a1c5a25-58fe-40e0-b9aa-7d3f00000001"})),
+            app(json!({"name": "Terminate", "uuid": "t", "id": 2147483504})),
+        ];
+        let library = library(&[tiles[0].clone(), dota(), tiles[1].clone()], None, None);
+        assert_eq!(library.games.len(), 1);
+        assert_eq!(library.games[0].title, "Dota 2");
+    }
+
+    #[test]
+    fn order_is_the_console_order() {
+        let a = app(json!({"name": "B", "uuid": "1"}));
+        let b = app(json!({"name": "A", "uuid": "2"}));
+        let titles: Vec<_> = library(&[a, b], None, None)
+            .games
+            .into_iter()
+            .map(|g| g.title)
+            .collect();
+        assert_eq!(titles, ["B", "A"]);
+    }
+
+    #[test]
+    fn install_id_survives_a_rename_and_a_missing_uuid_is_derived() {
+        let mut renamed = dota();
+        renamed.name = "Dota 2 (beta)".into();
+        assert_eq!(install_id(&renamed), install_id(&dota()));
+        let bare = app(json!({"name": "Bare"}));
+        assert_eq!(install_id(&bare), install_id(&bare));
+        assert_ne!(
+            install_id(&bare),
+            install_id(&app(json!({"name": "Other"})))
+        );
+    }
+
+    #[test]
+    fn revision_ignores_running_and_follows_everything_else() {
+        let apps = [dota()];
+        let idle = library(&apps, None, None);
+        let running = library(&apps, None, Some(dota().id()));
+        assert_eq!(idle.revision, running.revision);
+        assert_eq!(idle.revision.len(), 8);
+        let mut renamed = dota();
+        renamed.name = "Dota 3".into();
+        assert_ne!(library(&[renamed], None, None).revision, idle.revision);
+        let scan = Scan::new(["steam:570".into()]);
+        assert_ne!(library(&apps, Some(&scan), None).revision, idle.revision);
+    }
+
+    #[test]
+    fn artwork_version_follows_the_cover_fingerprint() {
+        let apps = [dota()];
+        let a = library_with(&apps, None, None, |_| "dota.png|10|1".into());
+        let b = library_with(&apps, None, None, |_| "dota.png|11|1".into());
+        assert_ne!(a.games[0].artwork.version, b.games[0].artwork.version);
+        assert_ne!(a.revision, b.revision);
+    }
+
+    #[test]
+    fn host_control_is_off_unless_true() {
+        assert!(!host_control(&client(u32::MAX, json!({}))));
+        assert!(host_control(&client(0, json!({"host_control": true}))));
+        assert!(host_control(&client(0, json!({"host_control": "true"}))));
+        for value in [
+            json!(false),
+            json!("yes"),
+            json!(1),
+            json!("1"),
+            json!(null),
+            json!(""),
+        ] {
+            assert!(
+                !host_control(&client(u32::MAX, json!({"host_control": value}))),
+                "{value}"
+            );
+        }
+        let mut disabled = client(0, json!({"host_control": true}));
+        disabled.enabled = false;
+        assert!(!host_control(&disabled));
+    }
+
+    #[test]
+    fn the_state_derivation() {
+        let mut s = SessionSnapshot::default();
+        assert_eq!(s.state(), State::Idle);
+        s.pending_launch = true;
+        assert_eq!(s.state(), State::Preparing);
+        s.app_started = true;
+        assert_eq!(s.state(), State::Launching);
+        assert_eq!(
+            snapshot(StreamPhase::Active, "me").state(),
+            State::Streaming
+        );
+        assert_eq!(
+            snapshot(StreamPhase::Stopping, "me").state(),
+            State::Stopping
+        );
+        assert_eq!(suspended("me").state(), State::Suspended);
+        // A game with no retained display, or a display with no game, is idle.
+        assert_eq!(snapshot(StreamPhase::None, "me").state(), State::Idle);
+        let display_only = SessionSnapshot {
+            display_retained: true,
+            ..Default::default()
+        };
+        assert_eq!(display_only.state(), State::Idle);
+    }
+
+    #[test]
+    fn the_spec_example_for_a_suspended_owner() {
+        let session = session_view(&suspended("me"), &client(ALL, json!({})));
+        assert_eq!(session.state, State::Suspended);
+        assert_eq!(session.owner, Owner::You);
+        assert!(session.app.is_some());
+        assert_eq!(session.suspended_until_unix_ms, Some(20));
+        let actions: Vec<_> = session
+            .actions
+            .iter()
+            .map(|a| (a.id, a.allowed, a.reason))
+            .collect();
+        assert_eq!(
+            actions,
+            [
+                (ActionId::Resume, true, None),
+                (ActionId::Disconnect, false, Some(ErrorCode::NotStreaming)),
+                (ActionId::End, true, None),
+                (
+                    ActionId::CloseGame,
+                    false,
+                    Some(ErrorCode::HostControlRequired)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_streaming_owner_can_disconnect_end_and_close_with_host_control() {
+        let caller = client(ALL, json!({"host_control": true}));
+        let session = session_view(&snapshot(StreamPhase::Active, "me"), &caller);
+        assert_eq!(session.state, State::Streaming);
+        assert!(!allowed(&session, ActionId::Resume));
+        assert_eq!(reason(&session, ActionId::Resume), None);
+        for id in [ActionId::Disconnect, ActionId::End, ActionId::CloseGame] {
+            assert!(allowed(&session, id), "{id:?}");
+        }
+        assert_eq!(session.suspended_until_unix_ms, None);
+        assert_eq!(session.since_unix_ms, Some(10));
+    }
+
+    #[test]
+    fn another_device_sees_state_and_owner_only() {
+        let caller = client(ALL, json!({"host_control": true}));
+        for snapshot in [
+            snapshot(StreamPhase::Active, "someone"),
+            suspended("someone"),
+        ] {
+            let session = session_view(&snapshot, &caller);
+            assert_eq!(session.owner, Owner::OtherDevice);
+            assert!(session.app.is_none());
+            assert!(session.since_unix_ms.is_none() && session.suspended_until_unix_ms.is_none());
+            assert!(session.game_running);
+            for action in &session.actions {
+                assert!(!action.allowed, "{:?}", action.id);
+                assert_eq!(action.reason, Some(ErrorCode::NotSessionOwner));
+            }
+        }
+    }
+
+    #[test]
+    fn without_view_or_launch_the_app_is_hidden_and_actions_need_permission() {
+        let caller = client(LIST, json!({"host_control": true}));
+        let session = session_view(&suspended("me"), &caller);
+        assert_eq!(session.owner, Owner::You);
+        assert!(session.app.is_none());
+        for action in &session.actions {
+            assert!(!action.allowed);
+            assert_eq!(
+                action.reason,
+                Some(ErrorCode::PermissionRequired),
+                "{:?}",
+                action.id
+            );
+        }
+        // View alone shows the app and may resume and disconnect, not end.
+        let viewer = client(VIEW, json!({}));
+        let session = session_view(&snapshot(StreamPhase::Active, "me"), &viewer);
+        assert!(session.app.is_some());
+        assert!(allowed(&session, ActionId::Disconnect));
+        assert_eq!(
+            reason(&session, ActionId::End),
+            Some(ErrorCode::PermissionRequired)
+        );
+        assert_eq!(
+            reason(&session, ActionId::CloseGame),
+            Some(ErrorCode::PermissionRequired)
+        );
+    }
+
+    #[test]
+    fn a_disabled_device_may_do_nothing() {
+        let mut caller = client(ALL, json!({"host_control": true}));
+        caller.enabled = false;
+        let session = session_view(&suspended("me"), &caller);
+        assert!(session.app.is_none());
+        assert!(session.actions.iter().all(|a| !a.allowed));
+    }
+
+    #[test]
+    fn idle_has_nothing_to_resume_end_or_disconnect() {
+        let caller = client(ALL, json!({"host_control": true}));
+        let session = session_view(&SessionSnapshot::default(), &caller);
+        assert_eq!(session.state, State::Idle);
+        assert_eq!(session.owner, Owner::None);
+        assert!(session.app.is_none() && !session.game_running);
+        for id in [
+            ActionId::Resume,
+            ActionId::Disconnect,
+            ActionId::End,
+            ActionId::CloseGame,
+        ] {
+            assert!(!allowed(&session, id), "{id:?}");
+            assert_eq!(reason(&session, id), Some(ErrorCode::NoSession), "{id:?}");
+        }
+    }
+
+    #[test]
+    fn close_game_works_without_a_session_when_a_game_is_left_running() {
+        let left = SessionSnapshot {
+            game_running: true,
+            revision: 4,
+            ..Default::default()
+        };
+        let with = client(ALL, json!({"host_control": true}));
+        let session = session_view(&left, &with);
+        assert_eq!(session.state, State::Idle);
+        assert!(session.game_running);
+        assert!(allowed(&session, ActionId::CloseGame));
+        assert!(!allowed(&session, ActionId::End));
+        // Without host control or Launch it stays closed.
+        let session = session_view(&left, &client(ALL, json!({})));
+        assert_eq!(
+            reason(&session, ActionId::CloseGame),
+            Some(ErrorCode::HostControlRequired)
+        );
+        let session = session_view(&left, &client(VIEW, json!({"host_control": true})));
+        assert_eq!(
+            reason(&session, ActionId::CloseGame),
+            Some(ErrorCode::PermissionRequired)
+        );
+    }
+
+    #[test]
+    fn busy_states_allow_end_and_refuse_resume() {
+        let caller = client(ALL, json!({"host_control": true}));
+        let mut preparing = snapshot(StreamPhase::None, "me");
+        preparing.pending_launch = true;
+        let session = session_view(&preparing, &caller);
+        assert_eq!(session.state, State::Preparing);
+        assert!(allowed(&session, ActionId::End));
+        assert_eq!(
+            reason(&session, ActionId::Resume),
+            Some(ErrorCode::SessionBusy)
+        );
+        assert_eq!(
+            reason(&session, ActionId::Disconnect),
+            Some(ErrorCode::NotStreaming)
+        );
+        // Stopping: repeating End is safe, so it stays allowed.
+        let session = session_view(&snapshot(StreamPhase::Stopping, "me"), &caller);
+        assert_eq!(session.state, State::Stopping);
+        assert!(allowed(&session, ActionId::End));
+        assert_eq!(
+            reason(&session, ActionId::Resume),
+            Some(ErrorCode::SessionBusy)
+        );
+    }
+
+    #[test]
+    fn the_session_serialises_like_the_spec_example() {
+        let session = session_view(&suspended("me"), &client(ALL, json!({})));
+        let value = serde_json::to_value(&session).unwrap();
+        assert_eq!(value["state"], "suspended");
+        assert_eq!(value["owner"], "you");
+        assert_eq!(
+            value["actions"][1],
+            json!({"id": "disconnect", "allowed": false, "reason": "not_streaming"})
+        );
+        assert_eq!(
+            value["actions"][0],
+            json!({"id": "resume", "allowed": true})
+        );
+    }
+}

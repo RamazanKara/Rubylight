@@ -319,6 +319,18 @@ fn validate(settings: &[Setting], changes: &[Change]) -> Result<(), WriteError> 
                     )));
                 }
             }
+            // Not measured yet: whether Enhanced Sync switches Wait for Vertical Refresh off (and
+            // what that does to vsync.mode, which has a setter and is journaled, but whose value
+            // after the flip is unknown). Refuse until a hardware run says what happens.
+            if group == "enhanced_sync"
+                && *on
+                && !is_on(settings, id)
+                && is_on(settings, "vsync.enabled")
+            {
+                return Err(invalid(
+                    "vsync is on, and what Enhanced Sync does to it is not measured yet; set vsync.mode to always_off first".into(),
+                ));
+            }
         }
     }
     Ok(())
@@ -420,7 +432,8 @@ impl<B: RadeonBackend> Controller<B> {
         }
         // The partners the driver is expected to switch off go in too. If it does not switch one,
         // the entry is harmless: restore finds it already at its original.
-        for partner in predicted_effects(&before, changes) {
+        let predicted = predicted_effects(&before, changes);
+        for partner in predicted.iter().cloned() {
             journal.record(Entry {
                 gpu,
                 id: partner,
@@ -516,7 +529,33 @@ impl<B: RadeonBackend> Controller<B> {
                 });
             }
         }
-        if effects && let Err(e) = journal.save(&self.journal) {
+        // A predicted partner the driver left alone has no business in the journal: restoring it
+        // later could switch something on that the user has since turned off. An entry that an
+        // earlier request of the journal already held stays.
+        let before_len = journal.entries.len();
+        journal.entries.retain(|e| {
+            let unflipped = predicted.contains(&e.id)
+                && e.gpu == gpu
+                && e.side_effect
+                && find(&after, &e.id).and_then(|s| s.value.as_ref()) == Some(&e.original)
+                && !saved.entries.iter().any(|s| s.gpu == e.gpu && s.id == e.id);
+            !unflipped
+        });
+        let dropped = journal.entries.len() != before_len;
+        let saved_again = if effects || dropped {
+            journal.save(&self.journal)
+        } else {
+            Ok(())
+        };
+        if let Err(e) = &saved_again
+            && !effects
+        {
+            // Only harmless predicted entries stay on disk; nothing needs undoing.
+            tracing::warn!(
+                error = format!("{e:#}"),
+                "drop the predicted Radeon side effects the driver did not make"
+            );
+        } else if let Err(e) = saved_again {
             tracing::error!(
                 error = format!("{e:#}"),
                 "journal the driver's side effects; undoing the request"
@@ -854,15 +893,26 @@ impl<B: RadeonBackend> Controller<B> {
                 .map_err(|e| format!("{id}: {e}"))
         };
         switch(&mut self.backend, toggle, true)?;
-        self.put_back(entry)?;
-        switch(&mut self.backend, toggle, false)?;
-        for partner in partners {
-            let now = self.backend.read_value(gpu, partner).map_err(|e| e.0)?;
-            if now != Value::Bool(true) {
-                switch(&mut self.backend, partner, true)?;
+        let put = self.put_back(entry);
+        // Back to how the feature was whether or not the field went back: a failed put-back must
+        // not leave the feature on.
+        let tail = (|| {
+            switch(&mut self.backend, toggle, false)?;
+            for partner in partners {
+                let now = self.backend.read_value(gpu, partner).map_err(|e| e.0)?;
+                if now != Value::Bool(true) {
+                    switch(&mut self.backend, partner, true)?;
+                }
             }
+            Ok(())
+        })();
+        match (put, tail) {
+            (Ok(()), tail) => tail,
+            (Err(put), Ok(())) => Err(format!("{put}; {toggle} was switched back")),
+            (Err(put), Err(tail)) => Err(format!(
+                "{put}; switching {toggle} back also failed ({tail}), the temporary entries stay journaled"
+            )),
         }
-        Ok(())
     }
 }
 
@@ -1354,6 +1404,7 @@ mod tests {
     #[test]
     fn a_crash_is_recovered_by_a_new_controller_from_the_journal() {
         let fake = panel();
+        fake.0.borrow_mut().excludes = vec![("chill.enabled", "anti_lag.enabled")];
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(JOURNAL_FILE);
         {
@@ -1376,6 +1427,7 @@ mod tests {
         // Both requested changes, and Anti-Lag, which Chill is expected to switch off.
         assert_eq!(report.outcomes.len(), 3);
         assert_eq!(fake.value("chill.enabled"), on(false));
+        assert_eq!(fake.value("anti_lag.enabled"), on(true));
         assert_eq!(fake.value("pacing.limit"), Value::Int(140));
         assert!(restarted.journal().unwrap().entries.is_empty());
     }
@@ -1487,6 +1539,51 @@ mod tests {
         // Chill went back; Anti-Lag already was original and was not written.
         assert_eq!(fake.writes().len(), writes + 1);
         assert!(c.journal().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn a_predicted_partner_the_driver_left_alone_is_dropped_after_the_readback() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        c.apply("s1", 1, &[change("chill.enabled", on(true))])
+            .unwrap();
+        let journal = c.journal().unwrap();
+        assert!(
+            journal.entries.iter().all(|e| e.id != "anti_lag.enabled"),
+            "{:?}",
+            journal.entries
+        );
+        assert!(journal.entries.iter().any(|e| e.id == "chill.enabled"));
+        // A partner the driver did switch stays, with the value to go back to.
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        fake.0.borrow_mut().excludes = vec![("chill.enabled", "anti_lag.enabled")];
+        c.apply("s1", 1, &[change("chill.enabled", on(true))])
+            .unwrap();
+        let journal = c.journal().unwrap();
+        let effect = entry_of(&journal, "anti_lag.enabled");
+        assert_eq!((&effect.original, &effect.written), (&on(true), &on(false)));
+    }
+
+    #[test]
+    fn enhanced_sync_is_refused_while_vsync_is_on() {
+        let mut settings = panel().0.borrow().settings.clone();
+        settings.push(toggle("enhanced_sync.enabled", false));
+        settings.push(read_only("vsync.enabled", on(true)));
+        let fake = Fake::with(settings);
+        let (mut c, _dir) = controller(&fake);
+        let e = c
+            .apply("s1", 1, &[change("enhanced_sync.enabled", on(true))])
+            .unwrap_err();
+        assert_eq!(e.kind, ErrorKind::InvalidValue);
+        assert_eq!(e.id.as_deref(), Some("enhanced_sync.enabled"));
+        assert!(e.message.contains("vsync"), "{e}");
+        assert!(fake.writes().is_empty());
+        assert!(c.journal().unwrap().entries.is_empty());
+        // With vsync off there is nothing for it to switch.
+        fake.set("vsync.enabled", on(false));
+        c.apply("s1", 1, &[change("enhanced_sync.enabled", on(true))])
+            .unwrap();
     }
 
     #[test]
@@ -1636,6 +1733,15 @@ mod tests {
         journal.save(&c.journal).unwrap();
         let report = c.restore(Scope::All).unwrap();
         assert_eq!(report.failed().count(), 1);
+        // The feature the restore switched on is switched back off before it gives up.
+        assert_eq!(fake.value("chill.enabled"), on(false));
+        let RestoreResult::Failed(message) = &report.failed().next().unwrap().result else {
+            unreachable!()
+        };
+        assert!(
+            message.contains("chill.enabled was switched back"),
+            "{message}"
+        );
         let journal = c.journal().unwrap();
         assert!(journal.entries.iter().any(|e| e.id == "chill.enabled"));
         fake.0.borrow_mut().refuse = None;
@@ -1727,11 +1833,14 @@ mod tests {
                 read_only("vsync.enabled", on(true)),
             ])
         };
-        // vsync.enabled follows vsync.mode, which the host can write and restore.
+        // vsync.enabled follows vsync.mode, which the host can write and restore, so the
+        // "cannot restore" refusal does not apply; the unmeasured-vsync one still does.
         let fake = derived(State::Configurable);
         let (mut c, _dir) = controller(&fake);
-        c.apply("s1", 1, &[change("enhanced_sync.enabled", on(true))])
-            .unwrap();
+        let e = c
+            .apply("s1", 1, &[change("enhanced_sync.enabled", on(true))])
+            .unwrap_err();
+        assert!(e.message.contains("not measured"), "{e}");
         let fake = derived(State::ReadOnly);
         let (mut c, _dir) = controller(&fake);
         let e = c

@@ -10,6 +10,7 @@
 //! motion probe's barcode. PyroWave is not supported.
 
 mod decode;
+mod record;
 mod report;
 
 use std::fs::File;
@@ -18,7 +19,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use nightjar_core::control::{ControlEvent, HdrMetadata};
+use nightjar_core::control::{ClientMessage, ControlEvent, HdrMetadata};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{
     self, AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Location,
@@ -28,9 +29,13 @@ use nightjar_core::video::Frame;
 
 use decode::Received;
 use report::{distribution, IdrProbe, Measurements};
+use rubylight_protocol::control::{
+    HostTimingRequest, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE,
+};
 
 const MAX_MEASUREMENTS: usize = 3600 * 240;
 const MAX_IDR_PROBES: i64 = 2000;
+const CLOCK_PROBE_INTERVAL_US: u64 = 250_000;
 const SERVER_CODEC_MODE_SUPPORT: u32 = 0x30301;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -158,6 +163,8 @@ struct State {
     measurements: Mutex<Measurements>,
     probe: Mutex<IdrProbe>,
     audio: Mutex<report::AudioSignal>,
+    /// Host timing reports and clock sync for the timing CSV's host columns; `None` without one.
+    record: Option<Mutex<record::Record>>,
 }
 
 /// The barcode's age in milliseconds, comparable only on the same Windows machine (both
@@ -403,8 +410,7 @@ impl VideoDecoder for Decoder {
             sequence,
         );
         if let Some(csv) = &mut self.timing_csv {
-            let _ = writeln!(
-                csv,
+            let line = format!(
                 "{},{:.6},{:.3},{:.6},{},{},{:.6},{},{},{},{},{}",
                 frame.number,
                 arrival_ms,
@@ -419,6 +425,26 @@ impl VideoDecoder for Decoder {
                 frame.frame_type as i32,
                 data.len()
             );
+            match &state.record {
+                // The host columns wait for the frame's report, which follows its last packet.
+                Some(record) => {
+                    let mut record = lock(record);
+                    let row = record::PendingRow {
+                        number: frame.number,
+                        line,
+                        rtp_timestamp: frame.rtp_timestamp,
+                        clock: record.clock(frame.enqueue_time_us),
+                        due_us: session::now_us() + record::ROW_DELAY_US,
+                    };
+                    record.push(row);
+                    for row in record.take_due(session::now_us()) {
+                        let _ = writeln!(csv, "{row}");
+                    }
+                }
+                None => {
+                    let _ = writeln!(csv, "{line}");
+                }
+            }
         }
         let frames = c.frames.fetch_add(1, Ordering::SeqCst) + 1;
         if frames < 4 {
@@ -435,6 +461,11 @@ impl VideoDecoder for Decoder {
     fn cleanup(&mut self) {
         self.decoder = None;
         if let Some(csv) = &mut self.timing_csv {
+            if let Some(record) = &self.state.record {
+                for row in lock(record).take_due(u64::MAX) {
+                    let _ = writeln!(csv, "{row}");
+                }
+            }
             let _ = csv.flush();
         }
     }
@@ -539,8 +570,23 @@ impl Listener for Events {
     }
 
     fn control_event(&self, event: ControlEvent) {
-        let ControlEvent::HdrMode { enabled, metadata } = event else {
-            return;
+        let (enabled, metadata) = match event {
+            ControlEvent::HdrMode { enabled, metadata } => (enabled, metadata),
+            ControlEvent::HostTiming(records) => {
+                if let Some(record) = &self.state.record {
+                    lock(record).add_reports(records);
+                }
+                return;
+            }
+            ControlEvent::ClockSync { reply, received } => {
+                if let Some(record) = &self.state.record {
+                    lock(record)
+                        .offset
+                        .add(&reply, record::local_us_at(received));
+                }
+                return;
+            }
+            _ => return,
         };
         let c = &self.state.counters;
         let valid = metadata.as_ref().is_some_and(hdr_metadata_valid);
@@ -715,7 +761,7 @@ fn run() -> i32 {
         None => None,
         Some(path) => match File::create(&path) {
             Ok(mut file) => {
-                let _ = writeln!(file, "wire_frame,arrival_ms,host_ms,decode_ms,render_frame,render_qpc,picture_age_ms,first_packet_us,assembled_us,presentation_us,frame_type,bytes");
+                let _ = writeln!(file, "wire_frame,arrival_ms,host_ms,decode_ms,render_frame,render_qpc,picture_age_ms,first_packet_us,assembled_us,presentation_us,frame_type,bytes,{}", record::HEADER);
                 Some(file)
             }
             Err(e) => usage_error(&format!("timing CSV: {e}")),
@@ -828,6 +874,9 @@ fn run() -> i32 {
             warmup_seconds,
         )),
         audio: Mutex::new(report::AudioSignal::default()),
+        record: timing_csv
+            .is_some()
+            .then(|| Mutex::new(record::Record::default())),
     });
 
     let server = HostInfo {
@@ -870,6 +919,22 @@ fn run() -> i32 {
     };
 
     let c = &state.counters;
+    // With a timing CSV, ask for host timing reports and probe the clock offset four times a
+    // second, when the host announced them.
+    let announced = |message_type| {
+        state.record.is_some()
+            && session
+                .outcome()
+                .host_control_messages
+                .contains(&message_type)
+    };
+    if announced(HOST_TIMING_MESSAGE_TYPE) {
+        let _ = session.send(ClientMessage::HostTimingRequest(HostTimingRequest {
+            enabled: true,
+        }));
+    }
+    let clock_sync = announced(CLOCK_SYNC_MESSAGE_TYPE);
+    let mut last_clock_probe_us = 0u64;
     let started = clock::ms();
     let probe_started = session::now_us();
     let limit_ms = if duration != 0 {
@@ -887,7 +952,12 @@ fn run() -> i32 {
                 session.request_idr_frame();
             }
         }
-        std::thread::sleep(Duration::from_millis(100));
+        let now_us = session::now_us();
+        if clock_sync && now_us.saturating_sub(last_clock_probe_us) >= CLOCK_PROBE_INTERVAL_US {
+            last_clock_probe_us = now_us;
+            let _ = session.send_clock_sync_probe(now_us);
+        }
+        std::thread::sleep(Duration::from_millis(if clock_sync { 50 } else { 100 }));
     }
     let seconds = (clock::ms() - started) / 1000.0;
     let premature =

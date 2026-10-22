@@ -189,7 +189,7 @@ impl EncoderRecovery {
     fn recreated(&mut self, session: &Session) {
         #[cfg(any(debug_assertions, test))]
         self.stall.held.clear();
-        session.request_idr();
+        session.request_host_keyframe();
     }
     /// Output the encoder has finished. Only failures lasting the recovery
     /// budget end the stream; the next frame recreates a dropped encoder.
@@ -1663,7 +1663,7 @@ impl Media {
                             let prepared_blocks = packetizer.conventional_blocks(&frame.bytes,frame.idr,frame.after_invalidation,timestamp,processing);
                             if let Err(error) = &prepared_blocks {
                                 s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
-                                s.request_idr();
+                                s.request_host_keyframe();
                                 drop(prepared_blocks);
                                 next_wire_frame.set(u64::from(packetizer.frame));
                                 continue;
@@ -1704,7 +1704,7 @@ impl Media {
                                     Ok(count) => count,
                                     Err(error) => {
                                         s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
-                                        s.request_idr();
+                                        s.request_host_keyframe();
                                         drop(next_block);
                                         next_wire_frame.set(u64::from(packetizer.frame));
                                         continue 'frames;
@@ -2333,7 +2333,7 @@ impl Media {
                                 }
                             }
                             if confirm_keyframe.is_some_and(|at| Instant::now() >= at) {
-                                s.idr.store(true, Ordering::Release);
+                                s.request_confirming_keyframe();
                             }
                             let idr = s.idr.swap(false, Ordering::AcqRel);
                             if idr {

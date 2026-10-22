@@ -24,13 +24,22 @@
 //! the break in the picture with requests of its own. Alt+Tab out of a
 //! fullscreen game does this. Such a keyframe opens a short window in which
 //! requests and ordinary-frame reports are not evidence, and it is never the
-//! keyframe a later request "asks again" for. A frame the host abandoned
-//! while sending was never whole on the wire, so the client's report of it is
-//! not network loss either. The stream's first keyframe counts as such a
-//! change: a client that has not decoded a picture yet asks again within
-//! about 100 ms (seen in the host log at the start of several streams). A
-//! keyframe the host sent whole and the client reports incomplete still
-//! counts, in or out of the window.
+//! keyframe a later request "asks again" for. Keyframes are told apart by why
+//! they were made, not by the order of events: the host marks the ones it
+//! makes on its own ([`KeyframeLoss::host_keyframe`]), so a client request
+//! that happens to come first does not turn them into answers. A keyframe
+//! that answers loss (frames lost on send, a reference invalidation the
+//! decoder may not have followed) opens no window: the losses around it are
+//! what this guard counts. The stream's first keyframe opens a shorter one: a
+//! client that has not decoded a picture yet asks again within about 100 ms
+//! (seen in the host log at the start of several streams). A keyframe the
+//! host sent whole and the client reports incomplete counts in or out of the
+//! window.
+//!
+//! A frame the host could not send whole (a socket refused packets, such as
+//! error 10055 at 800 Mbps) is loss on send. It counts like loss the client
+//! reports: three within two seconds, or one keyframe, slow the stream, and
+//! the client's report of the same frame is not counted a second time.
 use std::time::{Duration, Instant};
 
 /// A second keyframe request this soon after the first, with a keyframe sent
@@ -75,8 +84,14 @@ pub struct KeyframeLoss {
     recent_losses: [Option<(u32, Instant)>; LOSS_FRAMES],
     /// A client request no keyframe has answered yet.
     request_pending: bool,
-    /// Wire frame and end of the window of the latest host-initiated change.
-    host_change: Option<(u32, Instant)>,
+    /// The next keyframe was made on the host's own initiative, whatever the
+    /// client asked meanwhile (see [`KeyframeLoss::host_keyframe`]).
+    host_reason: bool,
+    /// The next keyframe answers loss the host saw (see
+    /// [`KeyframeLoss::loss_keyframe`]).
+    loss_reason: bool,
+    /// Wire frame, end and length of the window of the latest host change.
+    host_change: Option<(u32, Instant, Duration)>,
     /// Frames the host did not finish sending.
     abandoned: [Option<u32>; 8],
     next_abandoned: usize,
@@ -106,18 +121,28 @@ impl KeyframeLoss {
     }
     pub fn sending_at(&mut self, frame: u32, keyframe: bool, now: Instant) {
         if keyframe {
-            // The stream's first keyframe starts the picture: the client has
-            // not decoded anything yet and asks again until it has (a first
-            // keyframe sent before its receiver was ready is gone). Any later
-            // keyframe nobody requested is the host changing the stream.
             let first = self.keyframes.iter().all(Option::is_none);
+            let host = std::mem::take(&mut self.host_reason);
+            let loss = std::mem::take(&mut self.loss_reason);
             let requested = std::mem::take(&mut self.request_pending);
-            if first {
-                self.host_change = Some((frame, now + STARTUP_WINDOW));
-            } else if !requested {
-                self.host_change = Some((frame, now + HOST_CHANGE_WINDOW));
+            // A keyframe the host made on its own breaks the picture whatever
+            // the client asked at the same time. The stream's first starts
+            // it: the client has decoded nothing yet and asks again until it
+            // has. A keyframe nobody asked for and no loss explains is the
+            // encoder's own (HDR metadata, a bitrate change).
+            let window = if host {
+                Some(HOST_CHANGE_WINDOW)
+            } else if first {
+                Some(STARTUP_WINDOW)
+            } else if requested || loss {
+                None
             } else {
-                self.keyframe_since_request = true;
+                Some(HOST_CHANGE_WINDOW)
+            };
+            match window {
+                Some(window) => self.host_change = Some((frame, now + window, window)),
+                None if requested => self.keyframe_since_request = true,
+                None => {}
             }
             self.keyframes[self.next] = Some(frame);
             self.next = (self.next + 1) % self.keyframes.len();
@@ -126,11 +151,46 @@ impl KeyframeLoss {
             self.since_keyframe = self.since_keyframe.saturating_add(1);
         }
     }
-    /// The host did not send all of this frame (a socket refused packets),
-    /// so the client's report of it says nothing about the network.
-    pub fn abandoned(&mut self, frame: u32) {
+    /// The next keyframe is one the host decided to make by itself: a
+    /// recreated encoder, a frame beyond the packet limit. The client's
+    /// reaction to the break in the picture is not network loss, even when it
+    /// asked for a keyframe just before.
+    pub fn host_keyframe(&mut self) {
+        self.host_reason = true;
+    }
+    /// The next keyframe answers loss the host saw itself (frames its socket
+    /// refused, a reference invalidation the decoder may not have followed).
+    /// It opens no window: the losses around it are what this guard counts.
+    pub fn loss_keyframe(&mut self) {
+        self.loss_reason = true;
+    }
+    /// The last request cannot be answered with a keyframe (intra-only
+    /// codec), so the next keyframe is not its answer.
+    pub fn unanswerable(&mut self) {
+        self.request_pending = false;
+    }
+    /// The host did not send all of this frame (a socket refused packets).
+    /// That is loss on send: three such frames within two seconds, or one
+    /// keyframe, slow the stream like loss the client reports, and the
+    /// client's own report of the frame is not counted a second time.
+    pub fn abandoned(&mut self, frame: u32, period: Duration, now: Instant) -> Option<Latched> {
+        if !self.enabled {
+            return None;
+        }
         self.abandoned[self.next_abandoned] = Some(frame);
         self.next_abandoned = (self.next_abandoned + 1) % self.abandoned.len();
+        if self.keyframes.contains(&Some(frame)) {
+            let detail = format!("the host could not send keyframe {frame} whole");
+            return self.latch("a keyframe was lost on send", detail, now);
+        }
+        self.count_loss(
+            frame,
+            frame,
+            period,
+            now,
+            "three recent video frames were lost on send within two seconds",
+            "frames lost on send",
+        )
     }
     /// Tests that start a stream and then lose a keyframe skip the wait.
     #[cfg(test)]
@@ -141,10 +201,10 @@ impl KeyframeLoss {
     pub fn take_ignored(&mut self) -> Option<String> {
         self.ignored.take()
     }
-    fn host_changed(&self, now: Instant) -> Option<u32> {
+    fn host_changed(&self, now: Instant) -> Option<(u32, Duration)> {
         self.host_change
-            .filter(|(_, until)| now < *until)
-            .map(|(frame, _)| frame)
+            .filter(|(_, until, _)| now < *until)
+            .map(|(frame, _, window)| (frame, window))
     }
     /// The client could not repair a block of this frame. Returns the reason
     /// when this report slows the stream.
@@ -155,9 +215,12 @@ impl KeyframeLoss {
         period: Duration,
         now: Instant,
     ) -> Option<Latched> {
+        if !self.enabled {
+            return None;
+        }
         if self.abandoned.contains(&Some(frame)) {
             self.ignored = Some(format!(
-                "frame {frame} was not sent whole by the host (lost on send)"
+                "frame {frame} was not sent whole by the host (counted as lost on send)"
             ));
             return None;
         }
@@ -170,16 +233,36 @@ impl KeyframeLoss {
         }
         // Ordinary frames sent after the host changed the stream: bigger
         // pictures and a new decoder state, not yet a verdict on the route.
-        if let Some(from) = self.host_changed(now)
+        if let Some((from, window)) = self.host_changed(now)
             && frame.wrapping_sub(from) < 1 << 31
         {
             self.ignored = Some(format!(
-                "frame {frame} reported incomplete within a second of the host's own keyframe {from}"
+                "frame {frame} reported incomplete within {} ms of the host's own keyframe {from}",
+                window.as_millis()
             ));
             return None;
         }
-        if !self.enabled
-            || self.observed_at.is_some()
+        self.count_loss(
+            frame,
+            last_sent,
+            period,
+            now,
+            "three recent video frames arrived incomplete within two seconds",
+            "unrecoverable frames",
+        )
+    }
+    /// Counts a frame that did not get through; the third distinct one within
+    /// two seconds slows the stream.
+    fn count_loss(
+        &mut self,
+        frame: u32,
+        last_sent: u32,
+        period: Duration,
+        now: Instant,
+        reason: &'static str,
+        what: &str,
+    ) -> Option<Latched> {
+        if self.observed_at.is_some()
             || period.is_zero()
             || period.saturating_mul(last_sent.wrapping_sub(frame)) >= LOSS_WINDOW
         {
@@ -211,8 +294,8 @@ impl KeyframeLoss {
                 .map(|(frame, _)| *frame)
                 .collect();
             self.latch(
-                "three recent video frames arrived incomplete within two seconds",
-                format!("unrecoverable frames {frames:?}; last frame sent {last_sent}"),
+                reason,
+                format!("{what} {frames:?}; last frame sent {last_sent}"),
                 now,
             )
         } else {
@@ -222,6 +305,9 @@ impl KeyframeLoss {
     /// The client asked for a keyframe after losing frames. Returns the reason
     /// when this request slows the stream.
     pub fn requested(&mut self, now: Instant) -> Option<Latched> {
+        if !self.enabled {
+            return None;
+        }
         let gap = self
             .last_request
             .map(|at| now.saturating_duration_since(at));
@@ -230,12 +316,13 @@ impl KeyframeLoss {
             && gap.is_some_and(|gap| gap < REPEAT);
         self.keyframe_since_request = false;
         self.request_pending = true;
-        if let Some(from) = self.host_changed(now) {
+        if let Some((from, window)) = self.host_changed(now) {
             // The request reacts to the host's change; the next pair of
             // requests, after the window, is the one that can show a loss.
             self.last_request = None;
             self.ignored = Some(format!(
-                "keyframe request within a second of the host's own keyframe {from}"
+                "keyframe request within {} ms of the host's own keyframe {from}",
+                window.as_millis()
             ));
             return None;
         }
@@ -735,26 +822,150 @@ mod tests {
     }
 
     #[test]
-    fn frames_the_host_abandoned_while_sending_are_not_network_loss() {
+    fn frames_lost_on_send_slow_the_stream_and_are_not_counted_twice() {
+        // Send-buffer pressure (error 10055 at 800 Mbps on a Hyper-V route):
+        // the socket refuses the rest of ordinary frames. Three within two
+        // seconds slow the stream, as three the client reports would.
+        let now = Instant::now();
+        let mut loss = running(100);
+        assert_eq!(loss.abandoned(40, PERIOD, now), None);
+        assert_eq!(loss.abandoned(41, PERIOD, now), None);
+        let latched = loss.abandoned(42, PERIOD, now).unwrap();
+        assert_eq!(
+            latched.reason,
+            "three recent video frames were lost on send within two seconds"
+        );
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+        // The client reporting the same frames adds nothing to count.
+        let mut loss = running(100);
+        for frame in [40, 41] {
+            assert_eq!(loss.abandoned(frame, PERIOD, now), None);
+        }
+        for frame in [40, 41] {
+            assert_eq!(loss.unrecoverable(frame, 100, PERIOD, now), None);
+        }
+        assert!(loss.take_ignored().is_some());
+        assert!(!loss.latched());
+        // Frames the host sent whole and the client lost count with them.
+        assert!(loss.unrecoverable(60, 100, PERIOD, now).is_some());
+    }
+
+    #[test]
+    fn a_keyframe_lost_on_send_slows_the_stream_at_once() {
         let now = Instant::now();
         let mut loss = running(100);
         loss.sending_at(101, true, now);
-        // The send thread's socket refused the rest of three frames and of
-        // the keyframe; the client reports them all.
-        for frame in [101, 102, 103, 104] {
-            loss.abandoned(frame);
-        }
-        for frame in [101, 102, 103, 104] {
-            assert_eq!(loss.unrecoverable(frame, 110, PERIOD, now), None);
-        }
-        assert!(!loss.latched());
-        // A frame the host sent whole and the client lost still counts.
+        let latched = loss.abandoned(101, PERIOD, now).unwrap();
+        assert_eq!(latched.reason, "a keyframe was lost on send");
+        assert!(latched.detail.contains("101"), "{latched:?}");
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+        // Nothing lost on send is counted once the guard is off.
+        let mut off = KeyframeLoss::new(false);
+        off.sending_at(1, true, now);
+        assert_eq!(off.abandoned(1, PERIOD, now), None);
+        assert!(!off.latched());
+    }
+
+    #[test]
+    fn the_recovery_keyframe_after_a_loss_on_send_opens_no_window() {
+        // The host answers frames its socket refused with a keyframe. That
+        // keyframe is recovery, not a change of the stream: the losses around
+        // it still count.
+        let start = Instant::now();
         let mut loss = running(100);
-        loss.abandoned(40);
-        for frame in [60, 61] {
-            assert_eq!(loss.unrecoverable(frame, 100, PERIOD, now), None);
+        loss.loss_keyframe();
+        loss.sending_at(101, true, start);
+        for frame in 102..=140 {
+            loss.sending_at(frame, false, start);
         }
-        assert!(loss.unrecoverable(62, 100, PERIOD, now).is_some());
+        for frame in [110, 120] {
+            assert_eq!(loss.unrecoverable(frame, 140, PERIOD, start), None);
+        }
+        assert!(loss.unrecoverable(130, 140, PERIOD, start).is_some());
+        assert!(loss.take_ignored().is_none());
+    }
+
+    #[test]
+    fn a_request_just_before_the_hosts_keyframe_does_not_make_it_the_one_asked_for() {
+        // The client asks a moment before the host recreates the encoder; the
+        // keyframe that follows is the host's, whatever was pending.
+        let start = Instant::now();
+        let mut loss = running(100);
+        assert_eq!(loss.requested(start), None);
+        loss.host_keyframe();
+        loss.sending_at(101, true, start + Duration::from_millis(10));
+        loss.sending_at(102, false, start + Duration::from_millis(20));
+        assert_eq!(loss.requested(start + Duration::from_millis(60)), None);
+        assert!(!loss.latched());
+        assert!(loss.take_ignored().is_some());
+        // The same request answered by an ordinary keyframe is still the one
+        // a repeat asks again for.
+        let mut loss = running(100);
+        assert_eq!(loss.requested(start), None);
+        loss.sending_at(101, true, start + Duration::from_millis(10));
+        loss.sending_at(102, false, start + Duration::from_millis(20));
+        assert!(loss.requested(start + Duration::from_millis(60)).is_some());
+    }
+
+    #[test]
+    fn a_request_a_codec_cannot_answer_leaves_nothing_pending() {
+        // An intra-only codec makes no keyframe for a request; the next
+        // keyframe (the host's own) must not be taken as its answer.
+        let start = Instant::now();
+        let mut loss = running(100);
+        assert_eq!(loss.requested(start), None);
+        loss.unanswerable();
+        loss.sending_at(101, true, start + Duration::from_millis(10));
+        // Taken as an answer it would arm the repeat rule; as the encoder's
+        // own it opens the window, so the repeat is not evidence.
+        loss.sending_at(102, false, start + Duration::from_millis(20));
+        assert_eq!(loss.requested(start + Duration::from_millis(60)), None);
+        assert!(!loss.latched());
+    }
+
+    #[test]
+    fn about_one_loss_a_second_with_recovery_keyframes_still_slows_the_stream() {
+        // A route that loses a frame about every 900 ms: each loss is answered with a
+        // reference-invalidation confirm keyframe. If those opened windows
+        // the next loss would always land inside one and nothing would count.
+        let start = Instant::now();
+        let mut loss = running(100);
+        let mut latched = None;
+        for (i, frame) in [110_u32, 190, 270].into_iter().enumerate() {
+            let at = start + Duration::from_millis(900 * i as u64);
+            loss.loss_keyframe();
+            loss.sending_at(frame + 5, true, at);
+            latched = loss.unrecoverable(frame, frame + 6, PERIOD, at);
+        }
+        assert!(latched.is_some());
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+    }
+
+    #[test]
+    fn nothing_is_ignored_or_logged_while_the_guard_is_off() {
+        let start = Instant::now();
+        let mut loss = KeyframeLoss::new(false);
+        loss.sending_at(1, true, start);
+        loss.sending_at(2, false, start);
+        assert_eq!(loss.requested(start), None);
+        assert_eq!(loss.unrecoverable(2, 3, PERIOD, start), None);
+        assert!(loss.take_ignored().is_none());
+    }
+
+    #[test]
+    fn the_ignored_note_names_the_window_that_applied() {
+        let start = Instant::now();
+        let mut loss = KeyframeLoss::new(true);
+        loss.sending_at(1, true, start);
+        assert_eq!(loss.requested(start + Duration::from_millis(100)), None);
+        let note = loss.take_ignored().unwrap();
+        assert!(note.contains("500 ms"), "{note}");
+        let mut loss = running(100);
+        loss.host_keyframe();
+        loss.sending_at(101, true, start);
+        assert_eq!(loss.requested(start + Duration::from_millis(100)), None);
+        let note = loss.take_ignored().unwrap();
+        assert!(note.contains("1000 ms"), "{note}");
     }
 
     /// The start of a stream as the host log shows it (a 120 fps stream with

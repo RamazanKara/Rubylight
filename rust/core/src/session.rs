@@ -1244,25 +1244,79 @@ mod tests {
         assert!(s.keyframe_loss_active());
     }
     #[test]
-    fn frames_the_host_did_not_finish_sending_are_not_reported_as_network_loss() {
+    fn frames_the_host_could_not_send_slow_the_stream_and_the_clients_report_adds_nothing() {
+        // Send-buffer pressure at 800 Mbps (error 10055) is loss: three frames
+        // within two seconds slow the stream, named as lost on send.
         const FAST: u64 = 800_000_000;
         const SAFE: u64 = 62_000_000;
         let s = steady_stream("lost-on-send");
         for frame in 41..=43 {
-            s.keyframe_loss_bps(FAST, SAFE, frame, frame == 41);
+            s.keyframe_loss_bps(FAST, SAFE, frame, false);
+            s.keyframe_abandoned(frame);
+        }
+        assert!(s.keyframe_loss_active());
+        assert_eq!(
+            s.keyframe_loss_reason(),
+            Some("three recent video frames were lost on send within two seconds")
+        );
+        assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 44, false), SAFE);
+        // Two such frames are not enough, and the client reporting them is the
+        // same loss, not more of it.
+        let s = steady_stream("lost-on-send-twice");
+        for frame in 41..=42 {
+            s.keyframe_loss_bps(FAST, SAFE, frame, false);
             s.keyframe_abandoned(frame);
         }
         s.stats.video_frame.store(44, Ordering::Release);
-        for frame in 41..=43 {
+        for frame in 41..=42 {
             s.record_fec_status(&fec_report(frame, 7, 1));
         }
         assert!(!s.keyframe_loss_active());
-        // Frames that left the host whole and did not arrive still count.
-        for frame in [37, 38, 39] {
+    }
+
+    #[test]
+    fn a_keyframe_the_host_could_not_send_whole_slows_the_stream() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let s = steady_stream("keyframe-lost-on-send");
+        s.keyframe_loss_bps(FAST, SAFE, 41, true);
+        s.keyframe_abandoned(41);
+        assert_eq!(
+            s.keyframe_loss_reason(),
+            Some("a keyframe was lost on send")
+        );
+    }
+
+    #[test]
+    fn the_keyframe_after_a_loss_on_send_does_not_hide_the_losses_around_it() {
+        // Not a change the host made on its own, so no window follows it and
+        // the client's reports of later frames still count.
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let s = steady_stream("send-loss-recovery");
+        s.keyframe_loss.lock().unwrap().settle();
+        s.request_send_loss_recovery();
+        s.keyframe_loss_bps(FAST, SAFE, 41, true);
+        s.stats.video_frame.store(60, Ordering::Release);
+        for frame in [45, 50, 55] {
             s.record_fec_status(&fec_report(frame, 7, 1));
         }
         assert!(s.keyframe_loss_active());
     }
+
+    #[test]
+    fn a_request_just_before_the_hosts_keyframe_is_not_the_one_asked_for_again() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let s = steady_stream("request-then-host-keyframe");
+        s.request_recovery_keyframe();
+        s.request_host_keyframe();
+        s.keyframe_loss_bps(FAST, SAFE, 41, true);
+        s.keyframe_loss_bps(FAST, SAFE, 42, false);
+        s.request_recovery_keyframe();
+        assert!(!s.keyframe_loss_active());
+    }
+
     #[test]
     fn the_console_shows_the_encoded_rate_beside_the_requested_one() {
         // Artemis's Warp launches at 60 fps and asks for 120 in the stream
@@ -1729,12 +1783,30 @@ impl<P, A> Session<P, A> {
             self.wake_recovery();
         }
     }
+    /// A keyframe the host makes on its own initiative (a recreated encoder,
+    /// a frame beyond the packet limit). Whatever the client requests around
+    /// it is a reaction to the host, not evidence about the network.
+    pub fn request_host_keyframe(&self) {
+        self.keyframe_loss.lock().unwrap().host_keyframe();
+        self.request_idr();
+    }
+    /// A keyframe a second after a reference invalidation the decoder may not
+    /// have followed. It answers loss, so it is counted like loss.
+    pub fn request_confirming_keyframe(&self) {
+        self.keyframe_loss.lock().unwrap().loss_keyframe();
+        self.idr.store(true, Ordering::Release);
+    }
     /// A keyframe the client needs after losing frames: its request (0x0302),
     /// or an invalidation the encoder cannot repair with a reference frame.
     pub fn request_recovery_keyframe(&self) {
         let (latched, ignored) = {
             let mut loss = self.keyframe_loss.lock().unwrap();
-            (loss.requested(Instant::now()), loss.take_ignored())
+            let latched = loss.requested(Instant::now());
+            if self.config.codec == 3 {
+                // Intra-only: no keyframe will answer it.
+                loss.unanswerable();
+            }
+            (latched, loss.take_ignored())
         };
         self.report_keyframe_loss(latched, ignored);
         self.request_idr();
@@ -1747,6 +1819,7 @@ impl<P, A> Session<P, A> {
             .send_loss_recoveries
             .fetch_add(1, Ordering::Relaxed);
         if self.config.codec != 3 {
+            self.keyframe_loss.lock().unwrap().loss_keyframe();
             self.idr.store(true, Ordering::Release);
         }
     }
@@ -1930,10 +2003,19 @@ impl<P, A> Session<P, A> {
     pub fn keyframe_loss_rate_bps(&self, base: u64, safe: u64) -> u64 {
         self.keyframe_loss.lock().unwrap().bps(base, safe)
     }
-    /// The host stopped sending this frame part way, so the client's report
-    /// of it is not evidence about the network.
+    /// The host stopped sending this frame part way: loss on send. It counts
+    /// toward slower pacing under its own reason, and the client's report of
+    /// the same frame is not counted again.
     pub fn keyframe_abandoned(&self, wire_frame: u32) {
-        self.keyframe_loss.lock().unwrap().abandoned(wire_frame);
+        let period = self.stream_mode().period();
+        let (latched, ignored) = {
+            let mut loss = self.keyframe_loss.lock().unwrap();
+            (
+                loss.abandoned(wire_frame, period, Instant::now()),
+                loss.take_ignored(),
+            )
+        };
+        self.report_keyframe_loss(latched, ignored);
     }
     pub fn keyframe_loss_active(&self) -> bool {
         self.keyframe_loss.lock().unwrap().latched()

@@ -278,7 +278,7 @@ impl Sender {
                 })();
                 if let Err(error) = prepared {
                     s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
-                    s.request_idr();
+                    s.request_host_keyframe();
                     shared.state.lock().unwrap().recycle(blocks);
                     return Ok(packetizer.frame);
                 }

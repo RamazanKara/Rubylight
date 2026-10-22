@@ -20,7 +20,7 @@ Design and implementer briefs for [plan](rubylight-3.0-plan.md) item A8. Nothing
 | Present | `OnFrameRenderedListener` / release | CSV `render_ns`, `release_ns` | None |
 | Clock offset | `present_clock::ClockOffset` fed by 0x5537 | Overlay "host to present" only | Probes run only with *host frame times* on; offset never exported |
 
-So the client stages already exist (`FrameLatencyStats.CSV_HEADER`). The missing parts are: absolute host times per frame, capture and convert split out, PyroWave host stamps, clock sync independent of VRR presentation, the offset in the record, a host-side record for receivers that cannot speak 0x5536/0x5537, and the report script. Also, 0x5536 is not in [control-messages.md](control-messages.md) yet.
+So the client stages already exist (`FrameLatencyStats.CSV_HEADER`). The missing parts are: absolute host times per frame, capture and convert split out, PyroWave host stamps, clock sync independent of VRR presentation, the offset in the record, a host-side record for receivers that cannot speak 0x5536/0x5537, and the report script. 0x5536 and its extension are in [control-messages.md](control-messages.md#0x5536-host-timing).
 
 ## 2. Record design
 

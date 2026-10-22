@@ -23,7 +23,40 @@ Each message travels on the control stream like Moonlight's client-to-host contr
 | `0x5530` | Phase lock report | `phase_lock::Report` | Times captures to the client's display latch while reports arrive about every 500 ms; after 3 s without one the host returns to its own pacing. |
 | `0x5531` | Display luminance | `control::DisplayCaps` | Records the client's screen capabilities for diagnostics ([below](#0x5531-display-luminance)). |
 | `0x5532` | Reconfigure | `control::Reconfigure` | Changes the stream's resolution or frame rate without reconnecting ([below](#0x5532-reconfigure)). |
+| `0x5536` | Host timing | `control::HostTimingRequest` | Sends reports of where each new picture's time went on the host, after its last packet left ([below](#0x5536-host-timing)). |
 | `0x5537` | Clock sync | `control::ClockSyncRequest` | Answers at once with a `control::ClockSyncReply` on the video RTP clock ([below](#0x5537-clock-sync)). |
+
+## 0x5536 host timing
+
+A client asks for per-picture host timing and the host answers with reports; Moonlight's frame header holds only one host latency, written before the first packet, so it cannot hold the send.
+
+The request is 4 bytes: version `1`, a flags byte (bit 0 turns reports on, `0` turns them off) and two reserved bytes. Send it once the stream starts. The host sends no reports to a client that did not ask, and keeps nothing for it.
+
+The host answers on the same message type, unreliably. A report is a 4-byte header, version `1`, the record count, `extra` (see below) and a reserved byte, followed by `count` 20-byte records of five 32-bit words:
+
+| Word | Field | Meaning |
+| --- | --- | --- |
+| 0 | `frame` | The frame number in the video packets (Moonlight's frame index). |
+| 1 | `host_us` | The picture's present stamp to its last packet handed to the socket. |
+| 2 | `queue_us` | Present to the encoder taking the picture: capture, the wait for the claim and the conversion. |
+| 3 | `encode_us` | The encoder taking the picture to the encoded frame in the host's hands. |
+| 4 | `send_us` | The first packet to the last one handed to the socket. |
+
+`host_us = queue_us + encode_us + residual + send_us`; the residual (waiting for the sender and packetizing) is what the named stages leave. A record whose stages add up to more than `host_us` rejects the whole report. Only new pictures get a record, not static repeats.
+
+### The extension
+
+Header byte 2, `extra`, is the number of bytes per record in a trailing block: `0` in a v1 report, `16` from Rubylight 3.0. The version stays `1`. After the `count` records, `count × extra` bytes follow, one entry per record, in the same order:
+
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| 0 | `presented_at_us` (u64) | The capture's present stamp, in microseconds on the video RTP clock (the clock of [clock sync](#0x5537-clock-sync)). |
+| 8 | `capture_us` (u32) | Present to the picture acquired. |
+| 12 | `convert_us` (u32) | The host's claim of the picture to the encoder taking it. |
+
+A reader takes the first 16 bytes of each entry and skips the rest, so later fields can be appended. The extension is valid only when `capture_us + convert_us <= queue_us`; a client drops the extension of a record that breaks this, or of a report that is cut short, and keeps the base records. With it, a client has every host stage on the host clock: capture present `P = presented_at_us`, acquired `P + capture_us`, submitted `P + queue_us`, encoded `P + queue_us + encode_us`, last packet sent `P + host_us`, first packet sent `P + host_us - send_us`. Hold and claim are `queue_us - capture_us - convert_us`. The game's own present is the frame's RTP timestamp.
+
+An extended report carries at most 24 records (868 bytes), so it stays one ENet packet. A v1 report carries up to 32. Old decoders check only that the data holds `4 + count × 20` bytes and ignore the rest, so they read an extended report as a v1 one. The host sends the extension for H.264, HEVC, AV1 and PyroWave alike.
 
 ## 0x5537 clock sync
 

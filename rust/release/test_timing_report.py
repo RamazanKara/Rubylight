@@ -94,6 +94,44 @@ class SharedClock(unittest.TestCase):
         target.write_text(edit(HOST_SHARED.read_text()))
         return target
 
+    def test_the_receiver_clock_is_rebased_to_qpc_with_arrival_ms(self):
+        # first_packet_us and assembled_us count from the receiver's start, 67.89 s before the host's media epoch;
+        # arrival_ms is absolute QPC and later than assembly by the software queue on two rows in three.
+        client = timing_report.read_client(SHARED)
+        self.assertLess(max(f['assembled'] for f in client['frames']), 1e11)
+        self.assertEqual(timing_report.qpc_base(client['frames']), 1234500000500)
+        record = read_host_record(HOST_SHARED)
+        self.assertEqual(timing_report.shared_offset(client['frames'], record), 1234567890500 - 1234500000500)
+        self.assertAlmostEqual(self.report['stages']['network_last']['median_ms'], .25)
+
+    def test_the_minimum_strips_the_software_queue(self):
+        lines = SHARED.read_text().splitlines()
+        header = lines[0].split(',')
+        column = header.index('arrival_ms')
+        rows = [line.split(',') for line in lines[1:]]
+        for cells in rows:
+            cells[column] = f'{float(cells[column]) + .5:.6f}'  # every row waited 0.5 ms for the decoder
+        path = self.directory_copy(lambda text: text)
+        client = path.parent / 'frames.csv'
+        client.write_bytes(('\n'.join([lines[0]] + [','.join(c) for c in rows]) + '\n').encode())
+        # The base is 0.5 ms late, so every cross-clock stage is 0.5 ms long: the queue that every row shares is the
+        # one thing the minimum cannot strip. A hardware decoder's arrival_ms has none.
+        result = build_report(client, HOST_SHARED)[0]
+        self.assertEqual(result['join'], 'shared_clock')
+        self.assertAlmostEqual(result['stages']['network_first']['median_ms'], .175 + .5)
+
+    def test_without_arrival_ms_the_receiver_cannot_be_rebased(self):
+        lines = SHARED.read_text().splitlines()
+        column = lines[0].split(',').index('arrival_ms')
+        rows = [line.split(',') for line in lines]
+        for cells in rows:
+            del cells[column]
+        path = self.directory_copy(lambda text: text).parent / 'frames.csv'
+        path.write_bytes(('\n'.join(','.join(c) for c in rows) + '\n').encode())
+        self.assertEqual(build_report(path, HOST_SHARED)[0]['join'], 'min_owd')
+        with self.assertRaisesRegex(ValueError, 'arrival_ms'):
+            build_report(path, HOST_SHARED, 'shared_clock')
+
     def test_a_forced_join_that_the_clocks_do_not_support_is_an_error(self):
         with self.assertRaisesRegex(ValueError, 'clock_offset_us'):
             report('frames-shared.csv', 'host-shared.csv', join='clock_sync')
@@ -288,6 +326,31 @@ class Formats(Temporary):
         wrong.write_text(HOST_SHARED.read_text().replace('claimed_us,', ''))
         with self.assertRaisesRegex(ValueError, 'missing host record columns: claimed_us'):
             read_host_record(wrong)
+
+    def test_a_record_without_its_footer_has_an_unknown_dropped_count(self):
+        path = self.directory / 'host-1.csv'
+        path.write_bytes(HOST_SHARED.read_bytes().replace(b'# dropped=2\n', b''))
+        self.assertIsNone(read_host_record(path)['dropped'])
+        result = build_report(SHARED, path)[0]
+        self.assertIsNone(result['host_dropped'])
+        self.assertFalse(result['host_footer'])
+        self.assertIn('host rows dropped by the writer unknown (no footer)', timing_report.format_table(result))
+        self.assertTrue(any('no "# dropped=" footer' in note for note in result['notes']))
+        complete = build_report(SHARED, HOST_SHARED)[0]
+        self.assertTrue(complete['host_footer'])
+        self.assertIn('host rows dropped by the writer 2', timing_report.format_table(complete))
+        self.assertNotIn('unknown', timing_report.format_table(complete))
+
+    def test_wait_for_footer_returns_once_the_host_has_written_it(self):
+        import threading
+        path = self.directory / 'host-1.csv'
+        path.write_bytes(HOST_SHARED.read_bytes().replace(b'# dropped=2\n', b''))
+        self.assertFalse(timing_report.wait_for_footer(self.directory, .3))
+        self.assertFalse(timing_report.wait_for_footer(self.directory / 'nowhere', .2))
+        timer = threading.Timer(.3, lambda: path.write_bytes(HOST_SHARED.read_bytes()))
+        timer.start()
+        self.addCleanup(timer.join)
+        self.assertTrue(timing_report.wait_for_footer(self.directory, 5))
 
     def test_empty_host_fields_stay_empty(self):
         path = self.directory / 'host-1.csv'

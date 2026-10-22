@@ -7,8 +7,13 @@ or nightjar-cli. --host-record is a `host-<stream_id>.csv` from BUTTERPOLLO_TIMI
 them. The formats and the join modes are in docs/timing-record.md, section 2.
 
 Assumptions where that document leaves room:
-- Offsets follow "client = host + offset". shared_clock therefore uses offset = media_epoch_qpc_ms * 1000, the QPC
-  reading at host time 0 (the document writes the same conversion as host = client - epoch).
+- Offsets follow "client = host + offset" (the sign of Nightjar's present_clock.rs). A frames.csv counts
+  `first_packet_us` and `assembled_us` from the receiver's own start (common-c's PltGetMicroseconds), not in absolute
+  QPC. `arrival_ms` is absolute QPC: exactly the assembled time with a hardware decoder, the start of decoding
+  (assembled plus the software queue) otherwise. shared_clock therefore rebases the receiver clock with
+  base_us = min over rows of (arrival_ms * 1000 - assembled_us), where the minimum strips the queue, and uses
+  offset = media_epoch_qpc_ms * 1000 - base_us. A file without `arrival_ms` cannot be rebased and is never joined
+  that way.
 - Host-side values are integer microseconds on the media clock. `rtp_us` and `rtp_host_us` are the 32-bit RTP stamp
   times 1000 / 90, so they wrap every 2**32 * 1000 / 90 us (13.3 h). They are unwrapped next to a host stamp of the
   same frame before they are subtracted.
@@ -22,11 +27,14 @@ Assumptions where that document leaves room:
 - A frames.csv has no display stage. Its end point for `end_to_end` and `client_total` is the end of decoding
   (assembled_us + decode_ms), which leaves out any queue before a hardware decoder. `render_qpc` (raw QPC ticks) is
   not used.
-- shared_clock is chosen automatically only for a frames.csv whose `assembled_us` lies within [-5 ms, 1 s] of the
-  host record's last packet on the QPC base (median over the frames). Otherwise the receiver is on another clock and
+- shared_clock is chosen automatically only for a frames.csv whose rebased `assembled_us` lies within [-5 ms, 1 s] of
+  the host record's last packet on the QPC base (median over the frames). Otherwise the receiver is on another clock and
   min_owd is used. --join shared_clock on a file that fails this check is an error.
 - --check-bound compares each row's `clock_offset_us` with the shared offset and fails when more than 1% of the rows
-  with an offset and an RTT differ by more than `clock_rtt_us / 2`.
+  with an offset and an RTT differ by more than `clock_rtt_us / 2`. The shared offset is rebased like shared_clock's
+  when the file has `arrival_ms`, and is media_epoch_qpc_ms * 1000 (an absolute receiver clock) when it has none.
+- A host record without its `# dropped=` footer (the host was stopped before the stream wrote it) has an unknown
+  dropped count, shown as such, never 0.
 - Negative durations are kept in the percentiles (across clocks they are inside the bound) and counted per stage.
 """
 import argparse, csv, json, pathlib, sys
@@ -117,7 +125,7 @@ def read_host_record(path):
         rows[frame] = values
     epoch = number(header.get('media_epoch_qpc_ms'), 'media_epoch_qpc_ms')
     return dict(path=str(path), rows=rows, epoch_qpc_ms=epoch, codec=header.get('codec'), capture=header.get('capture'),
-                present_source=header.get('present_source'), dropped=int(header.get('dropped', 0)),
+                present_source=header.get('present_source'), dropped=int(header['dropped']) if 'dropped' in header else None,
                 duplicates=duplicates)
 
 
@@ -153,15 +161,16 @@ def client_frame(kind, row):
     if kind == 'nightjar':
         us = lambda column: None if number(row.get(column), column) is None else number(row.get(column), column) / 1000
         frame.update(frame_number=int(row['frame_number']), first_packet=us('receive_ns'), assembled=us('enqueue_ns'),
-                     dec_in=us('decoder_input_ns'), dec_out=us('decoder_output_ns'), decode=None)
+                     dec_in=us('decoder_input_ns'), dec_out=us('decoder_output_ns'), decode=None, arrival=None)
         status = row.get('status')
         render = us('render_ns')
         frame['present'] = render if status in (None, '', 'rendered') else None
         frame['end'] = frame['present']
     else:
         decode_ms = number(row.get('decode_ms'), 'decode_ms')
+        arrival_ms = number(row.get('arrival_ms'), 'arrival_ms')
         frame.update(frame_number=int(row['wire_frame']), first_packet=number(row['first_packet_us'], 'first_packet_us'),
-                     assembled=number(row['assembled_us'], 'assembled_us'), dec_in=None, dec_out=None, present=None,
+                     assembled=number(row['assembled_us'], 'assembled_us'), arrival=None if arrival_ms is None else arrival_ms * 1000, dec_in=None, dec_out=None, present=None,
                      decode=None if decode_ms is None else decode_ms * 1000)
         frame['end'] = None if frame['assembled'] is None or frame['decode'] is None else frame['assembled'] + frame['decode']
     return frame
@@ -171,9 +180,24 @@ def has_host(frame):
     return any(value is not None for value in frame['host'].values())
 
 
+def qpc_base(frames):
+    """The receiver's clock start on the QPC base: absolute QPC minus the receiver's own microseconds. arrival_ms is
+    QPC at assembly with a hardware decoder and later with a software one, so the minimum strips the queue."""
+    bases = [f['arrival'] - f['assembled'] for f in frames if f.get('arrival') is not None and f['assembled'] is not None]
+    return min(bases) if bases else None
+
+
+def shared_offset(frames, record):
+    """client = host + offset for a receiver that reads the host's QPC; None when arrival_ms cannot rebase it."""
+    base = qpc_base(frames)
+    return None if base is None else record['epoch_qpc_ms'] * 1000 - base
+
+
 def shared_plausible(frames, record):
     """Does the receiver read the host's QPC? True when its last-packet times fit the host's last-sent times."""
-    epoch_us = record['epoch_qpc_ms'] * 1000
+    epoch_us = shared_offset(frames, record)
+    if epoch_us is None:
+        return False
     gaps = [f['assembled'] - (f['host']['last_sent'] + epoch_us) for f in frames
             if f['assembled'] is not None and f['host']['last_sent'] is not None]
     return bool(gaps) and SHARED_WINDOW_US[0] <= median(gaps) <= SHARED_WINDOW_US[1]
@@ -199,9 +223,11 @@ def choose_join(client, record, forced):
             raise ValueError('--join shared_clock needs a host record with media_epoch_qpc_ms')
         if client['kind'] != 'frames':
             raise ValueError('--join shared_clock needs a frames.csv from a receiver that reads the host QPC')
+        if qpc_base(frames) is None:
+            raise ValueError('--join shared_clock needs an arrival_ms column to rebase the receiver clock to QPC')
         if not shared_plausible(frames, record):
             raise ValueError('--join shared_clock: the receiver times do not fit the host QPC '
-                             '(median assembled_us minus last packet sent is outside -5 ms .. 1 s)')
+                             '(median rebased assembled_us minus last packet sent is outside -5 ms .. 1 s)')
     if forced == 'min_owd' and not host_data:
         raise ValueError('--join min_owd needs host data (a host record or the host columns)')
     if forced:
@@ -224,8 +250,9 @@ def assign_offsets(frames, join, record):
         rtts = [f['rtt'] for f in frames if f['rtt'] is not None and f['off'] is not None]
         return median(rtts) / 2 if rtts else None
     if join == 'shared_clock':
+        offset = shared_offset(frames, record)
         for frame in frames:
-            frame['clock'] = record['epoch_qpc_ms'] * 1000
+            frame['clock'] = offset
         return 0
     if join == 'min_owd':
         gaps = [f['first_packet'] - f['host']['first_sent'] for f in frames
@@ -322,6 +349,8 @@ def build_report(client_path, record_path=None, join=None):
         notes.append('present_source=capture: game_to_present is not reported')
     if stages['hold_claim_convert']['n'] and not stages['hold_claim']['n']:
         notes.append('the client columns carry no claim time: hold_claim and convert need the host record')
+    if record is not None and record['dropped'] is None:
+        notes.append('the host record has no "# dropped=" footer: it was cut short and the dropped count is unknown')
     if client['missing'] and record is None:
         notes.append('columns absent from the client file: ' + ', '.join(client['missing']))
     return dict(client=client['path'], client_kind=client['kind'], host_record=record and record['path'], join=mode,
@@ -329,8 +358,29 @@ def build_report(client_path, record_path=None, join=None):
                 matched=len(frames) - without_host if record is None else sum(f['frame_number'] in record['rows'] for f in frames),
                 unmatched=unmatched, host_rows=None if record is None else len(record['rows']),
                 host_dropped=None if record is None else record['dropped'],
+                host_footer=None if record is None else record['dropped'] is not None,
                 host_duplicate_rows=None if record is None else record['duplicates'],
                 stages=stages, notes=notes), client, record
+
+
+def has_footer(path):
+    lines = [line for line in path.read_text(errors='replace').splitlines() if line.strip()]
+    return bool(lines) and lines[-1].startswith('# dropped=')
+
+
+def wait_for_footer(directory, seconds):
+    """Wait until every host-*.csv in the directory (at least one) ends with its footer; False on timeout. The host
+    writes the footer when the stream is torn down, a moment after the receiver has gone."""
+    import time
+    directory = pathlib.Path(directory)
+    deadline = time.monotonic() + seconds
+    while True:
+        files = sorted(directory.glob('host-*.csv'))
+        if files and all(has_footer(f) for f in files):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(.1)
 
 
 def case_report(case):
@@ -343,7 +393,9 @@ def check_bound(frames, record):
     """Compare each row's clock_offset_us with the shared QPC offset; the rows it differs on by more than rtt/2."""
     if record is None or record['epoch_qpc_ms'] is None:
         raise ValueError('--check-bound needs a host record with media_epoch_qpc_ms')
-    shared = record['epoch_qpc_ms'] * 1000
+    shared = shared_offset(frames, record)
+    if shared is None:
+        shared = record['epoch_qpc_ms'] * 1000
     rows = [f for f in frames if f['off'] is not None and f['rtt'] is not None]
     if not rows:
         raise ValueError('--check-bound needs a client file with clock_offset_us and clock_rtt_us values')
@@ -371,7 +423,8 @@ def format_table(report):
              f'rows: {report["rows"]} client, {report["host_rows"] if report["host_rows"] is not None else "-"} host; '
              f'client without host data {unmatched["client_without_host"]}, '
              f'host without client row {unmatched["host_without_client"] if unmatched["host_without_client"] is not None else "-"}'
-             + ('' if report['host_dropped'] is None else f', host rows dropped by the writer {report["host_dropped"]}'),
+             + ('' if report['host_footer'] is None else f', host rows dropped by the writer {report["host_dropped"]}'
+                if report['host_footer'] else ', host rows dropped by the writer unknown (no footer)'),
              '',
              f'{"stage":<20}{"n":>6}{"median":>10}{"p95":>10}{"p99":>10}  bound (ms)']
     for name, stage in report['stages'].items():

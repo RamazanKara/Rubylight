@@ -137,9 +137,10 @@ public class StreamMenuTest {
     }
 
     @Test
-    public void aHostWithTheNativeApiEndsTheSessionAndClosesTheGameInsteadOfQuittingTheApp() {
+    public void aNativeHostWithHostControlEndsTheSessionAndClosesTheGame() {
         ComputerDetails host = nativeApiHost();
         StreamMenu.Options options = options(host, NvApp.Role.STREAM);
+        options.nativeHostControl = true;
         List<StreamMenu.Entry> entries = StreamMenu.mainPage(options);
         List<StreamMenu.Item> items = items(entries);
         assertFalse(items.contains(QUIT_GAME));
@@ -153,7 +154,23 @@ public class StreamMenuTest {
         assertEquals(R.string.stream_close_game, last.label);
         // A device that may not launch or quit gets neither, as before.
         host.permission = ComputerDetails.PERMISSION_VIEW;
-        assertFalse(items(StreamMenu.mainPage(new StreamMenu.Options(NvApp.Role.STREAM, host))).contains(CLOSE_GAME));
+        List<StreamMenu.Item> viewOnly = items(StreamMenu.mainPage(options(host, NvApp.Role.STREAM)));
+        assertFalse(viewOnly.contains(CLOSE_GAME));
+        assertFalse(viewOnly.contains(END_HOST_SESSION));
+    }
+
+    @Test
+    public void aNativeHostWithoutHostControlStillEndsTheSessionAndKeepsQuitApp() {
+        StreamMenu.Options options = options(nativeApiHost(), NvApp.Role.STREAM);
+        List<StreamMenu.Entry> entries = StreamMenu.mainPage(options);
+        List<StreamMenu.Item> items = items(entries);
+        assertFalse(items.contains(CLOSE_GAME));
+        assertTrue(items.contains(DISCONNECT));
+        assertTrue(items.contains(END_HOST_SESSION));
+        StreamMenu.Entry last = entries.get(entries.size() - 1);
+        assertEquals(QUIT_GAME, last.item);
+        assertTrue(last.destructive);
+        assertEquals(R.string.stream_quit_game, last.label);
     }
 
     @Test
@@ -247,7 +264,9 @@ public class StreamMenuTest {
         Set<StreamMenu.Item> reachable = EnumSet.noneOf(StreamMenu.Item.class);
         for (NvApp.Role role : NvApp.Role.values()) {
             // Quit app belongs to hosts without the native API; End session and Close game to those with it.
-            reachable.addAll(items(StreamMenu.mainPage(options(nativeApiHost(), role))));
+            StreamMenu.Options withControl = options(nativeApiHost(), role);
+            withControl.nativeHostControl = true;
+            reachable.addAll(items(StreamMenu.mainPage(withControl)));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.mouseConnected = options.onscreenControls = options.gameControls = true;

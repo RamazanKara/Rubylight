@@ -70,6 +70,8 @@ public final class StreamMenu {
         public boolean automaticBitrateOn;
         /** The host's web UI address is known for this stream. */
         public boolean webUiAddress;
+        /** A native API host lets this device close the game (the host control permission); without it Quit app does. */
+        public boolean nativeHostControl;
 
         public Options(NvApp.Role role, ComputerDetails host) {
             this.role = role;
@@ -210,7 +212,10 @@ public final class StreamMenu {
             if (o.role == NvApp.Role.STREAM && caps.has(HostCapabilities.Feature.NATIVE_API)) {
                 // The native API tells ending the session (the game keeps running) from closing the game.
                 entries.add(new Entry(Section.SESSION, Item.END_HOST_SESSION, R.string.stream_end_session, R.drawable.ic_stop, null, true));
-                entries.add(new Entry(Section.SESSION, Item.CLOSE_GAME, R.string.stream_close_game, R.drawable.ic_stop, null, true));
+                // Close game needs host control, which is off by default; Quit app (/cancel) does not.
+                entries.add(o.nativeHostControl
+                        ? new Entry(Section.SESSION, Item.CLOSE_GAME, R.string.stream_close_game, R.drawable.ic_stop, null, true)
+                        : new Entry(Section.SESSION, Item.QUIT_GAME, R.string.stream_quit_game, R.drawable.ic_stop, null, true));
             } else if (o.role == NvApp.Role.STREAM) {
                 entries.add(new Entry(Section.SESSION, Item.QUIT_GAME, R.string.stream_quit_game, R.drawable.ic_stop, null, true));
             } else {

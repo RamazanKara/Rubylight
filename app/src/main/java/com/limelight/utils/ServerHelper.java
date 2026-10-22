@@ -14,7 +14,6 @@ import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.JniNativeApiTransport;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
-import com.limelight.nativeapi.NativeSession;
 import com.limelight.nativeapi.PreferencesRecentsStore;
 import com.limelight.nativeapi.RecentsStore;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -149,15 +148,15 @@ public class ServerHelper {
                 NvHTTP httpConn;
                 String message;
                 try {
+                    boolean closed = false;
                     if (app.getRole() == NvApp.Role.STREAM && computer.caps.has(HostCapabilities.Feature.NATIVE_API)) {
-                        // A host with the native API closes the game through it; the others keep Quit app.
+                        // Close game needs host control; without it the classic Quit app below still works.
                         HostEndpoint endpoint = HostEndpoint.of(computer, managerBinder.getUniqueId(),
                                 PlatformBinding.getCryptoProvider(parent));
-                        if (endpoint == null) {
-                            throw new IOException("The host's certificate is not known.");
-                        }
-                        new NativeApiClient(new JniNativeApiTransport(), endpoint)
-                                .sessionAction(NativeSession.ActionId.CLOSE_GAME);
+                        closed = endpoint != null && new NativeApiClient(new JniNativeApiTransport(), endpoint)
+                                .closeGameIfAllowed();
+                    }
+                    if (closed) {
                         message = parent.getResources().getString(R.string.applist_quit_success) + " " + app.getAppName();
                     } else {
                         httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort,

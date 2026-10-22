@@ -75,14 +75,22 @@ public class NvConnectionNativeActionsTest {
     private static final class Recording implements NativeApiTransport {
         final List<String> arguments = new CopyOnWriteArrayList<>();
         final CountDownLatch called = new CountDownLatch(1);
+        volatile boolean hostControl = true;
+        /** The answer to Close game, when it is not the session. */
+        volatile String closeReply;
 
         @Override public String request(HostEndpoint host, String op, String argument) throws NativeApiException {
+            if (op.equals("capabilities")) {
+                called.countDown();
+                return "{\"ok\":{\"api_version\":1,\"host\":{\"name\":\"PC\",\"version\":\"3.0.0\"},\"features\":[],"
+                        + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":" + hostControl + "}}}";
+            }
             if (!op.equals("session_action")) {
                 throw new NativeApiException(NativeApiException.Kind.INVALID_ARGUMENT, op);
             }
             arguments.add(argument);
             called.countDown();
-            return SESSION;
+            return closeReply != null && argument.equals("close_game") ? closeReply : SESSION;
         }
     }
 
@@ -123,7 +131,7 @@ public class NvConnectionNativeActionsTest {
     }
 
     @Test
-    public void aNativeHostClosesTheGameThroughTheNativeApiAndNeverQuitsTheApp() throws Exception {
+    public void aNativeHostWithHostControlClosesTheGameThroughTheNativeApi() throws Exception {
         Http[] http = new Http[1];
         Recording transport = new Recording();
         NvConnection connection = connection(NATIVE, http, transport);
@@ -133,6 +141,46 @@ public class NvConnectionNativeActionsTest {
         assertEquals(0, http[0].quits);
         connection.nativeSessionAction(com.limelight.nativeapi.NativeSession.ActionId.END);
         assertEquals(List.of("close_game", "end"), transport.arguments);
+    }
+
+    @Test
+    public void aNativeHostWithoutHostControlQuitsTheAppTheClassicWay() throws Exception {
+        Http[] http = new Http[1];
+        Recording transport = new Recording();
+        transport.hostControl = false;
+        NvConnection connection = connection(NATIVE, http, transport);
+        connection.closeGame();
+        assertTrue(transport.arguments.isEmpty());
+        assertEquals(1, http[0].quits);
+        // End session needs no host control.
+        connection.nativeSessionAction(com.limelight.nativeapi.NativeSession.ActionId.END);
+        assertEquals(List.of("end"), transport.arguments);
+    }
+
+    @Test
+    public void aHostControlPermissionRevokedMeanwhileFallsBackToQuitApp() throws Exception {
+        Http[] http = new Http[1];
+        Recording transport = new Recording();
+        transport.closeReply = "{\"error\":{\"kind\":\"status\",\"message\":\"Turn it on.\",\"http_status\":403,"
+                + "\"code\":\"host_control_required\"}}";
+        NvConnection connection = connection(NATIVE, http, transport);
+        connection.closeGame();
+        assertEquals(List.of("close_game"), transport.arguments);
+        assertEquals(1, http[0].quits);
+    }
+
+    @Test
+    public void theStreamMenuLearnsHostControlFromTheCapabilities() throws Exception {
+        Http[] http = new Http[1];
+        Recording transport = new Recording();
+        NvConnection connection = connection(NATIVE, http, transport);
+        assertFalse(connection.hasNativeHostControl());
+        connection.refreshNativeHostControl();
+        assertTrue(transport.called.await(5, TimeUnit.SECONDS));
+        for (int i = 0; i < 100 && !connection.hasNativeHostControl(); i++) {
+            Thread.sleep(20);
+        }
+        assertTrue(connection.hasNativeHostControl());
     }
 
     @Test

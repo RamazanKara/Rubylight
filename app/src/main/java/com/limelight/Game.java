@@ -2459,6 +2459,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
         com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(app.getRole(), conn.getHostDetails());
         options.canSendInput = conn.canSendInput();
+        options.nativeHostControl = conn.hasNativeHostControl();
         options.microphoneOffered = conn.getMicrophoneStatus().canMute();
         options.microphoneMuted = conn.isMicrophoneMuted();
         options.overlayShown = prefConfig.enablePerfOverlay;
@@ -5638,6 +5639,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 connected = true;
+                conn.refreshNativeHostControl();
                 getIntent().removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
                 bitrateHandler.removeCallbacks(sampleStreamHealth);
                 bitrateHandler.postDelayed(sampleStreamHealth, 1000);

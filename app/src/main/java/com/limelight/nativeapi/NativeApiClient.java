@@ -18,6 +18,35 @@ public final class NativeApiClient {
         this.host = host;
     }
 
+    public NativeCapabilities capabilities() throws NativeApiException {
+        try {
+            return NativeCapabilities.parse(call("capabilities", ""));
+        } catch (JSONException e) {
+            throw malformed("capabilities", e);
+        }
+    }
+
+    /**
+     * Closes the game through the native API when this device has the host control permission.
+     * Returns false, having done nothing, when it does not: the caller then quits the classic way
+     * through /cancel, which needs no such permission.
+     */
+    public boolean closeGameIfAllowed() throws NativeApiException {
+        if (!capabilities().hostControl) {
+            return false;
+        }
+        try {
+            sessionAction(NativeSession.ActionId.CLOSE_GAME);
+            return true;
+        } catch (NativeApiException e) {
+            // The permission changed since the capabilities were read.
+            if ("host_control_required".equals(e.getCode())) {
+                return false;
+            }
+            throw e;
+        }
+    }
+
     public NativeLibrary library() throws NativeApiException {
         try {
             return NativeLibrary.parse(call("library", ""));

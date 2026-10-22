@@ -237,4 +237,49 @@ public class NativeApiClientTest {
         assertEquals(5, client.restoreRadeon().revision);
         assertEquals(Arrays.asList("pc|radeon_write", "pc|radeon_restore"), transport.calls);
     }
+
+    private static String capabilities(boolean hostControl) {
+        return ok("{\"api_version\":1,\"host\":{\"name\":\"GAMING-PC\",\"version\":\"3.0.0\",\"unique_id\":\"U\"},"
+                + "\"features\":[\"library\",\"session.close_game\"],\"permissions\":{\"list\":true,\"view\":true,"
+                + "\"launch\":true,\"host_control\":" + hostControl + "}}");
+    }
+
+    @Test
+    public void capabilitiesCarryTheDevicePermissions() throws Exception {
+        transport.reply("pc", "capabilities", capabilities(false));
+        NativeCapabilities caps = client().capabilities();
+        assertEquals("GAMING-PC", caps.hostName);
+        assertTrue(caps.launch && caps.view && caps.list);
+        assertFalse(caps.hostControl);
+        assertTrue(caps.features.contains("session.close_game"));
+    }
+
+    @Test
+    public void closeGameNeedsHostControlAndOtherwiseDoesNothing() throws Exception {
+        transport.reply("pc", "capabilities", capabilities(false));
+        assertFalse(client().closeGameIfAllowed());
+        assertEquals(java.util.Collections.singletonList("pc|capabilities"), transport.calls);
+
+        transport.calls.clear();
+        transport.reply("pc", "capabilities", capabilities(true));
+        transport.reply("pc", "session_action", ok(NativeApiFixtures.IDLE));
+        assertTrue(client().closeGameIfAllowed());
+        assertEquals(java.util.Arrays.asList("close_game"), transport.arguments.subList(transport.arguments.size() - 1,
+                transport.arguments.size()));
+    }
+
+    @Test
+    public void closeGameTurnedDownByTheHostAfterwardsIsNotAnError() throws Exception {
+        transport.reply("pc", "capabilities", capabilities(true));
+        transport.reply("pc", "session_action", "{\"error\":{\"kind\":\"status\",\"message\":\"x\",\"http_status\":403,"
+                + "\"code\":\"host_control_required\"}}");
+        assertFalse(client().closeGameIfAllowed());
+        transport.reply("pc", "session_action", error("network", "down"));
+        try {
+            client().closeGameIfAllowed();
+            fail("a network failure is an error");
+        } catch (NativeApiException e) {
+            assertEquals(NativeApiException.Kind.NETWORK, e.getKind());
+        }
+    }
 }

@@ -75,6 +75,7 @@ public class NvConnection {
     private String uniqueId;
     private ConnectionContext context;
     private NativeApiTransport nativeApiTransport = new JniNativeApiTransport();
+    private volatile boolean nativeHostControl;
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
@@ -1190,6 +1191,16 @@ public class NvConnection {
      * for hosts that have the native API; the others quit with {@link #quitApp()}.
      */
     public NativeSession nativeSessionAction(NativeSession.ActionId action) throws IOException, XmlPullParserException {
+        NativeApiClient client = nativeClientForAction();
+        try {
+            return client.sessionAction(action);
+        } catch (NativeApiException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /** The native client once the host, this device's launch permission and the stream role allow a session action. */
+    private NativeApiClient nativeClientForAction() throws IOException, XmlPullParserException {
         ComputerDetails details = refreshHostDetails();
         if (isMonkey || context.streamConfig.getApp().getRole() != NvApp.Role.STREAM ||
                 !details.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
@@ -1198,16 +1209,11 @@ public class NvConnection {
         if (!details.caps.has(HostCapabilities.Feature.NATIVE_API)) {
             throw new IOException("The host has no native session actions.");
         }
-        HostEndpoint endpoint = HostEndpoint.of(details.uuid, context.serverAddress, context.httpsPort,
-                context.serverCert, uniqueId, cryptoProvider);
-        if (endpoint == null) {
+        NativeApiClient client = nativeClient();
+        if (client == null) {
             throw new IOException("The host's certificate is not known.");
         }
-        try {
-            return new NativeApiClient(nativeApiTransport, endpoint).sessionAction(action);
-        } catch (NativeApiException e) {
-            throw new IOException(e.getMessage(), e);
-        }
+        return client;
     }
 
     /** Whether the host has the native API session actions, as its last serverinfo said. */
@@ -1216,15 +1222,50 @@ public class NvConnection {
     }
 
     /**
-     * Closes the game on the host: Close game where the host has the native API, Quit app on the
-     * others.
+     * Closes the game on the host. A native API host closes it through the native API when this
+     * device has host control; without that permission, and on every other host, it quits the app
+     * through /cancel, which needs no such permission.
      */
     public void closeGame() throws IOException, XmlPullParserException {
         if (hasNativeSessionActions()) {
-            nativeSessionAction(NativeSession.ActionId.CLOSE_GAME);
-        } else {
-            quitApp();
+            try {
+                if (nativeClientForAction().closeGameIfAllowed()) {
+                    return;
+                }
+            } catch (NativeApiException e) {
+                throw new IOException(e.getMessage(), e);
+            }
         }
+        quitApp();
+    }
+
+    /** Whether this device may close the game through the native API, as the host last said; false until known. */
+    public boolean hasNativeHostControl() {
+        return nativeHostControl;
+    }
+
+    /** Asks a native API host whether this device has host control, in the background; the stream menu reads the answer. */
+    public void refreshNativeHostControl() {
+        if (isMonkey || !hasNativeSessionActions()) {
+            return;
+        }
+        NativeApiClient client = nativeClient();
+        if (client == null) {
+            return;
+        }
+        new Thread(() -> {
+            try {
+                nativeHostControl = client.capabilities().hostControl;
+            } catch (NativeApiException e) {
+                LimeLog.info("Native capabilities not read: " + e.getMessage());
+            }
+        }, "Native capabilities").start();
+    }
+
+    private NativeApiClient nativeClient() {
+        HostEndpoint endpoint = HostEndpoint.of(hostDetails.uuid, context.serverAddress, context.httpsPort,
+                context.serverCert, uniqueId, cryptoProvider);
+        return endpoint == null ? null : new NativeApiClient(nativeApiTransport, endpoint);
     }
 
     /**

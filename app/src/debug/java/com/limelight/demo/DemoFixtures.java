@@ -35,9 +35,12 @@ public final class DemoFixtures {
     private static final String SUNSHINE_HOST = "{\"v\":1,\"gameStream\":false,\"sunshineVersion\":true,\"paired\":true," +
             "\"virtualDisplayCapable\":false,\"pyroWaveFields\":false,\"pyroWaveProbeBytes\":0,\"pyroWaveCodecs\":0}";
     static boolean sunshineHost;
+    // "--es host native": Living-room PC also has the native API, which Home and the game detail need.
+    static boolean nativeApiHost;
 
     public static HostCapabilities hostCapabilities() {
-        return HostCapabilities.fromJson(sunshineHost ? SUNSHINE_HOST : HOST);
+        String json = sunshineHost ? SUNSHINE_HOST : nativeApiHost ? HOST.replace("{\"v\":1,", "{\"v\":1,\"nativeApiVersion\":1,") : HOST;
+        return HostCapabilities.fromJson(json);
     }
 
     /** What Living-room PC's host reports, on any ComputerDetails. */

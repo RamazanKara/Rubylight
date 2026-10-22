@@ -16,6 +16,8 @@
         </activity-alias>
         <activity android:name="com.limelight.demo.DemoPcView" android:exported="false" />
         <activity android:name="com.limelight.demo.DemoAppView" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoConsoleHome" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoGameDetail" android:exported="false" />
         <activity android:name="com.limelight.demo.DemoStreamSettings" android:exported="false" />
         <activity android:name="com.limelight.demo.DemoHostStreamSettings" android:exported="false"
             android:windowSoftInputMode="adjustResize" />

@@ -8,6 +8,7 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 
 import com.limelight.AppView;
+import com.limelight.console.GameDetailActivity;
 
 import java.io.IOException;
 
@@ -36,6 +37,9 @@ public final class DemoLauncherActivity extends Activity {
             return;
         }
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
+        DemoFixtures.nativeApiHost = "native".equals(getIntent().getStringExtra("host"));
+        DemoConsole.hostControl = getIntent().getBooleanExtra("control", true);
+        DemoConsole.racingRuns = !"idle".equals(getIntent().getStringExtra("session"));
         try {
             DemoFixtures.prepare(this);
         } catch (IOException e) {
@@ -43,7 +47,9 @@ public final class DemoLauncherActivity extends Activity {
         }
         String screen = getIntent().getStringExtra("state");
         Class<?> target;
-        if ("library".equals(screen)) target = DemoAppView.class;
+        if ("home".equals(screen)) target = DemoConsoleHome.class;
+        else if ("detail".equals(screen)) target = DemoGameDetail.class;
+        else if ("library".equals(screen)) target = DemoAppView.class;
         else if ("settings".equals(screen)) target = DemoStreamSettings.class;
         else if ("pc-settings".equals(screen)) target = DemoHostStreamSettings.class;
         else if ("controller".equals(screen)) target = DemoControllerMappingActivity.class;
@@ -62,7 +68,13 @@ public final class DemoLauncherActivity extends Activity {
                 .putExtra("orientation", getIntent().getStringExtra("orientation"))
                 .putExtra("size", getIntent().getStringExtra("size"))
                 .putExtra(AppView.UUID_EXTRA, DemoFixtures.PC_UUID).putExtra(AppView.NAME_EXTRA, "Living-room PC")
-                .putExtra("host_uuid", DemoFixtures.PC_UUID).putExtra("host_name", "Living-room PC");
+                .putExtra("host_uuid", DemoFixtures.PC_UUID).putExtra("host_name", "Living-room PC")
+                // The game detail: "--ei app 2" opens Racing Game (the running one), any other id its own card.
+                .putExtra(GameDetailActivity.EXTRA_HOST_UUID, DemoFixtures.PC_UUID)
+                .putExtra(GameDetailActivity.EXTRA_HOST_NAME, "Living-room PC")
+                .putExtra(GameDetailActivity.EXTRA_APP_ID, getIntent().getIntExtra("app", 2))
+                .putExtra(GameDetailActivity.EXTRA_TITLE, DemoFixtures.TITLES[
+                        Math.max(0, Math.min(DemoFixtures.TITLES.length, getIntent().getIntExtra("app", 2)) - 1)]);
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         finish();
     }

@@ -33,7 +33,8 @@ Rubylight 3.0 is an AMD-only Windows host meant as the successor to AMD Link. Yo
 
 Kept from the draft:
 
-1. **The host is AMD-only.** NVIDIA and Intel users stay on 2.6.x. 3.0 refuses to install on unsupported hardware with a clear message (the 2.5 floor refusals), and the release notes put the floor first. No backports to 2.6 unless the user asks.
+1. **The host is AMD-only, and nothing else is dropped.** NVIDIA and Intel users stay on 2.6.x. Every AMD GPU with a working AMF encoder stays supported, older generations included, and so do Windows 10, physical displays, WGC and Desktop Duplication capture, the D3D11 frame path and the keyed-mutex ring. 3.0 refuses to install on a non-AMD GPU with a clear message, and the release notes put that first. No backports to 2.6 unless the user asks.
+1a. **Phases 3 to 5 of the 2.5 port are reverted (2026-10-22).** The RDNA 2 and Windows 26200 floor, virtual-display-only streaming, the D3D12-only host and the D3D12 display driver removed support the user wants to keep. The code is parked on `claude/d3d12-virtual-only`. Any piece of it comes back only as an addition beside the existing paths, chosen per GPU and Windows build, never as a replacement, and only if it measures no worse (the D3D12 conversion measured 3 to 7% slower, with 2.2 to 4.0 ms max samples).
 2. **Moonlight compatibility is frozen.** Pairing, session control and H.264/HEVC/AV1 streaming keep working with stock Moonlight (Nonary's). No new Moonlight-only features. `PROTOCOL_VERSION` does not change.
 3. **Native features ride versioned extensions** on what already exists: 0x55xx control messages, RTSP hints such as `pyrowaveLinkMbps`, and paired-client HTTPS endpoints. No new transport and no new authentication.
 4. **Measure, don't assert.** A hardware feature that hasn't run on our hardware is "awaiting validation" in the docs and the status table.
@@ -61,11 +62,9 @@ Goal: ship the 2.5 work on top of current main. Nightjar 0.7.x and stock Moonlig
 - **A1 Port 2.5 one phase at a time,** cherry-picking in the branch's own order (`git log --reverse main..origin/claude/rubylight-2.5`). Use one brief per phase and run the full `build.ps1` gate after each one; phases that touch the driver also build its package. Resolve conflicts in favour of main's newer console, library and chroma work.
   1. Fence ring and IddCx probes: `64228293d`..`b83ca8038` (9 commits).
   2. AMD only: `68b475905`..`c18e7bd60` (14).
-  3. Floor and virtual displays only: `43e2a09df`..`da98f3611` (16). `claude/floor`'s tip `65b955be4` is the same patch as `43e2a09df`, so it isn't needed.
-  4. D3D12-only host: `f6c250a21`..`e761de93a` (10).
-  5. D3D12 driver and docs: `b81aabe24`..`ba12dc2f9` (11).
-  6. Leave out the three `wip:` commits (`45a9d2630` and the two after it). Take the gate scripts from `rust/release/v25-gates/` when the alpha gate runs.
-- **A2 Floor experience.** The installer and the host explain a refusal in plain words: GPU, driver or Windows build, and what to do next. Release notes and README state the floor.
+  3. to 5. (floor, virtual displays only, D3D12-only host, D3D12 driver): ported, then reverted by decision 1a. Do not port them again.
+  6. Leave out the three `wip:` commits (`45a9d2630` and the two after it). Take the gate scripts from `rust/release/v25-gates/` when the alpha gate runs, minus the floor and virtual-only checks.
+- **A2 AMD check.** The installer and the host explain a refusal in plain words: no AMD GPU, or no working AMF encoder, and what to do next (2.6.x for NVIDIA and Intel). No GPU-generation or Windows-build floor. Release notes and README state it.
 
 Gate: the full build gate and CI pass. The HANDOFF.md gates re-run on the alpha tip. `check.ps1` and a 30-minute soak pass with no encoder hang. `check.ps1` latency does not regress against 2.6.0, and the numbers go into `PERFORMANCE.md`. Stock Moonlight pairs and streams. An upgrade from 2.6.0 works.
 
@@ -135,7 +134,7 @@ Each item is a milestone with its own gate, and the order can change. A change t
 
 ### rc and 3.0.0
 
-- `docs/hardware-matrix.md` labels every feature Tested, Expected, Experimental or Unsupported. Tested means it ran on our RX 7900 XT with Windows 26200 and a named phone. RDNA 2 and RDNA 4 stay "Expected" unless someone runs them.
+- `docs/hardware-matrix.md` labels every feature Tested, Expected, Experimental or Unsupported. Tested means it ran on our RX 7900 XT with a named Windows build and phone. Other AMD generations stay "Expected" unless someone runs them.
 - A two-hour soak, upgrade from 2.6.x, uninstall, and recovery after reinstalling the virtual display driver.
 - README, site and docs updated. Credits and fork history stay intact.
 
@@ -153,7 +152,7 @@ Each track starts with a spike and needs the user's go-ahead.
 | Risk | Mitigation |
 |---|---|
 | The 2.5 port conflicts with 96 newer commits (console, library, chroma) | Port phase by phase, run the gate after each phase, keep main's newer work |
-| D3D12-only and virtual-display-only remove fallbacks some users rely on | Say so first in the alpha notes; refusal and error messages name the cause |
+| Dropping capture paths, displays or GPU generations strands users | Decision 1a: nothing beyond non-AMD encoders is removed; new paths are added beside the old ones |
 | We have one test GPU | RDNA 2 and RDNA 4 stay "Expected"; the matrix records exactly what ran |
 | ADLX writes are global and depend on the driver version | The probe gates each setting; journal and restore; crash test in the alpha.2 gate |
 | Codex works in parallel on both repos (Nightjar desktop above all) | Pull and check `origin/main` before every slice; briefs name the files they own |
@@ -173,8 +172,8 @@ Each track starts with a spike and needs the user's go-ahead.
 | Slice | State | Notes |
 |---|---|---|
 | A0 release tooling | done | `bump.py` accepts alpha/beta and labels them with the full version; the elevated task accepts them; CI tag trigger covers `v3.*` |
-| A1 port 2.5 (5 phases) | phases 1 and 2 done | Phase 1: 4 of 9 picked; main already had the fence ring (keyed mutex default, fence opt-in), so phase 3 must decide the default. Driver 0.2.0 not yet loaded on hardware. Phase 2 (AMD only): all 15 picks landed, plus removal of the main-only non-AMD code. Next: phase 3 |
-| A2 floor experience | pending | |
+| A1 port 2.5 | done (phases 1 and 2) | Phase 1: 4 of 9 picked; main already had the fence ring (keyed mutex default, fence opt-in), which stays. Driver 0.2.0 not yet loaded on hardware. Phase 2 (AMD only): all 15 picks landed, plus removal of the main-only non-AMD code, except the Windows 10 code paths, which are back. Phases 3 to 5 were ported and then reverted on 2026-10-22 (decision 1a); the remote monitor scale fix from that work was kept. Open for the alpha.1 gate: physical display (WGC and Desktop Duplication) and virtual display streams both pass on the RX 7900 XT |
+| A2 AMD check | pending | |
 | A3 native API v1 | pending | |
 | A4 session state machine | pending | |
 | A5 Radeon Control Center v1 | pending | |

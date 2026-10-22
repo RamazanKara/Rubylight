@@ -8,7 +8,8 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## Unreleased
 
-- **The host is AMD-only from 3.0.** NVENC, Quick Sync, the FFmpeg software encoders (x264, x265, SVT-AV1) and Windows 10 support are removed, along with their settings, console controls and libraries. AMF encodes H.264, HEVC and AV1, and PyroWave keeps its own encoder. Settings that named a removed encoder migrate to `amf` or `auto` and the host reports the change once. NVIDIA and Intel users stay on the 2.6.x line.
+- **The host is AMD-only from 3.0.** NVENC, Quick Sync, and the FFmpeg software encoders (x264, x265, SVT-AV1) are removed, along with their settings, console controls and libraries. AMF encodes H.264, HEVC and AV1, and PyroWave keeps its own encoder. Settings that named a removed encoder migrate to `amf` or `auto` and the host reports the change once. NVIDIA and Intel users stay on the 2.6.x line.
+- **Nothing else is dropped.** Every AMD GPU with a working AMF encoder stays supported, older generations included, on Windows 10 and 11. Physical displays, WGC and Desktop Duplication capture keep working beside virtual displays, so you can still stream the PC's own monitor.
 
 ## New in 2.6.0
 

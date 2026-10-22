@@ -563,3 +563,71 @@ fn a_retired_compute_queue_is_not_reused_for_the_same_capture_device() -> Result
     assert!(!fresh.is_stuck());
     Ok(())
 }
+
+/// The display driver on main is still D3D11: it opens each ring texture with
+/// `OpenSharedResource1`, which fails with E_INVALIDARG unless the D3D12 texture allows render
+/// targets and simultaneous access (RX 7900 XT, October 16). A D3D12 driver arrives later.
+#[test]
+#[ignore = "requires native D3D12 sharing and a D3D11 device on the same GPU; no driver is installed"]
+fn fence_ring_textures_open_on_a_d3d11_device_like_the_driver_opens_them() -> Result<()> {
+    use windows::Win32::{
+        Foundation::HMODULE,
+        Graphics::{
+            Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
+            Direct3D11::{
+                D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
+                ID3D11Device1, ID3D11Texture2D,
+            },
+            Dxgi::{CreateDXGIFactory1, IDXGIAdapter, IDXGIAdapter1, IDXGIFactory4},
+        },
+    };
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    // SAFETY: the factory and adapter are live, and the device out-slot is a live local.
+    let driver: ID3D11Device1 = unsafe {
+        let factory: IDXGIFactory4 = CreateDXGIFactory1()?;
+        let adapter: IDXGIAdapter = factory
+            .EnumAdapterByLuid::<IDXGIAdapter1>(gpu.compute.luid())?
+            .cast()?;
+        let mut device: Option<ID3D11Device> = None;
+        D3D11CreateDevice(
+            &adapter,
+            D3D_DRIVER_TYPE_UNKNOWN,
+            HMODULE::default(),
+            D3D11_CREATE_DEVICE_FLAG(0),
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut device),
+            None,
+            None,
+        )?;
+        device.context("no D3D11 device")?.cast()?
+    };
+    for pixel in [Pixel::Bgra8, Pixel::RgbaF16] {
+        let ring = Ring::fenced(
+            gpu.compute.clone(),
+            Layout {
+                kind: Kind::Fence,
+                slot_count: 2,
+                width: 64,
+                height: 32,
+                format: crate::compute::format(pixel).0 as u32,
+                generation: 1,
+            },
+            release_queue(&gpu, None),
+        )?;
+        for slot in &ring.slots {
+            // SAFETY: a live shared NT handle of a D3D12 texture on the same adapter.
+            let texture: ID3D11Texture2D =
+                unsafe { driver.OpenSharedResource1(HANDLE(slot.shared.as_raw_handle())) }
+                    .with_context(|| {
+                        format!("the driver's D3D11 open of a {pixel:?} ring texture")
+                    })?;
+            let mut desc = Default::default();
+            // SAFETY: a live texture; GetDesc only writes the live local.
+            unsafe { texture.GetDesc(&mut desc) };
+            assert_eq!((desc.Width, desc.Height), (64, 32));
+        }
+    }
+    Ok(())
+}

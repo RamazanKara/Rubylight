@@ -30,7 +30,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::Graphics::Direct3D12::{
-    D3D12_RESOURCE_DESC, D3D12_RESOURCE_FLAG_NONE, ID3D12CommandQueue, ID3D12Fence,
+    D3D12_RESOURCE_DESC, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+    D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, ID3D12CommandQueue, ID3D12Fence,
 };
 use windows::Win32::System::Memory::{
     CreateFileMappingW, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile,
@@ -457,14 +458,18 @@ impl Ring {
         section.header().init(layout);
         let mut slots = Vec::with_capacity(layout.slot_count as usize);
         for _ in 0..layout.slot_count {
-            // The driver copies into it on a copy queue and the host reads it as a shader
-            // resource or copy source: no render-target, unordered-access or simultaneous
-            // access flags, which would only add compression metadata to keep coherent.
+            // The driver still opens the texture on a D3D11 device, which accepts a D3D12 texture
+            // only if it may be a render target: without the flag OpenSharedResource1 fails with
+            // E_INVALIDARG (RX 7900 XT, October 16). The host's readers and a driver seed copy
+            // may read simultaneously on different devices, and the fences order the writers,
+            // which does not itself permit concurrent D3D12 access. Revisit both flags once the
+            // D3D12 driver is required.
             let (texture, shared) = compute.share_texture(
                 layout.width,
                 layout.height,
                 DXGI_FORMAT(layout.format as i32),
-                D3D12_RESOURCE_FLAG_NONE,
+                D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
+                    | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
             )?;
             slots.push(Slot {
                 texture: Arc::new(texture),

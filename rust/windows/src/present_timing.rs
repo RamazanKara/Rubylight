@@ -308,6 +308,11 @@ impl Default for Stamper {
     }
 }
 impl Stamper {
+    /// Whether present times come from the ETW session; without one `stamp` returns the
+    /// capture time unchanged.
+    pub fn tracks_presents(&self) -> bool {
+        self.tracker.is_some()
+    }
     pub fn stamp(&mut self, captured: Instant, output: &str) -> Instant {
         if self.tracker.is_none() {
             return captured;

@@ -121,14 +121,14 @@ impl Sender {
         config: Config,
         host: Shared,
         start: Instant,
-        track_presents: bool,
+        stamper: Option<butterpollo_windows::present_timing::Stamper>,
     ) -> Result<Self> {
         let mut sender = Self::packetizer(
             session.clone(),
             config.clone(),
             host.clone(),
             start,
-            track_presents,
+            stamper,
         )?;
         let shared = sender.slot.clone();
         sender.transport = Some(thread::Builder::new().name("pyrowave-send".into()).spawn(
@@ -150,7 +150,7 @@ impl Sender {
         config: Config,
         host: Shared,
         start: Instant,
-        track_presents: bool,
+        stamper: Option<butterpollo_windows::present_timing::Stamper>,
     ) -> Result<Self> {
         let slot = Arc::new(Slot {
             pending: Mutex::new(None),
@@ -172,7 +172,7 @@ impl Sender {
                 key: (current.config.encryption & 2 != 0).then_some(current.launch.key),
             };
             let mut controller = DetailFec::new(current.config.fps_millihz());
-            let mut stamper = track_presents.then(butterpollo_windows::present_timing::Stamper::default);
+            let mut stamper = stamper;
             let mut last_stamp = start;
             let mut fec_reported: Option<Instant> = None;
             let requested_fec = config.integer("pyrowave_critical_fec_percentage", 20);
@@ -331,7 +331,7 @@ mod tests {
             config,
             fixture.host.clone(),
             Instant::now(),
-            false,
+            None,
         )?;
         sender.submit(
             vec![Encoded {
@@ -400,7 +400,7 @@ mod tests {
             fixture.host.config.read().unwrap().clone(),
             fixture.host.clone(),
             ago(500),
-            false,
+            None,
         )
         .unwrap();
         let mut claims = Claims::default();
@@ -487,7 +487,7 @@ mod tests {
                 config,
                 fixture.host.clone(),
                 Instant::now(),
-                false,
+                None,
             )
             .unwrap();
             let snapshot = |wire_frame| {

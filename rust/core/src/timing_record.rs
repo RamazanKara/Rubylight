@@ -43,6 +43,12 @@ pub fn codec_name(codec: u8) -> &'static str {
     }
 }
 
+/// Where the presented time comes from: the ETW present tracker, or else the capture time
+/// (so `game_to_present` is not a measurement).
+pub fn present_source(etw: bool) -> &'static str {
+    if etw { "etw" } else { "capture" }
+}
+
 /// The file's first lines, ending with the column names.
 pub fn header(meta: &Meta) -> String {
     format!(
@@ -150,6 +156,12 @@ impl Sink {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn the_present_source_is_etw_only_with_a_tracker() {
+        assert_eq!(present_source(true), "etw");
+        assert_eq!(present_source(false), "capture");
+    }
 
     fn stamps(at: Instant) -> Stamps {
         let us = |n: u64| at + Duration::from_micros(n);

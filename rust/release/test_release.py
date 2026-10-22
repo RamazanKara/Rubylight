@@ -30,7 +30,8 @@ class ReleaseVersions(unittest.TestCase):
 
     def test_prefixed_tag_keeps_bare_asset_version_and_tagged_source_links(self):
         notes = self.root / 'rust/RELEASE_NOTES.md'
-        label = self.version.split('-')[-1]
+        # Release candidates are headed by their bare label; alphas and betas keep the full version.
+        label = self.version.split('-')[-1] if '-rc.' in self.version else self.version
         notes.write_text(f'## New in {label}\n\nA [guide](../docs/api.md).\n\n## Earlier\n', encoding='utf-8')
         for tag in (f'v{self.version}', self.version):
             with self.subTest(tag=tag):
@@ -81,7 +82,10 @@ class ReleaseVersions(unittest.TestCase):
         # Pending notes would replace the empty bullet this test fills in.
         notes.write_text(re.sub(r'(?ms)^## Unreleased\n.*?(?=^## )', '', notes.read_text(encoding='utf-8')),
                          encoding='utf-8')
-        for new in ('3.0.0-alpha.1', '3.0.0-alpha.2', '3.0.0-beta.1'):
+        # Ahead of whatever the repository is at, so the test survives the next prerelease bump.
+        major, minor, patch = map(int, self.version.split('-')[0].split('.'))
+        base = f'{major}.{minor}.{patch + 1}'
+        for new in (f'{base}-alpha.1', f'{base}-alpha.2', f'{base}-beta.1'):
             with self.subTest(new=new):
                 result = self.run_tool('bump.py', f'v{new}')
                 self.assertEqual(result.returncode, 0, result.stderr)

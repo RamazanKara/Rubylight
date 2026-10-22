@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0-alpha.1 installer is named `rubylight-setup-3.0.0-alpha.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Radeon settings from the couch.** `GET /api/native/v1/radeon` lists the Radeon settings of the GPU the host encodes on, each in one of five states: configurable, read only, needs setup in AMD Software, not supported, or temporarily unavailable. A device with host control that owns the running session can change them with `POST /radeon/settings`. Every change is written to a journal on disk before it is applied and is put back when the session ends, the game is closed, the grace period runs out, the device is unpaired or disabled, the host shuts down, or at the next start after a crash. It is not put back at Disconnect. A setting you changed on the PC in the meantime is left alone, and a restore that fails is logged and retried.
+
 ## New in 3.0.0-alpha.1
 
 - **Rubylight 3.0 needs an AMD Radeon GPU.** Setup (interactive, quiet and update) and the host stop on a PC with no AMD GPU or no working AMF video encoder, and say why in plain words. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). An AMD GPU whose driver has no AMF encoder is told to update the Radeon driver. There is no GPU-generation floor and no Windows-build floor: every AMD GPU with a working AMF encoder is accepted, on Windows 10 and 11. On a PC with an AMD iGPU beside an NVIDIA dGPU, the host encodes on the AMD adapter, or names it when the monitor is on the other card. A Moonlight client that cannot launch because no encoder is ready now sees the same advice.

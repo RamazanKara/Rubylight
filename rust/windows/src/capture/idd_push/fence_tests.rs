@@ -3,9 +3,10 @@
 use super::*;
 use windows::Win32::Graphics::Direct3D12::{
     D3D12_COMMAND_LIST_TYPE_COPY, D3D12_COMMAND_QUEUE_DESC, D3D12_FENCE_FLAG_NONE,
-    D3D12_RESOURCE_DIMENSION_TEXTURE2D, ID3D12CommandAllocator, ID3D12CommandList,
+    D3D12_RESOURCE_DIMENSION_TEXTURE2D, ID3D12CommandAllocator, ID3D12CommandList, ID3D12Device,
     ID3D12GraphicsCommandList, ID3D12Resource,
 };
+use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT;
 
 /// The driver's half of a fence ring, as WUDFHost has it: the ring's textures and fences
 /// opened from their NT handles on a D3D12 device, written on a copy queue.
@@ -24,7 +25,11 @@ struct FakeDriver {
 
 impl FakeDriver {
     fn open(ring: &Ring, gpu: &Device) -> Result<Self> {
-        let device = gpu.compute.device.clone();
+        Self::open_on(ring, gpu.compute.device.clone())
+    }
+
+    /// Open the ring on `device`, which may be a different device than the host's.
+    fn open_on(ring: &Ring, device: ID3D12Device) -> Result<Self> {
         let fences = &ring.fences;
         let mut textures = Vec::new();
         for slot in &ring.slots {
@@ -629,39 +634,174 @@ fn fence_ring_textures_open_on_a_d3d11_device_like_the_driver_opens_them() -> Re
     Ok(())
 }
 
-/// The D3D12 display driver opens each ring texture and fence with `OpenSharedHandle` on its
-/// own device and copies into the texture on a copy queue, then signals the written fence. The
-/// flags the D3D11 driver needs must not get in its way.
-#[test]
-#[ignore = "requires native D3D12 sharing and a second D3D12 device on the same GPU; no driver is installed"]
-fn fence_ring_textures_open_on_a_second_d3d12_device_like_the_d3d12_driver_opens_them() -> Result<()>
-{
+/// A second, independent D3D12 device on the host's adapter, as WUDFHost's is. D3D12CreateDevice
+/// returns the process's one device per adapter, so the device factory makes this one.
+fn independent_device(gpu: &Device) -> Result<ID3D12Device> {
     use windows::Win32::Graphics::{
         Direct3D::D3D_FEATURE_LEVEL_11_0,
-        Direct3D12::{
-            D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT,
-            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON, D3D12_TEXTURE_LAYOUT_UNKNOWN,
-            D3D12CreateDevice, ID3D12Device,
-        },
-        Dxgi::{
-            Common::{DXGI_FORMAT, DXGI_SAMPLE_DESC},
-            CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory4,
-        },
+        Direct3D12::{CLSID_D3D12DeviceFactory, D3D12GetInterface, ID3D12DeviceFactory},
+        Dxgi::{CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory4},
     };
-    let _com = ComGuard::new()?;
-    let gpu = Device::new("")?;
-    // SAFETY: the factory and adapter are live, and the device out-slot is a live local.
-    let driver: ID3D12Device = unsafe {
+    // SAFETY: the factory and adapter are live, and the out-slots are live locals.
+    let device = unsafe {
+        let mut device_factory: Option<ID3D12DeviceFactory> = None;
+        D3D12GetInterface(&CLSID_D3D12DeviceFactory, &mut device_factory)
+            .context("the D3D12 device factory")?;
         let factory: IDXGIFactory4 = CreateDXGIFactory1()?;
         let adapter: IDXGIAdapter1 = factory.EnumAdapterByLuid(gpu.compute.luid())?;
         let mut device: Option<ID3D12Device> = None;
-        D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device)?;
+        device_factory.context("no device factory")?.CreateDevice(
+            &adapter,
+            D3D_FEATURE_LEVEL_11_0,
+            &mut device,
+        )?;
         device.context("no D3D12 device")?
     };
     anyhow::ensure!(
-        driver.as_raw() != gpu.compute.device.as_raw(),
+        device.as_raw() != gpu.compute.device.as_raw(),
         "the driver's device must be its own"
     );
+    Ok(device)
+}
+
+/// A texture on `device` holding `image`, uploaded on a copy queue, standing in for the IddCx
+/// surface the driver copies from.
+fn texture_on(device: &ID3D12Device, image: &Image, format: DXGI_FORMAT) -> Result<ID3D12Resource> {
+    use windows::Win32::Graphics::{
+        Direct3D12::{
+            D3D12_CPU_PAGE_PROPERTY_UNKNOWN, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES,
+            D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_MEMORY_POOL_UNKNOWN,
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RESOURCE_DESC,
+            D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_SUBRESOURCE_FOOTPRINT,
+            D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
+            D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+            D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN,
+        },
+        Dxgi::Common::DXGI_SAMPLE_DESC,
+    };
+    anyhow::ensure!(
+        image.stride % 256 == 0,
+        "the upload pitch must be 256-aligned"
+    );
+    let heap = |ty| D3D12_HEAP_PROPERTIES {
+        Type: ty,
+        CPUPageProperty: D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+        MemoryPoolPreference: D3D12_MEMORY_POOL_UNKNOWN,
+        ..Default::default()
+    };
+    let one = DXGI_SAMPLE_DESC {
+        Count: 1,
+        Quality: 0,
+    };
+    // SAFETY: `device` is live; every resource, queue and list below is made with it, the
+    // upload buffer is mapped for exactly its size, and the copy finishes (fence) before the
+    // upload buffer goes.
+    unsafe {
+        let mut texture: Option<ID3D12Resource> = None;
+        device.CreateCommittedResource(
+            &heap(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &D3D12_RESOURCE_DESC {
+                Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                Width: u64::from(image.width),
+                Height: image.height,
+                DepthOrArraySize: 1,
+                MipLevels: 1,
+                Format: format,
+                SampleDesc: one,
+                Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                // Promotes to the copy states on a copy queue without barriers.
+                Flags: D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
+                Alignment: 0,
+            },
+            D3D12_RESOURCE_STATE_COMMON,
+            None,
+            &mut texture,
+        )?;
+        let texture = texture.context("no texture")?;
+        let mut upload: Option<ID3D12Resource> = None;
+        device.CreateCommittedResource(
+            &heap(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &D3D12_RESOURCE_DESC {
+                Dimension: D3D12_RESOURCE_DIMENSION_BUFFER,
+                Width: image.bytes.len() as u64,
+                Height: 1,
+                DepthOrArraySize: 1,
+                MipLevels: 1,
+                Format: DXGI_FORMAT(0),
+                SampleDesc: one,
+                Layout: D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                Flags: D3D12_RESOURCE_FLAG_NONE,
+                Alignment: 0,
+            },
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            None,
+            &mut upload,
+        )?;
+        let upload = upload.context("no upload buffer")?;
+        let mut mapped = std::ptr::null_mut();
+        upload.Map(0, None, Some(&mut mapped))?;
+        std::ptr::copy_nonoverlapping(image.bytes.as_ptr(), mapped.cast::<u8>(), image.bytes.len());
+        upload.Unmap(0, None);
+        let queue: ID3D12CommandQueue = device.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
+            Type: D3D12_COMMAND_LIST_TYPE_COPY,
+            ..Default::default()
+        })?;
+        let allocator: ID3D12CommandAllocator =
+            device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY)?;
+        let list: ID3D12GraphicsCommandList =
+            device.CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, &allocator, None)?;
+        list.CopyTextureRegion(
+            &D3D12_TEXTURE_COPY_LOCATION {
+                pResource: std::mem::transmute_copy(&texture),
+                Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+                Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+                    SubresourceIndex: 0,
+                },
+            },
+            0,
+            0,
+            0,
+            &D3D12_TEXTURE_COPY_LOCATION {
+                pResource: std::mem::transmute_copy(&upload),
+                Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+                Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+                    PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
+                        Offset: 0,
+                        Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
+                            Format: format,
+                            Width: image.width,
+                            Height: image.height,
+                            Depth: 1,
+                            RowPitch: image.stride as u32,
+                        },
+                    },
+                },
+            },
+            None,
+        );
+        list.Close()?;
+        queue.ExecuteCommandLists(&[Some(list.cast::<ID3D12CommandList>()?)]);
+        let done: ID3D12Fence = device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?;
+        queue.Signal(&done, 1)?;
+        until("the upload", || done.GetCompletedValue() >= 1)?;
+        Ok(texture)
+    }
+}
+
+/// The D3D12 display driver opens each ring texture and fence with `OpenSharedHandle` on its
+/// own device, copies into the texture on a copy queue and signals the written fence. The flags
+/// the D3D11 driver needs must not get in its way, and the host must read the driver's pixels.
+#[test]
+#[ignore = "requires an AMD GPU with native D3D12 sharing; the second device is made in this process, no driver is installed"]
+fn fence_ring_textures_open_on_a_second_d3d12_device_like_the_d3d12_driver_opens_them() -> Result<()>
+{
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let device = independent_device(&gpu)?;
     for pixel in [Pixel::Bgra8, Pixel::RgbaF16] {
         let format = crate::compute::format(pixel);
         let ring = Ring::fenced(
@@ -675,74 +815,35 @@ fn fence_ring_textures_open_on_a_second_d3d12_device_like_the_d3d12_driver_opens
             },
             release_queue(&gpu, None),
         )?;
-        let open_fence = |handle: &OwnedHandle| -> Result<ID3D12Fence> {
-            let mut fence = None;
-            // SAFETY: a live shared fence handle; `fence` is a live local.
-            unsafe { driver.OpenSharedHandle(HANDLE(handle.as_raw_handle()), &mut fence)? };
-            fence.context("no fence")
-        };
-        let written = open_fence(&ring.fences.handles[0])?;
-        open_fence(&ring.fences.handles[1])?;
-        // SAFETY: `driver` is live; the queue, allocator and list are made with it, and the
-        // source is a plain texture of the ring's size and format.
-        unsafe {
-            let queue: ID3D12CommandQueue =
-                driver.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
-                    Type: D3D12_COMMAND_LIST_TYPE_COPY,
-                    ..Default::default()
-                })?;
-            let allocator: ID3D12CommandAllocator =
-                driver.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY)?;
-            let list: ID3D12GraphicsCommandList =
-                driver.CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, &allocator, None)?;
-            let mut source: Option<ID3D12Resource> = None;
-            driver.CreateCommittedResource(
-                &D3D12_HEAP_PROPERTIES {
-                    Type: D3D12_HEAP_TYPE_DEFAULT,
-                    ..Default::default()
-                },
-                D3D12_HEAP_FLAG_NONE,
-                &windows::Win32::Graphics::Direct3D12::D3D12_RESOURCE_DESC {
-                    Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-                    Width: 64,
-                    Height: 32,
-                    DepthOrArraySize: 1,
-                    MipLevels: 1,
-                    Format: DXGI_FORMAT(format.0),
-                    SampleDesc: DXGI_SAMPLE_DESC {
-                        Count: 1,
-                        Quality: 0,
-                    },
-                    Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-                    Flags: D3D12_RESOURCE_FLAG_NONE,
-                    Alignment: 0,
-                },
-                D3D12_RESOURCE_STATE_COMMON,
-                None,
-                &mut source,
-            )?;
-            let source = source.context("no source texture")?;
-            for (seq, slot) in (1u64..).zip(&ring.slots) {
-                let mut texture: Option<ID3D12Resource> = None;
-                driver.OpenSharedHandle(HANDLE(slot.shared.as_raw_handle()), &mut texture)?;
-                let texture = texture.context("no texture")?;
-                let desc = texture.GetDesc();
-                assert_eq!(
-                    (desc.Width, desc.Height, desc.Format),
-                    (64, 32, DXGI_FORMAT(format.0)),
-                    "the driver's D3D12 open of a {pixel:?} ring texture"
-                );
-                allocator.Reset()?;
-                list.Reset(&allocator, None)?;
-                list.CopyResource(&texture, &source);
-                list.Close()?;
-                queue.ExecuteCommandLists(&[Some(list.cast::<ID3D12CommandList>()?)]);
-                queue.Signal(&written, seq)?;
-                // The host's own fence object sees the driver's signal.
-                until("the written fence", || {
-                    ring.fences.written.GetCompletedValue() >= seq
-                })?;
-            }
+        let fences = ring.fences.clone();
+        let header = ring.section.header();
+        let mut driver = FakeDriver::open_on(&ring, device.clone())?;
+        let mut consumer = Consumer::new(1, 2);
+        for (frame, value) in [(1u32, 40u8), (2, 80), (3, 120)] {
+            let expected = pixels(64, 32, pixel, value);
+            let source = texture_on(&device, &expected, DXGI_FORMAT(format.0))?;
+            let seq = driver.push(&header, &source)?.context("a free slot")?;
+            assert_eq!(seq, frame);
+            let (index, claimed) = consumer.claim(&header).context("the newest frame")?;
+            assert_eq!(claimed, seq);
+            consumer.consumed(u64::from(seq));
+            // The host waits for the other device's written fence, then reads its pixels.
+            let lent = Lent {
+                fences: fences.clone(),
+                slot: index,
+                seq,
+            };
+            let image = lend_fenced(&gpu, &ring.slots[index].texture, lent, fences.written(seq))?;
+            assert_eq!(
+                image.readback(&mut None)?.bytes,
+                expected.bytes,
+                "{pixel:?} frame {frame}"
+            );
+            drop(image);
+            let ring::SlotState::Free { release } = header.slot_state(index) else {
+                bail!("slot {index} still held: {:?}", header.slot_state(index));
+            };
+            until("the released fence", || driver.released() >= release)?;
         }
     }
     Ok(())

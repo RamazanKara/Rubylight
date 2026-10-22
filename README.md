@@ -96,6 +96,7 @@ Every number here comes from a recorded run on an RX 7900 XT, with its method an
 | Result | Measured |
 | :-- | :-- |
 | **13.7 to 14.3 ms** | mean picture age from a rendered frame to a decoded picture, HDR at 120 fps with a game on the same GPU (2.2.9; HEVC 14.3 ms, AV1 13.7 ms) |
+| **7.4 ms lower** | mean picture age than Vibepollo 2.0 on the same GPU and settings under game-like GPU load, with p95 down 43% (HEVC) and 48% (AV1) ([rc.24 comparison](rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)) |
 | **Within 0.15 ms of 2.6.0** | mean picture age in 56 A/B streams on physical and virtual displays (3.0.0-alpha.1) |
 | **0.45 ms** | mean host processing for HEVC 1080p60 over wired LAN to a second PC, every frame decoded (3.0.0-alpha.1) |
 | **0.7 ms** | host time per frame at 2880×1800, 165 fps, AV1 10-bit HDR (2.5.6) |

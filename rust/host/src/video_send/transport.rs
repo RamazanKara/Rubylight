@@ -207,7 +207,7 @@ pub(super) fn run(
         });
         if let Some(stamps) = &stamps { performance.record_stages(stamps, frame.processing); }
         drop(performance);
-        if let Some(stamps) = &stamps { s.host_timings.lock().unwrap().record(frame.wire_frame, stamps); }
+        if let Some(stamps) = &stamps { s.record_sent(frame.wire_frame, frame.timestamp, stamps, start); }
         if Instant::now() >= link_due {
             link = Some(butterpollo_windows::net::routed_link(peer));
             link_due = Instant::now() + Duration::from_secs(2);

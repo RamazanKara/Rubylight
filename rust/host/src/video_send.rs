@@ -56,6 +56,8 @@ struct Prepared {
     processing: u64,
     age: u64,
     claim: Option<Claim>,
+    /// The RTP timestamp on the wire, for the timing record.
+    timestamp: u32,
 }
 struct State {
     pending: Option<Frame>,
@@ -294,7 +296,7 @@ impl Sender {
                     after_invalidation: frame.after_invalidation, frame_cap_bytes: frame.frame_cap_bytes,
                     payload_bytes: frame.bytes.len(), peer, claimed, polled, packetized,
                     prepared: Instant::now(), latency: micros(encode), processing,
-                    age: micros(claimed.saturating_duration_since(captured)), claim,
+                    age: micros(claimed.saturating_duration_since(captured)), claim, timestamp,
                 })?;
                 Ok(packetizer.frame)
             })

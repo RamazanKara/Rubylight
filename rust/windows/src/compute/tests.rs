@@ -1271,3 +1271,72 @@ fn amf_target_plane_views_pass_the_d3d12_debug_layer() -> Result<()> {
     }
     Ok(())
 }
+
+/// A frame that does not live on the conversion's device (the D3D12 form of the old
+/// "unshareable frame") is an error naming the cause: nothing is submitted, no state changes,
+/// and there is no fallback to another path. The replacement for the D3D11
+/// `unshareable_frame_falls_back_without_waiting_for_another_desktop_update`.
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn a_frame_from_another_device_fails_loudly_instead_of_falling_back() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    // D3D12 hands out one device per adapter in a process, so a frame from another device is a
+    // frame from another adapter. The software adapter is always there to make one.
+    // SAFETY: The factory and adapter are live; the description is read from a live local.
+    let warp = unsafe {
+        let factory: IDXGIFactory4 = CreateDXGIFactory1()?;
+        factory
+            .EnumWarpAdapter::<IDXGIAdapter1>()?
+            .GetDesc1()?
+            .AdapterLuid
+    };
+    anyhow::ensure!(
+        (warp.LowPart, warp.HighPart) != (gpu.compute.luid().LowPart, gpu.compute.luid().HighPart),
+        "the capture GPU is the software adapter"
+    );
+    // The conversion runs on the software adapter; the capture GPU made the frame.
+    let other = Compute::new(warp)?;
+    let foreign = GpuImage::upload(&gpu, &small_image(128))?;
+    assert!(gpu.compute.owns(&foreign.texture) && !other.owns(&foreign.texture));
+    let mut converter = Converter::new(other.clone(), 4, 4, false)?;
+    converter.values = small_values();
+    let mut copier = Copier::new(other.clone())?;
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: 4,
+        height: 4,
+        ..Default::default()
+    };
+    let planes = planes_for(&other, &config, false, 0)?;
+    let submitted = *other.next.lock().unwrap();
+    let slot = converter.slot;
+    let say = "from another GPU device";
+
+    let error = converter
+        .convert(&foreign)
+        .err()
+        .expect("a frame from another device was converted");
+    assert!(format!("{error:#}").contains(say), "{error:#}");
+    let error = converter
+        .convert_planes(&foreign, &planes)
+        .expect_err("a frame from another device was converted to planes");
+    assert!(format!("{error:#}").contains(say), "{error:#}");
+    let error = copier
+        .copy(&foreign.texture, &foreign.texture, None)
+        .err()
+        .expect("a frame from another device was copied");
+    assert!(
+        format!("{error:#}").contains("between GPU devices"),
+        "{error:#}"
+    );
+    let error = read_planes(&other, &foreign.texture, None, &mut None)
+        .expect_err("a frame from another device was read back");
+    assert!(format!("{error:#}").contains(say), "{error:#}");
+
+    // Nothing was recorded or submitted, no slot took the frame, and the queue is still good.
+    assert_eq!(*other.next.lock().unwrap(), submitted);
+    assert_eq!(converter.slot, slot);
+    assert!(converter.slots.iter().all(|slot| slot.capture.is_none()));
+    assert!(!other.is_stuck());
+    Ok(())
+}

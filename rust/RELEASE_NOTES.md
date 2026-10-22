@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0-alpha.2 installer is named `rubylight-setup-3.0.0-alpha.2.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Updates keep the service's startup type.** Setup used to set the Rubylight service back to Automatic on every install and update. It now keeps Manual, Disabled and delayed start as you set them, and only a new service starts automatically. A disabled service is left disabled and not started, and setup says so. When the service is stopped, **Start Rubylight.exe** now offers to start it after a Windows permission prompt instead of only showing an error; declining keeps the old message.
+
 ## New in 3.0.0-alpha.2
 
 - **Radeon settings from the couch.** `GET /api/native/v1/radeon` lists the Radeon settings of the GPU the host encodes on, each in one of five states: configurable, read only, needs setup in AMD Software, not supported, or temporarily unavailable. A device with host control that owns the running session can change them with `POST /radeon/settings`. Every change is written to a journal on disk before it is applied and is put back when the session ends, the game is closed, the grace period runs out, the device is unpaired or disabled, the host shuts down, or at the next start after a crash. It is not put back at Disconnect. A setting you changed on the PC in the meantime is left alone, and a restore that fails is logged and retried.

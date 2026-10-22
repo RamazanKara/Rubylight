@@ -376,6 +376,27 @@ mod tests {
     }
 
     #[test]
+    fn a_stream_start_with_repeated_client_requests_is_not_remembered_for_a_day() {
+        // The client asks for a keyframe, gets frame 1, asks again and gets
+        // frame 11: seen at the start of real streams, no packet lost.
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        s.request_recovery_keyframe();
+        s.keyframe_loss_bps(800_000_000, 60_000_000, 1, true);
+        for frame in 2..=10 {
+            s.keyframe_loss_bps(800_000_000, 60_000_000, frame, false);
+        }
+        s.request_recovery_keyframe();
+        s.keyframe_loss_bps(800_000_000, 60_000_000, 11, true);
+        s.request_recovery_keyframe();
+        assert!(!s.keyframe_loss_active());
+        drop(guard);
+        assert!(f.host.keyframe_loss_routes().is_empty());
+    }
+
+    #[test]
     fn fifth_eligible_session_probes_and_a_successful_probe_forgets_its_route() {
         let f = Fixture::new();
         let c = f.client(0x071f1f00);

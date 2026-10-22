@@ -1054,6 +1054,7 @@ mod tests {
         let s = Session::new(launch("old", Role::Stream), Negotiated::default());
         s.configure_keyframe_loss(true);
         s.keyframe_loss_bps(FAST, SAFE, 1, true);
+        s.keyframe_loss.lock().unwrap().settle();
         s.request_recovery_keyframe();
         assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 2, true), FAST);
         s.request_recovery_keyframe();
@@ -1156,8 +1157,10 @@ mod tests {
         const SAFE: u64 = 62_000_000;
         let s = Session::new(launch("query", Role::Stream), Negotiated::default());
         s.configure_keyframe_loss(true);
-        s.request_recovery_keyframe();
         s.keyframe_loss_bps(FAST, SAFE, 1, true);
+        s.keyframe_loss.lock().unwrap().settle();
+        s.request_recovery_keyframe();
+        s.keyframe_loss_bps(FAST, SAFE, 2, true);
         for _ in 0..crate::keyframe_loss::DECODE_QUEUE + 1 {
             assert!(!s.keyframe_loss_active());
             assert_eq!(s.keyframe_loss_rate_bps(FAST, SAFE), FAST);
@@ -1206,6 +1209,39 @@ mod tests {
         s.record_fec_status(&fec_report(41, 7, 1));
         assert!(s.keyframe_loss_active());
         assert!(s.keyframe_loss_observed_at().is_some());
+    }
+    #[test]
+    fn the_start_of_a_stream_does_not_slow_it_but_a_lost_first_keyframe_does() {
+        // Logged at the start of real streams: the client asks for a
+        // keyframe, gets frame 1, and asks again ~100 ms later before it has
+        // shown anything. Nothing was lost.
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let start = |name: &str| {
+            let s = Session::new(launch(name, Role::Stream), Negotiated::default());
+            s.configure_keyframe_loss(true);
+            s.request_recovery_keyframe();
+            s.keyframe_loss_bps(FAST, SAFE, 1, true);
+            s.request_recovery_keyframe();
+            s.keyframe_loss_bps(FAST, SAFE, 2, true);
+            s.request_recovery_keyframe();
+            for frame in 3..=10 {
+                s.keyframe_loss_bps(FAST, SAFE, frame, false);
+            }
+            s.stats.video_frame.store(11, Ordering::Release);
+            s
+        };
+        let s = start("startup");
+        assert!(!s.keyframe_loss_active());
+        assert!(s.keyframe_loss_observed_at().is_none());
+        assert_eq!(s.keyframe_loss_rate_bps(FAST, SAFE), FAST);
+        assert!(s.info()["warnings"].as_array().unwrap().is_empty());
+        // Frames reported after the second keyframe, inside the window, are
+        // the same start; the first keyframe reported incomplete is a loss.
+        s.record_fec_status(&fec_report(5, 7, 1));
+        assert!(!s.keyframe_loss_active());
+        s.record_fec_status(&fec_report(2, 7, 1));
+        assert!(s.keyframe_loss_active());
     }
     #[test]
     fn frames_the_host_did_not_finish_sending_are_not_reported_as_network_loss() {

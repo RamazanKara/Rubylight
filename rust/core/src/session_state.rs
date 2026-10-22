@@ -185,11 +185,15 @@ impl Machine {
         }
     }
     /// The launch call returned. Success leaves the session `launching` until
-    /// the client connects; failure falls back to what is still running.
+    /// the client connects; failure falls back to what is still running, or
+    /// to `stopping` while a teardown that began before the launch still
+    /// runs (its `stopped` settles the session).
     pub fn launched(&mut self, ok: bool, facts: &Facts, now: u64) {
         self.launching = false;
         if ok && facts.streaming.is_empty() {
             self.enter(State::Launching, now);
+        } else if !ok && self.teardowns > 0 {
+            self.enter(State::Stopping, now);
         } else {
             self.settle(facts, now);
         }
@@ -752,13 +756,21 @@ mod tests {
         assert!(m.observe(&facts(&[], &[]), 35));
         assert_eq!(m.state(), State::Idle);
 
-        // The launch fails first: the teardown still has to end.
+        // The launch fails first: the teardown still runs, so the session
+        // stays stopping until it ends.
         let mut m = suspended_machine();
         assert!(m.stopping(None, None, 30));
         m.begin("you", Some(game(5)), 31);
         m.launched(false, &facts(&[], &["me"]), 32);
-        assert_eq!(m.state(), State::Suspended);
+        assert_eq!(m.state(), State::Stopping);
+        assert!(!m.observe(&facts(&[], &["me"]), 32), "observe waits for it");
         m.stopped(&facts(&[], &["me"]), 33);
+        assert_eq!(m.state(), State::Suspended);
+
+        // A failed launch with no teardown running still falls back at once.
+        let mut m = suspended_machine();
+        m.begin("you", Some(game(5)), 31);
+        m.launched(false, &facts(&[], &["me"]), 32);
         assert_eq!(m.state(), State::Suspended);
     }
 

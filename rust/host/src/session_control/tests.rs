@@ -725,6 +725,44 @@ fn a_journal_that_survived_a_crash_is_cleared_once_at_the_next_start() {
 }
 
 #[test]
+fn a_journal_recovery_could_not_delete_is_deleted_by_the_writer_later() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let crashed = Setup::new("");
+    let _session = crashed.streaming();
+    crashed.host().session_flush();
+    let bytes = std::fs::read(crashed.host().directory.join(JOURNAL)).unwrap();
+    let directory = Fixture::profile();
+    let path = directory.join(JOURNAL);
+    std::fs::write(&path, &bytes).unwrap();
+    // Another process holds the file open without sharing deletes (a virus
+    // scanner, a backup): reading works, deleting does not.
+    let holder = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(&path)
+        .unwrap();
+    let restarted = Fixture::load(directory.clone());
+    let host = &restarted.host;
+    let journal = host.recover_session().unwrap();
+    assert_eq!(journal.state, State::Streaming);
+    assert!(path.exists(), "the delete failed");
+    // The next housekeeping pass tells the writer to delete it, and the
+    // writer keeps trying while the file is held.
+    assert_eq!(host.session_snapshot().state, State::Idle);
+    host.session_flush();
+    assert!(path.exists());
+    drop(holder);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while path.exists() && Instant::now() < deadline {
+        host.session_tick();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!path.exists(), "the writer deleted it once it could");
+    // Recovering again finds nothing.
+    assert_eq!(host.recover_session(), None);
+}
+
+#[test]
 fn a_damaged_journal_is_deleted_and_the_host_starts_idle() {
     let directory = Fixture::profile();
     std::fs::write(directory.join(JOURNAL), b"{ not json").unwrap();

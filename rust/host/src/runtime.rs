@@ -3,7 +3,11 @@ use crate::{maintenance, state::Shared};
 use butterpollo_core::session::Role;
 use butterpollo_windows::{process::StopSignal, tray::Action};
 use std::{
-    sync::{atomic::Ordering, mpsc::Receiver},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::Receiver,
+    },
     time::{Duration, Instant},
 };
 
@@ -188,6 +192,34 @@ impl RestoreHotkey {
         }
     }
 }
+/// Follow the session between launches and teardowns, off the async thread:
+/// it takes the session lock, which an action holds while it waits for the
+/// host's other locks. A tick still in flight is not joined by another, so a
+/// slow disk or lock cannot pile up blocking tasks.
+fn spawn_session_tick(h: &Shared, ticking: &Arc<AtomicBool>) -> bool {
+    let h = h.clone();
+    spawn_exclusive(ticking, move || h.session_tick())
+}
+/// Run `work` on the blocking pool unless the previous run behind `running`
+/// has not finished. Returns whether it started.
+fn spawn_exclusive(running: &Arc<AtomicBool>, work: impl FnOnce() + Send + 'static) -> bool {
+    if running.swap(true, Ordering::AcqRel) {
+        return false;
+    }
+    /// Clears the flag also when `work` panics.
+    struct Done(Arc<AtomicBool>);
+    impl Drop for Done {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Release);
+        }
+    }
+    let done = Done(running.clone());
+    tokio::task::spawn_blocking(move || {
+        let _done = done;
+        work();
+    });
+    true
+}
 pub async fn maintain(
     h: Shared,
     stop_signal: StopSignal,
@@ -199,6 +231,7 @@ pub async fn maintain(
     let mut hotkey = RestoreHotkey::default();
     let mut tray = butterpollo_core::tray::Tracker::default();
     let mut housekeeping: Option<tokio::task::JoinHandle<()>> = None;
+    let ticking = Arc::new(AtomicBool::new(false));
     while !h.stop.load(Ordering::Acquire) {
         if stop_signal.requested() {
             tracing::info!("service requested host shutdown");
@@ -227,12 +260,7 @@ pub async fn maintain(
                 }
             }));
         }
-        // Off the async thread: it takes the session lock, which an action
-        // holds while it waits for the host's other locks.
-        {
-            let h = h.clone();
-            tokio::task::spawn_blocking(move || h.session_tick());
-        }
+        spawn_session_tick(&h, &ticking);
         hotkey.poll(&h);
         if Instant::now() >= steam_at {
             steam_at = Instant::now() + Duration::from_secs(30);
@@ -278,6 +306,37 @@ pub async fn maintain(
 mod tests {
     use super::*;
     use crate::state::test_support::Fixture;
+
+    #[tokio::test]
+    async fn a_session_tick_in_flight_is_not_joined_by_another() {
+        let running = Arc::new(AtomicBool::new(false));
+        let (release, hold) = std::sync::mpsc::channel::<()>();
+        assert!(spawn_exclusive(&running, move || {
+            let _ = hold.recv();
+        }));
+        // The first one is stuck: the next ticks are skipped, not queued.
+        let ran = Arc::new(AtomicBool::new(false));
+        for _ in 0..3 {
+            let ran = ran.clone();
+            assert!(!spawn_exclusive(&running, move || {
+                ran.store(true, Ordering::Release);
+            }));
+        }
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while running.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "the first run finished");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(!ran.load(Ordering::Acquire));
+        // Once it finished, the next tick runs, also after a panic.
+        assert!(spawn_exclusive(&running, || panic!("a failing tick")));
+        while running.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "the flag clears after a panic");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(spawn_exclusive(&running, || ()));
+    }
 
     #[test]
     fn global_close_on_disconnect_waits_for_the_last_streaming_device() {

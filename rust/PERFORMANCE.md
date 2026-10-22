@@ -81,6 +81,44 @@ No run in the repeat had the late mode. Neighbouring runs of the same build diff
 
 None of the 56 streams showed an encoder hang, and no new LiveKernelReports entry appeared. The 2.6.0 host also streamed on main's 0.2.0 driver with both rings. Not covered here: `check.ps1` against a tagged alpha, the 30-minute soak, stock Moonlight pairing, and the upgrade from 2.6.0.
 
+**30-minute soak.** This ran the 3.0.0-alpha.1 package (main at `4f4d1af34` plus the version bump), built by `build.ps1 -Package` after the full gate passed. `e2e.py` streamed HEVC 1080p60 at 20 Mbps for 1,800 s from an isolated host on 127.0.0.1 to the independent receiver on the same PC. The source was the 5120×1440, 240 Hz primary monitor through WGC.
+
+| Measure | Result |
+| --- | --- |
+| Frames sent / decoded | 107,814 / 107,814, no decode failures |
+| Steady fps (over 1,790 s) | 60.1 |
+| Unique pictures/s | 59.8 |
+| Host mean (5 s windows, start / middle / end) | 0.43 ms |
+| Encode mean, start / middle / end | 3.17 / 3.03 / 2.89 ms |
+| Send interval max (worst 5 s window) | 32.5 ms |
+
+- **No encoder hang**, and no `gpu_hang` in the log.
+- **Present to send** stepped from about 6 ms to about 14 ms once, two minutes in. It then stayed flat until the end (12–14 ms), so nothing grew over the half hour.
+- **The receiver's gap check failed narrowly.** It allows 1% of intervals above 1.5 frame periods (1,078 here) and a 50 ms maximum. The run had 1,118 such intervals and a 136 ms maximum at the receiver: arrival interval p99 25.1 ms, picture age p99 41.6 ms, picture age max 1,078 ms.
+- **The PC was not quiet.** Cargo test runs and an Android build from parallel work ran during the soak, and the host's own send interval never exceeded 32.5 ms in any 5 s window. The gap check was written for 12 s runs on an idle PC.
+- **The cadence result is therefore inconclusive.** A clean rerun is part of the alpha.2 gate, which repeats this one.
+
+**Upgrade from 2.6.0.** The alpha.1 setup with `/quiet` ran over the installed 2.6.0 service while it was idle, and exited 0. Afterwards:
+- the installed version read 3.0.0-alpha.1 and `ApolloService` ran;
+- `/serverinfo` reported `RustHostVersion` 3.0.0-alpha.1;
+- all 12 paired devices kept the same ids and names;
+- in the profile folder, only `update-result.json` changed;
+- the host log had no error lines, and the encoder capability probe completed.
+
+**LAN pairing and stream from the NUC.** This stands in for stock Moonlight on another machine. The client was the Intel NUC on wired LAN, running the moonlight-common-c client and `rust/tests/interop.py` in its Docker test image. The host was an isolated alpha.1 profile on this PC, bound to its LAN address, port 48123. Pairing (PIN plus the RSA/AES proof) and the launch-permission checks passed. Then a 60 s stream of HEVC 1080p60 at 20 Mbps:
+
+| Measure | Result |
+| --- | --- |
+| Frames sent / received / decoded | 3,592 / 3,597 / 3,597, every one with picture content, no decode failures |
+| Steady fps | 60.1 |
+| Arrival interval mean / p95 / p99 / max | 16.64 / 19.29 / 20.94 / 23.29 ms |
+| Intervals above 1.5 frame periods | none |
+| Host mean / p99 | 0.45 / 1.1 ms |
+| Encode mean | 3.05 ms |
+| Client decode mean | 7.16 ms |
+
+No encoder hang. Stock Moonlight on a phone has not been run against alpha.1 yet.
+
 ## October 18: timer waits and idle capture
 
 > **Reverted in 2.5.9 (October 19).** A field report ([#42](https://github.com/RamazanKara/Rubylight/issues/42)) showed the cost under load: PyroWave at 2772×1280, 144 fps on an RX 6600 XT averaged 35–55 fps and peaked near 58 on 2.5.6/2.5.7, against 78–118 average and 129–144 peak on 2.5.1 with the same game. Picture age p95 went from 1–2 ms to 6–11 ms. The host and WGC helper again use high process priority while streaming. Packet pacing does not bring back the 600 us yielding tail. Instead, `Timer::until_paced` arms the timer early by an eighth-weighted average of its measured lateness, capped at 1 ms. The pacer's accumulated deadline keeps the average rate exact.

@@ -387,8 +387,61 @@ pub fn delete_service(name: &str) -> Result<()> {
     // SAFETY: `service` is a live handle.
     unsafe { DeleteService(service.0) }.with_context(|| format!("deleting {name}"))
 }
+/// What setup does about a service's startup type and about starting it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartupPlan {
+    /// The startup type to give the service; `SERVICE_NO_CHANGE` keeps the
+    /// current one (and with it a delayed start).
+    pub start_type: SERVICE_START_TYPE,
+    /// Whether setup starts the service once it is installed.
+    pub start: bool,
+}
+/// A new service starts automatically. An existing one keeps what the user
+/// set; a disabled one is not started, because Windows refuses to.
+pub fn startup_plan(existing: Option<SERVICE_START_TYPE>) -> StartupPlan {
+    match existing {
+        None => StartupPlan {
+            start_type: SERVICE_AUTO_START,
+            start: true,
+        },
+        Some(start_type) => StartupPlan {
+            start_type: SERVICE_START_TYPE(SERVICE_NO_CHANGE),
+            start: start_type != SERVICE_DISABLED,
+        },
+    }
+}
+fn service_start_type(service: &ServiceHandle) -> Result<SERVICE_START_TYPE> {
+    let mut needed = 0u32;
+    // SAFETY: `service` is a live handle; a null buffer asks only for the size.
+    let _ = unsafe { QueryServiceConfigW(service.0, None, 0, &mut needed) };
+    ensure!(needed > 0, "the service configuration could not be read");
+    // u64 elements keep the buffer aligned for QUERY_SERVICE_CONFIGW.
+    let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
+    let config = buffer.as_mut_ptr().cast::<QUERY_SERVICE_CONFIGW>();
+    // SAFETY: `config` points at `needed` writable, aligned bytes; Windows fills them.
+    unsafe {
+        QueryServiceConfigW(service.0, Some(config), needed, &mut needed)
+            .context("reading the service configuration")?;
+        Ok((*config).dwStartType)
+    }
+}
+/// Start the service unless it is disabled, which setup leaves as the user
+/// set it. Returns whether it was started.
+pub fn start_service_unless_disabled(name: &str) -> Result<bool> {
+    let service = open_service(name).with_context(|| format!("the {name} service is missing"))?;
+    if !startup_plan(Some(service_start_type(&service)?)).start {
+        line(format!(
+            "service {name} is disabled and stays disabled, so it was not started; set its startup type to Manual or Automatic in Services, then start it"
+        ));
+        return Ok(false);
+    }
+    drop(service);
+    start_service(name)?;
+    Ok(true)
+}
 /// Create the service, or point an existing one with this name at `program`.
-/// Runs as LocalSystem, starts automatically and restarts after failures.
+/// Runs as LocalSystem and restarts after failures. A new service starts
+/// automatically; an existing one keeps its startup type.
 pub fn install_service(name: &str, display: &str, description: &str, program: &Path) -> Result<()> {
     // Apollo's and Sunshine's uninstallers delete this service. While
     // something still holds it open, Windows only marks it for deletion and
@@ -456,10 +509,13 @@ fn install_service_once(
             Ok(existing) => {
                 line(format!("reconfiguring service {name}"));
                 let existing = ServiceHandle(existing);
+                // An update keeps the startup type the user chose (Manual,
+                // Disabled, delayed start).
+                let start_type = startup_plan(Some(service_start_type(&existing)?)).start_type;
                 ChangeServiceConfigW(
                     existing.0,
                     SERVICE_WIN32_OWN_PROCESS,
-                    SERVICE_AUTO_START,
+                    start_type,
                     SERVICE_ERROR_NORMAL,
                     PCWSTR(binary.as_ptr()),
                     PCWSTR::null(),
@@ -479,7 +535,7 @@ fn install_service_once(
                     PCWSTR(wide_display.as_ptr()),
                     SERVICE_ALL_ACCESS,
                     SERVICE_WIN32_OWN_PROCESS,
-                    SERVICE_AUTO_START,
+                    startup_plan(None).start_type,
                     SERVICE_ERROR_NORMAL,
                     PCWSTR(binary.as_ptr()),
                     PCWSTR::null(),
@@ -1371,6 +1427,87 @@ Write-Output $task.Task.Actions.Exec.Arguments
             panic!("invalid paths must fail before touching firewall rules")
         })
         .unwrap_err();
+        Ok(())
+    }
+
+    #[test]
+    fn startup_plan_keeps_what_the_user_set() {
+        let keep = SERVICE_START_TYPE(SERVICE_NO_CHANGE);
+        assert_eq!(
+            startup_plan(None),
+            StartupPlan {
+                start_type: SERVICE_AUTO_START,
+                start: true
+            }
+        );
+        for existing in [SERVICE_AUTO_START, SERVICE_DEMAND_START] {
+            assert_eq!(
+                startup_plan(Some(existing)),
+                StartupPlan {
+                    start_type: keep,
+                    start: true
+                }
+            );
+        }
+        assert_eq!(
+            startup_plan(Some(SERVICE_DISABLED)),
+            StartupPlan {
+                start_type: keep,
+                start: false
+            }
+        );
+    }
+    /// Deletes the throwaway service when the test ends, even if it fails.
+    struct Throwaway(String);
+    impl Drop for Throwaway {
+        fn drop(&mut self) {
+            let _ = delete_service(&self.0);
+        }
+    }
+    fn set_start_type(name: &str, start_type: SERVICE_START_TYPE) -> Result<()> {
+        let service = open_service(name).context("throwaway service is missing")?;
+        // SAFETY: `service` is a live handle; null strings and NO_CHANGE leave everything else alone.
+        unsafe {
+            ChangeServiceConfigW(
+                service.0,
+                ENUM_SERVICE_TYPE(SERVICE_NO_CHANGE),
+                start_type,
+                SERVICE_ERROR(SERVICE_NO_CHANGE),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                None,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                PCWSTR::null(),
+            )?;
+        }
+        Ok(())
+    }
+    fn start_type_of(name: &str) -> Result<SERVICE_START_TYPE> {
+        service_start_type(&open_service(name).context("throwaway service is missing")?)
+    }
+    /// Reconfiguring an installed service (every update) must not turn a
+    /// Manual or Disabled service back into Automatic.
+    #[test]
+    fn reconfiguring_a_service_keeps_its_startup_type() -> Result<()> {
+        if !elevated() {
+            return Ok(());
+        }
+        // Only ever a service this test created, under a name of its own.
+        let name = format!("RubylightSetupTest{}", std::process::id());
+        let program = std::env::current_exe()?;
+        let _cleanup = Throwaway(name.clone());
+        install_service(&name, "Rubylight setup test", "Throwaway", &program)?;
+        assert_eq!(start_type_of(&name)?, SERVICE_AUTO_START);
+        for kept in [SERVICE_DEMAND_START, SERVICE_DISABLED] {
+            set_start_type(&name, kept)?;
+            install_service(&name, "Rubylight setup test", "Throwaway", &program)?;
+            assert_eq!(start_type_of(&name)?, kept);
+        }
+        // A disabled service is left alone instead of failing the start.
+        assert!(!start_service_unless_disabled(&name)?);
+        assert!(!service_running(&name));
         Ok(())
     }
 }

@@ -77,8 +77,7 @@ pub fn run(
             replace_package(&staged, &install, &entries)?;
             before_start();
             progress.set("Checking that Rubylight starts…");
-            if start {
-                system::start_service(detect::SERVICE)?;
+            if start && system::start_service_unless_disabled(detect::SERVICE)? {
                 install::wait_ready(install::probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
                 // The host made the console's certificate as it started.
                 install::trust_console_or_warn(&profile);

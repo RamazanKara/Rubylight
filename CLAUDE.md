@@ -33,8 +33,7 @@ The docs are thorough, so read the relevant section instead of exploring: [docs/
 
 ## CI and release
 - CI: `.github/workflows/rust-windows.yml` (windows-2022, 2× minutes) on pushes to main touching `rust/**`, Cargo or toolchain files. Docs-only commits skip it.
-- Always pass `-R RamazanKara/Rubylight` to `gh`. Codex also commits and releases here; verify its work against `origin/main` before building on it.
-- Versions: patch bump for fixes, minor for features. Fewer, well-tested releases.
+- Always pass `-R RamazanKara/Rubylight` to `gh`.- Versions: patch bump for fixes, minor for features. Fewer, well-tested releases.
 - Release: changes go under `## Unreleased` in `rust/RELEASE_NOTES.md`. Run `python rust/release/bump.py X.Y.Z`, fill in `## New in X.Y.Z` including a "Tested." paragraph with our own measurements, and check it with `python rust/release/notes.py vX.Y.Z --out body.md`. Commit, push main, then `git tag -a vX.Y.Z -m "Rubylight X.Y.Z" && git push origin vX.Y.Z`.
   - When tagging right after a push, cancel main's duplicate run (`gh run cancel`).
   - Expect 3 assets: setup exe, zip and SHA256SUMS. Then run `rust/release/check.ps1 vX.Y.Z` on this PC.

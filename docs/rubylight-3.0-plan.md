@@ -162,7 +162,7 @@ Each track starts with a spike and needs the user's go-ahead.
 | Dropping capture paths, displays or GPU generations strands users | Decision 1a: nothing beyond non-AMD encoders is removed; new paths are added beside the old ones |
 | We have one test GPU | RDNA 2 and RDNA 4 stay "Expected"; the matrix records exactly what ran |
 | ADLX writes are global and depend on the driver version | The probe gates each setting; journal and restore; crash test in the alpha.2 gate |
-| Codex sometimes commits to this repo | Pull and check `origin/main` before every slice; briefs name the files they own |
+| Parallel agents step on each other | Each gets its own worktree; briefs name the files they own |
 | Beam racing (B10) races the network and the decoder: a late packet shows as blur near the bottom | Wired links only, a safety margin of decoded rows, fallback to present-on-decode, loss gate in B10 |
 | Android runs two engines until B8 lands | New client features go into `nightjar-core` only; the C engine gets fixes only |
 | AMD encoder hangs (exit code 3) | Stop and investigate, never retry (CLAUDE.md) |

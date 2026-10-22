@@ -601,6 +601,17 @@ impl Picker {
         self.next_seq >= FENCE_SEQUENCE_LIMIT
     }
 
+    /// When the ring must be rebuilt ([`Self::needs_renewal`]), tell the host so through the
+    /// header status and return true. The driver then drops the frame and wakes the host,
+    /// which answers with a replacement ring; without this every frame would drop silently.
+    pub fn request_renewal(&self, header: &Header<'_>) -> bool {
+        if !self.needs_renewal() {
+            return false;
+        }
+        header.set_status(STATUS_RENEW_REQUIRED, 0);
+        true
+    }
+
     /// The slot holding the newest publish, if any; what a replacement ring is seeded from.
     #[must_use]
     pub fn newest(&self) -> Option<usize> {
@@ -1031,6 +1042,19 @@ mod tests {
         assert_eq!(picker.next_seq(), FENCE_SEQUENCE_LIMIT);
         // A new ring has new GPU fences and can start at one safely.
         assert_eq!(Picker::new(2).next_seq(), 1);
+    }
+
+    #[test]
+    fn a_ring_at_the_sequence_limit_asks_the_host_for_a_new_one() {
+        let w = words();
+        let header = Header::new(&w).unwrap();
+        let mut picker = Picker::new(2);
+        header.set_status(STATUS_STREAMING, 0);
+        assert!(!picker.request_renewal(&header));
+        assert_eq!(header.status(), (STATUS_STREAMING, 0));
+        picker.next_seq = FENCE_SEQUENCE_LIMIT;
+        assert!(picker.request_renewal(&header));
+        assert_eq!(header.status(), (STATUS_RENEW_REQUIRED, 0));
     }
 
     #[test]

@@ -361,6 +361,10 @@ impl OpenRing {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let header = handles.header();
+        if picker.request_renewal(&header) {
+            handles.signal();
+            return Pushed::Dropped;
+        }
         // The host's reads of a slot are done once the released fence passed the value it
         // recorded there. Only read, never waited for. A host whose device was lost leaves
         // the fence at u64::MAX, which frees every slot.

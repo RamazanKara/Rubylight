@@ -311,8 +311,7 @@ fn validate(settings: &[Setting], changes: &[Change]) -> Result<(), WriteError> 
                 let derived = model::derived_from(partner.id)
                     .and_then(|from| find(settings, from))
                     .is_some_and(|from| from.state == State::Configurable);
-                if partner.state != State::Configurable && is_on(settings, partner.id) && !derived
-                {
+                if partner.state != State::Configurable && is_on(settings, partner.id) && !derived {
                     return Err(invalid(format!(
                         "turning it on can switch {} off, and the host cannot write or restore that setting ({})",
                         partner.id,
@@ -568,9 +567,7 @@ impl<B: RadeonBackend> Controller<B> {
                 let stuck: Vec<&Setting> = before
                     .iter()
                     .filter(|s| s.state == State::Configurable)
-                    .filter(|s| {
-                        s.value.as_ref() != find(&now, s.id).and_then(|n| n.value.as_ref())
-                    })
+                    .filter(|s| s.value.as_ref() != find(&now, s.id).and_then(|n| n.value.as_ref()))
                     .collect();
                 if stuck.is_empty() {
                     if let Err(e) = saved.save(&self.journal) {
@@ -642,7 +639,8 @@ impl<B: RadeonBackend> Controller<B> {
     }
 
     fn expired(&self) -> bool {
-        self.deadline.is_some_and(|deadline| Instant::now() >= deadline)
+        self.deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
     }
 
     fn restore_entries(&mut self, scope: Scope, startup: bool) -> Result<RestoreReport> {
@@ -723,7 +721,12 @@ impl<B: RadeonBackend> Controller<B> {
         Ok(report)
     }
 
-    fn restore_one(&mut self, journal: &mut Journal, entry: &Entry, startup: bool) -> RestoreResult {
+    fn restore_one(
+        &mut self,
+        journal: &mut Journal,
+        entry: &Entry,
+        startup: bool,
+    ) -> RestoreResult {
         let now = match self.backend.read_value(entry.gpu, &entry.id) {
             Ok(now) => now,
             Err(e) => return RestoreResult::Failed(e.0),
@@ -820,7 +823,9 @@ impl<B: RadeonBackend> Controller<B> {
         };
         if let Err(e) = journal.save(&self.journal) {
             forget(journal);
-            return RestoreResult::Failed(format!("journaling the temporary switch of {toggle}: {e:#}"));
+            return RestoreResult::Failed(format!(
+                "journaling the temporary switch of {toggle}: {e:#}"
+            ));
         }
         if let Err(message) = self.through_toggle(entry, toggle, &partners) {
             // The temporary entries stay: the next restore puts the switches back.
@@ -828,7 +833,10 @@ impl<B: RadeonBackend> Controller<B> {
         }
         forget(journal);
         if let Err(e) = journal.save(&self.journal) {
-            tracing::warn!(error = format!("{e:#}"), "drop the temporary Radeon entries");
+            tracing::warn!(
+                error = format!("{e:#}"),
+                "drop the temporary Radeon entries"
+            );
         }
         RestoreResult::Restored
     }
@@ -1006,7 +1014,9 @@ mod tests {
             if d.ignore == Some(id) {
                 return Ok(());
             }
-            if d.ignore_from.is_some_and(|(ignored, n)| ignored == id && count > n) {
+            if d.ignore_from
+                .is_some_and(|(ignored, n)| ignored == id && count > n)
+            {
                 return Ok(());
             }
             let toggle_off = d.needs_on.iter().any(|(field, toggle)| {
@@ -1384,7 +1394,11 @@ mod tests {
             .recover_on_startup()
             .unwrap();
         assert_eq!(report.outcomes[0].result, RestoreResult::AlreadyOriginal);
-        assert_eq!(fake.value("chill.enabled"), on(false), "written back anyway");
+        assert_eq!(
+            fake.value("chill.enabled"),
+            on(false),
+            "written back anyway"
+        );
         assert!(report.is_clean());
     }
 
@@ -1592,7 +1606,10 @@ mod tests {
         let toggle = entry_of(&seen, "chill.enabled");
         assert_eq!((&toggle.original, &toggle.written), (&on(false), &on(true)));
         let partner = entry_of(&seen, "anti_lag.enabled");
-        assert_eq!((&partner.original, &partner.written), (&on(true), &on(false)));
+        assert_eq!(
+            (&partner.original, &partner.written),
+            (&on(true), &on(false))
+        );
         assert_eq!(fake.value("chill.max_fps"), Value::Int(140));
         assert_eq!(fake.value("chill.enabled"), on(false));
         assert_eq!(fake.value("anti_lag.enabled"), on(true));
@@ -1825,9 +1842,7 @@ mod tests {
         let (mut c, _dir) = controller(&fake);
         c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
             .unwrap();
-        c.set_deadline(Some(
-            Instant::now() - std::time::Duration::from_secs(1),
-        ));
+        c.set_deadline(Some(Instant::now() - std::time::Duration::from_secs(1)));
         let report = c.recover_on_startup().unwrap();
         assert_eq!(report.failed().count(), 1);
         assert_eq!(fake.value("pacing.limit"), Value::Int(150));

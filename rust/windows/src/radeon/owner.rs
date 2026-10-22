@@ -22,7 +22,8 @@ impl Owner {
     }
     /// Another process that is still running.
     pub fn is_other_and_alive(&self) -> bool {
-        self.pid != std::process::id() && matches!(identity(self.pid), Ok(Some(t)) if t == self.started)
+        self.pid != std::process::id()
+            && matches!(identity(self.pid), Ok(Some(t)) if t == self.started)
     }
 }
 

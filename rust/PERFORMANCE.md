@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Timer CPU cost and idle capture waits | [October 18, timer waits and idle capture](#october-18-timer-waits-and-idle-capture) |
+| D3D12 conversion against the D3D11 fixtures | [October 22, D3D12 conversion timing](#october-22-d3d12-conversion-timing-against-the-d3d11-fixtures) |
 | Retired compute queues and conservative GPU priority | [October 18, GPU validation](PERFORMANCE_WORK.md#october-18-retired-compute-queues-and-conservative-gpu-priority) |
 | Repeated frame loss and Windows send-buffer pressure | [October 17, loss-response verification](#october-17-loss-response-verification) |
 | Diagnosing repeated pictures despite full encoded FPS | [October 17, fresh-picture throughput diagnosis](#october-17-fresh-picture-throughput-diagnosis) |
@@ -29,6 +30,62 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 22: D3D12 conversion timing against the D3D11 fixtures
+
+The 3.0 port moved colour conversion from a D3D11 compute shader to the same HLSL on a D3D12 compute queue and removed the D3D11 converter. This compares the two on the RX 7900 XT, because the rule is no added latency. It is a GPU component measurement only.
+
+**Method.** Base arm: the D3D11 `gpu_conversion_timing`, `gpu_420_single_pass_timing` and `gpu_downscale_timing` on `d2f626457`, built in a separate worktree. Candidate arm: the D3D12 versions of the same tests, with the same names and cases, in `compute::timing_tests` (D3D11 ones were `gpu_color::tests`). Both arms are release builds (`cargo test --release`, GNU toolchain, one shared target directory), run with `--ignored --exact --test-threads=1` while the host had no session, no stream, no game and no other GPU job. Order was ABBA twice per test: base, candidate, candidate, base, base, candidate, candidate, base. Each measured run is 32 warm-up conversions and then 64 (`gpu_conversion_timing`) or 128 GPU timestamp pairs. `gpu_downscale_timing` runs each filter twice per file in its own ABBA and the D3D11 single-pass test runs its single-pass arm twice per file, so those cells pool 8 runs per arm; the D3D12 single-pass test runs each case four times per file (16 runs), and `gpu_conversion_timing` has one run per file (4 runs). The cells below are the mean of the per-run means and the mean of the per-run p95s, and the last two columns give the lowest and highest per-run mean as the noise.
+
+**What is timed.** Each sample is the GPU run time of one conversion. On D3D11 it is a timestamp pair issued around the `convert` call, so it includes whatever the driver put between them. On D3D12 the conversion's own command list writes the GPU clock first and last (a test-only hook in `Converter`), so it covers the two resource-state transitions and the dispatch but no gap between submissions. The two are therefore close but not the same quantity. The D3D11 fixtures report mean, p50, p95 and max per run; the D3D12 ones add p99. Raw run reports are kept under `C:\srcl-abba-evidence` on the test PC.
+
+**Excluded.** Capture and the display driver, the copy into the frame ring, the encoder (AMF and PyroWave), the network, the client's decoder, CPU time in `convert`, and a game's load on the GPU. This does not show end-to-end latency.
+
+
+#### `gpu_420_single_pass_timing` (single-pass arm only; 960×2160 source, FP16 for HDR and BGRA for SDR, NV12 for SDR and P010 for HDR)
+
+| case | D3D11 mean / p95 ms (runs) | D3D12 mean / p95 ms (runs) | mean ratio | D3D11 run-mean range | D3D12 run-mean range |
+| --- | ---: | ---: | ---: | --- | --- |
+| 1920x1080 SDR | 0.146 / 0.171 (8) | 0.142 / 0.146 (16) | 0.97x | 0.145-0.147 | 0.136-0.144 |
+| 1920x1080 HDR | 0.162 / 0.193 (8) | 0.156 / 0.171 (16) | 0.97x | 0.160-0.165 | 0.150-0.171 |
+| 2560x1440 SDR | 0.361 / 0.394 (8) | 0.383 / 0.367 (16) | 1.06x | 0.359-0.364 | 0.362-0.400 |
+| 2560x1440 HDR | 0.370 / 0.404 (8) | 0.386 / 0.370 (16) | 1.04x | 0.367-0.373 | 0.365-0.397 |
+| 3840x2160 SDR | 0.222 / 0.247 (8) | 0.225 / 0.218 (16) | 1.02x | 0.219-0.225 | 0.222-0.229 |
+| 3840x2160 HDR | 0.228 / 0.255 (8) | 0.235 / 0.228 (16) | 1.03x | 0.224-0.232 | 0.221-0.242 |
+
+#### `gpu_conversion_timing` (HDR FP16 to P010)
+
+| case | D3D11 mean / p95 ms (runs) | D3D12 mean / p95 ms (runs) | mean ratio | D3D11 run-mean range | D3D12 run-mean range |
+| --- | ---: | ---: | ---: | --- | --- |
+| 1968x2184 HDR (492x2184x4 source) | 0.209 / 0.239 (4) | 0.122 / 0.134 (4) | 0.58x | 0.201-0.216 | 0.113-0.147 |
+| 3840x2160 HDR (492x2184x4 source) | 0.365 / 0.448 (4) | 0.384 / 0.363 (4) | 1.05x | 0.354-0.391 | 0.372-0.390 |
+
+#### `gpu_downscale_timing` (3840×2160 source, P010 output, former bilinear resize against the area filter)
+
+| case | D3D11 mean / p95 ms (runs) | D3D12 mean / p95 ms (runs) | mean ratio | D3D11 run-mean range | D3D12 run-mean range |
+| --- | ---: | ---: | ---: | --- | --- |
+| 3840x2160 SDR bilinear | 0.242 / 0.309 (8) | 0.223 / 0.221 (8) | 0.93x | 0.226-0.281 | 0.220-0.227 |
+| 3840x2160 SDR area | 0.241 / 0.274 (8) | 0.239 / 0.230 (8) | 0.99x | 0.238-0.245 | 0.237-0.242 |
+| 2560x1440 SDR bilinear | 0.218 / 0.246 (8) | 0.221 / 0.219 (8) | 1.01x | 0.212-0.225 | 0.209-0.227 |
+| 2560x1440 SDR area | 0.377 / 0.413 (8) | 0.403 / 0.381 (8) | 1.07x | 0.369-0.381 | 0.390-0.420 |
+| 1920x1080 SDR bilinear | 0.135 / 0.167 (8) | 0.135 / 0.165 (8) | 1.00x | 0.133-0.137 | 0.126-0.144 |
+| 1920x1080 SDR area | 0.134 / 0.164 (8) | 0.142 / 0.147 (8) | 1.06x | 0.133-0.135 | 0.138-0.145 |
+| 1280x720 SDR bilinear | 0.094 / 0.119 (8) | 0.086 / 0.116 (8) | 0.91x | 0.093-0.096 | 0.079-0.093 |
+| 1280x720 SDR area | 0.237 / 0.267 (8) | 0.193 / 0.203 (8) | 0.81x | 0.236-0.238 | 0.177-0.197 |
+| 480x270 SDR bilinear | 0.066 / 0.100 (8) | 0.036 / 0.045 (8) | 0.54x | 0.062-0.069 | 0.026-0.046 |
+| 480x270 SDR area | 0.066 / 0.093 (8) | 0.030 / 0.033 (8) | 0.45x | 0.053-0.073 | 0.028-0.032 |
+| 3840x2160 HDR bilinear | 0.251 / 0.314 (8) | 0.226 / 0.225 (8) | 0.90x | 0.229-0.273 | 0.213-0.231 |
+| 3840x2160 HDR area | 0.250 / 0.284 (8) | 0.248 / 0.240 (8) | 0.99x | 0.247-0.253 | 0.233-0.251 |
+| 2560x1440 HDR bilinear | 0.226 / 0.259 (8) | 0.229 / 0.242 (8) | 1.01x | 0.220-0.233 | 0.224-0.234 |
+| 2560x1440 HDR area | 0.396 / 0.432 (8) | 0.408 / 0.388 (8) | 1.03x | 0.392-0.402 | 0.406-0.411 |
+| 1920x1080 HDR bilinear | 0.133 / 0.162 (8) | 0.136 / 0.173 (8) | 1.02x | 0.132-0.137 | 0.124-0.150 |
+| 1920x1080 HDR area | 0.159 / 0.192 (8) | 0.156 / 0.172 (8) | 0.98x | 0.159-0.160 | 0.150-0.170 |
+| 1280x720 HDR bilinear | 0.103 / 0.130 (8) | 0.092 / 0.120 (8) | 0.90x | 0.101-0.105 | 0.087-0.099 |
+| 1280x720 HDR area | 0.232 / 0.275 (8) | 0.215 / 0.223 (8) | 0.93x | 0.231-0.233 | 0.210-0.225 |
+| 480x270 HDR bilinear | 0.066 / 0.098 (8) | 0.037 / 0.045 (8) | 0.56x | 0.062-0.068 | 0.027-0.046 |
+| 480x270 HDR area | 0.065 / 0.094 (8) | 0.030 / 0.034 (8) | 0.46x | 0.052-0.077 | 0.028-0.032 |
+
+**Reading it.** Most cells are within a few hundredths of a millisecond of the D3D11 fixtures, in both directions. D3D12 is slower in these cells, by 3 to 7 percent (at most 0.03 ms) of the mean, repeatably across the runs: 2560×1440 single pass (SDR 1.06×, HDR 1.04×), 2560×1440 area filter (SDR 1.07×, HDR 1.03×) and 1920×1080 SDR area filter (1.06×, 0.134 to 0.142 ms). In the 1440p single-pass cells the D3D12 range of run means is not above the top of D3D11's (SDR 0.362 against 0.364, HDR 0.365 against 0.373), so those two overlap. In the two 1440p area cells it is above (SDR 0.390 against 0.381, HDR 0.406 against 0.402), and at 1920×1080 SDR area the ranges do not overlap (0.138 to 0.145 against 0.133 to 0.135), so that cell is a slowdown. The D3D12 span is narrower than D3D11's (no gap between submissions), which makes the comparison harder to read, not easier. D3D12 is faster in 3840×2160 SDR and HDR bilinear (0.93× and 0.90×), at 1280×720 (0.81 to 0.93×), at 480×270 (about 0.5×) and in the 1968×2184 conversion (0.58×); these cells may partly reflect the different timestamp placement, so no speedup is claimed. The remaining cells differ by 3 percent or less and their ranges overlap. D3D12 p99 stays within 0.03 ms of its p95 in every cell. The slowest sample of a run is another matter: 148 of the 264 D3D12 runs contain a sample of 2.2 to 4.0 ms (one or two of 128), at every size, while none of the 216 D3D11 runs has a sample above 0.8 ms. These fixtures do not say whether that is a real stall or an artefact of the timestamp pair, and it is not explained here. The mean differences are tens of microseconds in a component that is not the largest part of a frame, and these numbers do not show whether they matter end to end. The alpha.1 end-to-end stream comparison against 2.6.0 decides it: if end to end is worse, the 1440p and 1080p area and single-pass paths and the long samples are investigated before 3.0.
 
 ## October 18: timer waits and idle capture
 

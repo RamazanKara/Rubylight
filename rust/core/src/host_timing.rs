@@ -207,10 +207,16 @@ mod tests {
         let first = HostTiming::decode_report(&timings.take_report().unwrap()).unwrap();
         assert_eq!(first.len(), HOST_TIMING_EXTENDED_MAX_RECORDS);
         assert_eq!(first[0].frame, 0);
+        let cap = HOST_TIMING_EXTENDED_MAX_RECORDS as u32;
+        let second = HostTiming::decode_report(&timings.take_report().unwrap()).unwrap();
+        assert_eq!(
+            second.iter().map(|r| r.frame).collect::<Vec<_>>(),
+            (cap..2 * cap).collect::<Vec<_>>()
+        );
         let rest = HostTiming::decode_report(&timings.take_report().unwrap()).unwrap();
         assert_eq!(
             rest.iter().map(|r| r.frame).collect::<Vec<_>>(),
-            (24..40).collect::<Vec<_>>()
+            (2 * cap..40).collect::<Vec<_>>()
         );
         assert_eq!(timings.take_report(), None);
         timings.record(50, &stamps(at), epoch(at));
@@ -226,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn a_report_of_24_extended_records_decodes_in_the_old_decoder() {
+    fn a_full_extended_report_decodes_in_the_old_decoder() {
         let mut timings = HostTimings::default();
         timings.on_request(&HostTimingRequest { enabled: true }.encode());
         let at = Instant::now();
@@ -234,7 +240,7 @@ mod tests {
             timings.record(frame, &stamps(at), epoch(at));
         }
         let report = timings.take_report().unwrap();
-        assert_eq!(report.len(), 868, "one ENet packet");
+        assert_eq!(report.len(), 616, "one ENet packet");
         // `decode_report` is the v1 decoder an older client runs.
         let old = HostTiming::decode_report(&report).unwrap();
         assert_eq!(old.len(), HOST_TIMING_EXTENDED_MAX_RECORDS);
@@ -245,6 +251,34 @@ mod tests {
             new.iter().map(|(record, _)| *record).collect::<Vec<_>>()
         );
         assert_eq!(new[0].1.unwrap().presented_at_us, 12_345);
+    }
+
+    #[test]
+    fn a_backlog_yields_extended_reports_that_fit_shipped_nightjars_native_limit() {
+        // Nightjar's patched common-c hands 0x5536 to Java only if `length <= 644`.
+        const NATIVE_LIMIT: usize = 644;
+        let mut timings = HostTimings::default();
+        timings.on_request(&HostTimingRequest { enabled: true }.encode());
+        let at = Instant::now();
+        for frame in 0..40 {
+            timings.record(frame, &stamps(at), epoch(at));
+        }
+        let mut frames = Vec::new();
+        while let Some(report) = timings.take_report() {
+            assert!(
+                report.len() <= NATIVE_LIMIT,
+                "report of {} bytes",
+                report.len()
+            );
+            let records = HostTiming::decode_report_with(&report).unwrap();
+            assert!(records.iter().all(|(_, extra)| extra.is_some()));
+            frames.extend(records.iter().map(|(record, _)| record.frame));
+        }
+        assert_eq!(
+            frames,
+            (0..40).collect::<Vec<_>>(),
+            "nothing lost, in order"
+        );
     }
 
     #[test]

@@ -20,7 +20,7 @@ rsa = { version = "0.9", default-features = false, features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # Rubylight native API v1 types (library, session, Radeon, errors). Dependency-light on purpose:
 # butterpollo-core stays a dev-dependency.
-rubylight-native-api = { git = "https://github.com/RamazanKara/Rubylight", rev = "49261fa8ace64d1a875e30229df9b71b394854b1", package = "rubylight-native-api" }
+rubylight-native-api = { git = "https://github.com/RamazanKara/Rubylight", rev = "89376b879abd6621a87e6abf693550d5e45e025d", package = "rubylight-native-api" }
 serde = "1"
 serde_json = "1"
 # Receive buffer sizes on the media sockets.
@@ -28,4 +28,4 @@ socket2 = "0.5"
 
 [dev-dependencies]
 # The Rubylight host's protocol code, for interop tests (control, input, SDP, DESCRIBE, pairing).
-butterpollo-core = { git = "https://github.com/RamazanKara/Rubylight", rev = "49261fa8ace64d1a875e30229df9b71b394854b1", package = "butterpollo-core" }
+butterpollo-core = { version = "3.0.0-alpha.1", git = "https://github.com/RamazanKara/Rubylight", rev = "89376b879abd6621a87e6abf693550d5e45e025d", package = "butterpollo-core" }

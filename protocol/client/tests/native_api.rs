@@ -4,7 +4,7 @@
 //! certificate, the paths and the POST content type. Hosts without the field are covered at the
 //! parse layer in `http/serverinfo.rs`.
 
-use butterpollo_core::native::{self, SessionSnapshot, StreamPhase};
+use butterpollo_core::native::{self, SessionSnapshot};
 use butterpollo_core::state::{App, Client};
 use butterpollo_core::{crypto, native_api as host_api};
 use nightjar_core::http::native_api::capabilities::Capabilities;
@@ -157,9 +157,8 @@ fn dota() -> App {
 fn suspended_snapshot() -> SessionSnapshot {
     SessionSnapshot {
         revision: 42,
-        stream: StreamPhase::None,
+        state: host_api::session::State::Suspended,
         game_running: true,
-        display_retained: true,
         owner: Some("me".into()),
         app: Some(host_api::session::SessionApp {
             install_id: "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f".into(),

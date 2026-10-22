@@ -1169,6 +1169,8 @@ dependencies = [
  "libc",
  "nightjar-core",
  "rubylight-protocol 0.1.0",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

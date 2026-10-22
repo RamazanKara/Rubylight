@@ -12,6 +12,7 @@ mod bridge;
 mod engine;
 pub mod extras;
 mod listener;
+pub mod native_api;
 mod opus;
 mod platform;
 mod renderers;

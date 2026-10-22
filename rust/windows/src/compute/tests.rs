@@ -1169,3 +1169,105 @@ fn a_queue_made_after_realtime_is_turned_off_is_not_realtime() -> Result<()> {
     assert!(!realtime());
     Ok(())
 }
+
+/// The error and corruption messages the D3D12 debug layer stored for `info`'s device.
+fn validation_errors(info: &ID3D12InfoQueue) -> Result<Vec<String>> {
+    let mut errors = Vec::new();
+    // SAFETY: The info queue owns its messages; each aligned buffer is sized from the initial
+    // query and kept alive while its message and description are read.
+    unsafe {
+        for index in 0..info.GetNumStoredMessagesAllowedByRetrievalFilter() {
+            let mut bytes = 0usize;
+            let _ = info.GetMessage(index, None, &mut bytes);
+            let mut buffer = vec![0u64; bytes.div_ceil(8)];
+            let message = buffer.as_mut_ptr().cast::<D3D12_MESSAGE>();
+            info.GetMessage(index, Some(message), &mut bytes)?;
+            let message = &*message;
+            if matches!(
+                message.Severity,
+                D3D12_MESSAGE_SEVERITY_CORRUPTION | D3D12_MESSAGE_SEVERITY_ERROR
+            ) {
+                let text = String::from_utf8_lossy(std::slice::from_raw_parts(
+                    message.pDescription.cast::<u8>(),
+                    message.DescriptionByteLength,
+                ));
+                errors.push(text.trim_end_matches('\0').to_owned());
+            }
+        }
+    }
+    Ok(errors)
+}
+
+/// The two plane views of the NV12 and P010 AMF target (luma on plane 0, chroma on plane 1) are
+/// valid for the D3D12 debug layer and write disjoint planes. The replacement for the D3D11
+/// `gpu_420_video_plane_uavs_are_disjoint`.
+#[test]
+#[ignore = "requires D3D12 compute and the D3D12 debug layer; run alone with --exact, the layer must be on before the first device"]
+fn amf_target_plane_views_pass_the_d3d12_debug_layer() -> Result<()> {
+    let mut debug: Option<ID3D12Debug> = None;
+    // SAFETY: No D3D12 device exists in this process yet (run alone); the out-value is checked
+    // before it enables validation.
+    unsafe {
+        D3D12GetDebugInterface(&mut debug)?;
+        debug
+            .context("D3D12 debug layer unavailable")?
+            .EnableDebugLayer();
+    }
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = &gpu.compute;
+    let info: ID3D12InfoQueue = compute.device.cast()?;
+    let red = GpuImage::upload(
+        &gpu,
+        &Image {
+            width: 64,
+            height: 64,
+            stride: 256,
+            bytes: [0, 0, 255, 255].repeat(64 * 64),
+            pixel: Pixel::Bgra8,
+            captured: Instant::now(),
+        },
+    )?;
+    for (ten_bit, expected) in [(false, [63, 102, 240]), (true, [250, 409, 960])] {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 64,
+            height: 64,
+            codec: 1,
+            sdr_10bit: ten_bit,
+            ..Default::default()
+        };
+        // SAFETY: The info queue belongs to the live compute device.
+        unsafe { info.ClearStoredMessages() };
+        let mut converter = Converter::new(compute.clone(), 64, 64, ten_bit)?;
+        converter.values = constants(&config, (64, 64, Pixel::Bgra8), [100., 1.]);
+        let converted = converter.convert(&red)?;
+        let codes = yuv_codes(compute, &converted, ten_bit)?;
+        let errors = validation_errors(&info)?;
+        assert!(
+            errors.is_empty(),
+            "ten_bit {ten_bit}: the plane views broke D3D12 validation: {errors:?}"
+        );
+        // Luma, Cb and Cr each landed in their own plane: a view on the wrong plane would put
+        // one of them where another belongs.
+        let observed = [codes[0], codes[64 * 64], codes[64 * 64 + 1]];
+        for (actual, wanted) in observed.into_iter().zip(expected) {
+            assert!(
+                actual.abs_diff(wanted) <= 1,
+                "ten_bit {ten_bit}: {observed:?}"
+            );
+        }
+        // Control: the reader sees an error message when the layer holds one, so the empty
+        // list above means something. (A deliberately invalid view is not used: on the RX 7900 XT
+        // it left the compute device unusable.)
+        // SAFETY: The info queue belongs to the live compute device; the text is NUL-terminated.
+        unsafe {
+            info.AddApplicationMessage(
+                D3D12_MESSAGE_SEVERITY_ERROR,
+                windows::core::s!("control message"),
+            )?;
+        }
+        assert_eq!(validation_errors(&info)?, ["control message"]);
+        converter.release_completed();
+    }
+    Ok(())
+}

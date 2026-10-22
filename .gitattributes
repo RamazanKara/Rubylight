@@ -1,6 +1,8 @@
 # ensure shell scripts are checked out with LF line endings
 *.sh text eol=lf
 *.patch text eol=lf
+# The native API fixtures are byte-compared, so they stay LF on Windows runners.
+rust/core/native-api/tests/fixtures/** text eol=lf
 
 # Unified patches use a single space to mark blank context lines.
 rust/compatibility/**/*.patch whitespace=-blank-at-eol

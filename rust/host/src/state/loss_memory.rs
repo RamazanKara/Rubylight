@@ -351,6 +351,31 @@ mod tests {
     }
 
     #[test]
+    fn a_host_side_keyframe_and_the_clients_requests_are_not_remembered_for_a_day() {
+        // Alt+Tab or a bitrate change on a clean link: the host sends a
+        // keyframe nobody asked for and the client asks for two of its own.
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        s.keyframe_loss_bps(800_000_000, 60_000_000, 1, true);
+        for frame in 2..=40 {
+            s.keyframe_loss_bps(800_000_000, 60_000_000, frame, false);
+        }
+        s.keyframe_loss_bps(800_000_000, 60_000_000, 41, true);
+        s.request_recovery_keyframe();
+        s.keyframe_loss_bps(800_000_000, 60_000_000, 42, true);
+        s.request_recovery_keyframe();
+        assert!(!s.keyframe_loss_active());
+        assert!(s.keyframe_loss_observed_at().is_none());
+        drop(guard);
+        assert!(f.host.keyframe_loss_routes().is_empty());
+        let next = session(&f, &c, "192.0.2.1", 0);
+        drop(f.host.configure_keyframe_loss(&next, true));
+        assert!(!next.keyframe_loss_active());
+    }
+
+    #[test]
     fn fifth_eligible_session_probes_and_a_successful_probe_forgets_its_route() {
         let f = Fixture::new();
         let c = f.client(0x071f1f00);

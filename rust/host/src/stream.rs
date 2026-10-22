@@ -1768,6 +1768,7 @@ impl Media {
                             }
                             drop(next_block);
                             if lost.unrecoverable() {
+                                s.keyframe_abandoned(wire_frame);
                                 tracing::debug!(frame = packetizer.frame.wrapping_sub(1), idr = frame.idr, abandoned, "video frame lost on send; the rest of it was not sent");
                             } else {
                                 send_loss.delivered(frame.idr);

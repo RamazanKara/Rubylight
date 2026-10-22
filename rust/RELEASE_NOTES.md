@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0-alpha.2 installer is named `rubylight-setup-3.0.0-alpha.2.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Alt+Tab and bitrate changes no longer switch a device to Wi-Fi pacing for 24 hours** ([#48](https://github.com/RamazanKara/Rubylight/issues/48)). A keyframe the host sends on its own (a bitrate change, a restarted capture or encoder) was taken for the keyframe the client's next request "asked again" for, and the client's reaction to the host's change counted as video loss. Requests and ordinary-frame reports within a second of such a keyframe, and reports of frames the host did not finish sending, no longer count; a keyframe the client really could not rebuild, a request repeated after the window, and repeated unrecoverable frames still do. The log now names the frames behind a "pacing like a Wi-Fi route" decision and the evidence it set aside.
+
 ## New in 3.0.0-alpha.2
 
 - **Radeon settings from the couch.** `GET /api/native/v1/radeon` lists the Radeon settings of the GPU the host encodes on, each in one of five states: configurable, read only, needs setup in AMD Software, not supported, or temporarily unavailable. A device with host control that owns the running session can change them with `POST /radeon/settings`. Every change is written to a journal on disk before it is applied and is put back when the session ends, the game is closed, the grace period runs out, the device is unpaired or disabled, the host shuts down, or at the next start after a crash. It is not put back at Disconnect. A setting you changed on the PC in the meantime is left alone, and a restore that fails is logged and retried.

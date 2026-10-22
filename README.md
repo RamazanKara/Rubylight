@@ -28,7 +28,7 @@ Rubylight is a Windows game-streaming host. It runs on your gaming PC and stream
 
 **3.0 is AMD-only.** It needs a Radeon GPU with a working AMF video encoder, on Windows 10 or 11, whatever the GPU's generation. Setup and the host check for one and say what to do if it is missing. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
 
-**3.0.0-alpha.1 is an alpha.** The workspace tests, an A/B run against 2.6.0 and a 30-minute soak pass on an RX 7900 XT, but stock Moonlight on a phone is not tested yet. Expect rough edges, and keep 2.6.0 around if you depend on it. The [roadmap](docs/rubylight-3.0-plan.md) lists what is done and what is next, and the [release notes](rust/RELEASE_NOTES.md) list every change.
+**3.0.0-alpha.1 is an alpha.** Expect rough edges, and keep 2.6.0 around if you depend on it. The [roadmap](docs/rubylight-3.0-plan.md) lists what is done and what is next, and the [release notes](rust/RELEASE_NOTES.md) list every change.
 
 ## Install. Pair. Play.
 

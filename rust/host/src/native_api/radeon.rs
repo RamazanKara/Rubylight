@@ -48,9 +48,13 @@ const RESTORE_RETRY_MS: u64 = 60_000;
 /// (Launch alone is not enough) and host control.
 fn gate(h: &Shared, connection: &Connection) -> Result<Client, Failure> {
     let client = caller(h, connection)?;
-    require(&client, VIEW, "View streams")?;
-    require_host_control(&client)?;
+    may_write(&client)?;
     Ok(client)
+}
+/// The permissions a write needs, which `writable_now` reports with the same check.
+fn may_write(client: &Client) -> Result<(), Failure> {
+    require(client, VIEW, "View streams")?;
+    require_host_control(client)
 }
 /// Reading the panel needs View or Launch.
 fn reader(client: &Client) -> Result<(), Failure> {
@@ -288,7 +292,7 @@ fn restore_settings(h: &Shared, connection: &Connection) -> Reply {
 /// The panel for `client`: what the driver shows now plus the caller's own flags.
 fn answer(h: &Host, client: &Client, view: &View, revision: u64) -> Reply {
     let snapshot = h.session_snapshot();
-    let writable_now = native::host_control(client)
+    let writable_now = may_write(client).is_ok()
         && snapshot.owner.as_deref() == Some(client.uuid.as_str())
         && matches!(snapshot.state, Session::Streaming | Session::Suspended);
     Ok(json(

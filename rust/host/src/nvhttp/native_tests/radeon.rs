@@ -674,6 +674,26 @@ async fn writable_now_needs_host_control_a_session_and_ownership() {
 }
 
 #[tokio::test]
+async fn writable_now_agrees_with_the_write_gate_on_the_view_permission() {
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    // An owner with Host control but Launch alone cannot write, and is told so.
+    rig.host().paired.write().unwrap().clients[0].perm = LAUNCH;
+    let panel = rig.panel().await;
+    assert!(panel.host_control && !panel.writable_now);
+    rig.write(json!([{"id": "pacing.limit", "value": 200}]))
+        .await
+        .assert_error(403, "permission_required");
+    // With View it is writable, and the write goes through.
+    rig.host().paired.write().unwrap().clients[0].perm = LAUNCH | VIEW_BIT;
+    assert!(rig.panel().await.writable_now);
+    let reply = rig
+        .write(json!([{"id": "pacing.limit", "value": 200}]))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+}
+
+#[tokio::test]
 async fn bad_values_are_422_naming_the_setting_and_change_nothing() {
     let rig = Rig::new();
     let _stream = rig.owner();

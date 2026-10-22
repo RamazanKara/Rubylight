@@ -24,6 +24,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
 
+mod radeon;
+
 const LIST: u32 = 1 << 24;
 const VIEW_BIT: u32 = 1 << 25;
 const LAUNCH: u32 = 1 << 26;
@@ -223,6 +225,9 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("POST", "/session/disconnect"),
         ("POST", "/session/end"),
         ("POST", "/session/close-game"),
+        ("GET", "/radeon"),
+        ("POST", "/radeon/settings"),
+        ("POST", "/radeon/restore"),
     ];
     let certificate_less = Connection {
         certificate: None,
@@ -295,11 +300,11 @@ async fn unknown_paths_and_methods_answer_404_not_found_in_the_error_shape() {
         ("GET", ""),
         ("GET", "/"),
         ("GET", "/session/nope"),
-        // Radeon (plan item A5) is not part of this build.
-        ("GET", "/radeon"),
-        ("POST", "/radeon/settings"),
-        ("POST", "/radeon/restore"),
+        ("GET", "/radeon/nope"),
         // Wrong methods.
+        ("POST", "/radeon"),
+        ("GET", "/radeon/settings"),
+        ("GET", "/radeon/restore"),
         ("POST", "/capabilities"),
         ("POST", "/library"),
         ("DELETE", "/session"),
@@ -318,7 +323,7 @@ async fn unknown_paths_and_methods_answer_404_not_found_in_the_error_shape() {
             ..s.connection.clone()
         },
         "GET",
-        "/radeon",
+        "/radeon/nope",
     )
     .await
     .assert_error(404, "not_found");
@@ -344,7 +349,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
         capabilities.host.unique_id,
         s.host().paired.read().unwrap().unique_id
     );
-    // Radeon features appear when the host ships them.
+    // Radeon features appear when the host started its Radeon worker (see native_tests/radeon.rs).
     assert_eq!(
         capabilities.features,
         ["library", "session", "session.close_game"]

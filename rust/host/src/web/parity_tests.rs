@@ -278,6 +278,43 @@ async fn host_control_is_granted_only_as_a_boolean_and_revoking_keeps_the_stream
 }
 
 #[tokio::test]
+async fn host_control_cannot_be_granted_without_the_update_route() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    let issued = value(
+        request(
+            &f,
+            "POST",
+            "/api/token",
+            json!({"scopes":[{"path":"/api/apps","methods":["GET"]}]}),
+        )
+        .await,
+        StatusCode::OK,
+    )
+    .await;
+    let secret = issued["token"].as_str().unwrap();
+    let body = json!({"uuid":client.uuid,"host_control":true}).to_string();
+    for authorization in [Some(format!("Bearer {secret}")), None] {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/api/clients/update")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(authorization) = authorization {
+            builder = builder.header(header::AUTHORIZATION, authorization);
+        }
+        let response = router(f.host.clone())
+            .layer(Extension(f.connection(true)))
+            .oneshot(builder.body(Body::from(body.clone())).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(!f.host.paired.read().unwrap().clients[0].allows_host_control());
+    }
+    let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    assert!(!saved.clients[0].extra.contains_key("host_control"));
+}
+
+#[tokio::test]
 async fn pending_pairing_requests_expire_and_pin_submission_selects_one_device() {
     let f = Fixture::new();
     let mut receivers = Vec::new();

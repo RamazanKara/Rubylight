@@ -416,6 +416,7 @@ Five briefs, in order. 2 can run in parallel with 1 (separate worktree), 4 waits
 - **Steps:**
   1. Implement every non-Radeon row of the endpoint table and wire the actions to `request_stop`, the display release and `stop_app` under `launch_transition`.
   2. `NativeApiVersion` is `0` for plain HTTP and unpaired requests, `1` for paired HTTPS.
+  3. **Host control check:** read the caller from `h.paired` on every request, not from `session.launch.client`, which is a copy taken at launch. A grant or revoke made in the console must apply to the next request.
 - **Acceptance:** `parity_tests`-style tests, one per row and per error code: an unpaired request gets 403 `not_paired`, Close game without host control gets 403, an action from a non-owner gets 409, Disconnect never stops `current_app`, End keeps it and Close stops it, repeated actions are idempotent, `/applist`, `/cancel` and the other `/serverinfo` fields are byte-identical to before (snapshot), and the library ids are stable across a rename. Then the full `build.ps1` gate.
 
 ### Brief 4: Radeon endpoints (implementer, about 90 turns, after A5's core lands)
@@ -426,6 +427,7 @@ Five briefs, in order. 2 can run in parallel with 1 (separate worktree), 4 waits
   2. Write path: validate, journal, apply, roll back on failure, re-read.
   3. Restore guard: current value equals the written value.
   4. Loud failures.
+  5. Read the caller from `h.paired` on every request, not from `session.launch.client`, which is a copy taken at launch. A grant or revoke made in the console must apply to the next request.
 - **Acceptance:**
   - Fake-backend tests for every state, range or type error, driver rejection with rollback, a write without host control or session, and the restore triggers, with no restore at Disconnect.
   - A crash test (journal on disk, host restarted) restores.

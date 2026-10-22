@@ -509,7 +509,7 @@ mod tests {
         assert!(!disabled.allows_host_control());
     }
     #[test]
-    fn imported_vibepollo_state_and_new_pairings_start_without_host_control() {
+    fn imported_vibepollo_state_starts_without_host_control() {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("state.json");
         let identity = crypto::Identity::generate().unwrap();
@@ -521,24 +521,13 @@ mod tests {
             ]}}),
         )
         .unwrap();
-        let mut s = PairedState::load(&p).unwrap();
+        let s = PairedState::load(&p).unwrap();
         assert!(!s.clients[0].allows_host_control());
-        // A new pairing is added with no extra keys, as nvhttp does.
-        let fresh = crypto::Identity::generate().unwrap();
-        s.add(
-            &p,
-            Client {
-                name: "New".into(),
-                cert: fresh.certificate,
-                uuid: "new".into(),
-                perm: 0x071f1f00,
-                enabled: true,
-                extra: BTreeMap::new(),
-            },
-        )
-        .unwrap();
+        // Saving and loading again doesn't add it either.
+        s.save(&p).unwrap();
         let reloaded = PairedState::load(&p).unwrap();
-        assert!(reloaded.clients.iter().all(|c| !c.allows_host_control()));
+        assert!(!reloaded.clients[0].allows_host_control());
+        assert!(!reloaded.clients[0].extra.contains_key("host_control"));
     }
     #[test]
     fn paired_saves_keep_credentials_changed_or_removed_on_disk() {

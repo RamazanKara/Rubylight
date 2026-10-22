@@ -244,7 +244,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 [[package]]
 name = "butterpollo-core"
 version = "2.6.0"
-source = "git+https://github.com/RamazanKara/Rubylight?rev=224128a58#224128a580781b875026ef13dc780b144b66e254"
+source = "git+https://github.com/RamazanKara/Rubylight?rev=49261fa8ace64d1a875e30229df9b71b394854b1#49261fa8ace64d1a875e30229df9b71b394854b1"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1732,7 +1732,7 @@ dependencies = [
 [[package]]
 name = "rubylight-native-api"
 version = "1.0.0"
-source = "git+https://github.com/RamazanKara/Rubylight?rev=224128a58#224128a580781b875026ef13dc780b144b66e254"
+source = "git+https://github.com/RamazanKara/Rubylight?rev=49261fa8ace64d1a875e30229df9b71b394854b1#49261fa8ace64d1a875e30229df9b71b394854b1"
 dependencies = [
  "serde",
 ]

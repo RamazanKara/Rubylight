@@ -56,7 +56,7 @@ Header byte 2, `extra`, is the number of bytes per record in a trailing block: `
 
 A reader takes the first 16 bytes of each entry and skips the rest, so later fields can be appended. The extension is valid only when `capture_us + convert_us <= queue_us`; a client drops the extension of a record that breaks this, or of a report that is cut short, and keeps the base records. With it, a client has every host stage on the host clock: capture present `P = presented_at_us`, acquired `P + capture_us`, submitted `P + queue_us`, encoded `P + queue_us + encode_us`, last packet sent `P + host_us`, first packet sent `P + host_us - send_us`. Hold and claim are `queue_us - capture_us - convert_us`. The game's own present is the frame's RTP timestamp.
 
-An extended report carries at most 24 records (868 bytes), so it stays one ENet packet. A v1 report carries up to 32. Old decoders check only that the data holds `4 + count � 20` bytes and ignore the rest, so they read an extended report as a v1 one. The host sends the extension for H.264, HEVC, AV1 and PyroWave alike.
+An extended report carries at most 17 records (616 bytes). The limit is not the ENet packet size: Nightjar's patched moonlight-common-c hands a `0x5536` message to its Java layer only when it is at most 644 bytes (a v1 report of 32 records), and shipped Nightjar builds drop anything longer in native code. 17 extended records (`4 + 17 × 36`) fit and 18 do not. A v1 report carries up to 32. The Rust and Java decoders check only that the data holds `4 + count × 20` bytes and ignore the rest, so they read an extended report as a v1 one, but only if the transport delivers it. The host sends the extension for H.264, HEVC, AV1 and PyroWave alike.
 
 ## 0x5537 clock sync
 

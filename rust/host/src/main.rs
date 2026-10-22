@@ -16,6 +16,11 @@ mod pyrowave_send;
 mod remote_display;
 mod rtsp_server;
 mod runtime;
+#[allow(
+    dead_code,
+    reason = "the native API endpoints call the session actions"
+)]
+mod session_control;
 #[cfg(any(debug_assertions, test))]
 mod soak_fault;
 mod stall_watch;
@@ -302,6 +307,14 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "display settings from an interrupted stream were not all restored"
         );
     }
+    if let Some(journal) = h.recover_session() {
+        tracing::warn!(
+            state = ?journal.state,
+            owner = ?journal.owner,
+            app = ?journal.app,
+            "the previous host stopped during a session; it was cleared"
+        );
+    }
     // The service's keys: SYSTEM and Administrators only, also after a
     // profile was copied in or restored from a backup.
     let credentials = h.directory.join("credentials");
@@ -424,6 +437,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
     h.stop_app();
+    h.session_shutdown();
     remote_display::disconnect(&h, None);
     drop(discovery);
     if let Some(mut task) = port_forward

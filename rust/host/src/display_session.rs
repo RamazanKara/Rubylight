@@ -1609,7 +1609,7 @@ impl Drop for GoldenLease {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::cell::Cell;
     use std::sync::mpsc;
@@ -1635,6 +1635,14 @@ mod tests {
         // and a virtual display take the configured one.
         assert_eq!(virtual_display_scale(false, 125), 0);
         assert_eq!(virtual_display_scale(true, 125), 125);
+    }
+
+    /// A game display kept between streams, with no other holder, for tests
+    /// of the session state and the grace period.
+    pub(crate) fn retained_display(host: &Shared, config: &Config) -> Arc<Ready> {
+        let prepared = test_prepared(host);
+        let limiter = limiter::Lease::acquire(&host.directory, config, &prepared.framegen).unwrap();
+        Ready::prepare((prepared, limiter)).unwrap().display.clone()
     }
 
     fn test_prepared(host: &Shared) -> Prepared {

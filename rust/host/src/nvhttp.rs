@@ -66,7 +66,11 @@ impl std::fmt::Display for LaunchFailure {
     }
 }
 impl std::error::Error for LaunchFailure {}
-fn wait_for_teardown(sessions: &Mutex<Sessions>, ids: &[String], timeout: Duration) -> bool {
+pub(crate) fn wait_for_teardown(
+    sessions: &Mutex<Sessions>,
+    ids: &[String],
+    timeout: Duration,
+) -> bool {
     let started = Instant::now();
     loop {
         {
@@ -1217,6 +1221,10 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
                 return Err(LaunchFailure(503, "Another stream operation is still running").into());
             }
         }
+        // The state machine follows stream launches; a failure before the
+        // reply returns it to what it was.
+        let mut session =
+            (role == Role::Stream).then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
         replace_launch_app(&h, &launch, resume, owner)?;
         // Preparing can outlast the pending launch's 30 s (prep commands may
         // run for minutes); it expires only from the reply on, on every path.
@@ -1255,6 +1263,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             let canceled = h.sessions.lock().unwrap().pending.remove(&id);
             drop(canceled);
             return Err(error);
+        }
+        if let Some(session) = &session {
+            session.app_starting();
         }
         let prepared_app = prepare_launch_app(&h, &args, app.as_ref(), &launch, &id)?;
         if let Err(error) = check_streaming_session(
@@ -1301,6 +1312,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             std::net::IpAddr::V4(ip) => ip.to_string(),
             std::net::IpAddr::V6(ip) => format!("[{ip}]"),
         };
+        if let Some(session) = &mut session {
+            session.succeed();
+        }
         Ok((reply.into(), format!("{scheme}://{host}:{rtsp_port}")))
     })();
     let driver_ready = result.is_ok() && butterpollo_windows::display::virtual_display_available();

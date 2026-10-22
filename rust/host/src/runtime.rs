@@ -127,12 +127,14 @@ fn show_app(h: &Shared, tray: &mut butterpollo_core::tray::Tracker) {
 /// End every stream and remote monitor and release the displays they held,
 /// which removes the virtual displays and restores the layout.
 pub fn release_displays(h: &Shared) {
+    let teardown = h.session_teardown(crate::session_control::Scope::Session);
     let canceled = h.sessions.lock().unwrap().request_stop(None);
     drop(canceled);
     crate::remote_display::disconnect(h, None);
     let audio = h.app_audio.lock().unwrap().take();
     let displays = std::mem::take(&mut *h.app_display.lock().unwrap());
     drop((audio, displays));
+    drop(teardown);
 }
 /// The registered restore hotkey, following the setting.
 #[derive(Default)]
@@ -225,6 +227,7 @@ pub async fn maintain(
                 }
             }));
         }
+        h.session_tick();
         hotkey.poll(&h);
         if Instant::now() >= steam_at {
             steam_at = Instant::now() + Duration::from_secs(30);

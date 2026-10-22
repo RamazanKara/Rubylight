@@ -180,6 +180,8 @@ pub struct Host {
     pub warnings: Warnings,
     pub current_app: Mutex<Option<crate::process::RunningApp>>,
     pub launch_transition: Mutex<()>,
+    /// The session state machine and its journal.
+    pub session: Mutex<crate::session_control::Control>,
     pub confirmations: Mutex<butterpollo_core::remote::Confirmations>,
     pub app_audio: Mutex<Option<Arc<butterpollo_windows::audio_route::Route>>>,
     /// Each client's game display, kept between its streams while the app runs.
@@ -194,6 +196,7 @@ pub struct Host {
 }
 impl Host {
     pub fn stop_app(&self) {
+        let teardown = self.session_teardown(crate::session_control::Scope::Game);
         // Stopping the app waits for it to exit, up to its exit timeout and
         // undo commands: never under the lock every serverinfo request takes.
         let app = self.current_app.lock().unwrap().take();
@@ -201,6 +204,7 @@ impl Host {
         let audio = self.app_audio.lock().unwrap().take();
         let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
         drop((audio, displays));
+        drop(teardown);
     }
     pub fn reap_paused_display(&self) {
         let audio = {
@@ -219,7 +223,7 @@ impl Host {
             return;
         }
         let config = self.config.read().unwrap().clone();
-        let released: Vec<_> = {
+        let expired: Vec<String> = {
             let mut displays = self.app_display.lock().unwrap();
             let mut expired = vec![];
             for (owner, (lease, paused)) in displays.iter_mut() {
@@ -233,12 +237,30 @@ impl Host {
                 }
             }
             expired
-                .iter()
-                .filter_map(|owner| displays.remove(owner))
-                .collect()
+        };
+        if expired.is_empty() {
+            return;
+        }
+        // The grace period ran out: the session ends as End session does,
+        // while the display is still held so the state shows the suspension.
+        let teardown = self.session_teardown(crate::session_control::Scope::Displays(&expired));
+        let released: Vec<_> = {
+            let mut displays = self.app_display.lock().unwrap();
+            let mut released = vec![];
+            for owner in &expired {
+                // A stream that took the display back in the meantime keeps it.
+                if displays
+                    .get(owner)
+                    .is_some_and(|(lease, _)| Arc::strong_count(lease) == 1)
+                {
+                    released.extend(displays.remove(owner));
+                }
+            }
+            released
         };
         // Display leases restore Windows settings; do that outside the lock.
         drop(released);
+        drop(teardown);
     }
     pub fn load(directory: PathBuf, assets: PathBuf, port: Option<u16>) -> Result<Shared> {
         std::fs::create_dir_all(&directory)?;
@@ -349,6 +371,7 @@ impl Host {
                 .map(|c| c.username.as_str())
                 .unwrap_or(""),
         );
+        let session = crate::session_control::Control::new(&directory);
         Ok(Arc::new(Self {
             #[cfg(test)]
             reconnect_fixture: None,
@@ -388,6 +411,7 @@ impl Host {
             warnings,
             current_app: Mutex::new(None),
             launch_transition: Mutex::new(()),
+            session: Mutex::new(session),
             confirmations: Mutex::new(Default::default()),
             app_audio: Mutex::new(None),
             app_display: Mutex::new(BTreeMap::new()),

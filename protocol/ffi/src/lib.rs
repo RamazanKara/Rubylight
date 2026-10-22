@@ -297,6 +297,27 @@ pub unsafe extern "C" fn rp_present_clock_stats(clock: *const PresentClock, fram
     }
 }
 
+/// The offset from the host's video clock to the client's (`client = host + offset`) at client
+/// time `local_us`, and the round trip of the exchange it comes from, both in microseconds.
+/// Returns false, writing nothing, before the first clock sync exchange.
+///
+/// # Safety
+/// `clock` is live; the out pointers are writable or null.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_offset(clock: *const PresentClock, local_us: u64, offset_us: *mut i64, rtt_us: *mut i64) -> bool {
+    let clock = &*clock;
+    let (Some(offset), Some(rtt)) = (clock.offset.offset_at(local_us as i64), clock.offset.rtt_us()) else {
+        return false;
+    };
+    if !offset_us.is_null() {
+        offset_us.write(offset);
+    }
+    if !rtt_us.is_null() {
+        rtt_us.write(rtt);
+    }
+    true
+}
+
 // Windows clients link the standard library (the MSVC CRT has no posix_memalign).
 #[cfg(not(any(test, windows)))]
 mod runtime {

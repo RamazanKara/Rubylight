@@ -355,9 +355,45 @@ pub fn present_clock_stats() -> Option<(u64, u64, i64)> {
     })
 }
 
+/// The offset from the host's clock to CLOCK_MONOTONIC (`client = host + offset`, us) at
+/// `now_us` and the round trip (us) of its exchange; `None` before the first exchange.
+pub fn present_clock_offset(now_us: u64) -> Option<(i64, i64)> {
+    let guard = lock(&ENGINE.present_clock);
+    let clock = guard.as_ref()?;
+    Some((
+        clock.offset.offset_at(now_us as i64)?,
+        clock.offset.rtt_us()?,
+    ))
+}
+
 /// A clock sync reply from the control thread (`BridgeClClockSync`).
 pub fn clock_sync(reply: &ClockSyncReply, received_us: u64) {
     if let Some(clock) = lock(&ENGINE.present_clock).as_mut() {
         clock.offset.add(reply, received_us);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn present_clock_offset_waits_for_a_clock_sync_exchange() {
+        assert_eq!(present_clock_offset(1_000), None, "no clock running");
+        present_clock_start(0);
+        assert_eq!(present_clock_offset(1_000), None, "no exchange yet");
+        // client = host + offset: sent at 1000, answered at 1100, the host at 5000 and 5010.
+        clock_sync(
+            &ClockSyncReply {
+                sequence: 1,
+                client_us: 1_000,
+                host_receive_us: 5_000,
+                host_send_us: 5_010,
+            },
+            1_100,
+        );
+        assert_eq!(present_clock_offset(1_050), Some((-3_955, 90)));
+        present_clock_stop();
+        assert_eq!(present_clock_offset(1_050), None);
     }
 }

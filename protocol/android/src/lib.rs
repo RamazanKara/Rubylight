@@ -657,6 +657,23 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_presentClockSt
     )
 }
 
+/// out: host-to-client clock offset (us, `client = host + offset`) now and the round trip (us) of
+/// the exchange it comes from, as `android_present_clock.c`. False before the first exchange.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_presentClockOffset(
+    env: JNIEnv,
+    _: JClass,
+    out: JLongArray,
+) -> jboolean {
+    if env.get_array_length(&out).unwrap_or(0) < 2 {
+        return JNI_FALSE;
+    }
+    let Some((offset, rtt)) = engine::present_clock_offset(platform::monotonic_us()) else {
+        return JNI_FALSE;
+    };
+    jbool(env.set_long_array_region(&out, 0, &[offset, rtt]).is_ok())
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendCursorShapeRequest(
     _: JNIEnv,

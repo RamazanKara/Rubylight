@@ -82,6 +82,23 @@ Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockSchedule(JNIEnv* env, jc
     return JNI_TRUE;
 }
 
+// The offset from the host's video clock to CLOCK_MONOTONIC (client = host + offset, us) now, and
+// the round trip (us) of the exchange it comes from, to out[0..1]. False before the first exchange.
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockOffset(JNIEnv* env, jclass clazz, jlongArray out) {
+    (void)clazz;
+    if ((*env)->GetArrayLength(env, out) < 2) return JNI_FALSE;
+    int64_t offset = 0, rtt = 0;
+    uint64_t nowUs = monotonicMicros();
+    pthread_mutex_lock(&presentClockMutex);
+    bool known = presentClock != NULL && rp_present_clock_offset(presentClock, nowUs, &offset, &rtt);
+    pthread_mutex_unlock(&presentClockMutex);
+    if (!known) return JNI_FALSE;
+    jlong values[2] = { (jlong)offset, (jlong)rtt };
+    (*env)->SetLongArrayRegion(env, out, 0, 2, values);
+    return JNI_TRUE;
+}
+
 // Frames scheduled, frames late and the clock sync round trip (us, -1 without) to out[0..2].
 JNIEXPORT jboolean JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockStats(JNIEnv* env, jclass clazz, jlongArray out) {

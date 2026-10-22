@@ -89,6 +89,9 @@ int64_t rp_present_clock_sync(RpPresentClock *clock, const uint8_t *data, size_t
 RpPresentSchedule rp_present_clock_schedule(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us);
 void rp_present_clock_reset(RpPresentClock *clock);
 void rp_present_clock_stats(const RpPresentClock *clock, uint64_t *frames, uint64_t *late, int64_t *rtt_us);
+// The offset (client = host + offset) at client time local_us and its exchange's round trip, in
+// microseconds; false, writing nothing, before the first clock sync exchange.
+bool rp_present_clock_offset(const RpPresentClock *clock, uint64_t local_us, int64_t *offset_us, int64_t *rtt_us);
 
 #ifdef __cplusplus
 }  // extern "C"

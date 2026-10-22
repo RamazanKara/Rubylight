@@ -756,6 +756,13 @@ public class MoonBridge {
         return rustStream ? RustBridge.presentClockStats(out) : cPresentClockStats(out);
     }
     private static native boolean cPresentClockStats(long[] out);
+    // out: the host-to-client clock offset in us now (client = host + offset, the client clock
+    // being CLOCK_MONOTONIC like System.nanoTime()) and the round trip in us of the exchange it
+    // comes from. False before the first clock sync exchange or without a running clock.
+    public static boolean presentClockOffset(long[] out) {
+        return rustStream ? RustBridge.presentClockOffset(out) : cPresentClockOffset(out);
+    }
+    private static native boolean cPresentClockOffset(long[] out);
 
     // Host cursor shapes, client to host (docs/protocol/cursor-shape.md).
     public static final int CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST = 0x5540;

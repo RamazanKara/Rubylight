@@ -120,6 +120,7 @@ final class RustBridge {
     static native void presentClockReset();
     static native boolean presentClockSchedule(long hostUs, long readyNs, long[] out);
     static native boolean presentClockStats(long[] out);
+    static native boolean presentClockOffset(long[] out);
     static native boolean sendCursorShapeRequest(boolean enabled);
     static native boolean sendControllerAudio(int kind, byte[] payload);
 }

@@ -14,6 +14,7 @@ mod playnite;
 mod process;
 mod pyrowave_probe;
 mod pyrowave_send;
+mod radeon_session;
 mod remote_display;
 mod rtsp_server;
 mod runtime;
@@ -324,7 +325,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     // Radeon settings a crashed run left changed are put back by the Radeon worker thread, which
     // owns every later Radeon write too and queues them behind the recovery. Startup does not
     // wait for it, and with no journal it never touches ADLX. The worker logs failures and retries.
-    if let Err(error) = butterpollo_windows::radeon::worker::start_host(&h.directory) {
+    if let Err(error) = radeon_session::start(&h.radeon, &h.directory) {
         tracing::error!(
             error = %error,
             "the Radeon worker could not start; settings from an interrupted session stay in the journal"
@@ -453,6 +454,9 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     while tasks.join_next().await.is_some() {}
     h.stop_app();
     h.session_shutdown();
+    // Whatever a session changed goes back before the host exits; the restore thread has had the
+    // work since the session reset above.
+    h.radeon.shutdown(Duration::from_secs(30));
     remote_display::disconnect(&h, None);
     drop(discovery);
     if let Some(mut task) = port_forward

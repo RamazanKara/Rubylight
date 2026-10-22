@@ -1897,6 +1897,7 @@ async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connec
     let canceled = h.sessions.lock().unwrap().request_stop(Some(&client.uuid));
     drop(canceled);
     crate::remote_display::disconnect(&h, Some(&client.uuid));
+    h.radeon.release_device(&client.uuid);
     xml(200, &[("unpaired", "1".into())], None)
 }
 async fn appasset(

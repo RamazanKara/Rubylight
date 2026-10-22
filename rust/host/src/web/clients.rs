@@ -42,6 +42,9 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             drop(canceled);
             crate::remote_display::disconnect(h, Some(text("uuid")));
             h.unpair_with_network_history(Some(text("uuid")))?;
+            // The device is gone; its session may linger for the grace period, its Radeon
+            // settings do not.
+            h.radeon.release_device(text("uuid"));
             json!({"status":true})
         }
         ("POST", "/api/clients/unpair-all") => {
@@ -49,6 +52,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             drop(canceled);
             crate::remote_display::disconnect(h, None);
             h.unpair_with_network_history(None)?;
+            h.radeon.sync(None);
             json!({"status":true})
         }
         ("POST", "/api/clients/disconnect") => {
@@ -129,6 +133,11 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
                 drop(canceled);
                 crate::remote_display::disconnect(h, Some(text("uuid")));
+            }
+            // Turning a device off ends its claim on the host's Radeon settings. Removing a
+            // permission does not: pending changes go back with the session.
+            if data.get("enabled").and_then(Value::as_bool) == Some(false) {
+                h.radeon.release_device(text("uuid"));
             }
             json!({"status":true,"disconnected":revoked})
         }

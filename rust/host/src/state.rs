@@ -192,6 +192,8 @@ pub struct Host {
     pub serverinfo_cache: Mutex<crate::nvhttp::ServerInfoCache>,
     /// The encoder family the capability probe selected for H.264.
     pub probed_encoder: Mutex<&'static str>,
+    /// Which session changed Radeon settings, and when they go back.
+    pub radeon: crate::radeon_session::Radeon,
     pub assets: PathBuf,
 }
 impl Host {
@@ -423,6 +425,7 @@ impl Host {
             metadata: Mutex::new(None),
             serverinfo_cache: Mutex::new(Default::default()),
             probed_encoder: Mutex::new(""),
+            radeon: crate::radeon_session::Radeon::default(),
         }))
     }
     pub fn assign_apps(&self, apps: &mut [App]) -> Result<()> {

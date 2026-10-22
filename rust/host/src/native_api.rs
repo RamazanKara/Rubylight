@@ -7,6 +7,8 @@
 //! device's permissions and Host control flag from `h.paired` then, never from
 //! a copy taken at launch: a grant or revoke in the console applies to the
 //! next request.
+mod radeon;
+
 use crate::{state::Shared, tls::Connection};
 use axum::{
     Extension, Router,
@@ -55,6 +57,11 @@ impl Failure {
     pub(crate) fn internal(what: &str, error: impl std::fmt::Display) -> Self {
         tracing::error!(%error, "native API: {what}");
         Self::new(ErrorCode::Internal, format!("The host failed to {what}."))
+    }
+    /// Name the setting the error is about.
+    fn for_setting(mut self, id: &str) -> Self {
+        self.setting = Some(id.to_owned());
+        self
     }
     fn retry_after(mut self, milliseconds: u64) -> Self {
         self.retry_after_ms = Some(milliseconds);
@@ -123,8 +130,7 @@ fn json<T: Serialize>(status: StatusCode, body: &T) -> Response {
     }
 }
 
-/// The router for the HTTPS service. Radeon routes (plan item A5) fall under
-/// the catch-all and answer `not_found` until the host ships them.
+/// The router for the HTTPS service.
 pub fn router() -> Router<Shared> {
     let path = |rest: &str| format!("{}{rest}", native_api::PREFIX);
     Router::new()
@@ -139,6 +145,15 @@ pub fn router() -> Router<Shared> {
         .route(
             &path("/session/close-game"),
             post(close_game).fallback(unknown),
+        )
+        .route(&path("/radeon"), get(radeon::read).fallback(unknown))
+        .route(
+            &path("/radeon/settings"),
+            post(radeon::write).fallback(unknown),
+        )
+        .route(
+            &path("/radeon/restore"),
+            post(radeon::restore).fallback(unknown),
         )
         .route(native_api::PREFIX, any(unknown))
         .route(&path("/"), any(unknown))
@@ -192,9 +207,9 @@ fn require_host_control(client: &Client) -> Result<(), Failure> {
     })
 }
 
-/// An action POST carries no data. Its body is empty or a JSON object, as
-/// `application/json`, `text/plain` or without a content type.
-async fn expect_empty_body(request: Request) -> Result<(), Failure> {
+/// The body of a POST: JSON as `application/json`, `text/plain` or without a content type, of at
+/// most 16 KiB.
+async fn read_body(request: Request) -> Result<axum::body::Bytes, Failure> {
     let invalid = |message: &str| Failure::new(ErrorCode::InvalidRequest, message);
     let content_type = request
         .headers()
@@ -214,9 +229,14 @@ async fn expect_empty_body(request: Request) -> Result<(), Failure> {
     ) {
         return Err(invalid("Send the body as application/json."));
     }
-    let bytes = to_bytes(request.into_body(), MAX_BODY)
+    to_bytes(request.into_body(), MAX_BODY)
         .await
-        .map_err(|_| invalid("The body is larger than 16 KiB or could not be read."))?;
+        .map_err(|_| invalid("The body is larger than 16 KiB or could not be read."))
+}
+/// An action POST carries no data. Its body is empty or a JSON object.
+async fn expect_empty_body(request: Request) -> Result<(), Failure> {
+    let invalid = |message: &str| Failure::new(ErrorCode::InvalidRequest, message);
+    let bytes = read_body(request).await?;
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(());
     }
@@ -243,8 +263,18 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                     .clone(),
             },
             features: [feature::LIBRARY, feature::SESSION, feature::CLOSE_GAME]
+                .into_iter()
+                // The Radeon endpoints answer only where the host started its Radeon worker.
+                .chain(
+                    h.radeon
+                        .worker()
+                        .is_some()
+                        .then_some([feature::RADEON_READ, feature::RADEON_WRITE])
+                        .into_iter()
+                        .flatten(),
+                )
                 .map(String::from)
-                .into(),
+                .collect(),
             permissions: Permissions {
                 list: client.allows(LIST),
                 view: client.allows(VIEW),

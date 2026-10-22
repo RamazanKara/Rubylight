@@ -13,7 +13,7 @@ use crate::process::{Process, Target};
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::OsString,
-    io::{Read, Write},
+    io::{BufRead, Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
     sync::{Arc, Mutex, PoisonError, mpsc},
@@ -107,8 +107,10 @@ fn answer(
 // The helper talks to its parent only through stdin, stdout and stderr.
 #[allow(clippy::print_stdout, clippy::print_stderr)]
 fn run_with(backend: &mut impl RadeonBackend, setup: impl FnOnce() -> Result<(), String>) -> i32 {
+    // Exactly one request line: the helper never waits for stdin to close, because another
+    // process that inherited a copy of the host's end can keep it open.
     let mut request = String::new();
-    if let Err(error) = std::io::stdin().read_to_string(&mut request) {
+    if let Err(error) = std::io::stdin().lock().read_line(&mut request) {
         eprintln!("radeon helper: cannot read its request: {error}");
         return 2;
     }
@@ -137,6 +139,32 @@ fn drain(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<String> {
         let mut bytes = Vec::new();
         let _ = pipe.read_to_end(&mut bytes);
         let _ = sender.send(String::from_utf8_lossy(&bytes).into_owned());
+    });
+    receiver
+}
+
+/// Watch a helper's stdout for its answer line: the answer arrives on the channel as soon as the
+/// line does, without waiting for the pipe to close (another process that inherited a copy of
+/// the helper's end can keep it open for good). The rest of the output is read and dropped so
+/// the helper never blocks on a full pipe. A pipe that ends without an answer closes the channel.
+fn watch_for_answer(pipe: impl Read + Send + 'static) -> mpsc::Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(pipe);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => return,
+                Ok(_) => {}
+            }
+            let text = String::from_utf8_lossy(&line);
+            if let Some((_, answer)) = text.split_once(MARKER) {
+                let _ = sender.send(answer.trim_end_matches(['\r', '\n']).to_string());
+                let _ = std::io::copy(&mut reader, &mut std::io::sink());
+                return;
+            }
+        }
     });
     receiver
 }
@@ -261,6 +289,9 @@ impl HelperBackend {
                 self.program.display()
             ))
         };
+        // The request is one line (compact JSON has no newline); the helper reads that line and
+        // does not wait for the pipe to close.
+        let line = format!("{body}\n");
         if crate::process::is_system() {
             let args: Vec<OsString> = self.args.iter().map(OsString::from).collect();
             let mut piped =
@@ -268,9 +299,9 @@ impl HelperBackend {
                     .map_err(|e| cannot(" as the signed-in user", format!("{e:#}")))?;
             if let Some(mut stdin) = piped.stdin.take() {
                 // A helper that died early closes the pipe; its exit status explains it below.
-                let _ = stdin.write_all(body.as_bytes());
+                let _ = stdin.write_all(line.as_bytes());
             }
-            let output = drain(piped.stdout.take().expect("stdout is piped"));
+            let output = watch_for_answer(piped.stdout.take().expect("stdout is piped"));
             let errors = drain(piped.stderr.take().expect("stderr is piped"));
             return Ok((Child::User(piped.process), output, errors));
         }
@@ -286,9 +317,9 @@ impl HelperBackend {
         }
         let mut child = command.spawn().map_err(|e| cannot("", e.to_string()))?;
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(body.as_bytes());
+            let _ = stdin.write_all(line.as_bytes());
         }
-        let output = drain(child.stdout.take().expect("stdout is piped"));
+        let output = watch_for_answer(child.stdout.take().expect("stdout is piped"));
         let errors = drain(child.stderr.take().expect("stderr is piped"));
         Ok((Child::Own(child), output, errors))
     }
@@ -344,20 +375,19 @@ impl HelperBackend {
                 }
             }
         };
-        let output = receiver
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap_or_default();
-        output
-            .lines()
-            .find_map(|line| line.split_once(MARKER).map(|(_, answer)| answer))
-            .ok_or_else(|| {
+        // The helper has exited, so its answer is already in the pipe and arrives at once; a
+        // closed channel means it ended without one. Only a pipe some other process keeps open
+        // makes this wait out the timeout.
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|_| {
                 BackendError(format!(
                     "the Radeon helper exited ({status}) without an answer{}",
                     what_it_said(&errors)
                 ))
             })
             .and_then(|line| {
-                serde_json::from_str(line)
+                serde_json::from_str(&line)
                     .map_err(|e| BackendError(format!("unreadable Radeon helper answer: {e}")))
             })
     }
@@ -466,6 +496,77 @@ mod tests {
     #[ignore = "child of the helper process tests"]
     fn stub_helper() {
         assert_eq!(run_with(&mut Stub::default(), || Ok(())), 0);
+    }
+
+    /// A helper whose stdin and stdout ends were inherited by a process that outlives it: the
+    /// survivor holds a second copy of both open, so the pipes do not close when the helper exits.
+    #[test]
+    #[ignore = "child of the helper process tests"]
+    #[allow(clippy::zombie_processes)] // the survivor is meant to outlive this process
+    fn leaky_stub_helper() {
+        let _survivor = Command::new("ping")
+            .args(["-n", "12", "127.0.0.1"])
+            .spawn()
+            .unwrap();
+        assert_eq!(run_with(&mut Stub::default(), || Ok(())), 0);
+    }
+
+    fn stub_args(test: &str) -> Vec<String> {
+        [
+            "--ignored",
+            "--exact",
+            test,
+            "--nocapture",
+            "--test-threads=1",
+        ]
+        .map(String::from)
+        .to_vec()
+    }
+
+    /// Another process holding a copy of the host's stdin end keeps the helper from ever seeing
+    /// EOF; it answers after the one request line anyway.
+    #[test]
+    fn a_helper_answers_after_one_line_though_its_stdin_never_closes() {
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(stub_args("radeon::helper::tests::stub_helper"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(b"{\"op\":\"read\",\"gpu\":1}\n").unwrap();
+        let answers = watch_for_answer(child.stdout.take().unwrap());
+        let answer = answers
+            .recv_timeout(Duration::from_secs(10))
+            .expect("an answer with stdin still open");
+        assert!(answer.contains("anti_lag.enabled"), "{answer}");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while child.try_wait().unwrap().is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "the helper waited for stdin to close"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        drop(stdin);
+    }
+
+    /// A survivor holding copies of the helper's stdin and stdout keeps stdout from closing; the
+    /// call still takes the answer line and completes.
+    #[test]
+    fn a_call_completes_though_a_survivor_holds_the_pipes_open() {
+        let mut backend = HelperBackend::with_command(
+            std::env::current_exe().unwrap(),
+            stub_args("radeon::helper::tests::leaky_stub_helper"),
+        );
+        let started = Instant::now();
+        let settings = backend.read(1).unwrap();
+        assert_eq!(settings[0].id, "anti_lag.enabled");
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "the call waited for the pipes to close: {:?}",
+            started.elapsed()
+        );
     }
 
     /// A helper that cannot act as the user must say so and touch nothing, not answer from the

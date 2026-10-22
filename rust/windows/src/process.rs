@@ -389,31 +389,47 @@ impl Drop for AttributeList {
         }
     }
 }
+/// Handles marked inheritable for as short a time as possible: made so on creation, made
+/// private again on drop (the handles must outlive the guard).
+struct InheritableHandles([HANDLE; 3]);
+impl InheritableHandles {
+    fn new(handles: [HANDLE; 3]) -> Result<Self> {
+        let guard = Self(handles);
+        for handle in handles {
+            // SAFETY: the caller owns these handles and keeps them open while this guard lives.
+            unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAG_INHERIT)? };
+        }
+        Ok(guard)
+    }
+}
+impl Drop for InheritableHandles {
+    fn drop(&mut self) {
+        for handle in self.0 {
+            // SAFETY: as in `new`; a handle that cannot be changed was closed, which is as good.
+            let _ = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0)) };
+        }
+    }
+}
 enum PipeEnd {
     /// The child reads (its stdin).
     Read,
     /// The child writes (its stdout and stderr).
     Write,
 }
-/// An anonymous pipe: (the end the child inherits, the end this process keeps). Only the child's
-/// end can be inherited.
-fn inheritable_pipe(child: PipeEnd) -> Result<(OwnedHandle, OwnedHandle)> {
-    let attributes = SECURITY_ATTRIBUTES {
-        nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
-        lpSecurityDescriptor: std::ptr::null_mut(),
-        bInheritHandle: true.into(),
-    };
+/// An anonymous pipe: (the end the child will use, the end this process keeps). Neither is
+/// inheritable yet: `spawn_command_with` makes the child's end inheritable right before it creates
+/// the process, so a process another thread starts in between cannot inherit a copy and keep the
+/// pipe open. (The protocol also does not depend on the pipes closing.)
+fn pipe_pair(child: PipeEnd) -> Result<(OwnedHandle, OwnedHandle)> {
     // SAFETY: both out-pointers are live locals, and each new handle is owned once.
     unsafe {
         let (mut read, mut write) = (HANDLE::default(), HANDLE::default());
-        windows::Win32::System::Pipes::CreatePipe(&mut read, &mut write, Some(&attributes), 0)?;
+        windows::Win32::System::Pipes::CreatePipe(&mut read, &mut write, None, 0)?;
         let (read, write) = (owned(read), owned(write));
-        let (child, parent) = match child {
+        Ok(match child {
             PipeEnd::Read => (read, write),
             PipeEnd::Write => (write, read),
-        };
-        SetHandleInformation(raw(&parent), HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0))?;
-        Ok((child, parent))
+        })
     }
 }
 /// A process started by [`Process::spawn_piped`]. Dropping the `process` ends it and everything
@@ -1042,9 +1058,9 @@ impl Process {
             command.push(' ');
             command.push_str(&quote(arg)?);
         }
-        let (stdin_read, stdin_write) = inheritable_pipe(PipeEnd::Read)?;
-        let (stdout_write, stdout_read) = inheritable_pipe(PipeEnd::Write)?;
-        let (stderr_write, stderr_read) = inheritable_pipe(PipeEnd::Write)?;
+        let (stdin_read, stdin_write) = pipe_pair(PipeEnd::Read)?;
+        let (stdout_write, stdout_read) = pipe_pair(PipeEnd::Write)?;
+        let (stderr_write, stderr_read) = pipe_pair(PipeEnd::Write)?;
         let process = Self::spawn_command_with(
             program,
             &command,
@@ -1263,6 +1279,8 @@ impl Process {
                 }
                 Ok(())
             };
+            // The child's pipe ends are inheritable only while the process is being created.
+            let inheritable = stdio.map(InheritableHandles::new).transpose()?;
             match create(flags) {
                 Err(e)
                     if detached
@@ -1275,6 +1293,7 @@ impl Process {
                 }
                 result => result?,
             }
+            drop(inheritable);
             let process = Self {
                 handle: owned(info.hProcess),
                 job,
@@ -1838,7 +1857,7 @@ mod tests {
     fn a_pipe_end_can_be_used_by_its_creator() {
         use super::*;
         use std::io::{Read, Write};
-        let (child_end, parent_end) = inheritable_pipe(PipeEnd::Write).unwrap();
+        let (child_end, parent_end) = pipe_pair(PipeEnd::Write).unwrap();
         let mut writer = std::fs::File::from(child_end);
         let mut reader = std::fs::File::from(parent_end);
         writer.write_all(b"ping").unwrap();

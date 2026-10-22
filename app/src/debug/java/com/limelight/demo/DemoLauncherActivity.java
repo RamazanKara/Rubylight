@@ -39,6 +39,7 @@ public final class DemoLauncherActivity extends Activity {
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
         DemoFixtures.nativeApiHost = "native".equals(getIntent().getStringExtra("host"));
         DemoConsole.hostControl = getIntent().getBooleanExtra("control", true);
+        DemoRadeon.reset(getIntent().getStringExtra("radeon"));
         DemoConsole.racingRuns = !"idle".equals(getIntent().getStringExtra("session"));
         try {
             DemoFixtures.prepare(this);
@@ -67,6 +68,7 @@ public final class DemoLauncherActivity extends Activity {
                 .putExtra("align", getIntent().getStringExtra("align"))
                 .putExtra("orientation", getIntent().getStringExtra("orientation"))
                 .putExtra("size", getIntent().getStringExtra("size"))
+                .putExtra("page", getIntent().getStringExtra("page"))
                 .putExtra(AppView.UUID_EXTRA, DemoFixtures.PC_UUID).putExtra(AppView.NAME_EXTRA, "Living-room PC")
                 .putExtra("host_uuid", DemoFixtures.PC_UUID).putExtra("host_name", "Living-room PC")
                 // The game detail: "--ei app 2" opens Racing Game (the running one), any other id its own card.

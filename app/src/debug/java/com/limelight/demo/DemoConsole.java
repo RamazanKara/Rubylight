@@ -6,6 +6,7 @@ import com.limelight.nativeapi.CachedAppListSource;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.FileLibraryCache;
 import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeApiTransport;
 import com.limelight.nativeapi.PreferencesRecentsStore;
@@ -38,6 +39,12 @@ final class DemoConsole {
                         "", "nightjar-demo", new byte[0], new byte[0]),
                 new FileLibraryCache(new File(context.getFilesDir(), "console-library")), recents,
                 new CachedAppListSource(context.getCacheDir()), Executors.newCachedThreadPool(), System::currentTimeMillis);
+    }
+
+    /** The native API client the demo stream menu's Radeon panel reads and writes through. */
+    static NativeApiClient client() {
+        return new NativeApiClient(new Transport(), new HostEndpoint(DemoFixtures.PC_UUID,
+                DemoComputerManagerService.SETTINGS_ADDRESS, 47989, 47984, "", "nightjar-demo", new byte[0], new byte[0]));
     }
 
     private static String library() {
@@ -80,6 +87,10 @@ final class DemoConsole {
                     return session();
                 case "capabilities":
                     return capabilities();
+                case "radeon":
+                    return DemoRadeon.read();
+                case "radeon_write":
+                    return DemoRadeon.write(argument);
                 default:
                     throw new NativeApiException(NativeApiException.Kind.UNAVAILABLE, "the demo has no " + op);
             }

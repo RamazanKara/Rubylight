@@ -22,6 +22,7 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
+import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.R;
 import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.PerfOverlayListener;
@@ -51,6 +52,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private long positionUs;
     private long tick;
     private StreamMenu menu;
+    private com.limelight.console.NativeMenuController radeon;
+    private java.util.concurrent.ScheduledExecutorService radeonThread;
     private DemoTouchpad touchpad;
     private String fit;
     private int alignment;
@@ -171,6 +174,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         hint.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
             if (hint.getVisibility() == View.VISIBLE) StreamMenuHint.place(hint, findViewById(R.id.performanceOverlayScroll));
         });
+        // "--es page main|native" opens the stream menu (and its native page) without a tap.
+        if (getIntent().getStringExtra("page") != null) handler.postDelayed(this::showMenu, 1500);
         boolean forced = getIntent().getBooleanExtra("hint", false);
         if (state == null && (forced || !StreamMenuHint.seen(this))) {
             handler.postDelayed(() -> {
@@ -212,6 +217,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private StreamMenu.Options menuOptions() {
         ComputerDetails host = new ComputerDetails();
         DemoFixtures.describeHost(host);
+        host.name = "Living-room PC";
         StreamMenu.Options options = new StreamMenu.Options(NvApp.Role.STREAM, host);
         options.overlayShown = findViewById(R.id.performanceOverlayScroll).getVisibility() == View.VISIBLE;
         options.overlayMode = mode;
@@ -225,6 +231,9 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         options.microphoneMuted = microphoneMuted;
         options.webUiAddress = true;
         options.gameControls = true;
+        options.nativeHostControl = DemoConsole.hostControl;
+        options.connection = new com.limelight.console.ConnectionInfo(host.name, MoonBridge.VIDEO_FORMAT_H265_MAIN10,
+                SAMPLE_WIDTH, SAMPLE_HEIGHT, 120, 80_000, null, 4);
         return options;
     }
 
@@ -232,9 +241,22 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         if (menu != null) return;
         findViewById(R.id.streamMenuHint).setVisibility(View.GONE);
         StreamMenuHint.markSeen(this);
-        menu = new StreamMenu(this, this::menuOptions, this::onMenuItem);
+        menu = new StreamMenu(this, this::menuOptions, this::onMenuItem, DemoFixtures.nativeApiHost ? radeonController() : null);
         menu.sheet().setOnDismissListener(dialog -> menu = null);
         menu.show();
+        if ("native".equals(getIntent().getStringExtra("page")) && menu.row(StreamMenu.Item.NATIVE_PAGE) != null) {
+            menu.row(StreamMenu.Item.NATIVE_PAGE).performClick();
+        }
+    }
+
+    private com.limelight.console.NativeMenuController radeonController() {
+        if (radeon == null) {
+            radeonThread = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+            radeon = new com.limelight.console.NativeMenuController(DemoConsole::client,
+                    (task, delayMs) -> radeonThread.schedule(task, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS),
+                    handler::post);
+        }
+        return radeon;
     }
 
     // The demo has no host: it plays the parts it can show and says so for the rest.
@@ -269,7 +291,10 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 break;
             case PICTURE_IN_PICTURE: enterPip(); break;
             case GAME_CONTROLS: gameControls.showMenu(); break;
+            case NATIVE_RESUME: break;
             case DISCONNECT:
+            case END_HOST_SESSION:
+            case CLOSE_GAME:
             case QUIT_GAME: finish(); break;
             default:
                 android.widget.Toast.makeText(this, R.string.demo_needs_host, android.widget.Toast.LENGTH_SHORT).show();
@@ -383,6 +408,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        if (radeonThread != null) radeonThread.shutdownNow();
         controls.hide();
         releasePlayer();
         super.onDestroy();

@@ -6,6 +6,7 @@ mod logging;
 mod lossless;
 mod maintenance;
 mod mic;
+mod native_api;
 mod network;
 mod network_path;
 mod nvhttp;
@@ -16,10 +17,6 @@ mod pyrowave_send;
 mod remote_display;
 mod rtsp_server;
 mod runtime;
-#[allow(
-    dead_code,
-    reason = "the native API endpoints call the session actions"
-)]
 mod session_control;
 #[cfg(any(debug_assertions, test))]
 mod soak_fault;

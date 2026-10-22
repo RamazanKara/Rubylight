@@ -334,6 +334,10 @@ impl Host {
     /// client's own `/resume` launch, so there is nothing to do here; one
     /// that still streams is superseded now, as that launch would. Busy
     /// while a launch runs.
+    #[allow(
+        dead_code,
+        reason = "a native client resumes with /launch; this action waits for a later endpoint"
+    )]
     pub fn resume_session(&self, device: &str) -> Result<Outcome, Refusal> {
         let _transition = self.transition()?;
         let streaming = self.with_session(|machine, _, _| {

@@ -57,6 +57,8 @@ impl ServerInfoCache {
     }
 }
 #[cfg(test)]
+mod native_tests;
+#[cfg(test)]
 mod parity_tests;
 #[derive(Debug)]
 struct LaunchFailure(u16, &'static str);
@@ -241,6 +243,7 @@ pub fn router(h: Shared, https: bool) -> Router {
                 "/actions/clipboard",
                 get(clipboard_read).post(clipboard_write),
             )
+            .merge(crate::native_api::router())
     } else {
         r
     };
@@ -458,6 +461,17 @@ fn serverinfo_response(
             "HardwareMetricsVersion",
             u8::from(permission & VIEW != 0 && config.boolean("hardware_metrics", false))
                 .to_string(),
+        ),
+        // 0 for plain HTTP and unpaired requests; the native API
+        // (`docs/native-api.md`) answers paired HTTPS only.
+        (
+            butterpollo_core::native_api::SERVERINFO_FIELD,
+            if paired {
+                butterpollo_core::native_api::API_VERSION
+            } else {
+                0
+            }
+            .to_string(),
         ),
         ("hostname", crate::network::host_name(config)),
         ("appversion", "7.1.431.-1".into()),

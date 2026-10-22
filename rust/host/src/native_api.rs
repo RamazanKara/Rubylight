@@ -1,0 +1,373 @@
+//! The native API v1 (plan item A3): capabilities, library and session state
+//! and actions, served on the streaming HTTPS port. The contract is
+//! `docs/native-api.md`; the wire types live in `butterpollo_core::native_api`
+//! and the projections in `butterpollo_core::native`.
+//!
+//! Every request identifies its caller from the TLS certificate and reads the
+//! device's permissions and Host control flag from `h.paired` then, never from
+//! a copy taken at launch: a grant or revoke in the console applies to the
+//! next request.
+use crate::{state::Shared, tls::Connection};
+use axum::{
+    Extension, Router,
+    body::to_bytes,
+    extract::{Request, State},
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::{any, get, post},
+};
+use butterpollo_core::{
+    native::{self, LAUNCH, LIST, VIEW},
+    native_api::{
+        self,
+        capabilities::{Capabilities, HostInfo, Permissions},
+        error::{ApiError, ErrorBody, ErrorCode},
+        feature,
+    },
+    session_state::Refusal,
+    state::{App, Client},
+};
+use serde::Serialize;
+use std::{path::Path, sync::PoisonError, time::UNIX_EPOCH};
+
+/// POST bodies are JSON of at most this many bytes.
+const MAX_BODY: usize = 16 * 1024;
+/// How soon a client retries after `session_busy`.
+const BUSY_RETRY_MS: u64 = 1000;
+
+/// A refused or failed request, answered with the error body of the spec.
+#[derive(Debug)]
+pub struct Failure {
+    code: ErrorCode,
+    message: String,
+    setting: Option<String>,
+    retry_after_ms: Option<u64>,
+}
+impl Failure {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            setting: None,
+            retry_after_ms: None,
+        }
+    }
+    pub(crate) fn internal(what: &str, error: impl std::fmt::Display) -> Self {
+        tracing::error!(%error, "native API: {what}");
+        Self::new(ErrorCode::Internal, format!("The host failed to {what}."))
+    }
+    fn retry_after(mut self, milliseconds: u64) -> Self {
+        self.retry_after_ms = Some(milliseconds);
+        self
+    }
+}
+impl From<Refusal> for Failure {
+    fn from(refusal: Refusal) -> Self {
+        match refusal {
+            Refusal::NoSession => Self::new(ErrorCode::NoSession, "There is no session."),
+            Refusal::Busy => Self::new(
+                ErrorCode::SessionBusy,
+                "A launch or a stop is in progress. Try again in a moment.",
+            )
+            .retry_after(BUSY_RETRY_MS),
+            Refusal::NotOwner => Self::new(
+                ErrorCode::NotSessionOwner,
+                "This session belongs to another device.",
+            ),
+        }
+    }
+}
+impl IntoResponse for Failure {
+    fn into_response(self) -> Response {
+        let status =
+            StatusCode::from_u16(self.code.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        json(
+            status,
+            &ErrorBody {
+                error: ApiError {
+                    code: self.code,
+                    message: self.message,
+                    setting: self.setting,
+                    retry_after_ms: self.retry_after_ms,
+                },
+            },
+        )
+    }
+}
+type Reply = Result<Response, Failure>;
+
+/// A JSON answer. Every answer says `no-store`: the state is live.
+fn json<T: Serialize>(status: StatusCode, body: &T) -> Response {
+    match serde_json::to_vec(body) {
+        Ok(bytes) => (
+            status,
+            [
+                (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::error!(%error, "native API: a response could not be serialized");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [
+                    (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+                    (header::CACHE_CONTROL, "no-store"),
+                ],
+                r#"{"error":{"code":"internal","message":"The host failed to build the answer.","setting":null,"retry_after_ms":null}}"#,
+            )
+                .into_response()
+        }
+    }
+}
+
+/// The router for the HTTPS service. Radeon routes (plan item A5) fall under
+/// the catch-all and answer `not_found` until the host ships them.
+pub fn router() -> Router<Shared> {
+    let path = |rest: &str| format!("{}{rest}", native_api::PREFIX);
+    Router::new()
+        .route(&path("/capabilities"), get(capabilities).fallback(unknown))
+        .route(&path("/library"), get(library).fallback(unknown))
+        .route(&path("/session"), get(session).fallback(unknown))
+        .route(
+            &path("/session/disconnect"),
+            post(disconnect).fallback(unknown),
+        )
+        .route(&path("/session/end"), post(end).fallback(unknown))
+        .route(
+            &path("/session/close-game"),
+            post(close_game).fallback(unknown),
+        )
+        .route(native_api::PREFIX, any(unknown))
+        .route(&path("/"), any(unknown))
+        .route(&path("/{*rest}"), any(unknown))
+}
+async fn unknown() -> Failure {
+    Failure::new(
+        ErrorCode::NotFound,
+        "This host has no such native API endpoint.",
+    )
+}
+
+/// The paired device behind this connection, as the console has it now.
+fn caller(h: &Shared, connection: &Connection) -> Result<Client, Failure> {
+    let not_paired = || {
+        Failure::new(
+            ErrorCode::NotPaired,
+            "This device is not paired with this host, or it is turned off. Pair it first.",
+        )
+    };
+    let der = connection
+        .certificate
+        .as_deref()
+        .filter(|_| connection.tls)
+        .ok_or_else(not_paired)?;
+    h.paired
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .client_by_certificate(der)
+        .cloned()
+        .ok_or_else(not_paired)
+}
+fn permission_required(name: &str) -> Failure {
+    Failure::new(
+        ErrorCode::PermissionRequired,
+        format!("Turn on {name} for this device in the Rubylight console."),
+    )
+}
+fn require(client: &Client, bits: u32, name: &str) -> Result<(), Failure> {
+    client
+        .allows(bits)
+        .then_some(())
+        .ok_or_else(|| permission_required(name))
+}
+fn require_host_control(client: &Client) -> Result<(), Failure> {
+    native::host_control(client).then_some(()).ok_or_else(|| {
+        Failure::new(
+            ErrorCode::HostControlRequired,
+            "Turn on Host control for this device in the Rubylight console.",
+        )
+    })
+}
+
+/// An action POST carries no data. Its body is empty or a JSON object, as
+/// `application/json`, `text/plain` or without a content type.
+async fn expect_empty_body(request: Request) -> Result<(), Failure> {
+    let invalid = |message: &str| Failure::new(ErrorCode::InvalidRequest, message);
+    let content_type = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .map(|value| value.to_str().unwrap_or("?"))
+        .map(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+        });
+    if !matches!(
+        content_type.as_deref(),
+        None | Some("" | "application/json" | "text/plain")
+    ) {
+        return Err(invalid("Send the body as application/json."));
+    }
+    let bytes = to_bytes(request.into_body(), MAX_BODY)
+        .await
+        .map_err(|_| invalid("The body is larger than 16 KiB or could not be read."))?;
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return Ok(());
+    }
+    serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&bytes)
+        .map(drop)
+        .map_err(|error| invalid(&format!("The body is not a JSON object: {error}.")))
+}
+
+async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
+    let client = caller(&h, &c)?;
+    let name = crate::network::host_name(&h.config.read().unwrap_or_else(PoisonError::into_inner));
+    Ok(json(
+        StatusCode::OK,
+        &Capabilities {
+            api_version: native_api::API_VERSION,
+            host: HostInfo {
+                name,
+                version: env!("CARGO_PKG_VERSION").into(),
+                unique_id: h
+                    .paired
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .unique_id
+                    .clone(),
+            },
+            features: [feature::LIBRARY, feature::SESSION, feature::CLOSE_GAME]
+                .map(String::from)
+                .into(),
+            permissions: Permissions {
+                list: client.allows(LIST),
+                view: client.allows(VIEW),
+                launch: client.allows(LAUNCH),
+                host_control: native::host_control(&client),
+            },
+        },
+    ))
+}
+
+async fn library(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
+    require(&caller(&h, &c)?, LIST, "List applications")?;
+    let library = tokio::task::spawn_blocking(move || library_of(&h))
+        .await
+        .map_err(|error| Failure::internal("read the library", error))?;
+    Ok(json(StatusCode::OK, &library))
+}
+fn library_of(h: &Shared) -> native_api::library::Library {
+    let apps = h
+        .apps
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let current = h
+        .current_app
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .map(|app| app.id);
+    let scan = crate::library::installed(h);
+    // The same directory `/appasset` serves covers from.
+    let assets = h.assets.parent().unwrap_or(&h.assets);
+    native::library_with(&apps, scan.as_ref(), current, |app| {
+        cover_fingerprint(app, assets)
+    })
+}
+/// What identifies a cover image file: its path, size and modification time.
+fn cover_fingerprint(app: &App, assets: &Path) -> String {
+    let path = butterpollo_core::catalog::artwork(app, assets);
+    let (size, modified) = std::fs::metadata(&path).map_or((0, 0), |meta| {
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        (meta.len(), modified)
+    });
+    format!("{}|{size}|{modified}", path.display())
+}
+
+async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
+    let client = caller(&h, &c)?;
+    let snapshot = h.session_snapshot();
+    Ok(json(
+        StatusCode::OK,
+        &native::session_view(&snapshot, &client),
+    ))
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Action {
+    Disconnect,
+    End,
+    CloseGame,
+}
+async fn disconnect(
+    State(h): State<Shared>,
+    Extension(c): Extension<Connection>,
+    request: Request,
+) -> Reply {
+    act(h, c, request, Action::Disconnect).await
+}
+async fn end(
+    State(h): State<Shared>,
+    Extension(c): Extension<Connection>,
+    request: Request,
+) -> Reply {
+    act(h, c, request, Action::End).await
+}
+async fn close_game(
+    State(h): State<Shared>,
+    Extension(c): Extension<Connection>,
+    request: Request,
+) -> Reply {
+    act(h, c, request, Action::CloseGame).await
+}
+async fn act(h: Shared, c: Connection, request: Request, action: Action) -> Reply {
+    caller(&h, &c)?;
+    expect_empty_body(request).await?;
+    // End session and Close game wait up to five seconds for the streams.
+    tokio::task::spawn_blocking(move || run(&h, &c, action))
+        .await
+        .map_err(|error| Failure::internal("run the action", error))?
+}
+/// Check the device, then run the action and answer with the new session.
+/// The permission checks use the device as the console has it now, right
+/// before the action runs.
+fn run(h: &Shared, connection: &Connection, action: Action) -> Reply {
+    let client = caller(h, connection)?;
+    match action {
+        Action::Disconnect => require(&client, VIEW, "View streams")
+            .or_else(|_| require(&client, LAUNCH, "Launch applications"))?,
+        Action::End => require(&client, LAUNCH, "Launch applications")?,
+        Action::CloseGame => {
+            require(&client, LAUNCH, "Launch applications")?;
+            require_host_control(&client)?;
+        }
+    }
+    // The actions refuse by state only; the session's owner is checked here.
+    // With no session, Close game closes a game End session left running.
+    let snapshot = h.session_snapshot();
+    let owns = snapshot.owner.as_deref() == Some(client.uuid.as_str());
+    if snapshot.owner.is_some() && !owns {
+        return Err(Refusal::NotOwner.into());
+    }
+    match action {
+        Action::Disconnect => h.disconnect_session(),
+        Action::End => h.end_session(),
+        Action::CloseGame => h.close_game(&client.uuid),
+    }?;
+    let client = caller(h, connection).unwrap_or(client);
+    Ok(json(
+        StatusCode::OK,
+        &native::session_view(&h.session_snapshot(), &client),
+    ))
+}

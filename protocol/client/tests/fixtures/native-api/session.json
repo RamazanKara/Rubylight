@@ -1,0 +1,15 @@
+{
+  "revision": 42,
+  "state": "suspended",
+  "owner": "you",
+  "app": { "install_id": "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f", "app_id": 1093052211, "title": "Dota 2" },
+  "game_running": true,
+  "since_unix_ms": 1792303200000,
+  "suspended_until_unix_ms": 1792310400000,
+  "actions": [
+    { "id": "resume", "allowed": true },
+    { "id": "disconnect", "allowed": false, "reason": "not_streaming" },
+    { "id": "end", "allowed": true },
+    { "id": "close_game", "allowed": false, "reason": "host_control_required" }
+  ]
+}

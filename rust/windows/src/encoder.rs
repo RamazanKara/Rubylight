@@ -6,7 +6,7 @@
 
 use crate::capture::{GpuImage, Image};
 use anyhow::{Context, Result};
-use butterpollo_core::{rtsp::Negotiated, session::Warnings};
+use butterpollo_core::{amd_gpu, rtsp::Negotiated, session::Warnings};
 
 pub struct Encoded {
     pub bytes: Vec<u8>,
@@ -25,6 +25,28 @@ fn amf_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
     error.context(format!(
         "AMF could not start on {adapter}. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise update the AMD graphics driver or select another codec on the device"
     ))
+}
+
+/// Rubylight encodes only on an AMD GPU. A device on another vendor's GPU is
+/// refused in words, naming the AMD GPU to use when the PC has one, and never
+/// handed to AMF or PyroWave to fail obscurely.
+fn require_amd(device: &crate::capture::Device) -> Result<()> {
+    if amd_gpu::is_amd(device.vendor) {
+        return Ok(());
+    }
+    require_amd_among(
+        &device.display.adapter,
+        device.vendor,
+        &crate::capture::gpus().unwrap_or_default(),
+    )
+}
+fn require_amd_among(name: &str, vendor: u32, gpus: &[crate::capture::Gpu]) -> Result<()> {
+    let all = crate::capture::amd_adapters(gpus);
+    let adapter = amd_gpu::Adapter {
+        name: name.into(),
+        vendor,
+    };
+    Ok(amd_gpu::check_adapter(&adapter, &all)?)
 }
 
 /// Preserve startup warnings when the selected encoder adopts the session's
@@ -98,6 +120,7 @@ impl Encoder {
         // the previous AMF fallback before merging fresh startup warnings,
         // including when recovery selects a different codec.
         warnings.clear("encoder_intra_refresh");
+        require_amd(&image.gpu)?;
         if config.codec == 3 {
             return Ok(Self::Pyrowave(Box::new(
                 crate::pyrowave::Encoder::new_device_reported(
@@ -274,6 +297,7 @@ impl Encoder {
             tuning.get("adapter_pnp_id", ""),
         )
         .context("the encoder could not open the configured GPU. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise check the adapter setting")?;
+        require_amd(&device)?;
         if config.codec == 3 {
             return Ok(Self::Pyrowave(Box::new(
                 crate::pyrowave::Encoder::new_device(config, device, tuning)?,
@@ -315,6 +339,49 @@ mod tests {
             message.ends_with("AMD AMF runtime unavailable"),
             "{message}"
         );
+    }
+    fn gpu(name: &str, vendor: u32) -> crate::capture::Gpu {
+        crate::capture::Gpu {
+            name: name.into(),
+            vendor,
+            dedicated_memory: 0,
+            luid: (0, 0),
+            pnp_id: None,
+        }
+    }
+    #[test]
+    fn a_stream_on_a_non_amd_gpu_is_refused_in_words() {
+        let all = [gpu("NVIDIA GeForce RTX 4070", 0x10de)];
+        let error = require_amd_among(&all[0].name, all[0].vendor, &all).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("this PC has only NVIDIA GeForce RTX 4070"),
+            "{message}"
+        );
+        assert!(message.contains("stay on Rubylight 2.6.x"), "{message}");
+        assert!(message.contains("/releases/tag/v2.6.0"), "{message}");
+        // It never reaches AMF, whose failure text would blame the driver.
+        assert!(!message.contains("AMF could not start"), "{message}");
+    }
+    #[test]
+    fn an_amd_igpu_beside_an_nvidia_dgpu_is_named_when_the_display_is_on_the_nvidia() {
+        let all = [
+            gpu("NVIDIA GeForce RTX 4070", 0x10de),
+            gpu("AMD Radeon(TM) Graphics", 0x1002),
+        ];
+        let message = format!(
+            "{:#}",
+            require_amd_among(&all[0].name, 0x10de, &all).unwrap_err()
+        );
+        assert!(
+            message.starts_with("NVIDIA GeForce RTX 4070 is not an AMD graphics card"),
+            "{message}"
+        );
+        assert!(
+            message.contains("also has AMD Radeon(TM) Graphics"),
+            "{message}"
+        );
+        assert!(require_amd_among(&all[1].name, 0x1002, &all).is_ok());
     }
     #[test]
     fn startup_warnings_survive_attaching_the_session_reporter() {

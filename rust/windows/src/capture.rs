@@ -1,5 +1,6 @@
 use crate::text::from_wide;
 use anyhow::{Context, Result, bail};
+use butterpollo_core::amd_gpu;
 use butterpollo_core::capture_policy::notification_wait_interval;
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -209,6 +210,15 @@ pub fn gpus() -> Result<Vec<Gpu>> {
         Ok(result)
     }
 }
+/// The hardware GPUs as the AMD check reads them.
+pub fn amd_adapters(gpus: &[Gpu]) -> Vec<amd_gpu::Adapter> {
+    gpus.iter()
+        .map(|gpu| amd_gpu::Adapter {
+            name: gpu.name.clone(),
+            vendor: gpu.vendor,
+        })
+        .collect()
+}
 impl ComGuard {
     pub fn new() -> Result<Self> {
         // SAFETY: CoInitializeEx takes no pointers here, and only a successful call yields the
@@ -345,6 +355,8 @@ pub struct Device {
     /// where the device can still encode.
     pub output: Option<IDXGIOutput1>,
     pub display: std::sync::Arc<Display>,
+    /// The PCI vendor of the device's adapter. Streams encode only on AMD.
+    pub vendor: u32,
     // Capture and all encoder clones observe one throttled colour snapshot.
     color: Option<std::sync::Arc<std::sync::Mutex<output::Color>>>,
 }
@@ -391,6 +403,16 @@ impl Device {
             // A software desktop must not hide a hardware encoder from the
             // probe that runs before the stream creates its virtual display.
             if !hardware_adapter(&desc) {
+                return Self::without_display(adapter_name, pnp_id);
+            }
+            // With no GPU chosen, a monitor on an NVIDIA or Intel card must
+            // not hide an AMD card that can encode (an AMD iGPU beside an
+            // NVIDIA dGPU): the stream itself says if its display is elsewhere.
+            if adapter_name.is_empty()
+                && pnp_id.is_empty()
+                && !amd_gpu::is_amd(desc.VendorId)
+                && gpus().is_ok_and(|all| all.iter().any(|gpu| amd_gpu::is_amd(gpu.vendor)))
+            {
                 return Self::without_display(adapter_name, pnp_id);
             }
         }
@@ -461,6 +483,7 @@ impl Device {
         // GetDesc1 returns an owned struct.
         unsafe {
             let factory: IDXGIFactory1 = CreateDXGIFactory1()?;
+            let mut candidates = Vec::new();
             for index in 0..32 {
                 let Ok(adapter) = factory.EnumAdapters1(index) else {
                     break;
@@ -477,22 +500,32 @@ impl Device {
                 {
                     continue;
                 }
-                let display = Display {
-                    device_id: String::new(),
-                    display_name: String::new(),
-                    friendly_name: String::new(),
-                    width: 0,
-                    height: 0,
-                    x: 0,
-                    y: 0,
-                    primary: false,
-                    adapter: description,
-                    adapter_index: index,
-                    output_index: 0,
-                };
-                return Self::create(&adapter, None, display);
+                candidates.push((index, adapter, desc.VendorId, description));
             }
-            bail!("no desktop display or hardware GPU")
+            if candidates.is_empty() {
+                if !adapter_name.is_empty() || !pnp_id.is_empty() {
+                    bail!("the configured GPU adapter was not found: {adapter_name} {pnp_id}");
+                }
+                bail!("{}", amd_gpu::Refusal::NoGpu);
+            }
+            // The AMD adapter encodes: take it first when no GPU is chosen.
+            // Nothing AMD leaves the first one, which the encoder refuses.
+            let vendors: Vec<u32> = candidates.iter().map(|c| c.2).collect();
+            let (index, adapter, _, description) = candidates.remove(amd_gpu::preferred(&vendors));
+            let display = Display {
+                device_id: String::new(),
+                display_name: String::new(),
+                friendly_name: String::new(),
+                width: 0,
+                height: 0,
+                x: 0,
+                y: 0,
+                primary: false,
+                adapter: description,
+                adapter_index: index,
+                output_index: 0,
+            };
+            Self::create(&adapter, None, display)
         }
     }
     fn create(
@@ -529,6 +562,7 @@ impl Device {
                 context,
                 output,
                 display: std::sync::Arc::new(display),
+                vendor: adapter.GetDesc1()?.VendorId,
                 color,
             })
         }

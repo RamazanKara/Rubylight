@@ -1178,7 +1178,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         if role != Role::InputOnly
             && h.codecs.load(std::sync::atomic::Ordering::Acquire) & 0x0783_0301 == 0
         {
-            return Err(LaunchFailure(503, "No video encoder is ready. Check the host console and graphics driver, then retry.").into());
+            return Err(LaunchFailure(503, butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH).into());
         }
         let mut launch =
             build_launch_session(&connection, &args, client, app_id, role, key, key_id);

@@ -881,15 +881,20 @@ fn start_test_host() -> TestHost {
                 let mut state = shared.lock().unwrap();
                 assert_eq!(tls.conn.peer_certificates().unwrap()[0].as_ref(), state.paired_certificate.as_ref().unwrap());
                 assert!(target.contains("type=text") && target.contains("uniqueid="));
+                // Read a POST body before answering, even when refusing it: closing a socket with unread
+                // data can reset the connection, and the client would see a network error, not the 404.
+                let posted = if headers.starts_with("POST ") {
+                    let length: usize = headers.lines().find_map(|line| line.strip_prefix("Content-Length: ")).unwrap().trim().parse().unwrap();
+                    assert!(headers.contains("Content-Type: text/plain; charset=utf-8\r\n"));
+                    let mut bytes = vec![0; length];
+                    tls.read_exact(&mut bytes).unwrap();
+                    Some(String::from_utf8(bytes).unwrap())
+                } else { None };
                 if state.reject_clipboard {
                     respond(&mut tls, "<root status_code=\"404\"/>");
                 } else {
-                    let body = if headers.starts_with("POST ") {
-                        let length: usize = headers.lines().find_map(|line| line.strip_prefix("Content-Length: ")).unwrap().trim().parse().unwrap();
-                        assert!(headers.contains("Content-Type: text/plain; charset=utf-8\r\n"));
-                        let mut bytes = vec![0; length];
-                        tls.read_exact(&mut bytes).unwrap();
-                        state.clipboard = String::from_utf8(bytes).unwrap();
+                    let body = if let Some(text) = posted {
+                        state.clipboard = text;
                         ""
                     } else { state.clipboard.as_str() };
                     write!(tls, "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
@@ -1054,7 +1059,8 @@ fn clipboard_uses_pinned_https_utf8_and_rejects_xml_errors() {
     assert!(matches!(client.send_clipboard(&"x".repeat(1024 * 1024 + 1)), Err(HttpError::InvalidArgument(_))));
     host.state.lock().unwrap().reject_clipboard = true;
     assert!(matches!(client.clipboard(), Err(HttpError::Malformed(_))));
-    assert!(matches!(client.send_clipboard("test"), Err(HttpError::Malformed(_))));
+    let refused = client.send_clipboard("test");
+    assert!(matches!(refused, Err(HttpError::Malformed(_))), "refused clipboard write: {refused:?}");
 }
 
 #[test]

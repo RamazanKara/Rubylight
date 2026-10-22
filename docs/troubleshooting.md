@@ -4,7 +4,7 @@
 
 Start with the current stream's settings, the console and the logs. Record the time of a failure before changing anything, and change one setting at a time. Capture and performance probes add work to the GPU; use an idle session for those comparisons.
 
-**Find a symptom:** [Setup says this PC cannot run Rubylight 3.0](#setup-or-the-host-says-this-pc-cannot-run-rubylight-30) · [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Black screen](#black-picture-no-display-or-wgc-fails) · [Audio](#audio-cuts-out-or-lags) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Display restoration](#monitors-stay-on-or-the-display-layout-does-not-return) · [Controllers](#a-controller-or-other-input-does-nothing) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) · [Updates](#an-update-stays-queued) · [Logs and support](#logs-and-a-useful-report)
+**Find a symptom:** [Setup says this PC cannot run Rubylight 3.0](#setup-or-the-host-says-this-pc-cannot-run-rubylight-30) · [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Black screen](#black-picture-no-display-or-wgc-fails) · [Audio](#audio-cuts-out-or-lags) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Display restoration](#monitors-stay-on-or-the-display-layout-does-not-return) · [Controllers](#a-controller-or-other-input-does-nothing) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) · [Nightjar and host control](#nightjar-cannot-close-a-game-or-change-radeon-settings) · [Updates](#an-update-stays-queued) · [Logs and support](#logs-and-a-useful-report)
 
 ## Setup or the host says this PC cannot run Rubylight 3.0
 
@@ -55,7 +55,7 @@ For an installed host, check **Rubylight** in Windows Services. Its internal ser
 
 ## Black picture, no display, or WGC fails
 
-1. On **Overview → Host readiness**, inspect **Screen capture**, **Video encoder** and **Virtual display**. A physical monitor must be active, or the configured virtual display must be available.
+1. On **Home → Host readiness**, inspect **Screen capture**, **Video encoder** and **Virtual display**. A physical monitor must be active, or the configured virtual display must be available.
 2. Check **Settings → Display → Display** and any app/device override. Confirm that the selected display is the one containing the desktop or game.
 3. For service-mode WGC, keep a Windows user signed in. Rubylight starts its WGC capture worker in that user's session. A locked or UAC desktop uses the Desktop Duplication recovery path; WGC is retried when the normal desktop returns. A stream started while Windows is locked sets up its display on the lock screen; if the virtual display cannot be set up there, the stream shows the physical display and the stream card says so. Start the stream again after signing in.
 4. Read the `capture backend opened` log entry for the backend that actually opened. `requested_capture=wgc` describes the request and can appear even when capture falls back.
@@ -65,7 +65,7 @@ For a controlled comparison, disconnect first, set **Settings → Video → Capt
 
 The installed service always runs the host in the session attached to the physical console. When Remote Desktop takes over a signed-in desktop, Windows gives the console a new session at the sign-in screen, and the host moves there. Closing the Remote Desktop window leaves that desktop disconnected. A Moonlight stream then shows the console's sign-in screen. Signing in there as the same user makes Windows reconnect the disconnected desktop to the console and end the sign-in session, which also ends that stream. Reconnect Moonlight once the desktop is back; the host restarts in that session within a few seconds. The host logs a warning naming the disconnected session when a stream starts in this state.
 
-For a host started inside the Remote Desktop session (not the installed service), open **Maintenance → Windows session → Return to console**. With the installed service the host runs on the console, so this action is unavailable and its status explains why. This explicit action returns only the Windows session running this host to the physical console. Its desktop becomes visible at the PC and an active RDP connection disconnects. Disconnect Moonlight streams first. The console must have no signed-in user, or contain a disconnected session whose Windows user SID matches the host session's user. Active sessions, different users and unverified identities remain protected. The host may restart while Windows switches sessions. Refresh the status once it returns, then reconnect Moonlight. If Windows cannot verify both users or refuses the operation, use the installed service or sign in at the PC; no Windows password is collected by this action.
+For a host started inside the Remote Desktop session (not the installed service), open **Help & diagnostics → Windows session → Return to console**. With the installed service the host runs on the console, so this action is unavailable and its status explains why. This explicit action returns only the Windows session running this host to the physical console. Its desktop becomes visible at the PC and an active RDP connection disconnects. Disconnect Moonlight streams first. The console must have no signed-in user, or contain a disconnected session whose Windows user SID matches the host session's user. Active sessions, different users and unverified identities remain protected. The host may restart while Windows switches sessions. Refresh the status once it returns, then reconnect Moonlight. If Windows cannot verify both users or refuses the operation, use the installed service or sign in at the PC; no Windows password is collected by this action.
 
 Launch requests check the host's own Windows session before and after preparation, and again before RTSP playback. A disconnect during display or app preparation therefore returns a retry error instead of accepting that pending stream. The log records the session ID, console ID, connection state, protocol and acceptance reason so a Windows classification problem can be distinguished from a transition during preparation; a refused check is logged as a warning. Physical console sign-in and lock-screen support remain unchanged. These checks cannot prevent Windows from switching sessions after playback has started.
 
@@ -74,7 +74,7 @@ Launch requests check the host's own Windows session before and after preparatio
 Separate the host's HDR source, the negotiated stream and the client's display output:
 
 - Check **Windows Settings → System → Display** for the **selected streamed display**. HDR on another monitor does not establish HDR on this one; wide-gamut SDR is also different from HDR.
-- Check the client's HDR option and the Overview stream card's **HDR** badge. In the host log, `hdr=true`, the codec and `source_pixel=RgbaF16` identify a negotiated HDR stream with floating-point capture. FP16 capture alone does not prove that the game is producing HDR highlights.
+- Check the client's HDR option and the Home stream card's **HDR** badge. In the host log, `hdr=true`, the codec and `source_pixel=RgbaF16` identify a negotiated HDR stream with floating-point capture. FP16 capture alone does not prove that the game is producing HDR highlights.
 - Start with **Settings → HDR → Display HDR: Match the stream** and **HDR request: Follow the device**. A display-only override does not change what the client negotiated. Check app/device overrides too.
 - Confirm the game's HDR setting and the receiving display's HDR mode. For a comparison between two clients, keep the codec, scene and host display the same; AV1 HDR on one device versus HEVC SDR on another is not an equivalent check.
 - Report whether black levels, mid-grey menus, bright highlights or colour saturation are wrong. Include the client app/version, device and display model, codec, stream resolution/rate and the host log time.
@@ -102,7 +102,7 @@ A very low bitrate can leave PyroWave with only coarse brightness and little col
 
 At 60 fps the floor/recommendation are **139/277 Mbps for 720p**, **187/399 Mbps for 1080p** and **747/1593 Mbps for 4K**, rounded up. These come from desktop and game test scenes on AMD, including SDR/HDR and 4:2:0/4:4:4; picture content still decides how clean any one stream looks. The one-pixel text at 720p needed more bits per pixel than the larger text at higher resolutions. [Criteria, rates and limits](configuration.md#capture-and-video) explain the two levels.
 
-Raise the bitrate in Moonlight on a fast wired network with headroom for packet overhead and recovery data. 4K60 at the recommended rate needs more than gigabit Ethernet. If the client or network cannot carry it, use HEVC or AV1. Compare the same scene after changing the rate; the warning does not diagnose packet loss or HDR rendering. For other GPUs, use [Vibepollo](https://github.com/Nonary/Vibepollo).
+Raise the bitrate in Moonlight on a fast wired network with headroom for packet overhead and recovery data. 4K60 at the recommended rate needs more than gigabit Ethernet. If the client or network cannot carry it, use HEVC or AV1. Compare the same scene after changing the rate; the warning does not diagnose packet loss or HDR rendering.
 
 ## Low latency is reported, but motion still stutters
 
@@ -110,9 +110,9 @@ Compare the same moving scene at the same resolution, frame rate, codec and bitr
 
 | Statistic | What it helps distinguish |
 | --- | --- |
-| **Overview → Frame rate** | Frames sent by the host. Repeated pictures can still count toward this rate. |
+| **Home → Frame rate** | Frames sent by the host. Repeated pictures can still count toward this rate. |
 | **Encode** (p95) | Slower conversion/encoding completions, including asynchronous encoder work. |
-| **Host processing** | Moonlight's reported interval. Since 2.4.8 it is the capture/encode output tick through entry into packetization, matching Punktfunk's software path. Prepared-packet queueing and pacing are separate; asynchronous encode time is available as **Encoder time**. |
+| **Host processing** | Moonlight's reported interval. Since 2.4.8 it is the capture/encode output tick through entry into packetization. Prepared-packet queueing and pacing are separate; asynchronous encode time is available as **Encoder time**. |
 | **Frame age** | Waiting from the capture/presentation timestamp until the host claims the frame. |
 | **Present to sent** | New pictures, from Windows' present to the last packet sent: capture, the wait for the claim, encoding and sending. Compare this, not Moonlight's host latency, with another host's present-to-sent figure. |
 | Moonlight's network and decoder statistics | Loss, jitter or client decoding delays after host processing. |
@@ -173,7 +173,7 @@ If it happens on your PC:
 
 Keep a Windows user signed in, enable Playnite in **Settings → Game library**, and check that the game starts in Playnite locally. If Rubylight cannot find a portable copy, leave Playnite open in that user's session when starting the stream.
 
-In **Library**, check Playnite's plugin status. Use **Install plugin** or **Update plugin** if offered, fully exit and reopen Playnite, then try **Sync now**. Use the connector bundled with Rubylight; newer Vibepollo connectors may require different host support. A `Playnite CLI fallback requested` warning means automatic game-exit tracking is unavailable; quit that stream manually.
+In **Games & apps**, check Playnite's plugin status. Use **Install plugin** or **Update plugin** if offered, fully exit and reopen Playnite, then try **Sync now**. Use the connector bundled with Rubylight; newer Vibepollo connectors may require different host support. A `Playnite CLI fallback requested` warning means automatic game-exit tracking is unavailable; quit that stream manually.
 
 **Long installation paths:** 2.2.18 can report Windows error 3 (path not found) even when the plugin folder exists, because its temporary filename exceeds the legacy Windows path limit. [2.2.19](../rust/RELEASE_NOTES.md#new-in-2219) supports these paths, including Unicode names, while preserving atomic replacement and partial-install detection.
 
@@ -181,7 +181,7 @@ Set **Log level** to **Debug** before reproducing so the log includes `Playnite 
 
 ## RTSS does not start, or the game ignores the cap
 
-Open **Maintenance → Frame limiter** during the affected stream. Record **Configured**, **Active now**, RTSS detection/running state and **RTSS folder**. A missing tray icon alone does not establish whether the limiter is active.
+Open **Help & diagnostics → Frame limiter** during the affected stream. Record **Configured**, **Active now**, RTSS detection/running state and **RTSS folder**. A missing tray icon alone does not establish whether the limiter is active.
 
 In **Settings → Frame limiting**, check **Limiter**, **Frame limit**, **Virtual display refresh** and **RTSS folder**. **None** disables limiting. Physical-monitor streams need **Limit every stream** if you want a cap on every stream; virtual-display policy can apply its own cap. A frame limit of `0` follows the stream rate, including fractional values such as 59.94.
 
@@ -199,7 +199,7 @@ Check **Restore displays on disconnect**, **Restore delay** and **Keep a disconn
 
 After sleep, the virtual-display driver keeps its adapter and monitor identities and recreates capture resources. If Windows marks the Rubylight driver as failed, a new stream or an active display's recovery can request a device restart. Recovery is restricted to this driver, uses bounded connection retries, and allows three restarts with a one-minute cooldown. It does not enable a manually disabled device or reboot Windows. These changes require a package containing the updated driver; actual sleep/wake behavior and long-session AMD stability still need hardware validation.
 
-When all streams have ended, use **Maintenance → Displays** to inspect whether the current layout matches the saved one. **Restore saved layout** applies that saved layout; **Save current layout** replaces it with the arrangement you currently want. Saving, restoring and resetting are unavailable during streaming.
+When all streams have ended, use **Help & diagnostics → Displays** to inspect whether the current layout matches the saved one. **Restore saved layout** applies that saved layout; **Save current layout** replaces it with the arrangement you currently want. Saving, restoring and resetting are unavailable during streaming.
 
 **Disconnect virtual displays** stops every stream and removes Rubylight-created virtual displays. **Reset display settings memory** forgets pending display changes that Rubylight would otherwise undo. Use those recovery actions deliberately after recording the problem; resetting memory is not the same as restoring a layout.
 
@@ -259,13 +259,19 @@ Setup still rejects reparse points (including links and junctions) and untrusted
 The Rubylight service runs as SYSTEM from the install folder, so setup only updates a folder that no one but Administrators, SYSTEM or TrustedInstaller owns. Installers up to 2.2.1 locked a folder outside Program Files down without taking it from the user who created it, and setup since 2.2.2 then refused every update there.
 
 - **The install folder itself belongs to a user** (for example `D:\Rubylight`, created in Explorer): an update now gives it to Administrators and locks it down again, as it does for the profile folder, and carries on.
-- **A folder above it belongs to a user** (for example `D:\Games` for `D:\Games\Rubylight`): that user could put another folder in its place, so Rubylight cannot stay there. **Maintenance → Updates** says so. Run the installer from the release page: it offers `C:\Program Files\Rubylight` (or another folder through **Change folder…**) and moves Rubylight there, keeping the service, settings, paired devices and drivers. If Rubylight does not start from the new folder, setup returns the service to the old one. Afterwards nothing uses the old folder; delete it yourself. A quiet setup without `--install-dir` moves to `C:\Program Files\Rubylight` as well.
+- **A folder above it belongs to a user** (for example `D:\Games` for `D:\Games\Rubylight`): that user could put another folder in its place, so Rubylight cannot stay there. **Help & diagnostics → Updates** says so. Run the installer from the release page: it offers `C:\Program Files\Rubylight` (or another folder through **Change folder…**) and moves Rubylight there, keeping the service, settings, paired devices and drivers. If Rubylight does not start from the new folder, setup returns the service to the old one. Afterwards nothing uses the old folder; delete it yourself. A quiet setup without `--install-dir` moves to `C:\Program Files\Rubylight` as well.
 
 ## An update stays queued
 
-In **Maintenance → Updates**, read the current phase and any error. Installation needs the installed Windows service and one minute without streams, pending connections, remote monitors or host apps. Quit a retained Desktop/game session as well as disconnecting its video. A new connection defers the update.
+In **Help & diagnostics → Updates**, read the current phase and any error. Installation needs the installed Windows service and one minute without streams, pending connections, remote monitors or host apps. Quit a retained Desktop/game session as well as disconnecting its video. A new connection defers the update.
 
 **Install updates automatically** is opt-in. **Include pre-releases** controls whether candidates appear, and an update-check interval of `0` disables automatic checks and installation. Manual checks remain available. Portable builds use the release-page download.
+
+## Nightjar cannot close a game or change Radeon settings
+
+These need the **Host control** permission for that device, which is off until you turn it on. Open **Devices**, open the device, expand **Custom permissions**, and tick **Host control** under **Other**. Close game also needs the **Launch apps** permission ([host control](configuration.md#host-control-for-a-device)). Radeon changes also need the device to own a running or suspended session. A second device sees the session but cannot act on it.
+
+If a Radeon setting is greyed out, its state says why: some need a one-time setup in AMD Software, some the GPU or driver does not offer. If it says the driver is busy or ADLX did not load, try again later or update the Radeon driver. A change from the client that was not put back after the session ended is logged in `butterpollo.log` with the setting's id and retried at the next host start. A setting you changed on the PC in the meantime is left as you set it ([how restore works](configuration.md#radeon-settings-with-restore)).
 
 ## Logs and a useful report
 

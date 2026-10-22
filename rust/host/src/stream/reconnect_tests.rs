@@ -1561,3 +1561,52 @@ async fn a_paired_client_runs_the_pyrowave_udp_probe_with_a_handshake() -> Resul
     assert_eq!(bad.status(), reqwest::StatusCode::BAD_REQUEST);
     h.finish().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_session_state_follows_a_launch_a_resume_and_the_end_of_a_stream() -> Result<()> {
+    use butterpollo_core::native_api::session::State;
+    let h = Harness::new(10_000, 1).await?;
+    let journal = h.directory.join(crate::session_control::JOURNAL);
+    // A game runs from before and nobody streams.
+    let snapshot = h.h.session_snapshot();
+    assert_eq!(snapshot.state, State::Idle);
+    assert!(snapshot.game_running);
+    assert!(!journal.exists());
+
+    // /launch replies and waits for the client.
+    let launch = h.launch(0, false).await?;
+    let snapshot = h.h.session_snapshot();
+    assert_eq!(snapshot.state, State::Launching);
+    assert_eq!(snapshot.owner.as_deref(), Some("0"));
+    assert!(journal.exists());
+    let (first, first_client) = h.play(&launch).await?;
+    assert_eq!(h.h.session_snapshot().state, State::Streaming);
+
+    // The same device's /resume supersedes its running stream.
+    let resume = h.launch(0, true).await?;
+    assert!(first.stopping());
+    assert_eq!(h.h.session_snapshot().state, State::Launching);
+    drop(first_client);
+    until("the superseded stream ended", WAIT, || {
+        !h.h.sessions
+            .lock()
+            .unwrap()
+            .active
+            .contains_key(&first.launch.id)
+    })
+    .await;
+    let (second, client) = h.play(&resume).await?;
+    let snapshot = h.h.session_snapshot();
+    assert_eq!(snapshot.state, State::Streaming);
+    assert_eq!(snapshot.owner.as_deref(), Some("0"));
+
+    // The client ends the stream: no display is kept, so the session is
+    // idle and the game keeps running.
+    h.end(&second, client).await?;
+    let snapshot = h.h.session_snapshot();
+    assert_eq!(snapshot.state, State::Idle);
+    assert!(snapshot.game_running);
+    assert_eq!(snapshot.owner, None);
+    assert!(!journal.exists());
+    h.finish().await
+}

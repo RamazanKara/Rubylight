@@ -449,7 +449,12 @@ mod tests {
             (extra.presented_at_us, extra.capture_us, extra.convert_us),
             (494_000, 1_000, 1_000)
         );
-        assert!(record.host_us >= 6_000 + record.encode_us);
+        // Wall-clock stages (encode, send) vary; the named stages never exceed the total.
+        assert!(record.queue_us + record.encode_us + record.send_us <= record.host_us);
+        assert!(
+            record.host_us >= 4_000,
+            "present to submitted alone is 4 ms"
+        );
         // The stage samples exist too, and the record has its row.
         let performance = &session.info()["performance"];
         assert_eq!(performance["stages"]["frames"], 1);

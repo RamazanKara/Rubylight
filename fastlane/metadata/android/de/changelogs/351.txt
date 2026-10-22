@@ -1,0 +1,1 @@
+Neue Startseite mit Weiterspielen und deiner Bibliothek über Rubylight-3.0-PCs, ein Spieldetail und im Stream-Menü die Seite Sitzung und Grafik mit Sitzungsaktionen und Radeon-Bereich. Benötigt einen Rubylight-3.0-Host, der Radeon-Bereich dessen nächste Alpha. Andere Hosts behalten das klassische Raster.

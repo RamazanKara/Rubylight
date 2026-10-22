@@ -243,8 +243,8 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "butterpollo-core"
-version = "2.5.11"
-source = "git+https://github.com/RamazanKara/Rubylight?rev=a6775a0b3f8036b3cbece4eadbba619799933dec#a6775a0b3f8036b3cbece4eadbba619799933dec"
+version = "2.6.0"
+source = "git+https://github.com/RamazanKara/Rubylight?rev=224128a58#224128a580781b875026ef13dc780b144b66e254"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -254,12 +254,15 @@ dependencies = [
  "embed-resource",
  "hex",
  "pem 3.0.6",
+ "prost",
+ "quick-xml",
  "rand",
  "rcgen",
  "regex",
  "ring",
  "rsa",
- "rubylight-protocol 0.1.0 (git+https://github.com/RamazanKara/rubylight-android?rev=d25c4d4d028f4b52fcc2d11693c0e3e1781502b6)",
+ "rubylight-native-api",
+ "rubylight-protocol 0.1.0 (git+https://github.com/RamazanKara/rubylight-android?rev=9bd9b9bd8a2336f26725b7a4fea2227a264f0b71)",
  "serde",
  "serde_json",
  "sha2",
@@ -1187,9 +1190,12 @@ dependencies = [
  "rand_core",
  "ring",
  "rsa",
+ "rubylight-native-api",
  "rubylight-protocol 0.1.0",
  "rustls",
  "rusty_enet",
+ "serde",
+ "serde_json",
  "socket2 0.5.10",
 ]
 
@@ -1526,10 +1532,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
+name = "prost"
+version = "0.14.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
+dependencies = [
+ "bytes",
+ "prost-derive",
+]
+
+[[package]]
+name = "prost-derive"
+version = "0.14.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
+dependencies = [
+ "anyhow",
+ "itertools 0.13.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+ "serde",
+]
 
 [[package]]
 name = "quote"
@@ -1691,13 +1730,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rubylight-native-api"
+version = "1.0.0"
+source = "git+https://github.com/RamazanKara/Rubylight?rev=224128a58#224128a580781b875026ef13dc780b144b66e254"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "rubylight-protocol"
 version = "0.1.0"
 
 [[package]]
 name = "rubylight-protocol"
 version = "0.1.0"
-source = "git+https://github.com/RamazanKara/rubylight-android?rev=d25c4d4d028f4b52fcc2d11693c0e3e1781502b6#d25c4d4d028f4b52fcc2d11693c0e3e1781502b6"
+source = "git+https://github.com/RamazanKara/rubylight-android?rev=9bd9b9bd8a2336f26725b7a4fea2227a264f0b71#9bd9b9bd8a2336f26725b7a4fea2227a264f0b71"
 
 [[package]]
 name = "rubylight-protocol-ffi"

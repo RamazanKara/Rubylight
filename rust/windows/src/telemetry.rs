@@ -12,7 +12,7 @@ pub use butterpollo_core::config::HARDWARE_METRICS as METRICS;
 
 /// A driver DLL from System32 only, so no DLL earlier in the search order
 /// stands in for it.
-fn system_library(name: &str) -> Result<libloading::Library> {
+pub(crate) fn system_library(name: &str) -> Result<libloading::Library> {
     use windows::Win32::System::{
         LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32, SystemInformation::GetSystemDirectoryW,
     };
@@ -117,18 +117,18 @@ fn cpu_usage(old: [u64; 3], new: [u64; 3]) -> Option<f64> {
 // Negotiate SDK v1.0 (1.0.5.30); base bindings use its common prefix, and later
 // methods are accessed only after QueryInterface accepts the versioned interface.
 // https://github.com/GPUOpen-LibrariesAndSDKs/ADLX/blob/b98ec6c3a1ba2ea31ff392f54c684788e7834ce8/SDK/Include/ADLXVersion.h
-const ADLX_VERSION: u64 = (1 << 48) | (5 << 16) | 30;
-type Handle = *mut c_void;
-type GetInterface = unsafe extern "system" fn(Handle, *mut Handle) -> i32;
-type GetGpuInterface = unsafe extern "system" fn(Handle, Handle, *mut Handle) -> i32;
-type GetInt = unsafe extern "system" fn(Handle, *mut i32) -> i32;
+pub(crate) const ADLX_VERSION: u64 = (1 << 48) | (5 << 16) | 30;
+pub(crate) type Handle = *mut c_void;
+pub(crate) type GetInterface = unsafe extern "system" fn(Handle, *mut Handle) -> i32;
+pub(crate) type GetGpuInterface = unsafe extern "system" fn(Handle, Handle, *mut Handle) -> i32;
+pub(crate) type GetInt = unsafe extern "system" fn(Handle, *mut i32) -> i32;
 type GetDouble = unsafe extern "system" fn(Handle, *mut f64) -> i32;
-type GetBool = unsafe extern "system" fn(Handle, *mut u8) -> i32;
+pub(crate) type GetBool = unsafe extern "system" fn(Handle, *mut u8) -> i32;
 #[repr(C)]
-struct BaseVtable {
-    acquire: usize,
-    release: unsafe extern "system" fn(Handle) -> i32,
-    query: unsafe extern "system" fn(Handle, *const u16, *mut Handle) -> i32,
+pub(crate) struct BaseVtable {
+    pub(crate) acquire: usize,
+    pub(crate) release: unsafe extern "system" fn(Handle) -> i32,
+    pub(crate) query: unsafe extern "system" fn(Handle, *const u16, *mut Handle) -> i32,
 }
 #[repr(C)]
 struct SystemVtable {
@@ -138,11 +138,11 @@ struct SystemVtable {
     performance: GetInterface,
 }
 #[repr(C)]
-struct ListVtable {
-    base: BaseVtable,
-    size: unsafe extern "system" fn(Handle) -> u32,
-    unused: [usize; 7],
-    at: unsafe extern "system" fn(Handle, u32, *mut Handle) -> i32,
+pub(crate) struct ListVtable {
+    pub(crate) base: BaseVtable,
+    pub(crate) size: unsafe extern "system" fn(Handle) -> u32,
+    pub(crate) unused: [usize; 7],
+    pub(crate) at: unsafe extern "system" fn(Handle, u32, *mut Handle) -> i32,
 }
 #[repr(C)]
 struct GpuVtable {
@@ -207,12 +207,12 @@ struct Metrics3Vtable {
     fan_percent: GetInt,
 }
 
-struct Interface(Handle);
+pub(crate) struct Interface(pub(crate) Handle);
 impl Interface {
-    fn returned(result: i32, handle: Handle) -> Option<Self> {
+    pub(crate) fn returned(result: i32, handle: Handle) -> Option<Self> {
         (result == 0 && !handle.is_null()).then(|| Self(handle))
     }
-    unsafe fn vtable<T>(&self) -> &T {
+    pub(crate) unsafe fn vtable<T>(&self) -> &T {
         // SAFETY: The caller selects the exact public ADLX vtable for this live interface.
         unsafe { &**self.0.cast::<*const T>() }
     }

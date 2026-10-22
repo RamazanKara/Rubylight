@@ -50,6 +50,7 @@ pub mod playnite;
 pub mod present_timing;
 pub mod process;
 pub mod pyrowave;
+pub mod radeon;
 pub mod rtss;
 pub mod service;
 pub mod steam;

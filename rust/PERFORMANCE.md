@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| 3.0 alpha.2 gate: couch loop, crash restore, cross-versions, soak | [October 22, alpha.2 gate](#october-22-30-alpha2-gate) |
 | Fence ring against keyed-mutex ring under GPU load | [October 22, fence ring under load](#october-22-fence-ring-under-gpu-load) |
 | 3.0 alpha.1 hardware gate against 2.6.0 | [October 22, alpha.1 gate](#october-22-30-alpha1-hardware-gate) |
 | Timer CPU cost and idle capture waits | [October 18, timer waits and idle capture](#october-18-timer-waits-and-idle-capture) |
@@ -31,6 +32,44 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 22: 3.0 alpha.2 gate
+
+All runs were on the RX 7900 XT (AMD Software 26.9.2, Windows 26200) with isolated test hosts on their own profiles and harness ports. The installed service was idle throughout and never touched. Host builds: the Radeon endpoint build (`nj-e2e-host`, main after alpha.1) for the client runs, and the 3.0.0-alpha.2 package (main at `b758a8044` plus the version bump, after the full `build.ps1` gate) for the virtual-display crash case and the soak. Nightjar runs used builds of the 0.8.0 source.
+
+**Couch loop.** Nightjar on a Retroid Pocket 6 over Wi-Fi, and on the Android emulator, did the following against a host on the LAN address:
+- paired with the PIN, received Host control from the console API, and opened Home;
+- played Desktop and opened Session and graphics;
+- switched Anti-Lag on from the Radeon panel. A second paired client read it back as on, with the restore entry (original off, written on);
+- chose End session. Anti-Lag was back to Off, with no restore pending, within 2 s.
+
+A paired probe certificate got valid JSON from every GET endpoint (`/capabilities`, `/library`, `/session`, `/radeon`). `NativeApiVersion` was 1 over paired HTTPS and 0 over plain HTTP or unpaired.
+
+**Crash restore.** The host was killed with `taskkill /F` mid-session, right after the Anti-Lag write. `radeon-journal.json` was on disk and named the setting. The next start logged `session_interrupted`, restored Anti-Lag to Off within 1 s of starting, and cleared the journal. The physical display's mode and position were unchanged.
+
+On a virtual display (HEVC 2560×1440 at 120 fps, layout `extended`, as SYSTEM), the virtual monitor was gone 0.2 s after the kill. The primary 5120×1440 at 240 Hz display was identical before the stream, after the kill, after the restart and after the stop. This held both with the recovery helper killed alongside the host (`/T`) and with it surviving.
+
+**Version cross-checks** (emulator):
+- Nightjar 0.7.18 against the new host showed the classic grid, streamed Desktop at 60 fps and quit through Quit game. Nothing native-API related appeared in the log.
+- Nightjar 0.8.0 against Rubylight 2.6.0 showed no Home screen, the classic grid and the classic stream menu with no Session and graphics page. It streamed and quit the same way.
+
+**30-minute soak.** `e2e.py` streamed HEVC 1080p60 at 20 Mbps for 1,800 s from an isolated host on 127.0.0.1 to the independent receiver on the same PC, from the 5120×1440, 240 Hz primary monitor through WGC. No build ran during the soak. The desktop session, a browser and Defender were active.
+
+| Measure | Result |
+| --- | --- |
+| Frames sent / decoded | 108,360 / 108,360, no decode failures |
+| Steady fps (over 1,797 s) | 60.2 |
+| Unique pictures/s | 60.2 |
+| Arrival interval p99 / max | 21.3 / 32.4 ms, 1 long interval (alpha.1: 25.1 / 136.0 ms, 1,118) |
+| Host mean (5 s windows, start / middle / end) | 0.62 / 0.51 / 0.47 ms |
+| Encode mean, start / middle / end | 2.98 / 3.01 / 2.96 ms |
+| Send interval max (worst 5 s window) | 23.0 ms |
+| Picture age mean / p99 | 16.9 / 26.8 ms |
+| Encoder hang | none |
+
+The alpha.1 soak failed the receiver's gap check narrowly while the PC was loaded. This one passed every check.
+
+Not covered: stock Moonlight on a phone.
 
 ## October 22: fence ring under GPU load
 

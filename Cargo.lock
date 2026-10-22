@@ -308,7 +308,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "butterpollo"
-version = "3.0.0-alpha.1"
+version = "3.0.0-alpha.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-core"
-version = "3.0.0-alpha.1"
+version = "3.0.0-alpha.2"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-setup"
-version = "3.0.0-alpha.1"
+version = "3.0.0-alpha.2"
 dependencies = [
  "anyhow",
  "butterpollo-core",
@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-vulkan-layer"
-version = "3.0.0-alpha.1"
+version = "3.0.0-alpha.2"
 dependencies = [
  "embed-resource",
  "windows",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-windows"
-version = "3.0.0-alpha.1"
+version = "3.0.0-alpha.2"
 dependencies = [
  "anyhow",
  "bindgen",

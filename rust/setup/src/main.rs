@@ -10,7 +10,11 @@
 //! rubylight-setup.exe --repair-drivers (the service runs this one)
 #![warn(clippy::undocumented_unsafe_blocks)]
 
+#[allow(dead_code)]
+#[path = "../../core/src/amd_gpu.rs"]
+mod amd_gpu;
 mod detect;
+mod gpu;
 mod install;
 mod log;
 mod payload;
@@ -97,6 +101,7 @@ const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--n
 rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\n\
 A quiet setup refuses to install while Rubylight is streaming; --end-streams ends the stream instead, and the client can reconnect once setup has finished.\n\n\
 --usbip-driver installs the bundled Steam Deck and DualSense USB audio and haptics driver. It is optional, off by default, and its choice is kept for updates. --no-usbip-driver skips it without removing a shared driver.\n\n\
+Rubylight 3.0 needs an AMD Radeon GPU with its AMF video encoder; setup explains and stops on any other PC. NVIDIA and Intel graphics stay on Rubylight 2.6.x.\n\n\
 Exit codes: 0 done, 3010 done but Windows must restart, 1223 cancelled, 1 failed.";
 
 fn main() {
@@ -149,7 +154,18 @@ fn main() {
     } else {
         log::open();
     }
-    let code = if args.repair_drivers {
+    // Rubylight 3.0 streams only with an AMD GPU and its AMF encoder: refuse
+    // before anything changes, in every mode that installs or updates it.
+    let refusal = (!args.uninstall && !args.repair_drivers)
+        .then(gpu::refusal)
+        .flatten();
+    let code = if let Some(refusal) = refusal {
+        failed(
+            args.quiet,
+            "This PC cannot run Rubylight 3.0",
+            &anyhow::Error::new(refusal),
+        )
+    } else if args.repair_drivers {
         match ui::progress(TITLE, "Repairing the drivers", true, |progress| {
             install::repair_drivers(&progress)
         }) {

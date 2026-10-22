@@ -752,7 +752,9 @@ public class FrameLatencyStatsTest {
                 "decode_to_release_ms,decode_interval_ms,release_interval_ms," +
                 "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms," +
                 "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms," +
-                "callback_received_ns,callback_delay_ms\n",
+                "callback_received_ns,callback_delay_ms," +
+                "rtp_host_us,host_present_us,host_acquired_us,host_submitted_us,host_encoded_us," +
+                "host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us\n",
                 FrameLatencyStats.CSV_HEADER);
         FrameLatencyStats stats = new FrameLatencyStats();
         stats.onDecoderInput(42, 123, 1000000, 1000000, 2000000, (char) 123);
@@ -764,7 +766,7 @@ public class FrameLatencyStatsTest {
         stats.writeCsv(csv);
         assertTrue(csv.toString().startsWith("42,123,1000000,2000000,5000000,9000000,6000000,rendered," +
                 "1.000000,3.000000,4.000000,8.000000,0,12.300000,4.000000,8.000000,,,,"));
-        assertEquals(32, csv.toString().trim().split(",", -1).length);
+        assertEquals(41, csv.toString().trim().split(",", -1).length);
     }
 
     @Test
@@ -832,7 +834,7 @@ public class FrameLatencyStatsTest {
         assertEquals(3, rows.length);
         for (String row : rows) {
             String[] fields = row.split(",", -1);
-            assertEquals(32, fields.length);
+            assertEquals(41, fields.length);
             for (int column : new int[] {5, 10, 11, 14, 15}) assertEquals("", fields[column]);
         }
         assertEquals(0, stats.summarize()[2][0], 0);
@@ -979,7 +981,7 @@ public class FrameLatencyStatsTest {
         int unobserved = 0;
         for (String row : csv.toString().split("\n")) {
             String[] fields = row.split(",", -1);
-            assertEquals(32, fields.length);
+            assertEquals(41, fields.length);
             assertTrue(Long.parseLong(fields[19]) > 0);
             assertEquals("120", fields[23]);
             if (fields[7].equals("render_unobserved")) unobserved++;
@@ -1020,5 +1022,128 @@ public class FrameLatencyStatsTest {
         StringWriter csv = new StringWriter();
         stats.writeCsv(csv);
         assertEquals("", csv.toString().trim().split(",", -1)[22]);
+    }
+
+    // The receiver's columns before the host timing record's nine were appended.
+    private static final String HEADER_BEFORE_THE_HOST_RECORD =
+            "frame_number,pts_us,receive_ns,decoder_input_ns,decoder_output_ns," +
+            "render_ns,release_ns,status,receive_to_input_ms,input_to_output_ms,output_to_render_ms," +
+            "receive_to_render_ms,csv_rows_lost,host_processing_ms," +
+            "decode_to_present_ms,receive_to_present_ms," +
+            "decode_to_release_ms,decode_interval_ms,release_interval_ms," +
+            "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms," +
+            "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms," +
+            "callback_received_ns,callback_delay_ms";
+    private static final int HOST_RECORD_FIRST_COLUMN = 32;
+
+    // An extended report: {frame, host, queue, encode, send, presentedAt, capture, convert}.
+    private static HostTimingReport extendedReport(long[] r) {
+        byte[] data = new byte[4 + 20 + 16];
+        data[0] = 1;
+        data[1] = 1;
+        data[2] = 16;
+        for (int field = 0; field < 5; field++) {
+            for (int b = 0; b < 4; b++) data[4 + 4 * field + b] = (byte) (r[field] >> (8 * b));
+        }
+        for (int b = 0; b < 8; b++) data[24 + b] = (byte) (r[5] >> (8 * b));
+        for (int b = 0; b < 4; b++) data[32 + b] = (byte) (r[6] >> (8 * b));
+        for (int b = 0; b < 4; b++) data[36 + b] = (byte) (r[7] >> (8 * b));
+        return HostTimingReport.parse(data);
+    }
+
+    @Test
+    public void theHostRecordColumnsFollowTheReceiversColumnsUnchanged() {
+        String header = FrameLatencyStats.CSV_HEADER;
+        assertTrue(header.startsWith(HEADER_BEFORE_THE_HOST_RECORD + ","));
+        assertEquals(HEADER_BEFORE_THE_HOST_RECORD.split(",").length, HOST_RECORD_FIRST_COLUMN);
+        assertTrue(header.endsWith(",rtp_host_us,host_present_us,host_acquired_us,host_submitted_us," +
+                "host_encoded_us,host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us\n"));
+        assertEquals(HOST_RECORD_FIRST_COLUMN + 9, header.trim().split(",").length);
+    }
+
+    @Test
+    public void hostRecordColumnsComeFromTheExtendedReportAndTheClockOffset() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        // rtp 9000 ticks = 100000 us. Present 1000000; queue 300 with capture 100 and convert 150;
+        // total 900 with encode 200 and send 100.
+        stats.onHostTiming(extendedReport(new long[] {42, 900, 300, 200, 100, 1000000, 100, 150}), 1000000000L);
+        stats.onDecoderInput(42, 123, 1000000, 1000000, 2000000, (char) 0, 100000);
+        stats.onDecoderQueued(123, 2000000);
+        stats.onDecoderOutput(0, 123, 5000000);
+        stats.onOutputReleased(0, 6000000, true, true);
+        stats.onFrameRendered(123, 7000000);
+
+        StringWriter csv = new StringWriter();
+        long[] offsetCalls = new long[1];
+        stats.writeCsv(csv, out -> {
+            offsetCalls[0]++;
+            out[0] = -3955;
+            out[1] = 90;
+            return true;
+        });
+        String[] fields = csv.toString().trim().split(",", -1);
+        assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
+        // The receiver's own host timing columns are unchanged by the extension.
+        assertEquals("0.900000", fields[26]);
+        assertEquals("0.300000", fields[27]);
+        String[] host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, fields.length);
+        assertArrayEquals(new String[] {"100000", "1000000", "1000100", "1000300", "1000500", "1000800",
+                "1000900", "-3955", "90"}, host);
+        assertEquals(1, offsetCalls[0]);
+    }
+
+    @Test
+    public void hostRecordColumnsStayEmptyForAnOldReportAndWithoutAClockExchange() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onHostTiming(report(new long[] {42, 900, 300, 200, 100}), 1000000000L);
+        stats.onDecoderInput(42, 123, 1000000, 1000000, 2000000, (char) 0, 100000);
+        stats.onDecoderQueued(123, 2000000);
+        stats.onDecoderOutput(0, 123, 5000000);
+        stats.onOutputReleased(0, 6000000, true, true);
+        stats.onFrameRendered(123, 7000000);
+
+        // An old (v1) report fills the old columns only; a host without clock sync gives no offset.
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv, out -> false);
+        String[] fields = csv.toString().trim().split(",", -1);
+        assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
+        assertEquals("0.900000", fields[26]);
+        String[] host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, fields.length);
+        assertArrayEquals(new String[] {"100000", "", "", "", "", "", "", "", ""}, host);
+
+        // A frame without an RTP time (the six-argument call) leaves that column empty too, and
+        // writeCsv(Writer) without a source behaves as no clock sync.
+        stats.onDecoderInput(43, 124, 1000000, 1000000, 2000000, (char) 0);
+        stats.onDecoderQueued(124, 2000000);
+        stats.onDecoderOutput(1, 124, 5000000);
+        stats.onOutputReleased(1, 6000000, true, true);
+        stats.onFrameRendered(124, 7000000);
+        csv = new StringWriter();
+        stats.writeCsv(csv);
+        fields = csv.toString().trim().split(",", -1);
+        assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
+        host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, fields.length);
+        assertArrayEquals(new String[] {"", "", "", "", "", "", "", "", ""}, host);
+    }
+
+    @Test
+    public void theClockOffsetIsReadOnceAFlushAndNotUnderTheStatsLock() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        for (int i = 1; i <= 3; i++) {
+            stats.onDecoderInput(i, i, 1000000, 1000000, 2000000, (char) 0, i);
+            stats.onDecoderQueued(i, 2000000);
+            stats.onDecoderOutput(0, i, 5000000);
+            stats.onOutputReleased(0, 6000000, true, true);
+            stats.onFrameRendered(i, 7000000);
+        }
+        int[] reads = new int[1];
+        boolean[] heldTheLock = new boolean[1];
+        stats.writeCsv(new StringWriter(), out -> {
+            reads[0]++;
+            heldTheLock[0] = Thread.holdsLock(stats);
+            return false;
+        });
+        assertEquals(1, reads[0]);
+        assertFalse(heldTheLock[0]);
     }
 }

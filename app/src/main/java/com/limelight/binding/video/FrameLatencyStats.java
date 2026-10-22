@@ -44,7 +44,16 @@ class FrameLatencyStats {
             "decode_to_release_ms,decode_interval_ms,release_interval_ms," +
             "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms," +
             "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms," +
-            "callback_received_ns,callback_delay_ms\n";
+            "callback_received_ns,callback_delay_ms," +
+            // Nine columns for joining the row with the host's record (Rubylight's
+            // docs/timing-record.md): host microseconds, empty where unknown.
+            "rtp_host_us,host_present_us,host_acquired_us,host_submitted_us,host_encoded_us," +
+            "host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us\n";
+
+    /** Reads the host-to-client clock offset and round trip (microseconds) into out[0..1]; false before an exchange. */
+    interface ClockOffsetSource {
+        boolean read(long[] out);
+    }
 
     private final LinkedHashMap<Long, Frame> pending = new LinkedHashMap<>();
     private final HashMap<Integer, Frame> outputs = new HashMap<>();
@@ -105,6 +114,8 @@ class FrameLatencyStats {
         long callbackReceivedNs;
         long releaseNs;
         long hostProcessingNs;
+        // The frame's presentationTimeUs, the host's RTP timestamp in microseconds; -1 when unknown.
+        long hostRtpUs = -1;
         HostTimingReport.Record hostTiming;
         long previousOutputNs;
         long previousReleaseNs;
@@ -122,12 +133,19 @@ class FrameLatencyStats {
 
     synchronized void onDecoderInput(int frameNumber, long ptsUs, long receiveNs, long enqueueNs,
                                      long inputNs, char hostProcessingLatency) {
+        onDecoderInput(frameNumber, ptsUs, receiveNs, enqueueNs, inputNs, hostProcessingLatency, -1);
+    }
+
+    // hostRtpUs is the frame's RTP timestamp in host microseconds (moonlight's presentationTimeUs).
+    synchronized void onDecoderInput(int frameNumber, long ptsUs, long receiveNs, long enqueueNs,
+                                     long inputNs, char hostProcessingLatency, long hostRtpUs) {
         if (pending.size() == MAX_PENDING) {
             finish(pending.values().iterator().next(), "tracking_overflow");
         }
         Frame frame = new Frame();
         frame.number = frameNumber;
         frame.ptsUs = ptsUs;
+        frame.hostRtpUs = hostRtpUs;
         frame.receiveNs = receiveNs;
         frame.enqueueNs = enqueueNs;
         frame.inputNs = inputNs;
@@ -506,6 +524,15 @@ class FrameLatencyStats {
     }
 
     void writeCsv(Writer writer) throws IOException {
+        writeCsv(writer, null);
+    }
+
+    // The clock offset is read once per flush, before the lock: it calls into native code that
+    // takes its own lock, and one value is plenty for the few hundred ms a flush covers.
+    void writeCsv(Writer writer, ClockOffsetSource clockOffset) throws IOException {
+        long[] clock = new long[2];
+        String clockColumns = clockOffset != null && clockOffset.read(clock) ?
+                clock[0] + "," + clock[1] : ",";
         List<Frame> frames;
         long lost;
         long dropped;
@@ -537,7 +564,9 @@ class FrameLatencyStats {
                     frameRates + "," + dropped + "," +
                     timestamp(frame.enqueueNs) + "," + duration(frame.enqueueNs, frame.inputNs) +
                     hostTimingColumns(frame.hostTiming) + "," + timestamp(frame.callbackReceivedNs) + "," +
-                    duration(frame.renderNs, frame.callbackReceivedNs) + "\n");
+                    duration(frame.renderNs, frame.callbackReceivedNs) +
+                    "," + (frame.hostRtpUs < 0 ? "" : Long.toString(frame.hostRtpUs)) +
+                    hostStampColumns(frame.hostTiming) + "," + clockColumns + "\n");
         }
     }
 
@@ -545,6 +574,21 @@ class FrameLatencyStats {
         return record == null ? ",,,," : "," + milliseconds(record.hostUs * 1000L) +
                 "," + milliseconds(record.queueUs * 1000L) + "," + milliseconds(record.encodeUs * 1000L) +
                 "," + milliseconds(record.sendUs * 1000L);
+    }
+
+    // Host present, acquired, submitted, encoded, first and last packet sent, on the host's video
+    // clock (microseconds), each with its leading comma; empty without an extended report.
+    private static String hostStampColumns(HostTimingReport.Record record) {
+        if (record == null || !record.hasExtra) return ",,,,,,";
+        long present = record.presentedAtUs;
+        long submitted = present + record.queueUs;
+        long lastSent = present + record.hostUs;
+        return "," + Long.toUnsignedString(present) +
+                "," + Long.toUnsignedString(present + record.captureUs) +
+                "," + Long.toUnsignedString(submitted) +
+                "," + Long.toUnsignedString(submitted + record.encodeUs) +
+                "," + Long.toUnsignedString(lastSent - record.sendUs) +
+                "," + Long.toUnsignedString(lastSent);
     }
 
     private static String timestamp(long timeNs) {

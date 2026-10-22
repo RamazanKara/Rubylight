@@ -1652,7 +1652,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     closeLatencyCsv();
                     openLatencyCsv();
                 }
-                frameLatencyStats.writeCsv(latencyCsv);
+                frameLatencyStats.writeCsv(latencyCsv, hostFrameClock::clockOffset);
                 latencyCsv.flush();
             } catch (IOException e) {
                 LimeLog.warning("Unable to write latency CSV: " + e);
@@ -2329,6 +2329,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void start() {
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            // Clock sync for the timing CSV; PyroWave frames are not scheduled by host time.
+            hostFrameClock.start(0, false);
             if (FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable)) {
                 startChoreographerThread();
             }
@@ -2336,7 +2338,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         applyOutputPacingFallback();
         hostFrameTimes = prefs.hostFrameTimes;
-        if (hostFrameTimes) hostFrameClock.start(maxDisplayRefreshRate());
+        // The clock always runs so a host that announced clock sync is probed for the timing CSV;
+        // frames are scheduled by it only with host frame times on.
+        hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes);
         startRendererThread();
         startChoreographerThread();
     }
@@ -2435,7 +2439,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void cleanup() {
-        if (hostFrameTimes) hostFrameClock.stop();
+        hostFrameClock.stop();
         pyroWaveRenderer.cleanup(frameLatencyStats);
         if (videoDecoder != null) {
             videoDecoder.release();
@@ -2537,13 +2541,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private boolean queueNextInputBuffer(long timestampUs, int codecFlags, int frameNumber, long receiveTimeNs,
-                                         long enqueueTimeNs, char hostProcessingLatency) {
+                                         long enqueueTimeNs, char hostProcessingLatency, long hostRtpUs) {
         boolean codecRecovered;
 
         try {
             if ((codecFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
                 frameLatencyStats.onDecoderInput(frameNumber, timestampUs, receiveTimeNs, enqueueTimeNs,
-                        System.nanoTime(), hostProcessingLatency);
+                        System.nanoTime(), hostProcessingLatency, hostRtpUs);
             }
             videoDecoder.queueInputBuffer(nextInputBufferIndex,
                     0, nextInputBuffer.position(),
@@ -2769,7 +2773,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             pyroWaveQueueSamples++;
             long ptsUs = Math.max(inputNs / 1000, lastTimestampUs + 1);
             lastTimestampUs = ptsUs;
-            frameLatencyStats.onDecoderInput(frameNumber, ptsUs, receiveTimeNs, enqueueTimeNs, inputNs, frameHostProcessingLatency);
+            frameLatencyStats.onDecoderInput(frameNumber, ptsUs, receiveTimeNs, enqueueTimeNs, inputNs, frameHostProcessingLatency,
+                    presentationTimeUs);
             frameLatencyStats.onPyroWaveDecoderQueued(ptsUs, inputNs);
             // Newest frame wins: every PyroWave frame is intra-only, so when a newer one is already
             // waiting, decoding this one would only delay it. A phone that falls behind catches up
@@ -3004,7 +3009,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         nextInputBuffer.put(ppsBuffer);
                     }
 
-                    if (!queueNextInputBuffer(0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG, 0, 0, 0, (char) 0)) {
+                    if (!queueNextInputBuffer(0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG, 0, 0, 0, (char) 0, -1)) {
                         return MoonBridge.DR_NEED_IDR;
                     }
 
@@ -3096,7 +3101,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Before queuing: the decoder may hand the frame back before queueInputBuffer returns.
         if (hostFrameTimes) hostFrameClock.onQueued(timestampUs, presentationTimeUs);
-        if (!queueNextInputBuffer(timestampUs, codecFlags, frameNumber, receiveTimeNs, enqueueTimeNs, frameHostProcessingLatency)) {
+        if (!queueNextInputBuffer(timestampUs, codecFlags, frameNumber, receiveTimeNs, enqueueTimeNs, frameHostProcessingLatency,
+                presentationTimeUs)) {
             return MoonBridge.DR_NEED_IDR;
         }
 
@@ -3126,7 +3132,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         savedSps = null;
 
         // Queue the new SPS
-        return queueNextInputBuffer(0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG, 0, 0, 0, (char) 0);
+        return queueNextInputBuffer(0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG, 0, 0, 0, (char) 0, -1);
     }
 
     @Override

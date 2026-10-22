@@ -21,4 +21,67 @@ public class HostFrameClockTest {
         assertEquals(1_000_010L, clock.hostUsFor(10));
         assertEquals(1_000_000L + HostFrameClock.PENDING + 9, clock.hostUsFor(HostFrameClock.PENDING + 9));
     }
+
+    private static final class FakeBridge implements HostFrameClock.Bridge {
+        final java.util.concurrent.CountDownLatch probes = new java.util.concurrent.CountDownLatch(2);
+        volatile int starts, schedules, stops;
+        @Override public void start(int minIntervalUs) { starts++; }
+        @Override public void stop() { stops++; }
+        @Override public void reset() { }
+        @Override public boolean schedule(long hostUs, long readyNs, long[] out) {
+            schedules++;
+            out[0] = readyNs + 5_000_000L;
+            out[1] = 5_000;
+            out[2] = -1;
+            return true;
+        }
+        @Override public boolean stats(long[] out) { return false; }
+        @Override public boolean offset(long[] out) { out[0] = -3955; out[1] = 90; return true; }
+        @Override public void probe() { probes.countDown(); }
+    }
+
+    @Test public void clockSyncProbesRunWithHostFrameTimesOffAndFramesAreNotScheduled() throws Exception {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 5);
+        clock.start(120, false);
+        try {
+            assertTrue("probes must not wait for host frame times", bridge.probes.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(1, bridge.starts);
+            clock.onQueued(1_000, 90_000_000L);
+            assertEquals("ready time unchanged", 123_456_789L, clock.presentNs(1_000, 123_456_789L));
+            assertEquals("the schedule is never asked", 0, bridge.schedules);
+            assertNull(clock.overlayLine());
+            long[] offset = new long[2];
+            assertTrue(clock.clockOffset(offset));
+            assertArrayEquals(new long[] {-3955, 90}, offset);
+        } finally {
+            clock.stop();
+        }
+        assertEquals(1, bridge.stops);
+        assertFalse("no offset once the clock is stopped", clock.clockOffset(new long[2]));
+        clock.stop();
+        assertEquals("a second stop does nothing", 1, bridge.stops);
+    }
+
+    @Test public void aClockThatNeverStartedAnswersNoOffsetAndStopsQuietly() {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 5);
+        assertFalse(clock.clockOffset(new long[2]));
+        clock.stop();
+        assertEquals(0, bridge.stops);
+    }
+
+    @Test public void withHostFrameTimesOnQueuedFramesAreScheduled() {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 60_000);
+        clock.start(120, true);
+        try {
+            clock.onQueued(1_000, 90_000_000L);
+            assertEquals(123_456_789L + 5_000_000L, clock.presentNs(1_000, 123_456_789L));
+            assertEquals(1, bridge.schedules);
+            assertEquals("an unknown frame is shown when ready", 77L, clock.presentNs(1_005, 77L));
+        } finally {
+            clock.stop();
+        }
+    }
 }

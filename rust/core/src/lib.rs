@@ -18,6 +18,7 @@
 pub mod adaptive_bitrate;
 pub mod adaptive_fec;
 pub mod adaptive_pacing;
+pub mod amd_gpu;
 pub mod audio;
 pub mod audio_defaults;
 pub mod audio_scope;

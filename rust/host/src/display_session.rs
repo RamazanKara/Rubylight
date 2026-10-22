@@ -2242,7 +2242,7 @@ mod tests {
                 .extra
                 .insert("virtual_display_mode".into(), mode.into());
             assert_eq!(
-                virtual_display_mode(&config, &launch.client, Some(&app)),
+                virtual_display_mode(&config, &launch.client, Some(&app), true),
                 "per_client"
             );
             assert_eq!(

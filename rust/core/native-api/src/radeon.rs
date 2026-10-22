@@ -112,7 +112,7 @@ pub struct Setting {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gpu {
     /// The `id` that `/api/hardware-metrics` reports.
-    pub id: u64,
+    pub id: i32,
     pub name: String,
     pub driver: String,
     pub settings: Vec<Setting>,
@@ -138,7 +138,7 @@ pub struct Radeon {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SettingsWrite {
-    pub gpu: u64,
+    pub gpu: i32,
     pub changes: Vec<Change>,
 }
 

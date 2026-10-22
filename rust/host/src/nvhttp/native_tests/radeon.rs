@@ -21,9 +21,9 @@ use std::{
     time::{Duration, Instant as Clock},
 };
 
-/// An ADLX unique id above `i32::MAX` once read as unsigned, as real ones can be.
-const GPU_ID: u32 = 0xC000_0001;
-const GPU: u64 = GPU_ID as u64;
+/// An ADLX unique id the way `/api/hardware-metrics` reports it, a signed number that can be
+/// negative.
+const GPU: i32 = 0xC000_0001_u32 as i32;
 
 #[derive(Default)]
 struct Driver {
@@ -150,7 +150,7 @@ fn choice(id: &'static str, value: &str) -> Driven {
 }
 fn gpu() -> GpuInfo {
     GpuInfo {
-        id: GPU_ID as i32,
+        id: GPU,
         name: "AMD Radeon RX 7900 XT".into(),
         driver: "Adrenalin 26.2.1".into(),
     }
@@ -199,13 +199,22 @@ impl Rig {
         rig.ready();
         rig
     }
+    /// A worker that looks again at unrestored settings every 100 ms instead of every minute.
+    fn quick_retry() -> Self {
+        let timing = Timing {
+            retry_every: Duration::from_millis(100),
+            ..Timing::default()
+        };
+        let rig = Self::start_timed(Setup::new(), driver(), timing);
+        rig.ready();
+        rig
+    }
     /// The worker starts its recovery at once and this returns without waiting for it.
     fn start(s: Setup, fake: Fake) -> Self {
-        let worker = Worker::start(
-            fake.clone(),
-            s.host().directory.join(JOURNAL_FILE),
-            Timing::default(),
-        );
+        Self::start_timed(s, fake, Timing::default())
+    }
+    fn start_timed(s: Setup, fake: Fake, timing: Timing) -> Self {
+        let worker = Worker::start(fake.clone(), s.host().directory.join(JOURNAL_FILE), timing);
         assert!(s.host().radeon.attach(WorkerRef::Owned(Arc::new(worker))));
         Self { s, fake }
     }
@@ -442,6 +451,10 @@ async fn a_host_without_radeon_controls_or_a_driver_says_so() {
     )
     .await;
     reply.assert_error(404, "not_found");
+    // Restore is absent too, not a retryable error.
+    let reply = s.post("/radeon/restore").await;
+    reply.assert_error(404, "not_found");
+    assert!(reply.json()["error"]["retry_after_ms"].is_null());
     // ADLX lists no AMD GPU.
     let fake = panel_fake_without_gpu();
     let rig = Rig::with(fake);
@@ -615,7 +628,7 @@ async fn a_write_changes_the_driver_and_answers_the_read_back_panel() {
     let journal = rig.journal();
     assert_eq!(journal.len(), 3);
     assert!(journal.iter().all(|entry| entry.session == "parity-device"));
-    assert!(journal.iter().all(|entry| entry.gpu == GPU_ID as i32));
+    assert!(journal.iter().all(|entry| entry.gpu == GPU));
     // A later read shows the same.
     assert_eq!(rig.panel().await.gpus, panel.gpus);
 }
@@ -724,11 +737,14 @@ async fn an_unknown_gpu_or_setting_is_404_and_a_bad_body_is_400() {
     rig.write_body(&unknown_gpu.to_string())
         .await
         .assert_error(404, "not_found");
-    // Above the 32 bits ADLX has.
-    let huge = json!({"gpu": 1u64 << 40, "changes": [{"id": "pacing.limit", "value": 200}]});
-    rig.write_body(&huge.to_string())
-        .await
-        .assert_error(404, "not_found");
+    // Ids are signed, so -1 is a number like any other, and one above the 32 bits ADLX has is a
+    // GPU nobody has.
+    for gpu in [-1_i64, 1 << 40] {
+        let unknown = json!({"gpu": gpu, "changes": [{"id": "pacing.limit", "value": 200}]});
+        rig.write_body(&unknown.to_string())
+            .await
+            .assert_error(404, "not_found");
+    }
     let reply = rig
         .write(json!([{"id": "nope.enabled", "value": true}]))
         .await;
@@ -738,7 +754,6 @@ async fn an_unknown_gpu_or_setting_is_404_and_a_bad_body_is_400() {
         "{",
         "[]",
         "{}",
-        r#"{"gpu":-1,"changes":[{"id":"pacing.limit","value":200}]}"#,
         r#"{"gpu":"x","changes":[]}"#,
         r#"{"gpu":3221225473}"#,
         r#"{"gpu":3221225473,"changes":[]}"#,
@@ -1045,7 +1060,7 @@ async fn a_journal_from_a_crashed_run_is_restored_when_the_host_starts() {
     fake.set("pacing.limit", Raw::Int(200));
     let journal = Journal {
         entries: vec![Entry {
-            gpu: GPU_ID as i32,
+            gpu: GPU,
             id: "pacing.limit".into(),
             session: "parity-device".into(),
             original: Raw::Int(140),
@@ -1078,4 +1093,230 @@ async fn a_journal_from_a_crashed_run_is_restored_when_the_host_starts() {
         Some(Api::Integer(140))
     );
     assert_eq!(setting(&panel, "pacing.limit").restore, None);
+}
+
+/// A second paired device that streams as well, and its connection.
+fn second_streamer(rig: &Rig) -> (Arc<Session>, Connection) {
+    let connection = other_device(&rig.f, ALL, true);
+    let client = rig
+        .host()
+        .paired
+        .read()
+        .unwrap()
+        .clients
+        .iter()
+        .find(|client| client.uuid == "other-device")
+        .cloned()
+        .unwrap();
+    (rig.stream_as(client), connection)
+}
+
+#[tokio::test]
+async fn a_launch_by_another_device_that_fails_leaves_the_owners_settings_alone() {
+    let rig = Rig::new();
+    let _stream = rig.changed().await;
+    let launch = rig.host().session_begin("other-device", None);
+    // The other device owns the session while it prepares, and the owner's settings stay.
+    assert_eq!(rig.state(), SessionState::Preparing);
+    rig.flush();
+    rig.assert_kept();
+    assert!(rig.host().radeon.holds("parity-device"));
+    // The launch fails and gives the session back.
+    drop(launch);
+    assert_eq!(rig.state(), SessionState::Streaming);
+    rig.flush();
+    rig.assert_kept();
+    assert!(rig.host().radeon.holds("parity-device"));
+    // The owner's own end of the session still puts them back.
+    rig.post("/session/end").await.session();
+    rig.flush();
+    rig.assert_restored();
+}
+
+#[tokio::test]
+async fn disconnect_with_two_streamers_restores_nothing() {
+    let rig = Rig::new();
+    let _first = rig.changed().await;
+    let (_second, other) = second_streamer(&rig);
+    let after = rig.post("/session/disconnect").await.session();
+    // The other device's stream is the session now, and the first one keeps its display.
+    assert_eq!(after.state, SessionState::Streaming);
+    assert_eq!(
+        rig.host().session_snapshot().owner.as_deref(),
+        Some("other-device")
+    );
+    rig.flush();
+    rig.assert_kept();
+    assert!(rig.host().radeon.holds("parity-device"));
+    // The other device ends its session, but the first one still has its display kept for the
+    // game, so its settings stay until that display goes too.
+    api(&rig.f, &other, "POST", "/session/end").await.session();
+    rig.flush();
+    rig.assert_kept();
+    drop(
+        rig.host()
+            .app_display
+            .lock()
+            .unwrap()
+            .remove("parity-device"),
+    );
+    rig.host().session_tick();
+    rig.flush();
+    rig.assert_restored();
+}
+
+#[tokio::test]
+async fn a_manual_restore_that_fails_leaves_the_session_to_try_again_at_its_end() {
+    let rig = Rig::new();
+    let _stream = rig.changed().await;
+    rig.fake.with(|d| d.refuse_all = true);
+    rig.post("/radeon/restore")
+        .await
+        .assert_error(503, "temporarily_unavailable");
+    rig.assert_kept();
+    assert!(rig.host().radeon.holds("parity-device"));
+    rig.fake.with(|d| d.refuse_all = false);
+    rig.post("/session/end").await.session();
+    rig.flush();
+    rig.assert_restored();
+}
+
+#[tokio::test]
+async fn a_restore_waiting_in_the_queue_does_not_undo_a_newer_write() {
+    let rig = Rig::new();
+    let _first = rig.changed().await;
+    // The restore thread is busy when the session ends, and the device writes again meanwhile.
+    let pause = rig.host().radeon.pause_restores();
+    rig.post("/session/end").await.session();
+    let _second = rig.streaming();
+    radeon(
+        &rig.write(json!([{"id": "pacing.limit", "value": 210}]))
+            .await,
+    );
+    drop(pause);
+    rig.flush();
+    assert_eq!(rig.fake.value("pacing.limit"), Raw::Int(210));
+    assert_eq!(rig.journal().len(), 1);
+    // The new session's end puts back what the new session wrote.
+    rig.post("/session/end").await.session();
+    rig.flush();
+    rig.assert_restored();
+}
+
+#[tokio::test]
+async fn a_failed_restore_stops_showing_when_the_workers_retry_puts_the_setting_back() {
+    let rig = Rig::quick_retry();
+    let _stream = rig.changed().await;
+    rig.fake.with(|d| d.refuse_all = true);
+    rig.post("/session/end").await.session();
+    rig.flush();
+    rig.assert_kept();
+    rig.host().radeon.forget();
+    assert_eq!(rig.panel().await.reason.as_deref(), Some("restore_failed"));
+    // The driver recovers and the worker's own retry puts the setting back.
+    rig.fake.with(|d| d.refuse_all = false);
+    let until = Clock::now() + Duration::from_secs(15);
+    while !rig.journal().is_empty() {
+        assert!(Clock::now() < until, "the worker never retried");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(rig.fake.value("pacing.limit"), Raw::Int(140));
+    rig.host().radeon.forget();
+    let panel = rig.panel().await;
+    assert_eq!((panel.reason, panel.message), (None, None));
+    // The same device writes the setting again: the old failure is not about this write.
+    let _next = rig.streaming();
+    radeon(
+        &rig.write(json!([{"id": "pacing.limit", "value": 210}]))
+            .await,
+    );
+    let panel = rig.panel().await;
+    assert_eq!((panel.reason.clone(), panel.message.clone()), (None, None));
+    let pacing = setting(&panel, "pacing.limit");
+    assert_eq!(pacing.reason, None);
+    assert!(pacing.restore.is_some());
+}
+
+#[tokio::test]
+async fn writing_needs_view_and_host_control_launch_alone_is_not_enough() {
+    let rig = Rig::start(Setup::with(LIST | LAUNCH), driver());
+    rig.ready();
+    rig.host_control(true);
+    let _stream = rig.streaming();
+    // Reading is open to Launch.
+    assert!(rig.panel().await.host_control);
+    let change = json!([{"id": "pacing.limit", "value": 200}]);
+    rig.write(change.clone())
+        .await
+        .assert_error(403, "permission_required");
+    rig.post("/radeon/restore")
+        .await
+        .assert_error(403, "permission_required");
+    assert_eq!(rig.fake.writes(), Vec::<String>::new());
+    rig.host().paired.write().unwrap().clients[0].perm = LIST | VIEW_BIT;
+    radeon(&rig.write(change).await);
+    assert_eq!(rig.fake.value("pacing.limit"), Raw::Int(200));
+}
+
+#[tokio::test]
+async fn a_write_answers_from_its_own_read_back_without_another_driver_read() {
+    // The same first write, once straight through the worker and once through the endpoint.
+    let direct = Rig::new();
+    let _stream = direct.owner();
+    let before = direct.fake.reads();
+    direct
+        .host()
+        .radeon
+        .worker()
+        .unwrap()
+        .apply(
+            "parity-device",
+            GPU,
+            vec![butterpollo_windows::radeon::Change {
+                id: "pacing.limit".into(),
+                value: Raw::Int(200),
+            }],
+        )
+        .unwrap();
+    let apply_reads = direct.fake.reads() - before;
+
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    rig.host().radeon.forget();
+    let before = rig.fake.reads();
+    let panel = radeon(
+        &rig.write(json!([{"id": "pacing.limit", "value": 200}]))
+            .await,
+    );
+    // One read to validate the request, then the write's own, and nothing after it.
+    assert_eq!(rig.fake.reads() - before, 1 + apply_reads);
+    assert_eq!(
+        setting(&panel, "pacing.limit").restore,
+        Some(ApiRestore {
+            original: Api::Integer(140),
+            written: Api::Integer(200)
+        })
+    );
+    // It is the newest reading: the next panel is the same one.
+    let reads = rig.fake.reads();
+    assert_eq!(rig.panel().await, panel);
+    assert_eq!(rig.fake.reads(), reads);
+}
+
+/// A reading the unsigned way would turn into a different number.
+const _: () = assert!(GPU < 0);
+
+#[tokio::test]
+async fn the_gpu_id_is_the_signed_id_and_one_that_does_not_fit_is_not_found() {
+    let rig = Rig::new();
+    let reply = rig.get("/radeon").await;
+    assert_eq!(reply.json()["gpus"][0]["id"], json!(GPU));
+    let _stream = rig.owner();
+    for gpu in [i64::from(GPU) + (1_i64 << 32), 1 << 40] {
+        let body = json!({"gpu": gpu, "changes": [{"id": "pacing.limit", "value": 200}]});
+        rig.write_body(&body.to_string())
+            .await
+            .assert_error(404, "not_found");
+    }
+    assert_eq!(rig.fake.writes(), Vec::<String>::new());
 }

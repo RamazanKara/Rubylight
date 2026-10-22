@@ -28,7 +28,7 @@ use butterpollo_core::{
     state::Client,
 };
 use butterpollo_windows::radeon::{
-    Entry, ErrorKind, WriteError,
+    Entry, ErrorKind, GpuInfo, WriteError,
     model::{self, Value},
     worker::{Panel, Phase, Status},
 };
@@ -44,10 +44,11 @@ const UNAVAILABLE_RETRY_MS: u64 = 5000;
 /// How soon a client looks again after a restore failed: the worker retries every minute.
 const RESTORE_RETRY_MS: u64 = 60_000;
 
-/// The caller as the console has it now, with the permissions every Radeon write needs.
+/// The caller as the console has it now, with the permissions every Radeon write needs: View
+/// (Launch alone is not enough) and host control.
 fn gate(h: &Shared, connection: &Connection) -> Result<Client, Failure> {
     let client = caller(h, connection)?;
-    reader(&client)?;
+    require(&client, VIEW, "View streams")?;
     require_host_control(&client)?;
     Ok(client)
 }
@@ -108,7 +109,8 @@ pub async fn restore(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WriteBody {
-    gpu: u64,
+    /// Read wide so an id no GPU has is `not_found`, not a malformed body.
+    gpu: i64,
     changes: Vec<ChangeBody>,
 }
 /// A change with its value unread, so a value of a shape the API has no type for is an
@@ -137,7 +139,11 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
         ));
     }
     let (view, _) = current_view(h);
-    let Some(gpu) = view.gpus.iter().find(|gpu| gpu.id == request.gpu) else {
+    let Some(gpu) = view
+        .gpus
+        .iter()
+        .find(|gpu| i64::from(gpu.id) == request.gpu)
+    else {
         return Err(match view.state {
             ControlState::TemporarilyUnavailable => unavailable(view.message.clone()),
             _ => Failure::new(ErrorCode::NotFound, "This host has no GPU with that id."),
@@ -171,26 +177,41 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
         });
     }
     let Some(worker) = h.radeon.worker() else {
-        return Err(unavailable(Some(
-            "This host has no Radeon controls.".into(),
-        )));
+        return Err(no_radeon());
     };
-    // The API id is the ADLX id read as unsigned.
-    let gpu = u32::try_from(request.gpu)
-        .map_err(|_| Failure::new(ErrorCode::NotFound, "This host has no GPU with that id."))?
-        as i32;
+    let gpu_info = GpuInfo {
+        id: gpu.id,
+        name: gpu.name.clone(),
+        driver: gpu.driver.clone(),
+    };
+    let gpu = gpu_info.id;
     // The session restores what this request changes, even when it fails half way or the call
     // gives up waiting: the device is noted before the first write and again after the last.
     let device = client.uuid.as_str();
     h.radeon.note_written(device);
     let result = worker.apply(device, gpu, changes);
     h.radeon.note_written(device);
-    h.radeon.sync(h.session_snapshot().owner.as_deref());
+    // The session may have ended while the driver wrote: bring the restore up to date.
+    h.session_tick();
     h.radeon.forget();
-    if let Err(error) = result {
-        return Err(write_failure(&error));
-    }
-    let (view, revision) = current_view(h);
+    let settings = match result {
+        Ok(settings) => settings,
+        Err(error) => return Err(write_failure(&error)),
+    };
+    // The write read the settings back already; only the journal's entries are new.
+    let (view, revision) = match worker.pending(READ_WAIT) {
+        Ok(pending) => {
+            let panel = Panel {
+                gpu: gpu_info,
+                settings,
+                pending,
+            };
+            let status = worker.status();
+            let failed = h.radeon.failed(&panel.pending);
+            store(h, panel_view(&panel, &status, &failed))
+        }
+        Err(_) => current_view(h),
+    };
     answer(h, &client, &view, revision)
 }
 
@@ -217,6 +238,11 @@ fn write_failure(error: &WriteError) -> Failure {
     }
 }
 
+/// The host has no Radeon controls at all: the feature is absent, like an unknown path.
+fn no_radeon() -> Failure {
+    Failure::new(ErrorCode::NotFound, "This host has no Radeon controls.")
+}
+
 fn unavailable(message: Option<String>) -> Failure {
     Failure::new(
         ErrorCode::TemporarilyUnavailable,
@@ -228,6 +254,9 @@ fn unavailable(message: Option<String>) -> Failure {
 
 fn restore_settings(h: &Shared, connection: &Connection) -> Reply {
     let client = gate(h, connection)?;
+    if h.radeon.worker().is_none() {
+        return Err(no_radeon());
+    }
     owner_check(h, &client)?;
     let result = h.radeon.restore_now(&client.uuid);
     h.radeon.forget();
@@ -287,7 +316,17 @@ fn current_view(h: &Host) -> (Arc<View>, u64) {
     {
         return (reading.view.clone(), reading.revision);
     }
-    let view = Arc::new(read_view(h));
+    store_in(h, &mut cache, read_view(h))
+}
+
+/// Keep `view` as the newest reading, as a write that read its settings back does.
+fn store(h: &Host, view: View) -> (Arc<View>, u64) {
+    let mut cache = locked(&h.radeon.cache);
+    store_in(h, &mut cache, view)
+}
+
+fn store_in(h: &Host, cache: &mut Option<Reading>, view: View) -> (Arc<View>, u64) {
+    let view = Arc::new(view);
     let revision = {
         let mut counted = locked(&h.radeon.revision);
         if counted.1.as_deref() != Some(&*view) {
@@ -336,7 +375,7 @@ fn read_view(h: &Host) -> View {
         .get("adapter_name", "")
         .to_owned();
     match worker.panel(Some(&adapter), READ_WAIT) {
-        Ok(Some(panel)) => panel_view(&panel, &status, &h.radeon.failed()),
+        Ok(Some(panel)) => panel_view(&panel, &status, &h.radeon.failed(&panel.pending)),
         Ok(None) => empty(
             ControlState::Unsupported,
             "no_amd_gpu",
@@ -367,17 +406,11 @@ fn panel_state(settings: &[api::Setting]) -> ControlState {
 }
 
 fn panel_view(panel: &Panel, status: &Status, failed: &BTreeMap<String, String>) -> View {
-    // A failure is only news while the journal still holds the entry.
-    let failed = if panel.pending.is_empty() {
-        BTreeMap::new()
-    } else {
-        failed.clone()
-    };
     let gpu = panel.gpu.id;
     let settings: Vec<api::Setting> = panel
         .settings
         .iter()
-        .filter_map(|setting| setting_of(setting, gpu, &panel.pending, &failed))
+        .filter_map(|setting| setting_of(setting, gpu, &panel.pending, failed))
         .collect();
     let message = failed
         .get("*")
@@ -401,7 +434,7 @@ fn panel_view(panel: &Panel, status: &Status, failed: &BTreeMap<String, String>)
         reason: message.as_ref().map(|_| "restore_failed".into()),
         message,
         gpus: vec![api::Gpu {
-            id: u64::from(gpu as u32),
+            id: gpu,
             name: panel.gpu.name.clone(),
             driver: panel.gpu.driver.clone(),
             settings,

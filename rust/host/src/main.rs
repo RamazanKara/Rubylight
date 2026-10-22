@@ -455,8 +455,15 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     h.stop_app();
     h.session_shutdown();
     // Whatever a session changed goes back before the host exits; the restore thread has had the
-    // work since the session reset above.
-    h.radeon.shutdown(Duration::from_secs(30));
+    // work since the session reset above. The wait is blocking, so it leaves the async executor.
+    // 30 s is shorter than the worker's 150 s limit on one driver call: a restore still stuck
+    // then stays journaled, is logged, and the next host start puts it back.
+    let radeon = h.clone();
+    if let Err(error) =
+        tokio::task::spawn_blocking(move || radeon.radeon.shutdown(Duration::from_secs(30))).await
+    {
+        tracing::error!(%error, "waiting for the Radeon restore at shutdown failed; the next host start restores what is left");
+    }
     remote_display::disconnect(&h, None);
     drop(discovery);
     if let Some(mut task) = port_forward

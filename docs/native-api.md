@@ -236,7 +236,7 @@ GET /api/native/v1/radeon
 - A setting appears as `configurable` or `read_only` only if A5's probe on the installed driver proved it (`docs/hardware-matrix.md`). Settings from the catalogue that the probe didn't cover are `unsupported`. The catalogue ids are `<group>.<field>`, for example `anti_lag.enabled`, `chill.enabled`, `chill.min_fps`, `chill.max_fps`, `boost.enabled`, `boost.min_resolution`, `image_sharpening.enabled`, `image_sharpening.sharpness`, `enhanced_sync.enabled`, `frame_rate_target.enabled`, `frame_rate_target.fps`, `afmf.enabled`, `rsr.enabled`, `rsr.sharpness`, `vsync.mode`. A5 finalises the list. Clients render ids they don't know generically from `kind`, `range`, `options` and `unit`.
 - `kind` is `toggle` (bool value), `integer` (with `range`) or `choice` (string value, with `options: [{"value": "...", "label": "..."}]`).
 - `gpus[].id` is the same `id` that `/api/hardware-metrics` reports. v1 lists the GPU the host encodes on.
-- `host_control` is the caller's flag. `writable_now` is true only when the caller has host control and owns a `streaming` or `suspended` session. Reads go through the host's ADLX worker thread (the `telemetry.rs` pattern), are cached for 1 s, and never run on a stream thread.
+- `host_control` is the caller's flag. `writable_now` is true only when the caller has host control and owns a `streaming` or `suspended` session. A GPU's `id` is the signed ADLX id that `/api/hardware-metrics` reports, so it can be negative; a write naming an id the host does not list is `not_found`. Reads go through the host's ADLX worker thread (the `telemetry.rs` pattern), are cached for 1 s, and never run on a stream thread.
 
 **Writes.**
 
@@ -280,7 +280,7 @@ Every non-2xx answer has the same body:
 | 403 | `not_paired` | No TLS client certificate, or the device is unknown or disabled |
 | 403 | `permission_required` | List, View or Launch missing. `message` names the permission, as `authenticated()` does today |
 | 403 | `host_control_required` | Write or Close game without host control |
-| 404 | `not_found` | Unknown path under `/api/native/v1`, GPU or setting id |
+| 404 | `not_found` | Unknown path under `/api/native/v1`, GPU or setting id, or Radeon controls this host does not have (a restore or write on a host without them) |
 | 400 | `invalid_request` | Malformed JSON, unknown fields in a write, or a body over 16 KiB |
 | 422 | `invalid_value` / `not_writable` | Wrong type, out of range, or the setting is not `configurable` |
 | 409 | `no_session` / `not_session_owner` / `session_busy` | A write or action needs a session the caller owns. `session_busy`: a launch or teardown is in progress, retry after `retry_after_ms` |
@@ -351,10 +351,10 @@ pub struct Restore { pub original: Value, pub written: Value }
 pub struct Setting { pub id: String, pub group: String, pub kind: Kind, pub state: ControlState,
     pub value: Option<Value>, pub range: Option<Range>, pub options: Vec<Choice>, pub unit: Option<String>,
     pub restore: Option<Restore>, pub reason: Option<String>, pub message: Option<String> }
-pub struct Gpu { pub id: u64, pub name: String, pub driver: String, pub settings: Vec<Setting> }
+pub struct Gpu { pub id: i32, pub name: String, pub driver: String, pub settings: Vec<Setting> }
 pub struct Radeon { pub revision: u64, pub state: ControlState, pub reason: Option<String>,
     pub message: Option<String>, pub host_control: bool, pub writable_now: bool, pub gpus: Vec<Gpu> }
-pub struct SettingsWrite { pub gpu: u64, pub changes: Vec<Change> }   // deny_unknown_fields
+pub struct SettingsWrite { pub gpu: i32, pub changes: Vec<Change> }   // deny_unknown_fields
 pub struct Change { pub id: String, pub value: Value }
 
 // error.rs

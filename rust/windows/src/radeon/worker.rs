@@ -86,6 +86,9 @@ enum Job {
         adapter: Option<String>,
         reply: mpsc::Sender<Result<Option<Panel>, BackendError>>,
     },
+    Pending {
+        reply: mpsc::Sender<Result<Vec<Entry>, BackendError>>,
+    },
 }
 
 /// The settings of the GPU the host encodes on, as the driver reads them now, with what the
@@ -259,6 +262,13 @@ impl Worker {
             reply,
         })
     }
+
+    /// What the journal would still put back for the signed-in user. It reads the journal only,
+    /// never the driver, so a write that has just read its settings back can show the entries
+    /// without a second helper run.
+    pub fn pending(&self, wait: Duration) -> Result<Vec<Entry>, BackendError> {
+        self.ask(wait, |reply| Job::Pending { reply })
+    }
 }
 
 fn stopped() -> WriteError {
@@ -423,6 +433,13 @@ fn run<B: RadeonBackend>(
             }
             Some(Job::Panel { adapter, reply }) => {
                 let _ = reply.send(panel(&mut controller, adapter.as_deref()));
+            }
+            Some(Job::Pending { reply }) => {
+                let _ = reply.send(
+                    controller
+                        .pending()
+                        .map_err(|e| BackendError(format!("the Radeon journal: {e:#}"))),
+                );
             }
         }
     }
@@ -809,7 +826,10 @@ mod tests {
         assert_eq!(entry.id, "pacing.limit");
         assert_eq!(entry.original, Value::Int(140));
         assert_eq!(entry.written, Value::Int(150));
+        // The journal alone gives the same entries, without a driver read.
+        assert_eq!(worker.pending(wait).unwrap(), panel.pending);
         worker.restore_session("live").unwrap();
+        assert!(worker.pending(wait).unwrap().is_empty());
         assert!(
             worker
                 .panel(None, wait)

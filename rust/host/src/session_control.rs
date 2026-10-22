@@ -245,9 +245,24 @@ impl Host {
         let result = f(&mut control.machine, &facts, now);
         control.persist();
         // Whatever moved the machine (End session, Close game, the grace period running out,
-        // /cancel, a reset), a device that no longer owns the session gets its Radeon
-        // settings back. Disconnect keeps the owner, so it restores nothing.
-        self.radeon.sync(control.machine.owner());
+        // /cancel, a reset), a device that is gone from the session gets its Radeon settings
+        // back. Disconnect keeps the owner, so it restores nothing, and nothing is restored
+        // while a launch or teardown runs: a launch that fails gives the session back.
+        self.radeon.sync(|| {
+            matches!(
+                control.machine.state(),
+                State::Idle | State::Streaming | State::Suspended
+            )
+            .then(|| {
+                let now = self.session_facts();
+                let mut present = now.streaming;
+                present.extend(control.machine.owner().map(str::to_owned));
+                if now.game_running {
+                    present.extend(now.retained);
+                }
+                present
+            })
+        });
         result
     }
     /// How long the owner's retained display survives without a stream.

@@ -10,7 +10,11 @@
 //! The session state machine is the one source of truth for "ended": `Host::with_session` calls
 //! [`Inner::sync`] after every step, so End session, Close game, the grace period running out,
 //! a stock `/cancel` and a stream that ended with no grace all restore through the same line.
-//! A Disconnect leaves a suspended session, which keeps its settings. Unpair and disable have
+//! A device's settings go back only when it is gone from the session entirely (no stream, not
+//! the owner, no retained display) and the session has settled. While another device launches
+//! (Preparing, Launching, Stopping) nothing is restored, because that launch may fail and give
+//! the session back to its owner. A Disconnect leaves a suspended session, which keeps its
+//! settings. Unpair and disable have
 //! their own hook ([`Inner::release_device`]) because they do not end the session by themselves,
 //! and a clean shutdown flushes ([`Inner::shutdown`]).
 //!
@@ -18,7 +22,7 @@
 //! lock.
 use butterpollo_core::native_api::radeon::{ControlState, Gpu};
 use butterpollo_windows::radeon::{
-    BackendError, RestoreReport, control::RestoreResult, worker::Worker,
+    BackendError, Entry, RestoreReport, control::RestoreResult, worker::Worker,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -56,9 +60,14 @@ pub const READ_WAIT: Duration = if cfg!(test) {
 };
 
 enum Message {
-    Restore(String),
+    /// Put a device's settings back, unless it wrote again after this generation was handed on.
+    Restore(String, u64),
     /// Answer once every restore before this one has finished.
     Flush(mpsc::Sender<()>),
+    /// Hold every later message until the sender is used or dropped. For tests of a restore
+    /// that waits in the queue while its device writes again.
+    #[cfg(test)]
+    Pause(mpsc::Receiver<()>),
 }
 
 /// What the panel shows, apart from the caller's own flags.
@@ -87,12 +96,16 @@ pub struct Inner {
     /// Devices that may have settings changed in this run. A device leaves when its restore is
     /// handed on.
     written: Mutex<BTreeSet<String>>,
+    /// Per device, how many times it noted a write. A restore handed on for an older generation
+    /// is stale: the device wrote again since, and that write is the session's to put back.
+    generations: Mutex<BTreeMap<String, u64>>,
     restorer: OnceLock<mpsc::Sender<Message>>,
     /// The newest reading. The lock is held through a read, so concurrent requests share it.
     pub cache: Mutex<Option<Reading>>,
     /// The revision the panel shows and the view it was counted for.
     pub revision: Mutex<(u64, Option<Arc<View>>)>,
-    /// Per device, the settings its last restore could not put back, with why.
+    /// Per device, the settings its last restore could not put back, with why. The panel shows
+    /// one only while the journal still holds an entry of that device (see [`Inner::failed`]).
     failures: Mutex<BTreeMap<String, Vec<(String, String)>>>,
 }
 
@@ -150,15 +163,42 @@ impl Inner {
 
     /// `device` is about to change settings: its session restores them when it ends.
     pub fn note_written(&self, device: &str) {
+        *locked(&self.generations)
+            .entry(device.to_owned())
+            .or_default() += 1;
         locked(&self.written).insert(device.to_owned());
+        // A new write is news of its own: an old failure is not about it.
+        locked(&self.failures).remove(device);
     }
     /// Forget what the panel showed, after a write or a restore.
     pub fn forget(&self) {
         *locked(&self.cache) = None;
     }
-    /// The settings the last restore of any device could not put back, with why.
-    pub fn failed(&self) -> BTreeMap<String, String> {
-        locked(&self.failures).values().flatten().cloned().collect()
+    /// The settings a restore could not put back, with why ("*" for a restore that failed as a
+    /// whole). `pending` is the journal now: a failure counts only while the journal still holds
+    /// an entry of the device it happened to, so a worker retry that succeeded ends it and
+    /// another device's later write does not inherit it.
+    pub fn failed(&self, pending: &[Entry]) -> BTreeMap<String, String> {
+        locked(&self.failures)
+            .iter()
+            .filter(|(device, _)| pending.iter().any(|entry| entry.session == **device))
+            .flat_map(|(device, list)| {
+                list.iter().filter(move |(id, _)| {
+                    id == "*"
+                        || pending
+                            .iter()
+                            .any(|entry| entry.session == *device && entry.id == *id)
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn generation(&self, device: &str) -> u64 {
+        locked(&self.generations)
+            .get(device)
+            .copied()
+            .unwrap_or_default()
     }
 
     fn dispatch(&self, device: String) {
@@ -169,26 +209,33 @@ impl Inner {
             );
             return;
         };
-        if restorer.send(Message::Restore(device)).is_err() {
+        let generation = self.generation(&device);
+        if restorer.send(Message::Restore(device, generation)).is_err() {
             tracing::error!(
                 "the Radeon restore thread stopped; settings stay journaled until the next host start"
             );
         }
     }
 
-    /// The session machine moved. `owner` is the device that owns the session now, `None` when
-    /// it is idle. Every device that wrote settings and no longer owns the session gets them
-    /// restored: that is an ended session, whichever way it ended. A suspended session keeps
-    /// its owner, so Disconnect restores nothing.
-    pub fn sync(&self, owner: Option<&str>) {
+    /// The session machine moved. `present` makes the devices still part of the session (a
+    /// stream, the owner, a retained display), or `None` while the session has not settled (a
+    /// launch or a teardown runs): nothing is restored then, because a launch that fails hands
+    /// the session back to its owner. Every device that wrote settings and is not present gets
+    /// them restored: that is an ended session, whichever way it ended. A suspended session
+    /// keeps its owner, so Disconnect restores nothing. `present` is not called when no device
+    /// wrote anything.
+    pub fn sync(&self, present: impl FnOnce() -> Option<BTreeSet<String>>) {
         let ended: Vec<String> = {
             let mut written = locked(&self.written);
             if written.is_empty() {
                 return;
             }
+            let Some(present) = present() else {
+                return;
+            };
             let ended: Vec<String> = written
                 .iter()
-                .filter(|device| Some(device.as_str()) != owner)
+                .filter(|device| !present.contains(*device))
                 .cloned()
                 .collect();
             for device in &ended {
@@ -207,9 +254,18 @@ impl Inner {
             self.dispatch(device.to_owned());
         }
     }
+    /// Every device's settings go back, whatever its session is doing (unpair all, shutdown).
+    pub fn release_all(&self) {
+        let devices: Vec<String> = std::mem::take(&mut *locked(&self.written))
+            .into_iter()
+            .collect();
+        for device in devices {
+            self.dispatch(device);
+        }
+    }
     /// A clean shutdown: put back everything this run changed and wait for it, at most `wait`.
     pub fn shutdown(&self, wait: Duration) {
-        self.sync(None);
+        self.release_all();
         let Some(restorer) = self.restorer.get() else {
             return;
         };
@@ -224,12 +280,16 @@ impl Inner {
     /// Put `device`'s settings back now and wait for the worker. The session goes on: its next
     /// write notes the device again.
     pub fn restore_now(&self, device: &str) -> anyhow::Result<RestoreReport> {
-        locked(&self.written).remove(device);
         let worker = self
             .worker()
             .ok_or_else(|| anyhow::anyhow!("this host has no Radeon controls"))?;
+        locked(&self.written).remove(device);
         let result = worker.restore_session(device);
         self.record(device, &result);
+        // What stayed changed is still the session's to put back when it ends.
+        if result.as_ref().map_or(true, |report| !report.is_clean()) {
+            locked(&self.written).insert(device.to_owned());
+        }
         result
     }
     /// Remember what a restore could not put back, so the panel can say so.
@@ -256,6 +316,20 @@ impl Inner {
         drop(failures);
         self.forget();
     }
+    /// Whether `device` may have settings changed that its session has not restored. For tests.
+    #[cfg(test)]
+    pub fn holds(&self, device: &str) -> bool {
+        locked(&self.written).contains(device)
+    }
+    /// Stop the restore thread until the returned sender is dropped. For tests.
+    #[cfg(test)]
+    pub fn pause_restores(&self) -> mpsc::Sender<()> {
+        let (resume, wait) = mpsc::channel();
+        if let Some(restorer) = self.restorer.get() {
+            let _ = restorer.send(Message::Pause(wait));
+        }
+        resume
+    }
     /// Wait until every restore handed on so far has finished, at most `wait`. For tests.
     #[cfg(test)]
     pub fn flush(&self, wait: Duration) -> bool {
@@ -270,13 +344,24 @@ impl Inner {
 fn restorer(inner: &Inner, worker: &Worker, messages: &mpsc::Receiver<Message>) {
     while let Ok(message) = messages.recv() {
         match message {
-            Message::Restore(device) => {
+            Message::Restore(device, generation) => {
+                if inner.generation(&device) != generation {
+                    tracing::info!(
+                        session = %device,
+                        "a Radeon restore was skipped: the device wrote again after its session ended"
+                    );
+                    continue;
+                }
                 // The worker logs a restore that fails, with the setting ids, and retries it.
                 let result = worker.restore_session(&device);
                 inner.record(&device, &result);
             }
             Message::Flush(ack) => {
                 let _ = ack.send(());
+            }
+            #[cfg(test)]
+            Message::Pause(resume) => {
+                let _ = resume.recv();
             }
         }
     }

@@ -52,7 +52,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             drop(canceled);
             crate::remote_display::disconnect(h, None);
             h.unpair_with_network_history(None)?;
-            h.radeon.sync(None);
+            h.radeon.release_all();
             json!({"status":true})
         }
         ("POST", "/api/clients/disconnect") => {
@@ -212,4 +212,50 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
         }
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use crate::state::test_support::Fixture;
+    use serde_json::json;
+
+    /// What the console grants an ordinary device.
+    const PERM: u32 = 0x071f1f00;
+
+    #[test]
+    fn turning_a_device_off_gives_up_its_radeon_settings_but_removing_a_permission_does_not() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        f.host.radeon.note_written(&client.uuid);
+        // Removing a permission ends what the device is doing, not its claim on its settings:
+        // they go back with the session.
+        handle(
+            &f.host,
+            "POST",
+            "/api/clients/update",
+            &json!({"uuid": client.uuid, "perm": 0}),
+        )
+        .unwrap();
+        assert!(f.host.radeon.holds(&client.uuid));
+        handle(
+            &f.host,
+            "POST",
+            "/api/clients/update",
+            &json!({"uuid": client.uuid, "enabled": false}),
+        )
+        .unwrap();
+        assert!(!f.host.radeon.holds(&client.uuid));
+    }
+
+    #[test]
+    fn unpairing_every_device_gives_up_all_radeon_settings() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        f.host.radeon.note_written(&client.uuid);
+        f.host.radeon.note_written("another-device");
+        handle(&f.host, "POST", "/api/clients/unpair-all", &json!({})).unwrap();
+        assert!(!f.host.radeon.holds(&client.uuid));
+        assert!(!f.host.radeon.holds("another-device"));
+    }
 }

@@ -27,8 +27,10 @@ pub const HOST_TIMING_RECORD_BYTES: usize = 20;
 pub const HOST_TIMING_MAX_RECORDS: usize = 32;
 /// Bytes per record in a report's trailing [`HostTimingExtra`] block (header byte 2).
 pub const HOST_TIMING_EXTRA_BYTES: usize = 16;
-/// Most records an extended report carries (an 868-byte message, one ENet packet).
-pub const HOST_TIMING_EXTENDED_MAX_RECORDS: usize = 24;
+/// Most records an extended report carries: a 616-byte message. Nightjar's patched
+/// moonlight-common-c hands a 0x5536 message to Java only up to 644 bytes (a v1 report of 32
+/// records), which 17 extended records (4 + 17 x 36) stay under and 18 do not.
+pub const HOST_TIMING_EXTENDED_MAX_RECORDS: usize = 17;
 /// Control-stream message type of clock sync, both ways: a client sends a
 /// [`ClockSyncRequest`], and the host answers each with a [`ClockSyncReply`].
 pub const CLOCK_SYNC_MESSAGE_TYPE: u16 = 0x5537;
@@ -684,10 +686,15 @@ mod tests {
     }
 
     #[test]
-    fn host_timing_extended_report_is_capped_at_868_bytes() {
+    fn host_timing_extended_report_is_capped_at_616_bytes() {
         let many = extended_sample(HOST_TIMING_EXTENDED_MAX_RECORDS as u32 + 8);
         let bytes = HostTiming::encode_report_with(&many);
-        assert_eq!(bytes.len(), 868);
+        assert_eq!(bytes.len(), 616);
+        // Under the 644 bytes of a full v1 report, which shipped clients still accept.
+        assert!(
+            bytes.len()
+                <= HOST_TIMING_HEADER_BYTES + HOST_TIMING_MAX_RECORDS * HOST_TIMING_RECORD_BYTES
+        );
         assert_eq!(usize::from(bytes[1]), HOST_TIMING_EXTENDED_MAX_RECORDS);
         let decoded = HostTiming::decode_report_with(&bytes).unwrap();
         assert_eq!(decoded.len(), HOST_TIMING_EXTENDED_MAX_RECORDS);

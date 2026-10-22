@@ -366,6 +366,26 @@ const NEEDS_FEATURE_ON: &[&str] = &[
     "afmf.fast_motion_response",
 ];
 
+/// The groups that cannot be on while `group` is (ADLX may switch them off when `group` goes on).
+pub fn excluded_by(group: &str) -> impl Iterator<Item = &'static str> + '_ {
+    DEPENDENCIES
+        .iter()
+        .filter(move |(g, relation, _, _)| *g == group && *relation == Relation::Excludes)
+        .map(|(_, _, other, _)| *other)
+}
+
+/// The `<group>.enabled` toggle a setting needs on before the driver accepts a write of it.
+pub fn feature_toggle(id: &str) -> Option<String> {
+    let id = NEEDS_FEATURE_ON.iter().find(|needing| **needing == id)?;
+    Some(format!("{}.enabled", id.split('.').next()?))
+}
+
+/// The setting a read-only one is derived from: it changes with that setting and needs no
+/// journal entry of its own.
+pub fn derived_from(id: &str) -> Option<&'static str> {
+    (id == "vsync.enabled").then_some("vsync.mode")
+}
+
 /// The classified result for one field.
 #[derive(Clone, Debug, Serialize)]
 pub struct Setting {

@@ -8,15 +8,18 @@
 //!
 //! `RadeonBackend` is the seam to ADLX: `adlx::AdlxBackend` is the real one, and the tests use a
 //! fake, so all of this runs without a GPU.
-use super::model::{Kind, Setting, State, Value};
-use anyhow::{Context, Result};
+use super::{
+    model::{self, Kind, Setting, State, Value},
+    owner::{self, Owner},
+};
+use anyhow::{Context, Result, bail};
 use butterpollo_core::state;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt,
     path::{Path, PathBuf},
-    time::Duration,
+    time::Instant,
 };
 
 /// The journal's file name inside the profile (config) directory.
@@ -26,6 +29,13 @@ pub const JOURNAL_FILE: &str = "radeon-journal.json";
 pub trait RadeonBackend {
     /// All settings of one GPU, freshly read from the driver.
     fn read(&mut self, gpu: i32) -> Result<Vec<Setting>, BackendError>;
+    /// The current value of one setting, freshly read.
+    fn read_value(&mut self, gpu: i32, id: &str) -> Result<Value, BackendError> {
+        let settings = self.read(gpu)?;
+        find(&settings, id)
+            .and_then(|s| s.value.clone())
+            .ok_or_else(|| BackendError(format!("the driver does not report {id}")))
+    }
     /// Write one value. The caller has validated it.
     fn write(&mut self, gpu: i32, id: &str, value: &Value) -> Result<(), BackendError>;
 }
@@ -115,6 +125,9 @@ pub struct Entry {
 pub struct Journal {
     #[serde(default)]
     pub version: u32,
+    /// The host that last wrote the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Owner>,
     #[serde(default)]
     pub entries: Vec<Entry>,
 }
@@ -134,15 +147,18 @@ impl Journal {
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
         }
     }
-    /// Atomic, and synced before it returns.
+    /// Atomic, and synced before it returns. Stamps this process as the owner.
     pub fn save(&self, path: &Path) -> Result<()> {
         let journal = Self {
             version: 1,
+            owner: Some(Owner::current()?),
             entries: self.entries.clone(),
         };
         state::write_json(path, &journal)
     }
-    /// Keeps the first original per setting: a second write only moves `written`.
+    /// Keeps the first original per setting: a second write only moves `written`. If the setting
+    /// no longer holds what the host wrote (`entry.original` is its value now), someone changed
+    /// it on the PC, that change wins and becomes the value to go back to.
     fn record(&mut self, entry: Entry) {
         match self
             .entries
@@ -150,6 +166,9 @@ impl Journal {
             .find(|e| e.gpu == entry.gpu && e.id == entry.id)
         {
             Some(existing) => {
+                if existing.written != entry.original {
+                    existing.original = entry.original;
+                }
                 existing.written = entry.written;
                 existing.session = entry.session;
                 existing.side_effect &= entry.side_effect;
@@ -203,22 +222,29 @@ impl RestoreReport {
 pub struct Controller<B> {
     backend: B,
     journal: PathBuf,
-    /// How long restore waits before it believes "already the original". Zero by default.
-    settle: Duration,
+    /// Restore stops starting new work after this; what is left stays journaled.
+    deadline: Option<Instant>,
 }
-
-/// What `recover_on_startup` waits for a dying process's last write to reach the driver.
-pub const STARTUP_SETTLE: Duration = Duration::from_secs(3);
 
 fn find<'a>(settings: &'a [Setting], id: &str) -> Option<&'a Setting> {
     settings.iter().find(|s| s.id == id)
 }
 
+fn is_on(settings: &[Setting], id: &str) -> bool {
+    matches!(
+        find(settings, id).and_then(|s| s.value.as_ref()),
+        Some(Value::Bool(true))
+    )
+}
+
+/// Checks the whole request against the settings as they are now, before anything is written.
 fn validate(settings: &[Setting], changes: &[Change]) -> Result<(), WriteError> {
     if changes.is_empty() {
         return Err(error(ErrorKind::InvalidValue, None, "no changes"));
     }
     let mut seen = HashSet::new();
+    // Toggles as the request leaves them, in order.
+    let mut toggles: HashMap<String, bool> = HashMap::new();
     for change in changes {
         let id = change.id.as_str();
         let invalid = |message: String| error(ErrorKind::InvalidValue, Some(id), message);
@@ -261,8 +287,70 @@ fn validate(settings: &[Setting], changes: &[Change]) -> Result<(), WriteError> 
             }
             (kind, _) => return Err(invalid(format!("expected a {kind:?} value").to_lowercase())),
         }
+        // The driver only takes some values while their feature is on.
+        if let Some(toggle) = model::feature_toggle(id) {
+            let on = toggles
+                .get(&toggle)
+                .copied()
+                .unwrap_or_else(|| is_on(settings, &toggle));
+            if !on {
+                return Err(invalid(format!(
+                    "the driver only accepts it while {toggle} is on; turn that on first or earlier in the same request"
+                )));
+            }
+        }
+        if let (Some(group), Value::Bool(on)) = (id.strip_suffix(".enabled"), &change.value) {
+            toggles.insert(id.to_string(), *on);
+            // Turning a feature on can switch an excluded one off. If the host can neither write
+            // nor restore that one, the request would leave the PC changed for good.
+            for other in model::excluded_by(group).filter(|_| *on) {
+                let partner = format!("{other}.enabled");
+                let Some(partner) = find(settings, &partner) else {
+                    continue;
+                };
+                let derived = model::derived_from(partner.id)
+                    .and_then(|from| find(settings, from))
+                    .is_some_and(|from| from.state == State::Configurable);
+                if partner.state != State::Configurable && is_on(settings, partner.id) && !derived
+                {
+                    return Err(invalid(format!(
+                        "turning it on can switch {} off, and the host cannot write or restore that setting ({})",
+                        partner.id,
+                        partner.state.name()
+                    )));
+                }
+            }
+        }
     }
     Ok(())
+}
+
+/// The toggles a request is expected to make the driver switch off: each configurable
+/// `<other>.enabled` that is on now and that a requested `<group>.enabled = true` excludes.
+fn predicted_effects(before: &[Setting], changes: &[Change]) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for change in changes {
+        let (Some(group), Value::Bool(true)) = (change.id.strip_suffix(".enabled"), &change.value)
+        else {
+            continue;
+        };
+        if is_on(before, &change.id) {
+            continue;
+        }
+        for other in model::excluded_by(group) {
+            let partner = format!("{other}.enabled");
+            let configurable =
+                find(before, &partner).is_some_and(|s| s.state == State::Configurable);
+            if configurable
+                && is_on(before, &partner)
+                && !changes.iter().any(|c| c.id == partner)
+                && !out.contains(&partner)
+            {
+                out.push(partner);
+            }
+        }
+    }
+    out
 }
 
 impl<B: RadeonBackend> Controller<B> {
@@ -270,18 +358,34 @@ impl<B: RadeonBackend> Controller<B> {
         Self {
             backend,
             journal,
-            settle: Duration::ZERO,
+            deadline: None,
         }
     }
-    pub fn with_settle(mut self, settle: Duration) -> Self {
-        self.settle = settle;
-        self
+    pub fn set_deadline(&mut self, deadline: Option<Instant>) {
+        self.deadline = deadline;
     }
     pub fn backend(&mut self) -> &mut B {
         &mut self.backend
     }
     pub fn journal(&self) -> Result<Journal> {
         Journal::load(&self.journal)
+    }
+
+    /// Take the journal's mutex and load it, unless another live host owns settings in it. The
+    /// lock stays held until the guard drops, so load, change and save are one step.
+    fn open(&self) -> Result<(owner::JournalLock, Journal)> {
+        let lock = owner::lock(&self.journal)?;
+        let journal = Journal::load(&self.journal)?;
+        if let Some(other) = journal.owner
+            && !journal.entries.is_empty()
+            && other.is_other_and_alive()
+        {
+            bail!(
+                "another host (process {}) owns the Radeon journal and has settings changed",
+                other.pid
+            );
+        }
+        Ok((lock, journal))
     }
 
     /// Validate, journal, apply in order, and return the driver's read-back. Either all of
@@ -293,10 +397,10 @@ impl<B: RadeonBackend> Controller<B> {
         changes: &[Change],
     ) -> Result<Vec<Setting>, WriteError> {
         let unavailable = |e: BackendError| error(ErrorKind::Unavailable, None, e.0);
+        let journal_error = |e: anyhow::Error| error(ErrorKind::Journal, None, format!("{e:#}"));
+        let (_lock, saved) = self.open().map_err(journal_error)?;
         let before = self.backend.read(gpu).map_err(unavailable)?;
         validate(&before, changes)?;
-        let journal_error = |e: anyhow::Error| error(ErrorKind::Journal, None, format!("{e:#}"));
-        let saved = Journal::load(&self.journal).map_err(journal_error)?;
         let mut journal = saved.clone();
         let original = |id: &str| find(&before, id).and_then(|s| s.value.clone());
         for change in changes {
@@ -315,6 +419,18 @@ impl<B: RadeonBackend> Controller<B> {
                 side_effect: false,
             });
         }
+        // The partners the driver is expected to switch off go in too. If it does not switch one,
+        // the entry is harmless: restore finds it already at its original.
+        for partner in predicted_effects(&before, changes) {
+            journal.record(Entry {
+                gpu,
+                id: partner,
+                session: session.into(),
+                original: Value::Bool(true),
+                written: Value::Bool(false),
+                side_effect: true,
+            });
+        }
         // The originals reach the disk before the first byte changes in the driver.
         journal.save(&self.journal).map_err(journal_error)?;
 
@@ -322,7 +438,7 @@ impl<B: RadeonBackend> Controller<B> {
         for change in changes {
             if let Err(e) = self.backend.write(gpu, &change.id, &change.value) {
                 let failure = error(ErrorKind::DriverRejected, Some(&change.id), e.0);
-                return Err(self.undo(gpu, &before, &applied, &saved, failure));
+                return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
             }
             applied.push(change);
         }
@@ -330,7 +446,7 @@ impl<B: RadeonBackend> Controller<B> {
             Ok(after) => after,
             Err(e) => {
                 let failure = error(ErrorKind::Unavailable, None, e.0);
-                return Err(self.undo(gpu, &before, &applied, &saved, failure));
+                return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
             }
         };
         for change in changes {
@@ -345,7 +461,35 @@ impl<B: RadeonBackend> Controller<B> {
                         now.map_or("nothing".into(), Value::display)
                     ),
                 );
-                return Err(self.undo(gpu, &before, &applied, &saved, failure));
+                return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
+            }
+        }
+        // A setting the host can neither write nor restore must not have moved, except next to
+        // what the request itself changed (vsync.enabled follows vsync.mode).
+        let touched: HashSet<&str> = changes
+            .iter()
+            .filter_map(|c| find(&before, &c.id).map(|s| s.group))
+            .collect();
+        for setting in &before {
+            if setting.state == State::Configurable || touched.contains(setting.group) {
+                continue;
+            }
+            let now = find(&after, setting.id).and_then(|s| s.value.as_ref());
+            if let (Some(was), Some(now)) = (&setting.value, now)
+                && was != now
+                && model::derived_from(setting.id).is_none()
+            {
+                let failure = error(
+                    ErrorKind::DriverRejected,
+                    Some(setting.id),
+                    format!(
+                        "the request switched {} from {} to {}, and the host cannot write or restore it",
+                        setting.id,
+                        was.display(),
+                        now.display()
+                    ),
+                );
+                return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
             }
         }
         // What the driver changed on its own is journaled too, so restore can undo it.
@@ -376,17 +520,29 @@ impl<B: RadeonBackend> Controller<B> {
         if effects && let Err(e) = journal.save(&self.journal) {
             tracing::error!(
                 error = format!("{e:#}"),
-                "journal the driver's side effects"
+                "journal the driver's side effects; undoing the request"
             );
+            let failure = error(
+                ErrorKind::Journal,
+                None,
+                format!(
+                    "the driver's side effects could not be journaled ({e:#}), so the request was undone"
+                ),
+            );
+            return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
         }
         Ok(after)
     }
 
-    /// Put every setting back to `before` after a failed request and say what it could not.
+    /// Put every setting back to `before` after a failed request and say what it could not. What
+    /// stays changed is journaled with the value it holds now, so a restore can still act on it.
+    #[allow(clippy::too_many_arguments)]
     fn undo(
         &mut self,
+        session: &str,
         gpu: i32,
         before: &[Setting],
+        changes: &[Change],
         applied: &[&Change],
         saved: &Journal,
         mut failure: WriteError,
@@ -407,25 +563,66 @@ impl<B: RadeonBackend> Controller<B> {
                 }
             }
         }
-        let stuck: Vec<String> = match self.backend.read(gpu) {
-            Ok(now) => before
-                .iter()
-                .filter(|s| s.state == State::Configurable)
-                .filter(|s| s.value.as_ref() != find(&now, s.id).and_then(|n| n.value.as_ref()))
-                .map(|s| s.id.to_string())
-                .collect(),
-            Err(_) => applied.iter().map(|c| c.id.clone()).collect(),
-        };
-        if stuck.is_empty() {
-            if let Err(e) = saved.save(&self.journal) {
-                tracing::error!(error = format!("{e:#}"), "reset the Radeon journal");
+        match self.backend.read(gpu) {
+            Ok(now) => {
+                let stuck: Vec<&Setting> = before
+                    .iter()
+                    .filter(|s| s.state == State::Configurable)
+                    .filter(|s| {
+                        s.value.as_ref() != find(&now, s.id).and_then(|n| n.value.as_ref())
+                    })
+                    .collect();
+                if stuck.is_empty() {
+                    if let Err(e) = saved.save(&self.journal) {
+                        tracing::error!(error = format!("{e:#}"), "reset the Radeon journal");
+                    }
+                    return failure;
+                }
+                let mut journal = saved.clone();
+                for setting in &stuck {
+                    let Some(was) = &setting.value else {
+                        continue;
+                    };
+                    let requested = changes.iter().find(|c| c.id == setting.id);
+                    let current = find(&now, setting.id)
+                        .and_then(|n| n.value.clone())
+                        .or_else(|| requested.map(|c| c.value.clone()))
+                        .unwrap_or_else(|| was.clone());
+                    journal.record(Entry {
+                        gpu,
+                        id: setting.id.into(),
+                        session: session.into(),
+                        original: was.clone(),
+                        written: current,
+                        side_effect: requested.is_none(),
+                    });
+                }
+                failure.message = format!(
+                    "{}; could not put back {}, which stays in the journal for the next restore",
+                    failure.message,
+                    stuck.iter().map(|s| s.id).collect::<Vec<_>>().join(", ")
+                );
+                if let Err(e) = journal.save(&self.journal) {
+                    tracing::error!(
+                        error = format!("{e:#}"),
+                        "journal the settings the undo could not put back"
+                    );
+                    failure.kind = ErrorKind::Journal;
+                    failure.message = format!(
+                        "{}; the journal could not be updated either ({e:#})",
+                        failure.message
+                    );
+                }
             }
-        } else {
-            failure.message = format!(
-                "{}; could not put back {}, which stays in the journal for the next restore",
-                failure.message,
-                stuck.join(", ")
-            );
+            Err(e) => {
+                // Nothing to compare with: the journal on disk still holds every change of the
+                // request, so a restore finds them.
+                tracing::error!(error = %e, "Radeon undo could not read the driver back");
+                failure.message = format!(
+                    "{}; the driver could not be read to check the undo, so the request stays in the journal",
+                    failure.message
+                );
+            }
         }
         failure
     }
@@ -434,57 +631,59 @@ impl<B: RadeonBackend> Controller<B> {
     /// host wrote; anything else was changed on the PC and is left alone. Entries that fail stay
     /// in the journal.
     pub fn restore(&mut self, scope: Scope) -> Result<RestoreReport> {
-        let mut journal = Journal::load(&self.journal)?;
+        self.restore_entries(scope, false)
+    }
+
+    /// For a host start: restore whatever a crashed run left in the journal. A setting that reads
+    /// as already original gets the original written once more, which changes nothing when the
+    /// read was right and covers a write that had not become visible yet.
+    pub fn recover_on_startup(&mut self) -> Result<RestoreReport> {
+        self.restore_entries(Scope::All, true)
+    }
+
+    fn expired(&self) -> bool {
+        self.deadline.is_some_and(|deadline| Instant::now() >= deadline)
+    }
+
+    fn restore_entries(&mut self, scope: Scope, startup: bool) -> Result<RestoreReport> {
+        let (_lock, mut journal) = self.open()?;
         let selected = |e: &Entry| match scope {
             Scope::All => true,
             Scope::Session(session) => e.session == session,
         };
         // Requested changes first, newest first; then what the driver switched as a consequence.
-        let mut order: Vec<usize> = (0..journal.entries.len())
-            .filter(|&i| selected(&journal.entries[i]))
+        let mut order: Vec<Entry> = journal
+            .entries
+            .iter()
+            .filter(|e| selected(e))
+            .cloned()
             .collect();
         order.reverse();
-        order.sort_by_key(|&i| journal.entries[i].side_effect);
-        let mut results: Vec<(usize, RestoreResult)> = vec![];
+        order.sort_by_key(|e| e.side_effect);
+        let mut results: Vec<(Entry, RestoreResult)> = vec![];
         let mut pending = order;
         for _ in 0..2 {
             let mut failed = vec![];
-            for &index in &pending {
-                let result = self.restore_one(&journal.entries[index]);
+            for entry in pending {
+                let result = if self.expired() {
+                    RestoreResult::Failed("the restore time limit passed".into())
+                } else {
+                    self.restore_one(&mut journal, &entry, startup)
+                };
                 if matches!(result, RestoreResult::Failed(_)) {
-                    failed.push(index);
+                    failed.push(entry.clone());
                 }
-                results.retain(|(i, _)| *i != index);
-                results.push((index, result));
+                results.retain(|(e, _)| !(e.gpu == entry.gpu && e.id == entry.id));
+                results.push((entry, result));
             }
             pending = failed;
             if pending.is_empty() {
                 break;
             }
         }
-        // A write from a process that just died can still be on its way to the driver (another
-        // process read it ~2 s late on the RX 7900 XT), so "already the original" is checked again
-        // after the settle time before the entry is dropped.
-        let settled: Vec<usize> = results
-            .iter()
-            .filter(|(_, result)| *result == RestoreResult::AlreadyOriginal)
-            .map(|(index, _)| *index)
-            .collect();
-        if !settled.is_empty() && !self.settle.is_zero() {
-            std::thread::sleep(self.settle);
-            for index in settled {
-                let again = self.restore_one(&journal.entries[index]);
-                if again != RestoreResult::AlreadyOriginal
-                    && let Some(slot) = results.iter_mut().find(|(i, _)| *i == index)
-                {
-                    slot.1 = again;
-                }
-            }
-        }
         let mut report = RestoreReport::default();
-        let mut keep = vec![true; journal.entries.len()];
-        for (index, result) in results {
-            let entry = &journal.entries[index];
+        let mut changed = false;
+        for (entry, result) in results {
             match &result {
                 RestoreResult::Failed(message) => tracing::error!(
                     setting = %entry.id,
@@ -506,42 +705,34 @@ impl<B: RadeonBackend> Controller<B> {
                 ),
                 RestoreResult::AlreadyOriginal => {}
             }
-            keep[index] = matches!(result, RestoreResult::Failed(_));
+            if !matches!(result, RestoreResult::Failed(_)) {
+                journal
+                    .entries
+                    .retain(|e| !(e.gpu == entry.gpu && e.id == entry.id));
+                changed = true;
+            }
             report.outcomes.push(Outcome {
                 gpu: entry.gpu,
-                id: entry.id.clone(),
+                id: entry.id,
                 result,
             });
         }
-        let mut index = 0;
-        let before = journal.entries.len();
-        journal.entries.retain(|_| {
-            index += 1;
-            keep[index - 1]
-        });
-        if journal.entries.len() != before {
+        if changed {
             journal.save(&self.journal)?;
         }
         Ok(report)
     }
 
-    /// For a host start: restore whatever a crashed run left in the journal.
-    pub fn recover_on_startup(&mut self) -> Result<RestoreReport> {
-        self.restore(Scope::All)
-    }
-
-    fn restore_one(&mut self, entry: &Entry) -> RestoreResult {
-        let current = |backend: &mut B| -> Result<Value, String> {
-            let settings = backend.read(entry.gpu).map_err(|e| e.0)?;
-            find(&settings, &entry.id)
-                .and_then(|s| s.value.clone())
-                .ok_or_else(|| "the driver no longer reports the setting".to_string())
-        };
-        let now = match current(&mut self.backend) {
+    fn restore_one(&mut self, journal: &mut Journal, entry: &Entry, startup: bool) -> RestoreResult {
+        let now = match self.backend.read_value(entry.gpu, &entry.id) {
             Ok(now) => now,
-            Err(message) => return RestoreResult::Failed(message),
+            Err(e) => return RestoreResult::Failed(e.0),
         };
         if now == entry.original {
+            if startup && let Err(e) = self.backend.write(entry.gpu, &entry.id, &entry.original) {
+                // It reads as the original, and the write is only for safety.
+                tracing::debug!(setting = %entry.id, error = %e, "startup write-back of the original");
+            }
             return RestoreResult::AlreadyOriginal;
         }
         if now != entry.written {
@@ -550,18 +741,120 @@ impl<B: RadeonBackend> Controller<B> {
                 written: entry.written.clone(),
             };
         }
-        if let Err(e) = self.backend.write(entry.gpu, &entry.id, &entry.original) {
-            return RestoreResult::Failed(e.0);
+        if let Some(toggle) = model::feature_toggle(&entry.id) {
+            match self.backend.read_value(entry.gpu, &toggle) {
+                Ok(Value::Bool(false)) => return self.restore_through(journal, entry, &toggle),
+                Ok(_) => {}
+                Err(e) => return RestoreResult::Failed(e.0),
+            }
         }
-        match current(&mut self.backend) {
-            Ok(value) if value == entry.original => RestoreResult::Restored,
-            Ok(value) => RestoreResult::Failed(format!(
+        match self.put_back(entry) {
+            Ok(()) => RestoreResult::Restored,
+            Err(message) => RestoreResult::Failed(message),
+        }
+    }
+
+    /// Write the original and check the read-back.
+    fn put_back(&mut self, entry: &Entry) -> Result<(), String> {
+        self.backend
+            .write(entry.gpu, &entry.id, &entry.original)
+            .map_err(|e| e.0)?;
+        let value = self
+            .backend
+            .read_value(entry.gpu, &entry.id)
+            .map_err(|e| e.0)?;
+        if value != entry.original {
+            return Err(format!(
                 "wrote {} and the driver reads back {}",
                 entry.original.display(),
                 value.display()
-            )),
-            Err(message) => RestoreResult::Failed(message),
+            ));
         }
+        Ok(())
+    }
+
+    /// The driver takes the field's value only while its feature is on, and the feature is off
+    /// now: switch it on (journaled first, with whatever that switches off), put the field back,
+    /// then put the feature back.
+    fn restore_through(
+        &mut self,
+        journal: &mut Journal,
+        entry: &Entry,
+        toggle: &str,
+    ) -> RestoreResult {
+        let group = toggle.strip_suffix(".enabled").unwrap_or(toggle);
+        let partners: Vec<String> = model::excluded_by(group)
+            .map(|other| format!("{other}.enabled"))
+            .filter(|id| {
+                matches!(
+                    self.backend.read_value(entry.gpu, id),
+                    Ok(Value::Bool(true))
+                )
+            })
+            .collect();
+        let mut temporary: Vec<String> = vec![];
+        let wanted = std::iter::once((toggle.to_string(), false, true))
+            .chain(partners.iter().map(|id| (id.clone(), true, false)));
+        for (id, original, written) in wanted {
+            if journal
+                .entries
+                .iter()
+                .any(|e| e.gpu == entry.gpu && e.id == id)
+            {
+                continue;
+            }
+            temporary.push(id.clone());
+            journal.entries.push(Entry {
+                gpu: entry.gpu,
+                id,
+                session: entry.session.clone(),
+                original: Value::Bool(original),
+                written: Value::Bool(written),
+                side_effect: true,
+            });
+        }
+        let forget = |journal: &mut Journal| {
+            journal
+                .entries
+                .retain(|e| !(e.gpu == entry.gpu && temporary.contains(&e.id)));
+        };
+        if let Err(e) = journal.save(&self.journal) {
+            forget(journal);
+            return RestoreResult::Failed(format!("journaling the temporary switch of {toggle}: {e:#}"));
+        }
+        if let Err(message) = self.through_toggle(entry, toggle, &partners) {
+            // The temporary entries stay: the next restore puts the switches back.
+            return RestoreResult::Failed(message);
+        }
+        forget(journal);
+        if let Err(e) = journal.save(&self.journal) {
+            tracing::warn!(error = format!("{e:#}"), "drop the temporary Radeon entries");
+        }
+        RestoreResult::Restored
+    }
+
+    fn through_toggle(
+        &mut self,
+        entry: &Entry,
+        toggle: &str,
+        partners: &[String],
+    ) -> Result<(), String> {
+        let gpu = entry.gpu;
+        let switch = |backend: &mut B, id: &str, on: bool| {
+            backend
+                .write(gpu, id, &Value::Bool(on))
+                .map_err(|e| format!("{id}: {e}"))
+        };
+        switch(&mut self.backend, toggle, true)?;
+        self.put_back(entry)?;
+        switch(&mut self.backend, toggle, false)?;
+        for partner in partners {
+            let now = self.backend.read_value(gpu, partner).map_err(|e| e.0)?;
+            if now != Value::Bool(true) {
+                switch(&mut self.backend, partner, true)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -639,9 +932,16 @@ mod tests {
         journal: Option<PathBuf>,
         journal_at_first_write: Option<Journal>,
         unreadable: bool,
-        /// The next reads show this id with this older value, as another process saw a dying
-        /// process's write ~2 s late: (id, stale value, reads left).
+        /// The next reads show this id with this older value, as a long-lived process sees a
+        /// setting another process wrote: (id, stale value, reads left).
         stale: Option<(&'static str, Value, usize)>,
+        /// Writing `.0` fails while the toggle `.1` is off.
+        needs_on: Vec<(&'static str, &'static str)>,
+        /// Writes of this id after the first n are silently dropped.
+        ignore_from: Option<(&'static str, usize)>,
+        /// Writing this id turns the journal path into a directory, so the next save fails.
+        break_journal_at: Option<&'static str>,
+        writes_of: HashMap<String, usize>,
     }
     #[derive(Clone, Default)]
     struct Fake(Rc<RefCell<Driver>>);
@@ -691,11 +991,31 @@ mod tests {
                 d.journal_at_first_write = Journal::load(&path).ok();
             }
             d.log.push(format!("{id}={}", value.display()));
+            let count = d.writes_of.entry(id.to_string()).or_default();
+            *count += 1;
+            let count = *count;
+            if d.break_journal_at == Some(id)
+                && let Some(path) = d.journal.clone()
+            {
+                let _ = std::fs::remove_file(&path);
+                std::fs::create_dir_all(&path).unwrap();
+            }
             if d.refuse == Some(id) {
                 return Err(BackendError("ADLX_NOT_SUPPORTED".into()));
             }
             if d.ignore == Some(id) {
                 return Ok(());
+            }
+            if d.ignore_from.is_some_and(|(ignored, n)| ignored == id && count > n) {
+                return Ok(());
+            }
+            let toggle_off = d.needs_on.iter().any(|(field, toggle)| {
+                *field == id
+                    && find(&d.settings, toggle).and_then(|s| s.value.as_ref())
+                        == Some(&Value::Bool(false))
+            });
+            if toggle_off {
+                return Err(BackendError("ADLX_FAIL".into()));
             }
             let effects: Vec<&str> = d
                 .excludes
@@ -723,6 +1043,7 @@ mod tests {
     fn panel() -> Fake {
         Fake::with(vec![
             toggle("chill.enabled", false),
+            integer("pacing.limit", 140),
             integer("chill.max_fps", 140),
             toggle("anti_lag.enabled", true),
             choice("tessellation.mode", "a"),
@@ -746,15 +1067,15 @@ mod tests {
                 ErrorKind::InvalidValue,
             ),
             (
-                change("chill.max_fps", Value::Int(20)),
+                change("pacing.limit", Value::Int(20)),
                 ErrorKind::InvalidValue,
             ),
             (
-                change("chill.max_fps", Value::Int(305)),
+                change("pacing.limit", Value::Int(305)),
                 ErrorKind::InvalidValue,
             ),
             (
-                change("chill.max_fps", Value::Int(145)),
+                change("pacing.limit", Value::Int(145)),
                 ErrorKind::InvalidValue,
             ),
             (
@@ -794,13 +1115,13 @@ mod tests {
                 "s1",
                 1,
                 &[
-                    change("chill.max_fps", Value::Int(150)),
+                    change("pacing.limit", Value::Int(150)),
                     change("tessellation.mode", Value::Choice("c".into())),
                 ],
             )
             .unwrap();
         assert_eq!(
-            find(&after, "chill.max_fps").unwrap().value,
+            find(&after, "pacing.limit").unwrap().value,
             Some(Value::Int(150))
         );
         let seen = fake.0.borrow().journal_at_first_write.clone().unwrap();
@@ -813,16 +1134,16 @@ mod tests {
         assert_eq!(seen.entries[0].written, Value::Int(150));
         let on_disk = Journal::load(&dir.path().join(JOURNAL_FILE)).unwrap();
         assert_eq!(on_disk.entries[1].original, Value::Choice("a".into()));
-        assert_eq!(fake.writes(), ["chill.max_fps=150", "tessellation.mode=c"]);
+        assert_eq!(fake.writes(), ["pacing.limit=150", "tessellation.mode=c"]);
     }
 
     #[test]
     fn the_first_original_is_kept_across_writes_in_a_session() {
         let fake = panel();
         let (mut c, _dir) = controller(&fake);
-        c.apply("s1", 1, &[change("chill.max_fps", Value::Int(150))])
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
             .unwrap();
-        c.apply("s1", 1, &[change("chill.max_fps", Value::Int(160))])
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(160))])
             .unwrap();
         let journal = c.journal().unwrap();
         assert_eq!(journal.entries.len(), 1);
@@ -830,7 +1151,7 @@ mod tests {
         assert_eq!(journal.entries[0].written, Value::Int(160));
         let report = c.restore(Scope::Session("s1")).unwrap();
         assert_eq!(report.outcomes[0].result, RestoreResult::Restored);
-        assert_eq!(fake.value("chill.max_fps"), Value::Int(140));
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
         assert!(c.journal().unwrap().entries.is_empty());
     }
 
@@ -845,7 +1166,7 @@ mod tests {
                 1,
                 &[
                     change("chill.enabled", on(true)),
-                    change("chill.max_fps", Value::Int(150)),
+                    change("pacing.limit", Value::Int(150)),
                     change("tessellation.mode", Value::Choice("b".into())),
                 ],
             )
@@ -853,7 +1174,7 @@ mod tests {
         assert_eq!(e.kind, ErrorKind::DriverRejected);
         assert_eq!(e.id.as_deref(), Some("tessellation.mode"));
         assert_eq!(fake.value("chill.enabled"), on(false));
-        assert_eq!(fake.value("chill.max_fps"), Value::Int(140));
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
         // The driver switched Anti-Lag off with Chill; undoing the request turned it back on.
         assert!(c.journal().unwrap().entries.is_empty());
     }
@@ -884,19 +1205,19 @@ mod tests {
     fn a_readback_that_differs_is_rejected_and_undone() {
         let fake = panel();
         let (mut c, _dir) = controller(&fake);
-        fake.0.borrow_mut().ignore = Some("chill.max_fps");
+        fake.0.borrow_mut().ignore = Some("pacing.limit");
         let e = c
             .apply(
                 "s1",
                 1,
                 &[
                     change("chill.enabled", on(true)),
-                    change("chill.max_fps", Value::Int(150)),
+                    change("pacing.limit", Value::Int(150)),
                 ],
             )
             .unwrap_err();
         assert_eq!(e.kind, ErrorKind::DriverRejected);
-        assert_eq!(e.id.as_deref(), Some("chill.max_fps"));
+        assert_eq!(e.id.as_deref(), Some("pacing.limit"));
         assert!(e.message.contains("reads back 140"), "{e}");
         assert_eq!(fake.value("chill.enabled"), on(false));
     }
@@ -937,23 +1258,23 @@ mod tests {
             "s1",
             1,
             &[
-                change("chill.max_fps", Value::Int(150)),
+                change("pacing.limit", Value::Int(150)),
                 change("chill.enabled", on(true)),
             ],
         )
         .unwrap();
-        fake.set("chill.max_fps", Value::Int(200));
+        fake.set("pacing.limit", Value::Int(200));
         let report = c.restore(Scope::Session("s1")).unwrap();
         let by_id = |id: &str| &report.outcomes.iter().find(|o| o.id == id).unwrap().result;
         assert_eq!(by_id("chill.enabled"), &RestoreResult::Restored);
         assert_eq!(
-            by_id("chill.max_fps"),
+            by_id("pacing.limit"),
             &RestoreResult::ChangedElsewhere {
                 current: Value::Int(200),
                 written: Value::Int(150)
             }
         );
-        assert_eq!(fake.value("chill.max_fps"), Value::Int(200));
+        assert_eq!(fake.value("pacing.limit"), Value::Int(200));
         assert_eq!(fake.value("chill.enabled"), on(false));
         assert!(
             c.journal().unwrap().entries.is_empty(),
@@ -969,7 +1290,7 @@ mod tests {
         let mut journal = Journal::default();
         journal.record(Entry {
             gpu: 1,
-            id: "chill.max_fps".into(),
+            id: "pacing.limit".into(),
             session: "s1".into(),
             original: Value::Int(140),
             written: Value::Int(150),
@@ -978,7 +1299,9 @@ mod tests {
         journal.save(&c.journal).unwrap();
         let report = c.recover_on_startup().unwrap();
         assert_eq!(report.outcomes[0].result, RestoreResult::AlreadyOriginal);
-        assert!(fake.writes().is_empty());
+        // Startup writes the original once more, which changes nothing here.
+        assert_eq!(fake.writes(), ["pacing.limit=140"]);
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
         assert!(c.journal().unwrap().entries.is_empty());
     }
 
@@ -986,17 +1309,17 @@ mod tests {
     fn a_failed_restore_stays_journaled_and_is_retried() {
         let fake = panel();
         let (mut c, _dir) = controller(&fake);
-        c.apply("s1", 1, &[change("chill.max_fps", Value::Int(150))])
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
             .unwrap();
-        fake.0.borrow_mut().refuse = Some("chill.max_fps");
+        fake.0.borrow_mut().refuse = Some("pacing.limit");
         let report = c.restore(Scope::Session("s1")).unwrap();
         assert!(!report.is_clean());
         assert_eq!(c.journal().unwrap().entries.len(), 1);
-        assert_eq!(fake.value("chill.max_fps"), Value::Int(150));
+        assert_eq!(fake.value("pacing.limit"), Value::Int(150));
         fake.0.borrow_mut().refuse = None;
         let report = c.recover_on_startup().unwrap();
         assert!(report.is_clean());
-        assert_eq!(fake.value("chill.max_fps"), Value::Int(140));
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
         assert!(c.journal().unwrap().entries.is_empty());
     }
 
@@ -1004,7 +1327,7 @@ mod tests {
     fn restore_by_session_leaves_the_other_sessions() {
         let fake = panel();
         let (mut c, _dir) = controller(&fake);
-        c.apply("s1", 1, &[change("chill.max_fps", Value::Int(150))])
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
             .unwrap();
         c.apply(
             "s2",
@@ -1014,7 +1337,7 @@ mod tests {
         .unwrap();
         c.restore(Scope::Session("s2")).unwrap();
         assert_eq!(fake.value("tessellation.mode"), Value::Choice("a".into()));
-        assert_eq!(fake.value("chill.max_fps"), Value::Int(150));
+        assert_eq!(fake.value("pacing.limit"), Value::Int(150));
         assert_eq!(c.journal().unwrap().entries.len(), 1);
     }
 
@@ -1030,61 +1353,58 @@ mod tests {
                 1,
                 &[
                     change("chill.enabled", on(true)),
-                    change("chill.max_fps", Value::Int(150)),
+                    change("pacing.limit", Value::Int(150)),
                 ],
             )
             .unwrap();
             // The process dies here: nothing restores, the controller is just gone.
         }
-        assert_eq!(fake.value("chill.max_fps"), Value::Int(150));
+        assert_eq!(fake.value("pacing.limit"), Value::Int(150));
         let mut restarted = Controller::new(fake.clone(), path);
         let report = restarted.recover_on_startup().unwrap();
         assert!(report.is_clean());
-        assert_eq!(report.outcomes.len(), 2);
+        // Both requested changes, and Anti-Lag, which Chill is expected to switch off.
+        assert_eq!(report.outcomes.len(), 3);
         assert_eq!(fake.value("chill.enabled"), on(false));
-        assert_eq!(fake.value("chill.max_fps"), Value::Int(140));
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
         assert!(restarted.journal().unwrap().entries.is_empty());
     }
 
     #[test]
-    fn a_late_visible_write_is_restored_after_the_settle_time() {
+    fn startup_writes_the_original_back_even_when_the_read_says_it_is_there() {
         let fake = panel();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(JOURNAL_FILE);
         Controller::new(fake.clone(), path.clone())
             .apply("s1", 1, &[change("chill.enabled", on(true))])
             .unwrap();
-        // The first read still shows the original, though the write has landed.
+        // The read still shows the original, though the write has landed.
         fake.0.borrow_mut().stale = Some(("chill.enabled", on(false), 1));
-
-        let mut hasty = Controller::new(fake.clone(), path.clone());
-        let report = hasty.restore(Scope::All).unwrap();
-        assert_eq!(report.outcomes[0].result, RestoreResult::AlreadyOriginal);
-        assert_eq!(
-            fake.value("chill.enabled"),
-            on(true),
-            "the stale read fooled it"
-        );
-
-        // With the settle time the entry is checked again and the real value put back.
-        let fake = panel();
-        let path = dir.path().join("second.json");
-        Controller::new(fake.clone(), path.clone())
-            .apply("s2", 1, &[change("chill.enabled", on(true))])
+        let report = Controller::new(fake.clone(), path.clone())
+            .recover_on_startup()
             .unwrap();
-        fake.0.borrow_mut().stale = Some(("chill.enabled", on(false), 1));
-        let mut patient = Controller::new(fake.clone(), path).with_settle(Duration::from_millis(5));
-        let report = patient.recover_on_startup().unwrap();
-        assert_eq!(report.outcomes[0].result, RestoreResult::Restored);
-        assert_eq!(fake.value("chill.enabled"), on(false));
-        assert!(patient.journal().unwrap().entries.is_empty());
+        assert_eq!(report.outcomes[0].result, RestoreResult::AlreadyOriginal);
+        assert_eq!(fake.value("chill.enabled"), on(false), "written back anyway");
+        assert!(report.is_clean());
+    }
+
+    #[test]
+    fn a_session_restore_does_not_write_what_reads_as_original() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
+            .unwrap();
+        fake.set("pacing.limit", Value::Int(140));
+        let writes = fake.writes().len();
+        c.restore(Scope::Session("s1")).unwrap();
+        assert_eq!(fake.writes().len(), writes);
     }
 
     #[test]
     fn an_unreadable_gpu_fails_a_restore_without_dropping_the_entry() {
         let fake = panel();
         let (mut c, _dir) = controller(&fake);
-        c.apply("s1", 1, &[change("chill.max_fps", Value::Int(150))])
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
             .unwrap();
         fake.0.borrow_mut().unreadable = true;
         let report = c.recover_on_startup().unwrap();
@@ -1118,5 +1438,401 @@ mod tests {
             .unwrap_err();
         assert_eq!(e.kind, ErrorKind::Unavailable);
         assert!(!dir.path().join(JOURNAL_FILE).exists());
+    }
+
+    fn entry_of<'a>(journal: &'a Journal, id: &str) -> &'a Entry {
+        journal.entries.iter().find(|e| e.id == id).unwrap()
+    }
+
+    #[test]
+    fn a_partner_the_driver_will_switch_off_is_on_disk_before_the_first_write() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        fake.0.borrow_mut().excludes = vec![("chill.enabled", "anti_lag.enabled")];
+        c.apply("s1", 1, &[change("chill.enabled", on(true))])
+            .unwrap();
+        let seen = fake.0.borrow().journal_at_first_write.clone().unwrap();
+        let effect = entry_of(&seen, "anti_lag.enabled");
+        assert!(effect.side_effect);
+        assert_eq!((&effect.original, &effect.written), (&on(true), &on(false)));
+        assert_eq!(fake.value("anti_lag.enabled"), on(false));
+    }
+
+    #[test]
+    fn a_partner_the_driver_leaves_alone_is_harmless_in_the_journal() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        c.apply("s1", 1, &[change("chill.enabled", on(true))])
+            .unwrap();
+        let seen = fake.0.borrow().journal_at_first_write.clone().unwrap();
+        assert!(entry_of(&seen, "anti_lag.enabled").side_effect);
+        let writes = fake.writes().len();
+        let report = c.restore(Scope::Session("s1")).unwrap();
+        assert!(report.is_clean());
+        assert_eq!(fake.value("anti_lag.enabled"), on(true));
+        // Chill went back; Anti-Lag already was original and was not written.
+        assert_eq!(fake.writes().len(), writes + 1);
+        assert!(c.journal().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn a_side_effect_that_cannot_be_journaled_undoes_the_request() {
+        let mut settings = panel().0.borrow().settings.clone();
+        settings.push(toggle("surprise.enabled", true));
+        let fake = Fake::with(settings);
+        let (mut c, _dir) = controller(&fake);
+        // Nothing in the dependency table predicts this one.
+        fake.0.borrow_mut().excludes = vec![("chill.enabled", "surprise.enabled")];
+        fake.0.borrow_mut().break_journal_at = Some("chill.enabled");
+        let e = c
+            .apply("s1", 1, &[change("chill.enabled", on(true))])
+            .unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Journal, "{e}");
+        assert_eq!(fake.value("chill.enabled"), on(false));
+        assert_eq!(fake.value("surprise.enabled"), on(true));
+    }
+
+    fn stuck_request() -> [Change; 2] {
+        [
+            change("pacing.limit", Value::Int(150)),
+            change("tessellation.mode", Value::Choice("b".into())),
+        ]
+    }
+
+    #[test]
+    fn a_stuck_undo_is_journaled_with_the_value_it_holds() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        fake.0.borrow_mut().refuse = Some("tessellation.mode");
+        // The first write lands, the undo write of the same setting is dropped.
+        fake.0.borrow_mut().ignore_from = Some(("pacing.limit", 1));
+        let e = c.apply("s1", 1, &stuck_request()).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::DriverRejected);
+        assert!(e.message.contains("pacing.limit"), "{e}");
+        assert_eq!(fake.value("pacing.limit"), Value::Int(150));
+        let journal = c.journal().unwrap();
+        assert_eq!(journal.entries.len(), 1);
+        let stuck = entry_of(&journal, "pacing.limit");
+        assert_eq!(stuck.original, Value::Int(140));
+        assert_eq!(stuck.written, Value::Int(150));
+        assert_eq!(stuck.session, "s1");
+        // Once the driver listens again a restore finds it.
+        fake.0.borrow_mut().ignore_from = None;
+        let report = c.restore(Scope::Session("s1")).unwrap();
+        assert_eq!(report.outcomes[0].result, RestoreResult::Restored);
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
+    }
+
+    #[test]
+    fn a_stuck_undo_that_cannot_be_journaled_fails_loudly() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        fake.0.borrow_mut().refuse = Some("tessellation.mode");
+        fake.0.borrow_mut().ignore_from = Some(("pacing.limit", 1));
+        fake.0.borrow_mut().break_journal_at = Some("tessellation.mode");
+        let e = c.apply("s1", 1, &stuck_request()).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Journal);
+        assert!(e.message.contains("pacing.limit"), "{e}");
+        assert!(e.message.contains("journal could not be updated"), "{e}");
+    }
+
+    #[test]
+    fn restore_switches_a_feature_on_for_its_field_and_puts_it_back() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        fake.0.borrow_mut().needs_on = vec![("chill.max_fps", "chill.enabled")];
+        fake.0.borrow_mut().excludes = vec![("chill.enabled", "anti_lag.enabled")];
+        c.apply(
+            "s1",
+            1,
+            &[
+                change("chill.enabled", on(true)),
+                change("chill.max_fps", Value::Int(150)),
+            ],
+        )
+        .unwrap();
+        // Chill was turned off on the PC; the driver now refuses chill.max_fps.
+        fake.set("chill.enabled", on(false));
+        let writes = fake.writes().len();
+        let report = c.restore(Scope::Session("s1")).unwrap();
+        assert!(report.is_clean(), "{report:?}");
+        assert_eq!(fake.value("chill.max_fps"), Value::Int(140));
+        assert_eq!(fake.value("chill.enabled"), on(false));
+        assert_eq!(fake.value("anti_lag.enabled"), on(true));
+        assert_eq!(
+            fake.writes()[writes..3 + writes],
+            ["chill.enabled=on", "chill.max_fps=140", "chill.enabled=off"]
+        );
+        assert!(c.journal().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn restore_journals_the_temporary_switch_before_it_writes() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        {
+            let mut d = fake.0.borrow_mut();
+            d.needs_on = vec![("chill.max_fps", "chill.enabled")];
+            d.excludes = vec![("chill.enabled", "anti_lag.enabled")];
+        }
+        fake.set("chill.max_fps", Value::Int(150));
+        let mut journal = Journal::default();
+        journal.record(Entry {
+            gpu: 1,
+            id: "chill.max_fps".into(),
+            session: "s1".into(),
+            original: Value::Int(140),
+            written: Value::Int(150),
+            side_effect: false,
+        });
+        journal.save(&c.journal).unwrap();
+        let report = c.restore(Scope::All).unwrap();
+        assert!(report.is_clean(), "{report:?}");
+        let seen = fake.0.borrow().journal_at_first_write.clone().unwrap();
+        let toggle = entry_of(&seen, "chill.enabled");
+        assert_eq!((&toggle.original, &toggle.written), (&on(false), &on(true)));
+        let partner = entry_of(&seen, "anti_lag.enabled");
+        assert_eq!((&partner.original, &partner.written), (&on(true), &on(false)));
+        assert_eq!(fake.value("chill.max_fps"), Value::Int(140));
+        assert_eq!(fake.value("chill.enabled"), on(false));
+        assert_eq!(fake.value("anti_lag.enabled"), on(true));
+        assert!(c.journal().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn a_failed_restore_through_the_feature_leaves_the_temporary_entries() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        fake.0.borrow_mut().needs_on = vec![("chill.max_fps", "chill.enabled")];
+        fake.set("chill.max_fps", Value::Int(150));
+        // The field write fails, so the feature stays on and the entries stay.
+        fake.0.borrow_mut().refuse = Some("chill.max_fps");
+        let mut journal = Journal::default();
+        journal.record(Entry {
+            gpu: 1,
+            id: "chill.max_fps".into(),
+            session: "s1".into(),
+            original: Value::Int(140),
+            written: Value::Int(150),
+            side_effect: false,
+        });
+        journal.save(&c.journal).unwrap();
+        let report = c.restore(Scope::All).unwrap();
+        assert_eq!(report.failed().count(), 1);
+        let journal = c.journal().unwrap();
+        assert!(journal.entries.iter().any(|e| e.id == "chill.enabled"));
+        fake.0.borrow_mut().refuse = None;
+        let report = c.recover_on_startup().unwrap();
+        assert!(report.is_clean(), "{report:?}");
+        assert_eq!(fake.value("chill.max_fps"), Value::Int(140));
+        assert_eq!(fake.value("chill.enabled"), on(false));
+        assert!(c.journal().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn a_field_that_needs_its_feature_on_is_refused_unless_it_is_on_by_then() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        let cases: [Vec<Change>; 2] = [
+            vec![change("chill.max_fps", Value::Int(150))],
+            vec![
+                change("chill.max_fps", Value::Int(150)),
+                change("chill.enabled", on(true)),
+            ],
+        ];
+        for request in cases {
+            let e = c.apply("s1", 1, &request).unwrap_err();
+            assert_eq!(e.kind, ErrorKind::InvalidValue);
+            assert_eq!(e.id.as_deref(), Some("chill.max_fps"));
+            assert!(e.message.contains("chill.enabled"), "{e}");
+        }
+        assert!(fake.writes().is_empty());
+        c.apply(
+            "s1",
+            1,
+            &[
+                change("chill.enabled", on(true)),
+                change("chill.max_fps", Value::Int(150)),
+            ],
+        )
+        .unwrap();
+        // On now, so the field alone is fine; switching it off first is not.
+        c.apply("s1", 1, &[change("chill.max_fps", Value::Int(160))])
+            .unwrap();
+        let e = c
+            .apply(
+                "s1",
+                1,
+                &[
+                    change("chill.enabled", on(false)),
+                    change("chill.max_fps", Value::Int(170)),
+                ],
+            )
+            .unwrap_err();
+        assert_eq!(e.kind, ErrorKind::InvalidValue);
+    }
+
+    fn read_only(id: &'static str, value: Value) -> Setting {
+        let mut s = setting(id, Kind::Toggle, value);
+        s.state = State::ReadOnly;
+        s
+    }
+
+    #[test]
+    fn enabling_a_group_that_excludes_a_setting_the_host_cannot_restore_is_refused() {
+        let fake = Fake::with(vec![
+            toggle("boost.enabled", false),
+            read_only("rsr.enabled", on(true)),
+        ]);
+        let (mut c, dir) = controller(&fake);
+        let e = c
+            .apply("s1", 1, &[change("boost.enabled", on(true))])
+            .unwrap_err();
+        assert_eq!(e.kind, ErrorKind::InvalidValue);
+        assert_eq!(e.id.as_deref(), Some("boost.enabled"));
+        assert!(e.message.contains("rsr.enabled"), "{e}");
+        assert!(fake.writes().is_empty());
+        assert!(!dir.path().join(JOURNAL_FILE).exists());
+        // Switching it off, or enabling it while RSR is off, is fine.
+        fake.set("rsr.enabled", on(false));
+        c.apply("s1", 1, &[change("boost.enabled", on(true))])
+            .unwrap();
+    }
+
+    #[test]
+    fn a_derived_read_only_partner_does_not_block_its_driving_setting() {
+        let derived = |mode_state: State| {
+            let mut mode = choice("vsync.mode", "a");
+            mode.state = mode_state;
+            Fake::with(vec![
+                toggle("enhanced_sync.enabled", false),
+                mode,
+                read_only("vsync.enabled", on(true)),
+            ])
+        };
+        // vsync.enabled follows vsync.mode, which the host can write and restore.
+        let fake = derived(State::Configurable);
+        let (mut c, _dir) = controller(&fake);
+        c.apply("s1", 1, &[change("enhanced_sync.enabled", on(true))])
+            .unwrap();
+        let fake = derived(State::ReadOnly);
+        let (mut c, _dir) = controller(&fake);
+        let e = c
+            .apply("s1", 1, &[change("enhanced_sync.enabled", on(true))])
+            .unwrap_err();
+        assert!(e.message.contains("vsync.enabled"), "{e}");
+    }
+
+    #[test]
+    fn a_setting_the_host_cannot_write_that_moved_undoes_the_request() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        fake.set("rsr.enabled", on(true));
+        // The dependency table does not know about this one.
+        fake.0.borrow_mut().excludes = vec![("chill.enabled", "rsr.enabled")];
+        let e = c
+            .apply("s1", 1, &[change("chill.enabled", on(true))])
+            .unwrap_err();
+        assert_eq!(e.kind, ErrorKind::DriverRejected);
+        assert_eq!(e.id.as_deref(), Some("rsr.enabled"));
+        assert!(e.message.contains("cannot write or restore"), "{e}");
+        assert_eq!(fake.value("chill.enabled"), on(false));
+        assert!(c.journal().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn a_local_change_between_writes_becomes_the_value_to_go_back_to() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
+            .unwrap();
+        fake.set("pacing.limit", Value::Int(200));
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(160))])
+            .unwrap();
+        let journal = c.journal().unwrap();
+        assert_eq!(entry_of(&journal, "pacing.limit").original, Value::Int(200));
+        c.restore(Scope::Session("s1")).unwrap();
+        assert_eq!(fake.value("pacing.limit"), Value::Int(200));
+    }
+
+    fn live_process() -> std::process::Child {
+        std::process::Command::new("cmd")
+            .args(["/c", "ping -n 30 127.0.0.1 >nul"])
+            .spawn()
+            .unwrap()
+    }
+    fn journal_owned_by(path: &Path, pid: u32, started: u64, entries: Vec<Entry>) {
+        let journal = Journal {
+            version: 1,
+            owner: Some(Owner { pid, started }),
+            entries,
+        };
+        state::write_json(path, &journal).unwrap();
+    }
+    fn some_entry() -> Entry {
+        Entry {
+            gpu: 1,
+            id: "pacing.limit".into(),
+            session: "other".into(),
+            original: Value::Int(140),
+            written: Value::Int(150),
+            side_effect: false,
+        }
+    }
+
+    #[test]
+    fn a_second_host_does_not_touch_a_live_hosts_journal() {
+        let fake = panel();
+        fake.set("pacing.limit", Value::Int(150));
+        let (mut c, _dir) = controller(&fake);
+        let mut other = live_process();
+        let started = owner::identity(other.id()).unwrap().unwrap();
+        journal_owned_by(&c.journal, other.id(), started, vec![some_entry()]);
+        assert!(c.recover_on_startup().is_err());
+        assert!(c.restore(Scope::Session("other")).is_err());
+        let e = c
+            .apply("s2", 1, &[change("chill.enabled", on(true))])
+            .unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Journal);
+        assert!(e.message.contains("another host"), "{e}");
+        assert!(fake.writes().is_empty());
+        assert_eq!(c.journal().unwrap().entries.len(), 1);
+        other.kill().unwrap();
+        let _ = other.wait();
+        // Once that host is gone its entries are restored like a crash's.
+        let report = c.recover_on_startup().unwrap();
+        assert!(report.is_clean());
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
+    }
+
+    #[test]
+    fn a_live_hosts_empty_journal_does_not_block_a_second_host() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        let mut other = live_process();
+        let started = owner::identity(other.id()).unwrap().unwrap();
+        journal_owned_by(&c.journal, other.id(), started, vec![]);
+        c.apply("s2", 1, &[change("chill.enabled", on(true))])
+            .unwrap();
+        assert_eq!(c.journal().unwrap().owner, Some(Owner::current().unwrap()));
+        other.kill().unwrap();
+        let _ = other.wait();
+    }
+
+    #[test]
+    fn restore_stops_at_its_deadline_and_keeps_what_is_left() {
+        let fake = panel();
+        let (mut c, _dir) = controller(&fake);
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
+            .unwrap();
+        c.set_deadline(Some(
+            Instant::now() - std::time::Duration::from_secs(1),
+        ));
+        let report = c.recover_on_startup().unwrap();
+        assert_eq!(report.failed().count(), 1);
+        assert_eq!(fake.value("pacing.limit"), Value::Int(150));
+        c.set_deadline(None);
+        assert!(c.recover_on_startup().unwrap().is_clean());
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
     }
 }

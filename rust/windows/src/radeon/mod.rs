@@ -12,6 +12,7 @@ pub mod control;
 #[cfg(test)]
 mod hardware;
 pub mod model;
+pub mod owner;
 
 pub use adlx::{AdlxBackend, AdlxInfo, DriverInfo, GpuReport, Probe, probe};
 pub use control::{
@@ -23,9 +24,7 @@ pub use model::{Kind, Setting, State, Writable};
 /// Put back any setting a crashed session left changed. The host calls this once at startup,
 /// before it accepts a stream; a failure is returned so the host can log it loudly.
 pub fn recover_on_startup(directory: &std::path::Path) -> anyhow::Result<RestoreReport> {
-    Controller::new(AdlxBackend, directory.join(control::JOURNAL_FILE))
-        .with_settle(control::STARTUP_SETTLE)
-        .recover_on_startup()
+    Controller::new(AdlxBackend, directory.join(control::JOURNAL_FILE)).recover_on_startup()
 }
 
 use serde::Serialize;

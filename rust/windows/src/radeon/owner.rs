@@ -20,10 +20,20 @@ impl Owner {
         let started = identity(pid)?.ok_or_else(|| anyhow::anyhow!("host identity unavailable"))?;
         Ok(Self { pid, started })
     }
-    /// Another process that is still running.
+    /// Another process that is still running. When its state cannot be determined (the process
+    /// cannot be opened), it counts as alive: a second host must not restore a live host's
+    /// settings.
     pub fn is_other_and_alive(&self) -> bool {
-        self.pid != std::process::id()
-            && matches!(identity(self.pid), Ok(Some(t)) if t == self.started)
+        self.pid != std::process::id() && self.still_running(identity(self.pid))
+    }
+    fn still_running(&self, identity: Result<Option<u64>>) -> bool {
+        match identity {
+            Ok(started) => started == Some(self.started),
+            Err(e) => {
+                tracing::warn!(pid = self.pid, error = %format!("{e:#}"), "cannot tell whether the Radeon journal's owner is alive; assuming it is");
+                true
+            }
+        }
     }
 }
 
@@ -42,8 +52,13 @@ impl Drop for JournalLock {
 /// Take the journal's mutex; wait for another thread or process that holds it.
 pub fn lock(path: &Path) -> Result<JournalLock> {
     let hash = butterpollo_core::crypto::hash(path.to_string_lossy().to_lowercase().as_bytes());
+    // `Global\`: the installed host runs as SYSTEM in the console session and a development host
+    // as the user, possibly in another session; a `Local\` name would not be shared between them.
+    // The default security descriptor of the creator lets SYSTEM and administrators open it; any
+    // other account gets an access error from CreateMutexW, which is loud, not a silent lock-less
+    // run.
     let name: Vec<u16> = format!(
-        "Local\\Butterpollo.RadeonJournal.{:x}\0",
+        "Global\\Butterpollo.RadeonJournal.{:x}\0",
         u64::from_le_bytes(hash[..8].try_into().unwrap())
     )
     .encode_utf16()
@@ -110,6 +125,18 @@ mod tests {
         let started = identity(pid).ok().flatten().unwrap_or(1);
         child.wait().unwrap();
         assert!(!Owner { pid, started }.is_other_and_alive());
+    }
+
+    #[test]
+    fn an_owner_that_cannot_be_checked_counts_as_alive() {
+        let owner = Owner {
+            pid: 4_000_000,
+            started: 7,
+        };
+        assert!(owner.still_running(Err(anyhow::anyhow!("access denied"))));
+        assert!(!owner.still_running(Ok(None)));
+        assert!(!owner.still_running(Ok(Some(8))));
+        assert!(owner.still_running(Ok(Some(7))));
     }
 
     #[test]

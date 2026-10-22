@@ -5,6 +5,17 @@
 //! few hundred cycles on AMD Software 26.9.2, and two owners terminating each other's system
 //! handle is the same bug waiting to happen. Every user takes the lock for the time it spends on
 //! ADLX, so two threads never race a write or a read.
+//!
+//! In the host the Radeon settings reads and writes run in helper processes (`radeon::helper`),
+//! not here, so telemetry's sampling never waits on settings IO; only the helper itself and the
+//! hardware tests use the in-process `radeon::adlx` backend.
+//!
+//! Known limit: the system handle is kept across a driver reset or driver update. Telemetry used
+//! to initialise and terminate its own handle for every new `Telemetry`, so a new stream got a
+//! fresh one after a reset; now a stale handle makes samples fail (reported as missing metrics)
+//! until the host restarts. Re-initialising is not an option (see above), so a refresh would
+//! need the same helper-process treatment as the settings; it has not been measured whether a
+//! reset really leaves this handle unusable.
 use crate::telemetry::{ADLX_VERSION, Handle, system_library};
 use anyhow::{Result, bail};
 use std::{ptr, sync::Mutex};

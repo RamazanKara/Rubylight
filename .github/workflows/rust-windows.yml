@@ -86,8 +86,9 @@ jobs:
     if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
     runs-on: windows-2022
     # A signed release builds without the cache and waits for a SignPath
-    # approver once per request (up to three requests, an hour each).
-    timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 50 }}
+    # approver once per request (up to three requests, an hour each). A
+    # cached run took 48 minutes in October 2026, so 50 cut one off.
+    timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 75 }}
     permissions:
       contents: read
       actions: read

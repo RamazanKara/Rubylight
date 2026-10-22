@@ -2,7 +2,7 @@
 
 [Docs](README.md) · [HTTP API](api.md) · [Hardware metrics](hardware-metrics.md) · [3.0 plan](rubylight-3.0-plan.md)
 
-Status: **spec, not implemented** (plan item A3). It is the contract between the host and `nightjar-core` for the alpha.2 couch loop: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
+Status: **host side implemented, briefs 1 to 4 of A3** (capabilities, library, session actions and the Radeon endpoints, with fake-backend host tests; brief 5 and a real client are still to come). It is the contract between the host and `nightjar-core` for the alpha.2 couch loop: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
 
 ## Ground rules
 
@@ -441,6 +441,8 @@ Five briefs, in order. 2 can run in parallel with 1 (separate worktree), 4 waits
 - **Acceptance:** `parity_tests`-style tests, one per row and per error code: an unpaired request gets 403 `not_paired`, Close game without host control gets 403, an action from a non-owner gets 409, Disconnect never stops `current_app`, End keeps it and Close stops it, repeated actions are idempotent, `/applist`, `/cancel` and the other `/serverinfo` fields are byte-identical to before (snapshot), and the library ids are stable across a rename. Then the full `build.ps1` gate.
 
 ### Brief 4: Radeon endpoints (implementer, about 90 turns, after A5's core lands)
+
+**Status: done.** The endpoints are in `rust/host/src/native_api/radeon.rs`. The host's side of the session link (which device changed settings, and when they go back) is `rust/host/src/radeon_session.rs`, and `Host::with_session` calls it after every step of the session machine, so every way a session ends restores through one line (End, Close game, grace expiry, stock `/cancel`, a stream that ends with no grace); Disconnect keeps a suspended owner and restores nothing. Unpair and disable have their own hook (`release_device`), and a clean shutdown flushes. Reads, writes and restores go through the A5 worker thread (`rust/windows/src/radeon/worker.rs`), never on the async executor or a stream thread, and a read is cached for one second. The tests are `rust/host/src/nvhttp/native_tests/radeon.rs` (a `RadeonBackend` fake under the real worker). POST `/radeon/restore` follows the table: it needs the owner of a streaming or suspended session, and answers `no_session` otherwise; the restore at session end does not need a request.
 
 - **Owns:** `rust/host/src/native_api/radeon.rs` (new), a `RadeonBackend` trait with a fake for tests, the wiring to A5's ADLX worker and journal (A5 owns `rust/windows/src/radeon*` and the journal format), and the restore hooks on the session-end paths (End, Close, grace expiry, unpair or disable, shutdown, startup recovery).
 - **Steps:**

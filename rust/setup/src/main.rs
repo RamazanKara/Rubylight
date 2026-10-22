@@ -160,11 +160,12 @@ fn main() {
         .then(gpu::refusal)
         .flatten();
     let code = if let Some(refusal) = refusal {
-        failed(
-            args.quiet,
-            "This PC cannot run Rubylight 3.0",
-            &anyhow::Error::new(refusal),
-        )
+        let error = anyhow::Error::new(refusal);
+        if args.update {
+            // The console shows the update record, so it says why there.
+            update::record_refusal(&install::profile(), None, &error);
+        }
+        failed(args.quiet, "This PC cannot run Rubylight 3.0", &error)
     } else if args.repair_drivers {
         match ui::progress(TITLE, "Repairing the drivers", true, |progress| {
             install::repair_drivers(&progress)

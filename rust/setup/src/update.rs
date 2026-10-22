@@ -209,7 +209,7 @@ fn open_lock(profile: &Path) -> std::io::Result<std::fs::File> {
 /// setup exited. Only into a profile folder setup trusts, never while
 /// another setup holds update.lock (`lock` is this one's, if taken), and
 /// never over a record that names a backup still to be put back.
-fn record_refusal(profile: &Path, lock: Option<std::fs::File>, error: &anyhow::Error) {
+pub(crate) fn record_refusal(profile: &Path, lock: Option<std::fs::File>, error: &anyhow::Error) {
     let recorded = (|| -> Result<()> {
         system::trusted_ancestors(profile.parent().context("profile has no parent")?)?;
         let _lock = match lock {
@@ -957,6 +957,27 @@ mod tests {
         assert_eq!(code, 0, "{output}");
         record_refusal(&profile, None, &error);
         assert_eq!(phase()?, "installing");
+        Ok(())
+    }
+    #[test]
+    fn a_pc_without_an_amd_gpu_is_recorded_as_a_failed_update() -> Result<()> {
+        // The profile must be owned by Administrators, as setup leaves it.
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let profile = temp.path().join("Butterpollo/config");
+        std::fs::create_dir_all(&profile)?;
+        let refusal = crate::amd_gpu::Refusal::NoGpu;
+        let text = refusal.to_string();
+        // What main does for `--update` on a PC the check refuses.
+        record_refusal(&profile, None, &anyhow::Error::new(refusal));
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(profile.join("update-result.json"))?)?;
+        assert_eq!(written["phase"], "failed");
+        assert_eq!(written["error"], text);
+        assert!(!text.is_empty());
         Ok(())
     }
     #[test]

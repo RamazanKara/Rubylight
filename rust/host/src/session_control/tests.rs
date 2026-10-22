@@ -87,8 +87,8 @@ fn a_host_with_no_stream_or_game_is_idle_and_every_action_says_so() {
     assert_eq!((snapshot.owner, snapshot.app), (None, None));
     assert_eq!(setup.journal(), None);
     let host = setup.host();
-    assert_eq!(host.disconnect_session(), Err(Refusal::NoSession));
-    assert_eq!(host.end_session(), Err(Refusal::NoSession));
+    assert_eq!(host.disconnect_session(None), Err(Refusal::NoSession));
+    assert_eq!(host.end_session(None), Err(Refusal::NoSession));
     assert_eq!(host.close_game(setup.uuid()), Err(Refusal::NoSession));
     assert_eq!(host.resume_session(setup.uuid()), Err(Refusal::NoSession));
     assert_eq!(setup.state(), State::Idle);
@@ -114,7 +114,7 @@ fn a_stream_makes_the_session_streaming_names_its_owner_and_is_journaled() {
 fn disconnect_suspends_the_session_and_keeps_the_game_and_the_display() {
     let setup = Setup::new("");
     let session = setup.streaming();
-    assert_eq!(setup.host().disconnect_session(), Ok(Outcome::Done));
+    assert_eq!(setup.host().disconnect_session(None), Ok(Outcome::Done));
     assert!(session.stopping());
     let snapshot = setup.host().session_snapshot();
     assert_eq!(snapshot.state, State::Suspended);
@@ -129,7 +129,10 @@ fn disconnect_suspends_the_session_and_keeps_the_game_and_the_display() {
     );
     assert_eq!(setup.journal().unwrap().state, State::Suspended);
     // A repeat has no stream to drop.
-    assert_eq!(setup.host().disconnect_session(), Ok(Outcome::Unchanged));
+    assert_eq!(
+        setup.host().disconnect_session(None),
+        Ok(Outcome::Unchanged)
+    );
     assert_eq!(setup.state(), State::Suspended);
 }
 
@@ -161,7 +164,7 @@ fn end_session_releases_the_stream_and_display_and_leaves_the_game_running() {
         } else {
             setup.streaming()
         };
-        assert_eq!(setup.host().end_session(), Ok(Outcome::Done));
+        assert_eq!(setup.host().end_session(None), Ok(Outcome::Done));
         assert!(session.stopping());
         let snapshot = setup.host().session_snapshot();
         assert_eq!(snapshot.state, State::Idle, "suspended={suspended}");
@@ -171,7 +174,7 @@ fn end_session_releases_the_stream_and_display_and_leaves_the_game_running() {
         assert!(setup.game_running());
         assert_eq!(setup.journal(), None);
         // A repeat finds no session.
-        assert_eq!(setup.host().end_session(), Err(Refusal::NoSession));
+        assert_eq!(setup.host().end_session(None), Err(Refusal::NoSession));
         assert_eq!(setup.state(), State::Idle);
     }
 }
@@ -197,7 +200,7 @@ fn end_session_waits_for_the_stream_worker_to_release_its_resources() {
         host.sessions.lock().unwrap().active.remove(&id);
     });
     let started = Instant::now();
-    assert_eq!(setup.host().end_session(), Ok(Outcome::Done));
+    assert_eq!(setup.host().end_session(None), Ok(Outcome::Done));
     assert!(setup.host().sessions.lock().unwrap().active.is_empty());
     assert!(
         started.elapsed() < TEARDOWN_WAIT,
@@ -232,7 +235,7 @@ fn close_game_ends_the_game_too_in_every_state_that_has_a_session_or_a_game() {
     // still closes it.
     let setup = Setup::new("");
     setup.suspended();
-    assert_eq!(setup.host().end_session(), Ok(Outcome::Done));
+    assert_eq!(setup.host().end_session(None), Ok(Outcome::Done));
     let snapshot = setup.host().session_snapshot();
     assert_eq!(snapshot.state, State::Idle);
     assert!(snapshot.game_running);
@@ -259,11 +262,11 @@ fn end_session_and_close_game_are_busy_while_a_launch_prepares_or_starts() {
             State::Preparing
         };
         assert_eq!(setup.state(), expected);
-        assert_eq!(host.end_session(), Err(Refusal::Busy));
+        assert_eq!(host.end_session(None), Err(Refusal::Busy));
         assert_eq!(host.close_game(setup.uuid()), Err(Refusal::Busy));
         assert_eq!(host.resume_session(setup.uuid()), Err(Refusal::Busy));
         // A disconnect has no stream to drop yet, which is not an error.
-        assert_eq!(host.disconnect_session(), Ok(Outcome::Unchanged));
+        assert_eq!(host.disconnect_session(None), Ok(Outcome::Unchanged));
         // Nothing changed, and the game still runs.
         assert_eq!(setup.state(), expected);
         assert!(setup.game_running());
@@ -282,12 +285,12 @@ fn end_session_and_close_game_are_busy_while_the_launch_lock_is_held() {
     let setup = Setup::new("");
     setup.suspended();
     let transition = setup.host().launch_transition.lock().unwrap();
-    assert_eq!(setup.host().end_session(), Err(Refusal::Busy));
+    assert_eq!(setup.host().end_session(None), Err(Refusal::Busy));
     assert_eq!(setup.host().close_game(setup.uuid()), Err(Refusal::Busy));
     assert_eq!(setup.state(), State::Suspended);
     assert!(setup.game_running());
     drop(transition);
-    assert_eq!(setup.host().end_session(), Ok(Outcome::Done));
+    assert_eq!(setup.host().end_session(None), Ok(Outcome::Done));
 }
 
 #[test]
@@ -306,7 +309,7 @@ fn a_disconnect_or_resume_cannot_cancel_the_launch_of_the_same_device() {
         .unwrap()
         .pending
         .insert(id.clone(), pending);
-    assert_eq!(setup.host().disconnect_session(), Err(Refusal::Busy));
+    assert_eq!(setup.host().disconnect_session(None), Err(Refusal::Busy));
     assert_eq!(
         setup.host().resume_session(setup.uuid()),
         Err(Refusal::Busy)
@@ -323,7 +326,7 @@ fn a_disconnect_or_resume_cannot_cancel_the_launch_of_the_same_device() {
     assert!(!session.stopping());
     drop(transition);
     // Once the launch is done the actions run again.
-    assert_eq!(setup.host().disconnect_session(), Ok(Outcome::Done));
+    assert_eq!(setup.host().disconnect_session(None), Ok(Outcome::Done));
     assert!(session.stopping());
 }
 
@@ -374,7 +377,7 @@ fn end_session_ends_only_the_owners_stream_and_display() {
         .unwrap()
         .insert(other.uuid.clone(), (display, None));
     assert_eq!(setup.displays(), 2);
-    assert_eq!(setup.host().end_session(), Ok(Outcome::Done));
+    assert_eq!(setup.host().end_session(None), Ok(Outcome::Done));
     assert!(owner_stream.stopping());
     assert!(!other_stream.stopping());
     let displays = setup.host().app_display.lock().unwrap();
@@ -481,6 +484,42 @@ fn resume_by_the_owner_reattaches_a_suspended_session_and_supersedes_a_live_one(
 }
 
 #[test]
+fn only_the_owner_may_disconnect_end_or_close_even_if_the_launch_just_finished() {
+    for owner_is_known in [true, false] {
+        let setup = Setup::new("");
+        let host = setup.host();
+        // A stream that came up since the machine last looked: a check made
+        // from an earlier snapshot would see no owner and let anyone act.
+        setup.run_game();
+        setup.retain_display();
+        let session = setup.stream();
+        if owner_is_known {
+            assert_eq!(setup.state(), State::Streaming);
+        }
+        assert_eq!(
+            host.disconnect_session(Some("other")),
+            Err(Refusal::NotOwner)
+        );
+        assert_eq!(host.end_session(Some("other")), Err(Refusal::NotOwner));
+        assert_eq!(host.close_game("other"), Err(Refusal::NotOwner));
+        assert!(!session.stopping());
+        assert!(setup.game_running());
+        assert_eq!(setup.displays(), 1);
+        assert_eq!(setup.state(), State::Streaming);
+        // The owner may.
+        assert_eq!(
+            host.disconnect_session(Some(setup.uuid())),
+            Ok(Outcome::Done)
+        );
+        assert!(session.stopping());
+        assert_eq!(setup.state(), State::Suspended);
+        assert_eq!(host.end_session(Some("other")), Err(Refusal::NotOwner));
+        assert_eq!(host.end_session(Some(setup.uuid())), Ok(Outcome::Done));
+        assert_eq!(host.close_game(setup.uuid()), Ok(Outcome::Done));
+    }
+}
+
+#[test]
 fn the_grace_period_follows_the_existing_disconnect_delay() {
     for (settings, until) in [
         ("", Some(3000)),
@@ -564,9 +603,9 @@ fn a_teardown_shows_stopping_and_settles_when_it_ends() {
     assert_eq!(setup.journal().unwrap().state, State::Stopping);
     // Repeating an action while it runs is safe and does nothing.
     let host = setup.host();
-    assert_eq!(host.end_session(), Ok(Outcome::Unchanged));
+    assert_eq!(host.end_session(None), Ok(Outcome::Unchanged));
     assert_eq!(host.close_game(setup.uuid()), Ok(Outcome::Unchanged));
-    assert_eq!(host.disconnect_session(), Ok(Outcome::Unchanged));
+    assert_eq!(host.disconnect_session(None), Ok(Outcome::Unchanged));
     assert_eq!(host.resume_session(setup.uuid()), Err(Refusal::Busy));
     // A second teardown joins the first and does not end it early.
     drop(host.session_teardown(Scope::Game));
@@ -629,13 +668,13 @@ fn cleanup_repeats_safely_in_every_order() {
     let h = setup.fixture.host.clone();
     setup.suspended();
     for _ in 0..3 {
-        let _ = h.end_session();
+        let _ = h.end_session(None);
         let _ = h.close_game(setup.uuid());
         h.stop_app();
         crate::runtime::release_displays(&h);
         h.reap_paused_display();
         h.session_tick();
-        let _ = h.disconnect_session();
+        let _ = h.disconnect_session(None);
     }
     let snapshot = h.session_snapshot();
     assert_eq!(snapshot.state, State::Idle);
@@ -644,7 +683,7 @@ fn cleanup_repeats_safely_in_every_order() {
     assert_eq!(setup.journal(), None);
     // The host is still usable afterwards.
     let _session = setup.streaming();
-    assert_eq!(h.end_session(), Ok(Outcome::Done));
+    assert_eq!(h.end_session(None), Ok(Outcome::Done));
     assert_eq!(h.session_snapshot().state, State::Idle);
 }
 
@@ -681,8 +720,8 @@ fn the_actions_the_view_allows_are_the_actions_the_host_accepts() {
                 .allowed;
             let result = match action {
                 ActionId::Resume => host.resume_session(setup.uuid()),
-                ActionId::Disconnect => host.disconnect_session(),
-                ActionId::End => host.end_session(),
+                ActionId::Disconnect => host.disconnect_session(None),
+                ActionId::End => host.end_session(None),
                 _ => host.close_game(setup.uuid()),
             };
             // Resume on a suspended session is allowed but has nothing to do
@@ -719,7 +758,7 @@ fn a_journal_that_survived_a_crash_is_cleared_once_at_the_next_start() {
     assert_eq!(host.session_snapshot().state, State::Idle);
     assert_eq!(host.recover_session(), None);
     assert_eq!(host.recover_session(), None);
-    assert_eq!(host.end_session(), Err(Refusal::NoSession));
+    assert_eq!(host.end_session(None), Err(Refusal::NoSession));
     assert_eq!(host.session_snapshot().state, State::Idle);
     assert!(!directory.join(JOURNAL).exists());
 }

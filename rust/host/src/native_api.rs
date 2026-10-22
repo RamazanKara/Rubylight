@@ -353,17 +353,13 @@ fn run(h: &Shared, connection: &Connection, action: Action) -> Reply {
             require_host_control(&client)?;
         }
     }
-    // The actions refuse by state only; the session's owner is checked here.
+    // The actions check the session's owner themselves, under the launch lock.
     // With no session, Close game closes a game End session left running.
-    let snapshot = h.session_snapshot();
-    let owns = snapshot.owner.as_deref() == Some(client.uuid.as_str());
-    if snapshot.owner.is_some() && !owns {
-        return Err(Refusal::NotOwner.into());
-    }
+    let device = client.uuid.as_str();
     match action {
-        Action::Disconnect => h.disconnect_session(),
-        Action::End => h.end_session(),
-        Action::CloseGame => h.close_game(&client.uuid),
+        Action::Disconnect => h.disconnect_session(Some(device)),
+        Action::End => h.end_session(Some(device)),
+        Action::CloseGame => h.close_game(device),
     }?;
     let client = caller(h, connection).unwrap_or(client);
     Ok(json(

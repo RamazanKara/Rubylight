@@ -190,6 +190,17 @@ fn session_app(apps: &[App], id: u32, name: &str) -> SessionApp {
     }
 }
 
+/// An action by a device other than the session's owner is refused. Checked
+/// under the launch lock, after the machine caught up with the host, so a
+/// launch that finished a moment ago is judged by its real owner. `None` is a
+/// host-side caller, which may act on any session.
+fn owned_by(machine: &Machine, caller: Option<&str>) -> Result<(), Refusal> {
+    match (machine.owner(), caller) {
+        (Some(owner), Some(caller)) if owner != caller => Err(Refusal::NotOwner),
+        _ => Ok(()),
+    }
+}
+
 /// What a teardown ends, so a stock path that releases only some resources
 /// does not report the whole session as stopping.
 pub enum Scope<'a> {
@@ -261,9 +272,10 @@ impl Host {
     /// timeout. The game and the display stay for the grace period, so the
     /// session becomes suspended. A repeat, or any state without a stream,
     /// does nothing.
-    pub fn disconnect_session(&self) -> Result<Outcome, Refusal> {
+    pub fn disconnect_session(&self, caller: Option<&str>) -> Result<Outcome, Refusal> {
         let _transition = self.transition()?;
         let owner = self.with_session(|machine, _, _| {
+            owned_by(machine, caller)?;
             Ok::<_, Refusal>(match machine.plan_disconnect()? {
                 Plan::Run => machine.owner().map(str::to_owned),
                 Plan::Skip => None,
@@ -282,9 +294,12 @@ impl Host {
     /// keeps running, and so do the streams of other devices (`/cancel`
     /// stops them all, as stock Moonlight always has). Busy while a launch
     /// runs.
-    pub fn end_session(&self) -> Result<Outcome, Refusal> {
+    pub fn end_session(&self, caller: Option<&str>) -> Result<Outcome, Refusal> {
         let _transition = self.transition()?;
-        let Some((teardown, owner)) = self.begin_teardown(None, |machine, _| machine.plan_end())?
+        let Some((teardown, owner)) = self.begin_teardown(None, |machine, _| {
+            owned_by(machine, caller)?;
+            machine.plan_end()
+        })?
         else {
             return Ok(Outcome::Unchanged);
         };
@@ -317,6 +332,7 @@ impl Host {
     pub fn close_game(&self, caller: &str) -> Result<Outcome, Refusal> {
         let _transition = self.transition()?;
         let Some((teardown, _)) = self.begin_teardown(Some(caller), |machine, facts| {
+            owned_by(machine, Some(caller))?;
             machine.plan_close(facts.game_running)
         })?
         else {

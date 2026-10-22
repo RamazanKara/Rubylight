@@ -87,7 +87,7 @@ fn the_hosts_fixtures_parse_and_write_back() {
 #[test]
 fn the_vendored_fixtures_match_the_pinned_crate() {
     let output = std::process::Command::new(env!("CARGO"))
-        .args(["metadata", "--format-version", "1", "--locked", "--offline"])
+        .args(["metadata", "--format-version", "1", "--locked"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("run cargo metadata");

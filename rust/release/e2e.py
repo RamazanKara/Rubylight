@@ -42,7 +42,7 @@ import requests
 from e2e_result import evaluate, host_frames
 from e2e_host import installed_idle, prepare, receiver_environment
 from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
-from timing_report import case_report
+from timing_report import case_report, wait_for_footer
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--package', required=True, type=pathlib.Path)
@@ -149,6 +149,9 @@ try:
         if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
         time.sleep(.25)
     rc = receiver.returncode
+    if args.record:
+        # The host writes the record's footer at stream teardown, just after the receiver is gone.
+        wait_for_footer(case / 'record', 2)
 except Hang as error:
     hang = str(error)
 finally:

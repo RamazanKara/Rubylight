@@ -318,6 +318,9 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "the previous host stopped during a session; it was cleared"
         );
     }
+    // The first launcher scan for the native library runs on its own thread, so the first request
+    // finds it done and startup does not wait.
+    library::installed(&h);
     // Radeon settings a crashed run left changed are put back by the Radeon worker thread, which
     // owns every later Radeon write too and queues them behind the recovery. Startup does not
     // wait for it, and with no journal it never touches ADLX. The worker logs failures and retries.

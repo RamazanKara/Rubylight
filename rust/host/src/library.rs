@@ -15,6 +15,15 @@ use std::{
 /// How old the cached launcher scan may get before a request starts a new one.
 const SCAN_EVERY: Duration = Duration::from_secs(5 * 60);
 
+/// How long a failed scan waits before the next try, instead of a whole
+/// `SCAN_EVERY`. The last good result stays in the meantime.
+const RETRY_AFTER: Duration = Duration::from_secs(30);
+/// The time a scan "ran" such that the next one is due in `RETRY_AFTER`. Unset
+/// (due at once) when the clock is too young to go back that far.
+fn retry_soon() -> Option<Instant> {
+    Instant::now().checked_sub(SCAN_EVERY - RETRY_AFTER)
+}
+
 /// One host's cached launcher scan, for the native API's `installed`.
 #[derive(Default)]
 struct Cache {
@@ -76,16 +85,21 @@ fn refresh(directory: &Path, scanner: fn() -> Scan) -> Option<Scan> {
                 let mut caches = lock_caches();
                 let cache = caches.entry(directory).or_default();
                 match scan {
-                    Ok(scan) => cache.scan = Some(scan),
-                    Err(_) => tracing::error!("the launcher scan panicked"),
+                    Ok(scan) => {
+                        cache.scan = Some(scan);
+                        cache.at = Some(Instant::now());
+                    }
+                    Err(_) => {
+                        tracing::error!("the launcher scan panicked");
+                        cache.at = retry_soon();
+                    }
                 }
-                cache.at = Some(Instant::now());
                 cache.running = false;
             });
         if let Err(error) = spawned {
             tracing::error!(%error, "the launcher scan could not start");
             cache.running = false;
-            cache.at = Some(Instant::now());
+            cache.at = retry_soon();
         }
     }
     cache.scan.clone()
@@ -211,6 +225,36 @@ mod tests {
         wait_for(|| RUNS.load(Ordering::Acquire) == 2);
         wait_for(|| !lock_caches()[&directory].running);
         assert!(!lock_caches()[&directory].stale);
+    }
+
+    fn failing_scan() -> Scan {
+        panic!("a launcher folder could not be read");
+    }
+
+    #[test]
+    fn a_failed_scan_is_retried_in_thirty_seconds_and_keeps_the_last_good_result() {
+        let directory = std::env::temp_dir().join(format!("scan-{}", uuid::Uuid::new_v4()));
+        // Nothing yet: the failure leaves no result and no five-minute hold.
+        assert_eq!(refresh(&directory, failing_scan), None);
+        wait_for(|| !lock_caches()[&directory].running);
+        assert_eq!(refresh(&directory, failing_scan), None);
+        let held = lock_caches()[&directory].at;
+        let wait = SCAN_EVERY - held.map_or(SCAN_EVERY, |at| at.elapsed());
+        assert!(wait <= RETRY_AFTER, "retry in {wait:?}");
+        // Due again after the retry delay, not after five minutes.
+        lock_caches().get_mut(&directory).unwrap().at =
+            Instant::now().checked_sub(SCAN_EVERY - RETRY_AFTER + Duration::from_secs(1));
+        assert_eq!(refresh(&directory, failing_scan), None);
+        wait_for(|| !lock_caches()[&directory].running);
+        // A good result stays through a later failure.
+        let mut caches = lock_caches();
+        let cache = caches.get_mut(&directory).unwrap();
+        cache.scan = Some(Scan::new(["steam:570".to_owned()]));
+        cache.stale = true;
+        drop(caches);
+        assert!(refresh(&directory, failing_scan).is_some());
+        wait_for(|| !lock_caches()[&directory].running);
+        assert!(refresh(&directory, failing_scan).is_some());
     }
 
     #[test]

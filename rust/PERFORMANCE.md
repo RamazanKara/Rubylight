@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Split-frame encoding through AMD's own sample encoder | [October 22, AMD's own sample encoder](#october-22-amds-own-sample-encoder) |
 | 3.0 alpha.2 gate: couch loop, crash restore, cross-versions, soak | [October 22, alpha.2 gate](#october-22-30-alpha2-gate) |
 | Fence ring against keyed-mutex ring under GPU load | [October 22, fence ring under load](#october-22-fence-ring-under-gpu-load) |
 | 3.0 alpha.1 hardware gate against 2.6.0 | [October 22, alpha.1 gate](#october-22-30-alpha1-hardware-gate) |
@@ -3506,6 +3507,66 @@ keeps the stream. The host logs the setting, the engine count and the driver's
 value (`AMF split-frame encoding left to the driver` or `requested`), and the
 settings line shows the value after Init. On the RX 7900 XT `auto` writes
 nothing.
+
+### October 22: AMD's own sample encoder
+
+Reddit's suggestion was that our split-frame write is wrong, so this repeats
+the question without any Rubylight code: AMD's own `VCEEncoderD3D` sample from
+the official AMF repository (`GPUOpen-LibrariesAndSDKs/AMF`, master at
+`57ee0cfb0e1a`, 2026-10-16), built Release x64 with Build Tools 14.44 and its
+default v143 toolset. The sample takes any encoder property by name on the
+command line and writes it before Init, which is where the host writes it.
+Changes to the sample: the sample's project builds the Vulkan shaders with the
+Vulkan SDK, so the build used a copy of the project without those two custom
+build steps (nothing in the DX11 path uses them); the ATL component was added to
+Build Tools and header-only Vulkan and OpenCL headers were pointed at. In
+`RenderEncodePipeline.cpp`, 12 lines after `m_pEncoder->Init()` read back the
+multi-instance property and the engine count and print them. Nothing else in
+AMD's code was touched.
+
+Method: RX 7900 XT, AMD driver 32.0.32015.7029 (the October 7 matrix ran on
+32.0.31041.1004), `-render dx11 -codec hevc|av1 -<Codec>Usage ultralowlatency
+-<Codec>QualityPreset speed`, no pacing (the sample submits as fast as the
+encoder takes frames), the sample's own rotating-cube render, the usage's
+default rate control, 1500 frames at 7680×2160 and 2500 at 3840×2160. Each
+case ran untouched, on, off, off, on, untouched with `-HevcMultiHwInstanceEncode
+true|false` or `-Av1MultiHwInstanceEncode true|false`. The host service was
+checked idle (`RustHostSessionCount` and `RustHostPendingSessionCount` both 0)
+before every batch and nothing else was streaming. Frames per second and the
+mean time per frame are the sample's own "Frame process time" lines; two runs
+per cell, shown as first / second.
+
+| Case | untouched | on | off | read back (untouched / on / off), engines |
+| --- | --- | --- | --- | --- |
+| HEVC 7680×2160 | 99.0 / 101.3 fps (10.10 / 9.87 ms) | 101.1 / 101.3 (9.89 / 9.87) | 101.1 / 101.3 (9.89 / 9.88) | true / true / false, 2 |
+| HEVC 3840×2160 | 197.1 / 197.1 (5.07 / 5.07) | 197.4 / 197.5 (5.07 / 5.06) | 197.3 / 197.6 (5.07 / 5.06) | true / true / false, 2 |
+| AV1 7680×2160 | 121.8 / 121.9 (8.21 / 8.20) | 121.9 / 121.8 (8.20 / 8.21) | 122.0 / 121.9 (8.20 / 8.20) | true / true / false, 2 |
+| AV1 3840×2160 | 238.4 / 239.2 (4.19 / 4.18) | 238.3 / 238.4 (4.20 / 4.20) | 238.0 / 238.8 (4.20 / 4.19) | true / true / false, 2 |
+| HEVC 7680×2160, 2 slices | n/a | 100.9 / 101.3 (9.91 / 9.87) | 101.2 / 101.3 (9.88 / 9.87) | n/a / true / false, 2 |
+| AV1 7680×2160, 2 tiles | n/a | 123.1 / 122.0 (8.12 / 8.19) | 121.8 / 121.9 (8.21 / 8.20) | n/a / true / false, 2 |
+
+The driver again had the property on before Init with nothing written, the
+readback followed what was written in every run, and both codecs reported two
+engines (`HevcNumOfHwInstances=2`, `Av1CapNumOfHwInstances=2`). The slice
+count changed the HEVC output (43.5 kB against 43.2 kB per frame); the AV1
+`Av1NumTilesPerFrame=2` request produced the same bytes as no request, which
+fits the October 7 note that the driver already chooses two tiles at this
+width.
+
+Two engines at once: two separate sample processes, HEVC 7680×2160, property
+untouched, started together, twice. Each ran 101.4 / 102.0 fps and 101.2 /
+101.9 fps, so 203 fps combined against about 101 fps alone. Four processes at
+once ran 50.8-51.1 fps each, 203 fps combined again.
+
+On this GPU with AMD's own sample, forcing split-frame encoding on, off or
+leaving it alone gave the same frames per second and time per frame (within
+1% apart from the first untouched HEVC run, 2% low, no trend) for HEVC and AV1 at 7680×2160 and 3840×2160, with and without
+2 slices or tiles, while two separate streams ran side by side at the rate of
+one, so the second engine is reachable and one stream did not use it more with
+the property on. This matches the October 7 host matrix. Only the sample's
+cube content (30-46 kB per frame) was encoded, only the speed preset in
+ultra-low latency, and one driver version.
+
 ## 2026-10-07: send PyroWave FEC blocks sooner
 
 These measurements use an AMD RX 7900 XT (driver 32.0.31041.1004) and Ryzen 7

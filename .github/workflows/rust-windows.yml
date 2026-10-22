@@ -97,6 +97,9 @@ jobs:
       # SignPath Foundation's release policy needs a manual approval for every
       # signing request, so main's pushes and pull requests stay unsigned.
       SIGNPATH_ENABLED: ${{ needs.tag.outputs.sign == 'true' }}
+      # Tests and clippy need no debug info, and linking it dominated the
+      # test build. Release builds keep their own profile.
+      CARGO_PROFILE_DEV_DEBUG: 0
     defaults:
       run:
         shell: pwsh
@@ -164,6 +167,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: rust-sdk-v4-pyro-502a3b52-patched
+      # Compiled dependencies (not the workspace crates), keyed on Cargo.lock
+      # and the toolchain; only main saves. The target is $RUNNER_TEMP's.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        if: env.SIGNPATH_ENABLED != 'true'
+        with:
+          workspaces: '. -> ../../_temp/butterpollo-rust-target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test, lint and package Rust
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath

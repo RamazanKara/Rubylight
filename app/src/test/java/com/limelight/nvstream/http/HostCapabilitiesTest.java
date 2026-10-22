@@ -122,12 +122,46 @@ public class HostCapabilitiesTest {
     }
 
     @Test
-    public void currentRubylightSupportsEverythingButCursorShapes() {
+    public void currentRubylightSupportsEverythingButCursorShapesAndTheNativeApi() {
         HostCapabilities caps = TestHosts.rubylight();
         assertEquals(Family.RUBYLIGHT, caps.family());
         assertEquals("2.2.21", caps.hostVersion());
-        assertEquals(EnumSet.complementOf(EnumSet.of(CURSOR_SHAPE)), caps.supported());
+        assertEquals(EnumSet.complementOf(EnumSet.of(CURSOR_SHAPE, NATIVE_API)), caps.supported());
         assertNever(caps, CURSOR_SHAPE);
+        assertReason(caps, NATIVE_API, Reason.UPDATE_HOST);
+        assertEquals(-1, caps.nativeApiVersion());
+    }
+
+    @Test
+    public void nativeApiVersionDecidesTheNativeApi() {
+        String paired = "<RustHostVersion>3.0.0</RustHostVersion><PairStatus>1</PairStatus>";
+        for (String version : new String[] {"1", "2"}) {
+            HostCapabilities caps = caps(paired + "<NativeApiVersion>" + version + "</NativeApiVersion>");
+            assertTrue(version, caps.has(NATIVE_API));
+            assertEquals(Integer.parseInt(version), caps.nativeApiVersion());
+        }
+        // The host reports 0 over plain HTTP and to an unpaired certificate.
+        assertReason(caps(paired + "<NativeApiVersion>0</NativeApiVersion>"), NATIVE_API, Reason.PAIR);
+        assertReason(caps("<RustHostVersion>3.0.0</RustHostVersion><PairStatus>0</PairStatus>"
+                + "<NativeApiVersion>1</NativeApiVersion>"), NATIVE_API, Reason.PAIR);
+        // Without the field a Rubylight host needs an update and every other host never has it.
+        assertReason(caps(paired), NATIVE_API, Reason.UPDATE_HOST);
+        for (String host : new String[] {"sunshine-serverinfo.xml", "apollo-serverinfo.xml", "vibepollo-serverinfo.xml",
+                "gamestream-serverinfo.xml"}) {
+            HostCapabilities caps = TestHosts.fixture(host);
+            assertFalse(host, caps.has(NATIVE_API));
+            assertTrue(host, caps.availability(NATIVE_API).isNever());
+            assertEquals(host, -1, caps.nativeApiVersion());
+        }
+        assertFalse(HostCapabilities.UNKNOWN.has(NATIVE_API));
+        assertEquals(-1, HostCapabilities.UNKNOWN.nativeApiVersion());
+        HostCapabilities stored = caps(paired + "<NativeApiVersion>1</NativeApiVersion>");
+        assertEquals(stored, HostCapabilities.fromJson(stored.toJson()));
+        assertTrue(HostCapabilities.fromJson(stored.toJson()).has(NATIVE_API));
+        // Capabilities stored before the field existed still load, without the native API.
+        String olderJson = TestHosts.rubylight().toJson().replace(",\"nativeApiVersion\":-1", "");
+        assertFalse(olderJson, olderJson.contains("nativeApiVersion"));
+        assertFalse(HostCapabilities.fromJson(olderJson).has(NATIVE_API));
     }
 
     @Test

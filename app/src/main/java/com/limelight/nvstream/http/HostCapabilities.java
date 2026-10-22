@@ -56,7 +56,9 @@ public final class HostCapabilities {
         HOST_CONFIRMS_REPLACEMENT(0),
         HOST_TIMING(0),
         WEB_UI(R.string.host_feature_web_ui),
-        CURSOR_SHAPE(R.string.host_feature_cursor_shape);
+        CURSOR_SHAPE(R.string.host_feature_cursor_shape),
+        /** Rubylight's /api/native/v1: library, session actions, Radeon state. The UI shows its results, not its name. */
+        NATIVE_API(0);
 
         @StringRes public final int label;
 
@@ -182,6 +184,11 @@ public final class HostCapabilities {
     /** The Rubylight version the host reports, or null for other hosts. */
     public String hostVersion() {
         return evidence == null ? null : evidence.rustHostVersion;
+    }
+
+    /** The native API version the host reported: -1 for no native API, 0 when not usable by this client yet. */
+    public int nativeApiVersion() {
+        return evidence == null ? -1 : evidence.nativeApiVersion;
     }
 
     public boolean has(Feature feature) {
@@ -376,6 +383,8 @@ public final class HostCapabilities {
         boolean controllerPreparation;
         boolean currentGameUuid;
         int cursorShapeVersion = -1;
+        /** -1 when the host has no native API, 0 when it has one but not for this request. */
+        int nativeApiVersion = -1;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -448,6 +457,9 @@ public final class HostCapabilities {
                         break;
                     case "CursorShapeVersion":
                         evidence.cursorShapeVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "NativeApiVersion":
+                        evidence.nativeApiVersion = (int) unsigned(parser.nextText(), 0xFFFF);
                         break;
                     case "currentgameuuid":
                         evidence.currentGameUuid = true;
@@ -619,6 +631,13 @@ public final class HostCapabilities {
                 case CURSOR_SHAPE:
                     // docs/protocol/cursor-shape.md: the highest version the host speaks; it also speaks 1.
                     return cursorShapeVersion >= 1 ? Availability.SUPPORTED : absent(false);
+                case NATIVE_API:
+                    // The host reports 0 over plain HTTP and to an unpaired certificate.
+                    if (nativeApiVersion == -1) {
+                        return rustHostVersion != null ? Availability.unsupported(Reason.UPDATE_HOST) : absent(false);
+                    }
+                    return !paired || nativeApiVersion < 1 ? Availability.unsupported(Reason.PAIR) :
+                            Availability.SUPPORTED;
                 default:
                     throw new IllegalArgumentException(feature.name());
             }
@@ -642,7 +661,7 @@ public final class HostCapabilities {
                     .put("pyroWaveCodecs", pyroWaveCodecs).put("encoderBitrate", encoderBitrate)
                     .put("hardwareMetricsVersion", hardwareMetricsVersion).put("networkPathVersion", networkPathVersion)
                     .put("controllerPreparation", controllerPreparation).put("currentGameUuid", currentGameUuid)
-                    .put("cursorShapeVersion", cursorShapeVersion);
+                    .put("cursorShapeVersion", cursorShapeVersion).put("nativeApiVersion", nativeApiVersion);
             if (rustHostVersion != null) object.put("rustHostVersion", rustHostVersion);
             if (frameLimiter != null) object.put("frameLimiter", frameLimiter);
             if (virtualDisplayCapable != null) object.put("virtualDisplayCapable", virtualDisplayCapable);
@@ -673,6 +692,7 @@ public final class HostCapabilities {
             evidence.currentGameUuid = object.getBoolean("currentGameUuid");
             // Absent from capabilities stored before cursor shapes existed.
             evidence.cursorShapeVersion = object.optInt("cursorShapeVersion", -1);
+            evidence.nativeApiVersion = object.optInt("nativeApiVersion", -1);
             if (evidence.permission < -1 || evidence.permission > 0xFFFFFFFFL || evidence.serverCommands < 0 ||
                     (evidence.rustHostVersion != null && evidence.rustHostVersion.isEmpty())) {
                 throw new JSONException("Invalid stored capabilities");
@@ -703,7 +723,7 @@ public final class HostCapabilities {
                     encoderBitrate == that.encoderBitrate && hardwareMetricsVersion == that.hardwareMetricsVersion &&
                     networkPathVersion == that.networkPathVersion &&
                     controllerPreparation == that.controllerPreparation && currentGameUuid == that.currentGameUuid &&
-                    cursorShapeVersion == that.cursorShapeVersion;
+                    cursorShapeVersion == that.cursorShapeVersion && nativeApiVersion == that.nativeApiVersion;
         }
 
         @Override
@@ -711,7 +731,8 @@ public final class HostCapabilities {
             return Objects.hash(gameStream, sunshineVersion, paired, rustHostVersion, permission, serverCommands,
                     virtualDisplayCapable, virtualDisplayDriverReady, virtualDisplayHdrCapable, frameLimiter,
                     pyroWaveFields, pyroWaveProbeBytes, pyroWaveCodecs, encoderBitrate, hardwareMetricsVersion,
-                    networkPathVersion, controllerPreparation, currentGameUuid, cursorShapeVersion);
+                    networkPathVersion, controllerPreparation, currentGameUuid, cursorShapeVersion,
+                    nativeApiVersion);
         }
     }
 }

@@ -42,6 +42,11 @@ async function fixture(t, options = {}) {
     const reply = body => route.fulfill({ json: body });
     if (request.method() !== 'GET') {
       writes.push(url.pathname);
+      if (url.pathname === '/api/clients/update' && options.keepWrites) {
+        const { uuid, ...changes } = request.postDataJSON();
+        const device = options.clients.find(client => client.uuid === uuid);
+        for (const [key, value] of Object.entries(changes)) { if (value === null) delete device[key]; else device[key] = value; }
+      }
       if (url.pathname === '/api/auth/logout' && options.logoutFailure) {
         return route.fulfill({ status: 503, json: { error: 'Host temporarily unavailable' } });
       }
@@ -467,6 +472,33 @@ test('PIN submission waits for actual paired-device confirmation and keeps view-
   assert.equal(saved.perm, 0x03000000);
   assert.equal(saved.custom, 'keep');
   assert.equal(saved.output_name_override, 'Other display');
+});
+
+
+test('the host control checkbox drives the saved flag and keeps its section open', async t => {
+  const clients = [{ uuid: 'phone', name: 'Phone', enabled: true, connected: true, perm: 0x071f1f00 }];
+  const { page } = await fixture(t, { clients, keepWrites: true });
+  await page.goto(base + '/devices');
+  await page.getByRole('button', { name: 'Settings Phone', exact: true }).click();
+  await page.getByText('Custom permissions', { exact: true }).click();
+  const box = page.getByLabel('Host control: change Radeon settings and close games from this device', { exact: true });
+  assert.equal(await box.isChecked(), false);
+  const section = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Custom permissions' }) });
+  await box.check();
+  // Host control isn't cut off by saving, so the stream warning stays away.
+  await page.getByText('Unsaved changes', { exact: true }).waitFor();
+  assert.equal(await page.getByText("Saving ends this device's current stream.").count(), 0);
+  const request = page.waitForRequest(request => new URL(request.url()).pathname === '/api/clients/update');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  assert.deepEqual((await request).postDataJSON(), { uuid: 'phone', host_control: true });
+  await page.getByText('Saved Phone.', { exact: true }).waitFor();
+  assert.equal(await box.isChecked(), true);
+  assert.equal(clients[0].host_control, true);
+  await box.uncheck();
+  assert.equal(await section.evaluate(details => details.open), true);
+  // Removing a permission bit does end the stream, and the editor says so.
+  await page.getByLabel('Keyboard', { exact: true }).uncheck();
+  await page.getByText("Saving ends this device's current stream.").waitFor();
 });
 
 

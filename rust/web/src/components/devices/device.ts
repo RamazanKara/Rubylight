@@ -202,6 +202,15 @@ function serialise(draft: Draft): Changes {
   };
 }
 
+/**
+ * Whether saving ends the device's running stream. The host does that only when
+ * the device is turned off or loses a permission bit; other edits, including
+ * Host control, apply from the next request or stream.
+ */
+export function savingEndsStream(connected: boolean, before: Draft, after: Draft): boolean {
+  return connected && ((before.enabled && !after.enabled) || (before.perm & ~after.perm) !== 0);
+}
+
 /** Only the keys whose stored value would change. */
 export function changes(before: Draft, after: Draft): Changes {
   const old = serialise(before);

@@ -10,6 +10,7 @@
     changes,
     permissionSummary,
     PERMISSION_GROUPS,
+    savingEndsStream,
     toDraft,
     VIEW_ONLY,
     VIRTUAL_DISPLAY_LAYOUTS,
@@ -39,6 +40,13 @@
 
   $effect(() => {
     dirty = changed;
+  });
+
+  // Custom permissions, or a granted Host control, open the section. Nothing
+  // closes it again: unticking a box must not snap it shut under the cursor.
+  let permissionsOpen = $state(untrack(() => permissionSummary(draft.perm) === 'Custom' || draft.host_control));
+  $effect(() => {
+    if (permissionSummary(draft.perm) === 'Custom' || draft.host_control) permissionsOpen = true;
   });
 
   // Follow edits made elsewhere while this form has none of its own.
@@ -167,7 +175,7 @@
       The first paired device gets full control. Later devices can only list apps and view streams.
     </p>
     <p class="note">Current access: <strong>{permissionSummary(draft.perm)}</strong></p>
-    <details open={permissionSummary(draft.perm) === 'Custom' || draft.host_control}><summary>Custom permissions</summary>
+    <details bind:open={permissionsOpen}><summary>Custom permissions</summary>
     <div class="groups">
       {#each PERMISSION_GROUPS as group (group.name)}
         <fieldset>
@@ -334,7 +342,7 @@
     <Button type="submit" variant="primary" busy={saving} disabled={!changed || nameMissing || modeInvalid || disabled}>Save</Button>
     <Button disabled={!changed || saving} onclick={discard}>Discard</Button>
     <span class="status muted">
-      {#if client.connected}
+      {#if savingEndsStream(client.connected, saved, draft)}
         Saving ends this device's current stream.
       {:else if changed}
         Unsaved changes

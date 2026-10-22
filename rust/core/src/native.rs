@@ -86,7 +86,7 @@ fn store_of(app: &App) -> Option<(Store, String)> {
 /// name, which is stable until the app is renamed.
 pub fn install_id(app: &App) -> String {
     match app.extra.get("uuid").and_then(Value::as_str) {
-        Some(uuid) if !uuid.is_empty() => uuid.into(),
+        Some(uuid) if !uuid.trim().is_empty() => uuid.into(),
         _ => uuid::Uuid::new_v5(
             &uuid::Uuid::NAMESPACE_URL,
             format!("rubylight:app:{}", app.name).as_bytes(),
@@ -228,6 +228,12 @@ pub fn host_control(client: &Client) -> bool {
 pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
     let state = snapshot.state();
     let idle = state == State::Idle;
+    // The host always names the owner of a session that isn't idle. Without
+    // one, every caller would read as another device.
+    debug_assert!(
+        idle || snapshot.owner.is_some(),
+        "a {state:?} session needs an owner"
+    );
     let owns = !idle && snapshot.owner.as_deref() == Some(caller.uuid.as_str());
     let owner = if idle {
         Owner::None
@@ -250,13 +256,15 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
                     return Some(ErrorCode::PermissionRequired);
                 }
                 match state {
-                    State::Suspended => None,
+                    // While streaming too: `/resume` supersedes the same
+                    // device's stream, which is how it reconnects after a
+                    // crash.
+                    State::Suspended | State::Streaming => None,
                     State::Idle => Some(ErrorCode::NoSession),
                     State::Preparing | State::Launching | State::Stopping => {
                         Some(ErrorCode::SessionBusy)
                     }
-                    // Already attached: nothing to say.
-                    State::Streaming | State::Unknown => None,
+                    State::Unknown => Some(ErrorCode::Internal),
                 }
             }
             ActionId::Disconnect => {
@@ -273,7 +281,13 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
                 if !caller.allows(LAUNCH) {
                     return Some(ErrorCode::PermissionRequired);
                 }
-                idle.then_some(ErrorCode::NoSession)
+                match state {
+                    State::Idle => Some(ErrorCode::NoSession),
+                    // The launch holds `launch_transition` for minutes.
+                    State::Preparing | State::Launching => Some(ErrorCode::SessionBusy),
+                    // Stopping: repeating End is safe.
+                    _ => None,
+                }
             }
             ActionId::CloseGame => {
                 if !caller.allows(LAUNCH) {
@@ -282,8 +296,13 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
                 if !host_control {
                     return Some(ErrorCode::HostControlRequired);
                 }
-                // With no session, it closes a game End session left behind.
-                (idle && !snapshot.game_running).then_some(ErrorCode::NoSession)
+                match state {
+                    State::Preparing | State::Launching => Some(ErrorCode::SessionBusy),
+                    // With no session, it closes a game End session left
+                    // behind.
+                    State::Idle if !snapshot.game_running => Some(ErrorCode::NoSession),
+                    _ => None,
+                }
             }
             ActionId::Unknown => Some(ErrorCode::Internal),
         }
@@ -297,13 +316,10 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
     .into_iter()
     .map(|id| {
         let reason = reason(id);
-        // Resume while streaming is refused without a reason: the stream
-        // is already up.
-        let allowed = reason.is_none() && !(id == ActionId::Resume && state != State::Suspended);
         Action {
             id,
-            allowed,
-            reason: if allowed { None } else { reason },
+            allowed: reason.is_none(),
+            reason,
         }
     })
     .collect();
@@ -603,9 +619,14 @@ mod tests {
         let caller = client(ALL, json!({"host_control": true}));
         let session = session_view(&snapshot(StreamPhase::Active, "me"), &caller);
         assert_eq!(session.state, State::Streaming);
-        assert!(!allowed(&session, ActionId::Resume));
-        assert_eq!(reason(&session, ActionId::Resume), None);
-        for id in [ActionId::Disconnect, ActionId::End, ActionId::CloseGame] {
+        // Resume supersedes the same device's stream: the reconnect after a
+        // crash.
+        for id in [
+            ActionId::Resume,
+            ActionId::Disconnect,
+            ActionId::End,
+            ActionId::CloseGame,
+        ] {
             assert!(allowed(&session, id), "{id:?}");
         }
         assert_eq!(session.suspended_until_unix_ms, None);
@@ -715,29 +736,74 @@ mod tests {
     }
 
     #[test]
-    fn busy_states_allow_end_and_refuse_resume() {
+    fn a_launch_in_progress_is_busy_for_every_action() {
         let caller = client(ALL, json!({"host_control": true}));
-        let mut preparing = snapshot(StreamPhase::None, "me");
-        preparing.pending_launch = true;
-        let session = session_view(&preparing, &caller);
-        assert_eq!(session.state, State::Preparing);
-        assert!(allowed(&session, ActionId::End));
-        assert_eq!(
-            reason(&session, ActionId::Resume),
-            Some(ErrorCode::SessionBusy)
-        );
-        assert_eq!(
-            reason(&session, ActionId::Disconnect),
-            Some(ErrorCode::NotStreaming)
-        );
-        // Stopping: repeating End is safe, so it stays allowed.
+        for (app_started, expected) in [(false, State::Preparing), (true, State::Launching)] {
+            let mut launching = snapshot(StreamPhase::None, "me");
+            launching.pending_launch = true;
+            launching.app_started = app_started;
+            let session = session_view(&launching, &caller);
+            assert_eq!(session.state, expected);
+            for id in [ActionId::Resume, ActionId::End, ActionId::CloseGame] {
+                assert!(!allowed(&session, id), "{expected:?} {id:?}");
+                assert_eq!(
+                    reason(&session, id),
+                    Some(ErrorCode::SessionBusy),
+                    "{expected:?} {id:?}"
+                );
+            }
+            assert_eq!(
+                reason(&session, ActionId::Disconnect),
+                Some(ErrorCode::NotStreaming)
+            );
+        }
+    }
+
+    #[test]
+    fn stopping_allows_end_and_close_game_again_but_not_resume() {
+        let caller = client(ALL, json!({"host_control": true}));
         let session = session_view(&snapshot(StreamPhase::Stopping, "me"), &caller);
         assert_eq!(session.state, State::Stopping);
         assert!(allowed(&session, ActionId::End));
+        assert!(allowed(&session, ActionId::CloseGame));
         assert_eq!(
             reason(&session, ActionId::Resume),
             Some(ErrorCode::SessionBusy)
         );
+    }
+
+    #[test]
+    fn resume_needs_view() {
+        let launcher = client(LAUNCH, json!({}));
+        let session = session_view(&snapshot(StreamPhase::Active, "me"), &launcher);
+        assert_eq!(
+            reason(&session, ActionId::Resume),
+            Some(ErrorCode::PermissionRequired)
+        );
+        assert!(allowed(&session, ActionId::End));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "needs an owner")]
+    fn a_session_without_an_owner_is_a_host_bug() {
+        let mut orphan = suspended("me");
+        orphan.owner = None;
+        session_view(&orphan, &client(ALL, json!({})));
+    }
+
+    #[test]
+    fn an_idle_session_needs_no_owner() {
+        let session = session_view(&SessionSnapshot::default(), &client(ALL, json!({})));
+        assert_eq!(session.owner, Owner::None);
+    }
+
+    #[test]
+    fn a_blank_uuid_is_replaced_like_a_missing_one() {
+        let blank = app(json!({"name": "Blank", "uuid": "  "}));
+        let missing = app(json!({"name": "Blank"}));
+        assert_eq!(install_id(&blank), install_id(&missing));
+        assert_ne!(install_id(&blank), "  ");
     }
 
     #[test]

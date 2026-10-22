@@ -433,13 +433,16 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     let web_port = web_port(&profile);
     if options.start {
         progress.set("Starting Rubylight…");
-        system::start_service(SERVICE)?;
-        wait_ready(probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
-        // The host made the console's certificate as it started.
-        if let Err(error) = trust_console(&profile) {
-            notes.push(format!(
-                "Browsers will warn about the console's certificate: its root could not be trusted: {error:#}"
-            ));
+        if system::start_service_unless_disabled(SERVICE)? {
+            wait_ready(probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
+            // The host made the console's certificate as it started.
+            if let Err(error) = trust_console(&profile) {
+                notes.push(format!(
+                    "Browsers will warn about the console's certificate: its root could not be trusted: {error:#}"
+                ));
+            }
+        } else {
+            notes.push(crate::update::DISABLED_WARNING.into());
         }
     }
     restart.services.clear();
@@ -539,9 +542,12 @@ fn move_install(
             );
             if options.start {
                 progress.set("Starting Rubylight…");
-                system::start_service(SERVICE)?;
-                wait_ready(probe(profile), Some(env!("CARGO_PKG_VERSION")))?;
-                trust_console_or_warn(profile);
+                if system::start_service_unless_disabled(SERVICE)? {
+                    wait_ready(probe(profile), Some(env!("CARGO_PKG_VERSION")))?;
+                    trust_console_or_warn(profile);
+                } else {
+                    notes.push(crate::update::DISABLED_WARNING.into());
+                }
             }
             Ok(())
         },

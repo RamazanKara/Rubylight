@@ -13,7 +13,8 @@ use std::{
 };
 use windows::{
     Win32::{
-        System::Com::*,
+        Foundation::CloseHandle,
+        System::{Com::*, SystemInformation::GetSystemDirectoryW, Threading::*},
         UI::{Shell::*, WindowsAndMessaging::*},
     },
     core::{PCWSTR, w},
@@ -79,6 +80,84 @@ fn status(port: u16) -> Option<String> {
     socket.take(65536).read_to_string(&mut text).ok()?;
     Some(text)
 }
+/// What the launcher does about the installed service's state.
+#[derive(Debug, PartialEq, Eq)]
+enum ServiceNeed {
+    /// It is running.
+    Ready,
+    /// It is starting; wait for it.
+    Wait,
+    /// It is stopped: offer to start it, with an elevation prompt.
+    Offer,
+    /// It is stopped and Windows would refuse to start it (disabled).
+    Refuse,
+}
+fn service_need(
+    state: windows_service::service::ServiceState,
+    start_type: windows_service::service::ServiceStartType,
+) -> ServiceNeed {
+    use windows_service::service::{ServiceStartType, ServiceState};
+    match state {
+        ServiceState::Running => ServiceNeed::Ready,
+        ServiceState::StartPending | ServiceState::ContinuePending => ServiceNeed::Wait,
+        _ if start_type == ServiceStartType::Disabled => ServiceNeed::Refuse,
+        ServiceState::Stopped => ServiceNeed::Offer,
+        _ => ServiceNeed::Refuse,
+    }
+}
+/// Ask whether to start the stopped service. False on "No".
+fn ask_to_start() -> bool {
+    // SAFETY: both strings are static NUL-terminated literals and the call is modal.
+    let choice = unsafe {
+        MessageBoxW(
+            None,
+            w!(
+                "The Rubylight service is stopped.\n\nStart it now? Windows will ask for permission."
+            ),
+            w!("Rubylight"),
+            MB_YESNO | MB_ICONQUESTION,
+        )
+    };
+    choice == IDYES
+}
+/// Start the service through an elevated `sc.exe`. False if the user
+/// cancelled the prompt or the start failed.
+fn start_elevated() -> bool {
+    /// `sc start` exits with this when the service is already running.
+    const ALREADY_RUNNING: u32 = 1056;
+    let mut folder = [0u16; 260];
+    // SAFETY: the buffer is writable for its whole length.
+    let length = unsafe { GetSystemDirectoryW(Some(&mut folder)) } as usize;
+    if length == 0 || length >= folder.len() {
+        return false;
+    }
+    let program = to_wide(&format!(
+        "{}\\sc.exe",
+        String::from_utf16_lossy(&folder[..length])
+    ));
+    let arguments = to_wide(&format!("start {}", crate::service::NAME));
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        lpVerb: w!("runas"),
+        lpFile: PCWSTR(program.as_ptr()),
+        lpParameters: PCWSTR(arguments.as_ptr()),
+        nShow: SW_HIDE.0,
+        ..Default::default()
+    };
+    // SAFETY: `info` and the strings it points at outlive the calls; the process handle is
+    // owned by this function and closed once.
+    unsafe {
+        if ShellExecuteExW(&mut info).is_err() || info.hProcess.is_invalid() {
+            return false;
+        }
+        WaitForSingleObject(info.hProcess, 60_000);
+        let mut code = 1;
+        let read = GetExitCodeProcess(info.hProcess, &mut code);
+        let _ = CloseHandle(info.hProcess);
+        read.is_ok() && (code == 0 || code == ALREADY_RUNNING)
+    }
+}
 fn service_profile() -> Result<Option<PathBuf>> {
     use windows_service::{
         service::{ServiceAccess, ServiceState},
@@ -96,7 +175,8 @@ fn service_profile() -> Result<Option<PathBuf>> {
         Ok(service) => service,
         Err(_) => return Ok(None),
     };
-    let installed = service.query_config()?.executable_path;
+    let config = service.query_config()?;
+    let installed = config.executable_path;
     let expected = std::env::current_exe()?
         .parent()
         .context("package directory unavailable")?
@@ -106,14 +186,55 @@ fn service_profile() -> Result<Option<PathBuf>> {
         .trim_matches('"')
         .eq_ignore_ascii_case(&expected.to_string_lossy())
     {
-        if service.query_status()?.current_state != ServiceState::Running {
-            bail!(
+        let stopped = || {
+            anyhow::anyhow!(
                 "The Rubylight service is installed but stopped. Start Rubylight in Windows Services, then open Start Rubylight.exe again."
-            );
+            )
+        };
+        match service_need(service.query_status()?.current_state, config.start_type) {
+            ServiceNeed::Ready => {}
+            ServiceNeed::Refuse => return Err(stopped()),
+            need => {
+                if need == ServiceNeed::Offer && !(ask_to_start() && start_elevated()) {
+                    return Err(stopped());
+                }
+                let deadline = Instant::now() + Duration::from_secs(30);
+                loop {
+                    match service.query_status()?.current_state {
+                        ServiceState::Running => break,
+                        ServiceState::Stopped => bail!(
+                            "The Rubylight service stopped again. Check logs\\service.log in {}.",
+                            butterpollo_core::paths::installed_profile().display()
+                        ),
+                        _ if Instant::now() >= deadline => return Err(stopped()),
+                        _ => std::thread::sleep(Duration::from_millis(250)),
+                    }
+                }
+            }
         }
         return Ok(Some(butterpollo_core::paths::installed_profile()));
     }
     Ok(None)
+}
+/// What the launcher does once it knows what answers on the HTTP port.
+#[derive(Debug, PartialEq, Eq)]
+enum Launch {
+    /// This profile's host answers: open its console.
+    Open,
+    /// Another host answers.
+    Conflict,
+    /// The installed service owns the profile and its host is not up yet.
+    WaitForService,
+    /// Nothing answers and nothing else will start it: run the host here.
+    Spawn,
+}
+fn launch_plan(service_owned: bool, response: Option<&str>, marker: &str) -> Launch {
+    match response {
+        Some(response) if response.contains(marker) => Launch::Open,
+        Some(_) => Launch::Conflict,
+        None if service_owned => Launch::WaitForService,
+        None => Launch::Spawn,
+    }
 }
 pub fn run() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
@@ -135,9 +256,13 @@ pub fn run() -> Result<()> {
             bail!("unknown start option: {}", arg.to_string_lossy());
         }
     }
+    // The installed service runs the host (as SYSTEM) for its profile: the
+    // launcher only waits for it and never starts a second host there.
+    let mut service_owned = false;
     if interactive && let Some(service) = service_profile()? {
         directory = Some(service);
         interactive = false;
+        service_owned = true;
     }
     let directory = match directory {
         Some(directory) => directory,
@@ -181,14 +306,29 @@ pub fn run() -> Result<()> {
         "<RustHostProfile>{}</RustHostProfile>",
         migration::profile_id(&directory)
     );
-    if let Some(response) = status(ports.http) {
-        if response.contains(&marker) {
-            return crate::tray::open_web(ports.web);
-        }
-        bail!(
+    match launch_plan(service_owned, status(ports.http).as_deref(), &marker) {
+        Launch::Open => return crate::tray::open_web(ports.web),
+        Launch::Conflict => bail!(
             "Another streaming host is using port {}. Close Vibepollo or Apollo before starting Rubylight, or choose a different base port in sunshine.conf. Your settings have been preserved.",
             ports.http
-        );
+        ),
+        Launch::WaitForService => {
+            // The service reports Running before its host answers: an update
+            // recovery or driver repair can come first.
+            let deadline = Instant::now() + Duration::from_secs(90);
+            while Instant::now() < deadline {
+                if status(ports.http).is_some_and(|response| response.contains(&marker)) {
+                    return crate::tray::open_web(ports.web);
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            bail!(
+                "The Rubylight service is still starting. Open https://localhost:{} after startup, or check logs\\service.log in {}.",
+                ports.web,
+                directory.display()
+            );
+        }
+        Launch::Spawn => {}
     }
     let executable = std::env::current_exe()?
         .parent()
@@ -230,5 +370,47 @@ pub fn run() -> Result<()> {
             );
         }
         std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows_service::service::{ServiceStartType as Type, ServiceState as State};
+    #[test]
+    fn a_service_profile_never_gets_a_second_host() {
+        let marker = "<RustHostProfile>abc</RustHostProfile>";
+        let ours = format!("HTTP/1.1 200 OK\r\n\r\n{marker}");
+        let other = "HTTP/1.1 200 OK\r\n\r\n<RustHostProfile>other</RustHostProfile>";
+        for owned in [true, false] {
+            assert_eq!(launch_plan(owned, Some(&ours), marker), Launch::Open);
+            assert_eq!(launch_plan(owned, Some(other), marker), Launch::Conflict);
+        }
+        // The service reports Running before its host answers.
+        assert_eq!(launch_plan(true, None, marker), Launch::WaitForService);
+        assert_eq!(launch_plan(false, None, marker), Launch::Spawn);
+    }
+    #[test]
+    fn a_stopped_service_is_offered_a_start_unless_it_is_disabled() {
+        for start_type in [Type::AutoStart, Type::OnDemand] {
+            assert_eq!(service_need(State::Running, start_type), ServiceNeed::Ready);
+            assert_eq!(service_need(State::Stopped, start_type), ServiceNeed::Offer);
+            assert_eq!(
+                service_need(State::StartPending, start_type),
+                ServiceNeed::Wait
+            );
+            assert_eq!(
+                service_need(State::StopPending, start_type),
+                ServiceNeed::Refuse
+            );
+        }
+        assert_eq!(
+            service_need(State::Stopped, Type::Disabled),
+            ServiceNeed::Refuse
+        );
+        assert_eq!(
+            service_need(State::Running, Type::Disabled),
+            ServiceNeed::Ready
+        );
     }
 }

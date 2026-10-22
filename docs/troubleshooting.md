@@ -51,7 +51,7 @@ The default base port is `47989`; the console uses `47990`. A changed **Base por
 
 **Start Rubylight.exe** reopens the correct console when that profile is already running. If it reports another streaming host on the port, close the conflicting Sunshine, Apollo, Vibepollo or second Rubylight instance, or assign [separate profiles and ports](configuration.md#multiple-instances). Restarting another copy on the same port does not solve the conflict.
 
-For an installed host, check **Rubylight** in Windows Services. Its internal service name is `ApolloService`. If it is stopped, read `service.log` before starting it again. The [log locations below](#logs-and-a-useful-report) distinguish service and portable profiles.
+For an installed host, check **Rubylight** in Windows Services. Its internal service name is `ApolloService`. If it is stopped, read `service.log` before starting it again. An update keeps the startup type you set for the service (Manual or Disabled stay as they are; a disabled service is not started by setup), and **Start Rubylight.exe** offers to start a stopped service after a Windows permission prompt. The [log locations below](#logs-and-a-useful-report) distinguish service and portable profiles.
 
 ## Black picture, no display, or WGC fails
 

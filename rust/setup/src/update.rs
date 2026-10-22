@@ -69,6 +69,8 @@ pub fn run(
             return Err(error);
         }
     };
+    // Set when the service is disabled, so it was left stopped.
+    let left_disabled = std::cell::Cell::new(false);
     let update = attempt_install(
         &saved,
         &install,
@@ -78,10 +80,13 @@ pub fn run(
             before_start();
             progress.set("Checking that Rubylight starts…");
             if start {
-                system::start_service(detect::SERVICE)?;
-                install::wait_ready(install::probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
-                // The host made the console's certificate as it started.
-                install::trust_console_or_warn(&profile);
+                if system::start_service_unless_disabled(detect::SERVICE)? {
+                    install::wait_ready(install::probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
+                    // The host made the console's certificate as it started.
+                    install::trust_console_or_warn(&profile);
+                } else {
+                    left_disabled.set(true);
+                }
             }
             install::register(&install, &entries)?;
             Ok(())
@@ -91,12 +96,22 @@ pub fn run(
             system::stop_service(detect::SERVICE)
         },
         || {
-            system::start_service(detect::SERVICE)?;
-            install::wait_ready(install::probe(&profile), None)
+            // A disabled service was never running; the files are restored.
+            if system::start_service_unless_disabled(detect::SERVICE)? {
+                install::wait_ready(install::probe(&profile), None)?;
+            }
+            Ok(())
         },
     );
     match update {
-        Ok(()) => finish_update(&install, &work, &result, &previous, &entries),
+        Ok(()) => finish_update(
+            &install,
+            &work,
+            &result,
+            &previous,
+            &entries,
+            left_disabled.get().then_some(DISABLED_WARNING),
+        ),
         Err(InstallFailure {
             error,
             recovery: rollback,
@@ -265,14 +280,25 @@ fn replace_package(staged: &Path, install: &Path, entries: &[payload::Entry]) ->
     )
 }
 
+/// Shown in the update record when the service was left disabled.
+pub const DISABLED_WARNING: &str = "The Rubylight service is disabled, as it was before, so it was not started. Set its startup type to Manual or Automatic in Services, then start it.";
 fn finish_update(
     install: &Path,
     work: &Path,
     result: &Path,
     previous: &[payload::Entry],
     entries: &[payload::Entry],
+    warning: Option<&str>,
 ) -> Result<()> {
-    write_result(result, "installed", None)?;
+    if let Some(warning) = warning {
+        line(warning);
+        write_record(
+            result,
+            &json!({"version":env!("CARGO_PKG_VERSION"),"phase":"installed","error":null,"warning":warning}),
+        )?;
+    } else {
+        write_result(result, "installed", None)?;
+    }
     for old in previous {
         if !entries
             .iter()
@@ -578,7 +604,7 @@ mod tests {
             work.canonicalize()?
                 .starts_with(root.path().canonicalize()?)
         );
-        finish_update(&install, &work, &result, &previous, &entries)?;
+        finish_update(&install, &work, &result, &previous, &entries, None)?;
         expected_profile.insert(
             "update-result.json".into(),
             serde_json::to_vec_pretty(
@@ -1036,6 +1062,30 @@ mod tests {
             std::fs::read(installed.join("settings.conf"))?,
             b"user settings"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_service_left_disabled_is_a_warning_on_the_installed_record() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let result = root.path().join("update-result.json");
+        for (warning, expected) in [
+            (Some(DISABLED_WARNING), json!(DISABLED_WARNING)),
+            (None, serde_json::Value::Null),
+        ] {
+            finish_update(
+                root.path(),
+                &root.path().join("work"),
+                &result,
+                &[],
+                &[],
+                warning,
+            )?;
+            let record: serde_json::Value = serde_json::from_slice(&std::fs::read(&result)?)?;
+            assert_eq!(record["phase"], "installed");
+            assert!(record["error"].is_null());
+            assert_eq!(record["warning"], expected);
+        }
         Ok(())
     }
 }

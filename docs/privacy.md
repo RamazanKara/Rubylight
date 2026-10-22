@@ -2,7 +2,7 @@
 
 Rubylight runs on your PC and talks to the devices you pair with it. It has no accounts, analytics, advertising, crash reporting or telemetry upload. It never sends your logs, settings, crash dumps, paired devices or usage to the Rubylight project or to anyone else, and nobody operates a server that your streams pass through.
 
-This page lists everything Rubylight sends over a network, so you can turn off what you don't want. It describes Rubylight 2.3.1 and later; the [code signing policy](code-signing-policy.md) links here.
+This page lists everything Rubylight sends over a network, so you can turn off what you don't want. It describes Rubylight 2.3.1 and later, including 3.0; the [code signing policy](code-signing-policy.md) links here.
 
 ## Third-party services
 
@@ -23,7 +23,8 @@ Everything else stays between your PC and devices on your network or your own VP
 
 - **Discovery.** With `enable_discovery` on (the default), the host announces itself on your local network over mDNS with its name, addresses and port, so Moonlight lists it. Any device that can reach the host can read its name, host ID, local address, ports, version and codec support, which Moonlight needs before pairing.
 - **Pairing.** Moonlight and the host exchange a PIN challenge and certificates directly. The host keeps each paired device's certificate and name on your PC.
-- **Streaming.** The host sends the picture and sound of your PC to the paired device that started the stream, and receives its keyboard, mouse, touch, pen and controller input. It sends rumble and haptics back. It receives the device's microphone when the device sends it (`stream_mic`), and exchanges clipboard text with devices that have the clipboard permission; the first device you pair gets every permission, later ones can only view until you allow more. Nothing is relayed through a Rubylight server.
+- **Streaming.** The host sends the picture and sound of your PC to the paired device that started the stream, and receives its keyboard, mouse, touch, pen and controller input. It sends rumble and haptics back. It receives the device's microphone when the device sends it (`stream_mic`), and exchanges clipboard text with devices that have the clipboard permission; the first device you pair gets every permission except host control, later ones can only view until you allow more. Nothing is relayed through a Rubylight server.
+- **Native API.** A paired device on the streaming HTTPS port can read your game library, covers and session state, and with host control (off by default) close games and change Radeon settings on the PC. It authenticates with its pairing certificate and talks only to your host ([Native API](native-api.md)).
 - **Hardware readings.** With `hardware_metrics` on (off by default), a paired device that is streaming can ask for CPU and GPU readings for its overlay. They go only to that device ([Hardware metrics](hardware-metrics.md)).
 - **Your router.** With `upnp` on (off by default), the host asks your router to forward its streaming ports. The router receives the host's local address, the ports and a description that includes the host ID.
 

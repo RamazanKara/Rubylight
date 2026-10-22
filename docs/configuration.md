@@ -2,7 +2,7 @@
 
 [Docs](README.md) · [Getting started](getting-started.md) · [Troubleshooting](troubleshooting.md)
 
-Configure the current **Windows Rust host** in the Rubylight console, normally at **https://localhost:47990**. Open **Settings** and search by a setting's name or configuration key. Resolution, stream frame rate, bitrate and codec are normally chosen in the client.
+Configure the host in the Rubylight console, normally at **https://localhost:47990**. Open **Settings**, which groups its controls into General, Streaming, Display & HDR, Audio & controls, Games & automation, and Network & access, and search by a setting's name or configuration key. Resolution, stream frame rate, bitrate and codec are normally chosen in the client.
 
 Start with the defaults below. Settings imported from an older installation keep their saved values; upgrading does not reset them to these defaults.
 
@@ -19,7 +19,7 @@ Use **Review changes** to see pending edits across all categories, including set
 | Capture method — `capture` | `auto` | On a virtual display Rubylight created, takes each frame straight from Rubylight's display driver. Elsewhere prefers Windows Graphics Capture (WGC), with Desktop Duplication (DDX) as fallback. |
 | Compute conversion — `gpu_compute_conversion` | `true` | Uses a separate compute queue for supported AMD capture and colour conversion paths. |
 | Encode from GPU memory — `wgc_direct_encoder_input` | `true` | Keeps captured frames on the GPU instead of copying them through system memory. |
-| Encoder — `encoder` | `auto` | Selects an available encoder for the capture GPU. |
+| Encoder — `encoder` | `auto` | AMD AMF for H.264, HEVC and AV1, and PyroWave's own encoder for PyroWave. There is no other encoder and no fallback. |
 | AMD usage — `amd_usage` | `ultralowlatency` | AMD's lowest-latency preset. The driver also turns on its internal low-latency mode, and the lowest latency for AV1. |
 | AMD quality — `amd_quality` | `speed` | Favours low encoding latency. |
 | Frame pacing — `frame_pacing` | `arrival` | Encodes arriving frames, limited to the requested stream rate. |
@@ -38,7 +38,7 @@ Use **Review changes** to see pending edits across all categories, including set
 | Limit every stream — `frame_limiter_enable` | `false` | Manual limiting is off; virtual-display automatic limiting can still apply. |
 | Limiter — `frame_limiter_provider` | `auto` | Uses RTSS when installed. |
 | Virtual display refresh — `frame_limiter_auto_virtual_framegen` | `legacy` | Runs the virtual display at twice the stream rate and enables automatic frame limiting. |
-| Host control for a device — `host_control` | off | Per device, in **Devices → device → Custom permissions → Other**. Lets that device change Radeon settings and close the running game through the native API. Only the console grants it, as `true`; pairing, imported Vibepollo or Apollo state and a full permission value never do. Turning it off takes effect on the next request and doesn't end the stream. |
+| Host control for a device — `host_control` | off | Per device, in **Devices → device → Custom permissions → Other**. Lets that device change Radeon settings and close the running game through the native API. [Details](#host-control-for-a-device). Only the console grants it, as `true`; pairing, imported Vibepollo or Apollo state and a full permission value never do. Turning it off takes effect on the next request and doesn't end the stream. |
 | Update checks — `update_check_interval` | `86400` seconds | Checks once a day. |
 | Automatic installation — `auto_update` | `false` | Announces available updates; installation is opt-in. |
 | Include pre-releases — `notify_pre_releases` | `false` | Release candidates are offered only when enabled. |
@@ -53,7 +53,7 @@ These are defaults for **unset** keys, not a list of values you must copy into a
 
 **Frames from Rubylight's display driver.** On a virtual display Rubylight created, Automatic captures from the driver itself: it copies each frame Windows composes into textures it shares with the host, so neither WGC nor Desktop Duplication runs, and on AMD the compute conversion reads those textures in place (`idd_push_zero_copy`, default `true`). To select it explicitly, choose **Settings → Video → Capture method → Direct driver push** (`capture = idd-push`). It applies to Rubylight's own virtual displays and falls back to WGC when unavailable, including on a physical monitor. Choosing WGC or Desktop Duplication explicitly requests those methods. The stream captures with WGC instead, and the stream card says why, when the driver is not installed, when another stream with different capture settings already captures that display, or when the display's frame push failed twice before delivering a picture. A display that failed is tried again once it is recreated or renders on another GPU. Save and end all streams using the display before starting a new session to compare capture methods; simultaneous streams may share an already-open capture.
 
-**GPU fence transport** (`idd_push_fence_ring`, default `true`) is the transport for direct driver push on AMD with compute conversion and in-place capture enabled. It uses D3D12-owned shared textures and GPU fences while the display driver continues using D3D11. Set it to `false` to use the keyed-mutex ring instead. It requires a compatible Rubylight display driver; missing support, failed setup or failed synchronization uses the keyed-mutex ring and shows a warning. A rejected fence transport stays rejected through capture restarts on that display. Recreate the virtual display or restart the host to retry. Save and end all streams using the display before changing it. WGC, Desktop Duplication and other encoders remain available. This option does not require the new native D3D12 IddCx swap-chain API.
+**GPU fence transport** (`idd_push_fence_ring`, default `true`) is the transport for direct driver push on AMD with compute conversion and in-place capture enabled. It uses D3D12-owned shared textures and GPU fences while the display driver continues using D3D11. Set it to `false` to use the keyed-mutex ring instead. It requires a compatible Rubylight display driver; missing support, failed setup or failed synchronization uses the keyed-mutex ring and shows a warning. A rejected fence transport stays rejected through capture restarts on that display. Recreate the virtual display or restart the host to retry. Save and end all streams using the display before changing it. WGC and Desktop Duplication remain available. This option does not require the new native D3D12 IddCx swap-chain API.
 
 **Downscaling uses an antialias filter automatically.** Supported GPU conversion paths average each output pixel's covered source pixels for reductions up to 8× per axis. This helps when the desktop and stream sizes differ, including fractional reductions. Native resolution, enlargement and aligned 2× reduction keep the existing filter. Larger reductions retain the previous filter to bound GPU work. Existing HDR transfer handling, cursor composition and aspect-ratio handling remain in the same conversion pass.
 
@@ -73,7 +73,7 @@ For **native HDR**, enable HDR in the client and use an HDR-capable display and 
 
 These values are rounded up to whole Mbps. Below 1080p the floor/recommendation are 2.5/5 bits per pixel per frame; at 1080p and above they are 1.5/3.2. The smaller desktop's one-pixel text needed more bits per pixel. Rates scale with pixel count and frame rate within each band: halve them at 30 fps, double them at 120 fps. Other sizes are estimates; actual quality depends on text size, textures and the picture. The console stream card uses red below the floor and amber below the recommendation, and the log distinguishes both. The [October 12, 2026 Rubylight 2.2.9 validation](../rust/PERFORMANCE.md#pyrowave-decoded-pictures-and-quality-budgets) rechecked these budgets on synthetic desktop and game pictures; it measures decoded quality, not sustained network throughput. [Original October 7 method and criteria](../rust/PERFORMANCE.md#october-7-pyrowave-bitrate-from-representative-pictures).
 
-The PyroWave bitrate you set in the client is the stream's total on the wire, as in Vibeshine. The host keeps audio with its parity and 500 kbps for control. With record framing (Nonary's Moonlight, Nightjar, Aurora), each picture then gets what fits after packet overhead and one block of critical FEC, so a rate the client calibrated is never exceeded. The picture therefore gets about 15–20% less than the number you set; set the bitrate to what your network carries, not to the picture rate you want. The 4K60 recommendation needs more than gigabit Ethernet. Client and host limits still apply: stream setup allows up to 2 Gbps, while the client's runtime `/bitrate` endpoint caps changes at 500 Mbps. If the client or network cannot carry the recommended rate, use HEVC or AV1. Enabling PyroWave does not force ordinary Moonlight clients to use it. For other GPUs, use [Vibepollo](https://github.com/Nonary/Vibepollo).
+The PyroWave bitrate you set in the client is the stream's total on the wire, as in Vibeshine. The host keeps audio with its parity and 500 kbps for control. With record framing (Nonary's Moonlight, Nightjar, Aurora), each picture then gets what fits after packet overhead and one block of critical FEC, so a rate the client calibrated is never exceeded. The picture therefore gets about 15–20% less than the number you set; set the bitrate to what your network carries, not to the picture rate you want. The 4K60 recommendation needs more than gigabit Ethernet. Client and host limits still apply: stream setup allows up to 2 Gbps, while the client's runtime `/bitrate` endpoint caps changes at 500 Mbps. If the client or network cannot carry the recommended rate, use HEVC or AV1. Enabling PyroWave does not force ordinary Moonlight clients to use it.
 
 **A Rubylight client can change the stream's resolution and frame rate without reconnecting**, for example when a foldable phone opens its inner screen. The encoder restarts at the new size with a keyframe and pacing follows the new rate; the PC's display keeps its mode and the picture is scaled to fit. `stream_reconfigure` (default `true`) turns this off for the host, a device or an app; clients that never ask are unaffected. [Control messages](control-messages.md) describes the request.
 
@@ -123,7 +123,7 @@ Automatic frame caps are applied before the first encoded picture and reconsider
 
 Each recovery picture logs `video recovery frame` with its encoded size, the driver-read cap associated with its submission, actual packetized wire budget, pace, estimated wire time and pacing reason. `sender_work_ms` measures work in the selected sender (including interleaved packetization in inline mode), not receiver decoding or display latency. The counters can be compared with the stream's `fec_unrecoverable_frames` diagnostics. Missing cap readback is left unknown rather than reported as an applied limit.
 
-These are encoder bit budgets, not extra queued frames or packet-pacing settings. A smaller budget trades picture quality for smaller frames. Intra refresh remains client-negotiated and does not replace an explicit recovery-keyframe request. See the [rate-control measurements](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) before changing these controls. For other GPUs, use [Vibepollo](https://github.com/Nonary/Vibepollo).
+These are encoder bit budgets, not extra queued frames or packet-pacing settings. A smaller budget trades picture quality for smaller frames. Intra refresh remains client-negotiated and does not replace an explicit recovery-keyframe request. See the [rate-control measurements](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) before changing these controls.
 
 `amd_rc` remains `vbr_latency` by default. A tight frame limit reduces large recovery bursts and the resulting send queue; it can reduce picture quality, especially during recovery or complex scene changes. [The historical 4K119.88 SDR comparison](../rust/PERFORMANCE.md#existing-amf-frame-size-limit-at-the-observed-pace) measured substantially smaller IDRs with a fixed 2× cap at 70.77 Mbps; it does not establish native HDR game quality or the quality of the new Automatic policy. Compare your content and select `0` for the driver's own behavior, or a fixed multiplier for a consistent budget.
 
@@ -263,7 +263,7 @@ Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_r
 
 A device's **Display mode** (`display_mode`, `WIDTHxHEIGHTxREFRESH`) sets its virtual display's resolution and refresh while the stream keeps the size and frame rate the client asks for, so a game can render at 1440p on a 4K stream. To pick just the resolution from Windows instead, leave the display mode empty and turn on **Devices → (device) → Remember the resolution I pick** (`remember_display_mode`): change the stream's virtual display resolution in Windows display settings during a stream, and when the device's last stream disconnects Rubylight keeps it (`remembered_resolution`), puts it back if the stream resumes, and creates the display at it from the next stream ([#36](https://github.com/RamazanKara/Rubylight/issues/36)). Only the resolution is kept: the refresh follows the stream and **Virtual display refresh** as usual, including VRR's 1000 Hz, and a refresh Windows refuses falls back at the kept resolution. It applies to a device's own virtual display, not a shared one. Nothing is kept from a stream whose resolution Windows did not take, since the display then shows Windows' choice rather than yours. Turning the option off forgets the kept resolution.
 
-A disconnect leaves the app running but restores its displays by default: `dd_config_revert_on_disconnect=true`, after `dd_config_revert_delay` (default `3000` ms). Exclusive layouts always use that delay, including profiles that explicitly turn restoration off, so the physical monitors do not stay disabled while nobody is streaming. Other layouts can still be kept for reconnection by turning restoration off; `dd_paused_virtual_display_timeout_secs` then controls their lifetime (default `7200` seconds; `0` keeps them until the app closes). Restoration waits for the last stream using a layout. If that layout disabled an original display, the original layout is restored even after a Win+P change; other layouts preserve later user changes. A failed restoration remains in the recovery journal and the next stream retains its original baseline. A device remembers eligible layout changes only at its last stream's disconnect; later local changes during the pause do not become its streaming default. A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Maintenance** provides display restoration and saved-baseline controls.
+A disconnect leaves the app running but restores its displays by default: `dd_config_revert_on_disconnect=true`, after `dd_config_revert_delay` (default `3000` ms). Exclusive layouts always use that delay, including profiles that explicitly turn restoration off, so the physical monitors do not stay disabled while nobody is streaming. Other layouts can still be kept for reconnection by turning restoration off; `dd_paused_virtual_display_timeout_secs` then controls their lifetime (default `7200` seconds; `0` keeps them until the app closes). Restoration waits for the last stream using a layout. If that layout disabled an original display, the original layout is restored even after a Win+P change; other layouts preserve later user changes. A failed restoration remains in the recovery journal and the next stream retains its original baseline. A device remembers eligible layout changes only at its last stream's disconnect; later local changes during the pause do not become its streaming default. A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Help & diagnostics** provides display restoration and saved-baseline controls.
 
 **Virtual display → Automatic (Windows default)** leaves the choice to the host: one virtual display per device. For **Permanent virtual displays**, an empty field preserves the driver's current count; `0` explicitly removes permanent displays at the next host startup. Resetting this setting is therefore different from entering `0`.
 
@@ -329,7 +329,7 @@ Setting `motion_as_ds4` and `touchpad_as_ds4` both off keeps a Deck's virtual pa
 [MoonDeck](https://github.com/FrogTheFrog/moondeck) works with Rubylight. It launches Steam games from the Steam Deck through Moonlight, with [MoonDeck Buddy](https://github.com/FrogTheFrog/moondeck-buddy) managing Steam on the host. You only need one host app for MoonDeck; you do not need to add each Steam game to Rubylight.
 
 1. Install MoonDeck on the Steam Deck and [MoonDeck Buddy on the Windows host](https://github.com/FrogTheFrog/moondeck-buddy/wiki/Buddy-installation-guide). Keep Buddy running, pair it through MoonDeck's settings, and [pair Moonlight with Rubylight](getting-started.md#pair-moonlight-and-start-desktop).
-2. In Rubylight's **Library**, add an app with **Name** set to `MoonDeckStream` and **Command** pointing to `"<BuddyInstallDirectory>\bin\MoonDeckStream.exe"`. Replace `<BuddyInstallDirectory>` with Buddy's actual installation folder and keep the quotes around the path.
+2. In Rubylight's **Games & apps**, add an app with **Name** set to `MoonDeckStream` and **Command** pointing to `"<BuddyInstallDirectory>\bin\MoonDeckStream.exe"`. Replace `<BuddyInstallDirectory>` with Buddy's actual installation folder and keep the quotes around the path.
 3. Under the app's **Behavior**, turn off **Keep the stream when a launcher exits within 5 seconds** (`auto-detach`) and save. **Wait for every process the app starts** (`wait-all`) can stay enabled. These correspond to the options in MoonDeck's [host setup guide](https://github.com/FrogTheFrog/moondeck-buddy/wiki/Sunshine-setup).
 4. In Buddy's `settings.json`, next to its executable on Windows, set `sunshine_apps_filepath` to the full path of Rubylight's `apps.json`, then restart Buddy. For a standard installed service, the JSON entry is `"sunshine_apps_filepath": "C:\\ProgramData\\Butterpollo\\config\\apps.json"`. For a portable or custom profile, use `apps.json` in the [active profile folder](getting-started.md#bring-an-existing-profile), unless `file_apps` points elsewhere. Buddy's automatic lookup looks for Sunshine and can otherwise find the wrong installation or no app list. See **Sunshine apps filepath** in [Buddy configuration](https://github.com/FrogTheFrog/moondeck-buddy/wiki/Buddy-configuration).
 5. Select the Rubylight host in MoonDeck and use `MoonDeckStream` as its host app. The name must match the app saved in Rubylight.
@@ -348,7 +348,7 @@ If controls do nothing, check the paired device's **Controllers** permission und
 
 ## Settings for one app or device
 
-Edit an app in **Library** or a paired device in **Devices** to set its display, HDR and other overrides. Leave an override unset to inherit the host configuration.
+Edit an app in **Games & apps** or a paired device in **Devices** to set its display, HDR and other overrides. Leave an override unset to inherit the host configuration.
 
 For general configuration overrides, Rubylight applies **host settings → device overrides → app overrides**. Only supported stream, input, display and encoder keys are accepted; host-wide network, identity and path settings cannot be overridden per stream.
 
@@ -368,6 +368,50 @@ A client can choose, for one stream, what the PC's displays do. [Nightjar](https
 | missing, `default` or anything else | The host decides from its settings, as for an older client. |
 
 The choice comes before the host, device and app settings for virtual display mode and layout, including a device's **Always use a virtual display**. `virtualDisplay=0`, which Apollo-compatible clients send whenever their own virtual display option is off, is not a choice and follows the host settings, as an omitted `virtualDisplay` does. Two cases still get a virtual display after `physical`: a PC with no active display, and an output that names the virtual display itself. A virtual display needs its driver; without it the stream shows the physical display with a warning, as for any other request. When another stream already holds the display layout, a second stream joins that layout. The layout from before the stream comes back when the stream ends, as with the host's own settings. A display kept for reconnection is reused only when the next launch asks for the same choice, or asks for nothing. Remote Monitor and Remote Input ignore the parameter. Older Rubylight hosts and other hosts ignore it, so Nightjar also sends `virtualDisplay=1` with the virtual choices, which those hosts honour where they support a virtual display.
+
+## Host control, session actions and Radeon settings
+
+These are new in 3.0. A paired client such as [Nightjar](https://github.com/RamazanKara/nightjar) 0.8.0 or newer uses them through the [native API](native-api.md). Stock Moonlight and Artemis do not use them and keep working as before.
+
+### Host control for a device
+
+**Host control** (`host_control`) lets one paired device close games and change Radeon settings. It is not part of the other permissions. Open **Devices**, open the device, then under **Permissions → Custom permissions → Other** tick **Host control: change Radeon settings and close games from this device** and save.
+
+- It is off for every device, including new pairings and devices imported from Apollo or Vibepollo. Only the console turns it on; nothing on the streaming port can.
+- Turning it off applies on the device's next request. It does not end a running stream.
+- A device also needs the **List apps**, **View streams** and **Launch apps** permissions for what it does. Reading the Radeon state needs View or Launch only.
+
+### Session actions
+
+A session has a state the host keeps: idle, preparing, launching, streaming, suspended or stopping. A client with the right permissions can end it in three ways:
+
+| Action | Stream | Game | Virtual display | Radeon changes |
+| --- | --- | --- | --- | --- |
+| **Disconnect** | Stops now. The session is suspended for the disconnect grace period and can be resumed. | Keeps running | Kept for the grace period | Kept |
+| **End session** | Ends. | Keeps running | Released | Put back |
+| **Close game** | Ends. | Quits | Released | Put back |
+
+Disconnect and End session need the device to own the session. **Close game** also needs host control. A repeated or racing request is answered once, not doubled. Other devices' streams are not touched. If the grace period runs out, the host ends the session as End session does. If the host stops in the middle of a session, it reports that at the next start. Stock Moonlight's Quit still stops every stream and closes the game, as before. The grace period is `dd_config_revert_delay` when displays are restored on disconnect, and `dd_paused_virtual_display_timeout_secs` otherwise ([displays](#displays-and-rtss)). The states, transitions and errors are in [native-api.md](native-api.md#session).
+
+### Radeon settings with restore
+
+Not in 3.0.0-alpha.1; it is in the unreleased build after it. A device with host control that owns a running or suspended session can read and change Radeon settings of the GPU the host encodes on, for example Anti-Lag, Radeon Chill, Radeon Boost, Image Sharpening, Enhanced Sync, a frame rate target, vertical sync, AFMF and RSR sharpness. The host reads them through AMD's ADLX interface and offers a setting only if its write was proven on the installed driver. Each setting is in one of five states, and a client shows only what it can do:
+
+| State | Meaning |
+| --- | --- |
+| Configurable | The host can change it. A write to this driver was proven on real hardware. |
+| Read only | The host can read it but not change it. |
+| Needs setup in AMD Software | Turn it on once in AMD Software: Adrenalin Edition first. |
+| Not supported | This GPU or driver does not offer it. |
+| Temporarily unavailable | The driver is busy or ADLX did not load. Try again later. |
+
+Every change is written to a journal on disk before it is applied, and put back when:
+
+- the session ends, the game is closed or the disconnect grace period runs out;
+- the device is unpaired or disabled, or the host shuts down;
+- the host starts again after a crash.
+
+It is not put back at Disconnect: a suspended session keeps its settings until it resumes or ends. If you changed a setting on the PC in the meantime, your change stays and the host forgets its own. A restore that fails is logged and retried at the next start. Which settings each driver accepted is recorded for the RX 7900 XT in the [hardware matrix](hardware-matrix.md). The request and response shapes are in [native-api.md](native-api.md#radeon-state-and-writes).
 
 ## Save, reconnect and restart
 
@@ -402,7 +446,7 @@ For multiseat use, launch each process in its intended Windows session through y
 
 ## Updates
 
-Automatic **checking** is enabled; automatic **installation** is not. Use **Maintenance** to check manually or start an offered update. Enable **Include pre-releases** if you want release candidates.
+Automatic **checking** is enabled; automatic **installation** is not. Use **Help & diagnostics → Updates** to check manually or start an offered update. Enable **Include pre-releases** if you want release candidates.
 
 If you opt into **Install updates automatically**, the installed Windows service waits for one minute without active streams, pending connections, remote-monitor sessions or running host apps. The updater validates the selected installer against the release's size and SHA-256. Portable installations use the release download page instead.
 

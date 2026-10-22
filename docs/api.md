@@ -6,6 +6,8 @@ Rubylight's Windows Rust host serves its administration API at `https://localhos
 
 This guide covers the current Rust implementation: routing, authentication and token scopes in [web.rs](../rust/host/src/web.rs), and the handlers for each area in [web/](../rust/host/src/web). Moonlight pairing, app discovery and streaming use separate protocol endpoints in [nvhttp.rs](../rust/host/src/nvhttp.rs). The [historical C++ API guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/api-cpp.md) is kept at the 2.0.0-rc.23 tag as a migration reference.
 
+Paired clients use a separate API on the streaming HTTPS port: [Native API v1](native-api.md) (`/api/native/v1`, new in 3.0) covers the game library, session state and actions, and Radeon settings. It authenticates with the client certificate it paired with, so none of the methods below apply to it.
+
 For client overlay telemetry, see [Hardware metrics](hardware-metrics.md). Its `/api/hardware-metrics` endpoint uses the streaming HTTPS port and the paired client's TLS certificate; the administration authentication methods below do not apply to it.
 
 [Remote connection route](network-path.md) documents the separately authenticated `/api/network-path` endpoint and `NetworkPathVersion` capability. It returns only the requesting peer's current Tailscale route category.
@@ -98,6 +100,7 @@ The routes below are implemented by the Rust host. JSON requests use `Content-Ty
 Useful response and request details:
 
 - `/api/clients/list` includes read-only `network_loss_routes` for each paired device: address, seconds until expiry, and eligible sessions until a fast-rate probe. Authenticated `POST /api/clients/reset-network-history` with `{"uuid": "device-id"}` clears those routes for subsequent streams; it does not change a running stream. Client updates cannot set this telemetry.
+- `POST /api/clients/update` takes `host_control` per device. Only `true`, `false` or `null` are accepted, and a missing key means off. Only the console path grants it ([host control](configuration.md#host-control-for-a-device)).
 - Configuration writes merge submitted fields and return `restart_required: true`. Treat the response as a saved configuration, not confirmation that every active stream has adopted it.
 - Applications are updated by their `uuid`; deletion accepts the UUID or numeric app ID. Read `/api/apps` before making changes rather than treating an array index as the identity.
 - `/api/logs` and `/api/logs/export` return up to the last 8 MiB of the current log as text. `/api/logs/export_crash` creates the support ZIP. The ordinary log export is not a ZIP.

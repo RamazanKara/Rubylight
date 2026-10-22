@@ -61,12 +61,19 @@ Rubylight 3.0 encodes on AMD GPUs only: any Radeon with a working AMF video enco
 
 ## Pairing and the web console
 
-- **Pairing** with a PIN or a one-time PIN, with per-device permissions and an enable switch. Devices paired after the first start view-only until you grant more.
-- **A rebuilt console** for overview, library, devices, settings, logs, maintenance and API tokens, with frame rate, bitrate and encoder timing together, and a stream card that explains what the host did and why.
+- **Pairing** with a PIN or a one-time PIN, with per-device permissions and an enable switch. Devices paired after the first start view-only until you grant more. **Host control** is a separate per-device switch, off until you turn it on ([details](configuration.md#host-control-for-a-device)).
+- **A console for everyday play.** Home shows setup, readiness and the current stream, with your game shelf below. Games & apps, Devices and Settings cover the library, pairing and stream options; Help & diagnostics holds logs, display recovery and updates. A stream card shows frame rate, bitrate and encoder timing together and explains what the host did and why.
 - **A tray icon** with notifications for pairing requests, new versions and apps launching, pausing and stopping.
 - **Logs and support.** Rotating logs, a live tail in the console, crash dumps and a support bundle.
 - **Hardware readings for client overlays.** Opt-in CPU usage and available AMD GPU readings, collected on request during a paired client's video stream. Compatible clients draw their own overlay; see the [hardware-metrics protocol](hardware-metrics.md).
 - **Private connection-path diagnosis.** An authenticated client can check whether its current Tailscale peer route is direct, relayed or unknown, without exposing other peers. [Protocol and limits](network-path.md).
+
+## Control from the couch (3.0)
+
+- **Native API v1.** A paired client on the streaming HTTPS port can read the host's capabilities, your game library with covers, and the session state. Stock Moonlight and Artemis are unaffected. [Contract](native-api.md).
+- **Session actions.** Disconnect leaves the game running, End session stops the stream and keeps the game, Close game also quits it. [Details](configuration.md#session-actions).
+- **Host control.** A per-device permission that lets a device close games and change Radeon settings. Off until you turn it on in the console. [Details](configuration.md#host-control-for-a-device).
+- **Radeon settings with restore.** In the build after 3.0.0-alpha.1. A device with host control changes Radeon settings during a stream; every change is journaled and put back when the session ends. [Details](configuration.md#radeon-settings-with-restore).
 
 ## Install and update
 
@@ -77,6 +84,6 @@ Rubylight 3.0 encodes on AMD GPUs only: any Radeon with a working AMF video enco
 
 ## Clients
 
-Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android.
+Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android. Nightjar 0.8.0 and newer also use the native API above.
 
 See [Getting started](getting-started.md#choose-your-stream-format) to pick a stream format.

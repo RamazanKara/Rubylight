@@ -82,6 +82,10 @@ pub struct Machine {
     revision: u64,
     /// A launch call is running, and owns the transitions until `launched`.
     launching: bool,
+    /// Teardowns that entered `stopping` and have not finished. A launch can
+    /// replace the state while one runs, and a later teardown can enter it
+    /// again, so the session settles only when the last one ends.
+    teardowns: u32,
 }
 impl Default for Machine {
     fn default() -> Self {
@@ -93,6 +97,7 @@ impl Default for Machine {
             suspended_at_ms: None,
             revision: 1,
             launching: false,
+            teardowns: 0,
         }
     }
 }
@@ -161,6 +166,13 @@ impl Machine {
     /// A launch or resume of a stream is accepted: the host starts preparing
     /// displays and integrations. A device that takes over a running session
     /// becomes its owner.
+    ///
+    /// A launch accepted while a teardown runs (`stopping`) takes over the
+    /// state: it becomes `preparing`, as the launch itself waits for the
+    /// streams being torn down to finish before it uses their resources.
+    /// The teardown's `stopped` then leaves the launch's state alone. While
+    /// the launch call runs, no teardown can enter `stopping` (see
+    /// `stopping`).
     pub fn begin(&mut self, owner: &str, app: Option<SessionApp>, now: u64) {
         self.launching = true;
         self.set_session(Some(owner.into()), app);
@@ -254,19 +266,37 @@ impl Machine {
             self.set_session(owner.map(str::to_owned), app);
         }
         self.enter(State::Stopping, now);
+        self.teardowns += 1;
         true
     }
-    /// The transport of the owner's stream was stopped (Disconnect).
-    pub fn disconnected(&mut self, facts: &Facts, now: u64) {
-        self.settle(facts, now);
+    /// A launch owns the state: its call still runs, or it replied and waits
+    /// for the client.
+    fn launch_owns(&self, facts: &Facts) -> bool {
+        self.launching
+            || (matches!(self.state, State::Preparing | State::Launching)
+                && facts.launch_pending
+                && facts.streaming.is_empty())
     }
-    /// Teardown finished.
+    /// The transport of the owner's stream was stopped (Disconnect). A launch
+    /// that started meanwhile keeps the state.
+    pub fn disconnected(&mut self, facts: &Facts, now: u64) {
+        if !self.launch_owns(facts) {
+            self.settle(facts, now);
+        }
+    }
+    /// Teardown finished. A launch accepted while it ran took over the state
+    /// (see `begin`), so the teardown ending then changes nothing: the
+    /// launch settles the session when it returns.
     pub fn stopped(&mut self, facts: &Facts, now: u64) {
-        self.settle(facts, now);
+        self.teardowns = self.teardowns.saturating_sub(1);
+        if self.teardowns == 0 && !self.launch_owns(facts) {
+            self.settle(facts, now);
+        }
     }
     /// A clean host shutdown: nothing survives.
     pub fn reset(&mut self, now: u64) {
         self.launching = false;
+        self.teardowns = 0;
         self.set_session(None, None);
         self.enter(State::Idle, now);
     }
@@ -682,5 +712,82 @@ mod tests {
                 m.plan_disconnect() == Ok(Plan::Run)
             );
         }
+    }
+
+    fn pending(mut f: Facts) -> Facts {
+        f.launch_pending = true;
+        f
+    }
+
+    #[test]
+    fn a_launch_that_begins_during_a_teardown_keeps_the_state_when_the_teardown_ends() {
+        // Teardown, then begin, then stopped.
+        let mut m = suspended_machine();
+        assert!(m.stopping(None, None, 30));
+        assert_eq!(m.state(), State::Stopping);
+        m.begin("you", Some(game(5)), 31);
+        assert_eq!(m.state(), State::Preparing);
+        assert_eq!(m.owner(), Some("you"));
+        // The teardown ends while the launch call runs.
+        m.stopped(&facts(&[], &["me"]), 32);
+        assert_eq!(m.state(), State::Preparing, "the launch owns the state");
+        assert_eq!(m.owner(), Some("you"));
+        m.app_starting(33);
+        assert_eq!(m.state(), State::Launching);
+        m.launched(true, &pending(facts(&[], &[])), 34);
+        assert_eq!(m.state(), State::Launching);
+        assert!(m.observe(&facts(&["you"], &[]), 35));
+        assert_eq!(m.state(), State::Streaming);
+
+        // The teardown ends after the launch replied and waits for its client.
+        let mut m = suspended_machine();
+        assert!(m.stopping(None, None, 30));
+        m.begin("you", Some(game(5)), 31);
+        m.app_starting(32);
+        m.launched(true, &pending(facts(&[], &[])), 33);
+        m.stopped(&pending(facts(&[], &[])), 34);
+        assert_eq!(m.state(), State::Launching);
+        assert_eq!(m.owner(), Some("you"));
+        // Nobody joins: it settles with what runs.
+        assert!(m.observe(&facts(&[], &[]), 35));
+        assert_eq!(m.state(), State::Idle);
+
+        // The launch fails first: the teardown still has to end.
+        let mut m = suspended_machine();
+        assert!(m.stopping(None, None, 30));
+        m.begin("you", Some(game(5)), 31);
+        m.launched(false, &facts(&[], &["me"]), 32);
+        assert_eq!(m.state(), State::Suspended);
+        m.stopped(&facts(&[], &["me"]), 33);
+        assert_eq!(m.state(), State::Suspended);
+    }
+
+    #[test]
+    fn a_second_teardown_keeps_stopping_until_the_last_one_ends() {
+        let mut m = suspended_machine();
+        assert!(m.stopping(None, None, 30));
+        m.begin("me", Some(game(5)), 31);
+        m.app_starting(32);
+        m.launched(true, &pending(facts(&[], &[])), 33);
+        // /cancel while the launch waits for its client.
+        assert!(m.stopping(None, None, 34));
+        assert_eq!(m.state(), State::Stopping);
+        // The first teardown ends: the second is still running.
+        m.stopped(&nothing(), 35);
+        assert_eq!(m.state(), State::Stopping);
+        m.stopped(&nothing(), 36);
+        assert_eq!(m.state(), State::Idle);
+    }
+
+    #[test]
+    fn disconnect_does_not_overwrite_a_launch() {
+        let mut m = suspended_machine();
+        m.begin("me", Some(game(5)), 30);
+        m.disconnected(&facts(&[], &["me"]), 31);
+        assert_eq!(m.state(), State::Preparing);
+        m.app_starting(32);
+        m.launched(true, &pending(facts(&[], &["me"])), 33);
+        m.disconnected(&pending(facts(&[], &["me"])), 34);
+        assert_eq!(m.state(), State::Launching);
     }
 }

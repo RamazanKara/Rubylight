@@ -579,10 +579,7 @@ mod tests {
     #[test]
     fn another_device_sees_state_and_owner_only() {
         let caller = client(ALL, json!({"host_control": true}));
-        for snapshot in [
-            snapshot(State::Streaming, "someone"),
-            suspended("someone"),
-        ] {
+        for snapshot in [snapshot(State::Streaming, "someone"), suspended("someone")] {
             let session = session_view(&snapshot, &caller);
             assert_eq!(session.owner, Owner::OtherDevice);
             assert!(session.app.is_none());

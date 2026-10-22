@@ -20,19 +20,20 @@ impl Owner {
         let started = identity(pid)?.ok_or_else(|| anyhow::anyhow!("host identity unavailable"))?;
         Ok(Self { pid, started })
     }
-    /// Another process that is still running. An owner that started before the last boot is dead
-    /// whatever its pid has become, and needs no handle to say so. When its state cannot otherwise
-    /// be determined (the process cannot be opened), it counts as alive: a second host must not
+    /// Another process that is still running. When the process cannot be opened, an owner that
+    /// started before the last boot is dead, and any other counts as alive: a second host must not
     /// restore a live host's settings.
     pub fn is_other_and_alive(&self) -> bool {
         self.pid != std::process::id() && self.still_running(identity(self.pid), boot_time())
     }
     fn still_running(&self, identity: Result<Option<u64>>, boot: Option<u64>) -> bool {
-        if boot.is_some_and(|boot| self.started < boot) {
-            return false;
-        }
         match identity {
+            // A process that is there with the recorded start time is the owner, whatever the
+            // clock says about the boot.
             Ok(started) => started == Some(self.started),
+            // Only when the process cannot be read does the boot time decide: an owner from
+            // before the boot is dead.
+            Err(_) if boot.is_some_and(|boot| self.started < boot) => false,
             Err(e) => {
                 tracing::warn!(pid = self.pid, error = %format!("{e:#}"), "cannot tell whether the Radeon journal's owner is alive; assuming it is");
                 true
@@ -204,9 +205,13 @@ mod tests {
             pid: 4,
             started: 1_000,
         };
-        // Even when the process cannot be opened, or a process now has that pid and start time.
+        // Even when the process cannot be opened.
         assert!(!owner.still_running(Err(anyhow::anyhow!("access denied")), Some(2_000)));
-        assert!(!owner.still_running(Ok(Some(1_000)), Some(2_000)));
+        // A process that can be read with the recorded start time is alive, whatever the boot
+        // time says (a clock that is off must not make a live owner look dead).
+        assert!(owner.still_running(Ok(Some(1_000)), Some(2_000)));
+        assert!(!owner.still_running(Ok(Some(1_001)), Some(2_000)));
+        assert!(!owner.still_running(Ok(None), Some(2_000)));
         // One that started after the boot is judged by its handle as before.
         assert!(owner.still_running(Err(anyhow::anyhow!("access denied")), Some(1_000)));
         assert!(owner.still_running(Ok(Some(1_000)), Some(500)));

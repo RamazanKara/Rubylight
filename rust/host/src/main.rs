@@ -312,6 +312,20 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "the previous host stopped during a session; it was cleared"
         );
     }
+    // Radeon settings a crashed run left changed go back before the first stream. With no
+    // journal this does not touch ADLX.
+    match butterpollo_windows::radeon::recover_on_startup(&h.directory) {
+        Ok(report) if report.outcomes.is_empty() => {}
+        Ok(report) => tracing::info!(
+            restored = report.outcomes.len(),
+            failed = report.failed().count(),
+            "Radeon settings from an interrupted session were recovered"
+        ),
+        Err(error) => tracing::error!(
+            error = format!("{error:#}"),
+            "Radeon settings from an interrupted session could not be recovered; they stay in the journal"
+        ),
+    }
     // The service's keys: SYSTEM and Administrators only, also after a
     // profile was copied in or restored from a backup.
     let credentials = h.directory.join("credentials");

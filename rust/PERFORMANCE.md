@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Fence ring against keyed-mutex ring under GPU load | [October 22, fence ring under load](#october-22-fence-ring-under-gpu-load) |
 | 3.0 alpha.1 hardware gate against 2.6.0 | [October 22, alpha.1 gate](#october-22-30-alpha1-hardware-gate) |
 | Timer CPU cost and idle capture waits | [October 18, timer waits and idle capture](#october-18-timer-waits-and-idle-capture) |
 | Retired compute queues and conservative GPU priority | [October 18, GPU validation](PERFORMANCE_WORK.md#october-18-retired-compute-queues-and-conservative-gpu-priority) |
@@ -30,6 +31,22 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 22: fence ring under GPU load
+
+**Decision: the fence ring becomes the default for idd-push capture.** It was no worse than the keyed-mutex ring on every metric, and the loss of fresh pictures recorded on October 17 did not recur. The keyed-mutex ring stays available with `idd_push_fence_ring = false`.
+
+Main's host package and main's display driver (stamped 2.6.0.7064 by `build.ps1 -Package`). RX 7900 XT, Radeon driver 32.0.32015.2008, Windows 26200. The setup matched the [alpha.1 gate](#october-22-30-alpha1-hardware-gate)'s virtual-display runs: a per-client virtual display in the extended layout, 2560×1440 at 120 Hz, `capture = idd-push`, HEVC at 80 Mbps, an isolated host run as SYSTEM, and the independent receiver with D3D11VA on the same PC. Streams lasted 30 seconds. The load was October 17's: `gpu_load` drawing a D3D11 shader at 2560×1440, 1,000 iterations over 200 draws, at 60 frames/s (9.3 ms of GPU time per frame). It held 60.0 frames/s in every run. The order was ABBA BAAB, with SDR and HDR streams in each round, so there were 4 runs per transport and range. The host log confirmed the ring each run used. "Fresh" counts distinct source pictures per second.
+
+| Under load, mean (min–max of 4 runs) | Keyed-mutex SDR | Fence SDR | Keyed-mutex HDR | Fence HDR |
+| --- | ---: | ---: | ---: | ---: |
+| Fresh pictures/s | 120.03 (119.96–120.08) | 120.01 (120.00–120.04) | 119.69 (118.69–120.07) | 120.02 (120.00–120.04) |
+| Picture age mean, ms | 14.40 (13.40–15.60) | 14.08 (13.65–14.41) | 14.61 (14.02–15.29) | 14.84 (14.59–15.11) |
+| Picture age p99, ms | 19.34 (16.35–21.06) | 18.14 (16.18–20.41) | 21.33 (17.14–26.18) | 19.39 (16.94–21.59) |
+| Frame interval p99, ms | 13.80 (12.22–14.97) | 11.22 (10.13–13.15) | 13.07 (10.96–15.20) | 12.35 (10.52–14.36) |
+| Host mean, ms | 0.449 | 0.450 | 0.441 | 0.428 |
+
+The fence ring was better or level everywhere except the HDR mean picture age. There it was 0.24 ms higher, well inside the keyed-mutex runs' own 1.28 ms spread. Every fence run delivered 120 fresh pictures/s, while one keyed-mutex HDR run fell to 118.7. Under this load the receiver's gap check failed in 6 of 8 keyed-mutex runs and 3 of 8 fence runs. That check flags interval spikes the load causes, and both transports hit it. There was no encoder hang and no new LiveKernelReports entry. These were short runs on one GPU, and a game's present cadence differs from `gpu_load`.
 
 ## October 22: 3.0 alpha.1 hardware gate
 

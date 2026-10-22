@@ -255,6 +255,39 @@ in the game. Window placement needs a launch Rubylight can identify, as for
 game-only audio: a direct executable, a Steam game or a Playnite game. The
 Desktop entry and detached commands only get the isolated display.
 
+### Background streaming from a Hyper-V VM
+
+When the device needs keyboard, mouse or focus-dependent games, run Rubylight
+inside a Windows 11 virtual machine instead. Hyper-V GPU partitioning (GPU-PV)
+shares the host's Radeon with the VM, and AMF encoding works there, so the VM
+is an ordinary Rubylight host with its own session, input and focus while
+the PC user keeps the physical desktop.
+
+1. On the host (Windows 10/11 Pro or Enterprise), enable Hyper-V and reboot:
+   `Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All`.
+2. Create a Generation 2 VM with Windows 11, turn off checkpoints and dynamic
+   memory, and give it at least 4 cores and 8 GB.
+3. With the VM off, add a GPU partition from an elevated PowerShell:
+
+   ```powershell
+   $vm = "Rubylight"
+   Add-VMGpuPartitionAdapter -VMName $vm
+   Set-VMGpuPartitionAdapter -VMName $vm -MinPartitionVRAM 80000000 -MaxPartitionVRAM 100000000 -OptimalPartitionVRAM 100000000 -MinPartitionEncode 80000000 -MaxPartitionEncode 100000000 -OptimalPartitionEncode 100000000 -MinPartitionDecode 80000000 -MaxPartitionDecode 100000000 -OptimalPartitionDecode 100000000 -MinPartitionCompute 80000000 -MaxPartitionCompute 100000000 -OptimalPartitionCompute 100000000
+   Set-VM -VMName $vm -GuestControlledCacheTypes $true -LowMemoryMappedIoSpace 1GB -HighMemoryMappedIoSpace 32GB
+   ```
+
+4. Copy the host's AMD driver into the VM: the `C:\Windows\System32\DriverStore\FileRepository\u0*.inf_amd64_*`
+   folders of the installed Radeon driver go to
+   `C:\Windows\System32\HostDriverStore\FileRepository\` in the guest, and
+   the `amd*` DLLs from the host's `C:\Windows\System32` (including
+   `amfrt64.dll`) go to the guest's `C:\Windows\System32`. Do not install
+   Adrenalin in the guest. Repeat this after every host driver update.
+5. Start the VM, install Rubylight in it and pair the device with the VM's IP
+   address. Use an external virtual switch so the device reaches the VM
+   directly. Rubylight's virtual display gives the VM a screen to capture.
+
+Games with anti-cheat that refuses virtual machines will not start in the VM.
+
 ## Displays and RTSS
 
 Under **Settings → Display**, select a physical display or choose a virtual display per device/shared by all devices. **Exclusive** switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.

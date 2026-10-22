@@ -1320,3 +1320,68 @@ async fn the_gpu_id_is_the_signed_id_and_one_that_does_not_fit_is_not_found() {
     }
     assert_eq!(rig.fake.writes(), Vec::<String>::new());
 }
+
+#[tokio::test]
+async fn a_write_cannot_slip_between_a_restores_check_and_its_queueing() {
+    let rig = Rig::new();
+    let _first = rig.changed().await;
+    // The restore thread has checked that the device did not write again, and is about to queue.
+    let (reached, release) = rig.host().radeon.hold_restore_after_check();
+    rig.post("/session/end").await.session();
+    reached
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the restore thread checked its generation");
+    let _second = rig.streaming();
+    let before = rig.host().radeon.writes_noted("parity-device");
+    std::thread::scope(|scope| {
+        let write = scope.spawn(|| {
+            rig.host().radeon.apply(
+                "parity-device",
+                GPU,
+                vec![butterpollo_windows::radeon::Change {
+                    id: "pacing.limit".into(),
+                    value: Raw::Int(210),
+                }],
+            )
+        });
+        // The write waits for the restore to be queued: it has not even noted itself.
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(rig.host().radeon.writes_noted("parity-device"), before);
+        assert!(!write.is_finished());
+        release.send(()).unwrap();
+        write.join().unwrap().unwrap();
+    });
+    rig.flush();
+    // The restore ran first and the write came after it: the new value stays.
+    assert_eq!(rig.fake.value("pacing.limit"), Raw::Int(210));
+    assert_eq!(rig.journal().len(), 1);
+    rig.post("/session/end").await.session();
+    rig.flush();
+    rig.assert_restored();
+}
+
+#[tokio::test]
+async fn a_new_write_clears_only_the_failures_of_the_settings_it_changes() {
+    let rig = Rig::new();
+    let _first = rig.changed().await;
+    radeon(
+        &rig.write(json!([{"id": "tessellation.mode", "value": "c"}]))
+            .await,
+    );
+    rig.fake.with(|d| d.refuse_all = true);
+    rig.post("/session/end").await.session();
+    rig.flush();
+    assert_eq!(rig.journal().len(), 2);
+    rig.fake.with(|d| d.refuse_all = false);
+    // The same device writes one of the two settings again.
+    let _next = rig.streaming();
+    let panel = radeon(
+        &rig.write(json!([{"id": "tessellation.mode", "value": "on_unless_app_specifies"}]))
+            .await,
+    );
+    assert_eq!(setting(&panel, "tessellation.mode").reason, None);
+    // The other one is still journaled and still failed to be put back.
+    let pacing = setting(&panel, "pacing.limit");
+    assert_eq!(pacing.reason.as_deref(), Some("restore_failed"));
+    assert!(pacing.restore.is_some());
+}

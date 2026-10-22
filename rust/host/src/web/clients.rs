@@ -227,7 +227,7 @@ mod tests {
     fn turning_a_device_off_gives_up_its_radeon_settings_but_removing_a_permission_does_not() {
         let f = Fixture::new();
         let client = f.client(PERM);
-        f.host.radeon.note_written(&client.uuid);
+        f.host.radeon.note_written(&client.uuid, &[]);
         // Removing a permission ends what the device is doing, not its claim on its settings:
         // they go back with the session.
         handle(
@@ -252,8 +252,8 @@ mod tests {
     fn unpairing_every_device_gives_up_all_radeon_settings() {
         let f = Fixture::new();
         let client = f.client(PERM);
-        f.host.radeon.note_written(&client.uuid);
-        f.host.radeon.note_written("another-device");
+        f.host.radeon.note_written(&client.uuid, &[]);
+        f.host.radeon.note_written("another-device", &[]);
         handle(&f.host, "POST", "/api/clients/unpair-all", &json!({})).unwrap();
         assert!(!f.host.radeon.holds(&client.uuid));
         assert!(!f.host.radeon.holds("another-device"));

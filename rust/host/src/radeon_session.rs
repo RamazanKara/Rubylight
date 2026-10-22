@@ -22,7 +22,9 @@
 //! lock.
 use butterpollo_core::native_api::radeon::{ControlState, Gpu};
 use butterpollo_windows::radeon::{
-    BackendError, Entry, RestoreReport, control::RestoreResult, worker::Worker,
+    BackendError, Change, Entry, ErrorKind, RestoreReport, Setting, WriteError,
+    control::RestoreResult,
+    worker::{RestoreTicket, Worker},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -99,6 +101,14 @@ pub struct Inner {
     /// Per device, how many times it noted a write. A restore handed on for an older generation
     /// is stale: the device wrote again since, and that write is the session's to put back.
     generations: Mutex<BTreeMap<String, u64>>,
+    /// Held while a restore checks its generation and queues its job, and while a write notes
+    /// itself and queues its apply. Either order is safe; what must not happen is a write
+    /// slipping between the restore's check and its queueing, which would put the restore behind
+    /// the write and undo it.
+    queueing: Mutex<()>,
+    /// Test hook: the restore thread stops between its check and its queueing.
+    #[cfg(test)]
+    window: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
     restorer: OnceLock<mpsc::Sender<Message>>,
     /// The newest reading. The lock is held through a read, so concurrent requests share it.
     pub cache: Mutex<Option<Reading>>,
@@ -161,14 +171,50 @@ impl Inner {
         })
     }
 
-    /// `device` is about to change settings: its session restores them when it ends.
-    pub fn note_written(&self, device: &str) {
+    /// `device` is about to change the settings `ids` (or has just): its session restores them
+    /// when it ends.
+    pub fn note_written(&self, device: &str, ids: &[String]) {
         *locked(&self.generations)
             .entry(device.to_owned())
             .or_default() += 1;
         locked(&self.written).insert(device.to_owned());
-        // A new write is news of its own: an old failure is not about it.
-        locked(&self.failures).remove(device);
+        // A new write to a setting is news of its own: an old failure is not about it. A failure
+        // of another setting stays, as does nothing of a restore that failed as a whole ("*"),
+        // which cannot be told from one about this write.
+        let mut failures = locked(&self.failures);
+        if let Some(list) = failures.get_mut(device) {
+            list.retain(|(id, _)| id != "*" && !ids.contains(id));
+            if list.is_empty() {
+                failures.remove(device);
+            }
+        }
+    }
+    /// Write `changes` as `device`: note the device and queue the apply under one lock, so a
+    /// restore that is about to be queued for the device's earlier session is either ahead of
+    /// this write or skipped, never behind it. Then wait for the driver's read-back.
+    pub fn apply(
+        &self,
+        device: &str,
+        gpu: i32,
+        changes: Vec<Change>,
+    ) -> Result<Vec<Setting>, WriteError> {
+        let Some(worker) = self.worker() else {
+            return Err(WriteError {
+                kind: ErrorKind::Unavailable,
+                id: None,
+                message: "this host has no Radeon controls".into(),
+            });
+        };
+        let ids: Vec<String> = changes.iter().map(|change| change.id.clone()).collect();
+        let ticket = {
+            let _queueing = locked(&self.queueing);
+            self.note_written(device, &ids);
+            worker.queue_apply(device, gpu, changes)
+        };
+        let result = ticket?.wait();
+        // The write may have changed more than it reported, or gone on after a timeout.
+        self.note_written(device, &ids);
+        result
     }
     /// Forget what the panel showed, after a write or a restore.
     pub fn forget(&self) {
@@ -321,6 +367,20 @@ impl Inner {
     pub fn holds(&self, device: &str) -> bool {
         locked(&self.written).contains(device)
     }
+    /// Stop the restore thread after its next generation check, before it queues the restore,
+    /// until the sender is used or dropped. The receiver says it got there. For tests.
+    #[cfg(test)]
+    pub fn hold_restore_after_check(&self) -> (mpsc::Receiver<()>, mpsc::Sender<()>) {
+        let (reached, arrived) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        *locked(&self.window) = Some((reached, wait));
+        (arrived, release)
+    }
+    /// How often `device` noted a write. For tests.
+    #[cfg(test)]
+    pub fn writes_noted(&self, device: &str) -> u64 {
+        self.generation(device)
+    }
     /// Stop the restore thread until the returned sender is dropped. For tests.
     #[cfg(test)]
     pub fn pause_restores(&self) -> mpsc::Sender<()> {
@@ -345,15 +405,25 @@ fn restorer(inner: &Inner, worker: &Worker, messages: &mpsc::Receiver<Message>) 
     while let Ok(message) = messages.recv() {
         match message {
             Message::Restore(device, generation) => {
-                if inner.generation(&device) != generation {
-                    tracing::info!(
-                        session = %device,
-                        "a Radeon restore was skipped: the device wrote again after its session ended"
-                    );
-                    continue;
-                }
+                // No write may note itself between the check and the queueing.
+                let queued = {
+                    let _queueing = locked(&inner.queueing);
+                    if inner.generation(&device) != generation {
+                        tracing::info!(
+                            session = %device,
+                            "a Radeon restore was skipped: the device wrote again after its session ended"
+                        );
+                        continue;
+                    }
+                    #[cfg(test)]
+                    if let Some((reached, release)) = locked(&inner.window).take() {
+                        let _ = reached.send(());
+                        let _ = release.recv();
+                    }
+                    worker.queue_restore(&device)
+                };
                 // The worker logs a restore that fails, with the setting ids, and retries it.
-                let result = worker.restore_session(&device);
+                let result = queued.and_then(RestoreTicket::wait);
                 inner.record(&device, &result);
             }
             Message::Flush(ack) => {

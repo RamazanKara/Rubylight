@@ -162,6 +162,18 @@ impl Worker {
         gpu: i32,
         changes: Vec<Change>,
     ) -> Result<Vec<Setting>, WriteError> {
+        self.queue_apply(session, gpu, changes)?.wait()
+    }
+
+    /// Queue a write and return at once: the job is behind everything queued before this call.
+    /// A caller that must order the write against other queued work does that between this and
+    /// the [`ApplyTicket::wait`].
+    pub fn queue_apply(
+        &self,
+        session: &str,
+        gpu: i32,
+        changes: Vec<Change>,
+    ) -> Result<ApplyTicket, WriteError> {
         let (reply, answer) = mpsc::channel();
         let abandoned = Arc::new(AtomicBool::new(false));
         let job = Job::Apply {
@@ -172,10 +184,49 @@ impl Worker {
             abandoned: abandoned.clone(),
         };
         self.jobs.send(job).map_err(|_| stopped())?;
-        match answer.recv_timeout(self.call_limit) {
+        Ok(ApplyTicket {
+            answer,
+            abandoned,
+            call_limit: self.call_limit,
+        })
+    }
+
+    /// Queue behind the recovery and any earlier job, and put one session's settings back, waiting
+    /// at most `call_limit`. A restore that times out stays queued and still runs.
+    pub fn restore_session(&self, session: &str) -> anyhow::Result<RestoreReport> {
+        self.queue_restore(session)?.wait()
+    }
+
+    /// Queue a restore and return at once, like [`Worker::queue_apply`].
+    pub fn queue_restore(&self, session: &str) -> anyhow::Result<RestoreTicket> {
+        let (reply, answer) = mpsc::channel();
+        let job = Job::Restore {
+            session: session.into(),
+            reply,
+        };
+        self.jobs
+            .send(job)
+            .map_err(|_| anyhow::anyhow!("the Radeon worker stopped"))?;
+        Ok(RestoreTicket {
+            answer,
+            call_limit: self.call_limit,
+        })
+    }
+}
+
+/// A queued write, waiting for the driver's read-back.
+pub struct ApplyTicket {
+    answer: mpsc::Receiver<Result<Vec<Setting>, WriteError>>,
+    abandoned: Arc<AtomicBool>,
+    call_limit: Duration,
+}
+impl ApplyTicket {
+    /// Wait at most `call_limit`; see [`Worker::apply`] for what a timeout leaves behind.
+    pub fn wait(self) -> Result<Vec<Setting>, WriteError> {
+        match self.answer.recv_timeout(self.call_limit) {
             Ok(result) => result,
             Err(RecvTimeoutError::Timeout) => {
-                abandoned.store(true, Ordering::SeqCst);
+                self.abandoned.store(true, Ordering::SeqCst);
                 Err(WriteError {
                     kind: super::ErrorKind::Unavailable,
                     id: None,
@@ -188,19 +239,17 @@ impl Worker {
             Err(RecvTimeoutError::Disconnected) => Err(stopped()),
         }
     }
+}
 
-    /// Queue behind the recovery and any earlier job, and put one session's settings back, waiting
-    /// at most `call_limit`. A restore that times out stays queued and still runs.
-    pub fn restore_session(&self, session: &str) -> anyhow::Result<RestoreReport> {
-        let (reply, answer) = mpsc::channel();
-        let job = Job::Restore {
-            session: session.into(),
-            reply,
-        };
-        self.jobs
-            .send(job)
-            .map_err(|_| anyhow::anyhow!("the Radeon worker stopped"))?;
-        match answer.recv_timeout(self.call_limit) {
+/// A queued restore.
+pub struct RestoreTicket {
+    answer: mpsc::Receiver<anyhow::Result<RestoreReport>>,
+    call_limit: Duration,
+}
+impl RestoreTicket {
+    /// Wait at most `call_limit`. A restore that times out stays queued and still runs.
+    pub fn wait(self) -> anyhow::Result<RestoreReport> {
+        match self.answer.recv_timeout(self.call_limit) {
             Ok(result) => result,
             Err(RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
                 "the Radeon worker did not answer within {} s; the restore stays queued and still runs",

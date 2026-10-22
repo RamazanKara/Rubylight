@@ -188,9 +188,7 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
     // The session restores what this request changes, even when it fails half way or the call
     // gives up waiting: the device is noted before the first write and again after the last.
     let device = client.uuid.as_str();
-    h.radeon.note_written(device);
-    let result = worker.apply(device, gpu, changes);
-    h.radeon.note_written(device);
+    let result = h.radeon.apply(device, gpu, changes);
     // The session may have ended while the driver wrote: bring the restore up to date.
     h.session_tick();
     h.radeon.forget();

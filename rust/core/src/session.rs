@@ -1226,6 +1226,50 @@ mod tests {
         );
     }
     #[test]
+    fn a_sent_picture_feeds_the_client_report_and_the_record_sink_alike() {
+        use crate::{host_timing::HostTimingRequest, performance::Stamps, timing_record};
+        use std::time::Duration;
+        let session = Session::new(launch("record", Role::Stream), Negotiated::default());
+        let epoch = Instant::now();
+        let us = |n: u64| epoch + Duration::from_micros(n);
+        let stamps = Stamps {
+            presented: us(100),
+            acquired: us(200),
+            published: us(250),
+            claimed: us(300),
+            submitted: us(500),
+            encoded: us(2_500),
+            packetized: us(2_600),
+            prepared: us(2_700),
+            first_sent: us(2_700),
+            last_sent: us(2_900),
+        };
+        // Neither a client report nor a sink: nothing is kept.
+        session.record_sent(1, 9_000, &stamps, epoch);
+        assert_eq!(session.host_timings.lock().unwrap().take_report(), None);
+
+        let (sink, rows) = timing_record::channel(8);
+        *session.timing_record.write().unwrap() = Some(Arc::new(sink));
+        session
+            .host_timings
+            .lock()
+            .unwrap()
+            .on_request(&HostTimingRequest { enabled: true }.encode());
+        session.record_sent(2, 9_000, &stamps, epoch);
+        let report = session.host_timings.lock().unwrap().take_report().unwrap();
+        let (record, extra) = crate::host_timing::HostTiming::decode_report_with(&report)
+            .unwrap()
+            .remove(0);
+        assert_eq!((record.frame, record.host_us), (2, 2_800));
+        assert_eq!(extra.unwrap().presented_at_us, 100);
+        let row = rows.try_recv().unwrap();
+        assert_eq!(row.wire_frame, 2);
+        assert_eq!(row.rtp_us, 100_000);
+        assert_eq!(row.points[0], 100);
+        assert_eq!(row.points[9], 2_900);
+        assert!(rows.try_recv().is_err(), "the first picture had no sink");
+    }
+    #[test]
     fn pyrowave_feedback_cannot_force_frames_or_turn_invalidation_into_idr() {
         let session = Session::new(
             launch("pyrowave", Role::Stream),
@@ -1493,8 +1537,33 @@ pub struct Session<P = (), A = ()> {
     /// Zero of the video stream's RTP clock, set when its sender starts; clock sync
     /// replies (0x5537) are on this clock.
     pub media_epoch: std::sync::RwLock<Option<Instant>>,
+    /// The host-side timing record (`BUTTERPOLLO_TIMING_RECORD`), when it is on.
+    pub timing_record: std::sync::RwLock<Option<Arc<crate::timing_record::Sink>>>,
 }
 impl<P, A> Session<P, A> {
+    /// Notes a new picture whose last packet was just handed to the socket: for a client
+    /// that asked for host timing (0x5536) and for the host-side record. `rtp_timestamp` is
+    /// the picture's RTP timestamp on the wire and `epoch` the media clock's start.
+    pub fn record_sent(
+        &self,
+        wire_frame: u32,
+        rtp_timestamp: u32,
+        stamps: &crate::performance::Stamps,
+        epoch: Instant,
+    ) {
+        self.host_timings
+            .lock()
+            .unwrap()
+            .record(wire_frame, stamps, epoch);
+        if let Some(sink) = &*self.timing_record.read().unwrap() {
+            sink.record(crate::timing_record::Row::new(
+                wire_frame,
+                rtp_timestamp,
+                stamps,
+                epoch,
+            ));
+        }
+    }
     pub fn new(launch: Launch<P, A>, config: Negotiated) -> Arc<Self> {
         let bitrate = config.bitrate_kbps;
         let mode = crate::reconfigure::Mode::of(&config);
@@ -1526,6 +1595,7 @@ impl<P, A> Session<P, A> {
             hdr_source: Default::default(),
             host_timings: Default::default(),
             media_epoch: Default::default(),
+            timing_record: Default::default(),
         })
     }
     pub fn stopping(&self) -> bool {

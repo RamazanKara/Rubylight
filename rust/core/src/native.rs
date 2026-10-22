@@ -347,7 +347,6 @@ mod tests {
             app: Some(game(5)),
             since_unix_ms: Some(10),
             suspended_until_unix_ms: Some(20),
-            ..Default::default()
         }
     }
     fn suspended(owner: &str) -> SessionSnapshot {

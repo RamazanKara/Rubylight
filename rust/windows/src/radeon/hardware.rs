@@ -8,9 +8,15 @@
 //! Every test checks the host is idle first and puts every setting back in a guard that also runs
 //! when the test panics. The results are printed and written as JSON next to the repository
 //! (`RADEON_HW_OUT`, default `C:\src`).
+//!
+//! Reads and writes go through `helper()`: a fresh process per call, exactly as the host does it,
+//! because a long-lived process's ADLX view goes stale after any other process writes (see
+//! `radeon::helper`). Only `session_churn_is_stable` and `measure_view_refresh` use the in-process
+//! `AdlxBackend`, and say why.
 use super::{
     AdlxBackend, Change, Controller, RadeonBackend, Scope,
     control::JOURNAL_FILE,
+    helper::HelperBackend,
     model::{Kind, Setting, State, Value, enum_items},
     probe,
 };
@@ -56,6 +62,28 @@ fn assert_host_idle() {
     }
 }
 
+/// The backend the host uses: every call runs in a new process (this test binary, acting as the
+/// helper), so every read sees the driver as it is now.
+fn helper() -> HelperBackend {
+    HelperBackend::with_command(
+        std::env::current_exe().expect("test binary"),
+        [
+            "--exact",
+            "radeon::hardware::helper_child",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ]
+        .map(String::from)
+        .to_vec(),
+    )
+}
+#[test]
+#[ignore = "child of the hardware tests"]
+fn helper_child() {
+    assert_eq!(super::helper::run(), 0);
+}
+
 fn first_gpu() -> i32 {
     probe().expect("probe").gpus.first().expect("an AMD GPU").id
 }
@@ -73,19 +101,17 @@ fn scratch_dir(label: &str) -> PathBuf {
 }
 
 /// Writes every setting back to its starting value on drop, panic or not. A setting that will
-/// not go back is named loudly with the value it must return to.
+/// not go back is named loudly with the value it must return to. It reads and writes through
+/// `helper()`, so it sees the driver as it is now and never skips a write because this process
+/// believes the value is already right.
 struct Restore {
     gpu: i32,
     originals: Vec<(String, Value)>,
-    /// Restore in a new process (the default), whose view of the driver is current. Only the
-    /// process that does the restoring sets this to false.
-    fresh: bool,
 }
 impl Restore {
     fn new(gpu: i32, start: &[Setting]) -> Self {
         snapshot(start);
         Self {
-            fresh: true,
             gpu,
             originals: start
                 .iter()
@@ -95,7 +121,7 @@ impl Restore {
         }
     }
     fn differing(&self) -> Vec<(String, Value, Option<Value>)> {
-        let Ok(now) = AdlxBackend.read(self.gpu) else {
+        let Ok(now) = helper().read(self.gpu) else {
             return self
                 .originals
                 .iter()
@@ -111,31 +137,44 @@ impl Restore {
             })
             .collect()
     }
-}
-impl Drop for Restore {
-    fn drop(&mut self) {
-        if self.fresh {
-            // Never trust this process's view: a stale one can say "already the original" while
-            // the driver holds the changed value.
-            if let Err(e) = try_fresh_restore() {
-                eprintln!("RESTORE FAILED: {e}");
-                if !std::thread::panicking() {
-                    panic!("{e}");
-                }
-            }
-            return;
-        }
+    /// Write back whatever differs, up to three rounds. Returns what would not go back.
+    fn put_back(&self) -> Vec<(String, Value, Option<Value>)> {
         for _ in 0..3 {
             let differing = self.differing();
             if differing.is_empty() {
-                return;
+                return vec![];
             }
-            for (id, original, _) in &differing {
+            let Ok(now) = helper().read(self.gpu) else {
+                continue;
+            };
+            // Fields before their `.enabled` toggles, so a field of a feature that is off can
+            // borrow the toggle for its write.
+            let mut order = differing;
+            order.sort_by_key(|(id, _, _)| id.ends_with(".enabled"));
+            for (id, original, _) in &order {
+                let toggle = super::model::feature_toggle(id);
+                let borrowed = toggle.filter(|toggle| {
+                    now.iter()
+                        .find(|s| s.id == toggle.as_str())
+                        .and_then(|s| s.value.as_ref())
+                        == Some(&Value::Bool(false))
+                });
+                if let Some(toggle) = &borrowed {
+                    let _ = helper().write(self.gpu, toggle, &Value::Bool(true));
+                }
                 // vsync.enabled follows vsync.mode and has no setter; the write error is expected.
-                let _ = AdlxBackend.write(self.gpu, id, original);
+                let _ = helper().write(self.gpu, id, original);
+                if let Some(toggle) = &borrowed {
+                    let _ = helper().write(self.gpu, toggle, &Value::Bool(false));
+                }
             }
         }
-        let stuck = self.differing();
+        self.differing()
+    }
+}
+impl Drop for Restore {
+    fn drop(&mut self) {
+        let stuck = self.put_back();
         if stuck.is_empty() {
             return;
         }
@@ -221,10 +260,19 @@ fn snapshot(start: &[Setting]) {
         .filter(|s| s.kind != Kind::Action)
         .filter_map(|s| Some((s.id, s.value.as_ref()?)))
         .collect();
+    // A run that died before restoring leaves changed values in the next run's start, so the
+    // snapshot it replaces is kept beside it.
+    let path = out_path("rl-a5-snapshot.json");
+    if let Ok(previous) = std::fs::read(&path)
+        && previous != serde_json::to_vec_pretty(&values).expect("json")
+    {
+        let _ = std::fs::write(out_path("rl-a5-snapshot.prev.json"), previous);
+    }
     save("rl-a5-snapshot.json", &values);
 }
 
-/// Read-only: the backend opens an ADLX session per call, so many in a row must stay stable.
+/// Read-only, and deliberately in this process: `AdlxBackend` opens an ADLX session per call, so
+/// many in a row must stay stable.
 #[test]
 #[ignore = "talks to the driver"]
 fn session_churn_is_stable() {
@@ -253,7 +301,6 @@ fn restore_snapshot() {
         serde_json::from_slice(&std::fs::read(&path).expect("snapshot")).expect("snapshot json");
     let gpu = first_gpu();
     let restore = Restore {
-        fresh: false,
         gpu,
         originals: wanted.into_iter().collect(),
     };
@@ -268,12 +315,12 @@ fn prove_configurable_settings_round_trip() {
     let _exclusive = exclusive();
     assert_host_idle();
     let gpu = first_gpu();
-    let start = AdlxBackend.read(gpu).expect("read");
+    let start = helper().read(gpu).expect("read");
     let _restore = Restore::new(gpu, &start);
     snapshot(&start);
     let dir = scratch_dir("prove");
     let journal = dir.join(JOURNAL_FILE);
-    let mut controller = Controller::new(AdlxBackend, journal.clone());
+    let mut controller = Controller::new(helper(), journal.clone());
     let mut proofs = vec![];
     for setting in start.iter().filter(|s| s.state == State::Configurable) {
         if setting.kind == Kind::Action {
@@ -345,7 +392,7 @@ fn prove_configurable_settings_round_trip() {
                         setting.id,
                         report.outcomes
                     );
-                    let moved = diff(&start, &AdlxBackend.read(gpu).expect("read"));
+                    let moved = diff(&start, &helper().read(gpu).expect("read"));
                     assert!(
                         moved.is_empty(),
                         "after restoring {} the settings differ: {moved:?}",
@@ -368,7 +415,7 @@ fn prove_configurable_settings_round_trip() {
                     break;
                 }
                 Err(e) => {
-                    let moved = diff(&start, &AdlxBackend.read(gpu).expect("read"));
+                    let moved = diff(&start, &helper().read(gpu).expect("read"));
                     assert!(
                         moved.is_empty(),
                         "{} was refused ({e}) but the settings differ: {moved:?}",
@@ -395,7 +442,7 @@ fn prove_configurable_settings_round_trip() {
         "journal left: {:?}",
         journal.entries
     );
-    let end = AdlxBackend.read(gpu).expect("read");
+    let end = helper().read(gpu).expect("read");
     let moved = diff(&start, &end);
     save("rl-a5-prove.json", &proofs);
     assert!(moved.is_empty(), "final probe diff is not empty: {moved:?}");
@@ -438,17 +485,17 @@ fn explore_enum_settings() {
     let _exclusive = exclusive();
     assert_host_idle();
     let gpu = first_gpu();
-    let start = AdlxBackend.read(gpu).expect("read");
+    let start = helper().read(gpu).expect("read");
     let _restore = Restore::new(gpu, &start);
     snapshot(&start);
     // The AFMF modes answer ADLX_NOT_ACTIVE while AFMF is off; this run turns it on for a while.
     let afmf_on = std::env::var_os("RADEON_EXPLORE_AFMF_ON").is_some();
     let mut current = start.clone();
     if afmf_on {
-        AdlxBackend
+        helper()
             .write(gpu, "afmf.enabled", &Value::Bool(true))
             .expect("enable AFMF");
-        current = AdlxBackend.read(gpu).expect("read");
+        current = helper().read(gpu).expect("read");
     }
     let mut found = vec![];
     for id in CANDIDATES {
@@ -466,7 +513,7 @@ fn explore_enum_settings() {
             });
             continue;
         };
-        let mut backend = AdlxBackend;
+        let mut backend = helper();
         let mut result = Exploration {
             id: setting.id,
             original: Some(original.clone()),
@@ -545,11 +592,11 @@ fn explore_enum_settings() {
             .find(|s| s.id == "afmf.enabled")
             .and_then(|s| s.value.clone())
             .expect("afmf.enabled");
-        AdlxBackend
+        helper()
             .write(gpu, "afmf.enabled", &original)
             .expect("put AFMF back");
     }
-    let moved = diff(&start, &AdlxBackend.read(gpu).expect("read"));
+    let moved = diff(&start, &helper().read(gpu).expect("read"));
     save(
         if afmf_on {
             "rl-a5-explore-afmf.json"
@@ -581,9 +628,9 @@ fn crash_child() {
         return;
     };
     let gpu = first_gpu();
-    let settings = AdlxBackend.read(gpu).expect("read");
+    let settings = helper().read(gpu).expect("read");
     let (id, value) = crash_target(&settings);
-    let mut controller = Controller::new(AdlxBackend, Path::new(&dir).join(JOURNAL_FILE));
+    let mut controller = Controller::new(helper(), Path::new(&dir).join(JOURNAL_FILE));
     controller
         .apply(
             "crashed",
@@ -601,67 +648,33 @@ fn crash_child() {
     std::process::abort();
 }
 
-/// Child process 2: a fresh host start.
+/// Child process 2: a fresh host start, running the startup recovery with the helper-process
+/// backend, with nothing between the crash and this. The crash left the setting changed, so the
+/// recovery must have written the original back, not found it already there.
 #[test]
 #[ignore = "child of crash_then_recover"]
 fn recover_child() {
+    use super::control::RestoreResult;
     let Ok(dir) = std::env::var(CRASH_DIR) else {
         return;
     };
-    let report = super::recover_on_startup(Path::new(&dir)).expect("recover");
+    let mut controller = Controller::new(helper(), Path::new(&dir).join(JOURNAL_FILE));
+    let report = controller.recover_on_startup().expect("recover");
     println!("recovery: {:?}", report.outcomes);
     assert!(report.is_clean(), "recovery failed: {:?}", report.outcomes);
+    assert_eq!(report.outcomes.len(), 1, "{:?}", report.outcomes);
+    assert_eq!(
+        report.outcomes[0].result,
+        RestoreResult::Restored,
+        "the crash left the setting changed, so recovery must have written it back"
+    );
 }
 
-/// Child process 3: say what a fresh process reads for the crash target. This process's own
-/// ADLX view can stay behind for a long time after another process wrote (after an `abort()` it
-/// never caught up within 30 s here), so the checks that matter are made by new processes.
-#[test]
-#[ignore = "child of crash_then_recover"]
-fn read_child() {
-    let Ok(dir) = std::env::var(CRASH_DIR) else {
-        return;
-    };
-    let settings = AdlxBackend.read(first_gpu()).expect("read");
-    let (id, _) = crash_target(&settings);
-    let value = settings
-        .iter()
-        .find(|s| s.id == id)
-        .and_then(|s| s.value.as_ref())
-        .map_or("?".to_string(), Value::display);
-    std::fs::write(Path::new(&dir).join("value.txt"), value).expect("write value");
-}
-
-/// What a fresh process reads for the crash target.
-fn fresh_value(dir: &Path) -> String {
-    let _ = std::fs::remove_file(dir.join("value.txt"));
-    let status = run_child("read_child", dir, true);
-    assert!(status.success(), "read child failed: {status}");
-    std::fs::read_to_string(dir.join("value.txt")).expect("value.txt")
-}
-
-/// Put every setting back to the snapshot in a new process, whose view of the driver is current.
-/// This process's own view can be stale, and a write of the value it believes is already set was
-/// seen to be dropped, so the safety net never relies on it.
-fn fresh_restore() {
-    try_fresh_restore().expect("fresh restore");
-}
-fn try_fresh_restore() -> Result<(), String> {
-    let status = Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
-        .args([
-            "--exact",
-            "radeon::hardware::restore_snapshot",
-            "--ignored",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .status()
-        .map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("the fresh restore process failed: {status}"))
-    }
+/// What a fresh process reads for a setting.
+fn fresh_value(gpu: i32, id: &str) -> String {
+    helper()
+        .read_value(gpu, id)
+        .map_or_else(|e| format!("unreadable: {e}"), |v| v.display())
 }
 
 fn run_child(test: &str, dir: &Path, exit: bool) -> std::process::ExitStatus {
@@ -683,12 +696,17 @@ fn run_child(test: &str, dir: &Path, exit: bool) -> std::process::ExitStatus {
     child.status().expect("spawn")
 }
 
-/// Write through the journal, kill the process before it restores, and recover in a new one.
-/// `exit` ends the child with `exit(3)` (no destructors); otherwise it `abort()`s, which Windows
-/// treats as a fast-fail crash. Returns what the driver held after the death.
+/// Write through the journal, kill the process before it restores, and start recovery in a new
+/// one at once. `exit` ends the child with `exit(3)` (no destructors); otherwise it `abort()`s,
+/// which Windows treats as a fast-fail crash. Returns what a fresh process read the moment after
+/// the death and the moment after the recovery.
+///
+/// The recovery is deliberately not preceded by a check or a wait: it runs in the window where
+/// the dead child's write is the newest thing the driver has seen, which is where a recovery that
+/// trusted a stale read would wrongly conclude that nothing needs undoing.
 fn crash_round(exit: bool) -> (String, Value, String) {
     let gpu = first_gpu();
-    let start = AdlxBackend.read(gpu).expect("read");
+    let start = helper().read(gpu).expect("read");
     let _restore = Restore::new(gpu, &start);
     snapshot(&start);
     let dir = scratch_dir(if exit { "crash-exit" } else { "crash-abort" });
@@ -702,41 +720,20 @@ fn crash_round(exit: bool) -> (String, Value, String) {
 
     let status = run_child("crash_child", &dir, exit);
     assert!(!status.success(), "the child should have died: {status}");
-    // A new process sees the dead child's write only after a delay (about 2 s here), and that
-    // delay is why recovery checks again after its settle time. After an `abort()` the write may
-    // not have reached the driver at all, so only `exit(3)` must show it.
-    let waited = std::time::Instant::now();
-    let mut after_death = fresh_value(&dir);
-    while after_death != tried.display() && waited.elapsed() < Duration::from_secs(10) {
-        after_death = fresh_value(&dir);
-    }
-    println!(
-        "{id}: a new process read {after_death} {:?} after the child died ({how})",
-        waited.elapsed()
-    );
-    if exit {
-        assert_eq!(
-            after_death,
-            tried.display(),
-            "the crashed child should have left {id} changed"
-        );
-    }
-    let journal = Controller::new(AdlxBackend, dir.join(JOURNAL_FILE))
+    let journal = Controller::new(helper(), dir.join(JOURNAL_FILE))
         .journal()
         .expect("journal");
     assert_eq!(journal.entries.len(), 1, "journal: {:?}", journal.entries);
     assert_eq!(journal.entries[0].original, original);
+    assert_eq!(journal.entries[0].written, tried);
 
+    // Straight into the recovery, then look: it must have put the original back.
+    let waited = std::time::Instant::now();
     let status = run_child("recover_child", &dir, exit);
     assert!(status.success(), "recovery child failed: {status}");
-    // The recovery's own write reaches a new process late too, so ask again until it shows.
-    let waited = std::time::Instant::now();
-    let mut now = fresh_value(&dir);
-    while now != original.display() && waited.elapsed() < Duration::from_secs(30) {
-        now = fresh_value(&dir);
-    }
+    let now = fresh_value(gpu, id);
     println!(
-        "{id}: a new process reads {now} {:?} after the recovery ({how})",
+        "{id}: a new process reads {now} after the recovery ({how}, recovery child took {:?})",
         waited.elapsed()
     );
     assert_eq!(
@@ -747,20 +744,13 @@ fn crash_round(exit: bool) -> (String, Value, String) {
     );
     // And it stays there: the dead child's write must not land after the recovery.
     std::thread::sleep(Duration::from_secs(5));
+    let later = fresh_value(gpu, id);
     assert_eq!(
-        fresh_value(&dir),
+        later,
         original.display(),
         "{id} changed again after the recovery"
     );
-    let journal = Controller::new(AdlxBackend, dir.join(JOURNAL_FILE))
-        .journal()
-        .expect("journal");
-    assert!(
-        journal.entries.is_empty(),
-        "journal left: {:?}",
-        journal.entries
-    );
-    (id.to_string(), tried, after_death)
+    (id.to_string(), tried, now)
 }
 
 /// The host dies after a journaled write. A fresh start restores the original.
@@ -771,16 +761,14 @@ fn crash_then_recover() {
     assert_host_idle();
     let (id, tried, held) = crash_round(true);
     println!(
-        "exit(3) crash: {id} -> {} (child killed, driver held {}) -> original (recovered in a fresh process)",
-        tried.display(),
-        held
+        "exit(3) crash: {id} -> {} (child killed) -> {held} (recovered in a fresh process)",
+        tried.display()
     );
     assert_host_idle();
     let (id, tried, held) = crash_round(false);
     println!(
-        "abort() crash: {id} -> {} (child killed, driver held {}) -> original (recovered in a fresh process)",
-        tried.display(),
-        held
+        "abort() crash: {id} -> {} (child killed) -> {held} (recovered in a fresh process)",
+        tried.display()
     );
 }
 
@@ -795,8 +783,8 @@ fn measure_view_refresh() {
     let _exclusive = exclusive();
     assert_host_idle();
     let gpu = first_gpu();
-    let start = AdlxBackend.read(gpu).expect("read");
-    let _restore = Restore::new(gpu, &start);
+    let start = helper().read(gpu).expect("read");
+    let restore = Restore::new(gpu, &start);
     snapshot(&start);
     let (id, tried) = crash_target(&start);
     let original = start
@@ -804,6 +792,7 @@ fn measure_view_refresh() {
         .find(|s| s.id == id)
         .and_then(|s| s.value.clone())
         .expect("value");
+    // The one place that reads in this process on purpose: its view is what is being measured.
     let read_target = || {
         AdlxBackend
             .read(gpu)
@@ -822,13 +811,16 @@ fn measure_view_refresh() {
         let dir = scratch_dir("refresh");
         let status = run_child("crash_child", &dir, false);
         assert!(!status.success(), "the child should have died: {status}");
-        let fresh = fresh_value(&dir);
-        let library = super::adlx::library().expect("library");
+        let fresh = fresh_value(gpu, id);
         let began = std::time::Instant::now();
         let mut seen = None;
         let mut applied = String::new();
         while began.elapsed() < Duration::from_secs(12) && seen.is_none() {
             if applied.is_empty() {
+                // The shared ADLX lock is held only while the method runs, so the reads below
+                // can take it again.
+                let runtime = crate::adlx_system::acquire().expect("ADLX");
+                let library = runtime.library();
                 applied = match method {
                     "terminate" => {
                         // SAFETY: No ADLX session is alive on this thread.
@@ -865,9 +857,10 @@ fn measure_view_refresh() {
                 "saw it after {t:?}"
             ))
         );
-        // This process's own writes are not trusted while its view is stale (a write of the value
-        // it believes is current may be dropped), so a new process puts it back.
-        fresh_restore();
-        assert_eq!(fresh_value(&dir), original.display(), "{id} not back");
+        // Put back through fresh helper processes: this process's own writes are not trusted
+        // while its view is stale (a write of the value it believes is current is dropped).
+        let stuck = restore.put_back();
+        assert!(stuck.is_empty(), "could not restore: {stuck:?}");
+        assert_eq!(fresh_value(gpu, id), original.display(), "{id} not back");
     }
 }

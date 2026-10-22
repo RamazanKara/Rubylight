@@ -1,5 +1,22 @@
 //! `GET /radeon` and the settings writes.
-use serde::{Deserialize, Serialize};
+use serde::de::IgnoredAny;
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Reads an optional field of a response, and takes a shape this version
+/// doesn't know (a float, an array, an object) as absent instead of failing
+/// the whole response. Requests don't use it: they stay strict.
+fn lenient<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Lenient<T> {
+        Known(T),
+        Other(IgnoredAny),
+    }
+    Ok(match Option::<Lenient<T>>::deserialize(d)? {
+        Some(Lenient::Known(value)) => Some(value),
+        Some(Lenient::Other(_)) | None => None,
+    })
+}
 
 /// One of the five states of a setting, and of the whole panel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +42,8 @@ pub enum Kind {
     Unknown,
 }
 
+/// A setting value. Strict: a request with any other shape is refused. In
+/// responses, `Setting` reads an unknown shape as an absent value.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Value {
@@ -61,15 +80,28 @@ pub struct Setting {
     pub group: String,
     pub kind: Kind,
     pub state: ControlState,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// A value of a shape this version doesn't know reads as `None`.
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub value: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub range: Option<Range>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<Choice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub restore: Option<Restore>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,

@@ -230,6 +230,43 @@ fn responses_ignore_unknown_fields() {
 }
 
 #[test]
+fn unknown_value_shapes_do_not_fail_a_radeon_response() {
+    let mut value: Json = serde_json::from_str(&fixture("radeon")).unwrap();
+    let settings = &mut value["gpus"][0]["settings"];
+    settings[0]["value"] = json!(0.75);
+    settings[1]["value"] = json!([144, 60]);
+    settings[1]["range"] = json!({ "min": 0.5, "max": 1.5, "step": 0.25 });
+    settings[1]["restore"] = json!({ "original": [120], "written": { "fps": 144 } });
+    let radeon: Radeon = serde_json::from_value(value).unwrap();
+    let settings = &radeon.gpus[0].settings;
+    assert_eq!(settings.len(), 5);
+    assert_eq!(settings[0].value, None);
+    assert_eq!(settings[0].state, ControlState::Configurable);
+    assert_eq!(settings[1].value, None);
+    assert_eq!(settings[1].range, None);
+    assert_eq!(settings[1].restore, None);
+    // The settings next to it still read as before.
+    assert_eq!(settings[2].value, Some(Value::Bool(false)));
+    // A null stays absent too.
+    let setting: rubylight_native_api::radeon::Setting = serde_json::from_value(json!({
+        "id": "x.y", "group": "x", "kind": "toggle", "state": "configurable", "value": null
+    }))
+    .unwrap();
+    assert_eq!(setting.value, None);
+}
+
+#[test]
+fn requests_stay_strict_about_value_shapes() {
+    for value in [json!(1.5), json!([1]), json!({ "a": 1 }), json!(null)] {
+        let body = json!({ "gpu": 1, "changes": [{ "id": "x.y", "value": value }] });
+        assert!(
+            serde_json::from_value::<SettingsWrite>(body).is_err(),
+            "{value}"
+        );
+    }
+}
+
+#[test]
 fn requests_reject_unknown_fields() {
     let mut value: Json = serde_json::from_str(&fixture("settings_write")).unwrap();
     value["dry_run"] = json!(true);

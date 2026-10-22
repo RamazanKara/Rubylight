@@ -152,9 +152,25 @@ GET /api/native/v1/session
 
 `owner` is `none`, `you` or `other_device`. Other devices see `state` and `owner` only: `app` is null and every action is refused with `not_session_owner`, the same scoping `/serverinfo` uses for `currentgame`. Without View or Launch permission, `app` is null as well. The host always names the owner of a session that isn't `idle`: `native::session_view` asserts it in debug builds, since without an owner every caller would read as another device.
 
-Until A4 lands, the host derives the state from today's model: a pending launch is `preparing` (`launching` once the app process exists), an active `Role::Stream` session that is not `stopping()` is `streaming`, a stopping one is `stopping`, a running `current_app` whose owner's display is still retained in `app_display` is `suspended`, and anything else is `idle`. A4 then replaces the derivation with its explicit state, and the wire format doesn't change.
+The host keeps this state explicitly (A4): `butterpollo_core::session_state::Machine`, fed by `rust/host/src/session_control.rs`. It is a projection of what the host observes plus the transitions the launch and teardown code report, so stock Moonlight flows (`/launch`, `/resume`, `/cancel`, RTSP and ENet disconnects, "Quit app") run unchanged and only record what they do.
 
-**Actions.** Every action is an empty POST. It is idempotent and returns the Session object after the action has started, often in `stopping`. Actions run under the existing `launch_transition` lock, so they serialize with launches.
+| From | To | When |
+|---|---|---|
+| `idle` | `preparing` | `/launch` or `/resume` of a stream is accepted |
+| `preparing` | `launching` | the app's own commands start |
+| `launching` | `streaming` | the client connects (RTSP Play) |
+| `launching` | `suspended` or `idle` | the launch fails, or nobody joins within 30 s. It returns to what still runs |
+| `streaming` | `suspended` | the stream ends (client disconnect, Disconnect action) while the game and its display remain |
+| `streaming` | `idle` | the stream ends and no game, or no kept display, remains |
+| `suspended` | `streaming` or `launching` | the owner's `/resume` |
+| any but `preparing`, `launching` | `stopping` | End session, Close game, `/cancel`, tray Stop, or the grace period running out |
+| `stopping` | `idle`, `suspended`, `streaming` | the teardown ends: what still runs decides |
+
+The grace period is the existing disconnect delay (`Config::display_disconnect_delay`): `dd_config_revert_delay` (3 s) when the display layout is exclusive or `dd_config_revert_on_disconnect` is on, otherwise `dd_paused_virtual_display_timeout_secs` (2 h; 0 never expires, and `suspended_until_unix_ms` is then absent). When it runs out, the host ends the session as End session does, and the game keeps running (`idle` with `game_running: true`).
+
+The host writes `session.json` in the profile directory while a session is not `idle` and deletes it when the session ends. One found at startup means the host stopped mid-session: it is deleted, logged, and shown as the warning `session_interrupted` for an hour. The host starts `idle`, so recovery is safe to repeat. Display and audio changes of the dead host come back through the existing `display_recovery` journals.
+
+**Actions.** Every action is an empty POST. It is idempotent and returns the Session object after the action has started, often in `stopping`. `end` and `close_game` try the existing `launch_transition` lock and answer `session_busy` when a launch holds it or the state is `preparing` or `launching`, so they serialize with launches without blocking a request for minutes.
 
 | Action | Effect | Game | Virtual display | Radeon changes |
 |---|---|---|---|---|
@@ -373,7 +389,7 @@ Decided 2026-10-22, while the user was away. Revisit any of these if they say so
 
 The original questions:
 
-1. **A running game with no session.** After End session the game keeps running. The spec reports `idle` with `game_running: true`, and Resume becomes a new `/launch` or `/resume` of that game. A4 may prefer its own state for this. Decide in A4, before brief 3 freezes `session.rs`.
+1. **A running game with no session.** Decided in A4: no extra state. After End session the game keeps running, the host reports `idle` with `game_running: true`, and Resume becomes a new `/launch` or `/resume` of that game. Close game works from there.
 2. **Radeon writes before Play.** v1 allows writes only for the owner of a `streaming` or `suspended` session, because restore is tied to session end. Changing settings from the game-detail screen before launch belongs with B5 per-game profiles. Confirm that v1 doesn't need it.
 3. **Multi-GPU.** v1 lists only the encode GPU. Should other AMD GPUs show up read-only?
 4. **Installed games that aren't added.** Adding them needs the admin import. Should v1 list scanned but not imported games with `"added": false`, or leave that to B5?
@@ -412,7 +428,8 @@ Five briefs, in order. 2 can run in parallel with 1 (separate worktree), 4 waits
 ### Brief 3: capabilities, library and session endpoints (implementer, about 100 turns)
 
 - **Owns:** `rust/host/src/native_api.rs` (new: router, raw-body JSON parsing, the error mapper, handlers), `rust/host/src/nvhttp.rs` (merge the router on HTTPS only and add the `NativeApiVersion` field, nothing else), `rust/host/src/library.rs` (cached background scan), `rust/host/src/nvhttp/native_tests.rs` (new).
-- **Coordination:** read-only use of `display_session.rs`, `state.rs` and `core/src/session.rs`. If A4 is in flight, call its state API, or the `native::session_view` derivation until it lands. Don't edit A4's files.
+- **Coordination:** read-only use of `display_session.rs`, `state.rs` and `core/src/session.rs`. A4 has landed: call `Host::session_snapshot()` and the four actions in `rust/host/src/session_control.rs`; don't edit it.
+- **A4 API for the handlers:** `session_snapshot() -> SessionSnapshot` feeds `native::session_view`. `disconnect_session()`, `end_session()`, `close_game(caller_uuid)` and `resume_session(device_uuid)` return `Result<Outcome, Refusal>`: `Ok(Done)` and `Ok(Unchanged)` both answer 200 with the new Session (the repeat is not an error), `Refusal::NoSession` is `no_session` (409), `Busy` is `session_busy` (409) and `NotOwner` is `not_session_owner` (409). The handler checks permission and host control first and answers with the view's own refusal reason (`session_view` actions) where it differs, for example Disconnect outside `streaming` is `not_streaming`; the actions refuse by state and owner only. `end_session` and `close_game` wait up to 5 s for the stream workers, so run them off the async executor (`spawn_blocking`).
 - **Steps:**
   1. Implement every non-Radeon row of the endpoint table and wire the actions to `request_stop`, the display release and `stop_app` under `launch_transition`.
   2. `NativeApiVersion` is `0` for plain HTTP and unpaired requests, `1` for paired HTTPS.

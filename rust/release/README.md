@@ -63,3 +63,7 @@ cargo build --release -p butterpollo-windows --example udp_shaper   # copy udp_s
 ```
 
 `--rate-kbps 0` relays without shaping, the control. `udp_shaper --selftest` checks the shaper on loopback first: what it forwards must stay within 2% of the queue model fed with the sender's own send times, and back-to-back departures within 2% of the link's spacing. Its link thread runs at game priority, so other load on the machine does not slow the link.
+
+## Timing record
+
+`timing_report.py` joins a host timing record (`BUTTERPOLLO_TIMING_RECORD`) with a receiver's `frames.csv` or a Nightjar latency CSV and prints per-stage median, p95 and p99 with the join mode (`clock_sync`, `shared_clock` or `min_owd`) and its error bound, `--json PATH` for a file and `--check-bound` to compare a nightjar-cli clock sync with the shared QPC. `e2e.py --record` writes the record and `frames.csv` into the case and the stage table into `result.json` as `timing`. The formats are in [docs/timing-record.md](../../docs/timing-record.md); the tests are `test_timing_report.py` with fixtures in `fixtures/timing/`.

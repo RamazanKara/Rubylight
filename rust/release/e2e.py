@@ -8,7 +8,7 @@ No display-mode, HDR or default-audio change; the installed host must be idle.
 
 usage: e2e.py --package DIR --work DIR --client EXE --codec CODEC [--mode 1280x720x60] [--seconds 12]
               [--vrr] [--recovery N] [--motion-at-rate] [--name NAME] [--noise-height PIXELS] [--hw-decoder TYPE]
-              [--launch-fps FPS]
+              [--launch-fps FPS] [--record]
 Writes WORK/e2e-NAME/result.json, NAME defaulting to CODEC[-vrr][-recovery|-at-rate].
 A mode faster than the captured display refreshes is recorded as skipped.
 
@@ -17,6 +17,11 @@ RECOVERY_INTERVAL_MS, as a client losing packets does, while the moving
 strip runs at the stream rate (a game held there by a frame limit) and the
 minimum frame rate keeps its default of 20. Each request must ride the
 next new frame instead of the unchanged picture being encoded again.
+
+--record: the host writes its timing record to WORK/e2e-NAME/record
+(BUTTERPOLLO_TIMING_RECORD) and the receiver its frames.csv; the joined stage
+table (timing_report.py: median, p95, p99, join mode, bound) goes into
+result.json as timing. A record that cannot be joined fails the case.
 
 The host traces every claim (RUST_LOG=info,pacing=trace) and the stream
 fails if it encoded an unchanged picture again; the receiver's count of
@@ -37,6 +42,7 @@ import requests
 from e2e_result import evaluate, host_frames
 from e2e_host import installed_idle, prepare, receiver_environment
 from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
+from timing_report import case_report, wait_for_footer
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--package', required=True, type=pathlib.Path)
@@ -53,6 +59,8 @@ parser.add_argument('--motion-at-rate', action='store_true', help='the strip at 
 parser.add_argument('--name', help='the case name, e.g. hevc-120; defaults to the codec and options')
 parser.add_argument('--hw-decoder', metavar='TYPE', help="the receiver decodes on the GPU, e.g. d3d11va; FFmpeg's software HEVC decoder takes about 14 ms a 1440p frame")
 parser.add_argument('--launch-fps', metavar='FPS', help="launch at this rate and ask for the mode's in the stream request, as Artemis's Warp frame pacing does")
+parser.add_argument('--record', action='store_true',
+                    help='write the host timing record (BUTTERPOLLO_TIMING_RECORD) and the receiver frames.csv into the case, and the joined stage table into result.json as timing')
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
 args = parser.parse_args()
@@ -102,7 +110,10 @@ def watch():
     if evidence: raise Hang(evidence)
 hang = None
 try:
-    host = spawn([str(host_exe), '--config-dir', str(profile), '--assets', str(args.package / 'assets' / 'web'), '--bind', '127.0.0.1', '--no-tray'], 'host.stdout.log', cwd=case, env=env)
+    host_env = dict(env, BUTTERPOLLO_TIMING_RECORD=str(case / 'record')) if args.record else env
+    if args.record:
+        (case / 'record').mkdir()
+    host = spawn([str(host_exe), '--config-dir', str(profile), '--assets', str(args.package / 'assets' / 'web'), '--bind', '127.0.0.1', '--no-tray'], 'host.stdout.log', cwd=case, env=host_env)
     deadline = time.monotonic() + 60
     while True:
         assert host.poll() is None, 'host exited'
@@ -125,6 +136,8 @@ try:
         client_env['BUTTERPOLLO_TEST_HW_DECODER'] = args.hw_decoder
     if args.launch_fps:
         client_env['BUTTERPOLLO_TEST_LAUNCH_FPS'] = args.launch_fps
+    if args.record:
+        client_env['BUTTERPOLLO_TEST_TIMING_CSV'] = str(case / 'frames.csv')
     if args.recovery:
         client_env.update(BUTTERPOLLO_TEST_IDR_PROBE=str(args.recovery),
                           BUTTERPOLLO_TEST_IDR_PROBE_INTERVAL_MS=str(RECOVERY_INTERVAL_MS))
@@ -136,6 +149,9 @@ try:
         if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
         time.sleep(.25)
     rc = receiver.returncode
+    if args.record:
+        # The host writes the record's footer at stream teardown, just after the receiver is gone.
+        wait_for_footer(case / 'record', 2)
 except Hang as error:
     hang = str(error)
 finally:
@@ -171,6 +187,12 @@ result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.rec
 result = dict(case=name, **result)
 if args.launch_fps:
     result['launch_fps'] = args.launch_fps
+if args.record:
+    # A record that cannot be joined fails the case: a missing measurement is not a pass.
+    try:
+        result['timing'] = case_report(case)
+    except (ValueError, OSError) as error:
+        result.update(timing=dict(error=str(error)), passed=False)
 (case / 'result.json').write_text(json.dumps(result, indent=2))
 print(json.dumps(result))
 sys.exit(0 if result['passed'] else 1)

@@ -150,7 +150,7 @@ GET /api/native/v1/session
 | `suspended` | The owner disconnected. The game and the virtual display stay alive until `suspended_until_unix_ms` (the A4 grace period) |
 | `stopping` | Teardown is in progress. Repeating an action is safe |
 
-`owner` is `none`, `you` or `other_device`. Other devices see `state` and `owner` only: `app` is null and every action is refused with `not_session_owner`, the same scoping `/serverinfo` uses for `currentgame`. Without View or Launch permission, `app` is null as well.
+`owner` is `none`, `you` or `other_device`. Other devices see `state` and `owner` only: `app` is null and every action is refused with `not_session_owner`, the same scoping `/serverinfo` uses for `currentgame`. Without View or Launch permission, `app` is null as well. The host always names the owner of a session that isn't `idle`: `native::session_view` asserts it in debug builds, since without an owner every caller would read as another device.
 
 Until A4 lands, the host derives the state from today's model: a pending launch is `preparing` (`launching` once the app process exists), an active `Role::Stream` session that is not `stopping()` is `streaming`, a stopping one is `stopping`, a running `current_app` whose owner's display is still retained in `app_display` is `suspended`, and anything else is `idle`. A4 then replaces the derivation with its explicit state, and the wire format doesn't change.
 
@@ -239,7 +239,7 @@ POST /api/native/v1/radeon/settings
 
 ## The host control permission
 
-- It is stored per device as `"host_control": true` in that client's `extra` map in the paired state, like `allow_client_commands`. A missing key or anything other than `true` means off. That covers new pairings, migrated Vibepollo or Apollo state and old backups, so the flag is off by default.
+- It is stored per device as `"host_control": true` in that client's `extra` map in the paired state, like `allow_client_commands`. The host reads `true` and `"true"` as on, like the other boolean keys in `extra`; a missing key or anything else means off. That covers new pairings, migrated Vibepollo or Apollo state and old backups, so the flag is off by default.
 - Why not a `perm` bit: bits 24 to 31 are the Apollo-family action group, `Permission` is sent to Artemis, `/api/clients/update` masks `perm` with `0x071f1f00`, and test fixtures and imports use `perm = u32::MAX`. A separate key can't collide with an upstream bit, and an all-ones permission value can't switch it on.
 - Only the admin console can grant it: Devices → device → Other → "Host control: change Radeon settings and close games from this device". `/api/clients/update` accepts only `true`, `false` or `null` for it. Nothing in the pairing flow or on the streaming port can set it.
 - It is required for every `POST /radeon/*` and for `close_game`. Reads never need it.
@@ -268,7 +268,9 @@ Every non-2xx answer has the same body:
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms` |
 | 500 | `internal` | A bug. The message is logged on the host too |
 
-`not_streaming` appears only as an action `reason`: a `disconnect` POST without a stream is idempotent and returns 200. `message` is plain English that the client can show as it is. Clients branch on `code` only. An unknown code is treated by its HTTP status.
+`not_streaming` appears only as an action `reason`: a `disconnect` POST without a stream is idempotent and returns 200. `message` is plain English that the client can show as it is. Clients branch on `code` only. An unknown code decodes as `ErrorCode::Unknown`, which carries no status, so the client must keep the HTTP status of the response and treat the error by that.
+
+Which actions are allowed (`GET /session`, and the same rules apply to the POSTs): `resume` for the owner while `suspended` or `streaming` (`/resume` supersedes the same device's stream, which is the reconnect after a crash); `disconnect` while `streaming`; `end` in any state but `idle`; `close_game` as `end`, or with no session when a game is left running. While `preparing` or `launching`, `resume`, `end` and `close_game` are refused with `session_busy`, because the launch holds `launch_transition` for as long as it takes. In `stopping`, `end` and `close_game` stay allowed (repeating is safe) and `resume` is refused with `session_busy`.
 
 ## Versioning and compatibility
 
@@ -281,7 +283,7 @@ Every non-2xx answer has the same body:
 
 The API types go into a new dependency-light crate inside `rust/core`, re-exported by butterpollo-core:
 
-- `rust/core/native-api/Cargo.toml`: package `rubylight-native-api`, a workspace member. Its only dependency is `serde` with `derive`. It sets `edition = "2021"` and `rust-version = "1.80"` itself instead of inheriting them (no let-chains), so it builds under Nightjar's workspace settings.
+- `rust/core/native-api/Cargo.toml`: package `rubylight-native-api`, a workspace member. Its only dependency is `serde` with `derive` (`serde_json` for tests). Its manifest is self-contained: it sets `version`, `edition = "2021"`, `rust-version = "1.80"`, `license` and `repository` itself and copies the workspace lints, because a `*.workspace = true` key makes cargo read the root manifest, whose `resolver = "3"` a 1.80 cargo can't parse. The crate has its own version, `1.0.0`, which follows the API and not the host, so `rust/release/bump.py` (which only bumps `rust/*/Cargo.toml`) leaves it alone. That a 1.80 cargo builds it from a git dependency is still to be checked in Nightjar's pin bump.
 - `butterpollo-core` depends on it by path and exposes it as `butterpollo_core::native_api` (`pub use rubylight_native_api as native_api;` in `rust/core/src/lib.rs`).
 - Why not `butterpollo-core` itself: nightjar-core uses butterpollo-core only as a **dev-dependency** for interop tests. Plan decision 7 overstates this, so it needs a correction. As a runtime dependency it would pull `x509-parser`, `rcgen`, `regex`, `quick-xml`, `prost`, `anyhow` and an `embed-resource` build script into the Android library, and its edition 2024 / Rust 1.88 floor into Nightjar's 1.80 workspace. Why not `rubylight-protocol`: it is `no_std` without serde, and JSON doesn't belong there.
 
@@ -345,7 +347,7 @@ pub struct ApiError { pub code: ErrorCode, pub message: String, pub setting: Opt
 impl ErrorCode { pub fn status(self) -> u16 { /* table above */ } }
 ```
 
-`Option` fields skip serialisation when `None`, except where the examples show `null` on purpose (`game_id`, `store`, `installed`, `app`). Response structs don't deny unknown fields, so old clients read newer hosts. Request structs do, so typos fail loudly. The crate carries JSON fixtures (`rust/core/native-api/tests/fixtures/*.json`, one per example above) with round-trip tests, and Nightjar's tests reuse them.
+`Option` fields skip serialisation when `None`, except where the examples show `null` on purpose (`game_id`, `store`, `installed`, `app`, and `setting` and `retry_after_ms` in an error). Response structs don't deny unknown fields, so old clients read newer hosts. In a Radeon response, a setting's `value`, `range` or `restore` of a shape the client doesn't know (a float, an array) reads as absent instead of failing the whole response. Requests stay strict. Request structs do, so typos fail loudly. The crate carries JSON fixtures (`rust/core/native-api/tests/fixtures/*.json`, one per example above) with round-trip tests, and Nightjar's tests reuse them.
 
 **After the pin bump, nightjar-core needs:**
 

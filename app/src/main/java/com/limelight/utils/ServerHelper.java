@@ -10,6 +10,13 @@ import com.limelight.R;
 import com.limelight.ShortcutTrampoline;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.JniNativeApiTransport;
+import com.limelight.nativeapi.NativeApiClient;
+import com.limelight.nativeapi.NativeApiException;
+import com.limelight.nativeapi.NativeSession;
+import com.limelight.nativeapi.PreferencesRecentsStore;
+import com.limelight.nativeapi.RecentsStore;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HostHttpResponseException;
@@ -77,6 +84,11 @@ public class ServerHelper {
 
     public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
                                            ComputerManagerService.ComputerManagerBinder managerBinder) {
+        if (app.getRole() == NvApp.Role.STREAM) {
+            // Every start goes through here, so this is the list "Continue playing" reads.
+            new PreferencesRecentsStore(parent).record(
+                    RecentsStore.Recent.of(computer, app, System.currentTimeMillis()));
+        }
         Intent intent = new Intent(parent, Game.class);
         intent.putExtra(Game.EXTRA_HOST, computer.activeAddress.address);
         intent.putExtra(Game.EXTRA_PORT, computer.activeAddress.port);
@@ -137,13 +149,27 @@ public class ServerHelper {
                 NvHTTP httpConn;
                 String message;
                 try {
-                    httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort,
-                            managerBinder.getUniqueId(), computer.serverCert, PlatformBinding.getCryptoProvider(parent));
-                    if (app.getRole() != NvApp.Role.STREAM ? httpConn.disconnectRole(app.getRole()) : httpConn.quitApp()) {
+                    if (app.getRole() == NvApp.Role.STREAM && computer.caps.has(HostCapabilities.Feature.NATIVE_API)) {
+                        // A host with the native API closes the game through it; the others keep Quit app.
+                        HostEndpoint endpoint = HostEndpoint.of(computer, managerBinder.getUniqueId(),
+                                PlatformBinding.getCryptoProvider(parent));
+                        if (endpoint == null) {
+                            throw new IOException("The host's certificate is not known.");
+                        }
+                        new NativeApiClient(new JniNativeApiTransport(), endpoint)
+                                .sessionAction(NativeSession.ActionId.CLOSE_GAME);
                         message = parent.getResources().getString(R.string.applist_quit_success) + " " + app.getAppName();
                     } else {
-                        message = parent.getResources().getString(R.string.applist_quit_fail) + " " + app.getAppName();
+                        httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort,
+                                managerBinder.getUniqueId(), computer.serverCert, PlatformBinding.getCryptoProvider(parent));
+                        if (app.getRole() != NvApp.Role.STREAM ? httpConn.disconnectRole(app.getRole()) : httpConn.quitApp()) {
+                            message = parent.getResources().getString(R.string.applist_quit_success) + " " + app.getAppName();
+                        } else {
+                            message = parent.getResources().getString(R.string.applist_quit_fail) + " " + app.getAppName();
+                        }
                     }
+                } catch (NativeApiException e) {
+                    message = e.getMessage();
                 } catch (HostHttpResponseException e) {
                     if (e.getErrorCode() == 599) {
                         message = "This session wasn't started by this device," +

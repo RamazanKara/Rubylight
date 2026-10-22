@@ -21,6 +21,12 @@
     <string name="stream_picture_in_picture">子母畫面</string>
     <string name="stream_quit_game">結束遊戲</string>
     <string name="stream_quit_game_confirm">要結束電腦上的遊戲嗎？\n未儲存的進度將會遺失。</string>
+    <string name="stream_end_session">結束工作階段</string>
+    <string name="stream_end_session_confirm">要結束電腦上的串流工作階段嗎？
+遊戲會繼續執行。</string>
+    <string name="stream_close_game">關閉遊戲</string>
+    <string name="stream_close_game_confirm">要關閉電腦上的遊戲嗎？
+未儲存的進度將會遺失。</string>
     <string name="stream_choice_selected">已選取</string>
     <string name="stream_choice_not_selected">未選取</string>
     <string name="stream_web_ui_leaves">開啟瀏覽器會離開串流；遊戲會繼續在電腦上執行。</string>

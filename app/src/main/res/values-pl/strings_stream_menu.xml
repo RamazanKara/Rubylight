@@ -21,6 +21,12 @@
     <string name="stream_picture_in_picture">Obraz w obrazie</string>
     <string name="stream_quit_game">Zamknij grę</string>
     <string name="stream_quit_game_confirm">Zamknąć grę na komputerze?\nNiezapisany postęp zostanie utracony.</string>
+    <string name="stream_end_session">Zakończ sesję</string>
+    <string name="stream_end_session_confirm">Zakończyć sesję strumieniowania na PC?
+Gra nadal działa.</string>
+    <string name="stream_close_game">Zamknij grę</string>
+    <string name="stream_close_game_confirm">Zamknąć grę na PC?
+Niezapisany postęp zostanie utracony.</string>
     <string name="stream_choice_selected">Wybrane</string>
     <string name="stream_choice_not_selected">Niewybrane</string>
     <string name="stream_web_ui_leaves">Otwarcie przeglądarki opuszcza strumień; gra nadal działa na komputerze.</string>

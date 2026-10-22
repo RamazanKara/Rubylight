@@ -21,6 +21,12 @@
     <string name="stream_picture_in_picture">画中画</string>
     <string name="stream_quit_game">退出游戏</string>
     <string name="stream_quit_game_confirm">要退出电脑上的游戏吗？\n未保存的进度将会丢失。</string>
+    <string name="stream_end_session">结束会话</string>
+    <string name="stream_end_session_confirm">要结束电脑上的串流会话吗？
+游戏将继续运行。</string>
+    <string name="stream_close_game">关闭游戏</string>
+    <string name="stream_close_game_confirm">要关闭电脑上的游戏吗？
+未保存的进度将会丢失。</string>
     <string name="stream_choice_selected">已选择</string>
     <string name="stream_choice_not_selected">未选择</string>
     <string name="stream_web_ui_leaves">打开浏览器会离开串流；游戏会继续在电脑上运行。</string>

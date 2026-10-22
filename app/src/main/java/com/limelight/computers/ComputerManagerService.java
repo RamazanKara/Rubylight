@@ -524,6 +524,7 @@ public class ComputerManagerService extends Service {
             HostStreamProfile.reset(this, computer.uuid);
             HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
             HostCapabilityCache.forget(this, computer.uuid);
+            com.limelight.nativeapi.ConsoleRepository.forgetHost(this, computer.uuid);
             HostNotices.forget(this, computer.uuid);
             com.limelight.preferences.AppQuitOnLeave.forget(this, computer.uuid);
             com.limelight.preferences.AppStreamSettings.forget(this, computer.uuid);

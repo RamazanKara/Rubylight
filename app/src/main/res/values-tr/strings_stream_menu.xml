@@ -21,6 +21,12 @@
     <string name="stream_picture_in_picture">Pencere içinde pencere</string>
     <string name="stream_quit_game">Oyundan çık</string>
     <string name="stream_quit_game_confirm">Bilgisayardaki oyundan çıkılsın mı?\nKaydedilmemiş ilerleme kaybolur.</string>
+    <string name="stream_end_session">Oturumu sonlandır</string>
+    <string name="stream_end_session_confirm">PC üzerindeki yayın oturumu sonlandırılsın mı?
+Oyun çalışmaya devam eder.</string>
+    <string name="stream_close_game">Oyunu kapat</string>
+    <string name="stream_close_game_confirm">PC üzerindeki oyun kapatılsın mı?
+Kaydedilmemiş ilerleme kaybolur.</string>
     <string name="stream_choice_selected">Seçili</string>
     <string name="stream_choice_not_selected">Seçili değil</string>
     <string name="stream_web_ui_leaves">Tarayıcıyı açmak yayından çıkarır; oyun bilgisayarda çalışmaya devam eder.</string>

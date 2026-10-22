@@ -30,7 +30,7 @@ public final class StreamMenu {
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS,
-        RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION,
+        RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
         OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG, OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST
     }
 
@@ -207,7 +207,11 @@ public final class StreamMenu {
         entries.add(action(Section.SESSION, Item.RECONNECT, R.string.stream_reconnect, R.drawable.ic_refresh));
         entries.add(action(Section.SESSION, Item.DISCONNECT, R.string.stream_disconnect, R.drawable.ic_close));
         if (host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-            if (o.role == NvApp.Role.STREAM) {
+            if (o.role == NvApp.Role.STREAM && caps.has(HostCapabilities.Feature.NATIVE_API)) {
+                // The native API tells ending the session (the game keeps running) from closing the game.
+                entries.add(new Entry(Section.SESSION, Item.END_HOST_SESSION, R.string.stream_end_session, R.drawable.ic_stop, null, true));
+                entries.add(new Entry(Section.SESSION, Item.CLOSE_GAME, R.string.stream_close_game, R.drawable.ic_stop, null, true));
+            } else if (o.role == NvApp.Role.STREAM) {
                 entries.add(new Entry(Section.SESSION, Item.QUIT_GAME, R.string.stream_quit_game, R.drawable.ic_stop, null, true));
             } else {
                 entries.add(new Entry(Section.SESSION, Item.END_SESSION, o.role == NvApp.Role.REMOTE_MONITOR ?

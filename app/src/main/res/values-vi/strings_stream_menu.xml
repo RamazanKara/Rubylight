@@ -21,6 +21,12 @@
     <string name="stream_picture_in_picture">Hình trong hình</string>
     <string name="stream_quit_game">Thoát trò chơi</string>
     <string name="stream_quit_game_confirm">Thoát trò chơi trên PC?\nTiến trình chưa lưu sẽ bị mất.</string>
+    <string name="stream_end_session">Kết thúc phiên</string>
+    <string name="stream_end_session_confirm">Kết thúc phiên stream trên PC?
+Trò chơi vẫn tiếp tục chạy.</string>
+    <string name="stream_close_game">Đóng trò chơi</string>
+    <string name="stream_close_game_confirm">Đóng trò chơi trên PC?
+Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_choice_selected">Đã chọn</string>
     <string name="stream_choice_not_selected">Chưa chọn</string>
     <string name="stream_web_ui_leaves">Mở trình duyệt sẽ rời khỏi stream; trò chơi vẫn tiếp tục chạy trên PC.</string>

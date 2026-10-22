@@ -36,6 +36,7 @@ import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.HostCapabilityCache;
 import com.limelight.computers.HostNotices;
+import com.limelight.nativeapi.NativeSession;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.AdaptiveBitrateController;
 import com.limelight.nvstream.AdaptiveQualityController;
@@ -2514,6 +2515,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case RECONNECT: action = this::reconnectStream; break;
             case DISCONNECT: action = this::leaveStream; break;
             case QUIT_GAME: action = this::confirmQuitApp; break;
+            case END_HOST_SESSION: action = this::confirmEndHostSession; break;
+            case CLOSE_GAME: action = this::confirmCloseGame; break;
             case END_SESSION: action = this::endRemoteSession; break;
             case OVERLAY_COMPACT: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_COMPACT); break;
             case OVERLAY_STATISTICS: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_STATISTICS); break;
@@ -2818,26 +2821,52 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void confirmQuitApp() {
-        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(this).setTitle(R.string.stream_quit_game)
-                .setMessage(R.string.stream_quit_game_confirm).setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.stream_quit_game, (prompt, which) -> streamMenuAction = this::quitStreamApp).create();
+        confirmHostExit(R.string.stream_quit_game, R.string.stream_quit_game_confirm, this::quitStreamApp);
+    }
+
+    private void confirmCloseGame() {
+        confirmHostExit(R.string.stream_close_game, R.string.stream_close_game_confirm, this::quitStreamApp);
+    }
+
+    private void confirmEndHostSession() {
+        confirmHostExit(R.string.stream_end_session, R.string.stream_end_session_confirm, this::endHostSession);
+    }
+
+    private void confirmHostExit(int title, int message, Runnable exit) {
+        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(this).setTitle(title)
+                .setMessage(message).setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(title, (prompt, which) -> streamMenuAction = exit).create();
         showStreamDialog(dialog);
-        // Quitting ends the game on the PC: its button carries the same error colour as the menu item.
-        android.widget.Button quit = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
-        if (quit != null) {
-            quit.setTextColor(com.google.android.material.color.MaterialColors.getColor(quit,
+        // The action ends the session or the game on the PC: its button carries the same error colour as the menu item.
+        android.widget.Button confirm = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
+        if (confirm != null) {
+            confirm.setTextColor(com.google.android.material.color.MaterialColors.getColor(confirm,
                     androidx.appcompat.R.attr.colorError));
         }
     }
 
+    /** Closes the game on the PC (the native Close game, or Quit app on a host without the API) and leaves. */
     private void quitStreamApp() {
+        runHostExit("Quit stream app", () -> conn.closeGame());
+    }
+
+    /** Ends the stream session on the PC and leaves; the game keeps running. */
+    private void endHostSession() {
+        runHostExit("End host session", () -> conn.nativeSessionAction(NativeSession.ActionId.END));
+    }
+
+    private interface HostExit {
+        void run() throws IOException, XmlPullParserException;
+    }
+
+    private void runHostExit(String threadName, HostExit exit) {
         if (hostActionInProgress || !foreground || !connected) return;
         int generation = foregroundGeneration;
         hostActionInProgress = true;
         hostExitRequested = true;
         new Thread(() -> {
             try {
-                conn.quitApp();
+                exit.run();
                 runOnUiThread(this::finish);
             } catch (IOException | XmlPullParserException e) {
                 runOnUiThread(this::confirmHostExitFailedLater);
@@ -2845,7 +2874,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             } finally {
                 runOnUiThread(() -> hostActionInProgress = false);
             }
-        }, "Quit stream app").start();
+        }, threadName).start();
     }
 
     /**
@@ -2876,6 +2905,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 app.getAppUuid(), app.getAppId());
         // A plain disconnect never waits for a host request; its callbacks check the activity.
         if (!StreamExitPolicy.quitsOnLeave(chosen, app.getRole(), connected)) {
+            if (connected && conn != null) conn.announceDisconnect();
             finish();
             return;
         }
@@ -2891,7 +2921,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         new Thread(() -> {
             Exception failure = null;
             try {
-                conn.quitApp();
+                conn.closeGame();
             } catch (IOException | XmlPullParserException e) {
                 failure = e;
             }

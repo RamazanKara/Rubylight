@@ -21,6 +21,12 @@
     <string name="stream_picture_in_picture">Картинка в картинці</string>
     <string name="stream_quit_game">Закрити гру</string>
     <string name="stream_quit_game_confirm">Закрити гру на ПК?\nНезбережений прогрес буде втрачено.</string>
+    <string name="stream_end_session">Завершити сеанс</string>
+    <string name="stream_end_session_confirm">Завершити сеанс трансляції на ПК?
+Гра продовжить працювати.</string>
+    <string name="stream_close_game">Закрити гру</string>
+    <string name="stream_close_game_confirm">Закрити гру на ПК?
+Незбережений прогрес буде втрачено.</string>
     <string name="stream_choice_selected">Вибрано</string>
     <string name="stream_choice_not_selected">Не вибрано</string>
     <string name="stream_web_ui_leaves">Відкриття браузера завершує трансляцію; гра продовжує працювати на ПК.</string>

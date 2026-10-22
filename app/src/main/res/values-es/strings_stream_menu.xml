@@ -21,6 +21,12 @@
     <string name="stream_picture_in_picture">Imagen en imagen</string>
     <string name="stream_quit_game">Cerrar juego</string>
     <string name="stream_quit_game_confirm">¿Cerrar el juego en el PC?\nSe perderá el progreso no guardado.</string>
+    <string name="stream_end_session">Finalizar sesión</string>
+    <string name="stream_end_session_confirm">¿Finalizar la sesión de streaming en el PC?
+El juego sigue en ejecución.</string>
+    <string name="stream_close_game">Cerrar juego</string>
+    <string name="stream_close_game_confirm">¿Cerrar el juego en el PC?
+Se perderá el progreso no guardado.</string>
     <string name="stream_choice_selected">Seleccionado</string>
     <string name="stream_choice_not_selected">No seleccionado</string>
     <string name="stream_web_ui_leaves">Al abrir el navegador se sale de la transmisión; el juego sigue en ejecución en el PC.</string>

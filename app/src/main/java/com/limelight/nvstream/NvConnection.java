@@ -43,6 +43,12 @@ import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.InputBatcher;
 import com.limelight.computers.HostNotices;
+import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.JniNativeApiTransport;
+import com.limelight.nativeapi.NativeApiClient;
+import com.limelight.nativeapi.NativeApiException;
+import com.limelight.nativeapi.NativeApiTransport;
+import com.limelight.nativeapi.NativeSession;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -68,6 +74,7 @@ public class NvConnection {
     private LimelightCryptoProvider cryptoProvider;
     private String uniqueId;
     private ConnectionContext context;
+    private NativeApiTransport nativeApiTransport = new JniNativeApiTransport();
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
@@ -1176,6 +1183,77 @@ public class NvConnection {
         if (!http.quitApp()) {
             throw new IOException("The host did not quit the app.");
         }
+    }
+
+    /**
+     * Runs a native API session action on the host: Disconnect, End session or Close game. Only
+     * for hosts that have the native API; the others quit with {@link #quitApp()}.
+     */
+    public NativeSession nativeSessionAction(NativeSession.ActionId action) throws IOException, XmlPullParserException {
+        ComputerDetails details = refreshHostDetails();
+        if (isMonkey || context.streamConfig.getApp().getRole() != NvApp.Role.STREAM ||
+                !details.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
+            throw new IOException("The host denied permission to change this session.");
+        }
+        if (!details.caps.has(HostCapabilities.Feature.NATIVE_API)) {
+            throw new IOException("The host has no native session actions.");
+        }
+        HostEndpoint endpoint = HostEndpoint.of(details.uuid, context.serverAddress, context.httpsPort,
+                context.serverCert, uniqueId, cryptoProvider);
+        if (endpoint == null) {
+            throw new IOException("The host's certificate is not known.");
+        }
+        try {
+            return new NativeApiClient(nativeApiTransport, endpoint).sessionAction(action);
+        } catch (NativeApiException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /** Whether the host has the native API session actions, as its last serverinfo said. */
+    public boolean hasNativeSessionActions() {
+        return hostDetails.caps.has(HostCapabilities.Feature.NATIVE_API);
+    }
+
+    /**
+     * Closes the game on the host: Close game where the host has the native API, Quit app on the
+     * others.
+     */
+    public void closeGame() throws IOException, XmlPullParserException {
+        if (hasNativeSessionActions()) {
+            nativeSessionAction(NativeSession.ActionId.CLOSE_GAME);
+        } else {
+            quitApp();
+        }
+    }
+
+    /**
+     * Tells a native API host that this device leaves on purpose, so the game keeps running
+     * under the host's grace period. Never waits and ignores failures: the stream ending says
+     * the same to a host that does not get it.
+     */
+    public void announceDisconnect() {
+        if (isMonkey || context.streamConfig.getApp().getRole() != NvApp.Role.STREAM || !hasNativeSessionActions()) {
+            return;
+        }
+        HostEndpoint endpoint = HostEndpoint.of(hostDetails.uuid, context.serverAddress, context.httpsPort,
+                context.serverCert, uniqueId, cryptoProvider);
+        if (endpoint == null) {
+            return;
+        }
+        NativeApiClient client = new NativeApiClient(nativeApiTransport, endpoint);
+        new Thread(() -> {
+            try {
+                client.sessionAction(NativeSession.ActionId.DISCONNECT);
+            } catch (NativeApiException e) {
+                LimeLog.info("Native disconnect not delivered: " + e.getMessage());
+            }
+        }, "Native disconnect").start();
+    }
+
+    /** Replaces the native API transport; the JNI one by default. */
+    public void setNativeApiTransport(NativeApiTransport transport) {
+        nativeApiTransport = transport;
     }
 
     public void disconnectRemoteSession() throws IOException, XmlPullParserException {

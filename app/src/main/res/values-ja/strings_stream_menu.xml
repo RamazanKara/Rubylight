@@ -21,6 +21,12 @@
     <string name="stream_picture_in_picture">ピクチャー イン ピクチャー</string>
     <string name="stream_quit_game">ゲームを終了</string>
     <string name="stream_quit_game_confirm">PC 上のゲームを終了しますか？\n保存していない進行状況は失われます。</string>
+    <string name="stream_end_session">セッションを終了</string>
+    <string name="stream_end_session_confirm">PCのストリーミングセッションを終了しますか？
+ゲームは実行されたままです。</string>
+    <string name="stream_close_game">ゲームを閉じる</string>
+    <string name="stream_close_game_confirm">PC上のゲームを閉じますか？
+保存されていない進行状況は失われます。</string>
     <string name="stream_choice_selected">選択済み</string>
     <string name="stream_choice_not_selected">未選択</string>
     <string name="stream_web_ui_leaves">ブラウザを開くとストリームから離れますが、ゲームは PC 上で実行され続けます。</string>

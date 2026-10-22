@@ -31,8 +31,19 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class StreamMenuTest {
+    /** The Rubylight fixture on a 3.0 host that also speaks the native API. */
+    private static ComputerDetails nativeApiHost() {
+        ComputerDetails host = TestHosts.details("rubylight-serverinfo.xml");
+        host.caps = TestHosts.caps("<root status_code=\"200\"><RustHostVersion>3.0.0</RustHostVersion>"
+                + "<PairStatus>1</PairStatus><NativeApiVersion>1</NativeApiVersion></root>");
+        return host;
+    }
+
     private static StreamMenu.Options options(String fixture, NvApp.Role role) {
-        ComputerDetails host = TestHosts.details(fixture);
+        return options(TestHosts.details(fixture), role);
+    }
+
+    private static StreamMenu.Options options(ComputerDetails host, NvApp.Role role) {
         StreamMenu.Options options = new StreamMenu.Options(role, host);
         // As NvConnection decides: the host's input permission, never for Remote Monitor.
         options.canSendInput = role != NvApp.Role.REMOTE_MONITOR && host.hasPermission(ComputerDetails.PERMISSION_INPUT);
@@ -126,6 +137,36 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void aHostWithTheNativeApiEndsTheSessionAndClosesTheGameInsteadOfQuittingTheApp() {
+        ComputerDetails host = nativeApiHost();
+        StreamMenu.Options options = options(host, NvApp.Role.STREAM);
+        List<StreamMenu.Entry> entries = StreamMenu.mainPage(options);
+        List<StreamMenu.Item> items = items(entries);
+        assertFalse(items.contains(QUIT_GAME));
+        assertTrue(items.contains(DISCONNECT));
+        // Disconnect leaves the game, then End session, then the destructive Close game last.
+        assertTrue(items.indexOf(DISCONNECT) < items.indexOf(END_HOST_SESSION));
+        assertTrue(items.indexOf(END_HOST_SESSION) < items.indexOf(CLOSE_GAME));
+        StreamMenu.Entry last = entries.get(entries.size() - 1);
+        assertEquals(CLOSE_GAME, last.item);
+        assertTrue(last.destructive);
+        assertEquals(R.string.stream_close_game, last.label);
+        // A device that may not launch or quit gets neither, as before.
+        host.permission = ComputerDetails.PERMISSION_VIEW;
+        assertFalse(items(StreamMenu.mainPage(new StreamMenu.Options(NvApp.Role.STREAM, host))).contains(CLOSE_GAME));
+    }
+
+    @Test
+    public void otherHostsKeepQuitAppAndNeverShowTheNativeActions() {
+        for (String fixture : new String[] {"rubylight-serverinfo.xml", "sunshine-serverinfo.xml"}) {
+            List<StreamMenu.Item> items = items(StreamMenu.mainPage(options(fixture, NvApp.Role.STREAM)));
+            assertTrue(fixture, items.contains(QUIT_GAME));
+            assertFalse(fixture, items.contains(END_HOST_SESSION));
+            assertFalse(fixture, items.contains(CLOSE_GAME));
+        }
+    }
+
+    @Test
     public void automaticQualityNeedsAHostThatChangesTheStreamInPlace() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.automaticQuality = false;
@@ -205,6 +246,8 @@ public class StreamMenuTest {
     public void everyExistingActionIsStillReachable() {
         Set<StreamMenu.Item> reachable = EnumSet.noneOf(StreamMenu.Item.class);
         for (NvApp.Role role : NvApp.Role.values()) {
+            // Quit app belongs to hosts without the native API; End session and Close game to those with it.
+            reachable.addAll(items(StreamMenu.mainPage(options(nativeApiHost(), role))));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.mouseConnected = options.onscreenControls = options.gameControls = true;

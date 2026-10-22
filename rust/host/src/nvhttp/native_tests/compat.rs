@@ -100,6 +100,11 @@ fn assert_same_as_before(f: &Fixture, xml: &str, golden_template: &str) {
                     "RustHostApplicationActive",
                     "RustHostProfile",
                     "PyroWaveHostLinkMbps",
+                    // These follow the PC's display driver and frame limiter,
+                    // so a CI runner without them answers differently.
+                    "FrameLimiterEnabled",
+                    "VirtualDisplayCapable",
+                    "VirtualDisplayHDRCapable",
                 ]
                 .contains(&element.name.as_str());
                 (

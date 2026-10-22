@@ -46,7 +46,7 @@ The host answers on the same message type, unreliably. A report is a 4-byte head
 
 ### The extension
 
-Header byte 2, `extra`, is the number of bytes per record in a trailing block: `0` in a v1 report, `16` from Rubylight 3.0. The version stays `1`. After the `count` records, `count × extra` bytes follow, one entry per record, in the same order:
+Header byte 2, `extra`, is the number of bytes per record in a trailing block: `0` in a v1 report, `16` from Rubylight 3.0. The version stays `1`. After the `count` records, `count Ã— extra` bytes follow, one entry per record, in the same order:
 
 | Offset | Field | Meaning |
 | --- | --- | --- |

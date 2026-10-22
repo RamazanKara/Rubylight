@@ -45,8 +45,8 @@ The full [configuration guide](configuration.md) starts with the defaults. If a 
 | --- | --- |
 | [Build guide](building.md) | Windows toolchain, pinned dependencies, packaging and CI. |
 | [Developer guide](../rust/README.md) | Workspace layout, isolated profiles, validation tools and native integration work. |
-| [HTTP API](api.md) | Authentication, CSRF, permissions and the current Rust endpoints. |
-| [Native API v1](native-api.md) | The paired-client API behind Nightjar: capabilities, library, session actions and Radeon settings. |
+| [HTTP API](api.md) | Authentication, CSRF, permissions and the current Rust endpoints, plus a [short reference for the paired-client native API](api.md#native-api-v1-paired-clients). |
+| [Native API v1](native-api.md) | The paired-client API behind Nightjar: capabilities, library, session actions and Radeon settings. The design and contract. |
 | [Control messages](control-messages.md) | Rubylight's own client-to-host messages (phase lock, display luminance, mid-stream resolution change) and how a client finds out the host takes them. |
 | [Hardware metrics](hardware-metrics.md) | Client overlay telemetry: discovery, paired-client authentication, JSON readings, units, polling and errors. |
 | [Hardware matrix](hardware-matrix.md) | What the Radeon settings probes found on real hardware, per GPU and driver. |

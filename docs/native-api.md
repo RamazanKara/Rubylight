@@ -2,7 +2,7 @@
 
 [Docs](README.md) · [HTTP API](api.md) · [Hardware metrics](hardware-metrics.md) · [3.0 plan](rubylight-3.0-plan.md)
 
-Status: **host side implemented, briefs 1 to 4 of A3** (capabilities, library, session actions and the Radeon endpoints, with fake-backend host tests; brief 5 and a real client are still to come). It is the contract between the host and `nightjar-core` for the alpha.2 couch loop: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
+Status: **host side implemented in v3.0.0-alpha.2** (all five briefs of A3: capabilities, library, session actions and the Radeon endpoints, with fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs`). The short user and developer reference is in [HTTP API](api.md#native-api-v1-paired-clients); where it differs from this design text, the code wins. Still awaiting validation: a stock Moonlight client pairing and streaming against an isolated test host, `curl` of every GET endpoint with a paired certificate, a Radeon write and crash-restore on real hardware, and the first real client (Nightjar's pin bump). It is the contract between the host and `nightjar-core` for the alpha.2 couch loop: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
 
 ## Ground rules
 
@@ -288,7 +288,7 @@ Every non-2xx answer has the same body:
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms` |
 | 500 | `internal` | A bug. The message is logged on the host too |
 
-`not_streaming` appears only as an action `reason`: a `disconnect` POST without a stream is idempotent and returns 200. `message` is plain English that the client can show as it is. Clients branch on `code` only. An unknown code decodes as `ErrorCode::Unknown`, which carries no status, so the client must keep the HTTP status of the response and treat the error by that.
+`not_streaming` appears only as an action `reason`: a `disconnect` POST on a session that is already `suspended` is idempotent and returns 200 (with no session at all it is `409 no_session`). `message` is plain English that the client can show as it is. Clients branch on `code` only. An unknown code decodes as `ErrorCode::Unknown`, which carries no status, so the client must keep the HTTP status of the response and treat the error by that.
 
 Which actions are allowed (`GET /session`, and the same rules apply to the POSTs): `resume` for the owner while `suspended` or `streaming` (`/resume` supersedes the same device's stream, which is the reconnect after a crash); `disconnect` while `streaming`; `end` in any state but `idle`; `close_game` as `end`, or with no session when a game is left running. While `preparing` or `launching`, `resume`, `end` and `close_game` are refused with `session_busy`, because the launch holds `launch_transition` for as long as it takes. In `stopping`, `end` and `close_game` stay allowed (repeating is safe) and `resume` is refused with `session_busy`.
 
@@ -458,6 +458,8 @@ Five briefs, in order. 2 can run in parallel with 1 (separate worktree), 4 waits
   - On this PC, while the user is not gaming: one real read, plus one write and restore on a setting the A5 probe proved, recorded in the A5 matrix.
 
 ### Brief 5: compatibility tests and docs (implementer, about 50 turns; runner for the hardware part)
+
+**Status: tests and docs done.** The matrix tests are in `rust/host/src/nvhttp/native_tests/compat.rs` (with the byte-identical `/serverinfo`, `/applist` and `/cancel` snapshots in `native_tests.rs`), and the reference is the "Native API v1" section of `docs/api.md`. This repo has no client-side `/serverinfo` parser, so the "no field means classic grid" test belongs to nightjar-core's pin bump. The pending parts are the hardware acceptance below and CI on main.
 
 - **Owns:** `rust/tests/` interop fixtures for the matrix (stock Moonlight and Nightjar 0.7.x serverinfo/applist/cancel against the new host, 2.6-style serverinfo without the field), `docs/api.md` and `docs/README.md` (links), the `rust/RELEASE_NOTES.md` `## Unreleased` entry, and the A3 row in `docs/rubylight-3.0-plan.md` (status, plus the decision 7 wording from open question 8).
 - **Steps:**

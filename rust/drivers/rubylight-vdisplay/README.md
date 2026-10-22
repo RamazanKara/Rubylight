@@ -100,15 +100,15 @@ The lifecycle and restart-selection policies have ordinary tests. Real sleep, hi
 PnP restart and multi-session capture still require separate hardware validation of the
 installed driver; compiling the DLL does not perform those transitions.
 
-### Optional GPU fence transport
+### GPU fence transport
 
-The advanced Video setting **Experimental GPU fence transport** (`idd_push_fence_ring =
-true`) selects an additional transport for this driver's displays with `capture = auto`
-or `idd-push`. It defaults to `false`. End every stream before changing it, then start a
-new stream. It requires the driver capability `CAP_FENCE_RING`, compatible AMD compute
-capture (`gpu_compute_conversion = true`) and in-place reads (`idd_push_zero_copy = true`).
-An older display driver or an incompatible capture device keeps the standard transport
-and produces a console warning.
+The advanced Video setting **GPU fence transport** (`idd_push_fence_ring`) is the default
+transport for this driver's displays with `capture = auto` or `idd-push`. Set it to
+`false` to use the keyed-mutex ring instead. End every stream before changing it, then
+start a new stream. The fence transport requires the driver capability `CAP_FENCE_RING`,
+compatible AMD compute capture (`gpu_compute_conversion = true`) and in-place reads
+(`idd_push_zero_copy = true`). An older display driver or an incompatible capture device
+uses the keyed-mutex ring and produces a console warning.
 
 The driver continues acquiring and copying frames with **D3D11**. The host creates
 D3D12-owned shared textures and two shared fences, then submits them with

@@ -35,7 +35,7 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
 
 ## How frames reach the host
 
-The driver's keyed-mutex ring, which the host no longer uses (the [GPU fence transport](#gpu-fence-transport) replaces it), works like this:
+The fence ring (see [GPU fence transport](#gpu-fence-transport)) works like this:
 
 1. The host creates the display with `IOCTL_ADD` and
    keeps it alive with `IOCTL_HEARTBEAT` every second. A monitor belongs to the process that
@@ -66,8 +66,9 @@ The driver's keyed-mutex ring, which the host no longer uses (the [GPU fence tra
    released fence on the same queue and frees the slot with that value. With
    `idd_push_zero_copy = false` a host compute queue instead waits for the written fence,
    copies the texture into the host's own pool and signals the released fence behind the
-   copy, so the slot is free again at once. The image's present stamp is the driver's acquire: IddCx's `PresentDisplayQPCTime`
-   is the scan-out, about 6.8 ms later on a 120 Hz display.
+   copy, so the slot is free again at once. The image's present stamp is the driver's
+   acquire: IddCx's `PresentDisplayQPCTime` is the scan-out, about 6.8 ms later on a 120 Hz
+   display.
 
 Four textures let capture overlap the host's GPU reads. If every slot is busy, the driver
 keeps the newest image in its own texture, copying it before reporting the IddCx frame
@@ -82,8 +83,7 @@ remains 125 ms.
 
 A host before `CAP_FENCE_RING` sends the older keyed-mutex ring (`IOCTL_SET_FRAME_RING`), which
 this driver refuses before adopting any handle (`STATUS_NOT_SUPPORTED`); the driver never
-reports `CAP_FRAME_RING`, and that host captures the display through Windows Graphics Capture
-instead.
+reports `CAP_FRAME_RING`. A 3.0 host sends only the fence ring.
 
 The driver loads only where the OS reports the D3D12 swap chain: `DriverEntry` logs the IddCx
 framework version and `IddCxCheckOsFeatureSupport`'s answer, and fails with
@@ -131,20 +131,22 @@ requires the driver capability `CAP_FENCE_RING`; a driver without it, such as an
 that runs only after Windows restarts, makes the host refuse the stream and the console
 says to restart Windows and, if that does not help, to run Rubylight setup again to repair
 the display driver. The host's compute conversion reads the
-textures in place (`idd_push_zero_copy = true`, the default) or its D3D11 device copies
+textures in place (`idd_push_zero_copy = true`, the default) or its compute queue copies
 them (`false`).
 
-The driver continues acquiring and copying frames with **D3D11**. The host creates
-D3D12-owned shared textures and two shared fences, then submits them with
-`IOCTL_SET_FENCE_RING` (`0xB0C`). Atomic slot ownership prevents a producer overwrite while
+The driver acquires and copies frames on **D3D12** (IddCx 1.11's D3D12 swap chain). The host
+creates D3D12-owned shared textures and two shared fences, then submits them with
+`IOCTL_SET_FENCE_RING` (`0xB0C`). The textures carry `ALLOW_RENDER_TARGET` and
+`ALLOW_SIMULTANEOUS_ACCESS`, so the D3D11 driver of 2.6 opens them with
+`OpenSharedResource1` and this driver with `OpenSharedHandle`. Atomic slot ownership prevents a producer overwrite while
 any host reader holds the image. A written fence orders conversion after the driver's
 copy; a release fence covers the last compute and graphics readers before the driver can
 reuse a returned slot. The driver picks another free slot or drops a frame instead of
 waiting for the host. The ring is replaced before its frame sequence could wrap.
 
-The transport does not use IddCx's native D3D12 swap-chain API and does not add an IddCx
-1.11 requirement. The driver still answers the older keyed IOCTL, but the host no longer
-sends it. Generation-scoped ring cleanup uses `IOCTL_CLEAR_FRAME_RING_GENERATION`
+The driver needs IddCx 1.11 on the PC (see above). The transport itself is unchanged by
+that: a 3.0 host works with the D3D11 driver of 2.6 too, as long as that driver has
+`CAP_FENCE_RING`. Generation-scoped ring cleanup uses `IOCTL_CLEAR_FRAME_RING_GENERATION`
 (`0xB0B`).
 
 If fence setup, shared-resource opening or the first frame fails, the host reports the
@@ -189,18 +191,6 @@ ordinary test suite. To run just these regressions from the repository root (no 
 ```powershell
 cargo test -p rubylight-vdisplay-proto frame_retry --locked
 ```
-
-### Probe-only builds (`RLVD_IDDCX_LIB`)
-
-The build links the newest `IddCxStub.lib` in the installed kit (IddCx 1.10, whose table ends
-at slot 35). Setting `RLVD_IDDCX_LIB` to a folder with a newer stub (IddCx 1.11 ships in the
-WDK 28000 NuGet package) links that one instead and enables the `rlvd_iddcx_newer_stub` cfg,
-so `DriverEntry` can call `IddCxCheckOsFeatureSupport` and log whether the OS reports D3D12
-swap chains. That build is **probe-only**: its client config is the 1.10 one, which
-`IddCxDeviceInitConfig` rejects, so no adapter is created. Cargo prints a warning when the
-variable is set, and `rustuild.ps1 -Package` refuses to run with it. Never package or
-install such a driver for streaming. Without the variable the probe is skipped (the 1.10
-stub has no slot for that DDI) and the log says so.
 
 ## Installing for a local test (needs the machine owner's consent)
 

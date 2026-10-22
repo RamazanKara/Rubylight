@@ -185,7 +185,7 @@ class Signing(unittest.TestCase):
         # Every SignPath request waits for a manual approval, so only the tag
         # job's release decision turns signing on.
         self.assertIn("SIGNPATH_ENABLED: ${{ needs.tag.outputs.sign == 'true' }}", self.workflow)
-        self.assertIn("timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 50 }}", self.workflow)
+        self.assertIn("timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 75 }}", self.workflow)
 
     def test_each_request_names_a_configuration_and_the_version(self):
         requests = self.requests()

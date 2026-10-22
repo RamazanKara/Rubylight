@@ -4,7 +4,21 @@
 
 Start with the current stream's settings, the console and the logs. Record the time of a failure before changing anything, and change one setting at a time. Capture and performance probes add work to the GPU; use an idle session for those comparisons.
 
-**Find a symptom:** [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Black screen](#black-picture-no-display-or-wgc-fails) · [Audio](#audio-cuts-out-or-lags) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Display restoration](#monitors-stay-on-or-the-display-layout-does-not-return) · [Controllers](#a-controller-or-other-input-does-nothing) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) · [Updates](#an-update-stays-queued) · [Logs and support](#logs-and-a-useful-report)
+**Find a symptom:** [Setup says this PC cannot run Rubylight 3.0](#setup-or-the-host-says-this-pc-cannot-run-rubylight-30) · [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Black screen](#black-picture-no-display-or-wgc-fails) · [Audio](#audio-cuts-out-or-lags) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Display restoration](#monitors-stay-on-or-the-display-layout-does-not-return) · [Controllers](#a-controller-or-other-input-does-nothing) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) · [Updates](#an-update-stays-queued) · [Logs and support](#logs-and-a-useful-report)
+
+## Setup or the host says this PC cannot run Rubylight 3.0
+
+Rubylight 3.0 encodes only on an AMD Radeon GPU, through the AMF video encoder in AMD's driver. Any Radeon generation works, on Windows 10 or 11. Setup checks before it installs or updates anything, and the host checks at startup and for every stream.
+
+| Message | What it means and what to do |
+| --- | --- |
+| "...this PC has only NVIDIA ..." or "...only Intel ..." | There is no AMD GPU. Stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0), which supports NVIDIA and Intel graphics. |
+| "...Windows lists no graphics card with a working driver..." | Windows shows no graphics driver, only the basic display adapter. If the PC has a Radeon, install the AMD Radeon graphics driver from amd.com/support, then run setup again. On any other graphics card, stay on 2.6.x. |
+| "...its driver has no AMF video encoder (amfrt64.dll is missing...)" | The AMD GPU is there, but its driver lacks the encoder. Install the latest AMD Radeon graphics driver (the full Adrenalin package, not only Windows Update's basic driver), restart Windows if it asks, then run setup again. |
+| "AMF could not start on ..." in the console | The AMD driver is present but AMF did not start. Update the Radeon driver. At the sign-in screen, or after a disconnected Remote Desktop session, sign in at the PC first. |
+| "... is not an AMD graphics card ... This PC also has AMD ..." | A monitor or the Graphics card setting points at the NVIDIA or Intel GPU of a PC that also has an AMD GPU. Connect the monitor to the AMD GPU, or choose it under **Settings → Video → Graphics card**, and reconnect. |
+
+A Moonlight client that cannot start a stream on such a PC shows "No video encoder is ready" with the same advice. The console's warnings and `butterpollo.log` hold the specific reason.
 
 ## What the stream card warnings mean
 

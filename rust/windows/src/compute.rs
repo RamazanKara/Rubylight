@@ -304,11 +304,12 @@ impl Compute {
         }
     }
     /// The compute queue for the adapter with `luid`, shared by the capture and the encoders
-    /// on that GPU. One that stopped finishing work is replaced.
+    /// on that GPU. One that stopped finishing work is replaced, and so is one made while
+    /// `compute_queue_realtime` had the other setting: a queue keeps the priority it was made with.
     pub fn for_adapter(luid: LUID) -> Result<Arc<Self>> {
-        type Shared = Vec<((u32, i32), std::sync::Weak<Compute>)>;
+        type Shared = Vec<((u32, i32, bool), std::sync::Weak<Compute>)>;
         static SHARED: Mutex<Shared> = Mutex::new(Vec::new());
-        let key = (luid.LowPart, luid.HighPart);
+        let key = (luid.LowPart, luid.HighPart, realtime());
         let mut shared = SHARED.lock().unwrap();
         shared.retain(|(_, compute)| compute.strong_count() > 0);
         if let Some(compute) = shared

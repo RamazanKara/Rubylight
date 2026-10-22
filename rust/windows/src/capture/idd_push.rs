@@ -549,6 +549,10 @@ impl Session {
         let control = Control::open()?;
         crate::display::fence_ring(control.info.caps)?;
         let status = control.query(monitor.session_id)?;
+        // Before the compute queue is made: it takes its priority from this setting once.
+        if let Err(error) = crate::gpu_priority::configure(config) {
+            tracing::debug!(%error, "GPU priority remains at the process default");
+        }
         let gpu = Device::for_display(
             name,
             config.get("adapter_name", ""),
@@ -564,9 +568,6 @@ impl Session {
                 adapter.1,
                 adapter.0
             );
-        }
-        if let Err(error) = crate::gpu_priority::configure(config) {
-            tracing::debug!(%error, "GPU priority remains at the process default");
         }
         let remote = Remote::open(monitor.wudf_pid)?;
         let zero_copy = config.boolean("idd_push_zero_copy", true);

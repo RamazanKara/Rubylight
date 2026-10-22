@@ -1140,3 +1140,32 @@ fn sdr_bt2020_gpu_matches_reference_primaries_and_transfer() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires D3D12 compute; sets this process's GPU scheduling class and restores it; run alone, the setting is process-wide"]
+fn a_queue_made_after_realtime_is_turned_off_is_not_realtime() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let luid = gpu.compute.luid();
+    /// Puts the process-wide setting back even when an assertion fails.
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = crate::gpu_priority::restore();
+        }
+    }
+    let _restore = Restore;
+    let configure = |setting: &str| {
+        crate::gpu_priority::configure(&butterpollo_core::config::Config::parse(setting)?)
+    };
+    configure("compute_queue_realtime = true")?;
+    let asked = Compute::for_adapter(luid)?;
+    configure("compute_queue_realtime = false")?;
+    let off = Compute::for_adapter(luid)?;
+    crate::gpu_priority::restore()?;
+    // A queue made while realtime was on is not handed to a stream that turned it off.
+    assert!(!Arc::ptr_eq(&asked, &off));
+    assert_ne!(off.priority, D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME.0);
+    assert!(!realtime());
+    Ok(())
+}

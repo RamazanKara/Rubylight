@@ -631,3 +631,21 @@ fn fence_ring_textures_open_on_a_d3d11_device_like_the_driver_opens_them() -> Re
     }
     Ok(())
 }
+
+/// `compute_queue_realtime` is read once, when the shared compute queue is made, so the stream's
+/// priority must be configured before the capture device exists. Hardware cannot show this
+/// without a display driver, so the order in the source is pinned.
+#[test]
+fn a_stream_configures_gpu_priority_before_it_creates_the_compute_queue() {
+    let source = include_str!("../idd_push.rs");
+    let configure = source
+        .find("crate::gpu_priority::configure(config)")
+        .expect("the stream configures GPU priority");
+    let device = source
+        .find("Device::for_display(")
+        .expect("the stream opens the capture device");
+    assert!(
+        configure < device,
+        "configure GPU priority before Device::for_display"
+    );
+}

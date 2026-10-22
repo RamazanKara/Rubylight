@@ -6,9 +6,9 @@ diff --git a/src/ControlStream.c b/src/ControlStream.c
                  }
              }
 +            else if (ctlHdr->type == 0x5536) {
-+                // Host timing report: 4-byte header plus 1..32 records of 20 bytes.
++                // Host timing report: 4-byte header, 1..32 records of 20 bytes, and up to 16 more each.
 +                int length = packetLength - (int)sizeof(*ctlHdr);
-+                if (IS_SUNSHINE() && encryptedControlStream && length >= 24 && length <= 644) {
++                if (IS_SUNSHINE() && encryptedControlStream && length >= 24 && length <= 1156) {
 +                    BridgeClHostTiming((const uint8_t*)(ctlHdr + 1), length);
 +                }
 +            }

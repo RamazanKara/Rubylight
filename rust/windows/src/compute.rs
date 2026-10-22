@@ -1177,6 +1177,9 @@ pub struct Converter {
     height: u32,
     ten_bit: bool,
     targets: Vec<Target>,
+    /// Timestamp queries around each `convert` (the timing tests), and the next pair's index.
+    #[cfg(test)]
+    stamps: Option<(ID3D12QueryHeap, std::cell::Cell<u32>)>,
 }
 // SAFETY: `mapped` points into the upload buffer `constants` this converter owns, the D3D12 objects
 // are free-threaded, and the command allocators and lists are used only through `&mut self`.
@@ -1286,6 +1289,8 @@ impl Converter {
                 height,
                 ten_bit,
                 targets: vec![],
+                #[cfg(test)]
+                stamps: None,
             })
         }
     }
@@ -1421,6 +1426,17 @@ impl Converter {
         }
         Ok(slot)
     }
+    /// Write the GPU clock at the start (`which` 0) or end (1) of this conversion's list.
+    #[cfg(test)]
+    fn stamp(&self, list: &ID3D12GraphicsCommandList, which: u32) {
+        if let Some((heap, next)) = &self.stamps {
+            // SAFETY: `list` is recording and `heap` is a live timestamp heap on the same device
+            // with room for the index the timing test sized it for.
+            unsafe {
+                list.EndQuery(heap, D3D12_QUERY_TYPE_TIMESTAMP, next.get() * 2 + which);
+            }
+        }
+    }
     fn view(&self, slot: usize, index: usize) -> D3D12_CPU_DESCRIPTOR_HANDLE {
         // SAFETY: `heap` is a live descriptor heap owned by the converter.
         let cpu = unsafe { self.heap.GetCPUDescriptorHandleForHeapStart() };
@@ -1548,6 +1564,8 @@ impl Converter {
             } = &self.slots[slot];
             allocator.Reset()?;
             list.Reset(allocator, &self.convert)?;
+            #[cfg(test)]
+            self.stamp(list, 0);
             let mut barriers = [transition(
                 target.as_ref(),
                 state,
@@ -1563,7 +1581,13 @@ impl Converter {
             )];
             list.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
+            #[cfg(test)]
+            self.stamp(list, 1);
             list.Close()?;
+        }
+        #[cfg(test)]
+        if let Some((_, next)) = &self.stamps {
+            next.set(next.get() + 1);
         }
         self.submit(slot, image, Vec::new(), None)?;
         // The encoder's signal for this texture, after the conversion.
@@ -1767,3 +1791,5 @@ mod packed444_performance_tests;
 mod packed444_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timing_tests;

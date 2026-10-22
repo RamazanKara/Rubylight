@@ -3,7 +3,7 @@ use super::{tests::p010_codes, *};
 use crate::capture::{ComGuard, Device, GpuImage, Image, Pixel};
 use std::time::Instant;
 
-fn pattern(width: usize, height: usize, phase: usize, hdr: bool) -> (Image, Vec<f64>) {
+pub(super) fn pattern(width: usize, height: usize, phase: usize, hdr: bool) -> (Image, Vec<f64>) {
     let samples: Vec<_> = (0..width * height)
         .map(|i| {
             let (x, y) = (i % width, i / width);

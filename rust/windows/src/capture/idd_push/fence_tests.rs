@@ -682,7 +682,7 @@ fn texture_on(device: &ID3D12Device, image: &Image, format: DXGI_FORMAT) -> Resu
         Dxgi::Common::DXGI_SAMPLE_DESC,
     };
     anyhow::ensure!(
-        image.stride % 256 == 0,
+        image.stride.is_multiple_of(256),
         "the upload pitch must be 256-aligned"
     );
     let heap = |ty| D3D12_HEAP_PROPERTIES {

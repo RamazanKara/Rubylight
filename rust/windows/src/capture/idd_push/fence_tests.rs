@@ -561,9 +561,10 @@ fn a_retired_compute_queue_is_not_reused_for_the_same_capture_device() -> Result
     Ok(())
 }
 
-/// The display driver on main is still D3D11: it opens each ring texture with
-/// `OpenSharedResource1`, which fails with E_INVALIDARG unless the D3D12 texture allows render
-/// targets and simultaneous access (RX 7900 XT, October 16). A D3D12 driver arrives later.
+/// The display driver of 2.6 is D3D11: it opens each ring texture with `OpenSharedResource1`,
+/// which fails with E_INVALIDARG unless the D3D12 texture allows render targets and
+/// simultaneous access (RX 7900 XT, October 16). The host keeps those flags so that a driver
+/// already installed keeps working; the D3D12 driver opens the same textures (next test).
 #[test]
 #[ignore = "requires native D3D12 sharing and a D3D11 device on the same GPU; no driver is installed"]
 fn fence_ring_textures_open_on_a_d3d11_device_like_the_driver_opens_them() -> Result<()> {
@@ -623,6 +624,124 @@ fn fence_ring_textures_open_on_a_d3d11_device_like_the_driver_opens_them() -> Re
             // SAFETY: a live texture; GetDesc only writes the live local.
             unsafe { texture.GetDesc(&mut desc) };
             assert_eq!((desc.Width, desc.Height), (64, 32));
+        }
+    }
+    Ok(())
+}
+
+/// The D3D12 display driver opens each ring texture and fence with `OpenSharedHandle` on its
+/// own device and copies into the texture on a copy queue, then signals the written fence. The
+/// flags the D3D11 driver needs must not get in its way.
+#[test]
+#[ignore = "requires native D3D12 sharing and a second D3D12 device on the same GPU; no driver is installed"]
+fn fence_ring_textures_open_on_a_second_d3d12_device_like_the_d3d12_driver_opens_them() -> Result<()>
+{
+    use windows::Win32::Graphics::{
+        Direct3D::D3D_FEATURE_LEVEL_11_0,
+        Direct3D12::{
+            D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON, D3D12_TEXTURE_LAYOUT_UNKNOWN,
+            D3D12CreateDevice, ID3D12Device,
+        },
+        Dxgi::{
+            CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory4,
+            Common::{DXGI_FORMAT, DXGI_SAMPLE_DESC},
+        },
+    };
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    // SAFETY: the factory and adapter are live, and the device out-slot is a live local.
+    let driver: ID3D12Device = unsafe {
+        let factory: IDXGIFactory4 = CreateDXGIFactory1()?;
+        let adapter: IDXGIAdapter1 = factory.EnumAdapterByLuid(gpu.compute.luid())?;
+        let mut device: Option<ID3D12Device> = None;
+        D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device)?;
+        device.context("no D3D12 device")?
+    };
+    anyhow::ensure!(
+        driver.as_raw() != gpu.compute.device.as_raw(),
+        "the driver's device must be its own"
+    );
+    for pixel in [Pixel::Bgra8, Pixel::RgbaF16] {
+        let format = crate::compute::format(pixel);
+        let ring = Ring::fenced(
+            gpu.compute.clone(),
+            Layout {
+                slot_count: 2,
+                width: 64,
+                height: 32,
+                format: format.0 as u32,
+                generation: 1,
+            },
+            release_queue(&gpu, None),
+        )?;
+        let open_fence = |handle: &OwnedHandle| -> Result<ID3D12Fence> {
+            let mut fence = None;
+            // SAFETY: a live shared fence handle; `fence` is a live local.
+            unsafe { driver.OpenSharedHandle(HANDLE(handle.as_raw_handle()), &mut fence)? };
+            fence.context("no fence")
+        };
+        let written = open_fence(&ring.fences.handles[0])?;
+        open_fence(&ring.fences.handles[1])?;
+        // SAFETY: `driver` is live; the queue, allocator and list are made with it, and the
+        // source is a plain texture of the ring's size and format.
+        unsafe {
+            let queue: ID3D12CommandQueue = driver.CreateCommandQueue(&D3D12_COMMAND_QUEUE_DESC {
+                Type: D3D12_COMMAND_LIST_TYPE_COPY,
+                ..Default::default()
+            })?;
+            let allocator: ID3D12CommandAllocator =
+                driver.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY)?;
+            let list: ID3D12GraphicsCommandList =
+                driver.CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, &allocator, None)?;
+            let mut source: Option<ID3D12Resource> = None;
+            driver.CreateCommittedResource(
+                &D3D12_HEAP_PROPERTIES {
+                    Type: D3D12_HEAP_TYPE_DEFAULT,
+                    ..Default::default()
+                },
+                D3D12_HEAP_FLAG_NONE,
+                &windows::Win32::Graphics::Direct3D12::D3D12_RESOURCE_DESC {
+                    Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                    Width: 64,
+                    Height: 32,
+                    DepthOrArraySize: 1,
+                    MipLevels: 1,
+                    Format: DXGI_FORMAT(format.0),
+                    SampleDesc: DXGI_SAMPLE_DESC {
+                        Count: 1,
+                        Quality: 0,
+                    },
+                    Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                    Flags: D3D12_RESOURCE_FLAG_NONE,
+                    Alignment: 0,
+                },
+                D3D12_RESOURCE_STATE_COMMON,
+                None,
+                &mut source,
+            )?;
+            let source = source.context("no source texture")?;
+            for (seq, slot) in (1u64..).zip(&ring.slots) {
+                let mut texture: Option<ID3D12Resource> = None;
+                driver.OpenSharedHandle(HANDLE(slot.shared.as_raw_handle()), &mut texture)?;
+                let texture = texture.context("no texture")?;
+                let desc = texture.GetDesc();
+                assert_eq!(
+                    (desc.Width, desc.Height, desc.Format),
+                    (64, 32, DXGI_FORMAT(format.0)),
+                    "the driver's D3D12 open of a {pixel:?} ring texture"
+                );
+                allocator.Reset()?;
+                list.Reset(&allocator, None)?;
+                list.CopyResource(&texture, &source);
+                list.Close()?;
+                queue.ExecuteCommandLists(&[Some(list.cast::<ID3D12CommandList>()?)]);
+                queue.Signal(&written, seq)?;
+                // The host's own fence object sees the driver's signal.
+                until("the written fence", || {
+                    ring.fences.written.GetCompletedValue() >= seq
+                })?;
+            }
         }
     }
     Ok(())

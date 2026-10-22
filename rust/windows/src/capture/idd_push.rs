@@ -457,12 +457,13 @@ impl Ring {
         section.header().init(layout);
         let mut slots = Vec::with_capacity(layout.slot_count as usize);
         for _ in 0..layout.slot_count {
-            // The driver still opens the texture on a D3D11 device, which accepts a D3D12 texture
-            // only if it may be a render target: without the flag OpenSharedResource1 fails with
-            // E_INVALIDARG (RX 7900 XT, October 16). The host's readers and a driver seed copy
-            // may read simultaneously on different devices, and the fences order the writers,
-            // which does not itself permit concurrent D3D12 access. Revisit both flags once the
-            // D3D12 driver is required.
+            // The display driver of 2.6, which may still be installed, opens the texture on a
+            // D3D11 device, which accepts a D3D12 texture only if it may be a render target:
+            // without the flag OpenSharedResource1 fails with E_INVALIDARG (RX 7900 XT, October
+            // 16). The host's readers and a driver seed copy may read simultaneously on different
+            // devices, and the fences order the writers, which does not itself permit concurrent
+            // D3D12 access. The D3D12 driver opens the same textures with OpenSharedHandle, so
+            // keep both flags for as long as a 3.0 host must work with the D3D11 driver.
             let (texture, shared) = compute.share_texture(
                 layout.width,
                 layout.height,

@@ -6,25 +6,9 @@
 //!   files (`tests.rs`, `*_tests.rs`, anything under a `tests` directory) may use D3D11, to
 //!   render fixtures. Runtime modules must not contain those names at all, in code or comments.
 //! - At run time, in debug builds: [`report`] logs at the end of every stream (target
-//!   `d3d11_audit`) how many D3D11 devices host code created, which must be zero, and whether
-//!   `d3d11.dll` is loaded in the process. Something else, such as the AMF runtime or the GPU
-//!   driver, may load it; the log says so rather than hiding it.
-
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-/// D3D11 devices host code created. There is no such code; a change that adds one must count
-/// it here, and the debug check fails.
-static CREATED: AtomicUsize = AtomicUsize::new(0);
-
-/// Record a D3D11 device that host code created.
-pub fn created_device() {
-    CREATED.fetch_add(1, Ordering::Relaxed);
-}
-
-/// D3D11 devices host code created so far.
-pub fn devices_created() -> usize {
-    CREATED.load(Ordering::Relaxed)
-}
+//!   `d3d11_audit`) whether `d3d11.dll` is loaded in the process. Something else, such as the
+//!   AMF runtime or the GPU driver, may load it; the log says so rather than hiding it. The
+//!   source scan is what guarantees the host creates no device itself.
 
 /// Whether `d3d11.dll` is loaded in this process, by anything.
 pub fn module_loaded() -> bool {
@@ -35,16 +19,13 @@ pub fn module_loaded() -> bool {
     }
 }
 
-/// Log the audit for `when` (such as "stream end") in debug builds, and fail if host code
-/// created a D3D11 device. Release builds do nothing.
+/// Log the audit for `when` (such as "stream end") in debug builds. Release builds do nothing.
 pub fn report(when: &str) {
     if cfg!(debug_assertions) {
-        let created = devices_created();
         let loaded = module_loaded();
         tracing::info!(
             target: "d3d11_audit",
             when,
-            devices_created = created,
             d3d11_dll_loaded = if loaded { "yes" } else { "no" },
             "D3D11 audit: the host creates no D3D11 device{}",
             if loaded {
@@ -53,7 +34,6 @@ pub fn report(when: &str) {
                 ""
             }
         );
-        debug_assert_eq!(created, 0, "host code created a D3D11 device");
     }
 }
 
@@ -140,11 +120,5 @@ mod tests {
         let found = offenders(&[root.path().to_owned()]);
         assert_eq!(found.len(), 1);
         assert!(found[0].0.ends_with("runtime.rs"));
-    }
-
-    #[test]
-    fn the_audit_counts_no_device() {
-        assert_eq!(super::devices_created(), 0);
-        super::report("test");
     }
 }

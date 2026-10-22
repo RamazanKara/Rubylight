@@ -1771,7 +1771,6 @@ fn d3d11_dll_audit_around_the_d3d12_encoders() -> Result<()> {
         "D3D11_AUDIT {}",
         serde_json::json!({
             "adapter": gpu.display.adapter,
-            "devices_created": crate::d3d11_audit::devices_created(),
             "d3d11_dll_loaded": {
                 "at_start": at_start,
                 "after_d3d12_device": after_device,
@@ -1782,6 +1781,5 @@ fn d3d11_dll_audit_around_the_d3d12_encoders() -> Result<()> {
         })
     );
     crate::d3d11_audit::report("native test");
-    assert_eq!(crate::d3d11_audit::devices_created(), 0);
     Ok(())
 }

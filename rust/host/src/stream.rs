@@ -2314,7 +2314,7 @@ impl Media {
                     crate::remote_display::disconnect(&h, Some(&s.launch.client.uuid));
                 }
                 h.sessions.lock().unwrap().teardown.remove(&s.launch.id);
-                // Debug builds: the host created no D3D11 device during the stream.
+                // Debug builds: log whether d3d11.dll is loaded in the process.
                 butterpollo_windows::d3d11_audit::report("stream end");
                 tracing::info!(client=%s.launch.client.name,"CLIENT DISCONNECTED");
             })

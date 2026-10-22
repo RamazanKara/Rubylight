@@ -213,15 +213,10 @@ impl SessionSnapshot {
     }
 }
 
-/// Whether the administrator granted this device Host control. It is a
-/// separate key in the client's `extra`, not a `perm` bit, so an all-ones
-/// permission value can't switch it on. Only `true` and `"true"` count.
+/// Whether the administrator granted this device Host control. The rule
+/// lives in [`Client::allows_host_control`].
 pub fn host_control(client: &Client) -> bool {
-    client.enabled
-        && client
-            .extra
-            .get("host_control")
-            .is_some_and(|value| value == true || value == "true")
+    client.allows_host_control()
 }
 
 /// The session as `caller` may see it, with the actions it may run.

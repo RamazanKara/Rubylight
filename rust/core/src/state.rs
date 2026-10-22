@@ -114,6 +114,17 @@ impl Client {
             .get("allow_client_commands")
             .is_some_and(|v| v == false || v == "false")
     }
+    /// Whether the administrator granted this device Host control (change
+    /// Radeon settings, close the game). It is a separate key in `extra`, not
+    /// a `perm` bit, so an all-ones permission value can't switch it on, and
+    /// only `true` and `"true"` count. Pairing and migration never set it.
+    pub fn allows_host_control(&self) -> bool {
+        self.enabled
+            && self
+                .extra
+                .get("host_control")
+                .is_some_and(|v| v == true || v == "true")
+    }
     pub fn der(&self) -> Result<Vec<u8>> {
         crypto::certificate_der(&self.cert)
     }
@@ -458,6 +469,77 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn client_with(perm: u32, extra: Value) -> Client {
+        let mut document = json!({"name":"Phone","cert":"c","uuid":"u","perm":perm});
+        document
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(document).unwrap()
+    }
+    #[test]
+    fn host_control_is_off_by_default_and_for_a_full_permission_value() {
+        assert!(!client_with(0x071f1f00, json!({})).allows_host_control());
+        // Imports and fixtures use an all-ones permission value.
+        assert!(!client_with(u32::MAX, json!({})).allows_host_control());
+        assert!(
+            !client_with(u32::MAX, json!({"allow_client_commands":true})).allows_host_control()
+        );
+    }
+    #[test]
+    fn host_control_reads_only_true_and_the_string_true() {
+        assert!(client_with(0, json!({"host_control":true})).allows_host_control());
+        assert!(client_with(0, json!({"host_control":"true"})).allows_host_control());
+        for value in [
+            json!("yes"),
+            json!("1"),
+            json!(1),
+            json!("TRUE"),
+            json!(false),
+            json!(null),
+            json!([true]),
+        ] {
+            assert!(
+                !client_with(u32::MAX, json!({"host_control":value})).allows_host_control(),
+                "{value}"
+            );
+        }
+        let mut disabled = client_with(0, json!({"host_control":true}));
+        disabled.enabled = false;
+        assert!(!disabled.allows_host_control());
+    }
+    #[test]
+    fn imported_vibepollo_state_and_new_pairings_start_without_host_control() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let identity = crypto::Identity::generate().unwrap();
+        write_json(
+            &p,
+            &json!({"root":{"named_devices":[
+                {"name":"Old","uuid":"old","cert":identity.certificate,"perm":u32::MAX,
+                 "allow_client_commands":true}
+            ]}}),
+        )
+        .unwrap();
+        let mut s = PairedState::load(&p).unwrap();
+        assert!(!s.clients[0].allows_host_control());
+        // A new pairing is added with no extra keys, as nvhttp does.
+        let fresh = crypto::Identity::generate().unwrap();
+        s.add(
+            &p,
+            Client {
+                name: "New".into(),
+                cert: fresh.certificate,
+                uuid: "new".into(),
+                perm: 0x071f1f00,
+                enabled: true,
+                extra: BTreeMap::new(),
+            },
+        )
+        .unwrap();
+        let reloaded = PairedState::load(&p).unwrap();
+        assert!(reloaded.clients.iter().all(|c| !c.allows_host_control()));
+    }
     #[test]
     fn paired_saves_keep_credentials_changed_or_removed_on_disk() {
         let d = tempfile::tempdir().unwrap();

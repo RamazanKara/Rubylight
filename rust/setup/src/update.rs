@@ -898,6 +898,17 @@ mod tests {
         assert_eq!(std::fs::read(&result)?, b"broken record");
         Ok(())
     }
+    /// `Butterpollo/config` under `root`, owned by Administrators whatever
+    /// owner this process's token gives the folders it creates (a user, not
+    /// Administrators, in some elevated shells).
+    fn trusted_profile(root: &Path) -> Result<PathBuf> {
+        system::restrict(root, true)?;
+        let profile = root.join("Butterpollo/config");
+        std::fs::create_dir_all(&profile)?;
+        system::restrict(profile.parent().unwrap(), true)?;
+        system::restrict(&profile, true)?;
+        Ok(profile)
+    }
     #[test]
     fn early_failures_are_recorded_only_in_a_trusted_profile_no_other_setup_holds() -> Result<()> {
         // The profile must be owned by Administrators, as setup leaves it.
@@ -905,9 +916,7 @@ mod tests {
             return Ok(());
         }
         let temp = tempfile::tempdir_in(system::program_data())?;
-        system::restrict(temp.path(), true)?;
-        let profile = temp.path().join("Butterpollo/config");
-        std::fs::create_dir_all(&profile)?;
+        let profile = trusted_profile(temp.path())?;
         let result = profile.join("update-result.json");
         let host = json!({"version":"v2.2.22","phase":"installing","started_at":1});
         write_record(&result, &host)?;
@@ -966,9 +975,7 @@ mod tests {
             return Ok(());
         }
         let temp = tempfile::tempdir_in(system::program_data())?;
-        system::restrict(temp.path(), true)?;
-        let profile = temp.path().join("Butterpollo/config");
-        std::fs::create_dir_all(&profile)?;
+        let profile = trusted_profile(temp.path())?;
         let refusal = crate::amd_gpu::Refusal::NoGpu;
         let text = refusal.to_string();
         // What main does for `--update` on a PC the check refuses.

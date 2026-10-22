@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use nightjar_core::control::{haptics, ConnectionStatus, ControlEvent};
 use nightjar_core::session::{Listener, Stage};
-use rubylight_protocol::control::HostTiming;
+use rubylight_protocol::control::{HostTiming, HostTimingExtra};
 
 use crate::bridge::{self, Bridge};
 use crate::extras::{cursor_shape_message, hdr_metadata_bytes};
@@ -41,6 +41,23 @@ impl Events {
             b.void(env, method, &args);
             Ok(())
         });
+    }
+}
+
+/// The 0x5536 payload `bridgeClHostTiming` hands to Java. A report whose records all have an
+/// extension keeps it (Java reads the same fields as `decode_report_with`); otherwise the base
+/// records go out alone, as a v1 report.
+fn host_timing_payload(records: &[(HostTiming, Option<HostTimingExtra>)]) -> Vec<u8> {
+    let extended: Option<Vec<(HostTiming, HostTimingExtra)>> = records
+        .iter()
+        .map(|(timing, extra)| extra.map(|extra| (*timing, extra)))
+        .collect();
+    match extended {
+        Some(records) => HostTiming::encode_report_with(&records),
+        None => {
+            let base: Vec<HostTiming> = records.iter().map(|(timing, _)| *timing).collect();
+            HostTiming::encode_report(&base)
+        }
     }
 }
 
@@ -196,7 +213,7 @@ impl Listener for Events {
                 self.bytes_callback(m.controller_audio, Some(bridge::int(0x5535)), &payload);
             }
             ControlEvent::HostTiming(records) => {
-                self.bytes_callback(m.host_timing, None, &HostTiming::encode_report(&records));
+                self.bytes_callback(m.host_timing, None, &host_timing_payload(&records));
             }
             ControlEvent::ClockSync { reply, received } => {
                 engine::clock_sync(&reply, platform::monotonic_us_at(received));
@@ -221,5 +238,48 @@ impl Listener for Events {
 
     fn log(&self, message: &str) {
         platform::info(message);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timing(frame: u32) -> HostTiming {
+        HostTiming {
+            frame,
+            host_us: 900,
+            queue_us: 300,
+            encode_us: 200,
+            send_us: 100,
+        }
+    }
+
+    const EXTRA: HostTimingExtra = HostTimingExtra {
+        presented_at_us: 7_000_000_001,
+        capture_us: 100,
+        convert_us: 150,
+    };
+
+    #[test]
+    fn host_timing_extension_reaches_java() {
+        let records: Vec<_> = (0..17).map(|n| (timing(n), Some(EXTRA))).collect();
+        let payload = host_timing_payload(&records);
+        assert_eq!(payload.len(), 4 + 17 * 36);
+        assert_eq!(
+            HostTiming::decode_report_with(&payload).unwrap(),
+            records,
+            "the decoder (and Java, which follows it) sees every extension"
+        );
+    }
+
+    #[test]
+    fn host_timing_without_an_extension_stays_a_v1_report() {
+        let records = vec![(timing(1), None), (timing(2), None)];
+        let payload = host_timing_payload(&records);
+        assert_eq!(payload, HostTiming::encode_report(&[timing(1), timing(2)]));
+        // One record without an extension sends the base records alone.
+        let mixed = vec![(timing(1), Some(EXTRA)), (timing(2), None)];
+        assert_eq!(host_timing_payload(&mixed), payload);
     }
 }

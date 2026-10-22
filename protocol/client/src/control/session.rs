@@ -490,7 +490,9 @@ mod tests {
     use super::*;
     use crate::control::negotiation::encryption;
     use butterpollo_core::packet;
-    use rubylight_protocol::control::{ClockSyncReply, DisplayCaps, HostTiming};
+    use rubylight_protocol::control::{
+        ClockSyncReply, DisplayCaps, HostTiming, HostTimingExtra, HOST_TIMING_EXTENDED_MAX_RECORDS,
+    };
 
     const KEY: Key = *b"0011223344556677";
 
@@ -752,7 +754,7 @@ mod tests {
         };
         assert_eq!(metadata.max_display_luminance, 10_000);
         assert!(s.hdr_enabled() && s.hdr_metadata().is_some());
-        assert_eq!(events[3], ControlEvent::HostTiming(vec![timing]));
+        assert_eq!(events[3], ControlEvent::HostTiming(vec![(timing, None)]));
         assert_eq!(
             events[4],
             ControlEvent::ClockSync {
@@ -767,6 +769,64 @@ mod tests {
         assert!(matches!(&events[6], ControlEvent::ControllerHaptics(p) if p.sequence == 9));
         assert!(matches!(&events[7], ControlEvent::ControllerSpeaker(p) if p.frames() == 2));
         assert_eq!(events.len(), 8);
+    }
+
+    #[test]
+    fn extended_host_timing_reports_keep_their_extension() {
+        let mut s = session(SessionOptions::default());
+        let t0 = Instant::now();
+        s.start(t0);
+        let record = |frame| HostTiming {
+            frame,
+            host_us: 900,
+            queue_us: 300,
+            encode_us: 200,
+            send_us: 100,
+        };
+        let extra = HostTimingExtra {
+            presented_at_us: 5_000_000_123,
+            capture_us: 100,
+            convert_us: 150,
+        };
+        let full = vec![(record(7), extra); HOST_TIMING_EXTENDED_MAX_RECORDS];
+        let report = HostTiming::encode_report_with(&full);
+        assert_eq!(report.len(), 616);
+        let mut seq = 0;
+        let mut feed = |s: &mut ControlSession, payload: &[u8]| {
+            seq += 1;
+            s.handle_datagram(t0, &from_host(seq, 0x5536, payload))
+                .unwrap();
+        };
+        feed(&mut s, &report);
+        // A v1 report has no extension; one with capture and convert past queue loses it.
+        feed(&mut s, &HostTiming::encode_report(&[record(8)]));
+        let bad = HostTimingExtra {
+            capture_us: 200,
+            convert_us: 200,
+            ..extra
+        };
+        feed(&mut s, &HostTiming::encode_report_with(&[(record(9), bad)]));
+        // The widest report the decoder takes is 32 records with 16 extra bytes each (1156 bytes),
+        // so a host's record cap can rise; past 17 records the extension is not used.
+        let mut widest = HostTiming::encode_report(&[record(10); 32]);
+        widest[2] = 16;
+        widest.resize(4 + 32 * 36, 0);
+        feed(&mut s, &widest);
+
+        let events = s.take_events();
+        let ControlEvent::HostTiming(records) = &events[0] else {
+            panic!("{:?}", events[0]);
+        };
+        assert_eq!(records.len(), 17);
+        assert!(records.iter().all(|r| *r == (record(7), Some(extra))));
+        assert_eq!(events[1], ControlEvent::HostTiming(vec![(record(8), None)]));
+        assert_eq!(events[2], ControlEvent::HostTiming(vec![(record(9), None)]));
+        // Over 17 records the base records stay and the extension is dropped.
+        let ControlEvent::HostTiming(records) = &events[3] else {
+            panic!("{:?}", events[3]);
+        };
+        assert_eq!(records.len(), 32);
+        assert!(records.iter().all(|r| *r == (record(10), None)));
     }
 
     #[test]

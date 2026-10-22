@@ -1088,7 +1088,7 @@ impl Streaming {
                 report_rate_hz,
             } => pads.set_motion(controller, motion_type, report_rate_hz),
             ControlEvent::HostTiming(records) => {
-                for r in records {
+                for (r, _) in records {
                     self.window.timing_host_us += u64::from(r.host_us);
                     self.window.timing_encode_us += u64::from(r.encode_us);
                     self.window.timing_n += 1;

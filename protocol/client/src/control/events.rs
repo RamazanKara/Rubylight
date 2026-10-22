@@ -3,7 +3,10 @@
 
 use std::time::Instant;
 
-use rubylight_protocol::control::{ClockSyncReply, HostTiming};
+use rubylight_protocol::control::{
+    ClockSyncReply, HostTiming, HostTimingExtra, HOST_TIMING_EXTRA_BYTES, HOST_TIMING_HEADER_BYTES,
+    HOST_TIMING_MAX_RECORDS, HOST_TIMING_RECORD_BYTES,
+};
 
 use super::haptics::{self, Pcm};
 use super::messages::CURSOR_SHAPE_MAX_EDGE;
@@ -213,8 +216,9 @@ pub enum ControlEvent {
     ControllerSpeaker(Pcm),
     /// USB controller audio status from the host (0x5535), 8 to 972 bytes as sent.
     ControllerAudioControl(Vec<u8>),
-    /// Per-frame host timing (0x5536).
-    HostTiming(Vec<HostTiming>),
+    /// Per-frame host timing (0x5536), each record with the extension an extended report
+    /// carries for it (`None` for a v1 report or an extension that did not validate).
+    HostTiming(Vec<(HostTiming, Option<HostTimingExtra>)>),
     /// A clock sync answer (0x5537) and when its datagram was handed to the state machine.
     ClockSync {
         reply: ClockSyncReply,
@@ -368,12 +372,16 @@ pub(crate) fn controller_audio_control(p: &[u8]) -> Option<ControlEvent> {
         .then(|| ControlEvent::ControllerAudioControl(p.to_vec()))
 }
 
-/// A host timing report: a 4-byte header and 1 to 32 records of 20 bytes.
+/// A host timing report: a 4-byte header and 1 to 32 records of 20 bytes, and for an extended
+/// report 16 more bytes per record. The upper bound is the largest extended report the decoder
+/// accepts (32 records), not the 17 a host sends, so the host's cap can rise later.
 pub(crate) fn host_timing(p: &[u8]) -> Option<ControlEvent> {
-    if !(24..=644).contains(&p.len()) {
+    const MAX: usize = HOST_TIMING_HEADER_BYTES
+        + HOST_TIMING_MAX_RECORDS * (HOST_TIMING_RECORD_BYTES + HOST_TIMING_EXTRA_BYTES);
+    if !(HOST_TIMING_HEADER_BYTES + HOST_TIMING_RECORD_BYTES..=MAX).contains(&p.len()) {
         return None;
     }
-    HostTiming::decode_report(p).map(ControlEvent::HostTiming)
+    HostTiming::decode_report_with(p).map(ControlEvent::HostTiming)
 }
 
 /// Newer hosts may append fields; anything over 256 bytes is not a reply.

@@ -691,6 +691,10 @@ async fn an_action_from_another_device_is_409_not_session_owner_and_changes_noth
 }
 
 #[tokio::test]
+#[allow(
+    clippy::await_holding_lock,
+    reason = "the launch lock is held on purpose while the handler tries it from the blocking pool"
+)]
 async fn an_action_during_a_launch_is_409_session_busy_with_a_retry_hint() {
     let s = Setup::new();
     let _stream = s.streaming();

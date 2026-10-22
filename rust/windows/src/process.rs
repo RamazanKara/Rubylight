@@ -106,6 +106,20 @@ pub fn user_sid() -> Option<String> {
     let token = user_token.as_ref().unwrap_or(&own);
     token_user_sid(token).ok()
 }
+/// Makes the calling thread act as the user signed in to this process's session, when this process
+/// is SYSTEM. Returns false (and changes nothing) for any other account. The impersonation lasts
+/// until the thread ends or reverts; it is for short-lived helper processes.
+pub fn impersonate_session_user() -> Result<bool> {
+    if !is_system() {
+        return Ok(false);
+    }
+    let user = target_token(&Target::User { elevated: false })?
+        .context("no signed-in user in this session")?;
+    // SAFETY: `user` is a valid primary token owned here and outlives the call; the call duplicates
+    // it for the thread.
+    unsafe { ImpersonateLoggedOnUser(raw(&user))? };
+    Ok(true)
+}
 fn token_user_sid(token: &OwnedHandle) -> Result<String> {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
     // SAFETY: `buffer` holds a TOKEN_USER once the call succeeds, and the string from

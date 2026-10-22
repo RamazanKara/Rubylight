@@ -81,7 +81,13 @@ fn helper() -> HelperBackend {
 #[test]
 #[ignore = "child of the hardware tests"]
 fn helper_child() {
-    assert_eq!(super::helper::run(), 0);
+    // `RADEON_OWN_ACCOUNT` keeps a SYSTEM helper SYSTEM, to show what the host avoids.
+    let code = if std::env::var_os("RADEON_OWN_ACCOUNT").is_some() {
+        super::helper::run_as_own_account()
+    } else {
+        super::helper::run()
+    };
+    assert_eq!(code, 0);
 }
 
 fn first_gpu() -> i32 {
@@ -216,6 +222,39 @@ fn alternative(setting: &Setting) -> Option<Value> {
     }
 }
 
+/// The requests to try for one setting. A setting of a feature that is off may only take a value
+/// while the same request turns the feature on, so it is tried alone first and then with the
+/// feature's toggle; the matrix records which settings need that.
+fn attempts(setting: &Setting, start: &[Setting], tried: &Value) -> Vec<Vec<Change>> {
+    let target = Change {
+        id: setting.id.into(),
+        value: tried.clone(),
+    };
+    let group_enable = setting
+        .id
+        .split_once('.')
+        .filter(|(_, field)| *field != "enabled")
+        .map(|(group, _)| format!("{group}.enabled"))
+        .filter(|enable| {
+            start.iter().any(|s| {
+                s.id == enable
+                    && s.state == State::Configurable
+                    && s.value == Some(Value::Bool(false))
+            })
+        });
+    let mut attempts = vec![vec![target.clone()]];
+    if let Some(enable) = group_enable {
+        attempts.push(vec![
+            Change {
+                id: enable,
+                value: Value::Bool(true),
+            },
+            target,
+        ]);
+    }
+    attempts
+}
+
 /// Every setting's value, for the before and after comparison.
 fn values(settings: &[Setting]) -> Vec<(&'static str, Option<Value>)> {
     settings.iter().map(|s| (s.id, s.value.clone())).collect()
@@ -346,37 +385,9 @@ fn prove_configurable_settings_round_trip() {
             });
             continue;
         };
-        let target = Change {
-            id: setting.id.into(),
-            value: tried.clone(),
-        };
-        // A setting of a feature that is off may only take a value while the same request turns
-        // the feature on. Try it alone first so the matrix records which settings need that.
-        let group_enable = setting
-            .id
-            .split_once('.')
-            .filter(|(_, field)| *field != "enabled")
-            .map(|(group, _)| format!("{group}.enabled"))
-            .filter(|enable| {
-                start.iter().any(|s| {
-                    s.id == enable
-                        && s.state == State::Configurable
-                        && s.value == Some(Value::Bool(false))
-                })
-            });
-        let mut attempts = vec![vec![target.clone()]];
-        if let Some(enable) = &group_enable {
-            attempts.push(vec![
-                Change {
-                    id: enable.clone(),
-                    value: Value::Bool(true),
-                },
-                target,
-            ]);
-        }
         let mut refusals: Vec<String> = vec![];
         let mut outcome = None;
-        for changes in &attempts {
+        for changes in &attempts(setting, &start, &tried) {
             match controller.apply("prove", gpu, changes) {
                 Ok(after) => {
                     let read_back = after
@@ -769,6 +780,283 @@ fn crash_then_recover() {
     println!(
         "abort() crash: {id} -> {} (child killed) -> {held} (recovered in a fresh process)",
         tried.display()
+    );
+}
+
+/// Where the other account's peer and the test exchange requests (`RADEON_XACCT_DIR`).
+fn xacct_dir() -> PathBuf {
+    std::env::var("RADEON_XACCT_DIR").map_or_else(|_| PathBuf::from(r"C:\src\rl-xacct"), Into::into)
+}
+
+/// Who this process is and in which Windows session, as `whoami` and the session id.
+fn identity() -> String {
+    let who = Command::new("whoami")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|e| format!("unknown ({e})"));
+    let session = crate::process::current_session().map_or("?".into(), |s| s.to_string());
+    format!("{who} (session {session})")
+}
+
+/// Write a file other processes poll for, so they never see half of it.
+fn publish(path: &Path, body: &[u8]) {
+    let partial = path.with_extension("part");
+    std::fs::write(&partial, body).expect("write exchange file");
+    std::fs::rename(&partial, path).expect("publish exchange file");
+}
+
+/// The installed host runs as SYSTEM in the console session; a development host runs as the
+/// signed-in user. Started under the other account (see `docs/hardware-matrix.md`, "Which
+/// account"), this answers helper requests that `RemoteBackend` leaves in the exchange folder,
+/// by running each in a fresh helper process of its own account, until a `stop` file appears.
+#[test]
+#[ignore = "child of the cross-account test"]
+fn cross_account_server() {
+    use std::time::Instant;
+    let dir = xacct_dir();
+    let mut backend = helper();
+    publish(&dir.join("identity.txt"), identity().as_bytes());
+    let started = Instant::now();
+    while !dir.join("stop").exists() && started.elapsed() < Duration::from_secs(60 * 60) {
+        let next = std::fs::read_dir(&dir)
+            .expect("exchange folder")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.extension().is_some_and(|e| e == "json")
+                    && path
+                        .file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with("req-"))
+            });
+        let Some(path) = next else {
+            std::thread::sleep(Duration::from_millis(20));
+            continue;
+        };
+        let body = std::fs::read_to_string(&path).unwrap_or_default();
+        let name = path
+            .file_name()
+            .expect("name")
+            .to_string_lossy()
+            .replace("req-", "resp-");
+        let _ = std::fs::remove_file(&path);
+        let response = super::helper::handle(&body, &mut backend);
+        publish(
+            &dir.join(name),
+            serde_json::to_string(&response).expect("json").as_bytes(),
+        );
+    }
+}
+
+/// A backend that has every call run by the account behind `cross_account_server`.
+#[derive(Clone)]
+struct RemoteBackend {
+    dir: PathBuf,
+}
+impl RemoteBackend {
+    fn call(
+        &self,
+        request: &super::helper::Request,
+    ) -> Result<super::helper::Response, super::BackendError> {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static NEXT: AtomicU32 = AtomicU32::new(1);
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        let answer = self.dir.join(format!("resp-{id}.json"));
+        let _ = std::fs::remove_file(&answer);
+        publish(
+            &self.dir.join(format!("req-{id}.json")),
+            serde_json::to_string(request).expect("json").as_bytes(),
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        while !answer.exists() {
+            if std::time::Instant::now() > deadline {
+                return Err(super::BackendError(
+                    "the other account did not answer".into(),
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let text = std::fs::read_to_string(&answer)
+            .map_err(|e| super::BackendError(format!("cannot read the answer: {e}")))?;
+        let _ = std::fs::remove_file(&answer);
+        serde_json::from_str(&text)
+            .map_err(|e| super::BackendError(format!("unreadable answer: {e}")))
+    }
+}
+impl RadeonBackend for RemoteBackend {
+    fn read(&mut self, gpu: i32) -> Result<Vec<Setting>, super::BackendError> {
+        match self.call(&super::helper::Request::Read { gpu })? {
+            super::helper::Response::Settings { settings } => Ok(settings),
+            super::helper::Response::Error { message } => Err(super::BackendError(message)),
+            super::helper::Response::Done => Err(super::BackendError("read answered done".into())),
+        }
+    }
+    fn write(&mut self, gpu: i32, id: &str, value: &Value) -> Result<(), super::BackendError> {
+        let request = super::helper::Request::Write {
+            gpu,
+            id: id.into(),
+            value: value.clone(),
+        };
+        match self.call(&request)? {
+            super::helper::Response::Done => Ok(()),
+            super::helper::Response::Error { message } => Err(super::BackendError(message)),
+            super::helper::Response::Settings { .. } => {
+                Err(super::BackendError("write answered with settings".into()))
+            }
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct CrossAccountRow {
+    writer: String,
+    reader: String,
+    id: &'static str,
+    wrote: Option<Value>,
+    /// What the writer's own read-back showed for the setting.
+    writer_saw: Option<Value>,
+    /// What a fresh helper of the other account showed for it.
+    reader_saw: Option<Value>,
+    /// Settings (any, not just this one) on which the two accounts' fresh reads differ.
+    differing: Vec<String>,
+    /// The request was refused, or needed the feature switched on.
+    detail: String,
+}
+
+/// Write every configurable setting as `writer_name` (through the journal) and read it back from a
+/// fresh helper of `reader_name`, restoring afterwards.
+fn cross_account_direction<W: RadeonBackend, R: RadeonBackend>(
+    writer_name: &str,
+    writer: W,
+    reader_name: &str,
+    reader: &mut R,
+    start: &[Setting],
+    gpu: i32,
+) -> Vec<CrossAccountRow> {
+    let dir = scratch_dir(&format!("xacct-{writer_name}"));
+    let mut controller = Controller::new(writer, dir.join(JOURNAL_FILE));
+    let mut rows = vec![];
+    for setting in start
+        .iter()
+        .filter(|s| s.state == State::Configurable && s.kind != Kind::Action)
+    {
+        assert_host_idle();
+        let Some(tried) = alternative(setting) else {
+            continue;
+        };
+        let mut row = CrossAccountRow {
+            writer: writer_name.into(),
+            reader: reader_name.into(),
+            id: setting.id,
+            wrote: Some(tried.clone()),
+            writer_saw: None,
+            reader_saw: None,
+            differing: vec![],
+            detail: String::new(),
+        };
+        let mut refusals = vec![];
+        for changes in &attempts(setting, start, &tried) {
+            match controller.apply("xacct", gpu, changes) {
+                Ok(after) => {
+                    let theirs = reader.read(gpu).expect("the other account reads");
+                    row.writer_saw = after
+                        .iter()
+                        .find(|s| s.id == setting.id)
+                        .and_then(|s| s.value.clone());
+                    row.reader_saw = theirs
+                        .iter()
+                        .find(|s| s.id == setting.id)
+                        .and_then(|s| s.value.clone());
+                    row.differing = diff(&after, &theirs);
+                    if changes.len() > 1 {
+                        row.detail = format!("with {} on", changes[0].id);
+                    }
+                    let report = controller
+                        .restore(Scope::Session("xacct"))
+                        .expect("restore");
+                    assert!(
+                        report.is_clean(),
+                        "restoring {} failed: {:?}",
+                        setting.id,
+                        report.outcomes
+                    );
+                    let moved = diff(start, &reader.read(gpu).expect("read"));
+                    assert!(
+                        moved.is_empty(),
+                        "after restoring {} the {reader_name} sees: {moved:?}",
+                        setting.id
+                    );
+                    refusals.clear();
+                    break;
+                }
+                Err(e) => refusals.push(e.to_string()),
+            }
+        }
+        if !refusals.is_empty() {
+            row.detail = format!("refused: {}", refusals.join("; "));
+        }
+        println!(
+            "{writer_name}->{reader_name} {:<36} wrote {:<12} writer saw {:<12} reader saw {:<12} differing {:?} {}",
+            setting.id,
+            tried.display(),
+            row.writer_saw.as_ref().map_or("-".into(), Value::display),
+            row.reader_saw.as_ref().map_or("-".into(), Value::display),
+            row.differing,
+            row.detail
+        );
+        rows.push(row);
+    }
+    assert!(controller.journal().expect("journal").entries.is_empty());
+    rows
+}
+
+/// The installed host is SYSTEM and a development host the signed-in user: is a setting one
+/// account writes the setting the other reads? Needs `cross_account_server` running as the other
+/// account; this test is the user. Both directions, every configurable setting.
+#[test]
+#[ignore = "changes real driver settings"]
+fn cross_account_round_trip() {
+    let _exclusive = exclusive();
+    assert_host_idle();
+    let dir = xacct_dir();
+    let peer_identity = std::fs::read_to_string(dir.join("identity.txt"))
+        .expect("cross_account_server is not running (no identity.txt)");
+    let mine = identity();
+    println!("peer: {peer_identity}\nthis test: {mine}");
+    assert_ne!(peer_identity, mine, "the peer runs as the same account");
+    let peer = RemoteBackend { dir };
+    let gpu = first_gpu();
+    let start = helper().read(gpu).expect("read");
+    let _restore = Restore::new(gpu, &start);
+    let theirs = peer.clone().read(gpu).expect("the peer reads");
+    let moved = diff(&start, &theirs);
+    assert!(
+        moved.is_empty(),
+        "the two accounts read different values before any write: {moved:?}"
+    );
+
+    let mut rows =
+        cross_account_direction("peer", peer.clone(), "user", &mut helper(), &start, gpu);
+    rows.extend(cross_account_direction(
+        "user",
+        helper(),
+        "peer",
+        &mut peer.clone(),
+        &start,
+        gpu,
+    ));
+    let disagree: Vec<_> = rows
+        .iter()
+        .filter(|r| !r.differing.is_empty() || r.writer_saw != r.reader_saw)
+        .map(|r| format!("{}->{} {}: {:?}", r.writer, r.reader, r.id, r.differing))
+        .collect();
+    let written = rows.iter().filter(|r| r.writer_saw.is_some()).count();
+    save("rl-a5-xacct.json", &rows);
+    assert!(disagree.is_empty(), "the accounts disagree: {disagree:?}");
+    let end = helper().read(gpu).expect("read");
+    let moved = diff(&start, &end);
+    assert!(moved.is_empty(), "final probe diff is not empty: {moved:?}");
+    println!(
+        "{written} writes across both directions, all read back identically by the other account; final probe diff: empty"
     );
 }
 

@@ -68,18 +68,47 @@ pub(super) fn handle(request: &str, backend: &mut impl RadeonBackend) -> Respons
 /// it against a fresh ADLX, print one answer line. The exit code is non-zero only when no answer
 /// could be produced.
 pub fn run() -> i32 {
-    run_with(&mut AdlxBackend)
+    run_with(&mut AdlxBackend, act_as_the_user)
+}
+
+/// The helper as its own account, even when that is SYSTEM: how the hardware tests show what a
+/// SYSTEM helper would get wrong.
+#[cfg(test)]
+pub(super) fn run_as_own_account() -> i32 {
+    run_with(&mut AdlxBackend, || Ok(()))
+}
+
+/// Act as the signed-in user when the host is SYSTEM. The installed host is SYSTEM in the console
+/// session, and a SYSTEM process reads some settings (the AFMF modes) as their defaults and
+/// silently drops writes of them, while the user's own view is the one the Radeon software shows
+/// (`docs/hardware-matrix.md`, "Which account"). Failing is loud: no answer from the wrong account.
+fn act_as_the_user() -> Result<(), String> {
+    crate::process::impersonate_session_user()
+        .map(|_| ())
+        .map_err(|e| format!("cannot act as the signed-in user: {e:#}"))
+}
+
+/// Answer a request after `setup` succeeded; a setup that fails is the answer.
+fn answer(
+    request: &str,
+    backend: &mut impl RadeonBackend,
+    setup: impl FnOnce() -> Result<(), String>,
+) -> Response {
+    match setup() {
+        Ok(()) => handle(request, backend),
+        Err(message) => Response::Error { message },
+    }
 }
 
 // The helper talks to its parent only through stdin, stdout and stderr.
 #[allow(clippy::print_stdout, clippy::print_stderr)]
-fn run_with(backend: &mut impl RadeonBackend) -> i32 {
+fn run_with(backend: &mut impl RadeonBackend, setup: impl FnOnce() -> Result<(), String>) -> i32 {
     let mut request = String::new();
     if let Err(error) = std::io::stdin().read_to_string(&mut request) {
         eprintln!("radeon helper: cannot read its request: {error}");
         return 2;
     }
-    let response = handle(&request, backend);
+    let response = answer(&request, backend, setup);
     match serde_json::to_string(&response) {
         Ok(line) => {
             println!("{MARKER}{line}");
@@ -339,7 +368,25 @@ mod tests {
     #[test]
     #[ignore = "child of the helper process tests"]
     fn stub_helper() {
-        assert_eq!(run_with(&mut Stub::default()), 0);
+        assert_eq!(run_with(&mut Stub::default(), || Ok(())), 0);
+    }
+
+    /// A helper that cannot act as the user must say so and touch nothing, not answer from the
+    /// wrong account.
+    #[test]
+    fn a_helper_that_cannot_act_as_the_user_answers_with_an_error_and_does_nothing() {
+        let mut stub = Stub::default();
+        let request = r#"{"op":"write","gpu":0,"id":"anti_lag.enabled","value":true}"#;
+        match answer(request, &mut stub, || Err("no signed-in user".into())) {
+            Response::Error { message } => assert_eq!(message, "no signed-in user"),
+            other => panic!("{other:?}"),
+        }
+        assert!(stub.wrote.is_none());
+        assert!(matches!(
+            answer(request, &mut stub, || Ok(())),
+            Response::Done
+        ));
+        assert!(stub.wrote.is_some());
     }
 
     fn stub_backend() -> HelperBackend {

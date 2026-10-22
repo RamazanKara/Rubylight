@@ -9,12 +9,14 @@
 //! write against a brand-new ADLX and exits. The helper is killed if it hangs, so a driver stall
 //! cannot freeze the host either.
 use super::{AdlxBackend, BackendError, RadeonBackend, Setting, model::Value};
+use crate::process::{Process, Target};
 use serde::{Deserialize, Serialize};
 use std::{
+    ffi::OsString,
     io::{Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{Arc, Mutex, PoisonError, mpsc},
     time::{Duration, Instant},
 };
 
@@ -68,24 +70,26 @@ pub(super) fn handle(request: &str, backend: &mut impl RadeonBackend) -> Respons
 /// it against a fresh ADLX, print one answer line. The exit code is non-zero only when no answer
 /// could be produced.
 pub fn run() -> i32 {
-    run_with(&mut AdlxBackend, act_as_the_user)
+    run_with(&mut AdlxBackend, refuse_system)
 }
 
-/// The helper as its own account, even when that is SYSTEM: how the hardware tests show what a
-/// SYSTEM helper would get wrong.
-#[cfg(test)]
-pub(super) fn run_as_own_account() -> i32 {
-    run_with(&mut AdlxBackend, || Ok(()))
-}
-
-/// Act as the signed-in user when the host is SYSTEM. The installed host is SYSTEM in the console
-/// session, and a SYSTEM process reads some settings (the AFMF modes) as their defaults and
-/// silently drops writes of them, while the user's own view is the one the Radeon software shows
-/// (`docs/hardware-matrix.md`, "Which account"). Failing is loud: no answer from the wrong account.
-fn act_as_the_user() -> Result<(), String> {
-    crate::process::impersonate_session_user()
-        .map(|_| ())
-        .map_err(|e| format!("cannot act as the signed-in user: {e:#}"))
+/// The helper never runs as SYSTEM. The installed host is SYSTEM in the console session, and a
+/// SYSTEM process reads some settings (the AFMF modes) as their defaults and silently drops writes
+/// of them, while the user's own view is the one the Radeon software shows
+/// (`docs/hardware-matrix.md`, "Which account"). So a SYSTEM host starts the helper with the
+/// signed-in user's token (`HelperBackend::start`), and a helper that finds itself SYSTEM anyway
+/// answers with an error instead of the wrong account's settings. Impersonation is not an option:
+/// a SYSTEM process that loads the driver's DLLs while impersonating a user resolves their paths
+/// through that user's device map.
+fn refuse_system() -> Result<(), String> {
+    if crate::process::is_system() {
+        Err(
+            "the Radeon helper was started as SYSTEM; the host must start it as the signed-in user"
+                .into(),
+        )
+    } else {
+        Ok(())
+    }
 }
 
 /// Answer a request after `setup` succeeded; a setup that fails is the answer.
@@ -155,12 +159,58 @@ fn what_it_said(errors: &mpsc::Receiver<String>) -> String {
     format!("; it said: {shown}{cut}")
 }
 
+/// A helper process: the host's own account, or the signed-in user for a SYSTEM host.
+enum Child {
+    Own(std::process::Child),
+    User(Process),
+}
+impl std::fmt::Debug for Child {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "helper process {}", self.pid())
+    }
+}
+impl Child {
+    fn pid(&self) -> u32 {
+        match self {
+            Self::Own(child) => child.id(),
+            Self::User(process) => process.pid,
+        }
+    }
+    fn kill(&mut self) {
+        match self {
+            Self::Own(child) => {
+                let _ = child.kill();
+            }
+            Self::User(process) => {
+                let _ = process.terminate();
+            }
+        }
+    }
+    /// How it ended, once it has.
+    fn ended(&mut self) -> Result<Option<String>, String> {
+        match self {
+            Self::Own(child) => child
+                .try_wait()
+                .map(|status| status.map(|s| s.to_string()))
+                .map_err(|e| e.to_string()),
+            Self::User(process) => process
+                .exit_code()
+                .map(|code| code.map(|c| format!("exit code: {c}")))
+                .map_err(|e| format!("{e:#}")),
+        }
+    }
+}
+
 /// A [`RadeonBackend`] whose every call runs in a fresh helper process.
 #[derive(Clone, Debug)]
 pub struct HelperBackend {
     program: PathBuf,
     args: Vec<String>,
     timeout: Duration,
+    /// Helpers that were still running after being killed, shared by every clone. While one is
+    /// alive no other starts: it may be mid-write in the driver, and a second process writing
+    /// beside it could race it.
+    hung: Arc<Mutex<Vec<Child>>>,
 }
 impl HelperBackend {
     /// The running host exe in helper mode.
@@ -175,6 +225,7 @@ impl HelperBackend {
             program,
             args,
             timeout: TIMEOUT,
+            hung: Arc::default(),
         }
     }
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -182,9 +233,47 @@ impl HelperBackend {
         self
     }
 
-    fn call(&self, request: &Request) -> Result<Response, BackendError> {
-        let body = serde_json::to_string(request)
-            .map_err(|e| BackendError(format!("cannot encode the helper request: {e}")))?;
+    /// Refuse to start a helper while one that did not die is still running; forget the ones that
+    /// have gone since.
+    fn ensure_no_helper_is_hung(&self) -> Result<(), BackendError> {
+        let mut hung = self.hung.lock().unwrap_or_else(PoisonError::into_inner);
+        // A helper whose state cannot be read counts as still running.
+        hung.retain_mut(|child| !matches!(child.ended(), Ok(Some(_))));
+        match hung.first() {
+            Some(child) => Err(BackendError(format!(
+                "the previous Radeon helper (pid {}) is still hung, so no new one was started; the driver may be stalled",
+                child.pid()
+            ))),
+            None => Ok(()),
+        }
+    }
+
+    /// Start a helper and hand it the request: as the signed-in user when this host is SYSTEM (see
+    /// [`refuse_system`]), as this host's own account otherwise. Both run in a job that ends with
+    /// the host.
+    fn start(
+        &self,
+        body: &str,
+    ) -> Result<(Child, mpsc::Receiver<String>, mpsc::Receiver<String>), BackendError> {
+        let cannot = |how: &str, error: String| {
+            BackendError(format!(
+                "cannot start the Radeon helper {}{how}: {error}",
+                self.program.display()
+            ))
+        };
+        if crate::process::is_system() {
+            let args: Vec<OsString> = self.args.iter().map(OsString::from).collect();
+            let mut piped =
+                Process::spawn_piped(&self.program, &args, Target::User { elevated: false })
+                    .map_err(|e| cannot(" as the signed-in user", format!("{e:#}")))?;
+            if let Some(mut stdin) = piped.stdin.take() {
+                // A helper that died early closes the pipe; its exit status explains it below.
+                let _ = stdin.write_all(body.as_bytes());
+            }
+            let output = drain(piped.stdout.take().expect("stdout is piped"));
+            let errors = drain(piped.stderr.take().expect("stderr is piped"));
+            return Ok((Child::User(piped.process), output, errors));
+        }
         let mut command = Command::new(&self.program);
         command
             .args(&self.args)
@@ -195,33 +284,35 @@ impl HelperBackend {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
-        let mut child = command.spawn().map_err(|e| {
-            BackendError(format!(
-                "cannot start the Radeon helper {}: {e}",
-                self.program.display()
-            ))
-        })?;
+        let mut child = command.spawn().map_err(|e| cannot("", e.to_string()))?;
         if let Some(mut stdin) = child.stdin.take() {
-            // A helper that died early closes the pipe; its exit status explains it below.
             let _ = stdin.write_all(body.as_bytes());
         }
-        let receiver = drain(child.stdout.take().expect("stdout is piped"));
+        let output = drain(child.stdout.take().expect("stdout is piped"));
         let errors = drain(child.stderr.take().expect("stderr is piped"));
+        Ok((Child::Own(child), output, errors))
+    }
+
+    fn call(&self, request: &Request) -> Result<Response, BackendError> {
+        let body = serde_json::to_string(request)
+            .map_err(|e| BackendError(format!("cannot encode the helper request: {e}")))?;
+        self.ensure_no_helper_is_hung()?;
+        let (mut child, receiver, errors) = self.start(&body)?;
         let deadline = Instant::now() + self.timeout;
         let status = loop {
-            match child.try_wait() {
+            match child.ended() {
                 Ok(Some(status)) => break status,
                 Ok(None) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(5));
                 }
                 Ok(None) => {
-                    let _ = child.kill();
+                    child.kill();
                     // A process stuck inside the driver may not die when killed. Wait a few
                     // seconds, then abandon it (its two reader threads stay blocked with it)
-                    // rather than hang the caller too.
+                    // rather than hang the caller too; no other helper starts until it is gone.
                     let gone = Instant::now() + KILL_GRACE;
                     let ended = loop {
-                        match child.try_wait() {
+                        match child.ended() {
                             Ok(Some(_)) => break true,
                             Ok(None) if Instant::now() < gone => {
                                 std::thread::sleep(Duration::from_millis(20));
@@ -229,15 +320,21 @@ impl HelperBackend {
                             _ => break false,
                         }
                     };
+                    let said = what_it_said(&errors);
+                    if !ended {
+                        self.hung
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(child);
+                    }
                     return Err(BackendError(format!(
-                        "the Radeon helper did not answer within {} s and {}; the driver may be stalled, and the setting it was asked to change may or may not have changed{}",
+                        "the Radeon helper did not answer within {} s and {}; the driver may be stalled, and the setting it was asked to change may or may not have changed{said}",
                         self.timeout.as_secs(),
                         if ended {
                             "was stopped"
                         } else {
                             "could not be stopped and was abandoned"
                         },
-                        what_it_said(&errors)
                     )));
                 }
                 Err(error) => {
@@ -472,5 +569,49 @@ mod tests {
         assert!(error.contains("did not answer"), "{error}");
         assert!(error.contains("may or may not have changed"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    /// A helper that survived its kill blocks every later call, from every clone of the backend,
+    /// until it is gone; then calls go through again.
+    #[test]
+    fn no_helper_starts_while_an_abandoned_one_is_still_alive() {
+        let mut backend = HelperBackend::with_command(
+            PathBuf::from("cmd"),
+            vec!["/c".into(), "exit".into(), "7".into()],
+        );
+        let survivor = Command::new("ping")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = survivor.id();
+        backend.hung.lock().unwrap().push(Child::Own(survivor));
+
+        for clone in [&mut backend.clone(), &mut backend] {
+            let error = clone.read(1).unwrap_err().0;
+            assert!(error.contains("still hung"), "{error}");
+            assert!(error.contains(&pid.to_string()), "{error}");
+            assert!(
+                !error.contains("without an answer"),
+                "no helper was started: {error}"
+            );
+        }
+
+        backend.hung.lock().unwrap()[0].kill();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline
+            && !matches!(backend.hung.lock().unwrap()[0].ended(), Ok(Some(_)))
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let error = backend.read(1).unwrap_err().0;
+        assert!(error.contains("without an answer"), "{error}");
+        assert!(backend.hung.lock().unwrap().is_empty());
+    }
+
+    /// The helper refuses to answer as SYSTEM, whatever else is true.
+    #[test]
+    fn a_helper_refuses_to_run_as_system() {
+        assert_eq!(refuse_system().is_err(), crate::process::is_system());
     }
 }

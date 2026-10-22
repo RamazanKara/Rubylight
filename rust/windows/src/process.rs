@@ -106,19 +106,10 @@ pub fn user_sid() -> Option<String> {
     let token = user_token.as_ref().unwrap_or(&own);
     token_user_sid(token).ok()
 }
-/// Makes the calling thread act as the user signed in to this process's session, when this process
-/// is SYSTEM. Returns false (and changes nothing) for any other account. The impersonation lasts
-/// until the thread ends or reverts; it is for short-lived helper processes.
-pub fn impersonate_session_user() -> Result<bool> {
-    if !is_system() {
-        return Ok(false);
-    }
-    let user = target_token(&Target::User { elevated: false })?
-        .context("no signed-in user in this session")?;
-    // SAFETY: `user` is a valid primary token owned here and outlives the call; the call duplicates
-    // it for the thread.
-    unsafe { ImpersonateLoggedOnUser(raw(&user))? };
-    Ok(true)
+/// The SID of the account this process runs as (`S-1-5-18` for SYSTEM), unlike [`user_sid`], which
+/// names the signed-in user when this process is SYSTEM.
+pub fn own_sid() -> Result<String> {
+    token_user_sid(&token()?)
 }
 fn token_user_sid(token: &OwnedHandle) -> Result<String> {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
@@ -353,6 +344,85 @@ impl Drop for Environment {
             }
         }
     }
+}
+/// An attribute list that restricts which handles a new process inherits.
+struct AttributeList(Vec<usize>);
+impl AttributeList {
+    /// Make the list name exactly `handles`. The slice must outlive the process creation call.
+    fn handle_list(&mut self, handles: &[HANDLE; 3]) -> Result<LPPROC_THREAD_ATTRIBUTE_LIST> {
+        // SAFETY: the buffer is sized by the first call and aligned as usize, as the API needs;
+        // `handles` is read during the process creation call that the caller makes while it is
+        // alive, and the list is deleted once on drop.
+        unsafe {
+            let mut size = 0usize;
+            // Fails with ERROR_INSUFFICIENT_BUFFER and the size needed; the size is what matters.
+            let _ = InitializeProcThreadAttributeList(None, 1, None, &mut size);
+            self.0 = vec![0usize; size.div_ceil(size_of::<usize>())];
+            let list = LPPROC_THREAD_ATTRIBUTE_LIST(self.0.as_mut_ptr().cast());
+            InitializeProcThreadAttributeList(Some(list), 1, None, &mut size)?;
+            if let Err(e) = UpdateProcThreadAttribute(
+                list,
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                Some(handles.as_ptr().cast()),
+                size_of::<[HANDLE; 3]>(),
+                None,
+                None,
+            ) {
+                DeleteProcThreadAttributeList(list);
+                self.0.clear();
+                return Err(e.into());
+            }
+            Ok(list)
+        }
+    }
+}
+impl Drop for AttributeList {
+    fn drop(&mut self) {
+        if !self.0.is_empty() {
+            // SAFETY: the buffer holds a list initialized by `handle_list`, deleted here once.
+            unsafe {
+                DeleteProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST(
+                    self.0.as_mut_ptr().cast(),
+                ))
+            };
+        }
+    }
+}
+enum PipeEnd {
+    /// The child reads (its stdin).
+    Read,
+    /// The child writes (its stdout and stderr).
+    Write,
+}
+/// An anonymous pipe: (the end the child inherits, the end this process keeps). Only the child's
+/// end can be inherited.
+fn inheritable_pipe(child: PipeEnd) -> Result<(OwnedHandle, OwnedHandle)> {
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: std::ptr::null_mut(),
+        bInheritHandle: true.into(),
+    };
+    // SAFETY: both out-pointers are live locals, and each new handle is owned once.
+    unsafe {
+        let (mut read, mut write) = (HANDLE::default(), HANDLE::default());
+        windows::Win32::System::Pipes::CreatePipe(&mut read, &mut write, Some(&attributes), 0)?;
+        let (read, write) = (owned(read), owned(write));
+        let (child, parent) = match child {
+            PipeEnd::Read => (read, write),
+            PipeEnd::Write => (write, read),
+        };
+        SetHandleInformation(raw(&parent), HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0))?;
+        Ok((child, parent))
+    }
+}
+/// A process started by [`Process::spawn_piped`]. Dropping the `process` ends it and everything
+/// it started.
+pub struct PipedChild {
+    pub process: Process,
+    pub stdin: Option<std::fs::File>,
+    pub stdout: Option<std::fs::File>,
+    pub stderr: Option<std::fs::File>,
 }
 pub struct Process {
     handle: OwnedHandle,
@@ -961,6 +1031,40 @@ impl Process {
             detached,
         )
     }
+    /// Start `program` as `target` (inside the usual job, so it dies with the owner) with its
+    /// standard input, output and error on pipes. A SYSTEM host uses this to run a program as the
+    /// signed-in user: the child holds the user's token from the start, nothing in it runs as SYSTEM.
+    /// It cannot start a program through the desktop shell's token (an elevated administrator host
+    /// that is not SYSTEM), because that path cannot hand over pipes.
+    pub fn spawn_piped(program: &Path, args: &[OsString], target: Target) -> Result<PipedChild> {
+        let mut command = quote(program.as_os_str())?;
+        for arg in args {
+            command.push(' ');
+            command.push_str(&quote(arg)?);
+        }
+        let (stdin_read, stdin_write) = inheritable_pipe(PipeEnd::Read)?;
+        let (stdout_write, stdout_read) = inheritable_pipe(PipeEnd::Write)?;
+        let (stderr_write, stderr_read) = inheritable_pipe(PipeEnd::Write)?;
+        let process = Self::spawn_command_with(
+            program,
+            &command,
+            // The working directory a SYSTEM parent has (its profile) is not the user's to open.
+            program.parent(),
+            target,
+            &BTreeMap::new(),
+            true,
+            false,
+            Some([raw(&stdin_read), raw(&stdout_write), raw(&stderr_write)]),
+        )?;
+        // The child holds its ends now; the parent's copies would keep the pipes open forever.
+        drop((stdin_read, stdout_write, stderr_write));
+        Ok(PipedChild {
+            process,
+            stdin: Some(std::fs::File::from(stdin_write)),
+            stdout: Some(std::fs::File::from(stdout_read)),
+            stderr: Some(std::fs::File::from(stderr_read)),
+        })
+    }
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn_command(
         program: &Path,
@@ -971,10 +1075,30 @@ impl Process {
         hidden: bool,
         detached: bool,
     ) -> Result<Self> {
+        Self::spawn_command_with(
+            program, line, directory, target, extras, hidden, detached, None,
+        )
+    }
+    /// `stdio` is the child's (stdin, stdout, stderr), inheritable handles that only the child
+    /// inherits.
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_command_with(
+        program: &Path,
+        line: &str,
+        directory: Option<&Path>,
+        target: Target,
+        extras: &BTreeMap<String, String>,
+        hidden: bool,
+        detached: bool,
+        stdio: Option<[HANDLE; 3]>,
+    ) -> Result<Self> {
         let token = target_token(&target)?;
         // Only SYSTEM assigns primary tokens; an elevated administrator gets
         // the desktop shell's token for non-elevated programs.
         let shell_token = token.is_some() && !is_system();
+        if shell_token && stdio.is_some() {
+            bail!("cannot give pipes to a program started through the desktop shell's token");
+        }
         let program = wide(program.as_os_str())?;
         let directory = directory.map(|p| wide(p.as_os_str())).transpose()?;
         let mut line = wide(std::ffi::OsStr::new(line))?;
@@ -1040,20 +1164,44 @@ impl Process {
                 size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )?;
             let mut desktop: Vec<u16> = "winsta0\\default\0".encode_utf16().collect();
-            let startup = STARTUPINFOW {
-                cb: size_of::<STARTUPINFOW>() as u32,
-                lpDesktop: PWSTR(desktop.as_mut_ptr()),
-                dwFlags: if hidden {
-                    STARTF_USESHOWWINDOW
-                } else {
-                    STARTUPINFOW_FLAGS(0)
+            let mut startup = STARTUPINFOEXW {
+                StartupInfo: STARTUPINFOW {
+                    cb: if stdio.is_some() {
+                        size_of::<STARTUPINFOEXW>()
+                    } else {
+                        size_of::<STARTUPINFOW>()
+                    } as u32,
+                    lpDesktop: PWSTR(desktop.as_mut_ptr()),
+                    dwFlags: if hidden {
+                        STARTF_USESHOWWINDOW
+                    } else {
+                        STARTUPINFOW_FLAGS(0)
+                    },
+                    wShowWindow: if hidden { 0 } else { 1 },
+                    ..Default::default()
                 },
-                wShowWindow: if hidden { 0 } else { 1 },
-                ..Default::default()
+                lpAttributeList: LPPROC_THREAD_ATTRIBUTE_LIST(std::ptr::null_mut()),
             };
+            // Only the three standard handles are inherited, not every inheritable handle of this
+            // process.
+            let inherited = stdio.unwrap_or_default();
+            let mut attributes = AttributeList(Vec::new());
+            if let Some(stdio) = stdio {
+                startup.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+                startup.StartupInfo.hStdInput = stdio[0];
+                startup.StartupInfo.hStdOutput = stdio[1];
+                startup.StartupInfo.hStdError = stdio[2];
+                startup.lpAttributeList = attributes.handle_list(&inherited)?;
+            }
+            let startup = startup;
             let mut info = PROCESS_INFORMATION::default();
             let flags = CREATE_SUSPENDED
                 | CREATE_UNICODE_ENVIRONMENT
+                | if stdio.is_some() {
+                    EXTENDED_STARTUPINFO_PRESENT
+                } else {
+                    PROCESS_CREATION_FLAGS(0)
+                }
                 | if detached {
                     CREATE_BREAKAWAY_FROM_JOB
                 } else {
@@ -1082,7 +1230,7 @@ impl Process {
                         PROCESS_CREATION_FLAGS(flags.0 & !CREATE_BREAKAWAY_FROM_JOB.0),
                         Some(env.as_ptr().cast()),
                         current,
-                        &startup,
+                        &startup.StartupInfo,
                         &mut info,
                     )?;
                 } else if let Some(token) = &token {
@@ -1092,11 +1240,11 @@ impl Process {
                         Some(PWSTR(line.as_mut_ptr())),
                         None,
                         None,
-                        false,
+                        stdio.is_some(),
                         flags,
                         Some(env.as_ptr().cast()),
                         current,
-                        &startup,
+                        &startup.StartupInfo,
                         &mut info,
                     )?;
                 } else {
@@ -1105,11 +1253,11 @@ impl Process {
                         Some(PWSTR(line.as_mut_ptr())),
                         None,
                         None,
-                        false,
+                        stdio.is_some(),
                         flags,
                         Some(env.as_ptr().cast()),
                         current,
-                        &startup,
+                        &startup.StartupInfo,
                         &mut info,
                     )?;
                 }
@@ -1246,6 +1394,12 @@ impl Process {
                 timeout.as_millis().min(u32::MAX as u128) as u32,
             ) == 0
         }
+    }
+    /// Ask Windows to end the whole job, without waiting for it to be gone.
+    pub fn terminate(&self) -> Result<()> {
+        // SAFETY: `self.job` is an owned job handle that stays open while `self` lives.
+        unsafe { TerminateJobObject(raw(&self.job), 0)? };
+        Ok(())
     }
     pub fn stop(&self) -> Result<()> {
         // SAFETY: `self.job` is an owned job handle that stays open while `self` lives.
@@ -1680,6 +1834,106 @@ pub fn stop_processes(processes: &BTreeMap<u32, u64>, timeout: Duration) {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pipe_end_can_be_used_by_its_creator() {
+        use super::*;
+        use std::io::{Read, Write};
+        let (child_end, parent_end) = inheritable_pipe(PipeEnd::Write).unwrap();
+        let mut writer = std::fs::File::from(child_end);
+        let mut reader = std::fs::File::from(parent_end);
+        writer.write_all(b"ping").unwrap();
+        drop(writer);
+        let mut text = String::new();
+        reader.read_to_string(&mut text).unwrap();
+        assert_eq!(text, "ping");
+    }
+    #[test]
+    fn a_piped_child_reads_stdin_and_answers_on_stdout_and_stderr_inside_the_job() {
+        use super::*;
+        use std::io::{Read, Write};
+        let cmd =
+            std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap()).join("System32\\cmd.exe");
+        if !is_system()
+            && target_token(&Target::User { elevated: false })
+                .unwrap()
+                .is_some()
+        {
+            // An elevated administrator host starts through the shell token, which cannot hand
+            // over pipes; it must say so rather than start the program without them.
+            let err = Process::spawn_piped(&cmd, &[], Target::User { elevated: false });
+            assert!(format!("{:#}", err.err().unwrap()).contains("pipes"));
+            return;
+        }
+        let system32 = cmd.parent().unwrap().to_path_buf();
+        let target = || Target::User { elevated: false };
+        // What goes to the child's stdin comes back on its stdout.
+        let args = [OsString::from("^")];
+        let mut echo =
+            Process::spawn_piped(&system32.join("findstr.exe"), &args, target()).unwrap();
+        echo.stdin.take().unwrap().write_all(b"hello\r\n").unwrap();
+        let mut out = String::new();
+        echo.stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut out)
+            .unwrap();
+        assert_eq!(out.trim(), "hello");
+        assert_eq!(echo.process.wait(Duration::from_secs(10)).unwrap(), 0);
+        // What the child writes to stderr arrives on stderr, and its exit code is its own.
+        let args = [OsString::from("nothing-by-this-name")];
+        let mut failing =
+            Process::spawn_piped(&system32.join("where.exe"), &args, target()).unwrap();
+        let (mut out, mut err) = (String::new(), String::new());
+        failing
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut out)
+            .unwrap();
+        failing
+            .stderr
+            .take()
+            .unwrap()
+            .read_to_string(&mut err)
+            .unwrap();
+        assert!(
+            out.is_empty() && !err.is_empty(),
+            "stdout {out:?} stderr {err:?}"
+        );
+        assert_eq!(failing.process.wait(Duration::from_secs(10)).unwrap(), 1);
+        // The child runs as the signed-in user, never as the SYSTEM parent.
+        if is_system() {
+            let mut who =
+                Process::spawn_piped(&system32.join("whoami.exe"), &[], target()).unwrap();
+            let mut name = String::new();
+            who.stdout
+                .take()
+                .unwrap()
+                .read_to_string(&mut name)
+                .unwrap();
+            assert!(
+                !name.trim().is_empty() && !name.to_lowercase().contains("system"),
+                "{name:?}"
+            );
+            println!("the child ran as {}", name.trim());
+        }
+        // A child that does not end is ended by terminate, and its pipes then close.
+        let args = [
+            OsString::from("-n"),
+            OsString::from("30"),
+            OsString::from("127.0.0.1"),
+        ];
+        let mut long = Process::spawn_piped(&system32.join("ping.exe"), &args, target()).unwrap();
+        assert_eq!(long.process.exit_code().unwrap(), None);
+        long.process.terminate().unwrap();
+        let mut rest = String::new();
+        long.stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut rest)
+            .unwrap();
+        assert!(long.process.wait(Duration::from_secs(10)).is_ok());
+    }
     #[test]
     fn console_reattachment_refuses_other_users_and_transitional_sessions() {
         use super::*;

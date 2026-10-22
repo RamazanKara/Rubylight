@@ -81,13 +81,22 @@ fn helper() -> HelperBackend {
 #[test]
 #[ignore = "child of the hardware tests"]
 fn helper_child() {
-    // `RADEON_OWN_ACCOUNT` keeps a SYSTEM helper SYSTEM, to show what the host avoids.
-    let code = if std::env::var_os("RADEON_OWN_ACCOUNT").is_some() {
-        super::helper::run_as_own_account()
-    } else {
-        super::helper::run()
-    };
-    assert_eq!(code, 0);
+    // The cross-account test asks every helper to say which account it runs as: it creates
+    // `helper-accounts.log` in the exchange folder, and each helper appends a line.
+    let log = xacct_dir().join("helper-accounts.log");
+    if log.exists() {
+        use std::io::Write;
+        let line = format!(
+            "pid {} sid {} system {}\n",
+            std::process::id(),
+            crate::process::own_sid().unwrap_or_else(|e| format!("unknown ({e:#})")),
+            crate::process::is_system()
+        );
+        if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(&log) {
+            let _ = file.write_all(line.as_bytes());
+        }
+    }
+    assert_eq!(super::helper::run(), 0);
 }
 
 fn first_gpu() -> i32 {
@@ -1023,6 +1032,9 @@ fn cross_account_round_trip() {
     let mine = identity();
     println!("peer: {peer_identity}\nthis test: {mine}");
     assert_ne!(peer_identity, mine, "the peer runs as the same account");
+    let accounts = dir.join("helper-accounts.log");
+    std::fs::write(&accounts, b"").expect("start the helper account log");
+    let my_sid = crate::process::own_sid().expect("this test's SID");
     let peer = RemoteBackend { dir };
     let gpu = first_gpu();
     let start = helper().read(gpu).expect("read");
@@ -1052,6 +1064,23 @@ fn cross_account_round_trip() {
     let written = rows.iter().filter(|r| r.writer_saw.is_some()).count();
     save("rl-a5-xacct.json", &rows);
     assert!(disagree.is_empty(), "the accounts disagree: {disagree:?}");
+    // Every helper the peer started ran as this test's user, none as the peer's own account.
+    let log = std::fs::read_to_string(&accounts).expect("helper account log");
+    let lines: Vec<&str> = log.lines().collect();
+    println!(
+        "{} helpers started by the peer ({peer_identity}); first: {}",
+        lines.len(),
+        lines.first().copied().unwrap_or("none")
+    );
+    assert!(!lines.is_empty(), "no helper reported its account");
+    let wrong: Vec<_> = lines
+        .iter()
+        .filter(|l| !l.contains(&format!("sid {my_sid} system false")))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "helpers not running as {my_sid}: {wrong:?}"
+    );
     let end = helper().read(gpu).expect("read");
     let moved = diff(&start, &end);
     assert!(moved.is_empty(), "final probe diff is not empty: {moved:?}");

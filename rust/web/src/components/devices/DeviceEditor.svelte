@@ -167,7 +167,7 @@
       The first paired device gets full control. Later devices can only list apps and view streams.
     </p>
     <p class="note">Current access: <strong>{permissionSummary(draft.perm)}</strong></p>
-    <details open={permissionSummary(draft.perm) === 'Custom'}><summary>Custom permissions</summary>
+    <details open={permissionSummary(draft.perm) === 'Custom' || draft.host_control}><summary>Custom permissions</summary>
     <div class="groups">
       {#each PERMISSION_GROUPS as group (group.name)}
         <fieldset>
@@ -182,6 +182,13 @@
               {item.label}
             </label>
           {/each}
+          {#if group.name === 'Other'}
+            <!-- Not a permission bit: the host keeps it as its own setting for this device. -->
+            <label class="check">
+              <input type="checkbox" bind:checked={draft.host_control} />
+              Host control: change Radeon settings and close games from this device
+            </label>
+          {/if}
         </fieldset>
       {/each}
     </div>

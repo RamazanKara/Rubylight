@@ -98,6 +98,8 @@ export interface Draft {
   prefer_10bit_sdr: '' | 'on' | 'off';
   hdr_profile: string;
   allow_client_commands: boolean;
+  /** Lets the device change Radeon settings and close games; off unless granted here. */
+  host_control: boolean;
   do: CommandRow[];
   undo: CommandRow[];
 }
@@ -160,6 +162,8 @@ export function toDraft(client: Client): Draft {
     prefer_10bit_sdr: sdr === null ? '' : sdr ? 'on' : 'off',
     hdr_profile: text(client.hdr_profile),
     allow_client_commands: flag(client.allow_client_commands) !== false,
+    // As the host reads it: only true and "true" are on, so 1 and "yes" stay off.
+    host_control: client.host_control === true || client.host_control === 'true',
     do: commandRows(client.do),
     undo: commandRows(client.undo),
   };
@@ -190,6 +194,8 @@ function serialise(draft: Draft): Changes {
     prefer_10bit_sdr: draft.prefer_10bit_sdr === '' ? null : draft.prefer_10bit_sdr === 'on',
     hdr_profile: draft.hdr_profile || null,
     allow_client_commands: draft.allow_client_commands,
+    // The host takes only a boolean or null here; null removes the grant.
+    host_control: draft.host_control ? true : null,
     // The host rejects a null command list, so an empty list is sent instead.
     do: commands(draft.do),
     undo: commands(draft.undo),

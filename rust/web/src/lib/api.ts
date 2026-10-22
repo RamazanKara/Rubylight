@@ -289,6 +289,8 @@ export interface Client {
   prefer_10bit_sdr?: boolean | string | null;
   hdr_profile?: string | null;
   allow_client_commands?: boolean | string | null;
+  /** Host control (Radeon settings, close game). Sent as true or null; the host refuses anything else. */
+  host_control?: boolean | string | null;
   do?: unknown;
   undo?: unknown;
   [extra: string]: unknown;

@@ -197,6 +197,87 @@ async fn device_updates_persist_permissions_overrides_and_revoke_only_that_devic
 }
 
 #[tokio::test]
+async fn host_control_is_granted_only_as_a_boolean_and_revoking_keeps_the_stream() {
+    let f = Fixture::new();
+    // A full permission value must not switch it on.
+    let client = f.client(u32::MAX);
+    let mine = f.session(client.clone(), Role::Stream);
+    assert!(!f.host.paired.read().unwrap().clients[0].allows_host_control());
+    for bad in [
+        json!("yes"),
+        json!("true"),
+        json!(1),
+        json!([true]),
+        json!({}),
+    ] {
+        value(
+            request(
+                &f,
+                "POST",
+                "/api/clients/update",
+                json!({"uuid":client.uuid,"name":"Renamed","host_control":bad}),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        let paired = f.host.paired.read().unwrap();
+        assert!(!paired.clients[0].allows_host_control(), "{bad}");
+        assert_eq!(paired.clients[0].name, client.name, "nothing else changed");
+    }
+    let granted = value(
+        request(
+            &f,
+            "POST",
+            "/api/clients/update",
+            json!({"uuid":client.uuid,"host_control":true}),
+        )
+        .await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(granted["disconnected"], false);
+    assert!(f.host.paired.read().unwrap().clients[0].allows_host_control());
+    let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    assert!(saved.clients[0].allows_host_control());
+    let listed = value(
+        request(&f, "GET", "/api/clients/list", json!({})).await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(listed["clients"][0]["host_control"], true);
+    // Revoking, with false or null, takes effect now and keeps the session.
+    for revoke in [json!(false), json!(null)] {
+        let granted = value(
+            request(
+                &f,
+                "POST",
+                "/api/clients/update",
+                json!({"uuid":client.uuid,"host_control":true}),
+            )
+            .await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(granted["disconnected"], false);
+        let revoked = value(
+            request(
+                &f,
+                "POST",
+                "/api/clients/update",
+                json!({"uuid":client.uuid,"host_control":revoke}),
+            )
+            .await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(revoked["disconnected"], false);
+        assert!(!f.host.paired.read().unwrap().clients[0].allows_host_control());
+        assert!(!mine.stopping());
+    }
+}
+
+#[tokio::test]
 async fn pending_pairing_requests_expire_and_pin_submission_selects_one_device() {
     let f = Fixture::new();
     let mut receivers = Vec::new();

@@ -69,6 +69,14 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .iter_mut()
                 .find(|c| c.uuid == text("uuid"))
                 .ok_or_else(|| anyhow::anyhow!("client not found"))?;
+            // Host control is granted only here, and only as a real boolean
+            // (null clears it). Anything else is refused before any change.
+            if data
+                .get("host_control")
+                .is_some_and(|v| !v.is_boolean() && !v.is_null())
+            {
+                anyhow::bail!("host_control must be true, false or null");
+            }
             let previous_perm = c.perm;
             let previous_layout = c.extra.get("virtual_display_layout").cloned();
             if let Some(n) = data.get("name").and_then(Value::as_str) {

@@ -38,6 +38,7 @@ Use **Review changes** to see pending edits across all categories, including set
 | Limit every stream — `frame_limiter_enable` | `false` | Manual limiting is off; virtual-display automatic limiting can still apply. |
 | Limiter — `frame_limiter_provider` | `auto` | Uses RTSS when installed. |
 | Virtual display refresh — `frame_limiter_auto_virtual_framegen` | `legacy` | Runs the virtual display at twice the stream rate and enables automatic frame limiting. |
+| Host control for a device — `host_control` | off | Per device, in **Devices → device → Custom permissions → Other**. Lets that device change Radeon settings and close the running game through the native API. Only the console grants it, as `true`; pairing, imported Vibepollo or Apollo state and a full permission value never do. Turning it off takes effect on the next request and doesn't end the stream. |
 | Update checks — `update_check_interval` | `86400` seconds | Checks once a day. |
 | Automatic installation — `auto_update` | `false` | Announces available updates; installation is opt-in. |
 | Include pre-releases — `notify_pre_releases` | `false` | Release candidates are offered only when enabled. |

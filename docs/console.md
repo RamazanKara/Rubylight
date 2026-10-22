@@ -1,0 +1,41 @@
+# Home and the session menu
+
+Home, a game's page and the in-stream **Session and graphics** menu use Rubylight's native API. They appear only for a [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 host, alpha.1 or newer. The Radeon panel needs the next Rubylight 3.0 alpha and stays hidden on alpha.1. Sunshine, Apollo, Vibepollo, older Rubylight and other Moonlight-compatible hosts do not offer the API, so they keep the classic PC and game grid, and nothing in the classic screens changes.
+
+## Home
+
+Nightjar opens on Home when a paired PC supports the API. Home has three parts:
+
+- **Continue playing**: games that are running or suspended, with a Running or Suspended badge.
+- **Library**: the games of every paired PC with covers. A game on several PCs is one card ("On 2 hosts").
+- **Hosts**: your PCs, with their game counts. An offline PC keeps the games it last reported and says so.
+
+Turn Home off with **Open on Home** in settings to start on the list of PCs. **Hosts** in the Home menu opens that list at any time.
+
+## A game's page
+
+Pick a card to see the PC the game runs on and the stream settings it will use (resolution, frame rate, bitrate, and which profile layer set them), then **Play** or **Resume**. If another game is running on that PC, the page says that playing this game closes it. **Close game** appears when the PC has granted this device Host control. Without it you get the classic Quit.
+
+## Session and graphics
+
+Press Back while streaming to open the stream menu, then **Session and graphics**:
+
+- **Session**: Resume, Disconnect, End session, and Close game with Host control (otherwise the classic Quit game).
+- **Connection**: the host, codec, resolution and frame rate, bitrate, and your link (Wi-Fi generation, band and speed, Ethernet or mobile data, with the round trip).
+- **Radeon graphics**: the AMD driver features the host exposes, such as Anti-Lag and Radeon Chill.
+
+The page reads the host only while it is open, and the Radeon state at most once a second, never on the video, audio or input threads. Back closes it.
+
+### Radeon panel
+
+Each setting shows what the host says about it:
+
+| State | What you see |
+| --- | --- |
+| Configurable | A switch, slider or choice you can change |
+| Read only | The value, not editable |
+| Needs setup in AMD Software | The value and what to do once on the PC |
+| Not supported | A note that the GPU or driver does not support it |
+| Temporarily unavailable | The reason, and Nightjar asks again |
+
+You can change a setting only when the host marks it configurable, your device has Host control and you own the running session. Turn on Host control for the device in the Rubylight console. After a change, the panel shows what the host reads back. A change made in a stream is undone when the session ends (End session, Close game, grace expiry, unpair or host shutdown), and the panel says so next to the setting. Disconnect keeps the change until you resume or end the session. A setting Nightjar does not know yet is still listed, drawn from its type. If the driver refuses a change, the reason appears next to that setting.

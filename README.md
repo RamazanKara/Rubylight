@@ -29,6 +29,8 @@
 
 **Quality that adjusts itself.** Automatic bitrate follows packet loss, network jitter and how much headroom your phone's decoder has left, up to 2000 Mbps where the host allows it. Automatic quality goes further and changes resolution and frame rate mid-stream, with three goals to pick from: keep motion smooth, keep detail sharp, or save battery. Both watch your phone's temperature and back off before it starts throttling. (Bitrate and quality control: Rubylight. Manual bitrate changes during a stream: Rubylight and Vibepollo.)
 
+**Home and a session menu on Rubylight 3.0.** With a Rubylight 3.0 host (alpha.1 or newer), Nightjar opens on Home: Continue playing, your library across every paired PC with covers, and your PCs. A game's page shows where it runs and which stream settings it will use, then Play or Resume. While you stream, the stream menu has a Session and graphics page with Resume, Disconnect, End session and Close game (with Host control), the connection facts, and a Radeon panel for the host's AMD driver features such as Anti-Lag and Radeon Chill. The Radeon panel needs the next Rubylight 3.0 alpha and Host control for your device, and the host puts the settings back when the session ends. Sunshine, Apollo, Vibepollo, older Rubylight and other Moonlight-compatible hosts keep the classic PC and game grid. [Home and the session menu](docs/console.md).
+
 **It works hard on latency.** Decoders get per-chip low-latency tuning, frames are paced to your display, including Android's adaptive refresh on newer phones, and stereo audio uses low-latency AAudio. On Rubylight, Nightjar tells the host how long frames wait for your screen so it can time them to arrive just in time.
 
 **PyroWave, upscaling and your own GPU driver.** On hosts with PyroWave (currently Rubylight, and Vibepollo with PyroWave enabled), Nightjar decodes the wavelet codec on the GPU through Vulkan, including full-colour 4:4:4. Any SDR stream can be sent at a lower resolution and upscaled on the phone with FSR 1 or Snapdragon GSR. On Snapdragon phones you can load a newer Adreno Vulkan driver for PyroWave, and Nightjar falls back to the system driver if it fails.
@@ -70,13 +72,13 @@ Requires **Android 5.0 or newer**. PyroWave runs on hosts that support it (curre
 1. Start a streaming host on your PC, such as [Apollo](https://github.com/ClassicOldSong/Apollo), [Rubylight](https://github.com/RamazanKara/Rubylight), [Sunshine](https://github.com/LizardByte/Sunshine) or [Vibepollo](https://github.com/Nonary/Vibepollo), and add your games.
 2. [Download the APK](https://github.com/RamazanKara/nightjar/releases/latest), open it and allow installation from your browser or file manager when prompted.
 3. Select your PC on the same network and enter the PIN shown on your phone in your host's settings or web UI.
-4. If your host has per-device permissions, enable your device and allow application listing, viewing, launching and the input types you use. Open your library on Android and tap a game. See [pairing and permissions](docs/pairing.md).
+4. If your host has per-device permissions, enable your device and allow application listing, viewing, launching and the input types you use. Open your library on Android and tap a game. On a Rubylight 3.0 host, Nightjar opens on [Home](docs/console.md) instead. See [pairing and permissions](docs/pairing.md).
 
 Coming from Rubylight Android? Nightjar is the same app under a new name. It installs over Rubylight Android 0.5.0 and keeps your PCs, pairings and settings.
 
 ## Docs
 
 [Start here](docs/index.md) · [Quick start](docs/quick-start.md) · [Pairing](docs/pairing.md) · [Settings](docs/settings.md) · [Controls](docs/controls.md)<br>
-[Video & latency](docs/video-and-latency.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Building](docs/building.md) · [Frontends](docs/FRONTENDS.md) · [Translations](docs/TRANSLATIONS.md) · [FAQ](docs/faq.md)
+[Home and session menu](docs/console.md) · [Video & latency](docs/video-and-latency.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Building](docs/building.md) · [Frontends](docs/FRONTENDS.md) · [Translations](docs/TRANSLATIONS.md) · [FAQ](docs/faq.md)
 
 [GPL-3.0](LICENSE.txt) · [Credits and third-party notices](docs/index.md#license-and-credits)

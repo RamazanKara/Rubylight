@@ -3,7 +3,7 @@
 //! The FFI layer in `adlx.rs` only copies what ADLX said into `GroupRaw` values. Everything that
 //! decides what a setting is (supported, readable, writable, state, dependencies) lives here, so
 //! it runs on fakes without a GPU.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// The five states of plan decision 5, as named in `docs/native-api.md`.
@@ -50,7 +50,7 @@ pub enum Writable {
     Unverified,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Value {
     Bool(bool),
@@ -193,6 +193,31 @@ pub const AFMF_PERFORMANCE_MODE: EnumItems = &[(0, "auto"), (1, "quality"), (2, 
 pub const AFMF_FAST_MOTION: EnumItems = &[(0, "repeat_frames"), (1, "blended_frames")];
 pub const FFX_FRAME_GEN_RATIO: EnumItems = &[(1, "2x")];
 
+/// The enum behind a choice setting, to turn an option name back into the raw ADLX value.
+pub fn enum_items(id: &str) -> Option<EnumItems> {
+    Some(match id {
+        "anti_lag.level" => ANTILAG_STATE,
+        "vsync.mode" => WAIT_FOR_VERTICAL_REFRESH,
+        "afmf.algorithm" => AFMF_ALGORITHM,
+        "afmf.search_mode" => AFMF_SEARCH_MODE,
+        "afmf.performance_mode" => AFMF_PERFORMANCE_MODE,
+        "afmf.fast_motion_response" => AFMF_FAST_MOTION,
+        "anti_aliasing.mode" => AA_MODE,
+        "anti_aliasing.level" => AA_LEVEL,
+        "anti_aliasing.method" => AA_METHOD,
+        "anisotropic_filtering.level" => AF_LEVEL,
+        "tessellation.mode" => TESSELLATION_MODE,
+        "tessellation.level" => TESSELLATION_LEVEL,
+        "fidelityfx_frame_gen.ratio" => FFX_FRAME_GEN_RATIO,
+        _ => return None,
+    })
+}
+pub fn enum_raw(items: EnumItems, name: &str) -> Option<i32> {
+    items
+        .iter()
+        .find(|(_, item)| *item == name)
+        .map(|(raw, _)| *raw)
+}
 pub fn enum_name(items: EnumItems, raw: i32) -> String {
     items
         .iter()
@@ -292,6 +317,53 @@ const DEPENDENCIES: &[(&str, Relation, &str, &str)] = &[
         "image_sharpening",
         "",
     ),
+];
+
+/// Settings the host reads but never writes, and why.
+const NEVER_WRITTEN: &[(&str, &str)] = &[
+    (
+        "vsync.enabled",
+        "derived from vsync.mode; ADLX has no setter for it",
+    ),
+    (
+        "rsr.enabled",
+        "not written: ADLX turns GPU scaling on with RSR, and GPU scaling is a display setting the host can neither read nor restore",
+    ),
+    (
+        "anti_aliasing.level",
+        "not written: while the mode leaves AA to the application the level reads 'invalid', and ADLX refuses to write that back, so a change could not be restored",
+    ),
+    (
+        "anisotropic_filtering.level",
+        "not written: while filtering is left to the application the level reads 'invalid', and ADLX refuses to write that back, so a change could not be restored",
+    ),
+];
+
+/// Choice settings whose write and restore round-trip was proven on hardware
+/// (`radeon::hardware`, results in `docs/hardware-matrix.md`). ADLX cannot say which enum values a
+/// driver accepts, so the rest of the choices stay read-only until a run proves them.
+pub const PROVEN_CHOICES: &[&str] = &[
+    "vsync.mode",
+    "afmf.search_mode",
+    "afmf.performance_mode",
+    "afmf.fast_motion_response",
+    "anti_aliasing.mode",
+    "anti_aliasing.method",
+    "tessellation.mode",
+    "tessellation.level",
+];
+
+/// Settings the driver only accepts while their feature is on (proven on hardware: ADLX_FAIL or
+/// ADLX_NOT_ACTIVE otherwise). A request that changes one lists `<group>.enabled` first.
+const NEEDS_FEATURE_ON: &[&str] = &[
+    "chill.min_fps",
+    "chill.max_fps",
+    "boost.min_resolution",
+    "image_sharpening.sharpness",
+    "frame_rate_target.fps",
+    "afmf.search_mode",
+    "afmf.performance_mode",
+    "afmf.fast_motion_response",
 ];
 
 /// The classified result for one field.
@@ -421,6 +493,12 @@ fn classify(group: &GroupRaw, field: &FieldRaw) -> Setting {
             }
         }
     }
+    if let Some((_, reason)) = NEVER_WRITTEN.iter().find(|(id, _)| *id == field.id) {
+        setting.notes.push((*reason).into());
+        setting.writable = Writable::No;
+        setting.state = State::ReadOnly;
+        return setting;
+    }
     setting.writable = match (field.kind, setting.range) {
         (Kind::Integer, Some(range)) if !range.usable() => {
             setting.notes.push(format!(
@@ -430,7 +508,9 @@ fn classify(group: &GroupRaw, field: &FieldRaw) -> Setting {
             Writable::No
         }
         (Kind::Integer, None) => Writable::Unverified,
-        (Kind::Choice, _) if field.options_queried => Writable::Yes,
+        (Kind::Choice, _) if field.options_queried || PROVEN_CHOICES.contains(&field.id) => {
+            Writable::Yes
+        }
         (Kind::Choice, _) => {
             setting.notes.push(
                 "ADLX has no query for the accepted options; the list is the SDK enum, so a write may still be refused for some of them".into(),
@@ -439,6 +519,12 @@ fn classify(group: &GroupRaw, field: &FieldRaw) -> Setting {
         }
         _ => Writable::Yes,
     };
+    if NEEDS_FEATURE_ON.contains(&field.id) {
+        setting.notes.push(format!(
+            "the driver refuses writes while {}.enabled is off; list {0}.enabled first in the same request",
+            group.group
+        ));
+    }
     if let (Some(Value::Int(value)), Some(range)) = (&setting.value, setting.range)
         && (*value < range.min || *value > range.max)
     {
@@ -742,11 +828,11 @@ mod tests {
     }
 
     #[test]
-    fn enum_backed_choice_is_unverified_and_read_only_with_the_sdk_options() {
+    fn enum_backed_choice_is_unverified_and_read_only_until_a_run_proves_it() {
         let s = &classify_group(&group(
-            "vsync",
+            "sdk",
             Some(Ok(true)),
-            vec![choice("vsync.mode", WAIT_FOR_VERTICAL_REFRESH, 1)],
+            vec![choice("sdk.unproven_mode", WAIT_FOR_VERTICAL_REFRESH, 1)],
         ))[0];
         assert_eq!(s.state, State::ReadOnly);
         assert_eq!(s.writable, Writable::Unverified);
@@ -756,6 +842,42 @@ mod tests {
         );
         assert_eq!(s.options.len(), 4);
         assert!(s.notes.iter().any(|n| n.contains("no query")));
+    }
+
+    #[test]
+    fn a_choice_proven_on_hardware_is_configurable() {
+        let s = &classify_group(&group(
+            "vsync",
+            Some(Ok(true)),
+            vec![choice("vsync.mode", WAIT_FOR_VERTICAL_REFRESH, 1)],
+        ))[0];
+        assert_eq!(s.state, State::Configurable);
+        assert_eq!(s.writable, Writable::Yes);
+        assert_eq!(s.options.len(), 4);
+    }
+
+    #[test]
+    fn afmf_modes_say_they_need_afmf_on() {
+        let s = &classify_group(&group(
+            "afmf",
+            Some(Ok(true)),
+            vec![choice("afmf.search_mode", AFMF_SEARCH_MODE, 0)],
+        ))[0];
+        assert_eq!(s.state, State::Configurable);
+        assert!(s.notes.iter().any(|n| n.contains("afmf.enabled")));
+    }
+
+    #[test]
+    fn levels_that_cannot_be_written_back_are_never_configurable() {
+        for (id, items) in [
+            ("anti_aliasing.level", AA_LEVEL),
+            ("anisotropic_filtering.level", AF_LEVEL),
+        ] {
+            let s = &classify_group(&group("level", Some(Ok(true)), vec![choice(id, items, 0)]))[0];
+            assert_eq!(s.state, State::ReadOnly, "{id}");
+            assert_eq!(s.writable, Writable::No, "{id}");
+            assert!(s.notes.iter().any(|n| n.contains("could not be restored")));
+        }
     }
 
     #[test]

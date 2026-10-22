@@ -1,14 +1,18 @@
 //! The FFI side of the probe. It walks `IADLX3DSettingsServices` (and its 1, 2 and 3 versions) and
 //! copies what each getter says into `model::GroupRaw`; `model` decides what it means.
 //!
-//! Read-only by construction: every setter slot in the vtables below is a plain `usize`, so no
-//! write can be called from here.
+//! Setter slots are bound as callable functions only for the settings `control` may write; every
+//! other slot is a plain `usize`, so it cannot be called from here. Nothing in `probe` writes:
+//! only `AdlxBackend::write` reaches a setter.
 //!
 //! The vtables are bound by hand from AMD's public C ABI, SDK 2.0.0.125:
 //! https://github.com/GPUOpen-LibrariesAndSDKs/ADLX/tree/32b5a740d42295c5dfe9026b9f52683da0f3af91/SDK/Include
 //! (`I3DSettings.h`, `I3DSettings1.h`, `I3DSettings2.h`, `I3DSettings3.h`, `ISystem.h`,
 //! `ISystem2.h`). Loading, initialisation and reference counting reuse `telemetry`.
-use super::model::*;
+use super::{
+    control::{BackendError, RadeonBackend},
+    model::*,
+};
 use crate::telemetry::{
     ADLX_VERSION, BaseVtable, GetBool, GetGpuInterface, GetInt, GetInterface, Handle, Interface,
     ListVtable, system_library,
@@ -20,8 +24,10 @@ use std::{
     ptr,
 };
 
-/// A setter slot. Bound as an integer so it cannot be called.
+/// A setter slot that is not bound. It is an integer so it cannot be called.
 type Unbound = usize;
+type SetBool = unsafe extern "system" fn(Handle, u8) -> i32;
+type SetInt = unsafe extern "system" fn(Handle, i32) -> i32;
 type GetRange = unsafe extern "system" fn(Handle, *mut RawRange) -> i32;
 type GetText = unsafe extern "system" fn(Handle, *mut *const c_char) -> i32;
 #[repr(C)]
@@ -109,7 +115,7 @@ struct Head {
 struct ToggleVt {
     head: Head,
     enabled: GetBool,
-    set_enabled: Unbound,
+    set_enabled: SetBool,
 }
 #[repr(C)]
 struct AntiLag1Vt {
@@ -124,7 +130,9 @@ struct ChillVt {
     range: GetRange,
     min_fps: GetInt,
     max_fps: GetInt,
-    set: [Unbound; 3],
+    set_enabled: SetBool,
+    set_min_fps: SetInt,
+    set_max_fps: SetInt,
 }
 /// Boost, image sharpening and frame rate target control share this layout.
 #[repr(C)]
@@ -133,14 +141,15 @@ struct RangedVt {
     enabled: GetBool,
     range: GetRange,
     value: GetInt,
-    set: [Unbound; 2],
+    set_enabled: SetBool,
+    set_value: SetInt,
 }
 #[repr(C)]
 struct VsyncVt {
     head: Head,
     enabled: GetBool,
     mode: GetInt,
-    set_mode: Unbound,
+    set_mode: SetInt,
 }
 #[repr(C)]
 struct AntiAliasingVt {
@@ -148,21 +157,25 @@ struct AntiAliasingVt {
     mode: GetInt,
     level: GetInt,
     method: GetInt,
-    set: [Unbound; 3],
+    set_mode: SetInt,
+    set_level: SetInt,
+    set_method: SetInt,
 }
 #[repr(C)]
 struct AnisotropicVt {
     head: Head,
     enabled: GetBool,
     level: GetInt,
-    set: [Unbound; 2],
+    set_enabled: SetBool,
+    set_level: SetInt,
 }
 #[repr(C)]
 struct TessellationVt {
     head: Head,
     mode: GetInt,
     level: GetInt,
-    set: [Unbound; 2],
+    set_mode: SetInt,
+    set_level: SetInt,
 }
 #[repr(C)]
 struct RsrVt {
@@ -171,7 +184,7 @@ struct RsrVt {
     set_enabled: Unbound,
     range: GetRange,
     sharpness: GetInt,
-    set_sharpness: Unbound,
+    set_sharpness: SetInt,
 }
 #[repr(C)]
 struct Afmf1Vt {
@@ -180,11 +193,11 @@ struct Afmf1Vt {
     algorithm: GetInt,
     set_algorithm: Unbound,
     search_mode: GetInt,
-    set_search_mode: Unbound,
+    set_search_mode: SetInt,
     performance_mode: GetInt,
-    set_performance_mode: Unbound,
+    set_performance_mode: SetInt,
     fast_motion: GetInt,
-    set_fast_motion: Unbound,
+    set_fast_motion: SetInt,
 }
 #[repr(C)]
 struct FrameGenVt {
@@ -872,96 +885,161 @@ fn version_text(full: u64) -> String {
     )
 }
 
-struct Runtime {
-    terminate: unsafe extern "C" fn() -> i32,
-    _library: libloading::Library,
+/// Only one session talks to ADLX at a time, so two threads never race a write.
+static ADLX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The ADLX runtime stays loaded, and initialized, for the life of the process: calling
+/// `ADLXTerminate` after each session faulted (access violation) within a few hundred
+/// initialize/terminate cycles on AMD Software 26.9.2. A later `ADLXInitialize` returns
+/// ADLX_ALREADY_INITIALIZED, which is fine, and nothing here ends telemetry's ADLX under it.
+static LIBRARY: std::sync::OnceLock<libloading::Library> = std::sync::OnceLock::new();
+fn library() -> Result<&'static libloading::Library> {
+    if let Some(library) = LIBRARY.get() {
+        return Ok(library);
+    }
+    let loaded = system_library("amdadlx64.dll")?;
+    Ok(LIBRARY.get_or_init(|| loaded))
 }
-impl Drop for Runtime {
-    fn drop(&mut self) {
-        // SAFETY: `probe` drops every interface before this runs, and the library is still loaded.
-        unsafe {
-            (self.terminate)();
+
+/// An initialised ADLX with the 3D settings services and the GPU list.
+struct Session {
+    // Fields drop in this order: interfaces, then the lock.
+    gpus: Vec<(i32, Interface)>,
+    v3: Option<Interface>,
+    v2: Option<Interface>,
+    v1: Option<Interface>,
+    services: Interface,
+    info: AdlxInfo,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+impl Session {
+    fn open() -> Result<Self> {
+        let lock = ADLX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let library = library()?;
+        // SAFETY: These exports and C signatures are specified by AMD's ADLX.h.
+        let (initialize, full_version) = unsafe {
+            (
+                *library
+                    .get::<unsafe extern "C" fn(u64, *mut Handle) -> i32>(b"ADLXInitialize\0")?,
+                library
+                    .get::<unsafe extern "C" fn(*mut u64) -> i32>(b"ADLXQueryFullVersion\0")
+                    .ok()
+                    .map(|f| *f),
+            )
+        };
+        let runtime_version = full_version.and_then(|query| {
+            let mut full = 0u64;
+            // SAFETY: The export writes one u64.
+            (unsafe { query(&mut full) } == 0).then(|| version_text(full))
+        });
+        let mut system = ptr::null_mut();
+        // SAFETY: The runtime is loaded, the version is the baseline ABI the host already
+        // negotiates and `system` is writable.
+        let result = unsafe { initialize(ADLX_VERSION, &mut system) };
+        if !matches!(result, 0..=2) || system.is_null() {
+            bail!("ADLX initialization failed ({})", result_name(result));
         }
+        // SAFETY: ADLXInitialize returned IADLXSystem, which stays valid until ADLXTerminate, and
+        // this module never calls that.
+        let table = unsafe { &**system.cast::<*const SystemVt>() };
+        let list = obtain(|out| {
+            // SAFETY: The system and output are live; GetGPUs returns IADLXGPUList.
+            unsafe { (table.gpus)(system, out) }
+        })
+        .map_err(|fault| anyhow::anyhow!("GetGPUs: {}", fault.describe()))?;
+        let services = obtain(|out| {
+            // SAFETY: The system and output are live; Get3DSettingsServices returns IADLX3DSettingsServices.
+            unsafe { (table.services_3d)(system, out) }
+        })
+        .map_err(|fault| anyhow::anyhow!("Get3DSettingsServices: {}", fault.describe()))
+        .context("ADLX 3D settings services unavailable")?;
+        let v1 = query(&services, "IADLX3DSettingsServices1").ok();
+        let v2 = query(&services, "IADLX3DSettingsServices2").ok();
+        let v3 = query(&services, "IADLX3DSettingsServices3").ok();
+        let services_interface = [
+            (v3.is_some(), "IADLX3DSettingsServices3"),
+            (v2.is_some(), "IADLX3DSettingsServices2"),
+            (v1.is_some(), "IADLX3DSettingsServices1"),
+            (true, "IADLX3DSettingsServices"),
+        ]
+        .into_iter()
+        .find_map(|(present, name)| present.then_some(name));
+
+        // SAFETY: The list was returned by GetGPUs as IADLXGPUList.
+        let list_table = unsafe { list.vtable::<ListVtable>() };
+        // SAFETY: The list is live.
+        let count = unsafe { (list_table.size)(list.0) };
+        let mut gpus = vec![];
+        for index in 0..count {
+            let Ok(gpu) = obtain(|out| {
+                // SAFETY: index is within the list; At_GPUList acquires a reference into `out`.
+                unsafe { (list_table.at)(list.0, index, out) }
+            }) else {
+                continue;
+            };
+            // SAFETY: `gpu` is an IADLXGPU.
+            let gpu_table = unsafe { gpu.vtable::<GpuVt>() };
+            let mut id = 0;
+            // SAFETY: The getter belongs to the live GPU; `id` is a live scalar.
+            if unsafe { (gpu_table.unique_id)(gpu.0, &mut id) } != 0 {
+                continue;
+            }
+            gpus.push((id, gpu));
+        }
+        Ok(Self {
+            gpus,
+            v3,
+            v2,
+            v1,
+            services,
+            info: AdlxInfo {
+                runtime_version,
+                requested_version: version_text(ADLX_VERSION),
+                header_sdk_version: "2.0.0.125",
+                initialize: result_name(result),
+                services_interface,
+            },
+            _lock: lock,
+        })
+    }
+
+    fn ctx<'a>(&'a self, gpu: &'a Interface) -> Ctx<'a> {
+        Ctx {
+            gpu,
+            v0: &self.services,
+            v1: self.v1.as_ref(),
+            v2: self.v2.as_ref(),
+            v3: self.v3.as_ref(),
+        }
+    }
+
+    fn settings(&self, gpu: &Interface) -> Vec<Setting> {
+        let mut settings: Vec<Setting> = groups(&self.ctx(gpu))
+            .iter()
+            .flat_map(classify_group)
+            .collect();
+        apply_dependencies(&mut settings);
+        settings
+    }
+
+    fn gpu(&self, id: i32) -> Result<&Interface> {
+        self.gpus
+            .iter()
+            .find(|(gpu, _)| *gpu == id)
+            .map(|(_, gpu)| gpu)
+            .with_context(|| format!("ADLX reports no GPU with id {id}"))
     }
 }
 
 /// Query ADLX for the 3D settings of every AMD GPU. Reads only; no setting is written.
 pub fn probe() -> Result<Probe> {
-    let library = system_library("amdadlx64.dll")?;
-    // SAFETY: These exports and C signatures are specified by AMD's ADLX.h.
-    let (initialize, terminate, full_version) = unsafe {
-        (
-            *library.get::<unsafe extern "C" fn(u64, *mut Handle) -> i32>(b"ADLXInitialize\0")?,
-            *library.get::<unsafe extern "C" fn() -> i32>(b"ADLXTerminate\0")?,
-            library
-                .get::<unsafe extern "C" fn(*mut u64) -> i32>(b"ADLXQueryFullVersion\0")
-                .ok()
-                .map(|f| *f),
-        )
-    };
-    let runtime_version = full_version.and_then(|query| {
-        let mut full = 0u64;
-        // SAFETY: The export writes one u64.
-        (unsafe { query(&mut full) } == 0).then(|| version_text(full))
-    });
-    let mut system = ptr::null_mut();
-    // SAFETY: The runtime is loaded, the version is the baseline ABI the host already negotiates
-    // and `system` is writable.
-    let result = unsafe { initialize(ADLX_VERSION, &mut system) };
-    if !matches!(result, 0..=2) || system.is_null() {
-        bail!("ADLX initialization failed ({})", result_name(result));
-    }
-    // Declared after `library` moves in, so it drops last: interfaces below go first.
-    let _runtime = Runtime {
-        terminate,
-        _library: library,
-    };
-    // SAFETY: ADLXInitialize returned IADLXSystem, whose lifetime ends with ADLXTerminate.
-    let table = unsafe { &**system.cast::<*const SystemVt>() };
-    let list = obtain(|out| {
-        // SAFETY: The system and output are live; GetGPUs returns IADLXGPUList.
-        unsafe { (table.gpus)(system, out) }
-    })
-    .map_err(|fault| anyhow::anyhow!("GetGPUs: {}", fault.describe()))?;
-    let services = obtain(|out| {
-        // SAFETY: The system and output are live; Get3DSettingsServices returns IADLX3DSettingsServices.
-        unsafe { (table.services_3d)(system, out) }
-    })
-    .map_err(|fault| anyhow::anyhow!("Get3DSettingsServices: {}", fault.describe()))
-    .context("ADLX 3D settings services unavailable")?;
-    let v1 = query(&services, "IADLX3DSettingsServices1").ok();
-    let v2 = query(&services, "IADLX3DSettingsServices2").ok();
-    let v3 = query(&services, "IADLX3DSettingsServices3").ok();
-    let services_interface = [
-        (v3.is_some(), "IADLX3DSettingsServices3"),
-        (v2.is_some(), "IADLX3DSettingsServices2"),
-        (v1.is_some(), "IADLX3DSettingsServices1"),
-        (true, "IADLX3DSettingsServices"),
-    ]
-    .into_iter()
-    .find_map(|(present, name)| present.then_some(name));
-
-    // SAFETY: The list was returned by GetGPUs as IADLXGPUList.
-    let table = unsafe { list.vtable::<ListVtable>() };
-    // SAFETY: The list is live.
-    let count = unsafe { (table.size)(list.0) };
+    let session = Session::open()?;
     let mut gpus = vec![];
-    for index in 0..count {
-        let Ok(gpu) = obtain(|out| {
-            // SAFETY: index is within the list; At_GPUList acquires a reference into `out`.
-            unsafe { (table.at)(list.0, index, out) }
-        }) else {
-            continue;
-        };
+    for (id, gpu) in &session.gpus {
         // SAFETY: `gpu` is an IADLXGPU.
         let gpu_table = unsafe { gpu.vtable::<GpuVt>() };
-        let mut id = 0;
-        // SAFETY: The getter belongs to the live GPU; `id` is a live scalar.
-        if unsafe { (gpu_table.unique_id)(gpu.0, &mut id) } != 0 {
-            continue;
-        }
         let mut driver = DriverInfo::default();
-        if let Ok(gpu2) = query(&gpu, "IADLXGPU2") {
+        if let Ok(gpu2) = query(gpu, "IADLXGPU2") {
             // SAFETY: `gpu2` is an IADLXGPU2, whose layout extends IADLXGPU.
             let t = unsafe { gpu2.vtable::<Gpu2Vt>() };
             driver = DriverInfo {
@@ -971,33 +1049,254 @@ pub fn probe() -> Result<Probe> {
                 windows_driver_version: get_text(&gpu2, t.windows_driver_version),
             };
         }
-        let ctx = Ctx {
-            gpu: &gpu,
-            v0: &services,
-            v1: v1.as_ref(),
-            v2: v2.as_ref(),
-            v3: v3.as_ref(),
-        };
-        let mut settings: Vec<Setting> = groups(&ctx).iter().flat_map(classify_group).collect();
-        apply_dependencies(&mut settings);
         gpus.push(GpuReport {
-            id,
-            name: get_text(&gpu, gpu_table.name).unwrap_or_default(),
-            driver_path: get_text(&gpu, gpu_table.driver_path),
+            id: *id,
+            name: get_text(gpu, gpu_table.name).unwrap_or_default(),
+            driver_path: get_text(gpu, gpu_table.driver_path),
             driver,
-            settings,
+            settings: session.settings(gpu),
         });
     }
     Ok(Probe {
-        adlx: AdlxInfo {
-            runtime_version,
-            requested_version: version_text(ADLX_VERSION),
-            header_sdk_version: "2.0.0.125",
-            initialize: result_name(result),
-            services_interface,
-        },
+        adlx: session.info.clone(),
         gpus,
     })
+}
+
+/// Reads and writes through ADLX. Every call opens its own session, so nothing is held between
+/// calls and the host's telemetry keeps its own ADLX.
+pub struct AdlxBackend;
+impl RadeonBackend for AdlxBackend {
+    fn read(&mut self, gpu: i32) -> Result<Vec<Setting>, BackendError> {
+        let session = Session::open().map_err(|e| BackendError(format!("{e:#}")))?;
+        let gpu = session
+            .gpu(gpu)
+            .map_err(|e| BackendError(format!("{e:#}")))?;
+        Ok(session.settings(gpu))
+    }
+    fn write(&mut self, gpu: i32, id: &str, value: &Value) -> Result<(), BackendError> {
+        let session = Session::open().map_err(|e| BackendError(format!("{e:#}")))?;
+        let gpu = session
+            .gpu(gpu)
+            .map_err(|e| BackendError(format!("{e:#}")))?;
+        write_setting(&session.ctx(gpu), id, value).map_err(BackendError)
+    }
+}
+
+/// A setter's answer. ADLX_ALREADY_ENABLED (1) is what some setters say when the value is already
+/// in effect; the caller's read-back still decides whether the write counts.
+fn written(result: i32) -> Query<()> {
+    code(if result == 1 { 0 } else { result })
+}
+fn set_bool(i: &Interface, set: SetBool, on: bool) -> Query<()> {
+    // SAFETY: `set` is a SetEnabled slot of the live interface `i`.
+    written(unsafe { set(i.0, u8::from(on)) })
+}
+fn set_int(i: &Interface, set: SetInt, value: i32) -> Query<()> {
+    // SAFETY: `set` is a setter slot of the live interface `i` that takes one 32-bit value.
+    written(unsafe { set(i.0, value) })
+}
+/// Why a setter could not be reached.
+fn unreachable_reason(open: &Open) -> Fault {
+    match (&open.obtained, &open.supported) {
+        (Err(fault), _) | (_, Some(Err(fault))) => *fault,
+        // IsSupported said false: ADLX_NOT_SUPPORTED.
+        _ => Fault::Code(12),
+    }
+}
+macro_rules! call {
+    ($open:expr, $ty:ty, |$i:ident, $t:ident| $body:expr) => {{
+        let open = $open;
+        let (ready, table) = table!(open, $ty);
+        match ready.zip(table) {
+            Some(($i, $t)) => $body,
+            None => Err(unreachable_reason(&open)),
+        }
+    }};
+}
+
+/// The only place a setter is called. Settings the host does not write have no arm.
+fn write_setting(c: &Ctx, id: &str, value: &Value) -> Result<(), String> {
+    let flag = || match value {
+        Value::Bool(on) => Ok(*on),
+        _ => Err(format!("{id} takes a toggle")),
+    };
+    let int = || match value {
+        Value::Int(v) => i32::try_from(*v).map_err(|_| format!("{v} does not fit {id}")),
+        _ => Err(format!("{id} takes an integer")),
+    };
+    let raw = || match value {
+        Value::Choice(name) => enum_items(id)
+            .and_then(|items| enum_raw(items, name))
+            .ok_or_else(|| format!("{name} is not a value of {id}")),
+        _ => Err(format!("{id} takes one of its options")),
+    };
+    let result: Query<()> = match id {
+        "anti_lag.enabled" => {
+            let on = flag()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.anti_lag)),
+                ToggleVt,
+                |i, t| { set_bool(i, t.set_enabled, on) }
+            )
+        }
+        "chill.enabled" => {
+            let on = flag()?;
+            call!(Open::standard(c.with_gpu(|s| s.chill)), ChillVt, |i, t| {
+                set_bool(i, t.set_enabled, on)
+            })
+        }
+        "chill.min_fps" => {
+            let v = int()?;
+            call!(Open::standard(c.with_gpu(|s| s.chill)), ChillVt, |i, t| {
+                set_int(i, t.set_min_fps, v)
+            })
+        }
+        "chill.max_fps" => {
+            let v = int()?;
+            call!(Open::standard(c.with_gpu(|s| s.chill)), ChillVt, |i, t| {
+                set_int(i, t.set_max_fps, v)
+            })
+        }
+        "boost.enabled" => {
+            let on = flag()?;
+            call!(Open::standard(c.with_gpu(|s| s.boost)), RangedVt, |i, t| {
+                set_bool(i, t.set_enabled, on)
+            })
+        }
+        "boost.min_resolution" => {
+            let v = int()?;
+            call!(Open::standard(c.with_gpu(|s| s.boost)), RangedVt, |i, t| {
+                set_int(i, t.set_value, v)
+            })
+        }
+        "image_sharpening.enabled" => {
+            let on = flag()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.image_sharpening)),
+                RangedVt,
+                |i, t| set_bool(i, t.set_enabled, on)
+            )
+        }
+        "image_sharpening.sharpness" => {
+            let v = int()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.image_sharpening)),
+                RangedVt,
+                |i, t| set_int(i, t.set_value, v)
+            )
+        }
+        "enhanced_sync.enabled" => {
+            let on = flag()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.enhanced_sync)),
+                ToggleVt,
+                |i, t| set_bool(i, t.set_enabled, on)
+            )
+        }
+        "vsync.mode" => {
+            let v = raw()?;
+            call!(Open::standard(c.with_gpu(|s| s.vsync)), VsyncVt, |i, t| {
+                set_int(i, t.set_mode, v)
+            })
+        }
+        "frame_rate_target.enabled" => {
+            let on = flag()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.frame_rate_target)),
+                RangedVt,
+                |i, t| set_bool(i, t.set_enabled, on)
+            )
+        }
+        "frame_rate_target.fps" => {
+            let v = int()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.frame_rate_target)),
+                RangedVt,
+                |i, t| set_int(i, t.set_value, v)
+            )
+        }
+        "afmf.enabled" => {
+            let on = flag()?;
+            call!(Open::standard(c.afmf()), ToggleVt, |i, t| {
+                set_bool(i, t.set_enabled, on)
+            })
+        }
+        "afmf.search_mode" | "afmf.performance_mode" | "afmf.fast_motion_response" => {
+            let v = raw()?;
+            let parent = Open::standard(c.afmf());
+            call!(
+                Open::extension(&parent, "IADLX3DAMDFluidMotionFrames1"),
+                Afmf1Vt,
+                |i, t| match id {
+                    "afmf.search_mode" => set_int(i, t.set_search_mode, v),
+                    "afmf.performance_mode" => set_int(i, t.set_performance_mode, v),
+                    _ => set_int(i, t.set_fast_motion, v),
+                }
+            )
+        }
+        "rsr.sharpness" => {
+            let v = int()?;
+            call!(Open::standard(c.rsr()), RsrVt, |i, t| {
+                set_int(i, t.set_sharpness, v)
+            })
+        }
+        "anti_aliasing.mode" | "anti_aliasing.level" | "anti_aliasing.method" => {
+            let v = raw()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.anti_aliasing)),
+                AntiAliasingVt,
+                |i, t| match id {
+                    "anti_aliasing.mode" => set_int(i, t.set_mode, v),
+                    "anti_aliasing.level" => set_int(i, t.set_level, v),
+                    _ => set_int(i, t.set_method, v),
+                }
+            )
+        }
+        "morphological_aa.enabled" => {
+            let on = flag()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.morphological_aa)),
+                ToggleVt,
+                |i, t| set_bool(i, t.set_enabled, on)
+            )
+        }
+        "anisotropic_filtering.enabled" => {
+            let on = flag()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.anisotropic_filtering)),
+                AnisotropicVt,
+                |i, t| set_bool(i, t.set_enabled, on)
+            )
+        }
+        "anisotropic_filtering.level" => {
+            let v = raw()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.anisotropic_filtering)),
+                AnisotropicVt,
+                |i, t| set_int(i, t.set_level, v)
+            )
+        }
+        "tessellation.mode" | "tessellation.level" => {
+            let v = raw()?;
+            call!(
+                Open::standard(c.with_gpu(|s| s.tessellation)),
+                TessellationVt,
+                |i, t| match id {
+                    "tessellation.mode" => set_int(i, t.set_mode, v),
+                    _ => set_int(i, t.set_level, v),
+                }
+            )
+        }
+        "fidelityfx_super_resolution.enabled" => {
+            let on = flag()?;
+            call!(Open::standard(c.fidelityfx(false)), ToggleVt, |i, t| {
+                set_bool(i, t.set_enabled, on)
+            })
+        }
+        _ => return Err(format!("{id} has no ADLX setter the host uses")),
+    };
+    result.map_err(|fault| format!("{id}: {}", fault.describe()))
 }
 
 #[cfg(test)]

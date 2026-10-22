@@ -8,12 +8,40 @@
 //! `model` is the pure mapping layer (unit-tested on fakes), `adlx` the FFI that fills it.
 //! `cargo run --example radeon_probe` prints the result as JSON.
 pub mod adlx;
+pub mod control;
+#[cfg(test)]
+mod hardware;
 pub mod model;
 
-pub use adlx::{AdlxInfo, DriverInfo, GpuReport, Probe, probe};
+pub use adlx::{AdlxBackend, AdlxInfo, DriverInfo, GpuReport, Probe, probe};
+pub use control::{
+    BackendError, Change, Controller, ErrorKind, Journal, RadeonBackend, RestoreReport, Scope,
+    WriteError,
+};
 pub use model::{Kind, Setting, State, Writable};
 
+/// Put back any setting a crashed session left changed. The host calls this once at startup,
+/// before it accepts a stream; a failure is returned so the host can log it loudly.
+pub fn recover_on_startup(directory: &std::path::Path) -> anyhow::Result<RestoreReport> {
+    Controller::new(AdlxBackend, directory.join(control::JOURNAL_FILE))
+        .with_settle(control::STARTUP_SETTLE)
+        .recover_on_startup()
+}
+
 use serde::Serialize;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn startup_recovery_with_no_journal_does_nothing_and_needs_no_adlx() {
+        let dir = std::env::temp_dir().join(format!("radeon-startup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let report = super::recover_on_startup(&dir).unwrap();
+        assert!(report.outcomes.is_empty());
+        assert!(!dir.join(super::control::JOURNAL_FILE).exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
 
 /// The Windows release the probe ran on, from the registry.
 #[derive(Clone, Debug, Default, Serialize)]

@@ -112,12 +112,23 @@ pub fn preferred(vendors: &[u32]) -> usize {
 }
 
 /// The AMD adapter a stream pins to when no GPU is chosen, by index among
-/// `vendors`: only on a PC that also has a non-AMD adapter, where Windows would
-/// otherwise render and capture on the wrong one. None leaves the choice alone,
-/// as on a PC with only AMD adapters (or none).
-pub fn pinned(vendors: &[u32]) -> Option<usize> {
-    let amd = vendors.iter().position(|v| is_amd(*v))?;
-    vendors.iter().any(|v| !is_amd(*v)).then_some(amd)
+/// `adapters` (PCI vendor, dedicated video memory): only on a PC that also has
+/// a non-AMD adapter, where Windows would otherwise render and capture on the
+/// wrong one. Not when the display's own GPU (`display_vendor`) is already
+/// AMD, which capture then uses as it is. Among several AMD adapters it is the
+/// one with the most video memory, the first on a tie. None leaves the choice
+/// alone, as on a PC with only AMD adapters (or none).
+pub fn pinned(adapters: &[(u32, u64)], display_vendor: Option<u32>) -> Option<usize> {
+    if display_vendor.is_some_and(is_amd) || adapters.iter().all(|(v, _)| is_amd(*v)) {
+        return None;
+    }
+    let mut best: Option<usize> = None;
+    for (index, (vendor, memory)) in adapters.iter().enumerate() {
+        if is_amd(*vendor) && best.is_none_or(|b| *memory > adapters[b].1) {
+            best = Some(index);
+        }
+    }
+    best
 }
 
 #[cfg(test)]
@@ -126,13 +137,32 @@ mod tests {
 
     #[test]
     fn a_hybrid_pc_pins_the_stream_to_its_amd_adapter() {
-        assert_eq!(pinned(&[0x10de, 0x1002]), Some(1));
-        assert_eq!(pinned(&[0x8086, 0x1002, 0x1002]), Some(1));
-        assert_eq!(pinned(&[0x1002, 0x10de]), Some(0));
+        const GB: u64 = 1 << 30;
+        let (nvidia, amd, intel) = (0x10de, 0x1002, 0x8086);
+        assert_eq!(pinned(&[(nvidia, 8 * GB), (amd, GB)], None), Some(1));
+        assert_eq!(pinned(&[(amd, GB), (nvidia, 8 * GB)], None), Some(0));
+        // Several Radeons: the one with the most video memory, not the first.
+        assert_eq!(
+            pinned(
+                &[(intel, 0), (amd, GB), (amd, 12 * GB), (amd, 12 * GB)],
+                None
+            ),
+            Some(2)
+        );
+        // A display already on an AMD GPU is left where it is.
+        assert_eq!(
+            pinned(&[(nvidia, 8 * GB), (amd, GB), (amd, 12 * GB)], Some(amd)),
+            None
+        );
+        // A display on another vendor's GPU moves to the AMD one.
+        assert_eq!(
+            pinned(&[(nvidia, 8 * GB), (amd, GB)], Some(nvidia)),
+            Some(1)
+        );
         // Nothing to pin on an all-AMD PC, or one with no AMD adapter.
-        assert_eq!(pinned(&[0x1002, 0x1002]), None);
-        assert_eq!(pinned(&[0x10de, 0x8086]), None);
-        assert_eq!(pinned(&[]), None);
+        assert_eq!(pinned(&[(amd, GB), (amd, 12 * GB)], None), None);
+        assert_eq!(pinned(&[(nvidia, GB), (intel, GB)], None), None);
+        assert_eq!(pinned(&[], None), None);
     }
 
     fn adapter(name: &str, vendor: u32) -> Adapter {

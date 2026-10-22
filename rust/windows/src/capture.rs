@@ -221,25 +221,59 @@ pub fn amd_adapters(gpus: &[Gpu]) -> Vec<amd_gpu::Adapter> {
 }
 /// The GPU choice a stream that encodes on the capture device opens it with.
 /// A chosen GPU stays. With none chosen on a PC that also has a non-AMD GPU it
-/// is the AMD GPU, so that WGC captures and AMF encodes there whichever GPU
-/// drives the monitor, as the probe already assumes.
-fn pinned_choice(gpus: &[Gpu], adapter_name: &str, pnp_id: &str) -> (String, String) {
+/// is the AMD GPU with the most video memory, unless the display is already on
+/// an AMD GPU (`display_vendor`), so that WGC captures and AMF encodes there
+/// whichever GPU drives the monitor, as the probe already assumes.
+fn pinned_choice(
+    gpus: &[Gpu],
+    display_vendor: Option<u32>,
+    adapter_name: &str,
+    pnp_id: &str,
+) -> (String, String) {
     if adapter_name.is_empty() && pnp_id.is_empty() {
-        let vendors: Vec<u32> = gpus.iter().map(|gpu| gpu.vendor).collect();
-        if let Some(gpu) = amd_gpu::pinned(&vendors).map(|index| &gpus[index]) {
+        let adapters: Vec<(u32, u64)> = gpus
+            .iter()
+            .map(|gpu| (gpu.vendor, gpu.dedicated_memory))
+            .collect();
+        if let Some(gpu) = amd_gpu::pinned(&adapters, display_vendor).map(|index| &gpus[index]) {
             return (gpu.name.clone(), gpu.pnp_id.clone().unwrap_or_default());
         }
     }
     (adapter_name.to_string(), pnp_id.to_string())
 }
-/// `pinned_choice` for this PC's GPUs; the choice as given when they cannot be listed.
-pub fn stream_adapter(adapter_name: &str, pnp_id: &str) -> (String, String) {
+/// `pinned_choice` for this PC's GPUs and the GPU of `display` (None for a
+/// display not created yet, such as a virtual one); the choice as given when
+/// they cannot be listed.
+pub fn stream_adapter(display: Option<&str>, adapter_name: &str, pnp_id: &str) -> (String, String) {
     match gpus() {
-        Ok(gpus) => pinned_choice(&gpus, adapter_name, pnp_id),
+        Ok(gpus) => {
+            let vendor = display.and_then(display_vendor);
+            pinned_choice(&gpus, vendor, adapter_name, pnp_id)
+        }
         Err(error) => {
             tracing::debug!(%error, "the GPUs could not be listed; the GPU choice stays as configured");
             (adapter_name.to_string(), pnp_id.to_string())
         }
+    }
+}
+/// The PCI vendor of the GPU that drives `name` (the primary if it is gone).
+fn display_vendor(name: &str) -> Option<u32> {
+    let choices = displays().ok()?;
+    let display = select_display(&choices, name)
+        .or_else(|_| select_display(&choices, ""))
+        .ok()??;
+    // SAFETY: The factory and adapter are live COM objects, and GetDesc1 returns an owned
+    // descriptor.
+    unsafe {
+        let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
+        Some(
+            factory
+                .EnumAdapters1(display.adapter_index)
+                .ok()?
+                .GetDesc1()
+                .ok()?
+                .VendorId,
+        )
     }
 }
 /// Whether the probe's device skips the display's adapter for the AMD one: no
@@ -1874,6 +1908,7 @@ impl Capture {
             )
         } else {
             stream_adapter(
+                Some(name),
                 config.get("adapter_name", ""),
                 config.get("adapter_pnp_id", ""),
             )

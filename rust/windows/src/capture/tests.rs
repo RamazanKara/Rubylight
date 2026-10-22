@@ -627,30 +627,57 @@ fn desktop_duplication_on_a_display_driven_by_another_vendor_suggests_wgc() {
 }
 #[test]
 fn a_stream_pins_to_the_amd_gpu_when_the_pc_has_another_vendors_too() {
+    let none = || (String::new(), String::new());
     let mut gpus = hybrid_gpus();
     gpus[0].vendor = 0x8086;
     gpus[0].name = "Intel(R) UHD Graphics".into();
     // Automatic: the AMD GPU, by its identity.
     assert_eq!(
-        pinned_choice(&gpus, "", ""),
+        pinned_choice(&gpus, None, "", ""),
         (
             "AMD Radeon RX 6850M XT".to_string(),
             gpus[1].pnp_id.clone().unwrap()
         )
     );
+    // A display on the Intel GPU moves there too.
+    assert_eq!(
+        pinned_choice(&gpus, Some(0x8086), "", ""),
+        pinned_choice(&gpus, None, "", "")
+    );
     // A chosen GPU stays, whatever its vendor.
     assert_eq!(
-        pinned_choice(&gpus, "Intel(R) UHD Graphics", ""),
+        pinned_choice(&gpus, None, "Intel(R) UHD Graphics", ""),
         ("Intel(R) UHD Graphics".to_string(), String::new())
     );
     // An all-AMD PC, or one with no AMD GPU, leaves Automatic alone.
+    assert_eq!(pinned_choice(&hybrid_gpus(), None, "", ""), none());
+    let mut no_amd = hybrid_gpus();
+    no_amd[0].vendor = 0x8086;
+    no_amd[1].vendor = 0x10de;
+    assert_eq!(pinned_choice(&no_amd, None, "", ""), none());
+    assert_eq!(pinned_choice(&[], None, "", ""), none());
+}
+#[test]
+fn a_stream_pins_to_the_biggest_radeon_and_leaves_a_display_already_on_one() {
+    // Two Radeons (the 680M iGPU and a 12 GB RX 6850M XT) beside an NVIDIA GPU.
+    let [igpu, dgpu] = hybrid_gpus();
+    let nvidia = Gpu {
+        name: "NVIDIA GeForce RTX 3050".into(),
+        vendor: 0x10de,
+        dedicated_memory: 4 << 30,
+        luid: (1, 0),
+        pnp_id: None,
+    };
+    let dgpu_choice = (dgpu.name.clone(), dgpu.pnp_id.clone().unwrap());
+    let gpus = [nvidia, igpu, dgpu];
+    // Not the first Radeon: the one with the most video memory.
+    assert_eq!(pinned_choice(&gpus, None, "", ""), dgpu_choice);
+    assert_eq!(pinned_choice(&gpus, Some(0x10de), "", ""), dgpu_choice);
+    // The monitor is on a Radeon already: capture stays on that one.
     assert_eq!(
-        pinned_choice(&hybrid_gpus(), "", ""),
+        pinned_choice(&gpus, Some(0x1002), "", ""),
         (String::new(), String::new())
     );
-    gpus[1].vendor = 0x10de;
-    assert_eq!(pinned_choice(&gpus, "", ""), (String::new(), String::new()));
-    assert_eq!(pinned_choice(&[], "", ""), (String::new(), String::new()));
 }
 #[test]
 fn the_probe_skips_a_non_amd_display_only_when_no_gpu_is_chosen_and_an_amd_one_exists() {

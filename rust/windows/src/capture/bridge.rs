@@ -357,6 +357,7 @@ impl Session {
             "WGC requires the unlocked user desktop"
         );
         let (adapter_name, pnp_id) = crate::capture::stream_adapter(
+            Some(name),
             config.get("adapter_name", ""),
             config.get("adapter_pnp_id", ""),
         );
@@ -816,6 +817,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
         .then(crate::timing::StreamingScope::enter);
     let timer = crate::timing::Timer::new()?;
     let (adapter_name, pnp_id) = crate::capture::stream_adapter(
+        Some(name.as_str()),
         config.get("adapter_name", ""),
         config.get("adapter_pnp_id", ""),
     );

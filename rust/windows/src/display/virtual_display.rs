@@ -124,6 +124,7 @@ pub fn configured_render_adapter(
     config: &butterpollo_core::config::Config,
 ) -> Option<RenderAdapter> {
     let (name, pnp_id) = crate::capture::stream_adapter(
+        None,
         config.get("adapter_name", ""),
         config.get("adapter_pnp_id", ""),
     );

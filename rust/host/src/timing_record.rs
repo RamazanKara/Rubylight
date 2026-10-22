@@ -2,6 +2,7 @@
 //! and the file text come from `butterpollo_core::timing_record`; this is the file IO on a
 //! thread of its own, so the send path only does a non-blocking queue push. Unset, no thread
 //! and no file exist.
+use crate::state::Session;
 use anyhow::{Context, Result};
 use butterpollo_core::timing_record::{self as record, Meta, Row, Sink};
 use std::{
@@ -67,6 +68,19 @@ pub fn attach(dir: Option<&Path>, stream_id: &str, meta: Meta) -> Option<Arc<Sin
             tracing::error!(error = %format!("{error:#}"), "host timing record is off");
             None
         }
+    }
+}
+
+/// Clears the session's sink however the stream ends (an early `?` exit or a panic as much as
+/// the normal teardown), so the writer always gets to write its footer.
+pub struct Detach(pub Arc<Session>);
+impl Drop for Detach {
+    fn drop(&mut self) {
+        *self
+            .0
+            .timing_record
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 }
 
@@ -281,5 +295,34 @@ mod tests {
             thread::sleep(Duration::from_millis(25));
         }
         panic!("the file was not finished");
+    }
+
+    #[test]
+    fn a_stream_that_ends_early_still_gets_its_footer() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let launch = fixture.launch(fixture.client(0), butterpollo_core::session::Role::Stream);
+        let session = Session::new(launch, Default::default());
+        let dir = std::env::temp_dir().join(format!("timing-record-{}", uuid::Uuid::new_v4()));
+        // What stream setup does, then an exit on the way to the normal teardown.
+        let guard = Detach(session.clone());
+        *session.timing_record.write().unwrap() = attach(Some(&dir), "early", meta());
+        assert!(session.timing_record.read().unwrap().is_some());
+        drop(guard);
+        assert!(session.timing_record.read().unwrap().is_none());
+        let file = dir.join("host-early.csv");
+        for _ in 0..200 {
+            if std::fs::read_to_string(&file)
+                .unwrap_or_default()
+                .ends_with(
+                    "# dropped=0
+",
+                )
+            {
+                let _ = std::fs::remove_dir_all(&dir);
+                return;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        panic!("the early exit left the writer without a footer");
     }
 }

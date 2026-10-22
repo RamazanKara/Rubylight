@@ -1291,6 +1291,9 @@ impl Media {
                 let mut audio = None;
                 let mut pyrowave_sender = None;
                 let mut keyframe_loss_memory = None;
+                // Ends the host-side timing record's writer, which writes its footer, on every
+                // way out of the stream.
+                let timing_record = crate::timing_record::Detach(s.clone());
                 #[cfg(test)]
                 let mut fixture_preparation = None;
                 let result = (|| -> Result<()> {
@@ -1428,7 +1431,9 @@ impl Media {
                     let start = Instant::now();
                     let start_qpc_ms = butterpollo_windows::timing::qpc_ms();
                     *s.media_epoch.write().unwrap() = Some(start);
-                    let mut present_stamper = (s.config.codec != 3 && prepared.capture() == "wgc").then(butterpollo_windows::present_timing::Stamper::default);
+                    // Present times come from ETW only if the stamper really has a tracker.
+                    let mut present_stamper = (prepared.capture() == "wgc").then(butterpollo_windows::present_timing::Stamper::default);
+                    let tracks_presents = present_stamper.as_ref().is_some_and(|stamper| stamper.tracks_presents());
                     // The opt-in host-side record: off, and no thread or file, unless the
                     // environment names a directory.
                     *s.timing_record.write().unwrap() = crate::timing_record::attach(
@@ -1437,11 +1442,11 @@ impl Media {
                         butterpollo_core::timing_record::Meta {
                             codec: butterpollo_core::timing_record::codec_name(s.config.codec),
                             capture: prepared.capture().to_string(),
-                            present_source: if prepared.capture() == "wgc" { "etw" } else { "capture" },
+                            present_source: butterpollo_core::timing_record::present_source(tracks_presents),
                             media_epoch_qpc_ms: start_qpc_ms,
                         },
                     );
-                    pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start,prepared.capture() == "wgc")?) } else { None };
+                    pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start,present_stamper.take())?) } else { None };
                     // The stream's size and rate. A client whose display changes can ask
                     // for others mid-stream (0x5532); the encoder is rebuilt from this copy.
                     let mut stream = s.config.clone();
@@ -2528,8 +2533,7 @@ impl Media {
                     finish_worker(audio, "audio");
                 }
                 drop(pyrowave_sender);
-                // Ends the host-side timing record's writer, which writes its footer.
-                *s.timing_record.write().unwrap() = None;
+                drop(timing_record);
                 drop(client_commands);
                 drop(encoder);
                 drop(latest);

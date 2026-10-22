@@ -227,7 +227,12 @@ pub async fn maintain(
                 }
             }));
         }
-        h.session_tick();
+        // Off the async thread: it takes the session lock, which an action
+        // holds while it waits for the host's other locks.
+        {
+            let h = h.clone();
+            tokio::task::spawn_blocking(move || h.session_tick());
+        }
         hotkey.poll(&h);
         if Instant::now() >= steam_at {
             steam_at = Instant::now() + Duration::from_secs(30);

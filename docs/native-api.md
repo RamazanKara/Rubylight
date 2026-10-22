@@ -162,24 +162,28 @@ The host keeps this state explicitly (A4): `butterpollo_core::session_state::Mac
 | `launching` | `suspended` or `idle` | the launch fails, or nobody joins within 30 s. It returns to what still runs |
 | `streaming` | `suspended` | the stream ends (client disconnect, Disconnect action) while the game and its display remain |
 | `streaming` | `idle` | the stream ends and no game, or no kept display, remains |
-| `suspended` | `streaming` or `launching` | the owner's `/resume` |
-| any but `preparing`, `launching` | `stopping` | End session, Close game, `/cancel`, tray Stop, or the grace period running out |
-| `stopping` | `idle`, `suspended`, `streaming` | the teardown ends: what still runs decides |
+| `suspended`, `streaming` | `preparing` | the owner's `/resume` is accepted (a stream still running is superseded) |
+| `stopping` | `preparing` | a `/launch` or `/resume` is accepted during a teardown. It takes over the state, and the teardown ending leaves it alone |
+| any but `preparing`, `launching` | `stopping` | End session, Close game, tray Stop, or the grace period running out |
+| `launching` | `stopping` | stock `/cancel` while the client has not joined yet (it waits for the launch call to finish first) |
+| `stopping` | `idle`, `suspended`, `streaming` | the last teardown ends: what still runs decides |
+
+Teardowns can overlap (End session while the grace period runs out, `/cancel` during either). The state stays `stopping` until the last one has ended. A disconnect or a teardown ending never overwrites a launch in `preparing` or `launching`.
 
 The grace period is the existing disconnect delay (`Config::display_disconnect_delay`): `dd_config_revert_delay` (3 s) when the display layout is exclusive or `dd_config_revert_on_disconnect` is on, otherwise `dd_paused_virtual_display_timeout_secs` (2 h; 0 never expires, and `suspended_until_unix_ms` is then absent). When it runs out, the host ends the session as End session does, and the game keeps running (`idle` with `game_running: true`).
 
-The host writes `session.json` in the profile directory while a session is not `idle` and deletes it when the session ends. One found at startup means the host stopped mid-session: it is deleted, logged, and shown as the warning `session_interrupted` for an hour. The host starts `idle`, so recovery is safe to repeat. Display and audio changes of the dead host come back through the existing `display_recovery` journals.
+The host writes `session.json` in the profile directory while a session is not `idle` and deletes it when the session ends. A thread of its own writes the file (no `fsync`, retrying a failed write or delete every 2 s), so no launch or request waits for the disk. One found at startup means the host stopped mid-session: it is deleted, logged, and shown as the warning `session_interrupted` for an hour. The host starts `idle`, so recovery is safe to repeat. Display and audio changes of the dead host come back through the existing `display_recovery` journals.
 
-**Actions.** Every action is an empty POST. It is idempotent and returns the Session object after the action has started, often in `stopping`. `end` and `close_game` try the existing `launch_transition` lock and answer `session_busy` when a launch holds it or the state is `preparing` or `launching`, so they serialize with launches without blocking a request for minutes.
+**Actions.** Every action is an empty POST. It is idempotent and returns the Session object after the action has started, often in `stopping`. `disconnect`, `end`, `close_game` and `resume` try the existing `launch_transition` lock and answer `session_busy` when a launch holds it (so a Disconnect cannot remove the fresh launch of the same device), and `end` and `close_game` also when the state is `preparing` or `launching`. They serialize with launches without blocking a request for minutes. `end` and `close_game` wait up to 5 s for the stopped streams, so a handler runs them in `spawn_blocking`.
 
 | Action | Effect | Game | Virtual display | Radeon changes |
 |---|---|---|---|---|
 | `resume` | The client calls the existing `/resume`, and A4 reattaches the suspended session. No native endpoint | kept | reused | kept |
 | `disconnect` | Stops the owner's transport now instead of waiting for a timeout. State becomes `suspended` | kept | kept for the grace period | kept |
-| `end` | Tears down the stream and the display (`request_stop` plus display release) | **kept running** | released | restored |
+| `end` | Tears down the owner's stream and the owner's kept display (`request_stop` plus display release). Streams and displays of other devices keep running | **kept running** | released | restored |
 | `close_game` | Like `end`, plus ends the game process (`stop_app`, with its undo commands and exit timeout) | ended | released | restored |
 
-When the grace period of a suspended session runs out, the host behaves as for `end`. A disconnect never ends the game (decision 6). `close_game` also works with no session, when `game_running` is true, for a caller with Launch and host control. That closes a game left behind by End session. Stock Moonlight's `/cancel` keeps its current behaviour (it closes the game with Launch permission alone), because decision 2 freezes it.
+When the grace period of a suspended session runs out, the host behaves as for `end`. A disconnect never ends the game (decision 6). `close_game` also works with no session, when `game_running` is true, for a caller with Launch and host control. That closes a game left behind by End session. Stock Moonlight's `/cancel` keeps its current behaviour (it stops every stream and closes the game with Launch permission alone), because decision 2 freezes it.
 
 Clients poll `/session` about every 2 s while a home or detail screen is visible, and not at all while streaming. The overlay knows the stream is up.
 

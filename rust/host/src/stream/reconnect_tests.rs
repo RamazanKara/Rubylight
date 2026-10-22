@@ -1578,6 +1578,7 @@ async fn the_session_state_follows_a_launch_a_resume_and_the_end_of_a_stream() -
     let snapshot = h.h.session_snapshot();
     assert_eq!(snapshot.state, State::Launching);
     assert_eq!(snapshot.owner.as_deref(), Some("0"));
+    h.h.session_flush();
     assert!(journal.exists());
     let (first, first_client) = h.play(&launch).await?;
     assert_eq!(h.h.session_snapshot().state, State::Streaming);
@@ -1607,6 +1608,38 @@ async fn the_session_state_follows_a_launch_a_resume_and_the_end_of_a_stream() -
     assert_eq!(snapshot.state, State::Idle);
     assert!(snapshot.game_running);
     assert_eq!(snapshot.owner, None);
+    h.h.session_flush();
+    assert!(!journal.exists());
+    h.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_while_a_launch_waits_for_its_client_ends_the_session() -> Result<()> {
+    use butterpollo_core::native_api::session::State;
+    let h = Harness::new(10_000, 1).await?;
+    let journal = h.directory.join(crate::session_control::JOURNAL);
+    // The copy holds the launch's resources: keep only the id.
+    let id = h.launch(0, false).await?.id;
+    assert_eq!(h.h.session_snapshot().state, State::Launching);
+    h.h.session_flush();
+    assert!(journal.exists());
+
+    // Stock /cancel, from the launching device, stops the pending launch and
+    // the game.
+    let response = h.clients[0]
+        .get(format!("https://127.0.0.1:{}/cancel", h.ports.https))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert_eq!(xml(&response, "cancel"), "1", "{response}");
+    assert!(!h.h.sessions.lock().unwrap().pending.contains_key(&id));
+    let snapshot = h.h.session_snapshot();
+    assert_eq!(snapshot.state, State::Idle);
+    assert!(!snapshot.game_running);
+    assert_eq!(snapshot.owner, None);
+    h.h.session_flush();
     assert!(!journal.exists());
     h.finish().await
 }

@@ -65,7 +65,9 @@ impl Setup {
     fn state(&self) -> State {
         self.host().session_snapshot().state
     }
+    /// The journal file, once the writer thread has caught up.
     fn journal(&self) -> Option<Journal> {
+        self.host().session_flush();
         Journal::parse(&std::fs::read(self.host().directory.join(JOURNAL)).ok()?)
     }
     fn displays(&self) -> usize {
@@ -286,6 +288,99 @@ fn end_session_and_close_game_are_busy_while_the_launch_lock_is_held() {
     assert!(setup.game_running());
     drop(transition);
     assert_eq!(setup.host().end_session(), Ok(Outcome::Done));
+}
+
+#[test]
+fn a_disconnect_or_resume_cannot_cancel_the_launch_of_the_same_device() {
+    let setup = Setup::new("");
+    let session = setup.streaming();
+    // The device's /resume holds the launch lock and has queued its launch:
+    // a Disconnect or Resume now would remove that launch.
+    let transition = setup.host().launch_transition.lock().unwrap();
+    let pending = setup.fixture.launch(setup.client.clone(), Role::Stream);
+    let id = pending.id.clone();
+    setup
+        .host()
+        .sessions
+        .lock()
+        .unwrap()
+        .pending
+        .insert(id.clone(), pending);
+    assert_eq!(setup.host().disconnect_session(), Err(Refusal::Busy));
+    assert_eq!(
+        setup.host().resume_session(setup.uuid()),
+        Err(Refusal::Busy)
+    );
+    assert!(
+        setup
+            .host()
+            .sessions
+            .lock()
+            .unwrap()
+            .pending
+            .contains_key(&id)
+    );
+    assert!(!session.stopping());
+    drop(transition);
+    // Once the launch is done the actions run again.
+    assert_eq!(setup.host().disconnect_session(), Ok(Outcome::Done));
+    assert!(session.stopping());
+}
+
+#[test]
+fn a_launch_that_begins_during_a_teardown_keeps_its_state_when_the_teardown_ends() {
+    let setup = Setup::new("");
+    let _session = setup.suspended();
+    let host = setup.host();
+    let teardown = host.session_teardown(Scope::Session);
+    assert_eq!(setup.state(), State::Stopping);
+    // /launch is accepted while the teardown runs.
+    let mut launch = host.session_begin(setup.uuid(), Some(&setup.game()));
+    assert_eq!(setup.state(), State::Preparing);
+    // The teardown ends first: the launch keeps the state.
+    drop(teardown);
+    assert_eq!(setup.state(), State::Preparing);
+    launch.app_starting();
+    assert_eq!(setup.state(), State::Launching);
+    let pending = setup.fixture.launch(setup.client.clone(), Role::Stream);
+    let id = pending.id.clone();
+    host.sessions
+        .lock()
+        .unwrap()
+        .pending
+        .insert(id.clone(), pending);
+    launch.succeed();
+    drop(launch);
+    assert_eq!(setup.state(), State::Launching);
+    host.sessions.lock().unwrap().pending.remove(&id);
+    let _stream = setup.stream();
+    assert_eq!(setup.state(), State::Streaming);
+}
+
+#[test]
+fn end_session_ends_only_the_owners_stream_and_display() {
+    let setup = Setup::new("");
+    let owner_stream = setup.streaming();
+    // A second device streams the same game and keeps a display of its own.
+    let mut other = setup.client.clone();
+    other.uuid = "other-device".into();
+    let other_stream = setup.fixture.session(other.clone(), Role::Stream);
+    let config = setup.host().config.read().unwrap().clone();
+    let display = retained_display(&setup.fixture.host, &config);
+    setup
+        .host()
+        .app_display
+        .lock()
+        .unwrap()
+        .insert(other.uuid.clone(), (display, None));
+    assert_eq!(setup.displays(), 2);
+    assert_eq!(setup.host().end_session(), Ok(Outcome::Done));
+    assert!(owner_stream.stopping());
+    assert!(!other_stream.stopping());
+    let displays = setup.host().app_display.lock().unwrap();
+    assert_eq!(displays.keys().collect::<Vec<_>>(), [&other.uuid]);
+    drop(displays);
+    assert!(setup.game_running());
 }
 
 #[test]
@@ -604,6 +699,7 @@ fn a_journal_that_survived_a_crash_is_cleared_once_at_the_next_start() {
     // The host stopped while streaming: its journal is what is left.
     let crashed = Setup::new("");
     let _session = crashed.streaming();
+    crashed.host().session_flush();
     let bytes = std::fs::read(crashed.host().directory.join(JOURNAL)).unwrap();
     let directory = Fixture::profile();
     std::fs::write(directory.join(JOURNAL), &bytes).unwrap();
@@ -650,4 +746,34 @@ fn a_clean_shutdown_leaves_no_journal_to_recover() {
     assert_eq!(setup.journal(), None);
     assert_eq!(setup.host().recover_session(), None);
     assert_eq!(setup.state(), State::Idle);
+}
+
+#[test]
+fn a_journal_that_could_not_be_deleted_is_deleted_by_a_later_try() {
+    // A directory in the journal's place makes the delete fail.
+    let directory = Fixture::profile();
+    let path = directory.join(JOURNAL);
+    std::fs::create_dir_all(path.join("blocker")).unwrap();
+    let (sender, messages) = mpsc::channel();
+    let writer = std::thread::spawn({
+        let path = path.clone();
+        move || write_journals(&path, &messages)
+    });
+    sender.send(Message::Write(None)).unwrap();
+    let (ack, done) = mpsc::channel();
+    sender.send(Message::Flush(ack)).unwrap();
+    done.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(path.exists(), "the delete failed");
+    // The obstacle goes away and a stale journal is there: the writer must
+    // not have assumed the delete had worked.
+    std::fs::remove_dir_all(&path).unwrap();
+    std::fs::write(&path, b"stale").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while path.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!path.exists(), "the writer retried the delete");
+    drop(sender);
+    writer.join().unwrap();
+    let _ = std::fs::remove_dir_all(&directory);
 }

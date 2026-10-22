@@ -24,6 +24,7 @@ use butterpollo_core::{
 };
 use std::{
     path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard, PoisonError, TryLockError, mpsc},
     time::Duration,
 };
 
@@ -38,42 +39,132 @@ const TEARDOWN_WAIT: Duration = if cfg!(test) {
     Duration::from_secs(5)
 };
 
+/// A lock that a panic elsewhere poisoned still guards the same data, and the
+/// teardown and launch guards run while a panic may unwind: they must not
+/// panic again, which would abort the host.
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// How soon the journal writer retries a write or delete that failed.
+const RETRY: Duration = if cfg!(test) {
+    Duration::from_millis(30)
+} else {
+    Duration::from_secs(2)
+};
+
+enum Message {
+    /// The journal the file should hold now, `None` for no file.
+    Write(Option<Journal>),
+    /// Answer once every message before this one was applied.
+    Flush(mpsc::Sender<()>),
+}
+
 pub struct Control {
     machine: Machine,
     journal: PathBuf,
-    written: Option<Journal>,
+    /// What the writer was last told; `None` when it must be told again.
+    sent: Option<Option<Journal>>,
+    writer: Option<mpsc::Sender<Message>>,
 }
 impl Control {
     pub fn new(directory: &Path) -> Self {
+        let journal = directory.join(JOURNAL);
+        let (sender, messages) = mpsc::channel();
+        let path = journal.clone();
+        let writer = std::thread::Builder::new()
+            .name("session-journal".into())
+            .spawn(move || write_journals(&path, &messages));
+        if let Err(error) = &writer {
+            tracing::error!(%error, "the session journal writer could not start; a crash during a session will not be reported");
+        }
         Self {
             machine: Machine::default(),
-            journal: directory.join(JOURNAL),
-            written: None,
+            journal,
+            sent: Some(None),
+            writer: writer.is_ok().then_some(sender),
         }
     }
     /// Keep the journal equal to the machine: written while a session
-    /// exists, deleted when it ends.
+    /// exists, deleted when it ends. A thread of its own writes the file, so
+    /// launches and requests never wait for the disk.
     fn persist(&mut self) {
         let journal = self.machine.journal();
-        if journal == self.written {
+        if self.sent.as_ref() == Some(&journal) {
             return;
         }
-        let result = match &journal {
-            Some(journal) => {
-                butterpollo_core::state::atomic_write(&self.journal, &journal.to_bytes())
-            }
-            None => match std::fs::remove_file(&self.journal) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
-                _ => Ok(()),
-            },
+        let Some(writer) = &self.writer else {
+            return;
         };
-        match result {
-            Ok(()) => self.written = journal,
-            // Retried at the next change.
-            Err(error) => {
-                tracing::warn!(error = %format!("{error:#}"), "the session journal could not be updated");
+        if writer.send(Message::Write(journal.clone())).is_ok() {
+            self.sent = Some(journal);
+        } else {
+            tracing::error!(
+                "the session journal writer stopped; a crash during a session will not be reported"
+            );
+            self.writer = None;
+        }
+    }
+}
+
+/// The journal writer: applies the newest state it was told, and retries
+/// until the file matches. The journal only names a session for the warning
+/// after a crash, so it is written without waiting for the disk to confirm.
+fn write_journals(path: &Path, messages: &mpsc::Receiver<Message>) {
+    // `None`: unknown, what is on disk may differ.
+    let mut written: Option<Option<Journal>> = None;
+    let mut wanted: Option<Option<Journal>> = None;
+    loop {
+        let first = if wanted.is_some() && wanted != written {
+            messages.recv_timeout(RETRY)
+        } else {
+            messages
+                .recv()
+                .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+        };
+        let mut flushes = vec![];
+        let mut handle = |message| match message {
+            Message::Write(journal) => wanted = Some(journal),
+            Message::Flush(ack) => flushes.push(ack),
+        };
+        match first {
+            Ok(message) => handle(message),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+        // Only the newest state matters.
+        while let Ok(message) = messages.try_recv() {
+            handle(message);
+        }
+        if let Some(journal) = &wanted
+            && wanted != written
+        {
+            match apply(path, journal.as_ref()) {
+                Ok(()) => written = wanted.clone(),
+                Err(error) => {
+                    tracing::warn!(%error, "the session journal could not be updated; trying again");
+                }
             }
         }
+        for ack in flushes {
+            let _ = ack.send(());
+        }
+    }
+}
+/// No `sync_all`: a write torn by a crash loses at most the crash warning.
+fn apply(path: &Path, journal: Option<&Journal>) -> std::io::Result<()> {
+    match journal {
+        Some(journal) => {
+            let temporary = path.with_extension("json.tmp");
+            std::fs::write(&temporary, journal.to_bytes())?;
+            std::fs::rename(&temporary, path).inspect_err(|_| {
+                let _ = std::fs::remove_file(&temporary);
+            })
+        }
+        None => match std::fs::remove_file(path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        },
     }
 }
 
@@ -114,22 +205,17 @@ impl Host {
     /// What the host observes now.
     pub fn session_facts(&self) -> Facts {
         let (launch_pending, streaming) = {
-            let sessions = self.sessions.lock().unwrap();
+            let sessions = locked(&self.sessions);
             (sessions.stream_pending(), sessions.streaming_devices())
         };
-        let running = self
-            .current_app
-            .lock()
-            .unwrap()
+        let running = locked(&self.current_app)
             .as_ref()
             .map(|app| (app.id, app.name.clone(), app.owner.clone()));
         let game = running.as_ref().map(|(id, name, owner)| {
-            (
-                session_app(&self.apps.read().unwrap(), *id, name),
-                owner.clone(),
-            )
+            let apps = self.apps.read().unwrap_or_else(PoisonError::into_inner);
+            (session_app(&apps, *id, name), owner.clone())
         });
-        let retained = self.app_display.lock().unwrap().keys().cloned().collect();
+        let retained = locked(&self.app_display).keys().cloned().collect();
         Facts {
             launch_pending,
             streaming,
@@ -141,7 +227,7 @@ impl Host {
     /// Run `f` on the machine after bringing it up to date with the facts,
     /// and keep the journal current.
     fn with_session<R>(&self, f: impl FnOnce(&mut Machine, &Facts, u64) -> R) -> R {
-        let mut control = self.session.lock().unwrap();
+        let mut control = locked(&self.session);
         let facts = self.session_facts();
         let now = now_ms();
         control.machine.observe(&facts, now);
@@ -151,8 +237,8 @@ impl Host {
     }
     /// How long the owner's retained display survives without a stream.
     fn grace_ms(&self, owner: Option<&str>) -> Option<u64> {
-        let lease = self.app_display.lock().unwrap().get(owner?)?.0.clone();
-        let config = self.config.read().unwrap();
+        let lease = locked(&self.app_display).get(owner?)?.0.clone();
+        let config = self.config.read().unwrap_or_else(PoisonError::into_inner);
         config
             .display_disconnect_delay(lease.exclusive_layout())
             .map(|delay| delay.as_millis() as u64)
@@ -176,6 +262,7 @@ impl Host {
     /// session becomes suspended. A repeat, or any state without a stream,
     /// does nothing.
     pub fn disconnect_session(&self) -> Result<Outcome, Refusal> {
+        let _transition = self.transition()?;
         let owner = self.with_session(|machine, _, _| {
             Ok::<_, Refusal>(match machine.plan_disconnect()? {
                 Plan::Run => machine.owner().map(str::to_owned),
@@ -185,28 +272,42 @@ impl Host {
         let Some(owner) = owner else {
             return Ok(Outcome::Unchanged);
         };
-        let canceled = self
-            .sessions
-            .lock()
-            .unwrap()
-            .stop_role(Role::Stream, Some(&owner));
+        let canceled = locked(&self.sessions).stop_role(Role::Stream, Some(&owner));
         drop(canceled);
         self.with_session(|machine, facts, now| machine.disconnected(facts, now));
         Ok(Outcome::Done)
     }
-    /// End session: stop the streams and release the displays and the audio
-    /// route; the game keeps running. Busy while a launch runs.
+    /// End session: stop the owner's streams and release the owner's kept
+    /// display and, when no other stream uses it, the audio route. The game
+    /// keeps running, and so do the streams of other devices (`/cancel`
+    /// stops them all, as stock Moonlight always has). Busy while a launch
+    /// runs.
     pub fn end_session(&self) -> Result<Outcome, Refusal> {
-        let Ok(_transition) = self.launch_transition.try_lock() else {
-            return Err(Refusal::Busy);
-        };
-        let Some(teardown) = self.begin_teardown(None, |machine, _| machine.plan_end())? else {
+        let _transition = self.transition()?;
+        let Some((teardown, owner)) = self.begin_teardown(None, |machine, _| machine.plan_end())?
+        else {
             return Ok(Outcome::Unchanged);
         };
-        let canceled = self.sessions.lock().unwrap().stop_role(Role::Stream, None);
+        let canceled = locked(&self.sessions).stop_role(Role::Stream, Some(&owner));
         drop(canceled);
-        self.release_session_resources();
-        self.wait_for_streams();
+        // Releasing a display restores Windows: never under a lock.
+        let display = locked(&self.app_display).remove(&owner);
+        drop(display);
+        self.wait_for_streams(Some(&owner));
+        // The route is shared by the streams of the game: a device that
+        // still streams keeps it.
+        let audio = {
+            let mut audio = locked(&self.app_audio);
+            if audio
+                .as_ref()
+                .is_some_and(|route| std::sync::Arc::strong_count(route) == 1)
+            {
+                audio.take()
+            } else {
+                None
+            }
+        };
+        drop(audio);
         drop(teardown);
         Ok(Outcome::Done)
     }
@@ -214,27 +315,27 @@ impl Host {
     /// session it closes a game End session left running. `caller` owns the
     /// teardown of a game nobody owns.
     pub fn close_game(&self, caller: &str) -> Result<Outcome, Refusal> {
-        let Ok(_transition) = self.launch_transition.try_lock() else {
-            return Err(Refusal::Busy);
-        };
-        let Some(teardown) = self.begin_teardown(Some(caller), |machine, facts| {
+        let _transition = self.transition()?;
+        let Some((teardown, _)) = self.begin_teardown(Some(caller), |machine, facts| {
             machine.plan_close(facts.game_running)
         })?
         else {
             return Ok(Outcome::Unchanged);
         };
-        let canceled = self.sessions.lock().unwrap().stop_role(Role::Stream, None);
+        let canceled = locked(&self.sessions).stop_role(Role::Stream, None);
         drop(canceled);
         // Waits for the app to exit; the nested teardown joins this one.
         self.stop_app();
-        self.wait_for_streams();
+        self.wait_for_streams(None);
         drop(teardown);
         Ok(Outcome::Done)
     }
     /// Resume by the owner. A suspended session is reattached by the
     /// client's own `/resume` launch, so there is nothing to do here; one
-    /// that still streams is superseded now, as that launch would.
+    /// that still streams is superseded now, as that launch would. Busy
+    /// while a launch runs.
     pub fn resume_session(&self, device: &str) -> Result<Outcome, Refusal> {
+        let _transition = self.transition()?;
         let streaming = self.with_session(|machine, _, _| {
             Ok::<_, Refusal>(match machine.plan_resume(device)? {
                 Plan::Run => machine.state() == State::Streaming,
@@ -244,31 +345,32 @@ impl Host {
         if !streaming {
             return Ok(Outcome::Unchanged);
         }
-        let canceled = self
-            .sessions
-            .lock()
-            .unwrap()
-            .supersede(device, Role::Stream);
+        let canceled = locked(&self.sessions).supersede(device, Role::Stream);
         drop(canceled);
         self.with_session(|machine, facts, now| machine.disconnected(facts, now));
         Ok(Outcome::Done)
     }
 
-    /// Streams, audio route and retained displays: what a session holds apart
-    /// from the game. Safe to repeat.
-    fn release_session_resources(&self) {
-        let audio = self.app_audio.lock().unwrap().take();
-        let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
-        // Releasing a display restores Windows: never under a lock.
-        drop((audio, displays));
+    /// The launch lock, or `Busy` while a launch holds it: an action must not
+    /// race a launch of the same device, which a Disconnect or Resume would
+    /// otherwise cancel.
+    fn transition(&self) -> Result<MutexGuard<'_, ()>, Refusal> {
+        match self.launch_transition.try_lock() {
+            Ok(guard) => Ok(guard),
+            Err(TryLockError::Poisoned(poisoned)) => Ok(poisoned.into_inner()),
+            Err(TryLockError::WouldBlock) => Err(Refusal::Busy),
+        }
     }
-    fn wait_for_streams(&self) {
+    /// Wait for the streams being stopped (the owner's, or all) to release
+    /// their resources.
+    fn wait_for_streams(&self, owner: Option<&str>) {
         let ids: Vec<_> = {
-            let sessions = self.sessions.lock().unwrap();
+            let sessions = locked(&self.sessions);
             sessions
                 .active
                 .values()
                 .filter(|s| s.launch.role == Role::Stream)
+                .filter(|s| owner.is_none_or(|owner| s.launch.client.uuid == owner))
                 .map(|s| s.launch.id.clone())
                 .chain(sessions.teardown.keys().cloned())
                 .collect()
@@ -278,21 +380,30 @@ impl Host {
         }
     }
     /// Plan an action and, when it runs, enter `stopping` in one step.
-    /// `None` means there was nothing to do.
+    /// `None` means there was nothing to do. Returns the session's owner too.
     fn begin_teardown(
         &self,
         caller: Option<&str>,
         plan: impl FnOnce(&Machine, &Facts) -> Result<Plan, Refusal>,
-    ) -> Result<Option<Teardown<'_>>, Refusal> {
+    ) -> Result<Option<(Teardown<'_>, String)>, Refusal> {
         self.with_session(|machine, facts, now| {
             if plan(machine, facts)? == Plan::Skip {
                 return Ok(None);
             }
-            let entered = enter_stopping(machine, facts, caller, now);
-            Ok(entered.then_some(Teardown {
-                host: self,
-                entered,
-            }))
+            let before = machine.owner().map(str::to_owned);
+            if !enter_stopping(machine, facts, caller, now) {
+                return Ok(None);
+            }
+            let owner = before
+                .or_else(|| machine.owner().map(str::to_owned))
+                .unwrap_or_default();
+            Ok(Some((
+                Teardown {
+                    host: self,
+                    entered: true,
+                },
+                owner,
+            )))
         })
     }
 
@@ -339,7 +450,7 @@ impl Host {
     /// The machine starts idle, so nothing else has to be undone; the journal
     /// is deleted and reported. Safe to repeat.
     pub fn recover_session(&self) -> Option<Journal> {
-        let mut control = self.session.lock().unwrap();
+        let mut control = locked(&self.session);
         let bytes = match std::fs::read(&control.journal) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
@@ -349,9 +460,10 @@ impl Host {
             }
         };
         if let Err(error) = std::fs::remove_file(&control.journal) {
-            tracing::warn!(%error, "the session journal could not be deleted");
+            // The writer deletes it with its next update, retrying until it works.
+            tracing::warn!(%error, "the session journal could not be deleted; it will be tried again");
+            control.sent = None;
         }
-        control.written = None;
         let Some(journal) = Journal::parse(&bytes) else {
             tracing::warn!("a damaged session journal was deleted");
             return None;
@@ -373,6 +485,19 @@ impl Host {
     /// A clean shutdown: no session survives, and no journal.
     pub fn session_shutdown(&self) {
         self.with_session(|machine, _, now| machine.reset(now));
+        self.session_flush();
+    }
+    /// Wait until the journal writer has applied everything it was told, up
+    /// to five seconds. For a clean shutdown and for tests.
+    pub fn session_flush(&self) {
+        let (ack, done) = mpsc::channel();
+        let sent = locked(&self.session)
+            .writer
+            .as_ref()
+            .is_some_and(|writer| writer.send(Message::Flush(ack)).is_ok());
+        if sent {
+            let _ = done.recv_timeout(Duration::from_secs(5));
+        }
     }
 }
 

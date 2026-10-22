@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| 3.0 alpha.1 hardware gate against 2.6.0 | [October 22, alpha.1 gate](#october-22-30-alpha1-hardware-gate) |
 | Timer CPU cost and idle capture waits | [October 18, timer waits and idle capture](#october-18-timer-waits-and-idle-capture) |
 | Retired compute queues and conservative GPU priority | [October 18, GPU validation](PERFORMANCE_WORK.md#october-18-retired-compute-queues-and-conservative-gpu-priority) |
 | Repeated frame loss and Windows send-buffer pressure | [October 17, loss-response verification](#october-17-loss-response-verification) |
@@ -29,6 +30,39 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 22: 3.0 alpha.1 hardware gate
+
+Main at `a14f1932b` (the AMD-only 3.0 line after decision 1a: physical displays, WGC, Desktop Duplication, D3D11 and both driver rings kept) against the published v2.6.0 package. Release builds only. RX 7900 XT, Radeon driver 32.0.32015.2008, Windows 11 25H2 (26200). Each stream ran a packaged host on an isolated profile on 127.0.0.1, with the independent moonlight-common-c receiver decoding with D3D11VA on the same PC. Streams were HEVC or AV1 at 2560×1440, 120 FPS and 80 Mbps for 20 seconds, with the moving strip and audio tone checks. Means are over runs, and each run's p95/p99 comes from its own steady frames. The installed 2.6.0 service stayed idle the whole time.
+
+**Display driver.** Main's driver package (`rubylight-vdisplay` 0.2.0, DriverVer 0.2.0.7064, unsigned and signed on this PC by `install-local.ps1`) installed over 2.6.0.7037 with no restart. `ROOT\DISPLAY\0002` reported OK, and WUDFHost loaded `rubylight_vdisplay.dll`. After the virtual-display streams, the 2.6.0 driver went back for the installed 2.6.0 service, also with no restart.
+
+**Physical display, ABBA BAAB.** The source was the 5120×1440, 240 Hz SDR primary monitor, letterboxed into the 1440p stream. Four runs per build and case. All 32 passed at 120 FPS with no decode failures.
+
+| Case (main / 2.6.0) | Picture age mean ms | p95 ms | p99 ms | Host mean ms | Interval p99 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| WGC HEVC | 11.636 / 11.605 | 12.335 / 12.264 | 14.583 / 12.707 | 0.569 / 0.571 | 9.436 / 9.441 |
+| WGC AV1 | 11.505 / 11.415 | 13.054 / 12.059 | 15.114 / 12.519 | 0.492 / 0.460 | 9.526 / 9.506 |
+| Desktop Duplication HEVC | 10.786 / 10.875 | 12.223 / 12.433 | 13.677 / 14.105 | 0.502 / 0.504 | 9.363 / 9.355 |
+| Desktop Duplication AV1 | 10.728 / 10.682 | 13.905 / 11.272 | 14.357 / 13.927 | 0.468 / 0.410 | 9.297 / 9.299 |
+
+The tail is bimodal. In some runs, a few percent of frames arrive about 3.5 ms later, moving that run's p99 (or p95) from about 12 to about 15 ms. In this set it hit 10 of 16 main runs and 5 of 16 2.6.0 runs, and every WGC hit was on main. On AMD, nothing in the capture, conversion or encode path differs from 2.6.0: removing the NVIDIA/Intel branches leaves the same queue priority, compute copy and 4:2:0 shaders. So both WGC cases were repeated, ABBA BAAB again:
+
+| WGC repeat (main / 2.6.0) | Picture age mean ms | p95 ms | p99 ms | Host mean ms | Interval p99 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HEVC | 11.884 / 11.674 | 12.614 / 12.418 | 13.309 / 13.197 | 0.495 / 0.532 | 9.478 / 9.460 |
+| AV1 | 11.646 / 11.662 | 12.376 / 12.394 | 12.756 / 12.642 | 0.381 / 0.380 | 9.569 / 9.550 |
+
+No run in the repeat had the late mode. Neighbouring runs of the same build differed by up to 0.7 ms in mean picture age (HEVC 2.6.0: 12.04 and 11.35). Over both sets, main is within 0.15 ms of 2.6.0 in every mean, inside that run-to-run spread. The late mode follows the run, not the build: it is not a regression.
+
+**Virtual display.** Per-client virtual display, extended layout, 2560×1440 at 120 Hz, `capture = idd-push`, run as SYSTEM in the signed-in session, main's 0.2.0 driver for both builds, ABBA. The host log confirmed `ring=KeyedMutex` (the default) and `ring=Fence` (`idd_push_fence_ring = true`), both zero-copy. All 8 passed, and the display layout matched before and after every run.
+
+| Virtual display (main / 2.6.0), 2 runs each | Picture age mean ms | p95 ms | p99 ms | Host mean ms | Interval p99 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Keyed-mutex ring | 10.504 / 10.535 | 11.098 / 11.165 | 12.237 / 11.596 | 0.441 / 0.498 | 9.543 / 9.319 |
+| Fence ring | 10.484 / 10.497 | 11.128 / 11.105 | 12.130 / 11.933 | 0.475 / 0.441 | 9.899 / 9.448 |
+
+None of the 56 streams showed an encoder hang, and no new LiveKernelReports entry appeared. The 2.6.0 host also streamed on main's 0.2.0 driver with both rings. Not covered here: `check.ps1` against a tagged alpha, the 30-minute soak, stock Moonlight pairing, and the upgrade from 2.6.0.
 
 ## October 18: timer waits and idle capture
 

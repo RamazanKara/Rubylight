@@ -119,6 +119,17 @@ pub struct Entry {
     /// The driver changed it as a consequence of another write (Chill turning Anti-Lag off).
     #[serde(default)]
     pub side_effect: bool,
+    /// The SID of the user whose settings these are. Radeon settings are per user: another
+    /// account's values are not this account's to read, compare or put back, so a restore leaves
+    /// entries of other users alone. Empty (a journal from before this field) matches nobody.
+    #[serde(default)]
+    pub user: String,
+}
+impl Entry {
+    /// The entry for this setting of this user's.
+    fn is(&self, user: &str, gpu: i32, id: &str) -> bool {
+        self.user == user && self.gpu == gpu && self.id == id
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -163,7 +174,7 @@ impl Journal {
         match self
             .entries
             .iter_mut()
-            .find(|e| e.gpu == entry.gpu && e.id == entry.id)
+            .find(|e| e.is(&entry.user, entry.gpu, &entry.id))
         {
             Some(existing) => {
                 if existing.written != entry.original {
@@ -224,6 +235,9 @@ pub struct Controller<B> {
     journal: PathBuf,
     /// Restore stops starting new work after this; what is left stays journaled.
     deadline: Option<Instant>,
+    /// The SID of the user whose settings the helpers read and write: the signed-in user, `None`
+    /// while nobody is.
+    user: Box<dyn Fn() -> Option<String> + Send>,
 }
 
 fn find<'a>(settings: &'a [Setting], id: &str) -> Option<&'a Setting> {
@@ -370,7 +384,14 @@ impl<B: RadeonBackend> Controller<B> {
             backend,
             journal,
             deadline: None,
+            user: Box::new(crate::process::user_sid),
         }
+    }
+    /// Name the user another way (the tests).
+    #[cfg(test)]
+    pub(super) fn with_user(mut self, user: impl Fn() -> Option<String> + Send + 'static) -> Self {
+        self.user = Box::new(user);
+        self
     }
     pub fn set_deadline(&mut self, deadline: Option<Instant>) {
         self.deadline = deadline;
@@ -410,12 +431,20 @@ impl<B: RadeonBackend> Controller<B> {
         let unavailable = |e: BackendError| error(ErrorKind::Unavailable, None, e.0);
         let journal_error = |e: anyhow::Error| error(ErrorKind::Journal, None, format!("{e:#}"));
         let (_lock, saved) = self.open().map_err(journal_error)?;
+        let Some(user) = (self.user)() else {
+            return Err(error(
+                ErrorKind::Unavailable,
+                None,
+                "nobody is signed in, so there is no user whose settings these would be",
+            ));
+        };
         let before = self.backend.read(gpu).map_err(unavailable)?;
         validate(&before, changes)?;
         let mut journal = saved.clone();
         let original = |id: &str| find(&before, id).and_then(|s| s.value.clone());
         for change in changes {
             journal.record(Entry {
+                user: user.clone(),
                 gpu,
                 id: change.id.clone(),
                 session: session.into(),
@@ -435,6 +464,7 @@ impl<B: RadeonBackend> Controller<B> {
         let predicted = predicted_effects(&before, changes);
         for partner in predicted.iter().cloned() {
             journal.record(Entry {
+                user: user.clone(),
                 gpu,
                 id: partner,
                 session: session.into(),
@@ -450,7 +480,9 @@ impl<B: RadeonBackend> Controller<B> {
         for change in changes {
             if let Err(e) = self.backend.write(gpu, &change.id, &change.value) {
                 let failure = error(ErrorKind::DriverRejected, Some(&change.id), e.0);
-                return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
+                return Err(self.undo(
+                    session, &user, gpu, &before, changes, &applied, &saved, failure,
+                ));
             }
             applied.push(change);
         }
@@ -458,7 +490,9 @@ impl<B: RadeonBackend> Controller<B> {
             Ok(after) => after,
             Err(e) => {
                 let failure = error(ErrorKind::Unavailable, None, e.0);
-                return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
+                return Err(self.undo(
+                    session, &user, gpu, &before, changes, &applied, &saved, failure,
+                ));
             }
         };
         for change in changes {
@@ -473,7 +507,9 @@ impl<B: RadeonBackend> Controller<B> {
                         now.map_or("nothing".into(), Value::display)
                     ),
                 );
-                return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
+                return Err(self.undo(
+                    session, &user, gpu, &before, changes, &applied, &saved, failure,
+                ));
             }
         }
         // A setting the host can neither write nor restore must not have moved, except next to
@@ -501,7 +537,9 @@ impl<B: RadeonBackend> Controller<B> {
                         now.display()
                     ),
                 );
-                return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
+                return Err(self.undo(
+                    session, &user, gpu, &before, changes, &applied, &saved, failure,
+                ));
             }
         }
         // What the driver changed on its own is journaled too, so restore can undo it.
@@ -520,6 +558,7 @@ impl<B: RadeonBackend> Controller<B> {
             if was != now {
                 effects = true;
                 journal.record(Entry {
+                    user: user.clone(),
                     gpu,
                     id: setting.id.into(),
                     session: session.into(),
@@ -529,33 +568,15 @@ impl<B: RadeonBackend> Controller<B> {
                 });
             }
         }
-        // A predicted partner the driver left alone has no business in the journal: restoring it
-        // later could switch something on that the user has since turned off. An entry that an
-        // earlier request of the journal already held stays.
-        let before_len = journal.entries.len();
-        journal.entries.retain(|e| {
-            let unflipped = predicted.contains(&e.id)
-                && e.gpu == gpu
-                && e.side_effect
-                && find(&after, &e.id).and_then(|s| s.value.as_ref()) == Some(&e.original)
-                && !saved.entries.iter().any(|s| s.gpu == e.gpu && s.id == e.id);
-            !unflipped
-        });
-        let dropped = journal.entries.len() != before_len;
-        let saved_again = if effects || dropped {
+        // A predicted partner the driver did not switch (as far as this read-back shows) stays
+        // journaled too. The driver may apply the switch after the read, and a restore finds the
+        // partner at its original, which costs nothing.
+        let saved_again = if effects {
             journal.save(&self.journal)
         } else {
             Ok(())
         };
-        if let Err(e) = &saved_again
-            && !effects
-        {
-            // Only harmless predicted entries stay on disk; nothing needs undoing.
-            tracing::warn!(
-                error = format!("{e:#}"),
-                "drop the predicted Radeon side effects the driver did not make"
-            );
-        } else if let Err(e) = saved_again {
+        if let Err(e) = saved_again {
             tracing::error!(
                 error = format!("{e:#}"),
                 "journal the driver's side effects; undoing the request"
@@ -567,7 +588,9 @@ impl<B: RadeonBackend> Controller<B> {
                     "the driver's side effects could not be journaled ({e:#}), so the request was undone"
                 ),
             );
-            return Err(self.undo(session, gpu, &before, changes, &applied, &saved, failure));
+            return Err(self.undo(
+                session, &user, gpu, &before, changes, &applied, &saved, failure,
+            ));
         }
         Ok(after)
     }
@@ -578,6 +601,7 @@ impl<B: RadeonBackend> Controller<B> {
     fn undo(
         &mut self,
         session: &str,
+        user: &str,
         gpu: i32,
         before: &[Setting],
         changes: &[Change],
@@ -625,6 +649,7 @@ impl<B: RadeonBackend> Controller<B> {
                         .or_else(|| requested.map(|c| c.value.clone()))
                         .unwrap_or_else(|| was.clone());
                     journal.record(Entry {
+                        user: user.into(),
                         gpu,
                         id: setting.id.into(),
                         session: session.into(),
@@ -688,13 +713,24 @@ impl<B: RadeonBackend> Controller<B> {
             Scope::All => true,
             Scope::Session(session) => e.session == session,
         };
-        // Requested changes first, newest first; then what the driver switched as a consequence.
-        let mut order: Vec<Entry> = journal
+        // Only the signed-in user's entries: another user's values (or the defaults of a view
+        // that is not theirs) must never be compared with or written into this user's settings.
+        let user = (self.user)();
+        let (mine, others): (Vec<&Entry>, Vec<&Entry>) = journal
             .entries
             .iter()
             .filter(|e| selected(e))
-            .cloned()
-            .collect();
+            .partition(|e| user.as_deref() == Some(e.user.as_str()));
+        if !others.is_empty() {
+            tracing::error!(
+                settings = %others.iter().map(|e| e.id.as_str()).collect::<Vec<_>>().join(", "),
+                owners = %others.iter().map(|e| e.user.as_str()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>().join(", "),
+                signed_in = user.as_deref().unwrap_or("nobody"),
+                "Radeon journal entries belong to another user; left in place until that user is signed in"
+            );
+        }
+        // Requested changes first, newest first; then what the driver switched as a consequence.
+        let mut order: Vec<Entry> = mine.into_iter().cloned().collect();
         order.reverse();
         order.sort_by_key(|e| e.side_effect);
         let mut results: Vec<(Entry, RestoreResult)> = vec![];
@@ -710,7 +746,7 @@ impl<B: RadeonBackend> Controller<B> {
                 if matches!(result, RestoreResult::Failed(_)) {
                     failed.push(entry.clone());
                 }
-                results.retain(|(e, _)| !(e.gpu == entry.gpu && e.id == entry.id));
+                results.retain(|(e, _)| !e.is(&entry.user, entry.gpu, &entry.id));
                 results.push((entry, result));
             }
             pending = failed;
@@ -745,7 +781,7 @@ impl<B: RadeonBackend> Controller<B> {
             if !matches!(result, RestoreResult::Failed(_)) {
                 journal
                     .entries
-                    .retain(|e| !(e.gpu == entry.gpu && e.id == entry.id));
+                    .retain(|e| !e.is(&entry.user, entry.gpu, &entry.id));
                 changed = true;
             }
             report.outcomes.push(Outcome {
@@ -841,12 +877,13 @@ impl<B: RadeonBackend> Controller<B> {
             if journal
                 .entries
                 .iter()
-                .any(|e| e.gpu == entry.gpu && e.id == id)
+                .any(|e| e.is(&entry.user, entry.gpu, &id))
             {
                 continue;
             }
             temporary.push(id.clone());
             journal.entries.push(Entry {
+                user: entry.user.clone(),
                 gpu: entry.gpu,
                 id,
                 session: entry.session.clone(),
@@ -856,9 +893,9 @@ impl<B: RadeonBackend> Controller<B> {
             });
         }
         let forget = |journal: &mut Journal| {
-            journal
-                .entries
-                .retain(|e| !(e.gpu == entry.gpu && temporary.contains(&e.id)));
+            journal.entries.retain(|e| {
+                !(e.user == entry.user && e.gpu == entry.gpu && temporary.contains(&e.id))
+            });
         };
         if let Err(e) = journal.save(&self.journal) {
             forget(journal);
@@ -1094,6 +1131,10 @@ mod tests {
         }
     }
 
+    /// The SID the controller files its entries under: the account the tests run as.
+    fn me() -> String {
+        crate::process::user_sid().expect("the test account has a SID")
+    }
     fn controller(fake: &Fake) -> (Controller<Fake>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(JOURNAL_FILE);
@@ -1349,6 +1390,7 @@ mod tests {
         // A crash between the journal and the write leaves the original in place.
         let mut journal = Journal::default();
         journal.record(Entry {
+            user: me(),
             gpu: 1,
             id: "pacing.limit".into(),
             session: "s1".into(),
@@ -1542,18 +1584,32 @@ mod tests {
     }
 
     #[test]
-    fn a_predicted_partner_the_driver_left_alone_is_dropped_after_the_readback() {
+    fn a_predicted_partner_the_driver_left_alone_stays_journaled_and_restores_as_already_original()
+    {
         let fake = panel();
         let (mut c, _dir) = controller(&fake);
         c.apply("s1", 1, &[change("chill.enabled", on(true))])
             .unwrap();
+        // The read-back shows Anti-Lag still on, yet its entry stays: the driver may apply the
+        // switch after the read.
         let journal = c.journal().unwrap();
-        assert!(
-            journal.entries.iter().all(|e| e.id != "anti_lag.enabled"),
-            "{:?}",
-            journal.entries
-        );
+        let partner = entry_of(&journal, "anti_lag.enabled");
+        assert!(partner.side_effect);
         assert!(journal.entries.iter().any(|e| e.id == "chill.enabled"));
+        let report = c.restore(Scope::Session("s1")).unwrap();
+        let result = |id: &str| {
+            report
+                .outcomes
+                .iter()
+                .find(|o| o.id == id)
+                .map(|o| o.result.clone())
+        };
+        assert_eq!(
+            result("anti_lag.enabled"),
+            Some(RestoreResult::AlreadyOriginal)
+        );
+        assert_eq!(result("chill.enabled"), Some(RestoreResult::Restored));
+        assert!(c.journal().unwrap().entries.is_empty());
         // A partner the driver did switch stays, with the value to go back to.
         let fake = panel();
         let (mut c, _dir) = controller(&fake);
@@ -1689,6 +1745,7 @@ mod tests {
         fake.set("chill.max_fps", Value::Int(150));
         let mut journal = Journal::default();
         journal.record(Entry {
+            user: me(),
             gpu: 1,
             id: "chill.max_fps".into(),
             session: "s1".into(),
@@ -1723,6 +1780,7 @@ mod tests {
         fake.0.borrow_mut().refuse = Some("chill.max_fps");
         let mut journal = Journal::default();
         journal.record(Entry {
+            user: me(),
             gpu: 1,
             id: "chill.max_fps".into(),
             session: "s1".into(),
@@ -1897,6 +1955,7 @@ mod tests {
     }
     fn some_entry() -> Entry {
         Entry {
+            user: me(),
             gpu: 1,
             id: "pacing.limit".into(),
             session: "other".into(),
@@ -1943,6 +2002,73 @@ mod tests {
         assert_eq!(c.journal().unwrap().owner, Some(Owner::current().unwrap()));
         other.kill().unwrap();
         let _ = other.wait();
+    }
+
+    /// Radeon settings are per user. An entry is filed under the user who made it, and a restore
+    /// for another user (or while nobody is signed in) leaves it in the journal.
+    #[test]
+    fn restore_leaves_another_users_entries_in_place() {
+        use std::sync::{Arc, Mutex};
+        const A: &str = "S-1-5-21-1-2-3-1001";
+        const B: &str = "S-1-5-21-1-2-3-1002";
+        let fake = panel();
+        let (c, _dir) = controller(&fake);
+        let who = Arc::new(Mutex::new(Some(A.to_string())));
+        let seen = who.clone();
+        let mut c = c.with_user(move || seen.lock().unwrap().clone());
+        let sign_in = |user: Option<&str>| *who.lock().unwrap() = user.map(String::from);
+
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
+            .unwrap();
+        assert_eq!(c.journal().unwrap().entries[0].user, A);
+
+        // B is signed in: A's entry is neither restored nor dropped, and nothing is written.
+        sign_in(Some(B));
+        let writes = fake.writes().len();
+        let report = c.recover_on_startup().unwrap();
+        assert!(report.outcomes.is_empty(), "{:?}", report.outcomes);
+        assert_eq!(fake.writes().len(), writes);
+        assert_eq!(fake.value("pacing.limit"), Value::Int(150));
+        assert_eq!(c.journal().unwrap().entries.len(), 1);
+
+        // B's own change to the same setting is a separate entry with B's original.
+        c.apply("s2", 1, &[change("pacing.limit", Value::Int(160))])
+            .unwrap();
+        let journal = c.journal().unwrap();
+        assert_eq!(journal.entries.len(), 2);
+        let b = journal.entries.iter().find(|e| e.user == B).unwrap();
+        assert_eq!(
+            (&b.original, &b.written),
+            (&Value::Int(150), &Value::Int(160))
+        );
+        let a = journal.entries.iter().find(|e| e.user == A).unwrap();
+        assert_eq!(
+            (&a.original, &a.written),
+            (&Value::Int(140), &Value::Int(150))
+        );
+
+        // B's restore puts back B's value only.
+        assert!(c.restore(Scope::All).unwrap().is_clean());
+        assert_eq!(fake.value("pacing.limit"), Value::Int(150));
+        let journal = c.journal().unwrap();
+        assert_eq!(journal.entries.len(), 1);
+        assert_eq!(journal.entries[0].user, A);
+
+        // Nobody signed in: nothing is restored and nothing can be changed.
+        sign_in(None);
+        assert!(c.recover_on_startup().unwrap().outcomes.is_empty());
+        assert_eq!(c.journal().unwrap().entries.len(), 1);
+        let e = c
+            .apply("s3", 1, &[change("pacing.limit", Value::Int(170))])
+            .unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Unavailable);
+        assert!(e.message.contains("nobody"), "{e}");
+
+        // A comes back and gets A's value back.
+        sign_in(Some(A));
+        assert!(c.recover_on_startup().unwrap().is_clean());
+        assert_eq!(fake.value("pacing.limit"), Value::Int(140));
+        assert!(c.journal().unwrap().entries.is_empty());
     }
 
     #[test]

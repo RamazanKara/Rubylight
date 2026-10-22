@@ -464,6 +464,7 @@ mod tests {
             version: 1,
             owner: None,
             entries: vec![Entry {
+                user: crate::process::user_sid().expect("the test account has a SID"),
                 gpu: 1,
                 id: "anti_lag.enabled".into(),
                 session: "crashed".into(),

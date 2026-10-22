@@ -52,6 +52,7 @@ public class SettingsKeysTest {
             "checkbox_reduce_refresh_rate", "checkbox_full_range", "checkbox_usb_driver", "checkbox_usb_dualsense",
             "checkbox_usb_dualsense_haptics", "checkbox_usb_bind_all", "checkbox_enable_sops",
             "checkbox_disable_warnings", "export_latency_csv", "checkbox_quick_resume",
+            com.limelight.console.HomeSettings.PREF_KEY,
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
@@ -64,7 +65,8 @@ public class SettingsKeysTest {
             "performance_overlay_mode", // Game and the overlay
             com.limelight.ui.AppTheme.OLED_BLACK, // AppTheme, including activities opened directly
             com.limelight.ui.AppTheme.ALWAYS_DARK,
-            com.limelight.update.UpdatePrefs.AUTO_CHECK_PREF_STRING)); // UpdatePrefs
+            com.limelight.update.UpdatePrefs.AUTO_CHECK_PREF_STRING, // UpdatePrefs
+            com.limelight.console.HomeSettings.PREF_KEY)); // PcView and the console Home
 
     private static SharedPreferences prefs() {
         return PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());

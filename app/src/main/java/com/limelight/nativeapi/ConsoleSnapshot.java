@@ -142,6 +142,11 @@ public final class ConsoleSnapshot {
         this.continuePlaying = Collections.unmodifiableList(continuePlaying);
     }
 
+    /** Nothing known: no hosts, no titles. */
+    public static ConsoleSnapshot empty() {
+        return new ConsoleSnapshot(new java.util.ArrayList<>(), new java.util.ArrayList<>(), new java.util.ArrayList<>());
+    }
+
     public Host host(String uuid) {
         for (Host host : hosts) {
             if (host.uuid.equals(uuid)) {

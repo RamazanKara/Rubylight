@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home: games to continue, the library across hosts and the hosts. ConsoleHomeActivity fills the grid. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+    <include android:id="@+id/console_toolbar" layout="@layout/view_top_app_bar" />
+    <ProgressBar android:id="@+id/console_loading" style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"
+            android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipToPadding="false" android:scrollbars="vertical"
+            android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+            android:paddingBottom="@dimen/space_xl" android:focusable="false"
+            android:descendantFocusability="afterDescendants" />
+        <LinearLayout android:id="@+id/console_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
+            android:padding="@dimen/space_xl" android:visibility="gone">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:gravity="center" android:text="@string/console_empty_title"
+                android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_m" android:gravity="center" android:text="@string/console_empty_body"
+                android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/console_empty_hosts"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl" android:minHeight="@dimen/touch_target"
+                android:text="@string/console_empty_open_hosts" app:icon="@drawable/ic_computer" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

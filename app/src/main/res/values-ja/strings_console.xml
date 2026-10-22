@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">ホーム</string>
+    <string name="console_menu_hosts">ホスト</string>
+    <string name="console_section_continue">続きをプレイ</string>
+    <string name="console_section_library">ライブラリ</string>
+    <string name="console_section_hosts">ホスト</string>
+    <string name="console_badge_running">実行中</string>
+    <string name="console_badge_suspended">一時停止中</string>
+    <string name="console_card_on_host">%1$s 上</string>
+    <string name="console_card_on_hosts">%1$d 台のホスト</string>
+    <string name="console_host_games">ゲーム: %1$d</string>
+    <string name="console_host_saved_games">オフライン。保存済みのゲーム: %1$d</string>
+    <string name="console_host_offline">オフライン</string>
+    <string name="console_host_no_library">ゲームはまだ読み込まれていません</string>
+    <string name="console_empty_title">ホストがありません</string>
+    <string name="console_empty_body">Nightjar を PC とペアリングすると、ここにゲームが表示されます。</string>
+    <string name="console_empty_open_hosts">ホストを開く</string>
+    <string name="console_detail_host">ホスト</string>
+    <string name="console_detail_profile">ストリーム設定</string>
+    <string name="console_detail_status_running">%1$s で実行中</string>
+    <string name="console_detail_status_suspended">%1$s で一時停止中</string>
+    <string name="console_detail_replaces">%1$s が実行中です。このゲームを開始すると終了します。</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">メイン設定</string>
+    <string name="console_home_setting_title">ホームで開く</string>
+    <string name="console_home_setting_summary">続きをプレイするゲームとライブラリから始めます。オフにすると PC の一覧から始まります。</string>
+</resources>

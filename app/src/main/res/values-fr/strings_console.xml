@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Accueil</string>
+    <string name="console_menu_hosts">Hôtes</string>
+    <string name="console_section_continue">Reprendre</string>
+    <string name="console_section_library">Bibliothèque</string>
+    <string name="console_section_hosts">Hôtes</string>
+    <string name="console_badge_running">En cours</string>
+    <string name="console_badge_suspended">Suspendu</string>
+    <string name="console_card_on_host">Sur %1$s</string>
+    <string name="console_card_on_hosts">Sur %1$d hôtes</string>
+    <string name="console_host_games">Jeux : %1$d</string>
+    <string name="console_host_saved_games">Hors ligne. Jeux enregistrés : %1$d</string>
+    <string name="console_host_offline">Hors ligne</string>
+    <string name="console_host_no_library">Jeux pas encore chargés</string>
+    <string name="console_empty_title">Aucun hôte pour l’instant</string>
+    <string name="console_empty_body">Associez Nightjar à un PC pour voir ici ses jeux.</string>
+    <string name="console_empty_open_hosts">Ouvrir les hôtes</string>
+    <string name="console_detail_host">Hôte</string>
+    <string name="console_detail_profile">Paramètres du flux</string>
+    <string name="console_detail_status_running">En cours sur %1$s</string>
+    <string name="console_detail_status_suspended">Suspendu sur %1$s</string>
+    <string name="console_detail_replaces">%1$s est en cours. Lancer ce jeu le fermera.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Paramètres principaux</string>
+    <string name="console_home_setting_title">Ouvrir sur l’accueil</string>
+    <string name="console_home_setting_summary">Démarre sur les jeux à reprendre et votre bibliothèque. Désactivé, l’application démarre sur la liste des PC.</string>
+</resources>

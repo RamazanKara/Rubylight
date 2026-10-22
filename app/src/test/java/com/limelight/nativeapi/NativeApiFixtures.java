@@ -24,13 +24,13 @@ import java.util.List;
 import java.util.Map;
 
 /** Hosts, a client identity and a scripted transport for the native API tests. */
-final class NativeApiFixtures {
+public final class NativeApiFixtures {
     private NativeApiFixtures() {
     }
 
     private static final String RUBYLIGHT_PAIRED = "<RustHostVersion>3.0.0</RustHostVersion><PairStatus>1</PairStatus>";
 
-    static final HostCapabilities NATIVE_CAPS =
+    public static final HostCapabilities NATIVE_CAPS =
             TestHosts.caps("<root status_code=\"200\">" + RUBYLIGHT_PAIRED
                     + "<NativeApiVersion>1</NativeApiVersion></root>");
 
@@ -38,7 +38,7 @@ final class NativeApiFixtures {
     private static X509Certificate certificate;
 
     /** One RSA identity for the whole test run; generating keys is slow. */
-    static synchronized X509Certificate certificate() {
+    public static synchronized X509Certificate certificate() {
         if (certificate == null) {
             try {
                 KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
@@ -56,7 +56,7 @@ final class NativeApiFixtures {
         return certificate;
     }
 
-    static LimelightCryptoProvider crypto() {
+    public static LimelightCryptoProvider crypto() {
         X509Certificate cert = certificate();
         PrivateKey key = keys.getPrivate();
         return new LimelightCryptoProvider() {
@@ -67,7 +67,7 @@ final class NativeApiFixtures {
         };
     }
 
-    static ComputerDetails host(String uuid, String name, HostCapabilities caps, boolean online) {
+    public static ComputerDetails host(String uuid, String name, HostCapabilities caps, boolean online) {
         ComputerDetails details = new ComputerDetails();
         details.uuid = uuid;
         details.name = name;
@@ -80,15 +80,15 @@ final class NativeApiFixtures {
         return details;
     }
 
-    static ComputerDetails nativeHost(String uuid, String name, boolean online) {
+    public static ComputerDetails nativeHost(String uuid, String name, boolean online) {
         return host(uuid, name, NATIVE_CAPS, online);
     }
 
-    static ComputerDetails classicHost(String uuid, String name) {
+    public static ComputerDetails classicHost(String uuid, String name) {
         return host(uuid, name, TestHosts.fixture("sunshine-serverinfo.xml"), true);
     }
 
-    static String game(String installId, int appId, String title, String gameId, boolean running) {
+    public static String game(String installId, int appId, String title, String gameId, boolean running) {
         return "{\"install_id\":\"" + installId + "\",\"app_id\":" + appId + ",\"title\":\"" + title + "\","
                 + "\"game_id\":" + (gameId == null ? "null" : "\"" + gameId + "\"") + ","
                 + "\"store\":{\"source\":\"steam\",\"id\":\"1\",\"name\":\"Steam\"},\"installed\":true,"
@@ -96,36 +96,36 @@ final class NativeApiFixtures {
                 + "\",\"version\":\"v1\"}}";
     }
 
-    static String library(String revision, String... games) {
+    public static String library(String revision, String... games) {
         return "{\"revision\":\"" + revision + "\",\"games\":[" + String.join(",", games) + "]}";
     }
 
-    static String session(String state, String owner, String appJson, String actionsJson) {
+    public static String session(String state, String owner, String appJson, String actionsJson) {
         return "{\"revision\":7,\"state\":\"" + state + "\",\"owner\":\"" + owner + "\",\"app\":" + appJson
                 + ",\"game_running\":true,\"since_unix_ms\":1000,\"actions\":" + actionsJson + "}";
     }
 
-    static final String IDLE = session("idle", "none", "null", "[]");
+    public static final String IDLE = session("idle", "none", "null", "[]");
 
-    static String ok(String json) {
+    public static String ok(String json) {
         return "{\"ok\":" + json + "}";
     }
 
-    static String error(String kind, String message) {
+    public static String error(String kind, String message) {
         return "{\"error\":{\"kind\":\"" + kind + "\",\"message\":\"" + message + "\"}}";
     }
 
     /** Answers by host and operation, and remembers every call. */
-    static final class FakeTransport implements NativeApiTransport {
-        final Map<String, String> replies = new HashMap<>();
-        final List<String> calls = Collections.synchronizedList(new ArrayList<>());
-        final List<String> arguments = Collections.synchronizedList(new ArrayList<>());
+    public static final class FakeTransport implements NativeApiTransport {
+        public final Map<String, String> replies = new HashMap<>();
+        public final List<String> calls = Collections.synchronizedList(new ArrayList<>());
+        public final List<String> arguments = Collections.synchronizedList(new ArrayList<>());
 
-        void reply(String hostUuid, String op, String envelope) {
+        public void reply(String hostUuid, String op, String envelope) {
             replies.put(hostUuid + "|" + op, envelope);
         }
 
-        void unreachable(String hostUuid) {
+        public void unreachable(String hostUuid) {
             replies.put(hostUuid + "|*", error("network", "connection refused"));
         }
 

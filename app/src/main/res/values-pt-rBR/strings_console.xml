@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Início</string>
+    <string name="console_menu_hosts">Hosts</string>
+    <string name="console_section_continue">Continuar jogando</string>
+    <string name="console_section_library">Biblioteca</string>
+    <string name="console_section_hosts">Hosts</string>
+    <string name="console_badge_running">Em execução</string>
+    <string name="console_badge_suspended">Pausado</string>
+    <string name="console_card_on_host">Em %1$s</string>
+    <string name="console_card_on_hosts">Em %1$d hosts</string>
+    <string name="console_host_games">Jogos: %1$d</string>
+    <string name="console_host_saved_games">Offline. Jogos salvos: %1$d</string>
+    <string name="console_host_offline">Offline</string>
+    <string name="console_host_no_library">Jogos ainda não carregados</string>
+    <string name="console_empty_title">Ainda não há hosts</string>
+    <string name="console_empty_body">Pareie o Nightjar com um PC para ver os jogos dele aqui.</string>
+    <string name="console_empty_open_hosts">Abrir hosts</string>
+    <string name="console_detail_host">Host</string>
+    <string name="console_detail_profile">Configurações de transmissão</string>
+    <string name="console_detail_status_running">Em execução em %1$s</string>
+    <string name="console_detail_status_suspended">Pausado em %1$s</string>
+    <string name="console_detail_replaces">%1$s está em execução. Jogar este jogo vai fechá-lo.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Configurações principais</string>
+    <string name="console_home_setting_title">Abrir no Início</string>
+    <string name="console_home_setting_summary">Começa pelos jogos para continuar e pela biblioteca. Desativado, começa pela lista de PCs.</string>
+</resources>

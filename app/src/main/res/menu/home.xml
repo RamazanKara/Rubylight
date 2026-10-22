@@ -1,5 +1,7 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <!-- The vector icons are white; tint them with the theme's on-surface colour so they stay visible on light and dark toolbars. -->
+    <item android:id="@+id/homeButton" android:title="@string/console_title" android:icon="@drawable/ic_gamepad"
+        app:iconTint="?attr/colorOnSurface" app:showAsAction="always" android:visible="false" />
     <item android:id="@+id/settingsButton" android:title="@string/settings" android:icon="@drawable/ic_settings"
         app:iconTint="?attr/colorOnSurface" app:showAsAction="always" />
     <item android:id="@+id/helpButton" android:title="@string/help" android:icon="@drawable/ic_help"

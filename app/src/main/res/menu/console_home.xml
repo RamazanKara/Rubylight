@@ -1,0 +1,6 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/console_hosts_button" android:title="@string/console_menu_hosts" android:icon="@drawable/ic_computer"
+        app:iconTint="?attr/colorOnSurface" app:showAsAction="always" />
+    <item android:id="@+id/settingsButton" android:title="@string/settings" android:icon="@drawable/ic_settings"
+        app:iconTint="?attr/colorOnSurface" app:showAsAction="always" />
+</menu>

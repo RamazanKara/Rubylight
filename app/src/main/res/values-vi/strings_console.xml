@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Trang chủ</string>
+    <string name="console_menu_hosts">Máy chủ</string>
+    <string name="console_section_continue">Chơi tiếp</string>
+    <string name="console_section_library">Thư viện</string>
+    <string name="console_section_hosts">Máy chủ</string>
+    <string name="console_badge_running">Đang chạy</string>
+    <string name="console_badge_suspended">Đã tạm dừng</string>
+    <string name="console_card_on_host">Trên %1$s</string>
+    <string name="console_card_on_hosts">Trên %1$d máy chủ</string>
+    <string name="console_host_games">Trò chơi: %1$d</string>
+    <string name="console_host_saved_games">Ngoại tuyến. Trò chơi đã lưu: %1$d</string>
+    <string name="console_host_offline">Ngoại tuyến</string>
+    <string name="console_host_no_library">Chưa tải trò chơi</string>
+    <string name="console_empty_title">Chưa có máy chủ</string>
+    <string name="console_empty_body">Ghép đôi Nightjar với một PC để xem các trò chơi của PC tại đây.</string>
+    <string name="console_empty_open_hosts">Mở danh sách máy chủ</string>
+    <string name="console_detail_host">Máy chủ</string>
+    <string name="console_detail_profile">Cài đặt luồng</string>
+    <string name="console_detail_status_running">Đang chạy trên %1$s</string>
+    <string name="console_detail_status_suspended">Đã tạm dừng trên %1$s</string>
+    <string name="console_detail_replaces">%1$s đang chạy. Chơi trò này sẽ đóng nó.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Cài đặt chính</string>
+    <string name="console_home_setting_title">Mở ở Trang chủ</string>
+    <string name="console_home_setting_summary">Bắt đầu bằng các trò chơi để chơi tiếp và thư viện. Khi tắt, bắt đầu bằng danh sách PC.</string>
+</resources>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Головна</string>
+    <string name="console_menu_hosts">Хости</string>
+    <string name="console_section_continue">Продовжити гру</string>
+    <string name="console_section_library">Бібліотека</string>
+    <string name="console_section_hosts">Хости</string>
+    <string name="console_badge_running">Запущено</string>
+    <string name="console_badge_suspended">Призупинено</string>
+    <string name="console_card_on_host">На %1$s</string>
+    <string name="console_card_on_hosts">На хостах: %1$d</string>
+    <string name="console_host_games">Ігор: %1$d</string>
+    <string name="console_host_saved_games">Не в мережі. Збережених ігор: %1$d</string>
+    <string name="console_host_offline">Не в мережі</string>
+    <string name="console_host_no_library">Ігри ще не завантажено</string>
+    <string name="console_empty_title">Хостів ще немає</string>
+    <string name="console_empty_body">Зв’яжіть Nightjar із ПК, щоб бачити тут його ігри.</string>
+    <string name="console_empty_open_hosts">Відкрити хости</string>
+    <string name="console_detail_host">Хост</string>
+    <string name="console_detail_profile">Налаштування трансляції</string>
+    <string name="console_detail_status_running">Запущено на %1$s</string>
+    <string name="console_detail_status_suspended">Призупинено на %1$s</string>
+    <string name="console_detail_replaces">%1$s запущено. Якщо почати цю гру, її буде закрито.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Основні налаштування</string>
+    <string name="console_home_setting_title">Відкривати на головній</string>
+    <string name="console_home_setting_summary">Запуск з ігор для продовження та бібліотеки. Якщо вимкнено, запуск зі списку ПК.</string>
+</resources>

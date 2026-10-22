@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Start</string>
+    <string name="console_menu_hosts">Hosts</string>
+    <string name="console_section_continue">Weiterspielen</string>
+    <string name="console_section_library">Bibliothek</string>
+    <string name="console_section_hosts">Hosts</string>
+    <string name="console_badge_running">Läuft</string>
+    <string name="console_badge_suspended">Pausiert</string>
+    <string name="console_card_on_host">Auf %1$s</string>
+    <string name="console_card_on_hosts">Auf %1$d Hosts</string>
+    <string name="console_host_games">Spiele: %1$d</string>
+    <string name="console_host_saved_games">Offline. Gespeicherte Spiele: %1$d</string>
+    <string name="console_host_offline">Offline</string>
+    <string name="console_host_no_library">Spiele noch nicht geladen</string>
+    <string name="console_empty_title">Noch keine Hosts</string>
+    <string name="console_empty_body">Koppel Nightjar mit einem PC, um hier seine Spiele zu sehen.</string>
+    <string name="console_empty_open_hosts">Hosts öffnen</string>
+    <string name="console_detail_host">Host</string>
+    <string name="console_detail_profile">Stream-Einstellungen</string>
+    <string name="console_detail_status_running">Läuft auf %1$s</string>
+    <string name="console_detail_status_suspended">Pausiert auf %1$s</string>
+    <string name="console_detail_replaces">%1$s läuft. Wenn du dieses Spiel startest, wird es beendet.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Haupteinstellungen</string>
+    <string name="console_home_setting_title">Mit Start öffnen</string>
+    <string name="console_home_setting_summary">Starte mit den Spielen zum Weiterspielen und deiner Bibliothek. Aus startet mit der PC-Liste.</string>
+</resources>

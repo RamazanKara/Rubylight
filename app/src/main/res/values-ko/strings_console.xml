@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">홈</string>
+    <string name="console_menu_hosts">호스트</string>
+    <string name="console_section_continue">이어서 플레이</string>
+    <string name="console_section_library">라이브러리</string>
+    <string name="console_section_hosts">호스트</string>
+    <string name="console_badge_running">실행 중</string>
+    <string name="console_badge_suspended">일시 중지됨</string>
+    <string name="console_card_on_host">%1$s에 있음</string>
+    <string name="console_card_on_hosts">호스트 %1$d대</string>
+    <string name="console_host_games">게임: %1$d</string>
+    <string name="console_host_saved_games">오프라인. 저장된 게임: %1$d</string>
+    <string name="console_host_offline">오프라인</string>
+    <string name="console_host_no_library">게임을 아직 불러오지 않았습니다</string>
+    <string name="console_empty_title">아직 호스트가 없습니다</string>
+    <string name="console_empty_body">Nightjar를 PC와 페어링하면 여기에 게임이 표시됩니다.</string>
+    <string name="console_empty_open_hosts">호스트 열기</string>
+    <string name="console_detail_host">호스트</string>
+    <string name="console_detail_profile">스트림 설정</string>
+    <string name="console_detail_status_running">%1$s에서 실행 중</string>
+    <string name="console_detail_status_suspended">%1$s에서 일시 중지됨</string>
+    <string name="console_detail_replaces">%1$s이(가) 실행 중입니다. 이 게임을 시작하면 종료됩니다.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">기본 설정</string>
+    <string name="console_home_setting_title">홈에서 열기</string>
+    <string name="console_home_setting_summary">이어서 플레이할 게임과 라이브러리로 시작합니다. 끄면 PC 목록으로 시작합니다.</string>
+</resources>

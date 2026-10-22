@@ -160,9 +160,13 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 startActivity(new Intent(this, StreamSettings.class));
             } else if (item.getItemId() == R.id.helpButton) {
                 HelpLauncher.showHelp(this);
+            } else if (item.getItemId() == R.id.homeButton) {
+                startActivity(new Intent(this, com.limelight.console.ConsoleHomeActivity.class));
             }
             return true;
         });
+        toolbar.getMenu().findItem(R.id.homeButton).setVisible(
+                com.limelight.nativeapi.ConsoleRepository.hasAnyLibrary(this));
         toolbar.getMenu().findItem(R.id.helpButton).setVisible(!getPackageManager().hasSystemFeature("amazon.hardware.fire_tv"));
         findViewById(R.id.manuallyAddPc).setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
 
@@ -180,6 +184,13 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Home is the launch screen once a host has shown its games; the list of PCs stays one tap away.
+        if (savedInstanceState == null && opensHome()) {
+            startActivity(new Intent(this, com.limelight.console.ConsoleHomeActivity.class));
+            finish();
+            return;
+        }
 
         // Once per phone and app version: lets Automatic skip codecs that decode slower here.
         DecoderBenchmark.runIfNeeded(this);
@@ -225,6 +236,18 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             LimeLog.info("Cached GL Renderer: " + glPrefs.glRenderer);
             completeOnCreate();
         }
+    }
+
+    private boolean opensHome() {
+        Intent intent = getIntent();
+        if (intent == null || !Intent.ACTION_MAIN.equals(intent.getAction())
+                || intent.getBooleanExtra(com.limelight.console.HomeSettings.EXTRA_STAY, false)) {
+            return false;
+        }
+        GlPreferences glPrefs = GlPreferences.readPreferences(this);
+        // Before the first GL renderer is read this screen has work to do; Home waits for the next start.
+        return glPrefs.savedFingerprint.equals(Build.FINGERPRINT) && !glPrefs.glRenderer.isEmpty()
+                && com.limelight.console.HomeSettings.opensOnHome(this);
     }
 
     private void completeOnCreate() {
@@ -285,6 +308,10 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                         ComputerManagerService.ComputerManagerBinder binder = managerBinder;
                         if (binder != null && binder.isPersistent() && details.pairState == PairState.PAIRED) {
                             shortcutHelper.createAppViewShortcutForOnlineHost(details);
+                        }
+                        // Home needs a library to open on; read it once for a host that has the native API.
+                        if (binder != null) {
+                            com.limelight.console.ConsoleSeed.seedOnce(PcView.this, binder.getUniqueId(), details);
                         }
                     }
                 }

@@ -344,4 +344,22 @@ public class ConsoleRepositoryTest {
         assertFalse(snapshot.titles.isEmpty());
         assertSame(snapshot.hosts.get(0), snapshot.host("tower"));
     }
+
+    private static String capabilitiesReply(boolean hostControl) {
+        return ok("{\"api_version\":1,\"host\":{\"name\":\"Tower\",\"version\":\"3.0.0\",\"unique_id\":\"U\"},"
+                + "\"features\":[\"library\"],\"permissions\":{\"list\":true,\"view\":true,"
+                + "\"launch\":true,\"host_control\":" + hostControl + "}}");
+    }
+
+    @Test
+    public void capabilitiesCarryHostControlOfThisDeviceAndAreNullWhereTheyCannotBeRead() {
+        transport.reply("tower", "capabilities", capabilitiesReply(true));
+        transport.reply("laptop", "capabilities", capabilitiesReply(false));
+        assertTrue(repository.capabilities(nativeHost("tower", "Tower", true)).hostControl);
+        assertFalse(repository.capabilities(nativeHost("laptop", "Laptop", true)).hostControl);
+        // A classic host has no native API to ask, and one that does not answer has no permissions to show.
+        assertNull(repository.capabilities(classicHost("old", "Old PC")));
+        assertNull(repository.capabilities(nativeHost("gone", "Gone", true)));
+        assertFalse(transport.calls.contains("old|capabilities"));
+    }
 }

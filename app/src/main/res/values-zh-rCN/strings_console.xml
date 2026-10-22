@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">主页</string>
+    <string name="console_menu_hosts">主机</string>
+    <string name="console_section_continue">继续游戏</string>
+    <string name="console_section_library">游戏库</string>
+    <string name="console_section_hosts">主机</string>
+    <string name="console_badge_running">运行中</string>
+    <string name="console_badge_suspended">已暂停</string>
+    <string name="console_card_on_host">位于 %1$s</string>
+    <string name="console_card_on_hosts">位于 %1$d 台主机</string>
+    <string name="console_host_games">游戏：%1$d</string>
+    <string name="console_host_saved_games">已离线。已保存的游戏：%1$d</string>
+    <string name="console_host_offline">已离线</string>
+    <string name="console_host_no_library">游戏尚未加载</string>
+    <string name="console_empty_title">还没有主机</string>
+    <string name="console_empty_body">将 Nightjar 与 PC 配对后，可在此查看其游戏。</string>
+    <string name="console_empty_open_hosts">打开主机</string>
+    <string name="console_detail_host">主机</string>
+    <string name="console_detail_profile">串流设置</string>
+    <string name="console_detail_status_running">在 %1$s 上运行中</string>
+    <string name="console_detail_status_suspended">已在 %1$s 上暂停</string>
+    <string name="console_detail_replaces">%1$s 正在运行。开始此游戏会将其关闭。</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">主要设置</string>
+    <string name="console_home_setting_title">在主页打开</string>
+    <string name="console_home_setting_summary">从可继续的游戏和游戏库开始。关闭后从 PC 列表开始。</string>
+</resources>

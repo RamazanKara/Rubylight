@@ -529,6 +529,11 @@
             android:title="@string/title_quick_resume"
             android:dialogMessage="@string/summary_quick_resume"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_console_home"
+            android:title="@string/console_home_setting_title"
+            android:dialogMessage="@string/console_home_setting_summary"
+            android:defaultValue="true" />
         <Preference android:key="help" android:title="@string/help"
             android:summary="@string/settings_help_summary" />
         <Preference android:key="report_problem" android:title="@string/report_problem"

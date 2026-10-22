@@ -79,6 +79,17 @@ public final class ConsoleRepository {
         return new File(context.getFilesDir(), "console-library");
     }
 
+    /** True when the app holds the library of some host, which is when Home has something to show. */
+    public static boolean hasAnyLibrary(Context context) {
+        String[] files = libraryDirectory(context.getApplicationContext()).list((dir, name) -> name.endsWith(".json"));
+        return files != null && files.length > 0;
+    }
+
+    /** True when the app holds the last library of this host. */
+    public static boolean hasLibrary(Context context, String hostUuid) {
+        return new FileLibraryCache(libraryDirectory(context.getApplicationContext())).load(hostUuid) != null;
+    }
+
     /** Drops what the app stores for a removed host without needing a repository. */
     public static void forgetHost(Context context, String hostUuid) {
         Context app = context.getApplicationContext();
@@ -116,6 +127,26 @@ public final class ConsoleRepository {
             }
         }
         return assemble(hosts);
+    }
+
+    /**
+     * The permissions of this device on the host, read now (blocks); null for a host without the native API
+     * and when the host does not answer.
+     */
+    public NativeCapabilities capabilities(ComputerDetails computer) {
+        if (!computer.caps.has(HostCapabilities.Feature.NATIVE_API)) {
+            return null;
+        }
+        HostEndpoint endpoint = endpoints.endpoint(computer);
+        if (endpoint == null) {
+            return null;
+        }
+        try {
+            return new NativeApiClient(transport, endpoint).capabilities();
+        } catch (NativeApiException e) {
+            LimeLog.info("No capabilities from " + computer.name + ": " + e.getMessage());
+            return null;
+        }
     }
 
     /** Remembers that this device streamed the app; call when a stream starts. */

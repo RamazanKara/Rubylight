@@ -20,7 +20,7 @@ Design and implementer briefs for [plan](rubylight-3.0-plan.md) item A8. Nothing
 | Present | `OnFrameRenderedListener` / release | CSV `render_ns`, `release_ns` | None |
 | Clock offset | `present_clock::ClockOffset` fed by 0x5537 | Overlay "host to present" only | Probes run only with *host frame times* on; offset never exported |
 
-So the client stages already exist (`FrameLatencyStats.CSV_HEADER`). The missing parts are: absolute host times per frame, capture and convert split out, PyroWave host stamps, clock sync independent of VRR presentation, the offset in the record, a host-side record for receivers that cannot speak 0x5536/0x5537, and the report script. Also, 0x5536 is not in [control-messages.md](control-messages.md) yet.
+So the client stages already exist (`FrameLatencyStats.CSV_HEADER`). The missing parts are: absolute host times per frame, capture and convert split out, PyroWave host stamps, clock sync independent of VRR presentation, the offset in the record, a host-side record for receivers that cannot speak 0x5536/0x5537, and the report script. 0x5536 and its extension are in [control-messages.md](control-messages.md#0x5536-host-timing).
 
 ## 2. Record design
 
@@ -37,7 +37,7 @@ The v1 report has a header (`version, count, reserved, reserved`) followed by `c
 - Header byte 2 is `extra`, the bytes per record in a trailing block. It is `0` in v1 and `16` now. The version stays `1`.
 - After the v1 records, `count × extra` bytes follow. For each record: `presented_at_us` u64 (capture present on the media clock), `capture_us` u32 (presented to acquired), `convert_us` u32 (claimed to submitted). A decoder reads the first 16 bytes of each entry and skips the rest, so later fields can be appended.
 - It is valid only if `capture_us + convert_us ≤ queue_us`. If not, the client drops the extension and keeps the base records.
-- An extended report carries at most 24 records (868 bytes), so it stays one ENet packet. Old decoders accept counts up to 32.
+- An extended report carries at most 17 records (616 bytes). The Rust and Java decoders accept counts up to 32 and ignore trailing bytes, but shipped Nightjar's patched common-c (`host-timing.patch`) hands 0x5536 to Java only if the message is at most 644 bytes, and `4 + 36 × N` exceeds that from N = 18. The cap constant lives in the protocol crate.
 - The API is additive: `HostTimingExtra`, `HostTiming::encode_report_with(&[(HostTiming, HostTimingExtra)])` and `decode_report_with(&[u8]) -> Option<Vec<(HostTiming, Option<HostTimingExtra>)>>`. `encode_report`/`decode_report` are unchanged, so existing callers keep compiling.
 
 The client derives these from the extension: capture present = `P`, acquired = `P + capture_us`, submit = `P + queue_us`, encoded = submit + `encode_us`, last sent = `P + host_us`, first sent = last sent − `send_us`. Hold + claim = `queue − capture − convert`, and packetize + pacing = `residual_us()`. Game present comes from the frame's RTP µs, which the client already has.
@@ -86,12 +86,12 @@ Each brief runs in its own worktree. No `git stash`. LF endings. Commit messages
 
 Owned: Nightjar `protocol/core/src/control.rs` (worktree from Nightjar `origin/main`). Rubylight `rust/core/src/host_timing.rs`, a new `rust/core/src/timing_record.rs` (pure row/format logic), `rust/core/Cargo.toml` (rev bump), `rust/host/src/stream.rs` (epoch QPC, sink creation), `rust/host/src/video_send/transport.rs`, the stamp site in `video_send.rs`, `rust/host/src/pyrowave_send.rs` and its `transport.rs`, `docs/control-messages.md`.
 
-1. In Nightjar protocol, add `HostTimingExtra` and the additive encode/decode from §2, with the 24-record cap. Tests: round trip; the unchanged `decode_report` accepts an extended report with the same base records; an extension with `capture+convert > queue` is dropped and the base kept; an 868-byte cap; trailing bytes beyond `extra=16` are skipped. Run `cargo test -p rubylight-protocol` in `protocol/`. Push to Nightjar main.
+1. In Nightjar protocol, add `HostTimingExtra` and the additive encode/decode from §2, with the 17-record cap. Tests: round trip; the unchanged `decode_report` accepts an extended report with the same base records; an extension with `capture+convert > queue` is dropped and the base kept; a 616-byte cap (under the 644 of a full v1 report); trailing bytes beyond `extra=16` are skipped. Run `cargo test -p rubylight-protocol` in `protocol/`. Push to Nightjar main.
 2. In Rubylight, bump the `rubylight-protocol` rev and `cargo update -p rubylight-protocol`. Read `git log <old>..<new> -- protocol/core` for anything else that changed.
 3. `host_timing::timing` also returns the extra from `Stamps` plus the epoch. `HostTimings` stores pairs and `take_report` uses `encode_report_with`.
 4. PyroWave: carry the `Claim` through `Frame`/`Prepared` to the PyroWave transport, and at the last packet call `record_stages`, `host_timings.record` and the record sink, as `video_send/transport.rs` does. First confirm from a host log that PyroWave `stage_frames` is 0 today.
 5. Add the host-side record from §2. Keep the formatting in core (`timing_record.rs`), and put the channel and writer thread in host. Take the epoch QPC with `QueryPerformanceCounter` next to `Instant::now()` at `media_epoch`. Record `rtp_us` from the packetizer's `stamp`.
-6. Document 0x5536 in `docs/control-messages.md`: a table row, a section with the request, v1 records and the extension, and the "24 records" rule.
+6. Document 0x5536 in `docs/control-messages.md`: a table row, a section with the request, v1 records and the extension, and the "17 records" rule.
 
 Acceptance: `pwsh -File C:\src\rl-quick.ps1 -Repo <wt> -Crates butterpollo-core,butterpollo -TargetDir C:\src\rl-target-a8a` passes. New tests: extra values from fixed `Stamps`; a report with 24 extended records decodes in the old decoder; a PyroWave frame yields a 0x5536 record (pattern: `video_send/tests.rs:1171`); with the record sink unset no file is created; with it set the rows equal the `Stamps` points; with a stalled writer the send path returns at once and `dropped` counts. Report: commits on both repos, new rev, test names.
 
@@ -100,6 +100,7 @@ Acceptance: `pwsh -File C:\src\rl-quick.ps1 -Repo <wt> -Crates butterpollo-core,
 Owned (Nightjar worktree from `origin/main`): `HostTimingReport.java`, `FrameLatencyStats.java`, `HostFrameClock.java`, `MediaCodecDecoderRenderer.java` (CSV flush, probe start), `MoonBridge.java`/`RustBridge.java` (an offset getter), the native offset getter for both engines (`android_present_clock.c`, `protocol/android`), `protocol/android/src/listener.rs`, `protocol/cli/src/main.rs`, and their tests.
 
 1. `HostTimingReport.parse` reads the extension, with the same validation as Rust and empty fields without it.
+1a. Raise the 644-byte limit in `app/src/main/jni/moonlight-core/patches/host-timing.patch` (`length <= 644` for 0x5536). The host keeps extended reports at 17 records (616 bytes) so that shipped Nightjar builds still receive them, but the patch should accept the full extended size, `4 + 36 × 32`, so the cap can be raised later.
 2. The Rust engine path must keep the extension. `listener.rs` re-encodes records with `encode_report` today, which would drop it. Forward the raw payload or re-encode with `encode_report_with`, and add a test.
 3. Clock sync probing is gated only on the host announcing 0x5537 (`hostSupportsControlMessage`), not on `prefs.hostFrameTimes`. Scheduling (`presentNs`) stays behind host frame times.
 4. Add `MoonBridge.presentClockOffset(long[] out)` returning `{offset_us, rtt_us}` (false before an exchange) for both engines. Check the client base is CLOCK_MONOTONIC on both.

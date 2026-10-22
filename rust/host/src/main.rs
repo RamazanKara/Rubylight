@@ -26,6 +26,7 @@ mod state;
 mod steam;
 mod stream;
 mod telemetry;
+mod timing_record;
 mod tls;
 mod updater;
 mod video_send;

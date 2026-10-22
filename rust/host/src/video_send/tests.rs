@@ -1158,15 +1158,24 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    // The media clock started 500 ms ago.
+    let now = Instant::now();
+    let ago = |ms: u64| now - Duration::from_millis(ms);
+    let epoch = ago(500);
+    let mut handoff = handoff(packetizer(None));
+    handoff.last_stamp = ago(10);
     let sender = Sender::new(
         socket,
         session.clone(),
         fixture.host.config.read().unwrap().clone(),
         fixture.host.clone(),
-        Instant::now(),
-        handoff(packetizer(None)),
+        epoch,
+        handoff,
     )
     .unwrap();
+    // The host-side record is on.
+    let (sink, rows) = butterpollo_core::timing_record::channel(8);
+    *session.timing_record.write().unwrap() = Some(Arc::new(sink));
     // A client that asked for host timing reports (0x5536).
     let asked = butterpollo_core::host_timing::HostTimingRequest { enabled: true }.encode();
     assert_eq!(
@@ -1175,8 +1184,6 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
     );
     // A picture presented 6 ms ago, held 1 ms, claimed 3 ms ago and encoded
     // in 2 ms, beside a static repeat that has no present.
-    let now = Instant::now();
-    let ago = |ms: u64| now - Duration::from_millis(ms);
     let mut claims = Claims::default();
     claims.push(Claim {
         key: ago(6),
@@ -1229,6 +1236,43 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
     let records = butterpollo_core::host_timing::HostTiming::decode_report(&report).unwrap();
     assert_eq!(records.len(), 1);
     let record = records[0];
+    // The extension holds the present on the media clock and the split stages, and the
+    // record's row has the stamp points themselves.
+    let (_, extra) = butterpollo_core::host_timing::HostTiming::decode_report_with(&report)
+        .unwrap()
+        .remove(0);
+    let extra = extra.unwrap();
+    assert_eq!(
+        (extra.presented_at_us, extra.capture_us, extra.convert_us),
+        (494_000, 1_000, 1_000)
+    );
+    let row = rows.try_recv().unwrap();
+    assert!(rows.try_recv().is_err(), "the static repeat has no row");
+    assert_eq!(row.wire_frame, 1);
+    assert!(row.rtp_us.abs_diff(494_000) <= 12, "{}", row.rtp_us);
+    let [
+        present,
+        acquired,
+        published,
+        claimed,
+        submitted,
+        encoded,
+        packetized,
+        prepared,
+        first,
+        last,
+    ] = row.points;
+    assert_eq!(
+        [present, acquired, published, claimed, submitted],
+        [494_000, 495_000, 496_000, 497_000, 498_000]
+    );
+    assert!(submitted <= encoded && encoded <= packetized && packetized <= prepared);
+    assert!(prepared <= first && first <= last);
+    // The report sums nine stages, each cut to whole microseconds.
+    assert!(
+        (last - present).abs_diff(i64::from(record.host_us)) <= 9,
+        "the row and the report end at the same last packet"
+    );
     assert_eq!(record.frame, 1);
     let us = |ms: f64| (ms * 1000.).round() as i64;
     assert!((i64::from(record.host_us) - us(ms("present_to_sent"))).abs() <= 1);

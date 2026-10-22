@@ -8,6 +8,7 @@ pub(super) fn run(
     current: Arc<Session>,
     config: Config,
     host: Shared,
+    start: Instant,
 ) -> Result<()> {
     let _priority = butterpollo_windows::capture::Priority::new();
     let timer = Timer::new()?;
@@ -86,6 +87,7 @@ pub(super) fn run(
             }
         }
         let mut sent = 0;
+        let mut first_sent = None;
         let packets_dropped = batch.dropped;
         current
             .stats
@@ -118,6 +120,7 @@ pub(super) fn run(
                     ),
                 );
                 let bytes = batch.send(&socket, &remaining[..count], frame.peer)?;
+                first_sent.get_or_insert_with(Instant::now);
                 sent += bytes;
                 pacer.sent(
                     Instant::now(),
@@ -158,6 +161,23 @@ pub(super) fn run(
             },
             sent as u64,
         );
+        // A frame with packets dropped on send never had its last packet sent.
+        if let Some(claim) = frame.claim.filter(|_| batch.dropped == packets_dropped) {
+            let mut stamps = claim.sent(
+                frame.polled,
+                frame.packetized,
+                first_sent.unwrap_or(sent_at),
+                sent_at,
+            );
+            stamps.prepared = frame.prepared;
+            current
+                .stats
+                .performance
+                .lock()
+                .unwrap()
+                .record_stages(&stamps, frame.processing);
+            current.record_sent(frame.wire_frame, frame.timestamp, &stamps, start);
+        }
     }
     Ok(())
 }

@@ -414,6 +414,22 @@ fn close_wlan(handle: usize) {
         }
     }
 }
+/// QueryPerformanceCounter in milliseconds, the clock the Windows test receiver reads as
+/// `clock_ms()`. Zero if the counter is unavailable.
+pub fn qpc_ms() -> f64 {
+    let (mut ticks, mut frequency) = (0, 0);
+    // SAFETY: both calls write only to the live locals.
+    let ok = unsafe {
+        windows::Win32::System::Performance::QueryPerformanceCounter(&mut ticks).is_ok()
+            && windows::Win32::System::Performance::QueryPerformanceFrequency(&mut frequency)
+                .is_ok()
+    };
+    if ok && frequency > 0 {
+        ticks as f64 * 1000. / frequency as f64
+    } else {
+        0.
+    }
+}
 /// Windows 11 otherwise ignores timer requests from a process without a
 /// visible window, and may run it on efficiency cores: the host, and the
 /// capture helper in the user's session.

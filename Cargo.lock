@@ -369,6 +369,7 @@ dependencies = [
  "regex",
  "ring",
  "rsa",
+ "rubylight-native-api",
  "rubylight-protocol",
  "serde",
  "serde_json",
@@ -2026,6 +2027,14 @@ dependencies = [
  "spki",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rubylight-native-api"
+version = "2.6.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

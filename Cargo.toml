@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust/core", "rust/windows", "rust/host", "rust/vulkan-layer", "rust/setup", "rust/drivers/rubylight-vdisplay-proto"]
+members = ["rust/core", "rust/core/native-api", "rust/windows", "rust/host", "rust/vulkan-layer", "rust/setup", "rust/drivers/rubylight-vdisplay-proto"]
 # The virtual display driver builds alone under the WDK toolchain: see rust/drivers/rubylight-vdisplay.
 exclude = ["rust/drivers/rubylight-vdisplay"]
 resolver = "3"

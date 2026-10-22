@@ -1,0 +1,19 @@
+[package]
+name = "rubylight-native-api"
+version.workspace = true
+# Not inherited: Nightjar's workspace pins edition 2021 and Rust 1.80, and this
+# crate must build under its settings (no let-chains).
+edition = "2021"
+rust-version = "1.80"
+license.workspace = true
+repository.workspace = true
+description = "Wire types of the Rubylight native API v1 (host and Nightjar)"
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

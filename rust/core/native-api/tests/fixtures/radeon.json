@@ -1,0 +1,26 @@
+{
+  "revision": 7,
+  "state": "configurable",
+  "host_control": true,
+  "writable_now": true,
+  "gpus": [
+    {
+      "id": 11520,
+      "name": "AMD Radeon RX 7900 XT",
+      "driver": "25.9.1",
+      "settings": [
+        { "id": "anti_lag.enabled", "group": "anti_lag", "kind": "toggle",
+          "state": "configurable", "value": true },
+        { "id": "chill.max_fps", "group": "chill", "kind": "integer", "unit": "fps",
+          "state": "configurable", "value": 144, "range": { "min": 30, "max": 300, "step": 1 },
+          "restore": { "original": 120, "written": 144 } },
+        { "id": "afmf.enabled", "group": "afmf", "kind": "toggle",
+          "state": "needs_external_setup", "value": false,
+          "reason": "external_setup", "message": "Turn on AMD Fluid Motion Frames once in AMD Software: Adrenalin Edition." },
+        { "id": "rsr.enabled", "group": "rsr", "kind": "toggle", "state": "unsupported" },
+        { "id": "image_sharpening.sharpness", "group": "image_sharpening", "kind": "integer", "unit": "%",
+          "state": "temporarily_unavailable", "reason": "driver_busy", "message": "The driver is busy. Try again in a moment." }
+      ]
+    }
+  ]
+}

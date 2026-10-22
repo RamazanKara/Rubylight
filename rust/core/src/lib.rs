@@ -53,6 +53,7 @@ pub mod lossless;
 pub mod ltr;
 pub mod mic;
 pub mod migration;
+pub use rubylight_native_api as native_api;
 pub mod network_pacing;
 pub mod network_path;
 pub mod packet;

@@ -1,0 +1,28 @@
+{
+  "revision": "9f2c41d0",
+  "games": [
+    {
+      "install_id": "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f",
+      "app_id": 1093052211,
+      "title": "Dota 2",
+      "game_id": "steam:570",
+      "store": { "source": "steam", "id": "570", "name": "Steam" },
+      "installed": true,
+      "running": false,
+      "artwork": {
+        "cover": "/appasset?appid=1093052211&AssetType=2&AssetIdx=0",
+        "version": "a41c09e2"
+      }
+    },
+    {
+      "install_id": "8d4b3f55-0c2e-4f8a-9a61-2f1c6f0e9b17",
+      "app_id": 881448767,
+      "title": "Desktop",
+      "game_id": null,
+      "store": null,
+      "installed": null,
+      "running": true,
+      "artwork": { "cover": "/appasset?appid=881448767&AssetType=2&AssetIdx=0", "version": "0c1d2e3f" }
+    }
+  ]
+}

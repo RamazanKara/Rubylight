@@ -19,6 +19,7 @@ use super::{
     helper::HelperBackend,
     model::{Kind, Setting, State, Value, enum_items},
     probe,
+    worker::{Phase, Timing, Worker},
 };
 use serde::Serialize;
 use std::{
@@ -333,6 +334,109 @@ fn session_churn_is_stable() {
             .unwrap_or_else(|e| panic!("round {round}: {e}"));
         assert!(diff(&first, &again).is_empty(), "round {round}");
     }
+}
+
+/// The path the native API takes (plan A3 brief 4): the worker thread owns the controller. One
+/// real read through `Worker::panel`, one write of `anti_lag.enabled` (proven to round-trip) and
+/// the restore of that session, with the driver checked after each step.
+#[test]
+#[ignore = "changes real driver settings"]
+fn worker_writes_and_restores_anti_lag() {
+    let _exclusive = exclusive();
+    assert_host_idle();
+    let gpu = first_gpu();
+    let start = helper().read(gpu).expect("read");
+    let _restore = Restore::new(gpu, &start);
+    let dir = scratch_dir("worker");
+    let worker = Worker::start(helper(), dir.join(JOURNAL_FILE), Timing::default());
+    let until = std::time::Instant::now() + Duration::from_secs(60);
+    while worker.status().phase == Phase::Recovering {
+        assert!(
+            std::time::Instant::now() < until,
+            "the recovery never ended"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let panel = worker
+        .panel(None, Duration::from_secs(60))
+        .expect("panel")
+        .expect("an AMD GPU");
+    assert_eq!(panel.gpu.id, gpu);
+    assert!(panel.pending.is_empty());
+    println!(
+        "gpu {} {} driver {}",
+        panel.gpu.id, panel.gpu.name, panel.gpu.driver
+    );
+    let anti_lag = panel
+        .settings
+        .iter()
+        .find(|s| s.id == "anti_lag.enabled")
+        .expect("anti_lag.enabled");
+    assert_eq!(anti_lag.state, State::Configurable);
+    let original = anti_lag.value.clone().expect("a value");
+    let Value::Bool(on) = original else {
+        panic!("anti_lag.enabled is not a toggle");
+    };
+    let written = Value::Bool(!on);
+    println!(
+        "anti_lag.enabled: {} -> {}",
+        original.display(),
+        written.display()
+    );
+    let after = worker
+        .apply(
+            "hw-session",
+            gpu,
+            vec![Change {
+                id: "anti_lag.enabled".into(),
+                value: written.clone(),
+            }],
+        )
+        .expect("apply");
+    assert_eq!(
+        after
+            .iter()
+            .find(|s| s.id == "anti_lag.enabled")
+            .and_then(|s| s.value.clone()),
+        Some(written.clone())
+    );
+    assert_eq!(
+        helper().read_value(gpu, "anti_lag.enabled").expect("read"),
+        written
+    );
+    let panel = worker
+        .panel(None, Duration::from_secs(60))
+        .expect("panel")
+        .expect("an AMD GPU");
+    let entry = panel
+        .pending
+        .iter()
+        .find(|e| e.id == "anti_lag.enabled")
+        .expect("the change is journaled");
+    assert_eq!((&entry.original, &entry.written), (&original, &written));
+    let report = worker.restore_session("hw-session").expect("restore");
+    assert!(report.is_clean(), "{:?}", report.outcomes);
+    assert_eq!(
+        helper().read_value(gpu, "anti_lag.enabled").expect("read"),
+        original
+    );
+    let moved = diff(&start, &helper().read(gpu).expect("read"));
+    assert!(
+        moved.is_empty(),
+        "after the restore the settings differ: {moved:?}"
+    );
+    assert!(
+        worker
+            .panel(None, Duration::from_secs(60))
+            .expect("panel")
+            .expect("an AMD GPU")
+            .pending
+            .is_empty()
+    );
+    println!(
+        "anti_lag.enabled written, read back and restored to {}",
+        original.display()
+    );
 }
 
 /// Safety net: write back every setting to the values in `RADEON_SNAPSHOT` (default the file

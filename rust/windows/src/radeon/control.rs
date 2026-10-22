@@ -38,6 +38,21 @@ pub trait RadeonBackend {
     }
     /// Write one value. The caller has validated it.
     fn write(&mut self, gpu: i32, id: &str, value: &Value) -> Result<(), BackendError>;
+    /// The AMD GPUs ADLX lists, with their driver. The identity of a GPU does not go stale like
+    /// the settings view does, so the real backends list them in this process.
+    fn gpus(&mut self) -> Result<Vec<GpuInfo>, BackendError> {
+        super::adlx::gpus().map_err(|e| BackendError(format!("{e:#}")))
+    }
+}
+
+/// One AMD GPU as ADLX names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GpuInfo {
+    /// The ADLX unique id, which `/api/hardware-metrics` reports as well.
+    pub id: i32,
+    pub name: String,
+    /// The Adrenalin release when ADLX names it, else the driver version.
+    pub driver: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -401,6 +416,17 @@ impl<B: RadeonBackend> Controller<B> {
     }
     pub fn journal(&self) -> Result<Journal> {
         Journal::load(&self.journal)
+    }
+    /// What would still be put back for the signed-in user: the journal's entries of their
+    /// settings. Another user's entries are not this user's to show or restore.
+    pub fn pending(&self) -> Result<Vec<Entry>> {
+        let user = (self.user)();
+        Ok(self
+            .journal()?
+            .entries
+            .into_iter()
+            .filter(|e| user.as_deref() == Some(e.user.as_str()))
+            .collect())
     }
 
     /// Take the journal's mutex and load it, unless another live host owns settings in it. The

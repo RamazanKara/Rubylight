@@ -1007,6 +1007,20 @@ impl Session {
     }
 }
 
+fn driver_info(gpu: &Interface) -> DriverInfo {
+    let Ok(gpu2) = query(gpu, "IADLXGPU2") else {
+        return DriverInfo::default();
+    };
+    // SAFETY: `gpu2` is an IADLXGPU2, whose layout extends IADLXGPU.
+    let t = unsafe { gpu2.vtable::<Gpu2Vt>() };
+    DriverInfo {
+        amd_software_version: get_text(&gpu2, t.software_version),
+        amd_software_edition: get_text(&gpu2, t.edition),
+        driver_version: get_text(&gpu2, t.driver_version),
+        windows_driver_version: get_text(&gpu2, t.windows_driver_version),
+    }
+}
+
 /// Query ADLX for the 3D settings of every AMD GPU. Reads only; no setting is written.
 pub fn probe() -> Result<Probe> {
     let session = Session::open()?;
@@ -1014,22 +1028,11 @@ pub fn probe() -> Result<Probe> {
     for (id, gpu) in &session.gpus {
         // SAFETY: `gpu` is an IADLXGPU.
         let gpu_table = unsafe { gpu.vtable::<GpuVt>() };
-        let mut driver = DriverInfo::default();
-        if let Ok(gpu2) = query(gpu, "IADLXGPU2") {
-            // SAFETY: `gpu2` is an IADLXGPU2, whose layout extends IADLXGPU.
-            let t = unsafe { gpu2.vtable::<Gpu2Vt>() };
-            driver = DriverInfo {
-                amd_software_version: get_text(&gpu2, t.software_version),
-                amd_software_edition: get_text(&gpu2, t.edition),
-                driver_version: get_text(&gpu2, t.driver_version),
-                windows_driver_version: get_text(&gpu2, t.windows_driver_version),
-            };
-        }
         gpus.push(GpuReport {
             id: *id,
             name: get_text(gpu, gpu_table.name).unwrap_or_default(),
             driver_path: get_text(gpu, gpu_table.driver_path),
-            driver,
+            driver: driver_info(gpu),
             settings: session.settings(gpu),
         });
     }
@@ -1037,6 +1040,28 @@ pub fn probe() -> Result<Probe> {
         adlx: session.info.clone(),
         gpus,
     })
+}
+
+/// The AMD GPUs ADLX lists, by id, name and driver. No setting is read.
+pub fn gpus() -> Result<Vec<super::control::GpuInfo>> {
+    let session = Session::open()?;
+    Ok(session
+        .gpus
+        .iter()
+        .map(|(id, gpu)| {
+            // SAFETY: `gpu` is an IADLXGPU.
+            let gpu_table = unsafe { gpu.vtable::<GpuVt>() };
+            let driver = driver_info(gpu);
+            super::control::GpuInfo {
+                id: *id,
+                name: get_text(gpu, gpu_table.name).unwrap_or_default(),
+                driver: driver
+                    .amd_software_version
+                    .or(driver.driver_version)
+                    .unwrap_or_default(),
+            }
+        })
+        .collect())
 }
 
 /// Reads and writes through ADLX. Every call opens its own session, so nothing is held between

@@ -18,8 +18,8 @@ pub mod worker;
 
 pub use adlx::{AdlxBackend, AdlxInfo, DriverInfo, GpuReport, Probe, probe};
 pub use control::{
-    BackendError, Change, Controller, ErrorKind, Journal, RadeonBackend, RestoreReport, Scope,
-    WriteError,
+    BackendError, Change, Controller, Entry, ErrorKind, GpuInfo, Journal, RadeonBackend,
+    RestoreReport, Scope, WriteError,
 };
 pub use model::{Kind, Setting, State, Writable};
 

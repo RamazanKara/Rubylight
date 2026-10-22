@@ -6,8 +6,8 @@
 //! the recovery has finished (or hit its time limit). Settings that could not be put back stay in
 //! the journal; the worker logs that loudly and retries while no session of this run is live.
 use super::{
-    BackendError, Change, Controller, RadeonBackend, RestoreReport, Scope, Setting, WriteError,
-    control::JOURNAL_FILE, helper::HelperBackend,
+    BackendError, Change, Controller, Entry, GpuInfo, RadeonBackend, RestoreReport, Scope, Setting,
+    WriteError, control::JOURNAL_FILE, helper::HelperBackend,
 };
 use std::{
     collections::HashSet,
@@ -78,6 +78,34 @@ enum Job {
         session: String,
         reply: mpsc::Sender<anyhow::Result<RestoreReport>>,
     },
+    Gpu {
+        adapter: Option<String>,
+        reply: mpsc::Sender<Result<Option<GpuInfo>, BackendError>>,
+    },
+    Panel {
+        adapter: Option<String>,
+        reply: mpsc::Sender<Result<Option<Panel>, BackendError>>,
+    },
+}
+
+/// The settings of the GPU the host encodes on, as the driver reads them now, with what the
+/// journal would still put back.
+#[derive(Clone, Debug)]
+pub struct Panel {
+    pub gpu: GpuInfo,
+    pub settings: Vec<Setting>,
+    pub pending: Vec<Entry>,
+}
+
+/// The GPU the host works with: the one whose name contains `adapter` (the configured adapter
+/// name), else the first AMD GPU ADLX lists.
+fn pick(gpus: Vec<GpuInfo>, adapter: Option<&str>) -> Option<GpuInfo> {
+    let wanted = adapter.map(str::to_lowercase).filter(|a| !a.is_empty());
+    let named = wanted.and_then(|wanted| {
+        gpus.iter()
+            .position(|gpu| gpu.name.to_lowercase().contains(&wanted))
+    });
+    gpus.into_iter().nth(named.unwrap_or(0))
 }
 
 pub struct Worker {
@@ -179,6 +207,57 @@ impl Worker {
                 Err(anyhow::anyhow!("the Radeon worker stopped"))
             }
         }
+    }
+}
+
+impl Worker {
+    /// Ask the worker something and wait at most `wait`. Queued behind the recovery and any write
+    /// or restore ahead of it, so a caller that cannot wait long gets a timeout error and the
+    /// answer is dropped.
+    fn ask<T>(
+        &self,
+        wait: Duration,
+        job: impl FnOnce(mpsc::Sender<Result<T, BackendError>>) -> Job,
+    ) -> Result<T, BackendError> {
+        let (reply, answer) = mpsc::channel();
+        self.jobs
+            .send(job(reply))
+            .map_err(|_| BackendError("the Radeon worker stopped".into()))?;
+        match answer.recv_timeout(wait) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => Err(BackendError(format!(
+                "the Radeon worker did not answer within {} s",
+                wait.as_secs()
+            ))),
+            Err(RecvTimeoutError::Disconnected) => {
+                Err(BackendError("the Radeon worker stopped".into()))
+            }
+        }
+    }
+
+    /// The GPU the host works with (see `pick`), or `None` when ADLX lists no AMD GPU.
+    pub fn gpu(
+        &self,
+        adapter: Option<&str>,
+        wait: Duration,
+    ) -> Result<Option<GpuInfo>, BackendError> {
+        self.ask(wait, |reply| Job::Gpu {
+            adapter: adapter.map(String::from),
+            reply,
+        })
+    }
+
+    /// Read the GPU's settings from the driver, fresh, and the journal's pending entries. It
+    /// runs one helper process, so the caller keeps it off the stream path and caches the answer.
+    pub fn panel(
+        &self,
+        adapter: Option<&str>,
+        wait: Duration,
+    ) -> Result<Option<Panel>, BackendError> {
+        self.ask(wait, |reply| Job::Panel {
+            adapter: adapter.map(String::from),
+            reply,
+        })
     }
 }
 
@@ -334,8 +413,37 @@ fn run<B: RadeonBackend>(
                 }
                 let _ = reply.send(result);
             }
+            Some(Job::Gpu { adapter, reply }) => {
+                let _ = reply.send(
+                    controller
+                        .backend()
+                        .gpus()
+                        .map(|gpus| pick(gpus, adapter.as_deref())),
+                );
+            }
+            Some(Job::Panel { adapter, reply }) => {
+                let _ = reply.send(panel(&mut controller, adapter.as_deref()));
+            }
         }
     }
+}
+
+fn panel<B: RadeonBackend>(
+    controller: &mut Controller<B>,
+    adapter: Option<&str>,
+) -> Result<Option<Panel>, BackendError> {
+    let Some(gpu) = pick(controller.backend().gpus()?, adapter) else {
+        return Ok(None);
+    };
+    let settings = controller.backend().read(gpu.id)?;
+    let pending = controller
+        .pending()
+        .map_err(|e| BackendError(format!("the Radeon journal: {e:#}")))?;
+    Ok(Some(Panel {
+        gpu,
+        settings,
+        pending,
+    }))
 }
 
 static HOST: OnceLock<Worker> = OnceLock::new();
@@ -422,6 +530,20 @@ mod tests {
                 s.value = Some(value.clone());
             }
             Ok(())
+        }
+        fn gpus(&mut self) -> Result<Vec<GpuInfo>, BackendError> {
+            Ok(vec![
+                GpuInfo {
+                    id: 1,
+                    name: "AMD Radeon RX 7900 XT".into(),
+                    driver: "25.9.1".into(),
+                },
+                GpuInfo {
+                    id: 2,
+                    name: "AMD Radeon(TM) Graphics".into(),
+                    driver: "25.9.1".into(),
+                },
+            ])
         }
     }
     impl Driver {
@@ -640,5 +762,74 @@ mod tests {
             worker.status().phase == Phase::Ready
         });
         assert_eq!(driver.value("anti_lag.enabled"), Value::Bool(true));
+    }
+
+    #[test]
+    fn the_adapter_name_picks_the_gpu_and_the_first_one_is_the_default() {
+        let gpu = |id, name: &str| GpuInfo {
+            id,
+            name: name.into(),
+            driver: String::new(),
+        };
+        let both = || {
+            vec![
+                gpu(1, "AMD Radeon RX 7900 XT"),
+                gpu(2, "AMD Radeon(TM) Graphics"),
+            ]
+        };
+        assert_eq!(pick(both(), Some("graphics")).unwrap().id, 2);
+        assert_eq!(pick(both(), Some("rx 7900")).unwrap().id, 1);
+        assert_eq!(pick(both(), Some("no such adapter")).unwrap().id, 1);
+        assert_eq!(pick(both(), Some("")).unwrap().id, 1);
+        assert_eq!(pick(both(), None).unwrap().id, 1);
+        assert!(pick(vec![], Some("x")).is_none());
+    }
+
+    #[test]
+    fn a_panel_reads_the_picked_gpu_and_what_the_journal_would_put_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let (driver, _open) = Driver::new();
+        let driver = driver.without_gate();
+        let worker = Worker::start(driver.clone(), dir.path().join(JOURNAL_FILE), quick());
+        until("the recovery", || worker.status().phase == Phase::Ready);
+        let wait = Duration::from_secs(10);
+        assert_eq!(worker.gpu(Some("graphics"), wait).unwrap().unwrap().id, 2);
+        let panel = worker.panel(None, wait).unwrap().unwrap();
+        assert_eq!(panel.gpu.id, 1);
+        assert_eq!(panel.settings.len(), 2);
+        assert!(panel.pending.is_empty());
+
+        worker
+            .apply("live", 1, vec![change("pacing.limit", Value::Int(150))])
+            .unwrap();
+        let panel = worker.panel(None, wait).unwrap().unwrap();
+        let [entry] = panel.pending.as_slice() else {
+            panic!("one pending entry: {:?}", panel.pending);
+        };
+        assert_eq!(entry.id, "pacing.limit");
+        assert_eq!(entry.original, Value::Int(140));
+        assert_eq!(entry.written, Value::Int(150));
+        worker.restore_session("live").unwrap();
+        assert!(
+            worker
+                .panel(None, wait)
+                .unwrap()
+                .unwrap()
+                .pending
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_panel_read_behind_a_stuck_driver_gives_up_after_its_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let (driver, open) = Driver::new();
+        let worker = Worker::start(driver, dir.path().join(JOURNAL_FILE), quick());
+        // The first read (the panel's) waits for the gate.
+        let error = worker
+            .panel(None, Duration::from_millis(200))
+            .expect_err("the worker is busy");
+        assert!(error.0.contains("did not answer"), "{error}");
+        open.send(()).unwrap();
     }
 }

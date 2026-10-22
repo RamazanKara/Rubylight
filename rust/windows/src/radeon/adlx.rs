@@ -15,9 +15,9 @@ use super::{
 };
 use crate::telemetry::{
     ADLX_VERSION, BaseVtable, GetBool, GetGpuInterface, GetInt, GetInterface, Handle, Interface,
-    ListVtable, system_library,
+    ListVtable,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::{
     ffi::{CStr, c_char},
@@ -885,23 +885,9 @@ fn version_text(full: u64) -> String {
     )
 }
 
-/// Only one session talks to ADLX at a time, so two threads never race a write.
-static ADLX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// The ADLX runtime stays loaded, and initialized, for the life of the process: calling
-/// `ADLXTerminate` after each session faulted (access violation) within a few hundred
-/// initialize/terminate cycles on AMD Software 26.9.2. A later `ADLXInitialize` returns
-/// ADLX_ALREADY_INITIALIZED, which is fine, and nothing here ends telemetry's ADLX under it.
-static LIBRARY: std::sync::OnceLock<libloading::Library> = std::sync::OnceLock::new();
-pub(super) fn library() -> Result<&'static libloading::Library> {
-    if let Some(library) = LIBRARY.get() {
-        return Ok(library);
-    }
-    let loaded = system_library("amdadlx64.dll")?;
-    Ok(LIBRARY.get_or_init(|| loaded))
-}
-
-/// An initialised ADLX with the 3D settings services and the GPU list.
+/// An initialised ADLX with the 3D settings services and the GPU list. It holds the process-wide
+/// ADLX lock (`crate::adlx_system`) until it is dropped, so a read or write never overlaps
+/// telemetry's or another session's.
 struct Session {
     // Fields drop in this order: interfaces, then the lock.
     gpus: Vec<(i32, Interface)>,
@@ -910,37 +896,27 @@ struct Session {
     v1: Option<Interface>,
     services: Interface,
     info: AdlxInfo,
-    _lock: std::sync::MutexGuard<'static, ()>,
+    _runtime: crate::adlx_system::Guard,
 }
 impl Session {
     fn open() -> Result<Self> {
-        let lock = ADLX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let library = library()?;
-        // SAFETY: These exports and C signatures are specified by AMD's ADLX.h.
-        let (initialize, full_version) = unsafe {
-            (
-                *library
-                    .get::<unsafe extern "C" fn(u64, *mut Handle) -> i32>(b"ADLXInitialize\0")?,
-                library
-                    .get::<unsafe extern "C" fn(*mut u64) -> i32>(b"ADLXQueryFullVersion\0")
-                    .ok()
-                    .map(|f| *f),
-            )
+        let runtime = crate::adlx_system::acquire()?;
+        // SAFETY: This export and its C signature are specified by AMD's ADLX.h.
+        let full_version = unsafe {
+            runtime
+                .library()
+                .get::<unsafe extern "C" fn(*mut u64) -> i32>(b"ADLXQueryFullVersion\0")
+                .ok()
+                .map(|f| *f)
         };
         let runtime_version = full_version.and_then(|query| {
             let mut full = 0u64;
             // SAFETY: The export writes one u64.
             (unsafe { query(&mut full) } == 0).then(|| version_text(full))
         });
-        let mut system = ptr::null_mut();
-        // SAFETY: The runtime is loaded, the version is the baseline ABI the host already
-        // negotiates and `system` is writable.
-        let result = unsafe { initialize(ADLX_VERSION, &mut system) };
-        if !matches!(result, 0..=2) || system.is_null() {
-            bail!("ADLX initialization failed ({})", result_name(result));
-        }
-        // SAFETY: ADLXInitialize returned IADLXSystem, which stays valid until ADLXTerminate, and
-        // this module never calls that.
+        let system = runtime.system();
+        let result = runtime.initialize_result();
+        // SAFETY: The shared runtime returned this IADLXSystem and never terminates it.
         let table = unsafe { &**system.cast::<*const SystemVt>() };
         let list = obtain(|out| {
             // SAFETY: The system and output are live; GetGPUs returns IADLXGPUList.
@@ -999,7 +975,7 @@ impl Session {
                 initialize: result_name(result),
                 services_interface,
             },
-            _lock: lock,
+            _runtime: runtime,
         })
     }
 

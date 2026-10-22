@@ -13,6 +13,7 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![warn(clippy::print_stdout, clippy::print_stderr)]
 
+pub(crate) mod adlx_system;
 pub mod amf;
 pub mod audio;
 pub mod audio_route;

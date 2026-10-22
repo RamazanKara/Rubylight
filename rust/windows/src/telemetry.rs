@@ -243,33 +243,25 @@ struct Gpu {
 struct Adlx {
     gpus: Vec<Gpu>,
     performance: Option<Interface>,
-    terminate: unsafe extern "C" fn() -> i32,
-    _library: libloading::Library,
 }
 impl Adlx {
+    /// Interfaces from the process's shared ADLX system (`crate::adlx_system`), which nothing
+    /// terminates: dropping this releases only its own references.
     fn open() -> Result<Self> {
-        let library = system_library("amdadlx64.dll")?;
-        // SAFETY: These exports and C signatures are specified by AMD's ADLX.h.
-        let (initialize, terminate) = unsafe {
-            (
-                *library
-                    .get::<unsafe extern "C" fn(u64, *mut Handle) -> i32>(b"ADLXInitialize\0")?,
-                *library.get::<unsafe extern "C" fn() -> i32>(b"ADLXTerminate\0")?,
-            )
-        };
-        let mut system = ptr::null_mut();
-        // SAFETY: The runtime is loaded, the version matches the baseline ABI and system is writable.
-        let result = unsafe { initialize(ADLX_VERSION, &mut system) };
-        if !matches!(result, 0..=2) || system.is_null() {
-            bail!("ADLX initialization failed ({result})");
-        }
+        let runtime = crate::adlx_system::acquire()?;
         let mut amd = Self {
             gpus: vec![],
             performance: None,
-            terminate,
-            _library: library,
         };
-        // SAFETY: ADLXInitialize returned IADLXSystem, whose lifetime ends with ADLXTerminate.
+        let filled = amd.fill(runtime.system());
+        // A half-built `amd` releases its interfaces under the same lock, so let go of it first.
+        drop(runtime);
+        filled.map(|()| amd)
+    }
+    fn fill(&mut self, system: Handle) -> Result<()> {
+        let amd = self;
+        // SAFETY: The shared runtime returned this IADLXSystem and never terminates it; the lock
+        // is held for the whole enumeration.
         let table = unsafe { &**system.cast::<*const SystemVtable>() };
         let mut performance = ptr::null_mut();
         // SAFETY: The system and output are live and the method returns a reference-counted interface.
@@ -297,7 +289,7 @@ impl Adlx {
                 amd.gpus.push(gpu);
             }
         }
-        Ok(amd)
+        Ok(())
     }
     fn gpu(&self, interface: Interface) -> Option<Gpu> {
         let performance = self.performance.as_ref()?;
@@ -356,6 +348,10 @@ impl Adlx {
     }
     fn sample(&self, selected: &[String]) -> Vec<GpuSample> {
         let Some(performance) = &self.performance else {
+            return vec![];
+        };
+        // One ADLX call at a time across telemetry and the radeon controls.
+        let Ok(_runtime) = crate::adlx_system::acquire() else {
             return vec![];
         };
         let mut output = vec![];
@@ -456,12 +452,11 @@ fn gpu_sample(gpu: &Gpu, metrics: &Interface, selected: &[String]) -> GpuSample 
 }
 impl Drop for Adlx {
     fn drop(&mut self) {
+        // Release under the shared lock, so it never overlaps a radeon read or write. The
+        // runtime itself stays initialised.
+        let _runtime = crate::adlx_system::acquire();
         self.gpus.clear();
         self.performance.take();
-        // SAFETY: All interfaces have been released and the ADLX library remains loaded.
-        unsafe {
-            (self.terminate)();
-        }
     }
 }
 

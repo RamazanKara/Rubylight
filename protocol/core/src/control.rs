@@ -25,6 +25,10 @@ pub const HOST_TIMING_HEADER_BYTES: usize = 4;
 pub const HOST_TIMING_RECORD_BYTES: usize = 20;
 /// Most records one report carries (a 644-byte message).
 pub const HOST_TIMING_MAX_RECORDS: usize = 32;
+/// Bytes per record in a report's trailing [`HostTimingExtra`] block (header byte 2).
+pub const HOST_TIMING_EXTRA_BYTES: usize = 16;
+/// Most records an extended report carries (an 868-byte message, one ENet packet).
+pub const HOST_TIMING_EXTENDED_MAX_RECORDS: usize = 24;
 /// Control-stream message type of clock sync, both ways: a client sends a
 /// [`ClockSyncRequest`], and the host answers each with a [`ClockSyncReply`].
 pub const CLOCK_SYNC_MESSAGE_TYPE: u16 = 0x5537;
@@ -259,6 +263,28 @@ impl HostTimingRequest {
     }
 }
 
+/// Absolute and split stage times for one [`HostTiming`] record, appended after the v1
+/// records of a report. They let a client place every host stage on the host media clock:
+/// capture present is `presented_at_us`, acquired is that plus `capture_us`, submit is
+/// `presented_at_us + queue_us`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostTimingExtra {
+    /// The capture present stamp, in microseconds on the host's media clock (the clock of
+    /// [`ClockSyncReply`] and of the RTP timestamps).
+    pub presented_at_us: u64,
+    /// Capture present to the picture acquired.
+    pub capture_us: u32,
+    /// The stream thread's claim to the encoder taking the picture (the conversion).
+    pub convert_us: u32,
+}
+
+impl HostTimingExtra {
+    /// Whether the two stages fit inside the record's `queue_us`.
+    pub fn fits(&self, timing: &HostTiming) -> bool {
+        u64::from(self.capture_us) + u64::from(self.convert_us) <= u64::from(timing.queue_us)
+    }
+}
+
 /// Where one new picture's time went on the host, sent after its last packet left the
 /// socket, as punktfunk's host timing is. All in microseconds from the same anchor: the
 /// picture's present stamp (the display driver's acquire on a Rubylight display), or the
@@ -303,6 +329,69 @@ impl HostTiming {
             }
         }
         out
+    }
+
+    /// An extended report: the v1 records, then one [`HostTimingExtra`] per record, with
+    /// header byte 2 set to [`HOST_TIMING_EXTRA_BYTES`]. At most
+    /// [`HOST_TIMING_EXTENDED_MAX_RECORDS`] records, so it stays one ENet packet. Old
+    /// decoders read the base records and ignore the rest.
+    pub fn encode_report_with(records: &[(Self, HostTimingExtra)]) -> Vec<u8> {
+        let records = &records[..records.len().min(HOST_TIMING_EXTENDED_MAX_RECORDS)];
+        let mut out = Vec::with_capacity(
+            HOST_TIMING_HEADER_BYTES
+                + records.len() * (HOST_TIMING_RECORD_BYTES + HOST_TIMING_EXTRA_BYTES),
+        );
+        out.extend_from_slice(&[
+            VERSION,
+            records.len() as u8,
+            HOST_TIMING_EXTRA_BYTES as u8,
+            0,
+        ]);
+        for (r, _) in records {
+            for word in [r.frame, r.host_us, r.queue_us, r.encode_us, r.send_us] {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+        }
+        for (_, x) in records {
+            out.extend_from_slice(&x.presented_at_us.to_le_bytes());
+            out.extend_from_slice(&x.capture_us.to_le_bytes());
+            out.extend_from_slice(&x.convert_us.to_le_bytes());
+        }
+        out
+    }
+
+    /// Parses a report with its extension. The base records are validated as in
+    /// [`Self::decode_report`]. A record's extra is `None` when the report has none, when it
+    /// is cut short or over the extended record limit, or when `capture_us + convert_us`
+    /// exceeds that record's `queue_us`; the base record is kept either way. Bytes of an
+    /// entry past [`HOST_TIMING_EXTRA_BYTES`] are skipped.
+    pub fn decode_report_with(data: &[u8]) -> Option<Vec<(Self, Option<HostTimingExtra>)>> {
+        let records = Self::decode_report(data)?;
+        let count = records.len();
+        let extra = usize::from(data[2]);
+        let base_end = HOST_TIMING_HEADER_BYTES + count * HOST_TIMING_RECORD_BYTES;
+        let usable = extra >= HOST_TIMING_EXTRA_BYTES
+            && count <= HOST_TIMING_EXTENDED_MAX_RECORDS
+            && data.len() >= base_end + count * extra;
+        Some(
+            records
+                .into_iter()
+                .enumerate()
+                .map(|(i, r)| {
+                    let x = usable
+                        .then(|| {
+                            let at = base_end + i * extra;
+                            HostTimingExtra {
+                                presented_at_us: u64_at(data, at),
+                                capture_us: u32_at(data, at + 8),
+                                convert_us: u32_at(data, at + 12),
+                            }
+                        })
+                        .filter(|x| x.fits(&r));
+                    (r, x)
+                })
+                .collect(),
+        )
     }
 
     /// Parses a report. An unknown version, no records, a count over the limit or past the
@@ -521,6 +610,126 @@ mod tests {
         assert_eq!(
             HostTiming::decode_report(&capped).map(|r| r.len()),
             Some(HOST_TIMING_MAX_RECORDS)
+        );
+    }
+
+    fn extended_sample(count: u32) -> Vec<(HostTiming, HostTimingExtra)> {
+        (0..count)
+            .map(|i| {
+                (
+                    HostTiming {
+                        frame: 1000 + i,
+                        host_us: 3_200,
+                        queue_us: 400,
+                        encode_us: 2_500,
+                        send_us: 120,
+                    },
+                    HostTimingExtra {
+                        presented_at_us: 5_000_000_000 + u64::from(i) * 16_667,
+                        capture_us: 150,
+                        convert_us: 200,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn host_timing_extended_report_round_trips() {
+        let records = extended_sample(3);
+        let bytes = HostTiming::encode_report_with(&records);
+        assert_eq!(
+            bytes.len(),
+            HOST_TIMING_HEADER_BYTES + 3 * (HOST_TIMING_RECORD_BYTES + HOST_TIMING_EXTRA_BYTES)
+        );
+        assert_eq!(&bytes[..4], &[1, 3, 16, 0]);
+        let decoded = HostTiming::decode_report_with(&bytes).unwrap();
+        let expected: Vec<_> = records.iter().map(|(r, x)| (*r, Some(*x))).collect();
+        assert_eq!(decoded, expected);
+    }
+
+    #[test]
+    fn host_timing_old_decoder_reads_extended_report() {
+        let records = extended_sample(HOST_TIMING_EXTENDED_MAX_RECORDS as u32);
+        let bytes = HostTiming::encode_report_with(&records);
+        let base: Vec<HostTiming> = records.iter().map(|(r, _)| *r).collect();
+        assert_eq!(HostTiming::decode_report(&bytes), Some(base.clone()));
+        assert_eq!(
+            HostTiming::decode_report(&HostTiming::encode_report(&base)),
+            Some(base)
+        );
+    }
+
+    #[test]
+    fn host_timing_report_without_extension_has_no_extras() {
+        let records = extended_sample(2);
+        let base: Vec<HostTiming> = records.iter().map(|(r, _)| *r).collect();
+        let decoded = HostTiming::decode_report_with(&HostTiming::encode_report(&base)).unwrap();
+        assert_eq!(decoded.len(), 2);
+        assert!(decoded.iter().all(|(_, x)| x.is_none()));
+        assert_eq!(decoded[1].0, base[1]);
+    }
+
+    #[test]
+    fn host_timing_extension_over_queue_is_dropped_and_base_kept() {
+        let mut records = extended_sample(2);
+        records[1].1.convert_us = 251;
+        let bytes = HostTiming::encode_report_with(&records);
+        let decoded = HostTiming::decode_report_with(&bytes).unwrap();
+        assert_eq!(decoded[0], (records[0].0, Some(records[0].1)));
+        assert_eq!(decoded[1], (records[1].0, None));
+        records[1].1.convert_us = 250;
+        let ok = HostTiming::decode_report_with(&HostTiming::encode_report_with(&records));
+        assert_eq!(ok.unwrap()[1].1, Some(records[1].1));
+    }
+
+    #[test]
+    fn host_timing_extended_report_is_capped_at_868_bytes() {
+        let many = extended_sample(HOST_TIMING_EXTENDED_MAX_RECORDS as u32 + 8);
+        let bytes = HostTiming::encode_report_with(&many);
+        assert_eq!(bytes.len(), 868);
+        assert_eq!(usize::from(bytes[1]), HOST_TIMING_EXTENDED_MAX_RECORDS);
+        let decoded = HostTiming::decode_report_with(&bytes).unwrap();
+        assert_eq!(decoded.len(), HOST_TIMING_EXTENDED_MAX_RECORDS);
+        assert!(decoded.iter().all(|(_, x)| x.is_some()));
+        // More records than the extended limit: the base records are kept and any
+        // appended extras are not trusted.
+        let base: Vec<HostTiming> = many.iter().map(|(r, _)| *r).collect();
+        let mut wide = HostTiming::encode_report(&base);
+        wide[2] = 16;
+        wide.extend_from_slice(&alloc::vec![0; base.len() * 16]);
+        let decoded = HostTiming::decode_report_with(&wide).unwrap();
+        assert_eq!(decoded.len(), base.len());
+        assert!(decoded.iter().all(|(_, x)| x.is_none()));
+    }
+
+    #[test]
+    fn host_timing_extension_skips_bytes_past_the_known_fields() {
+        let records = extended_sample(2);
+        let bytes = HostTiming::encode_report_with(&records);
+        let base_end = HOST_TIMING_HEADER_BYTES + 2 * HOST_TIMING_RECORD_BYTES;
+        // Entries of 24 bytes: the 16 known bytes, then 8 newer ones.
+        let mut wider = bytes[..base_end].to_vec();
+        wider[2] = 24;
+        for i in 0..2 {
+            let at = base_end + i * 16;
+            wider.extend_from_slice(&bytes[at..at + 16]);
+            wider.extend_from_slice(&[0xee; 8]);
+        }
+        let decoded = HostTiming::decode_report_with(&wider).unwrap();
+        for (i, (r, x)) in decoded.iter().enumerate() {
+            assert_eq!(*r, records[i].0);
+            assert_eq!(*x, Some(records[i].1));
+        }
+        // Declared extra bytes missing: base kept, no extras.
+        let decoded = HostTiming::decode_report_with(&bytes[..bytes.len() - 1]).unwrap();
+        assert!(decoded.iter().all(|(_, x)| x.is_none()));
+        // Trailing bytes after the entries are ignored.
+        let mut longer = bytes.clone();
+        longer.extend_from_slice(&[0xff; 5]);
+        assert_eq!(
+            HostTiming::decode_report_with(&longer),
+            HostTiming::decode_report_with(&bytes)
         );
     }
 }

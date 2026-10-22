@@ -72,7 +72,7 @@ The report script picks the join mode per file and prints it next to every resul
 
 ### Stages reported (median, p95, p99, n, in ms)
 
-Host: `game_to_present` (RTP to capture present, ETW only), `capture`, `hold_claim`, `convert`, `encode`, `packetize_pace` (encoded to first sent), `send` (first to last packet), `host_total` (present to last sent). Cross-clock (±bound): `network_first` (first sent to first packet), `network_last` (last sent to assembled), `end_to_end` (game present to client present). Client: `assemble` (first packet to assembled), `client_queue` (assembled to decoder input), `decode`, `display` (decoder output to present), `client_total`. The report also counts host rows without a client row (lost or never shown) and client rows without host data (report lost).
+Host: `game_to_present` (RTP to capture present, ETW only), `capture`, `hold_claim`, `convert`, `encode`, `packetize_pace` (encoded to first sent), `send` (first to last packet), `host_total` (present to last sent). Cross-clock (±bound): `network_first` (first sent to first packet; the host stamps "first sent" when the first send call returns, so on loopback, where the packet arrives during that call, it is a few tens of microseconds negative), `network_last` (last sent to assembled), `end_to_end` (game present to client present). Client: `assemble` (first packet to assembled), `client_queue` (assembled to decoder input), `decode`, `display` (decoder output to present), `client_total`. The report also counts host rows without a client row (lost or never shown) and client rows without host data (report lost).
 
 ### What a moonlight-common-c receiver provides
 

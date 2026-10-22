@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Split-frame encoding through AMD's own sample encoder | [October 22, AMD's own sample encoder](#october-22-amds-own-sample-encoder) |
+| Per-frame stage times from the timing record, and what the record costs | [October 23, timing record baselines](#october-23-per-frame-timing-record-baselines) |
 | 3.0 alpha.2 gate: couch loop, crash restore, cross-versions, soak | [October 22, alpha.2 gate](#october-22-30-alpha2-gate) |
 | Fence ring against keyed-mutex ring under GPU load | [October 22, fence ring under load](#october-22-fence-ring-under-gpu-load) |
 | 3.0 alpha.1 hardware gate against 2.6.0 | [October 22, alpha.1 gate](#october-22-30-alpha1-hardware-gate) |
@@ -33,6 +34,24 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 23: per-frame timing record baselines
+
+These are the first per-frame host-to-client stage times from the timing record (`BUTTERPOLLO_TIMING_RECORD`, [docs/timing-record.md](../docs/timing-record.md)). All runs were on the RX 7900 XT with the loopback receiver and isolated test hosts, using a release package of main with the timing record. Each run was 60 s at 1080p60 and the default bitrate. Host and receiver share a clock (`shared_clock` join, bound 0.0 ms), and every host row matched a client row. Each figure is the median over passing runs of each run's median / p95 / p99, in ms.
+
+| Stage | H.264 (2 runs) | HEVC (2) | AV1 (3) | PyroWave (3) |
+| --- | --- | --- | --- | --- |
+| Encode | 2.59 / 3.35 / 3.80 | 2.56 / 3.38 / 3.85 | 2.28 / 2.85 / 3.28 | 0.93 / 1.39 / 1.55 |
+| Host total (present to last sent) | 3.67 / 10.62 / 11.64 | 3.63 / 10.54 / 11.65 | 4.24 / 10.85 / 11.67 | 11.36 / 18.02 / 18.90 |
+| Send (first to last packet) | 0.001 / 0.001 / 0.002 | 0.001 / 0.001 / 0.002 | 0.001 / 0.002 / 0.002 | 8.87 / 9.28 / 9.58 |
+| Decode | 3.54 / 4.75 / 5.33 | 5.02 / 6.96 / 8.12 | 4.36 / 6.51 / 8.11 | 1.85 / 2.58 / 3.19 |
+| End to end (present to client present) | 7.41 / 14.04 / 15.73 | 8.81 / 15.64 / 17.78 | 8.82 / 15.68 / 17.70 | 13.34 / 20.01 / 20.87 |
+
+- **PyroWave's host total is mostly pacing.** Its packets go out over about 9 ms per frame, against microseconds for the AMF codecs, which burst on loopback. The receiver's assembly time matches (8.87 ms).
+- **Network time is tens of microseconds and can be negative.** The host stamps "first sent" and "last sent" when the send call returns, and on loopback the receiver already has the packet by then.
+- **The record costs nothing measurable.** H.264 with the record off and on, three runs each, from the host's 5 s `stream timings` lines (passing runs): present-to-send p99 11.85 ms off and 11.78 ms on; host mean 0.50 ms off and 0.57 ms on. Both are within run-to-run spread.
+- **4 of 18 runs failed, and none of the failures came from the record.** h264-3, hevc-3, the first off run and the second on run failed. In each one, about 17 s in, Windows invalidated the default audio endpoint (`AUDCLNT_E_DEVICE_INVALIDATED`, 0x88890004) for both the host capture and the receiver's tone check. The failure hit runs with the record off as well as on. None was retried, there was no encoder hang, and the results above exclude them.
+- **Not measured yet:** the same matrix to the NUC over the LAN, and phones over Wi-Fi.
 
 ## October 22: 3.0 alpha.2 gate
 

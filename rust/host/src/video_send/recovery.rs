@@ -127,6 +127,7 @@ pub(crate) fn report(session: &Session, config: &Config, frame: RecoveryFrame) {
 mod tests {
     use super::*;
     use butterpollo_core::session::Role;
+    use std::time::Instant;
 
     #[test]
     fn the_first_picture_and_live_loss_use_the_same_pace_as_sending() {
@@ -154,10 +155,19 @@ mod tests {
         };
         let fast = preview_pace(&session, &config, &packetizer, period, peer, route);
         assert_eq!(fast.bps, 800_000_000);
+        // The first keyframe and the client's requests around it are the
+        // stream's start; a keyframe lost after that is what slows it.
+        session.keyframe_loss.lock().unwrap().sending_at(
+            1,
+            true,
+            Instant::now()
+                - butterpollo_core::keyframe_loss::STARTUP_WINDOW
+                - Duration::from_millis(50),
+        );
+        session.request_recovery_keyframe();
         // Queries while waiting for capture must not consume the decoder's
         // finite keyframe history or count a picture as sent.
-        session.request_recovery_keyframe();
-        session.keyframe_loss_bps(fast.bps, 108_000_000, 1, true);
+        session.keyframe_loss_bps(fast.bps, 108_000_000, 2, true);
         for _ in 0..100 {
             assert_eq!(
                 preview_pace(&session, &config, &packetizer, period, peer, route).bps,

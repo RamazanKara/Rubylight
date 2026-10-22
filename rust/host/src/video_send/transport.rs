@@ -162,6 +162,7 @@ pub(super) fn run(
             }
         }
         if lost.unrecoverable() {
+            s.keyframe_abandoned(frame.wire_frame);
             tracing::debug!(frame=frame.wire_frame, idr=frame.idr, abandoned, "video frame lost on send; the rest of it was not sent");
         } else { send_loss.delivered(frame.idr); }
         if batch.dropped != dropped {

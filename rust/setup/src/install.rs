@@ -442,10 +442,7 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
                 ));
             }
         } else {
-            notes.push(
-                "The Rubylight service is disabled, as it was before, so it was not started. Set its startup type to Manual or Automatic in Services, then start it."
-                    .into(),
-            );
+            notes.push(crate::update::DISABLED_WARNING.into());
         }
     }
     restart.services.clear();
@@ -548,6 +545,8 @@ fn move_install(
                 if system::start_service_unless_disabled(SERVICE)? {
                     wait_ready(probe(profile), Some(env!("CARGO_PKG_VERSION")))?;
                     trust_console_or_warn(profile);
+                } else {
+                    notes.push(crate::update::DISABLED_WARNING.into());
                 }
             }
             Ok(())

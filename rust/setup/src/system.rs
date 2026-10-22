@@ -11,7 +11,9 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SUCCESS},
+        Foundation::{
+            CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SUCCESS,
+        },
         System::{Registry::*, Services::*, Threading::*},
         UI::Shell::*,
     },
@@ -413,7 +415,12 @@ pub fn startup_plan(existing: Option<SERVICE_START_TYPE>) -> StartupPlan {
 fn service_start_type(service: &ServiceHandle) -> Result<SERVICE_START_TYPE> {
     let mut needed = 0u32;
     // SAFETY: `service` is a live handle; a null buffer asks only for the size.
-    let _ = unsafe { QueryServiceConfigW(service.0, None, 0, &mut needed) };
+    if let Err(error) = unsafe { QueryServiceConfigW(service.0, None, 0, &mut needed) } {
+        // Any other error is returned as it is: install_service matches on it.
+        if error.code() != ERROR_INSUFFICIENT_BUFFER.to_hresult() {
+            return Err(error.into());
+        }
+    }
     ensure!(needed > 0, "the service configuration could not be read");
     // u64 elements keep the buffer aligned for QUERY_SERVICE_CONFIGW.
     let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];

@@ -14,7 +14,7 @@ use std::{
 use windows::{
     Win32::{
         Foundation::CloseHandle,
-        System::{Com::*, Threading::*},
+        System::{Com::*, SystemInformation::GetSystemDirectoryW, Threading::*},
         UI::{Shell::*, WindowsAndMessaging::*},
     },
     core::{PCWSTR, w},
@@ -125,11 +125,16 @@ fn ask_to_start() -> bool {
 fn start_elevated() -> bool {
     /// `sc start` exits with this when the service is already running.
     const ALREADY_RUNNING: u32 = 1056;
-    let program = to_wide(
-        &std::env::var("SystemRoot")
-            .map(|root| format!("{root}\\System32\\sc.exe"))
-            .unwrap_or_else(|_| "sc.exe".into()),
-    );
+    let mut folder = [0u16; 260];
+    // SAFETY: the buffer is writable for its whole length.
+    let length = unsafe { GetSystemDirectoryW(Some(&mut folder)) } as usize;
+    if length == 0 || length >= folder.len() {
+        return false;
+    }
+    let program = to_wide(&format!(
+        "{}\\sc.exe",
+        String::from_utf16_lossy(&folder[..length])
+    ));
     let arguments = to_wide(&format!("start {}", crate::service::NAME));
     let mut info = SHELLEXECUTEINFOW {
         cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
@@ -194,17 +199,42 @@ fn service_profile() -> Result<Option<PathBuf>> {
                     return Err(stopped());
                 }
                 let deadline = Instant::now() + Duration::from_secs(30);
-                while service.query_status()?.current_state != ServiceState::Running {
-                    if Instant::now() >= deadline {
-                        return Err(stopped());
+                loop {
+                    match service.query_status()?.current_state {
+                        ServiceState::Running => break,
+                        ServiceState::Stopped => bail!(
+                            "The Rubylight service stopped again. Check logs\\service.log in {}.",
+                            butterpollo_core::paths::installed_profile().display()
+                        ),
+                        _ if Instant::now() >= deadline => return Err(stopped()),
+                        _ => std::thread::sleep(Duration::from_millis(250)),
                     }
-                    std::thread::sleep(Duration::from_millis(250));
                 }
             }
         }
         return Ok(Some(butterpollo_core::paths::installed_profile()));
     }
     Ok(None)
+}
+/// What the launcher does once it knows what answers on the HTTP port.
+#[derive(Debug, PartialEq, Eq)]
+enum Launch {
+    /// This profile's host answers: open its console.
+    Open,
+    /// Another host answers.
+    Conflict,
+    /// The installed service owns the profile and its host is not up yet.
+    WaitForService,
+    /// Nothing answers and nothing else will start it: run the host here.
+    Spawn,
+}
+fn launch_plan(service_owned: bool, response: Option<&str>, marker: &str) -> Launch {
+    match response {
+        Some(response) if response.contains(marker) => Launch::Open,
+        Some(_) => Launch::Conflict,
+        None if service_owned => Launch::WaitForService,
+        None => Launch::Spawn,
+    }
 }
 pub fn run() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
@@ -226,9 +256,13 @@ pub fn run() -> Result<()> {
             bail!("unknown start option: {}", arg.to_string_lossy());
         }
     }
+    // The installed service runs the host (as SYSTEM) for its profile: the
+    // launcher only waits for it and never starts a second host there.
+    let mut service_owned = false;
     if interactive && let Some(service) = service_profile()? {
         directory = Some(service);
         interactive = false;
+        service_owned = true;
     }
     let directory = match directory {
         Some(directory) => directory,
@@ -272,14 +306,29 @@ pub fn run() -> Result<()> {
         "<RustHostProfile>{}</RustHostProfile>",
         migration::profile_id(&directory)
     );
-    if let Some(response) = status(ports.http) {
-        if response.contains(&marker) {
-            return crate::tray::open_web(ports.web);
-        }
-        bail!(
+    match launch_plan(service_owned, status(ports.http).as_deref(), &marker) {
+        Launch::Open => return crate::tray::open_web(ports.web),
+        Launch::Conflict => bail!(
             "Another streaming host is using port {}. Close Vibepollo or Apollo before starting Rubylight, or choose a different base port in sunshine.conf. Your settings have been preserved.",
             ports.http
-        );
+        ),
+        Launch::WaitForService => {
+            // The service reports Running before its host answers: an update
+            // recovery or driver repair can come first.
+            let deadline = Instant::now() + Duration::from_secs(90);
+            while Instant::now() < deadline {
+                if status(ports.http).is_some_and(|response| response.contains(&marker)) {
+                    return crate::tray::open_web(ports.web);
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            bail!(
+                "The Rubylight service is still starting. Open https://localhost:{} after startup, or check logs\\service.log in {}.",
+                ports.web,
+                directory.display()
+            );
+        }
+        Launch::Spawn => {}
     }
     let executable = std::env::current_exe()?
         .parent()
@@ -328,6 +377,19 @@ pub fn run() -> Result<()> {
 mod tests {
     use super::*;
     use windows_service::service::{ServiceStartType as Type, ServiceState as State};
+    #[test]
+    fn a_service_profile_never_gets_a_second_host() {
+        let marker = "<RustHostProfile>abc</RustHostProfile>";
+        let ours = format!("HTTP/1.1 200 OK\r\n\r\n{marker}");
+        let other = "HTTP/1.1 200 OK\r\n\r\n<RustHostProfile>other</RustHostProfile>";
+        for owned in [true, false] {
+            assert_eq!(launch_plan(owned, Some(&ours), marker), Launch::Open);
+            assert_eq!(launch_plan(owned, Some(other), marker), Launch::Conflict);
+        }
+        // The service reports Running before its host answers.
+        assert_eq!(launch_plan(true, None, marker), Launch::WaitForService);
+        assert_eq!(launch_plan(false, None, marker), Launch::Spawn);
+    }
     #[test]
     fn a_stopped_service_is_offered_a_start_unless_it_is_disabled() {
         for start_type in [Type::AutoStart, Type::OnDemand] {

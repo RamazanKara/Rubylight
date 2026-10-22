@@ -79,6 +79,10 @@ impl Feature {
 /// What would make an unsupported feature available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Reason {
+    /// The host lacks something a newer version has. For a Rubylight host without the native
+    /// API this is a 2.6.x host, and NVIDIA and Intel users cannot update to 3.0 (it is
+    /// AMD-only), so the UI must not say "update the host" for it. Word it as "this host
+    /// doesn't offer it".
     UpdateHost,
     Pair,
     ViewPermission,

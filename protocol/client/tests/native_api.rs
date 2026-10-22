@@ -81,56 +81,57 @@ fn the_hosts_fixtures_parse_and_write_back() {
     assert_eq!(error.error.code, ErrorCode::HostControlRequired);
 }
 
-/// The vendored fixtures are copies of the pinned crate's. When its checkout is in the cargo
-/// home, they must match byte for byte, so a pin bump that changes one fails here.
+/// The vendored fixtures are copies of the pinned crate's, byte for byte, so a pin bump that
+/// changes one fails here. The crate is located through `cargo metadata`; a failure to find it
+/// fails the test.
 #[test]
 fn the_vendored_fixtures_match_the_pinned_crate() {
-    let manifest =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
-    let rev = manifest
-        .lines()
-        .find(|line| line.starts_with("rubylight-native-api"))
-        .and_then(|line| line.split("rev = \"").nth(1))
-        .map(|rest| rest[..7].to_owned())
-        .expect("rubylight-native-api rev");
-    let cargo_home = std::env::var_os("CARGO_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("USERPROFILE")
-                .or_else(|| std::env::var_os("HOME"))
-                .map(|home| std::path::Path::new(&home).join(".cargo"))
-        })
-        .unwrap();
-    let Ok(checkouts) = std::fs::read_dir(cargo_home.join("git/checkouts")) else {
-        eprintln!("no cargo git checkouts; fixture drift not checked");
-        return;
-    };
+    let output = std::process::Command::new(env!("CARGO"))
+        .args(["metadata", "--format-version", "1", "--locked", "--offline"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run cargo metadata");
+    assert!(
+        output.status.success(),
+        "cargo metadata: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let metadata: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let manifest = metadata["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|package| package["name"] == "rubylight-native-api")
+        .and_then(|package| package["manifest_path"].as_str())
+        .expect("rubylight-native-api is not in cargo metadata");
+    let dir = std::path::Path::new(manifest)
+        .parent()
+        .unwrap()
+        .join("tests/fixtures");
     let mut compared = 0;
-    for entry in checkouts.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("rubylight-") || name.starts_with("rubylight-android-") {
-            continue;
-        }
-        let dir = entry
-            .path()
-            .join(&rev)
-            .join("rust/core/native-api/tests/fixtures");
-        if !dir.is_dir() {
-            continue;
-        }
-        for name in NAMES {
-            let upstream = std::fs::read_to_string(dir.join(format!("{name}.json"))).unwrap();
-            assert_eq!(
-                fixture(name),
-                upstream.replace("\r\n", "\n"),
-                "{name}.json drifted from rev {rev}"
-            );
-            compared += 1;
-        }
+    for name in NAMES {
+        let upstream = std::fs::read_to_string(dir.join(format!("{name}.json")))
+            .unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        assert_eq!(
+            fixture(name),
+            upstream,
+            "{name}.json drifted from {manifest}"
+        );
+        compared += 1;
     }
-    if compared == 0 {
-        eprintln!("rev {rev} is not checked out; fixture drift not checked");
-    }
+    assert_eq!(compared, NAMES.len(), "fixtures compared");
+    // Every fixture upstream is vendored.
+    let upstream = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .count();
+    assert_eq!(
+        upstream,
+        NAMES.len(),
+        "{} has fixtures that are not vendored",
+        dir.display()
+    );
 }
 
 // ---------------------------------------------------------------------------------------
@@ -300,10 +301,17 @@ fn read_request(stream: &mut impl Read) -> Option<(String, String, Option<String
 
 /// Serves `handler(method, path, body) -> (status, body)` over TLS, asking for a client certificate.
 fn serve(handler: impl Fn(&str, &str, &[u8]) -> (u16, String) + Send + 'static) -> MockHost {
+    serve_as(host_identity(), handler)
+}
+
+/// [`serve`] with the TLS certificate of `identity`.
+fn serve_as(
+    identity: &crypto::Identity,
+    handler: impl Fn(&str, &str, &[u8]) -> (u16, String) + Send + 'static,
+) -> MockHost {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let identity = host_identity();
     let config = Arc::new(
         rustls::ServerConfig::builder_with_provider(provider.clone())
             .with_safe_default_protocol_versions()
@@ -570,4 +578,24 @@ fn an_unpaired_client_does_not_connect() {
         client.write_radeon(&serde_json::from_str(&fixture("settings_write")).unwrap()),
         Err(Error::NotPaired)
     ));
+}
+
+#[test]
+fn another_host_certificate_is_refused_for_every_native_call() {
+    // The client pinned host_identity() at pairing; a host showing another certificate gets
+    // no request through, whatever it would answer.
+    let other = crypto::Identity::generate().unwrap();
+    assert_ne!(other.certificate, host_identity().certificate);
+    let host = serve_as(&other, |_, _, _| (200, fixture("session")));
+    let client = paired_client(&host);
+    assert!(matches!(client.session(), Err(Error::CertificateMismatch)));
+    assert!(matches!(
+        client.session_action(ActionId::End),
+        Err(Error::CertificateMismatch)
+    ));
+    assert!(matches!(
+        client.native_capabilities(),
+        Err(Error::CertificateMismatch)
+    ));
+    assert!(host.seen.lock().unwrap().is_empty());
 }

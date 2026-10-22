@@ -86,12 +86,26 @@ Write errors map to `invalid_value` (validated before anything is written), `not
 - A write of the value a setting already holds returns ADLX_ALREADY_ENABLED. That is treated as success.
 - `rsr.enabled` and `anti_aliasing.level` and `anisotropic_filtering.level` stay unwritten (reasons in the table). `rsr.sharpness` round-tripped on its own.
 - Turning a feature on can switch its exclusive partners off (`chill` and `anti_lag`, `boost` and `rsr`, and so on). The journal records those driver side effects as separate entries and restore puts them back.
-- Another process sees a write about 2 s after it lands. A write made just before a process dies can also arrive late, so recovery waits 3 s and checks again before it believes a setting is already back to the original. A process's own view can stay behind for a long time after another process wrote, so checks across processes use fresh processes.
+- A fresh process sees a write about 130 ms after it lands. A long-lived process never sees another process's write (see "ADLX view refresh"), so the host reads and writes through short-lived helper processes.
 - ADLX is initialised once per process and never terminated: calling `ADLXTerminate` per session crashed the process with an access violation within a few hundred cycles. A later `ADLXInitialize` returns ALREADY_INITIALIZED, which is accepted.
+
+### ADLX view refresh
+
+Measured on the RX 7900 XT (AMD Software 26.9.2, `measure_view_refresh`, ignored, hardware). A child process wrote `morphological_aa.enabled`; the parent, which had read it before, tried to see the new value:
+
+| Attempt in the long-lived process | Result |
+| --- | --- |
+| A new ADLX session (re-query the system services) | still the old value after 12 s |
+| `ADLXInitializeWithIncompatibleDriver` again | returns 2 (already initialised); still the old value after 12 s |
+| Waiting | still the old value after 12 s |
+| `ADLXTerminate` and initialise again | crashes the process (0xC0000005); not an option |
+| A new process | sees the write in about 130 ms |
+
+A write of the value the stale process believes is current is dropped. The earlier "about 2 s lag" was the parent's stale view, not driver latency. So nothing in-process refreshes the view, and the host does the guard reads, original reads and writes in a short-lived helper process (`butterpollo.exe --radeon-helper`, hidden; one JSON request on stdin, one `RADEON-HELPER-RESPONSE` line on stdout). Startup recovery also writes the original back for entries the guard calls already-original, and the old fixed 3 s wait is gone. It runs on a dedicated worker thread with a time limit, so it cannot block host startup; later writes and session restores wait for it.
 
 ### Crash test
 
-`crash_then_recover` (ignored, hardware): a child process writes `morphological_aa.enabled` through the journal and dies without restoring, once with `exit(3)` and once with `abort()`. A fresh process then runs `recover_on_startup`, which restored the setting ("Restored", journal empty), and new processes read the original from then on, still the same 5 s later. A fake-backend unit test covers the same recovery and a stale-read case.
+`crash_then_recover` (ignored, hardware): a child process writes `morphological_aa.enabled` through the journal and dies without restoring, once with `exit(3)` and once with `abort()`. A fresh process then runs recovery inside the window where a long-lived process still sees the stale value (recovery took 612 to 636 ms); it restored the setting ("Restored", journal empty), and new processes read the original from then on. Fake-backend unit tests cover the same recovery, a stale-read case, and restoring a field whose feature is off (the group is switched on temporarily, journaled first, the field restored, then the toggle). Both hardware tests ended with an empty probe diff from a fresh process (34 settings compared).
 
 ### Mismatches with the spec's ids (`docs/native-api.md`)
 
@@ -107,4 +121,5 @@ Write errors map to `invalid_value` (validated before anything is written), `not
 - "Proven" is one round trip per setting on one GPU and one driver, with one alternative value (the next valid one). Other values in a range, other GPUs, older drivers and the 1.x ADLX runtimes will differ: re-run the hardware tests there before relying on a row.
 - Dependency notes come from sentences in the ADLX headers and from the write proof. ADLX does not expose a dependency query, so the list is not exhaustive.
 - Nothing in a normal stream writes these settings yet; the write, journal and restore core is exercised only by the tests (session wiring is later work).
-- Telemetry still has its own ADLX init and terminate. If it terminates mid-call while the control layer is reading or writing, ADLX can fault; the control layer keeps ADLX initialised for the process lifetime.
+- Telemetry and the control layer share one ADLX owner (`adlx_system.rs`): one initialisation, one lock, never terminated.
+- Not measured: whether enabling Enhanced Sync while `vsync.enabled` is on flips vsync. `vsync.mode` has no pre-write journal entry because the value after a flip is unknown, so only the post-write diff covers it.

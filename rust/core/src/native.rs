@@ -159,56 +159,33 @@ pub fn library_with(
     Library { revision, games }
 }
 
-/// Whether a stream is flowing, being torn down or absent.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum StreamPhase {
-    #[default]
-    None,
-    /// An active `Role::Stream` session that is not `stopping()`.
-    Active,
-    Stopping,
-}
-
-/// What the host knows about the session right now. The host fills it from
-/// its launch state, stream sessions, `current_app` and `app_display`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// What the host's session state machine reports right now
+/// ([`crate::session_state::Machine::snapshot`]). `session_view` turns it into
+/// the wire type for one caller.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionSnapshot {
     pub revision: u64,
-    /// A launch was accepted and has not finished starting.
-    pub pending_launch: bool,
-    /// The app process exists, so a pending launch is `launching`.
-    pub app_started: bool,
-    pub stream: StreamPhase,
-    /// There is a running `current_app`, whoever owns it.
+    pub state: State,
+    /// There is a running game, whoever owns it. After End session it is true
+    /// while the state is `idle`.
     pub game_running: bool,
-    /// The owner's display is still retained in `app_display`.
-    pub display_retained: bool,
-    /// The uuid of the device that owns the pending launch, the stream or the
-    /// current game.
+    /// The uuid of the device that owns the session. Always set unless the
+    /// state is `idle`.
     pub owner: Option<String>,
     pub app: Option<SessionApp>,
     pub since_unix_ms: Option<u64>,
     pub suspended_until_unix_ms: Option<u64>,
 }
-impl SessionSnapshot {
-    /// The pre-A4 derivation: a pending launch is `preparing` (`launching`
-    /// once the app process exists), an active stream is `streaming`, a
-    /// stopping one `stopping`, a running game whose owner's display is
-    /// retained is `suspended`, and anything else is `idle`.
-    pub fn state(&self) -> State {
-        if self.pending_launch {
-            if self.app_started {
-                State::Launching
-            } else {
-                State::Preparing
-            }
-        } else {
-            match self.stream {
-                StreamPhase::Active => State::Streaming,
-                StreamPhase::Stopping => State::Stopping,
-                StreamPhase::None if self.game_running && self.display_retained => State::Suspended,
-                StreamPhase::None => State::Idle,
-            }
+impl Default for SessionSnapshot {
+    fn default() -> Self {
+        Self {
+            revision: 0,
+            state: State::Idle,
+            game_running: false,
+            owner: None,
+            app: None,
+            since_unix_ms: None,
+            suspended_until_unix_ms: None,
         }
     }
 }
@@ -221,7 +198,7 @@ pub fn host_control(client: &Client) -> bool {
 
 /// The session as `caller` may see it, with the actions it may run.
 pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
-    let state = snapshot.state();
+    let state = snapshot.state;
     let idle = state == State::Idle;
     // The host always names the owner of a session that isn't idle. Without
     // one, every caller would read as another device.
@@ -361,10 +338,10 @@ mod tests {
             title: "Dota 2".into(),
         }
     }
-    fn snapshot(stream: StreamPhase, owner: &str) -> SessionSnapshot {
+    fn snapshot(state: State, owner: &str) -> SessionSnapshot {
         SessionSnapshot {
             revision: 9,
-            stream,
+            state,
             game_running: true,
             owner: Some(owner.into()),
             app: Some(game(5)),
@@ -374,10 +351,7 @@ mod tests {
         }
     }
     fn suspended(owner: &str) -> SessionSnapshot {
-        SessionSnapshot {
-            display_retained: true,
-            ..snapshot(StreamPhase::None, owner)
-        }
+        snapshot(State::Suspended, owner)
     }
     fn allowed(session: &Session, id: ActionId) -> bool {
         session.actions.iter().find(|a| a.id == id).unwrap().allowed
@@ -557,32 +531,6 @@ mod tests {
     }
 
     #[test]
-    fn the_state_derivation() {
-        let mut s = SessionSnapshot::default();
-        assert_eq!(s.state(), State::Idle);
-        s.pending_launch = true;
-        assert_eq!(s.state(), State::Preparing);
-        s.app_started = true;
-        assert_eq!(s.state(), State::Launching);
-        assert_eq!(
-            snapshot(StreamPhase::Active, "me").state(),
-            State::Streaming
-        );
-        assert_eq!(
-            snapshot(StreamPhase::Stopping, "me").state(),
-            State::Stopping
-        );
-        assert_eq!(suspended("me").state(), State::Suspended);
-        // A game with no retained display, or a display with no game, is idle.
-        assert_eq!(snapshot(StreamPhase::None, "me").state(), State::Idle);
-        let display_only = SessionSnapshot {
-            display_retained: true,
-            ..Default::default()
-        };
-        assert_eq!(display_only.state(), State::Idle);
-    }
-
-    #[test]
     fn the_spec_example_for_a_suspended_owner() {
         let session = session_view(&suspended("me"), &client(ALL, json!({})));
         assert_eq!(session.state, State::Suspended);
@@ -612,7 +560,7 @@ mod tests {
     #[test]
     fn a_streaming_owner_can_disconnect_end_and_close_with_host_control() {
         let caller = client(ALL, json!({"host_control": true}));
-        let session = session_view(&snapshot(StreamPhase::Active, "me"), &caller);
+        let session = session_view(&snapshot(State::Streaming, "me"), &caller);
         assert_eq!(session.state, State::Streaming);
         // Resume supersedes the same device's stream: the reconnect after a
         // crash.
@@ -632,7 +580,7 @@ mod tests {
     fn another_device_sees_state_and_owner_only() {
         let caller = client(ALL, json!({"host_control": true}));
         for snapshot in [
-            snapshot(StreamPhase::Active, "someone"),
+            snapshot(State::Streaming, "someone"),
             suspended("someone"),
         ] {
             let session = session_view(&snapshot, &caller);
@@ -664,7 +612,7 @@ mod tests {
         }
         // View alone shows the app and may resume and disconnect, not end.
         let viewer = client(VIEW, json!({}));
-        let session = session_view(&snapshot(StreamPhase::Active, "me"), &viewer);
+        let session = session_view(&snapshot(State::Streaming, "me"), &viewer);
         assert!(session.app.is_some());
         assert!(allowed(&session, ActionId::Disconnect));
         assert_eq!(
@@ -733,11 +681,8 @@ mod tests {
     #[test]
     fn a_launch_in_progress_is_busy_for_every_action() {
         let caller = client(ALL, json!({"host_control": true}));
-        for (app_started, expected) in [(false, State::Preparing), (true, State::Launching)] {
-            let mut launching = snapshot(StreamPhase::None, "me");
-            launching.pending_launch = true;
-            launching.app_started = app_started;
-            let session = session_view(&launching, &caller);
+        for expected in [State::Preparing, State::Launching] {
+            let session = session_view(&snapshot(expected, "me"), &caller);
             assert_eq!(session.state, expected);
             for id in [ActionId::Resume, ActionId::End, ActionId::CloseGame] {
                 assert!(!allowed(&session, id), "{expected:?} {id:?}");
@@ -757,7 +702,7 @@ mod tests {
     #[test]
     fn stopping_allows_end_and_close_game_again_but_not_resume() {
         let caller = client(ALL, json!({"host_control": true}));
-        let session = session_view(&snapshot(StreamPhase::Stopping, "me"), &caller);
+        let session = session_view(&snapshot(State::Stopping, "me"), &caller);
         assert_eq!(session.state, State::Stopping);
         assert!(allowed(&session, ActionId::End));
         assert!(allowed(&session, ActionId::CloseGame));
@@ -770,7 +715,7 @@ mod tests {
     #[test]
     fn resume_needs_view() {
         let launcher = client(LAUNCH, json!({}));
-        let session = session_view(&snapshot(StreamPhase::Active, "me"), &launcher);
+        let session = session_view(&snapshot(State::Streaming, "me"), &launcher);
         assert_eq!(
             reason(&session, ActionId::Resume),
             Some(ErrorCode::PermissionRequired)

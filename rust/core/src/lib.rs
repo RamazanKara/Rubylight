@@ -71,6 +71,7 @@ pub mod reconfigure;
 pub mod remote;
 pub mod rtsp;
 pub mod session;
+pub mod session_state;
 pub mod stall_watch;
 pub mod state;
 pub mod steam;

@@ -14,6 +14,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, RecvTimeoutError},
     },
     time::{Duration, Instant},
@@ -25,16 +26,22 @@ pub const RECOVERY_LIMIT: Duration = Duration::from_secs(90);
 /// How often a recovery that left settings changed is tried again.
 pub const RETRY_EVERY: Duration = Duration::from_secs(60);
 
+/// How long `apply` and `restore_session` wait for the worker before giving up. It covers the
+/// queue (including a startup recovery at its limit) plus the call itself.
+pub const CALL_LIMIT: Duration = Duration::from_secs(150);
+
 #[derive(Clone, Copy, Debug)]
 pub struct Timing {
     pub recovery_limit: Duration,
     pub retry_every: Duration,
+    pub call_limit: Duration,
 }
 impl Default for Timing {
     fn default() -> Self {
         Self {
             recovery_limit: RECOVERY_LIMIT,
             retry_every: RETRY_EVERY,
+            call_limit: CALL_LIMIT,
         }
     }
 }
@@ -63,6 +70,9 @@ enum Job {
         gpu: i32,
         changes: Vec<Change>,
         reply: mpsc::Sender<Result<Vec<Setting>, WriteError>>,
+        /// Set by a caller that stopped waiting: a job that has not started is then dropped, so
+        /// a late write cannot land after the caller was told it failed.
+        abandoned: Arc<AtomicBool>,
     },
     Restore {
         session: String,
@@ -73,6 +83,7 @@ enum Job {
 pub struct Worker {
     jobs: mpsc::Sender<Job>,
     status: Arc<Mutex<Status>>,
+    call_limit: Duration,
 }
 
 impl Worker {
@@ -93,7 +104,11 @@ impl Worker {
             .name("radeon".into())
             .spawn(move || run(Controller::new(backend, journal), &queue, &shared, timing))
             .expect("spawn the Radeon worker thread");
-        Self { jobs, status }
+        Self {
+            jobs,
+            status,
+            call_limit: timing.call_limit,
+        }
     }
 
     pub fn status(&self) -> Status {
@@ -103,7 +118,13 @@ impl Worker {
             .clone()
     }
 
-    /// Queue behind the recovery and any earlier job, and wait for the driver's read-back.
+    /// Queue behind the recovery and any earlier job, and wait for the driver's read-back, at
+    /// most `call_limit`. Each call runs one helper process per read and write (about 600 ms for
+    /// a small request), so this must stay off the stream-start path: call it from a task that
+    /// the stream does not wait for.
+    ///
+    /// On a timeout the request is dropped if it has not started. One that was already running
+    /// may still finish, so the caller must still `restore_session` afterwards.
     pub fn apply(
         &self,
         session: &str,
@@ -111,17 +132,34 @@ impl Worker {
         changes: Vec<Change>,
     ) -> Result<Vec<Setting>, WriteError> {
         let (reply, answer) = mpsc::channel();
+        let abandoned = Arc::new(AtomicBool::new(false));
         let job = Job::Apply {
             session: session.into(),
             gpu,
             changes,
             reply,
+            abandoned: abandoned.clone(),
         };
         self.jobs.send(job).map_err(|_| stopped())?;
-        answer.recv().map_err(|_| stopped())?
+        match answer.recv_timeout(self.call_limit) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => {
+                abandoned.store(true, Ordering::SeqCst);
+                Err(WriteError {
+                    kind: super::ErrorKind::Unavailable,
+                    id: None,
+                    message: format!(
+                        "the Radeon worker did not answer within {} s; the request was dropped if it had not started, and may still finish if it had",
+                        self.call_limit.as_secs()
+                    ),
+                })
+            }
+            Err(RecvTimeoutError::Disconnected) => Err(stopped()),
+        }
     }
 
-    /// Queue behind the recovery and any earlier job, and put one session's settings back.
+    /// Queue behind the recovery and any earlier job, and put one session's settings back, waiting
+    /// at most `call_limit`. A restore that times out stays queued and still runs.
     pub fn restore_session(&self, session: &str) -> anyhow::Result<RestoreReport> {
         let (reply, answer) = mpsc::channel();
         let job = Job::Restore {
@@ -131,9 +169,16 @@ impl Worker {
         self.jobs
             .send(job)
             .map_err(|_| anyhow::anyhow!("the Radeon worker stopped"))?;
-        answer
-            .recv()
-            .map_err(|_| anyhow::anyhow!("the Radeon worker stopped"))?
+        match answer.recv_timeout(self.call_limit) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
+                "the Radeon worker did not answer within {} s; the restore stays queued and still runs",
+                self.call_limit.as_secs()
+            )),
+            Err(RecvTimeoutError::Disconnected) => {
+                Err(anyhow::anyhow!("the Radeon worker stopped"))
+            }
+        }
     }
 }
 
@@ -239,7 +284,12 @@ fn run<B: RadeonBackend>(
                 gpu,
                 changes,
                 reply,
+                abandoned,
             }) => {
+                if abandoned.load(Ordering::SeqCst) {
+                    tracing::warn!(session = %session, "dropped a Radeon request its caller gave up on");
+                    continue;
+                }
                 // Even a refused request may leave journaled entries behind.
                 active.insert(session.clone());
                 let _ = reply.send(controller.apply(&session, gpu, &changes));
@@ -430,6 +480,7 @@ mod tests {
         Timing {
             recovery_limit: Duration::from_secs(60),
             retry_every: Duration::from_millis(50),
+            call_limit: Duration::from_secs(60),
         }
     }
     fn until(what: &str, mut done: impl FnMut() -> bool) {
@@ -478,6 +529,44 @@ mod tests {
             "the crashed run's setting is put back before the new write"
         );
         assert_eq!(worker.status().phase, Phase::Ready);
+    }
+
+    #[test]
+    fn a_caller_gives_up_after_the_call_limit_and_its_unstarted_write_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = crashed_journal(dir.path());
+        let (driver, open) = Driver::new();
+        let timing = Timing {
+            call_limit: Duration::from_millis(200),
+            ..quick()
+        };
+        let worker = Worker::start(driver.clone(), journal, timing);
+        // The recovery is stuck on its first read, so nothing behind it can start.
+        let started = Instant::now();
+        let error = worker
+            .apply("late", 1, vec![change("pacing.limit", Value::Int(150))])
+            .unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(error.kind, crate::radeon::ErrorKind::Unavailable);
+        assert!(
+            error.message.contains("did not answer"),
+            "{}",
+            error.message
+        );
+        let error = worker.restore_session("late").unwrap_err();
+        assert!(format!("{error:#}").contains("still runs"), "{error:#}");
+        open.send(()).unwrap();
+        until("the recovery to finish", || {
+            worker.status().phase == Phase::Ready
+        });
+        // A restore of a session with no entries is a no-op; wait for the queue to drain.
+        worker.restore_session("drain").unwrap();
+        assert_eq!(
+            driver.events(),
+            ["anti_lag.enabled=on"],
+            "only the crashed run's setting was written; the abandoned request never ran"
+        );
+        assert_eq!(driver.value("pacing.limit"), Value::Int(140));
     }
 
     #[test]

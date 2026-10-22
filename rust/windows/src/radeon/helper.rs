@@ -29,14 +29,14 @@ const MARKER: &str = "RADEON-HELPER-RESPONSE ";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
-enum Request {
+pub(super) enum Request {
     Read { gpu: i32 },
     Write { gpu: i32, id: String, value: Value },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
-enum Response {
+pub(super) enum Response {
     Settings { settings: Vec<Setting> },
     Done,
     Error { message: String },
@@ -44,7 +44,7 @@ enum Response {
 
 /// Answer one request against a backend. A request that does not parse is an error response, not
 /// a panic.
-fn handle(request: &str, backend: &mut impl RadeonBackend) -> Response {
+pub(super) fn handle(request: &str, backend: &mut impl RadeonBackend) -> Response {
     let request: Request = match serde_json::from_str(request) {
         Ok(request) => request,
         Err(error) => {
@@ -92,6 +92,40 @@ fn run_with(backend: &mut impl RadeonBackend) -> i32 {
     }
 }
 
+/// How long a killed helper gets to disappear before it is abandoned.
+const KILL_GRACE: Duration = Duration::from_secs(3);
+/// How much of a helper's stderr goes into an error.
+const STDERR_LIMIT: usize = 400;
+
+/// Read a pipe to its end on a thread; the text arrives on the channel once the pipe closes.
+fn drain(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = pipe.read_to_end(&mut bytes);
+        let _ = sender.send(String::from_utf8_lossy(&bytes).into_owned());
+    });
+    receiver
+}
+
+/// The helper's stderr as a short suffix for an error message (empty when it said nothing).
+fn what_it_said(errors: &mpsc::Receiver<String>) -> String {
+    let text = errors
+        .recv_timeout(Duration::from_millis(500))
+        .unwrap_or_default();
+    let text = text.trim();
+    if text.is_empty() {
+        return String::new();
+    }
+    let shown: String = text.chars().take(STDERR_LIMIT).collect();
+    let cut = if text.chars().count() > STDERR_LIMIT {
+        "..."
+    } else {
+        ""
+    };
+    format!("; it said: {shown}{cut}")
+}
+
 /// A [`RadeonBackend`] whose every call runs in a fresh helper process.
 #[derive(Clone, Debug)]
 pub struct HelperBackend {
@@ -127,7 +161,7 @@ impl HelperBackend {
             .args(&self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
@@ -142,13 +176,8 @@ impl HelperBackend {
             // A helper that died early closes the pipe; its exit status explains it below.
             let _ = stdin.write_all(body.as_bytes());
         }
-        let mut stdout = child.stdout.take().expect("stdout is piped");
-        let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = stdout.read_to_string(&mut text);
-            let _ = sender.send(text);
-        });
+        let receiver = drain(child.stdout.take().expect("stdout is piped"));
+        let errors = drain(child.stderr.take().expect("stderr is piped"));
         let deadline = Instant::now() + self.timeout;
         let status = loop {
             match child.try_wait() {
@@ -158,10 +187,28 @@ impl HelperBackend {
                 }
                 Ok(None) => {
                     let _ = child.kill();
-                    let _ = child.wait();
+                    // A process stuck inside the driver may not die when killed. Wait a few
+                    // seconds, then abandon it (its two reader threads stay blocked with it)
+                    // rather than hang the caller too.
+                    let gone = Instant::now() + KILL_GRACE;
+                    let ended = loop {
+                        match child.try_wait() {
+                            Ok(Some(_)) => break true,
+                            Ok(None) if Instant::now() < gone => {
+                                std::thread::sleep(Duration::from_millis(20));
+                            }
+                            _ => break false,
+                        }
+                    };
                     return Err(BackendError(format!(
-                        "the Radeon helper did not answer within {} s and was stopped; the driver may be stalled, and the setting it was asked to change may or may not have changed",
-                        self.timeout.as_secs()
+                        "the Radeon helper did not answer within {} s and {}; the driver may be stalled, and the setting it was asked to change may or may not have changed{}",
+                        self.timeout.as_secs(),
+                        if ended {
+                            "was stopped"
+                        } else {
+                            "could not be stopped and was abandoned"
+                        },
+                        what_it_said(&errors)
                     )));
                 }
                 Err(error) => {
@@ -179,7 +226,8 @@ impl HelperBackend {
             .find_map(|line| line.split_once(MARKER).map(|(_, answer)| answer))
             .ok_or_else(|| {
                 BackendError(format!(
-                    "the Radeon helper exited ({status}) without an answer"
+                    "the Radeon helper exited ({status}) without an answer{}",
+                    what_it_said(&errors)
                 ))
             })
             .and_then(|line| {
@@ -346,6 +394,23 @@ mod tests {
         let error = backend.read(1).unwrap_err().0;
         assert!(error.contains("without an answer"), "{error}");
         assert!(error.contains('7'), "{error}");
+    }
+
+    #[test]
+    fn what_a_failed_helper_printed_is_in_the_error_and_truncated() {
+        let mut backend = HelperBackend::with_command(
+            PathBuf::from("cmd"),
+            vec!["/c".into(), "echo boom 1>&2 & exit 3".into()],
+        );
+        let error = backend.read(1).unwrap_err().0;
+        assert!(error.contains("it said: boom"), "{error}");
+
+        let long = "x".repeat(STDERR_LIMIT * 3);
+        let (sender, receiver) = mpsc::channel();
+        sender.send(long).unwrap();
+        let said = what_it_said(&receiver);
+        assert!(said.ends_with("..."), "{said}");
+        assert!(said.len() < STDERR_LIMIT + 40, "{said}");
     }
 
     #[test]

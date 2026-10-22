@@ -24,6 +24,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
 
+mod compat;
 mod radeon;
 
 const LIST: u32 = 1 << 24;

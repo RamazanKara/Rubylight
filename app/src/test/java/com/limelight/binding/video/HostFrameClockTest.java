@@ -43,7 +43,7 @@ public class HostFrameClockTest {
     @Test public void clockSyncProbesRunWithHostFrameTimesOffAndFramesAreNotScheduled() throws Exception {
         FakeBridge bridge = new FakeBridge();
         HostFrameClock clock = new HostFrameClock(bridge, 5);
-        clock.start(120, false);
+        clock.start(120, false, true);
         try {
             assertTrue("probes must not wait for host frame times", bridge.probes.await(5, java.util.concurrent.TimeUnit.SECONDS));
             assertEquals(1, bridge.starts);
@@ -63,6 +63,28 @@ public class HostFrameClockTest {
         assertEquals("a second stop does nothing", 1, bridge.stops);
     }
 
+    @Test public void aHostThatDidNotAnnounceClockSyncGetsNoProbes() throws Exception {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 5);
+        clock.start(120, true, false);
+        try {
+            assertFalse("no probes", bridge.probes.await(200, java.util.concurrent.TimeUnit.MILLISECONDS));
+            assertEquals(2, bridge.probes.getCount());
+            clock.onQueued(1_000, 90_000_000L);
+            assertEquals("scheduling still works", 5_000_000L + 10, clock.presentNs(1_000, 10));
+        } finally {
+            clock.stop();
+        }
+        // Nothing scheduled and nothing to probe: the native clock is never started.
+        FakeBridge idle = new FakeBridge();
+        HostFrameClock off = new HostFrameClock(idle, 5);
+        off.start(120, false, false);
+        off.stop();
+        assertEquals(0, idle.starts);
+        assertEquals(0, idle.stops);
+        assertFalse(off.clockOffset(new long[2]));
+    }
+
     @Test public void aClockThatNeverStartedAnswersNoOffsetAndStopsQuietly() {
         FakeBridge bridge = new FakeBridge();
         HostFrameClock clock = new HostFrameClock(bridge, 5);
@@ -74,7 +96,7 @@ public class HostFrameClockTest {
     @Test public void withHostFrameTimesOnQueuedFramesAreScheduled() {
         FakeBridge bridge = new FakeBridge();
         HostFrameClock clock = new HostFrameClock(bridge, 60_000);
-        clock.start(120, true);
+        clock.start(120, true, true);
         try {
             clock.onQueued(1_000, 90_000_000L);
             assertEquals(123_456_789L + 5_000_000L, clock.presentNs(1_000, 123_456_789L));

@@ -2330,7 +2330,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     public void start() {
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             // Clock sync for the timing CSV; PyroWave frames are not scheduled by host time.
-            hostFrameClock.start(0, false);
+            hostFrameClock.start(0, false, hostAnnouncesClockSync());
             if (FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable)) {
                 startChoreographerThread();
             }
@@ -2338,11 +2338,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         applyOutputPacingFallback();
         hostFrameTimes = prefs.hostFrameTimes;
-        // The clock always runs so a host that announced clock sync is probed for the timing CSV;
-        // frames are scheduled by it only with host frame times on.
-        hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes);
+        // A host that announced clock sync is probed for the timing CSV; frames are scheduled by
+        // the clock only with host frame times on.
+        hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes,
+                hostAnnouncesClockSync());
         startRendererThread();
         startChoreographerThread();
+    }
+
+    private static boolean hostAnnouncesClockSync() {
+        return MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_CLOCK_SYNC);
     }
 
     /** The output display's highest refresh rate: presents are never closer than one refresh. */

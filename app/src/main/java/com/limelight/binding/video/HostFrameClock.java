@@ -74,21 +74,23 @@ final class HostFrameClock {
     }
 
     /**
-     * Starts a clock for a stream on a display whose highest refresh rate is maxRefreshHz. With
-     * schedule false the clock only keeps clock sync running (see the class comment).
+     * Starts a clock for a stream on a display whose highest refresh rate is maxRefreshHz. It
+     * schedules frames when schedule is true and sends clock sync probes when probe is true (the
+     * host announced clock sync); with neither it does not start at all.
      */
-    void start(float maxRefreshHz, boolean schedule) {
+    void start(float maxRefreshHz, boolean schedule, boolean probe) {
+        if (!schedule && !probe) return;
         int minIntervalUs = maxRefreshHz > 0 ? (int) (1_000_000f / maxRefreshHz) : 0;
         scheduling = schedule;
         bridge.start(minIntervalUs);
         started = true;
         clear();
+        if (!probe) return;
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "Video - clock sync");
             thread.setDaemon(true);
             return thread;
         });
-        // Hosts that did not announce clock sync get no probes (checked natively).
         executor.scheduleWithFixedDelay(bridge::probe, probeIntervalMs, probeIntervalMs,
                 TimeUnit.MILLISECONDS);
         prober = executor;
@@ -97,6 +99,12 @@ final class HostFrameClock {
     void stop() {
         if (prober != null) {
             prober.shutdownNow();
+            try {
+                // A probe in flight must not outlive the native clock it feeds.
+                prober.awaitTermination(200, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             prober = null;
         }
         scheduling = false;

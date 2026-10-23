@@ -648,7 +648,15 @@ async fn library_discovery_and_import_require_authentication_and_validate_identi
         StatusCode::OK,
     )
     .await;
-    assert_eq!(discovery["sources"].as_array().unwrap().len(), 6);
+    assert_eq!(discovery["sources"].as_array().unwrap().len(), 7);
+    assert!(
+        discovery["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|source| source["source"] == "microsoft"),
+        "the Microsoft Store and Xbox source is scanned"
+    );
     assert!(discovery["games"].is_array());
     for game in discovery["games"].as_array().unwrap() {
         assert!(game["source"].is_string() && game["id"].is_string());

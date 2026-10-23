@@ -307,7 +307,7 @@ export interface PendingPairing {
   age_seconds: number;
 }
 
-export type LibrarySource = 'steam' | 'epic' | 'battlenet' | 'ea' | 'ubisoft' | 'gog';
+export type LibrarySource = 'steam' | 'epic' | 'battlenet' | 'ea' | 'ubisoft' | 'gog' | 'microsoft';
 export interface DiscoveredGame {
   source: LibrarySource;
   id: string;

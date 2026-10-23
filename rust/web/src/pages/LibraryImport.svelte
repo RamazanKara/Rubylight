@@ -72,7 +72,7 @@
 <PageHeader title="Add games" subtitle="Choose games installed on this PC. Their launchers will open when you play.">
   {#snippet actions()}<Button href="/library/new">Add manually</Button>{/snippet}
 </PageHeader>
-<Panel title="Installed games" description="Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, and GOG.">
+<Panel title="Installed games" description="Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, and Microsoft Store and Xbox PC games.">
   {#snippet actions()}<Button onclick={scan} disabled={scanning || importing} busy={scanning}>Scan again</Button>{/snippet}
   <div class="filters">
     <label>Search games<input class="input" type="search" placeholder="Find an installed game…" bind:value={search} /></label>

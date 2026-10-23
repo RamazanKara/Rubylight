@@ -19,6 +19,8 @@ use windows::{
     core::{PCWSTR, PWSTR},
 };
 
+mod store;
+
 #[derive(Serialize)]
 pub struct SourceStatus {
     pub source: Source,
@@ -235,7 +237,7 @@ pub fn discover() -> Discovery {
     let mut sources = vec![];
     let mut games = vec![];
     for source in Source::ALL {
-        let mut errors = if source == Source::Steam || source == Source::Epic {
+        let mut errors = if matches!(source, Source::Steam | Source::Epic | Source::Microsoft) {
             vec![]
         } else {
             registry_errors.clone()
@@ -486,6 +488,13 @@ pub fn discover() -> Discovery {
                 }
                 available
             }
+            Source::Microsoft => {
+                // Packages, not the registry: the scan reports its own errors.
+                let scan = store::discover();
+                errors.extend(scan.errors);
+                games.extend(scan.games);
+                scan.available
+            }
         };
         sources.push(SourceStatus {
             source,
@@ -515,11 +524,20 @@ pub fn launch(
     use crate::process::{Process, Target, quote};
     let (program, arguments) = match action {
         Launch::Uri { uri } => {
-            let scheme = uri.split_once(':').context("Invalid launcher URI")?.0;
-            anyhow::ensure!(
-                protocol(scheme),
-                "The {scheme} launcher is unavailable. Install or repair the launcher."
-            );
+            // A Store or Xbox game starts through the shell by its application id. That is
+            // no protocol handler, and the id is checked again since `apps.json` is editable.
+            if uri.starts_with("shell:") {
+                anyhow::ensure!(
+                    library::store_launch_target(uri).is_some(),
+                    "{uri:?} is not the launch address of a Microsoft Store or Xbox game."
+                );
+            } else {
+                let scheme = uri.split_once(':').context("Invalid launcher URI")?.0;
+                anyhow::ensure!(
+                    protocol(scheme),
+                    "The {scheme} launcher is unavailable. Install or repair the launcher."
+                );
+            }
             let program =
                 PathBuf::from(std::env::var_os("WINDIR").context("Windows directory unavailable")?)
                     .join("explorer.exe");
@@ -545,6 +563,26 @@ pub fn launch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_store_application_id_launches_through_the_shell() {
+        let try_launch = |uri: &str| {
+            launch(
+                &Launch::Uri { uri: uri.into() },
+                None,
+                false,
+                &Default::default(),
+            )
+        };
+        for uri in [
+            r"shell:Startup",
+            r"shell:AppsFolder\..\..\Windows\System32\cmd.exe",
+            r"shell:AppsFolder\Contoso.Racing_8wekyb3d8bbwe!Game & calc",
+        ] {
+            let error = try_launch(uri).unwrap_err().to_string();
+            assert!(error.contains("Microsoft Store or Xbox"), "{uri}: {error}");
+        }
+    }
 
     #[test]
     fn file_discovery_reports_bad_records_and_ignores_missing_locations() {

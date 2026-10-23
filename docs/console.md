@@ -23,6 +23,15 @@ A PC's options are one list, opened with **F2** (the controller's West button), 
 - **Unpair** and **Remove PC** ask first. Unpair asks the PC to forget this device, so it needs the PC online; this device keeps its pairing until the PC has answered. Removing deletes the PC, its settings, its saved library, its covers and its recent games from this device; the PC still lists this device until you unpair it.
 - A pairing that fails says why in a dialog with **Try again**: the PC is offline, a game is running on it, the PIN or one-time PIN was wrong, another request is pending, or the network blocked it. A failed unpair or wake says so the same way.
 
+## Language, zoom, contrast and motion on the Windows and Linux client
+
+Four settings under **Settings > App** change how Nightjar looks. They are global: no profile, PC or game overrides them.
+
+- **Language**: **System default**, **English** or **Deutsch**. System default follows the operating system's first language that Nightjar has, and falls back to English. The launcher, dialogs and the stream menu are translated; German is the first language, and the other languages Nightjar Android ships are not in the desktop client yet. A few lines stay in English everywhere: the AMD feature names in the Radeon panel, the upscaler names, the toasts and performance overlay values inside the stream, startup error boxes and log lines.
+- **UI zoom**: 85, 100, 115, 130 or 150 percent, for the launcher and the in-stream menu and overlay. **Ctrl+=** and **Ctrl+-** step it, **Ctrl+0** goes back to 100. At 150 percent a 1280x720 window still shows every button; pages scroll instead of clipping.
+- **High contrast**: black surfaces, white text, brighter amber, outlines on every control and a thicker focus ring. Body text is at least 7:1 against its background and the focus ring at least 3:1. The normal theme meets WCAG AA (4.5:1) for text.
+- **Reduce motion**: **Follow system**, **Reduce** or **Full motion**. Reduce stops fades, slides, scroll animation and the spinning wheel. Follow system reads Windows' "Show animations in Windows" switch. Linux has no single setting Nightjar can read, so there Follow system leaves motion on; pick **Reduce** to turn it off.
+
 ## A game's page
 
 Pick a card to see the PC the game runs on and the stream settings it will use (resolution, frame rate, bitrate, and which profile layer set them), then **Play** or **Resume**. If another game is running on that PC, the page says that playing this game closes it. **Close game** appears when the PC has granted this device Host control. Without it you get the classic Quit.

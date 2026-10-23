@@ -114,6 +114,8 @@ pub struct Facts {
     pub early_without_records: bool,
     /// The picture is decoded in slices as its bands complete (`Settings::beam_race`).
     pub beam_race: bool,
+    /// Why the beam race setting did nothing on this stream, if it was on and did not run.
+    pub beam_race_off: Option<&'static str>,
     pub app_name: String,
     pub host_name: String,
 }
@@ -464,24 +466,46 @@ fn early_state(requested: bool, pyrowave: bool, records: bool) -> EarlyState {
 
 /// What the beam race setting does on a stream: the client asks the host for the row order and
 /// decodes the picture in slices as its bands complete. `NotWired` is the setting on a link that
-/// is not known to be wired (the host's row order is for wired links), reported, not silent.
+/// is not known to be wired (the host's row order is for wired links), `NoGpuDecoder` the setting
+/// when the stream decodes PyroWave on the CPU (only the GPU decoder slices a frame). Both are
+/// reported, not silent, and neither asks the host for the row order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BeamRace {
     Off,
     On,
     NotWired,
+    NoGpuDecoder,
 }
+
+impl BeamRace {
+    /// Why the setting did nothing, for the overlay.
+    fn reason(self) -> Option<&'static str> {
+        match self {
+            Self::NotWired => Some("off, the link is not a known wired one"),
+            Self::NoGpuDecoder => Some("off, PyroWave is decoded on the CPU"),
+            Self::Off | Self::On => None,
+        }
+    }
+}
+
+const BEAM_RACE_NO_GPU: &str = "nightjar: beam race is on but PyroWave is decoded on the CPU, so the host is not asked     for the row order and frames are decoded whole";
 
 const BEAM_RACE_NOT_WIRED: &str = "nightjar: beam race is on but the link is not a known wired one, so the host is not asked \
     for the row order and frames are decoded whole";
 
 /// The setting, unless `NIGHTJAR_BEAM_RACE` is `1` (on, whatever the link; for measurement
-/// runs) or `0`.
-fn beam_race(setting: bool, link_mbps: u32) -> BeamRace {
-    match std::env::var("NIGHTJAR_BEAM_RACE").as_deref() {
-        Ok("1") => BeamRace::On,
-        Ok("0") => BeamRace::Off,
+/// runs) or `0`. Needs the GPU decoder whatever asked.
+fn beam_race(setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
+    beam_race_for(std::env::var("NIGHTJAR_BEAM_RACE").ok().as_deref(), setting, link_mbps, gpu_decoder)
+}
+
+fn beam_race_for(forced: Option<&str>, setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
+    match forced {
+        Some("0") => BeamRace::Off,
+        Some("1") if gpu_decoder => BeamRace::On,
+        Some("1") => BeamRace::NoGpuDecoder,
         _ if !setting => BeamRace::Off,
+        _ if !gpu_decoder => BeamRace::NoGpuDecoder,
         _ if link_mbps == 0 => BeamRace::NotWired,
         _ => BeamRace::On,
     }
@@ -607,9 +631,11 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         .trusted_codec_mode_support(plan.info.server_codec_mode_support);
     let link_mbps = hint_override("NIGHTJAR_PYROWAVE_LINK_MBPS", plan.pyrowave_link_mbps);
     let pace_mbps = hint_override("NIGHTJAR_PYROWAVE_PACE_MBPS", plan.pyrowave_pace_mbps);
-    let beam = beam_race(settings.beam_race, link_mbps);
-    if beam == BeamRace::NotWired {
-        eprintln!("{BEAM_RACE_NOT_WIRED}");
+    let beam = beam_race(settings.beam_race, link_mbps, plan.gpu_decoder.is_some());
+    match beam {
+        BeamRace::NotWired => eprintln!("{BEAM_RACE_NOT_WIRED}"),
+        BeamRace::NoGpuDecoder => eprintln!("{BEAM_RACE_NO_GPU}"),
+        BeamRace::Off | BeamRace::On => {}
     }
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
@@ -697,6 +723,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             outcome.pyrowave_records_enabled) == EarlyState::On,
         early_without_records: early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
             outcome.pyrowave_records_enabled) == EarlyState::NoRecords,
+        beam_race_off: beam.reason(),
         beam_race: slices > 0 && early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
             outcome.pyrowave_records_enabled) == EarlyState::On,
         app_name: plan.app.name.clone(),
@@ -1774,6 +1801,9 @@ impl Streaming {
             let last_early = std::mem::replace(&mut self.last_early, early);
             lines.push(("Early decode".into(), early_line(early, last_early, secs)));
         }
+        if let Some(reason) = self.facts.beam_race_off {
+            lines.push(("Beam race".into(), reason.into()));
+        }
         if self.facts.beam_race {
             lines.push(("Beam race".into(), race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
                 c.race_unordered.load(Ordering::Relaxed))));
@@ -2250,9 +2280,22 @@ mod tests {
     fn beam_race_needs_the_setting_and_a_wired_link() {
         // The environment override is for measurement runs; these cases are the settings.
         if std::env::var_os("NIGHTJAR_BEAM_RACE").is_some() { return; }
-        assert_eq!(beam_race(false, 1000), BeamRace::Off);
-        assert_eq!(beam_race(true, 1000), BeamRace::On);
-        assert_eq!(beam_race(true, 0), BeamRace::NotWired);
+        assert_eq!(beam_race(false, 1000, true), BeamRace::Off);
+        assert_eq!(beam_race(true, 1000, true), BeamRace::On);
+        assert_eq!(beam_race(true, 0, true), BeamRace::NotWired);
+    }
+
+    #[test]
+    fn beam_race_needs_the_gpu_decoder_and_says_why_it_is_off() {
+        // The forced value is the measurement override; the GPU decoder is needed either way.
+        assert_eq!(beam_race_for(None, true, 1000, false), BeamRace::NoGpuDecoder);
+        assert_eq!(beam_race_for(Some("1"), false, 0, false), BeamRace::NoGpuDecoder);
+        assert_eq!(beam_race_for(Some("1"), false, 0, true), BeamRace::On);
+        assert_eq!(beam_race_for(Some("0"), true, 1000, true), BeamRace::Off);
+        assert_eq!(beam_race_for(None, false, 1000, false), BeamRace::Off, "the setting off says nothing");
+        assert!(BeamRace::NoGpuDecoder.reason().unwrap().contains("CPU"));
+        assert!(BeamRace::NotWired.reason().unwrap().contains("wired"));
+        assert_eq!((BeamRace::On.reason(), BeamRace::Off.reason()), (None, None));
     }
 
     #[test]

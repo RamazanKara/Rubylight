@@ -32,6 +32,14 @@ MSYS2's FFmpeg drags in every codec library it was built with (82 DLLs, 120 MB);
 package should ship a decode-only FFmpeg build instead (H.264, HEVC, AV1 with D3D11VA and
 dav1d), which brings the whole set to a handful of files.
 
+### Packaging for Windows
+
+`package-windows.ps1` builds the release exe and zips it with the DLLs it imports (found from
+the import tables, system libraries left out) into `dist/`, so it runs on a PC without MSYS2.
+With `-FfmpegDir <prefix>` the exe is built against the decode-only FFmpeg that
+`ffmpeg-decode-only.sh <ffmpeg 8 source> <prefix>` builds in an MSYS2 UCRT64 shell (libavcodec
+and libavutil with the H.264, HEVC and AV1 decoders, their D3D11VA paths and dav1d).
+
 ### Linux
 
 ```sh

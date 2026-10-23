@@ -20,6 +20,11 @@ use sdl3_sys::everything::*;
 use super::pipeline::Decoded;
 use crate::media::{self, FrameInfo};
 
+/// How long the presenter waits for a GPU-decoded picture's fence before the stream ends. The
+/// decoder thread has already waited for the decode, so this is only a bound on a broken device.
+#[cfg(windows)]
+const PLANES_DECODE_DEADLINE: std::time::Duration = std::time::Duration::from_millis(500);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PacingMode {
     HostTimes,
@@ -130,6 +135,11 @@ pub struct VideoTexture {
     packed: Option<super::packed444::Reconstruction>,
     pyrowave: Option<super::pyrowave_gpu::Reconstruction>,
     pyrowave_format: Option<[u32; 8]>,
+    /// PyroWave decoded on the GPU: converts the decoder's planes into the texture.
+    #[cfg(windows)]
+    planes: Option<super::d3d11::PlanesPass>,
+    /// Why the last `upload` failed, when it knows more than the caller can say.
+    pub failure: Option<String>,
     /// Measurement: CPU time per PyroWave picture in `pyrowave_gpu`, kept across `destroy`.
     pub pyrowave_stages: super::stage_times::Stages<2>,
     packed_format: Option<[u32; 12]>,
@@ -152,6 +162,9 @@ impl Default for VideoTexture {
             packed: None,
             pyrowave: None,
             pyrowave_format: None,
+            #[cfg(windows)]
+            planes: None,
+            failure: None,
             pyrowave_stages: super::stage_times::Stages::new(super::pyrowave_gpu::UPLOAD_AND_PASSES),
             packed_format: None,
             white_level: 1.0,
@@ -303,7 +316,11 @@ impl VideoTexture {
 
     /// Puts a decoded picture into the texture.
     pub fn upload(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded) -> bool {
-        let frame = &decoded.frame;
+        #[cfg(windows)]
+        if let media::Picture::GpuPlanes { lease, fence_value } = &decoded.picture {
+            return self.upload_planes(renderer, decoded, lease, *fence_value);
+        }
+        let Some(frame) = decoded.picture.frame() else { return false };
         let info = frame.info();
         // SDL's HDR headroom and tone mapping are relative to the display's SDR white.
         let white_level = if self.hdr_mode.unwrap_or(
@@ -510,7 +527,47 @@ impl VideoTexture {
         true
     }
 
+    /// Draws a picture the GPU decoder left in D3D11 planes: waits for its decode on the GPU,
+    /// converts the planes into the texture and gives the plane set back.
+    #[cfg(windows)]
+    fn upload_planes(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, lease: &super::gpu_planes::Lease, fence_value: u64) -> bool {
+        let setup = decoded.setup;
+        let ten = setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
+        let hdr = self.hdr_mode.unwrap_or(ten);
+        if hdr && !crate::sdl::hdr_available(renderer) { self.destroy(); return false; }
+        // SAFETY: The live renderer belongs to the presenting thread.
+        let white_level = if hdr { unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0) }.max(0.001) } else { 1.0 };
+        let flags = u32::from(setup.color_range != 0) | (u32::from(hdr) << 1) | ((setup.color_space as u32) << 2)
+            | (u32::from(ten) << 4) | (u32::from(setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_YUV444 != 0) << 5);
+        let parameters = [setup.width as u32, setup.height as u32, setup.width as u32, setup.height as u32, 0, 3, flags, white_level.to_bits()];
+        if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
+        if !self.ensure(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, setup.width, setup.height, SDL_COLORSPACE_SRGB_LINEAR, white_level) { return false; }
+        if self.planes.is_none() {
+            if self.d3d11.is_null() {
+                self.failure = Some("PyroWave GPU decoding needs the Direct3D 11 renderer".into());
+                return false;
+            }
+            // SAFETY: `d3d11` is the live texture of the renderer's device.
+            match unsafe { super::d3d11::PlanesPass::new(self.d3d11) } {
+                Ok(pass) => { self.planes = Some(pass); self.pyrowave_format = Some(parameters); }
+                Err(error) => { self.failure = Some(format!("PyroWave GPU decoding cannot draw its planes: {error}")); return false; }
+            }
+        }
+        let step = std::time::Instant::now();
+        let drawn = self.planes.as_mut().is_some_and(|pass| match pass.draw(lease, fence_value, &parameters, PLANES_DECODE_DEADLINE) {
+            Ok(()) => true,
+            Err(error) => { self.failure = Some(format!("PyroWave GPU decoding failed: {error}")); false }
+        });
+        if drawn {
+            self.pyrowave_stages.add(super::pyrowave_gpu::PASSES, step);
+            self.pyrowave_stages.commit();
+        } else { self.pyrowave_stages.reset(); }
+        drawn
+    }
+
     pub fn destroy(&mut self) {
+        #[cfg(windows)]
+        { self.planes = None; }
         self.pyrowave = None;
         self.pyrowave_format = None;
         self.packed = None;
@@ -524,6 +581,7 @@ impl VideoTexture {
         *self = Self {
             #[cfg(windows)]
             direct_packed: self.direct_packed,
+            failure: self.failure.take(),
             hdr_mode: self.hdr_mode,
             hdr_metadata: self.hdr_metadata,
             pyrowave_stages: stages,
@@ -648,7 +706,7 @@ mod tests {
             panic!("fixture did not decode");
         };
         Decoded {
-            frame,
+            picture: media::Picture::Frame(frame),
             setup: nightjar_core::session::VideoSetup {
                 format: nightjar_core::sdp::VIDEO_FORMAT_H265,
                 width: 128,

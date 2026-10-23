@@ -77,6 +77,23 @@ pub enum DecoderPreference {
     Software,
 }
 
+/// Where PyroWave frames are reconstructed: on the CPU with the Rust decoder, or on the GPU
+/// by the PyroWave library's Vulkan decoder (docs/pyrowave-decode.md). `Gpu` never falls back
+/// to the CPU: when the library or the adapter cannot do it, PyroWave is not offered and the
+/// reason is shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PyroWaveDecoder {
+    #[default]
+    Cpu,
+    Gpu,
+}
+
+impl PyroWaveDecoder {
+    pub fn label(self) -> &'static str {
+        match self { Self::Cpu => en("CPU"), Self::Gpu => en("GPU") }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QualityMode {
     #[default]
@@ -164,6 +181,8 @@ pub struct Settings {
     /// instead of when the frame is complete. Off by default until measured on the wired
     /// client (docs/early-decode.md). `NIGHTJAR_EARLY_DECODE=1` or `0` overrides it.
     pub early_decode: bool,
+    /// PyroWave: reconstruct on the CPU (default) or on the GPU with the PyroWave library.
+    pub pyrowave_decoder: PyroWaveDecoder,
     pub microphone: bool,
     pub cursor_shapes: bool,
     pub network_grace_ms: u32,
@@ -290,6 +309,7 @@ impl Default for Settings {
             background_controllers: false,
             decoder: DecoderPreference::Auto,
             early_decode: false,
+            pyrowave_decoder: PyroWaveDecoder::Cpu,
             microphone: false,
             cursor_shapes: true,
             network_grace_ms: 3000,
@@ -1047,6 +1067,18 @@ mod tests {
         assert!(!old.early_decode, "a settings file from before early decode keeps it off");
         let on: Settings = serde_json::from_str("{\"early_decode\": true}").unwrap();
         assert!(on.early_decode);
+    }
+
+    #[test]
+    fn pyrowave_decoder_defaults_to_the_cpu_and_reads_from_the_file() {
+        assert_eq!(Settings::default().pyrowave_decoder, PyroWaveDecoder::Cpu);
+        let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
+        assert_eq!(old.pyrowave_decoder, PyroWaveDecoder::Cpu, "an older file keeps the CPU decoder");
+        let gpu: Settings = serde_json::from_str("{\"pyrowave_decoder\": \"Gpu\"}").unwrap();
+        assert_eq!(gpu.pyrowave_decoder, PyroWaveDecoder::Gpu);
+        let mut overrides = Overrides::default();
+        overrides.0.insert("pyrowave_decoder".into(), serde_json::json!("Gpu"));
+        assert_eq!(overrides.apply(&Settings::default()).pyrowave_decoder, PyroWaveDecoder::Gpu);
     }
 
     #[test]

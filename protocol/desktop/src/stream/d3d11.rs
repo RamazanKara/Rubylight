@@ -9,6 +9,8 @@ use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::IDXGISwapChain;
 
 use crate::media;
+use super::gpu_planes::{Lease, Planes};
+use super::pyrowave_sdk::fence_ready_within;
 
 pub struct Filter {
     context: ID3D11DeviceContext,
@@ -74,6 +76,119 @@ impl Filter {
             self.context.ExecuteCommandList(commands.as_ref().unwrap(), true);
             true
         }
+    }
+}
+
+/// Converts the GPU PyroWave decoder's planes to linear RGB in the renderer's target texture.
+pub struct PlanesPass {
+    context: ID3D11DeviceContext,
+    queue: ID3D11DeviceContext4,
+    deferred: ID3D11DeviceContext,
+    device: ID3D11Device,
+    target: [Option<ID3D11RenderTargetView>; 1],
+    vertex: ID3D11VertexShader,
+    fragment: ID3D11PixelShader,
+    constants: [Option<ID3D11Buffer>; 1],
+    sampler: [Option<ID3D11SamplerState>; 1],
+    size: (u32, u32),
+    /// Shader resource views of the plane sets seen so far, for the `Planes` they belong to.
+    views: std::collections::HashMap<usize, [Option<ID3D11ShaderResourceView>; 3]>,
+    owner: Option<std::sync::Arc<Planes>>,
+}
+
+impl PlanesPass {
+    /// `target` is the `ID3D11Texture2D` of the renderer's RGBA64F picture texture.
+    pub unsafe fn new(target: *mut c_void) -> windows::core::Result<Self> {
+        let target = ID3D11Texture2D::from_raw_borrowed(&target).ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_POINTER))?;
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        target.GetDesc(&mut desc);
+        let device = target.GetDevice()?;
+        let context = device.GetImmediateContext()?;
+        let queue = context.cast::<ID3D11DeviceContext4>()?;
+        let mut deferred = None;
+        device.CreateDeferredContext(0, Some(&mut deferred))?;
+        let mut target_view = None;
+        device.CreateRenderTargetView(target, None, Some(&mut target_view))?;
+        let source = include_bytes!("../pyrowave.hlsl");
+        let code = compile(source, s!("vertex"), s!("vs_5_0"))?;
+        let mut vertex = None;
+        device.CreateVertexShader(std::slice::from_raw_parts(code.GetBufferPointer().cast(), code.GetBufferSize()), None, Some(&mut vertex))?;
+        let code = compile(source, s!("planes"), s!("ps_5_0"))?;
+        let mut fragment = None;
+        device.CreatePixelShader(std::slice::from_raw_parts(code.GetBufferPointer().cast(), code.GetBufferSize()), None, Some(&mut fragment))?;
+        let mut constants = None;
+        device.CreateBuffer(&D3D11_BUFFER_DESC { ByteWidth: 32, Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32, ..Default::default() }, None, Some(&mut constants))?;
+        let mut sampler = None;
+        device.CreateSamplerState(&D3D11_SAMPLER_DESC { Filter: D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+            AddressU: D3D11_TEXTURE_ADDRESS_CLAMP, AddressV: D3D11_TEXTURE_ADDRESS_CLAMP,
+            AddressW: D3D11_TEXTURE_ADDRESS_CLAMP, MaxLOD: f32::MAX, ..Default::default() }, Some(&mut sampler))?;
+        Ok(Self { context, queue, deferred: deferred.unwrap(), device, target: [target_view],
+            vertex: vertex.unwrap(), fragment: fragment.unwrap(), constants: [constants], sampler: [sampler],
+            size: (desc.Width, desc.Height), views: Default::default(), owner: None })
+    }
+
+    /// Compiles the plane shader for a probe: whether the pass can be built at all.
+    pub fn compiles() -> Result<(), String> {
+        let source = include_bytes!("../pyrowave.hlsl");
+        // SAFETY: Plain compiler calls on static source.
+        unsafe {
+            compile(source, s!("vertex"), s!("vs_5_0")).map_err(|e| format!("the PyroWave plane shader does not compile: {e}"))?;
+            compile(source, s!("planes"), s!("ps_5_0")).map_err(|e| format!("the PyroWave plane shader does not compile: {e}"))?;
+        }
+        Ok(())
+    }
+
+    fn views(&mut self, lease: &Lease) -> windows::core::Result<[Option<ID3D11ShaderResourceView>; 3]> {
+        if !self.owner.as_ref().is_some_and(|owner| std::sync::Arc::ptr_eq(owner, lease.planes())) {
+            self.views.clear();
+            self.owner = Some(lease.planes().clone());
+        }
+        if let Some(views) = self.views.get(&lease.set()) { return Ok(views.clone()); }
+        let mut views = [None, None, None];
+        for (view, texture) in views.iter_mut().zip(lease.textures()) {
+            // SAFETY: A default view of a live texture that has the shader resource bind flag.
+            unsafe { self.device.CreateShaderResourceView(texture, None, Some(view))? };
+        }
+        self.views.insert(lease.set(), views.clone());
+        Ok(views)
+    }
+
+    /// Draws the picture in `lease` into the target once the decode has finished, then signals
+    /// the reuse fence behind the draw and hands the plane set back. `deadline` bounds the wait
+    /// for the decode fence before the (unbounded) GPU `Wait` is queued; an error is the loud
+    /// failure, and the stream ends with it.
+    pub fn draw(&mut self, lease: &Lease, fence_value: u64, parameters: &[u32; 8], deadline: std::time::Duration) -> Result<(), String> {
+        fence_ready_within(lease.decode_fence(), fence_value, deadline)?;
+        let views = self.views(lease).map_err(|e| format!("cannot read the PyroWave planes: {e}"))?;
+        // SAFETY: The immediate context belongs to this (the presenting) thread; the deferred
+        // context records the draw so SDL's cached immediate-context state is restored.
+        unsafe {
+            self.queue.Wait(lease.decode_fence(), fence_value).map_err(|e| format!("cannot order the picture after the PyroWave decode: {e}"))?;
+            let c = &self.deferred;
+            c.ClearState();
+            c.UpdateSubresource(self.constants[0].as_ref().unwrap(), 0, None, parameters.as_ptr().cast(), 0, 0);
+            c.OMSetRenderTargets(Some(&self.target), None);
+            c.RSSetViewports(Some(&[D3D11_VIEWPORT { Width: self.size.0 as f32, Height: self.size.1 as f32,
+                MinDepth: 0.0, MaxDepth: 1.0, ..Default::default() }]));
+            c.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            c.VSSetShader(&self.vertex, None);
+            c.PSSetShader(&self.fragment, None);
+            c.PSSetShaderResources(1, Some(&views));
+            c.PSSetSamplers(0, Some(&self.sampler));
+            c.PSSetConstantBuffers(0, Some(&self.constants));
+            c.Draw(3, 0);
+            let mut commands = None;
+            c.FinishCommandList(false, Some(&mut commands)).map_err(|e| format!("cannot record the PyroWave plane pass: {e}"))?;
+            self.context.ExecuteCommandList(commands.as_ref().unwrap(), true);
+            // The next decode into this set waits for the draw that read it. The signal is flushed
+            // now: a decode that waits on a signal still in the queue would wait for ever.
+            let value = lease.planes().next_reuse_value();
+            self.queue.Signal(lease.reuse_fence(), value).map_err(|e| format!("cannot release the PyroWave planes: {e}"))?;
+            self.context.Flush();
+            lease.release_after(value);
+        }
+        Ok(())
     }
 }
 

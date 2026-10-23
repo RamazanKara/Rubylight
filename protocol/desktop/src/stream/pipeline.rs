@@ -16,7 +16,8 @@ use nightjar_core::video::Frame;
 use sdl3_sys::everything::*;
 
 use crate::hosts::Waker;
-use crate::media::{self, Codec, Hardware, Received};
+use crate::media::{self, Codec, Hardware, Picture, Received};
+use super::pyrowave::Failure;
 
 pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
@@ -24,7 +25,7 @@ pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// A decoded picture waiting to be shown.
 pub struct Decoded {
-    pub frame: media::Frame,
+    pub picture: Picture,
     pub setup: VideoSetup,
     pub rtp: u32,
     /// The host's frame number.
@@ -55,6 +56,8 @@ pub enum Notice {
     Terminated(i32),
     Control(ControlEvent),
     DecoderFallback(String),
+    /// The GPU PyroWave decoder broke; the stream ends with this message (nothing falls back).
+    DecoderFailed(String),
     MicrophoneFailed(String),
     Clipboard(Result<Option<String>, String>),
     ServerCommand(Result<Vec<u8>, String>),
@@ -134,6 +137,14 @@ impl Shared {
     }
 }
 
+/// The renderer's `ID3D11Device`, lent to the decoder thread. The renderer outlives the stream
+/// and D3D11 devices are free-threaded.
+#[derive(Clone, Copy)]
+pub struct GpuDevice(pub *mut c_void);
+
+// SAFETY: See above; the decoder thread only AddRefs the device.
+unsafe impl Send for GpuDevice {}
+
 /// Decodes with FFmpeg on the session's decoder thread.
 pub struct Decoder {
     pub shared: Arc<Shared>,
@@ -141,8 +152,10 @@ pub struct Decoder {
     pub decoder: Option<media::VideoDecoder>,
     pub software_threads: i32,
     setup: Option<VideoSetup>,
-    pyrowave: Option<super::pyrowave::Decoder>,
+    pyrowave: Option<super::pyrowave::Pyrowave>,
     early: bool,
+    /// The renderer's D3D11 device when PyroWave is to be decoded on the GPU (`pyrowave_decoder = gpu`).
+    gpu: Option<GpuDevice>,
     /// Measurement: where the first `PYROWAVE_DUMP_FRAMES` envelopes go (`NIGHTJAR_PYROWAVE_DUMP`),
     /// and how many were written.
     dump: Option<(std::path::PathBuf, u32)>,
@@ -162,6 +175,7 @@ impl Decoder {
             setup: None,
             pyrowave: None,
             early: false,
+            gpu: None,
             dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
         }
     }
@@ -180,10 +194,36 @@ impl Decoder {
         if *written == PYROWAVE_DUMP_FRAMES { eprintln!("nightjar: PyroWave dump: {PYROWAVE_DUMP_FRAMES} envelopes in {}", dir.display()); }
     }
 
+    /// PyroWave decodes on the GPU with the SDK, into planes on this device.
+    pub fn with_gpu_decoder(mut self, device: Option<GpuDevice>) -> Self {
+        self.gpu = device;
+        self
+    }
+
     /// PyroWave decodes the blocks of a frame while they arrive (`Settings::early_decode`).
     pub fn with_early_decode(mut self, early: bool) -> Self {
         self.early = early;
         self
+    }
+}
+
+/// The SDK's decoder on the renderer's device, with a plane set per picture that can be waiting.
+fn gpu_pyrowave(device: GpuDevice, setup: &VideoSetup, slots: usize) -> Result<super::pyrowave::Pyrowave, String> {
+    #[cfg(windows)]
+    {
+        use windows::core::Interface;
+        // SAFETY: The renderer owns the device for the whole stream; this only borrows it to AddRef.
+        let device = unsafe { windows::Win32::Graphics::Direct3D11::ID3D11Device::from_raw_borrowed(&device.0) }
+            .ok_or("the renderer has no Direct3D 11 device")?;
+        let ten_bit = setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
+        let chroma444 = setup.format & VIDEO_FORMAT_MASK_YUV444 != 0;
+        super::pyrowave::GpuStream::new(device, setup.width as usize, setup.height as usize, chroma444, ten_bit, slots)
+            .map(|stream| super::pyrowave::Pyrowave::Gpu(Box::new(stream)))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (device, setup, slots);
+        Err("GPU PyroWave decoding needs Windows".into())
     }
 }
 
@@ -192,12 +232,24 @@ impl VideoDecoder for Decoder {
         self.setup = Some(*setup);
         self.shared.fps_millihz.store(setup.fps.max(1) as u32 * 1000, Ordering::Relaxed);
         if setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
-            self.pyrowave = match super::pyrowave::Decoder::new(setup.width as usize, setup.height as usize, setup.format & VIDEO_FORMAT_MASK_YUV444 != 0) {
-                Ok(decoder) => Some(decoder),
-                Err(error) => { self.shared.notify(Notice::DecoderFallback(error.into())); return Err(-1); }
+            let (width, height) = (setup.width as usize, setup.height as usize);
+            let chroma444 = setup.format & VIDEO_FORMAT_MASK_YUV444 != 0;
+            let created = match self.gpu {
+                Some(device) => gpu_pyrowave(device, setup, self.shared.queue_limit + 2)
+                    .map(|decoder| (decoder, "PyroWave (GPU decode, SDK)"))
+                    .map_err(|error| Notice::DecoderFailed(format!("PyroWave GPU decoding is unavailable: {error}"))),
+                None => super::pyrowave::Pyrowave::cpu(width, height, chroma444)
+                    .map(|decoder| (decoder, "PyroWave (Rust, GPU wavelets)"))
+                    .map_err(|error| Notice::DecoderFallback(error.into())),
             };
-            *lock(&self.shared.decoder_name) = "PyroWave (Rust, GPU wavelets)".into();
-            return Ok(());
+            return match created {
+                Ok((decoder, name)) => {
+                    self.pyrowave = Some(decoder);
+                    *lock(&self.shared.decoder_name) = name.into();
+                    Ok(())
+                }
+                Err(notice) => { self.shared.notify(notice); Err(-1) }
+            };
         }
         if setup.chroma_packing != 0 && self.hardware == Hardware::None {
             self.shared.notify(Notice::DecoderFallback(
@@ -259,8 +311,28 @@ impl VideoDecoder for Decoder {
             let setup = self.setup.expect("decoder setup precedes frames");
             if self.dump.is_some() { self.dump_envelope(&setup, frame.data()); }
             let Some(decoder) = self.pyrowave.as_mut() else { return DecodeStatus::Ok };
-            let result = decoder.coefficients(frame.data()).map_err(str::to_owned).and_then(|_| decoder.coefficient_frame());
-            let early = match decoder.source {
+            let shared = self.shared.clone();
+            // The presenter's queue holds plane sets: when none is free the oldest picture goes.
+            let mut evict = || {
+                let dropped = lock(&shared.frames).pop_front();
+                if dropped.is_some() { shared.counters.replaced.fetch_add(1, Ordering::Relaxed); }
+                dropped.is_some()
+            };
+            let output = match decoder.frame(frame.data(), &mut evict) {
+                Ok(output) => output,
+                Err(Failure::Frame(error)) => { eprintln!("nightjar: PyroWave: {error}"); self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed); return DecodeStatus::NeedIdr; }
+                Err(Failure::NoPlanes) => {
+                    if self.shared.counters.replaced.fetch_add(1, Ordering::Relaxed) == 0 { eprintln!("nightjar: PyroWave: every GPU plane set is waiting to be shown, dropping the frame (counted, not repeated)"); }
+                    return DecodeStatus::Ok;
+                }
+                Err(Failure::Device(error)) => {
+                    eprintln!("nightjar: PyroWave: {error}");
+                    self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed);
+                    self.shared.notify(Notice::DecoderFailed(error));
+                    return DecodeStatus::NeedIdr;
+                }
+            };
+            let early = match output.source {
                 super::pyrowave::Source::Frame => 0,
                 super::pyrowave::Source::Early => { self.shared.counters.early_frames.fetch_add(1, Ordering::Relaxed); 1 }
                 super::pyrowave::Source::Fallback => {
@@ -270,10 +342,6 @@ impl VideoDecoder for Decoder {
                     2
                 }
             };
-            let picture = match result {
-                Ok(picture) => picture,
-                Err(error) => { eprintln!("nightjar: PyroWave: {error}"); self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed); return DecodeStatus::NeedIdr; }
-            };
             let ready_us = session::now_us();
             let counters = &self.shared.counters;
             counters.decoded.fetch_add(1, Ordering::Relaxed);
@@ -281,14 +349,14 @@ impl VideoDecoder for Decoder {
             let mut timing = lock(&self.shared.decode_window);
             timing.samples += 1;
             timing.queue_us += start.saturating_sub(frame.enqueue_time_us);
-            if decoder.loss_percent >= 0.0 {
-                timing.record_loss_milli += (decoder.loss_percent * 1000.0) as u64;
+            if output.loss_percent >= 0.0 {
+                timing.record_loss_milli += (output.loss_percent * 1000.0) as u64;
                 timing.record_samples += 1;
             }
             drop(timing);
-            let decoded = Decoded { frame: picture, setup, rtp: frame.rtp_timestamp, number: frame.number, receive_us: frame.receive_time_us,
+            let decoded = Decoded { picture: output.picture, setup, rtp: frame.rtp_timestamp, number: frame.number, receive_us: frame.receive_time_us,
                 enqueue_us: frame.enqueue_time_us, input_us: start, ready_us, host_latency: frame.host_processing_latency,
-                early, first_block_us: decoder.first_block_us };
+                early, first_block_us: output.first_block_us };
             let mut frames = lock(&self.shared.frames);
             frames.push_back(decoded);
             while frames.len() > self.shared.queue_limit { frames.pop_front(); counters.replaced.fetch_add(1, Ordering::Relaxed); }
@@ -325,7 +393,7 @@ impl VideoDecoder for Decoder {
                     timing.late += u32::from(ready.saturating_sub(frame.enqueue_time_us) >= budget_us);
                     drop(timing);
                     let decoded = Decoded {
-                        frame: picture,
+                        picture: Picture::Frame(picture),
                         setup: self.setup.expect("decoder setup precedes frames"),
                         rtp: pts as u32,
                         number: frame.number,

@@ -891,6 +891,13 @@ impl App {
         }
     }
 
+    /// The renderer's Direct3D 11 device, for PyroWave decoding on the GPU.
+    fn gpu_device(&self) -> Option<stream::pipeline::GpuDevice> {
+        if !cfg!(windows) || sdl::renderer_name(self.renderer) != "direct3d11" { return None; }
+        let device = sdl::renderer_pointer(self.renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
+        (!device.is_null()).then_some(stream::pipeline::GpuDevice(device))
+    }
+
     fn hardware(&self, settings: &config::Settings) -> Hardware {
         if settings.decoder == DecoderPreference::Software {
             return Hardware::None;
@@ -996,10 +1003,28 @@ impl App {
             self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
             return;
         }
+        let mut gpu_decoder = None;
         if settings.codec.is_pyrowave() {
-            if let Err(reason) = stream::pyrowave_gpu::probe(self.renderer, settings.hdr) {
-                self.launcher.message(tr("PyroWave output unavailable"), trf("{}. Restart Nightjar after selecting PyroWave so it can initialize the GPU renderer.", &[&reason]));
-                return;
+            let gpu_device = self.gpu_device();
+            let probed = stream::pyrowave_mode::availability(
+                settings.pyrowave_decoder,
+                || stream::pyrowave_gpu::probe(self.renderer, settings.hdr),
+                || match gpu_device {
+                    Some(device) => stream::pyrowave_mode::gpu_probe(device.0, settings.hdr),
+                    None => Err("PyroWave GPU decoding needs the Direct3D 11 renderer".to_owned()),
+                },
+            );
+            match (probed, settings.pyrowave_decoder) {
+                (Ok(()), config::PyroWaveDecoder::Gpu) => gpu_decoder = gpu_device,
+                (Ok(()), config::PyroWaveDecoder::Cpu) => {}
+                (Err(reason), config::PyroWaveDecoder::Cpu) => {
+                    self.launcher.message(tr("PyroWave output unavailable"), trf("{}. Restart Nightjar after selecting PyroWave so it can initialize the GPU renderer.", &[&reason]));
+                    return;
+                }
+                (Err(reason), config::PyroWaveDecoder::Gpu) => {
+                    self.launcher.message(tr("PyroWave GPU decoding unavailable"), trf("{}. Switch the PyroWave decoder to CPU in the settings, or pick another codec.", &[&reason]));
+                    return;
+                }
             }
         }
         let packed_modes = if settings.experimental_packed_444 {
@@ -1037,6 +1062,7 @@ impl App {
             identity,
             display,
             hardware: self.hardware(&settings),
+            gpu_decoder,
             packed_modes,
             pacing,
             vrr,

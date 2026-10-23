@@ -565,7 +565,7 @@ mod tests {
                     panic!("no hardware fixture frame")
                 };
                 let mut decoded = Decoded {
-                    frame,
+                    picture: crate::media::Picture::Frame(frame),
                     setup: nightjar_core::session::VideoSetup {
                         format,
                         width: 128,
@@ -597,13 +597,13 @@ mod tests {
                     parameters[7] = u32::from(hdr);
                     parameters[9] = u32::from(packing);
                     let mut direct_hdr = hdr.then(|| Reconstruction::new(renderer, ptr::null_mut(), &parameters).unwrap());
-                    if let Some(direct) = &mut direct_hdr { assert!(direct.upload(&decoded.frame)); }
+                    if let Some(direct) = &mut direct_hdr { assert!(direct.upload(decoded.picture.frame().unwrap())); }
                     for matrix in 0..=2 {
                         decoded.setup.color_range = range;
                         decoded.setup.color_space = matrix;
                         parameters[5] = range as u32;
                         parameters[6] = matrix as u32;
-                        assert!(reference.draw(renderer, target, &decoded.frame, &parameters));
+                        assert!(reference.draw(renderer, target, decoded.picture.frame().unwrap(), &parameters));
                         if !hdr {
                             assert!(video.upload(renderer, &decoded));
                             assert!(video.texture.is_null(), "direct presentation allocated an intermediate RGB texture");

@@ -19,9 +19,12 @@ mod upscale;
 mod phase;
 mod pyrowave;
 pub mod pyrowave_gpu;
+pub mod pyrowave_mode;
 mod stage_times;
 #[cfg(windows)]
 mod d3d11;
+#[cfg(windows)]
+pub mod gpu_planes;
 #[cfg(windows)]
 mod pyrowave_sdk;
 
@@ -70,6 +73,8 @@ pub struct LaunchPlan {
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
     pub hardware: Hardware,
+    /// The renderer's Direct3D 11 device when PyroWave decodes on the GPU (`pyrowave_decoder`).
+    pub gpu_decoder: Option<pipeline::GpuDevice>,
     pub packed_modes: u8,
     pub pacing: PacingMode,
     pub vrr: bool,
@@ -566,7 +571,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             input_only: role == AppRole::InputOnly,
             ..Default::default()
         },
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early)),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone())),
         Arc::new(pipeline::Events { shared }),
         interrupt,
@@ -1058,6 +1063,9 @@ impl Streaming {
                     self.exit.get_or_insert(Exit::Terminated(code));
                 }
                 Notice::DecoderFallback(text) => self.show_toast(text),
+                Notice::DecoderFailed(text) => {
+                    self.exit.get_or_insert(Exit::Ended(Some(text)));
+                }
                 Notice::MicrophoneFailed(text) => {
                     self.microphone = None;
                     self.microphone_muted = true;
@@ -1397,8 +1405,8 @@ impl Streaming {
         }
         let frames: Vec<_> = lock(&self.shared.frames).drain(..).collect();
         for decoded in frames {
-            if decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0 {
-                let info = decoded.frame.info();
+            if let Some(frame) = decoded.picture.frame().filter(|_| decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0) {
+                let info = frame.info();
                 self.facts.width = info.width;
                 self.facts.height = info.height;
                 if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == info.width && i32::from(mode.height) == info.height) {
@@ -1471,11 +1479,12 @@ impl Streaming {
             } else { self.phase.reset(); }
             if !self.texture.upload(renderer, &p.decoded) {
                 if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
-                    self.exit = Some(Exit::Ended(Some("PyroWave GPU reconstruction failed.".into())));
+                    let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
+                    self.exit = Some(Exit::Ended(Some(reason)));
                 } else if p.decoded.setup.chroma_packing != 0 {
                     self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
                 } else {
-                    self.show_toast(trf("Cannot show {} pictures", &[&p.decoded.frame.format_name()]));
+                    self.show_toast(trf("Cannot show {} pictures", &[&p.decoded.picture.format_name()]));
                 }
             }
             if !self.first_frame {
@@ -2079,6 +2088,9 @@ impl Streaming {
         pads.reset();
         self.upscaler = None;
         self.texture.destroy();
+        if self.facts.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+            eprintln!("nightjar: decoder {}", lock(&self.shared.decoder_name));
+        }
         if let Some(summary) = self.texture.pyrowave_stages.summary() {
             eprintln!("nightjar: PyroWave presenter stages {summary} (CPU submit time)");
         }

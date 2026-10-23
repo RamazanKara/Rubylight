@@ -7,7 +7,10 @@ use std::time::Instant;
 
 use rubylight_protocol::pyrowave::{push_container, Records};
 
+use crate::media::Picture;
 use super::stage_times::Stages;
+#[cfg(windows)]
+use super::pyrowave_sdk::{GpuConfig, GpuDecoder};
 
 struct Band {
     component: usize,
@@ -434,6 +437,227 @@ pub fn minimum_bitrate(width: u32, height: u32, fps: u32, chroma444: bool, hdr: 
     let x = (f64::from(width) * f64::from(height)).clamp(921_600.0, 8_294_400.0).sqrt() * 0.001 - 2.0;
     let estimate = coefficients.into_iter().rev().fold(0.0, |acc, c| acc * x + c);
     (estimate * 0.008 * f64::from(fps.max(1)) * if hdr { 1.2 } else { 1.0 }).ceil() as u32 * 1000
+}
+
+/// One reconstructed frame, ready for the presenter.
+pub struct Output {
+    pub picture: Picture,
+    pub source: Source,
+    pub loss_percent: f32,
+    pub first_block_us: u64,
+}
+
+/// Why a frame produced no picture.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Failure {
+    /// The frame did not decode (malformed, or the sequence does not match): counted, and the
+    /// host is asked for a new IDR, as on the CPU path.
+    Frame(String),
+    /// Every plane set is held by a picture that has not been shown or dropped yet: the frame is
+    /// dropped and counted with the replaced ones.
+    NoPlanes,
+    /// The GPU decoder itself broke (a failed submit, a decode that never finished, a lost
+    /// device): nothing falls back to the CPU, the stream ends with this message.
+    Device(String),
+}
+
+/// The PyroWave decoder of a stream, on the CPU or on the GPU (`Settings::pyrowave_decoder`).
+pub enum Pyrowave {
+    Cpu(Decoder),
+    #[cfg(windows)]
+    Gpu(Box<GpuStream>),
+}
+
+impl Pyrowave {
+    pub fn cpu(width: usize, height: usize, chroma444: bool) -> Result<Self, &'static str> {
+        Decoder::new(width, height, chroma444).map(Self::Cpu)
+    }
+
+    /// Takes one packet of the records envelope of the frame `frame` will get next.
+    pub fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
+        match self {
+            Self::Cpu(decoder) => decoder.chunk(first, flags, payload),
+            #[cfg(windows)]
+            Self::Gpu(stream) => stream.chunk(first, flags, payload),
+        }
+    }
+
+    /// Reconstructs the frame. `evict` drops the oldest picture still queued for the presenter
+    /// and says whether there was one; the GPU decoder calls it while no plane set is free.
+    pub fn frame(&mut self, data: &[u8], evict: &mut dyn FnMut() -> bool) -> Result<Output, Failure> {
+        match self {
+            Self::Cpu(decoder) => {
+                decoder.coefficients(data).map_err(|e| Failure::Frame(e.into()))?;
+                let frame = decoder.coefficient_frame().map_err(Failure::Frame)?;
+                Ok(Output { picture: Picture::Frame(frame), source: decoder.source, loss_percent: decoder.loss_percent, first_block_us: decoder.first_block_us })
+            }
+            #[cfg(windows)]
+            Self::Gpu(stream) => stream.frame(data, evict),
+        }
+    }
+
+    pub fn stage_summary(&self) -> Option<String> {
+        match self {
+            Self::Cpu(decoder) => decoder.stage_summary(),
+            #[cfg(windows)]
+            Self::Gpu(stream) => stream.stage_summary(),
+        }
+    }
+}
+
+/// How long the decoder thread waits for the GPU to finish a frame before the stream ends.
+#[cfg(windows)]
+const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+#[cfg(windows)]
+const GPU_STAGE_NAMES: [&str; 4] = ["clear", "push", "submit", "gpu"];
+#[cfg(windows)]
+const GPU_CLEAR: usize = 0;
+#[cfg(windows)]
+const GPU_PUSH: usize = 1;
+#[cfg(windows)]
+const GPU_SUBMIT: usize = 2;
+#[cfg(windows)]
+const GPU_WAIT: usize = 3;
+/// The first word of a record that is the sequence header.
+#[cfg(windows)]
+const HEADER_BIT: u32 = 0x8000_0000;
+
+/// PyroWave frames decoded by the SDK on the GPU into shared D3D11 planes. The records go to
+/// the SDK as they complete (early decode) or when the frame does; the SDK runs the entropy
+/// decoding and the inverse wavelets, and the presenter converts the planes to RGB.
+#[cfg(windows)]
+pub struct GpuStream {
+    gpu: GpuDecoder,
+    planes: std::sync::Arc<super::gpu_planes::Planes>,
+    records: Records,
+    early: Early,
+    missed_start: bool,
+    early_bytes: usize,
+    first_block_us: u64,
+    /// The records already given to the SDK for the frame in flight, by block index.
+    pushed: std::collections::HashSet<u32>,
+    stages: Stages<4>,
+}
+
+#[cfg(windows)]
+impl GpuStream {
+    /// Creates the SDK decoder on `device` (the renderer's) with `slots` plane sets.
+    pub fn new(device: &windows::Win32::Graphics::Direct3D11::ID3D11Device, width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
+        let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots };
+        GpuDecoder::new(device, config).map(Self::with_decoder)
+    }
+
+    pub fn with_decoder(gpu: GpuDecoder) -> Self {
+        let config = gpu.config();
+        Self {
+            planes: super::gpu_planes::Planes::new(&gpu),
+            records: Records::with_geometry(config.width, config.height, config.chroma444),
+            gpu,
+            early: Early::Off,
+            missed_start: false,
+            early_bytes: 0,
+            first_block_us: 0,
+            pushed: std::collections::HashSet::new(),
+            stages: Stages::new(GPU_STAGE_NAMES),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn planes(&self) -> &std::sync::Arc<super::gpu_planes::Planes> {
+        &self.planes
+    }
+
+    pub fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
+        if first {
+            let step = Instant::now();
+            self.stages.reset();
+            self.gpu.clear();
+            self.records.begin_frame();
+            self.pushed.clear();
+            self.early = Early::Active;
+            self.early_bytes = 4;
+            self.first_block_us = 0;
+            self.missed_start = false;
+            self.stages.add(GPU_CLEAR, step);
+        } else if self.early == Early::Off {
+            self.missed_start = true;
+            return;
+        }
+        if self.early != Early::Active { return; }
+        let step = Instant::now();
+        self.early_bytes += 8 + payload.len();
+        if !self.records.feed_packet(flags, payload) { self.early = Early::Failed; return; }
+        let Self { records, gpu, pushed, .. } = self;
+        let mut failed = false;
+        records.drain_new(|index, record| {
+            if failed { return; }
+            if gpu.push_packet(record).is_err() { failed = true; return; }
+            pushed.insert(index);
+        });
+        if failed { self.early = Early::Failed; }
+        if !self.pushed.is_empty() && self.first_block_us == 0 { self.first_block_us = nightjar_core::session::now_us(); }
+        self.stages.add(GPU_PUSH, step);
+    }
+
+    pub fn frame(&mut self, data: &[u8], evict: &mut dyn FnMut() -> bool) -> Result<Output, Failure> {
+        let early = std::mem::replace(&mut self.early, Early::Off);
+        let missed_start = std::mem::take(&mut self.missed_start);
+        if early == Early::Off { self.stages.reset(); }
+        let records_envelope = data.starts_with(&[0, 0, 0, 0]);
+        let whole_early = early == Early::Active && records_envelope && self.early_bytes == data.len();
+        let mut slot = self.planes.acquire();
+        while slot.is_none() && evict() { slot = self.planes.acquire(); }
+        let Some((lease, after)) = slot else {
+            // Keep the records cache current, so the frames after this one recover from it.
+            if whole_early { self.records.finish_frame(|_| true); } else if records_envelope { self.records.push_frame(data, |_| true); }
+            return Err(Failure::NoPlanes);
+        };
+        if data.len() > rubylight_protocol::pyrowave::MAX_FRAME_BYTES {
+            return Err(Failure::Frame("PyroWave frame exceeds the packet budget".into()));
+        }
+        let mut finished = false;
+        let mut source = Source::Frame;
+        if early != Early::Off {
+            // The chunks are the frame only if they add up to its envelope; the frame decides.
+            if whole_early {
+                let step = Instant::now();
+                let Self { records, gpu, pushed, .. } = self;
+                finished = records.finish_frame(|packet| {
+                    if word(packet, 0) & HEADER_BIT != 0 || !pushed.contains(&(word(packet, 4) >> 8)) { gpu.push_packet(packet).is_ok() } else { true }
+                });
+                self.stages.add(GPU_PUSH, step);
+            }
+            source = if finished { Source::Early } else { Source::Fallback };
+        } else if missed_start {
+            source = Source::Fallback;
+        }
+        if !finished {
+            let step = Instant::now();
+            self.gpu.clear();
+            let Self { records, gpu, .. } = self;
+            let push = |packet: &[u8]| gpu.push_packet(packet).is_ok();
+            let valid = if records_envelope { records.push_frame(data, push) } else { push_container(data, push) };
+            self.stages.add(GPU_PUSH, step);
+            if !valid { return Err(Failure::Frame("Malformed PyroWave frame container".into())); }
+        }
+        let loss_percent = if records_envelope { self.records.loss_percent } else { 0.0 };
+        if !self.gpu.is_ready(true) {
+            return Err(Failure::Frame("PyroWave frame holds no picture data".into()));
+        }
+        let step = Instant::now();
+        let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+        self.stages.add(GPU_SUBMIT, step);
+        let step = Instant::now();
+        self.gpu.wait(fence_value, GPU_DECODE_TIMEOUT).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+        self.stages.add(GPU_WAIT, step);
+        self.stages.commit();
+        let first_block_us = if source == Source::Early { self.first_block_us } else { 0 };
+        Ok(Output { picture: Picture::GpuPlanes { lease, fence_value }, source, loss_percent, first_block_us })
+    }
+
+    pub fn stage_summary(&self) -> Option<String> {
+        self.stages.summary()
+    }
 }
 
 #[cfg(test)]

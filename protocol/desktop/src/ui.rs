@@ -1699,6 +1699,15 @@ impl Launcher {
                     ui.add(egui::DragValue::new(&mut s.quality_min_fps).range(15..=240).suffix(" fps"))
                 });
             }
+            // The GPU decoder's probe runs once in the background; PyroWave is not offered while it
+            // fails, and the reason is shown with the decoder setting.
+            let gpu_decoder_error = if s.pyrowave_decoder == crate::config::PyroWaveDecoder::Gpu {
+                let probe = crate::stream::pyrowave_mode::settings_probe();
+                if probe.is_none() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(200)); }
+                probe.and_then(Result::err)
+            } else {
+                None
+            };
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["codec"], "Codec", "Automatic picks HEVC, then H.264. PyroWave needs GPU rendering; restart after selecting it on Linux.", |ui, s| {
                 egui::ComboBox::from_id_salt("codec")
                     .selected_text(match s.codec {
@@ -1714,8 +1723,10 @@ impl Launcher {
                         ui.selectable_value(&mut s.codec, CodecPreference::H264, "H.264");
                         ui.selectable_value(&mut s.codec, CodecPreference::Hevc, "HEVC");
                         ui.selectable_value(&mut s.codec, CodecPreference::Av1, "AV1");
-                        ui.selectable_value(&mut s.codec, CodecPreference::PyroWave, "PyroWave 4:2:0");
-                        ui.selectable_value(&mut s.codec, CodecPreference::PyroWave444, "PyroWave 4:4:4");
+                        if gpu_decoder_error.is_none() {
+                            ui.selectable_value(&mut s.codec, CodecPreference::PyroWave, "PyroWave 4:2:0");
+                            ui.selectable_value(&mut s.codec, CodecPreference::PyroWave444, "PyroWave 4:4:4");
+                        }
                     })
                     .response
             });
@@ -1756,6 +1767,20 @@ impl Launcher {
                         ui.selectable_value(&mut s.decoder, DecoderPreference::Software, tr("Software"));
                     })
                     .response).inner
+            });
+            let decoder_note = match &gpu_decoder_error {
+                Some(reason) => trf("CPU decodes on the CPU and reconstructs on the GPU. GPU decodes with the PyroWave SDK and never falls back to CPU. GPU decoding is unavailable here: {}", &[reason]),
+                None => tr("CPU decodes on the CPU and reconstructs on the GPU. GPU decodes with the PyroWave SDK and never falls back to CPU.").to_owned(),
+            };
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["pyrowave_decoder"], "PyroWave decoder", &decoder_note, |ui, s| {
+                egui::ComboBox::from_id_salt("pyrowave-decoder")
+                    .selected_text(tr(s.pyrowave_decoder.label()))
+                    .show_ui(ui, |ui| {
+                        for mode in [crate::config::PyroWaveDecoder::Cpu, crate::config::PyroWaveDecoder::Gpu] {
+                            ui.selectable_value(&mut s.pyrowave_decoder, mode, tr(mode.label()));
+                        }
+                    })
+                    .response
             });
 
             section_at(ui, "Display & image", &mut jump);

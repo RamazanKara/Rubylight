@@ -77,3 +77,27 @@ float4 fragment(float4 position : SV_Position) : SV_Target {
     }
     return float4(linearRgb(original), 1);
 }
+#ifndef VULKAN
+// The GPU decoder's planes: R8 or R16 UNORM textures holding code / maximum, converted to the
+// same linear RGB as the CPU path (the planes are final, so no wavelet passes are left).
+Texture2D<float> planeY : register(t1);
+Texture2D<float> planeCb : register(t2);
+Texture2D<float> planeCr : register(t3);
+float4 planes(float4 position : SV_Position) : SV_Target {
+    int3 p = int3(int2(position.xy), 0);
+    float3 samples;
+    samples.x = planeY.Load(p);
+    if ((flags & 32) != 0) {
+        samples.y = planeCb.Load(p);
+        samples.z = planeCr.Load(p);
+    } else {
+        // Chroma is half size: sample it where the CPU path does.
+        uint2 size;
+        planeCb.GetDimensions(size.x, size.y);
+        float2 uv = clamp(position.xy * 0.5, 0.5, float2(width, height) * 0.5 - 0.5) / float2(size);
+        samples.y = planeCb.SampleLevel(sampleLinear, uv, 0);
+        samples.z = planeCr.SampleLevel(sampleLinear, uv, 0);
+    }
+    return float4(linearRgb(samples - 0.5), 1);
+}
+#endif

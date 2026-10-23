@@ -8,16 +8,20 @@
 //! planes back into the buffers handed to `decode`, and the presenter uploads them to its own
 //! textures. The readback is one memcpy per plane out of host-visible memory.
 //!
-//! `decode` blocks until the GPU is done and the planes are in the buffers: the SDK's `complete`
-//! waits on its fence without a timeout, so a hung Vulkan device blocks the decoder thread
-//! instead of ending the stream after `GPU_DECODE_TIMEOUT` as on Windows.
+//! `decode` blocks until the GPU is done and the planes are in the buffers. The SDK's `complete`
+//! waits on its fence without a timeout, so it runs under a `Watchdog`: past `timeout` (the
+//! stream's `GPU_DECODE_TIMEOUT`, as on Windows) `decode` fails loudly and the decoder is
+//! `stalled`, which means it is never called, destroyed or reused again and the plane buffers the
+//! stuck call may still write to are the caller's to leak.
 
 use std::ffi::{c_char, c_void, CStr};
 use std::ptr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ash::vk;
 
+use super::watchdog::Watchdog;
 use super::*;
 
 /// The SDK's decoder on a Vulkan device of its own choosing (the default one), with the plane
@@ -30,6 +34,28 @@ pub struct GpuDecoder {
     config: GpuConfig,
     device: RawDevice,
     decoder: RawDecoder,
+    watchdog: Watchdog,
+    timeout: Duration,
+}
+
+/// What the wait thread needs of a decode: the decoder and the buffer description. The planes
+/// they point into stay alive because a decode that is not finished in time is never freed.
+struct Pending {
+    api: Arc<Api>,
+    decoder: RawDecoder,
+    buffer: CpuBuffer,
+}
+
+// SAFETY: Raw pointers into a decoder and buffers that outlive the call, see `Pending`; the SDK's
+// `complete` takes no thread-local state (it waits on a fence and copies).
+unsafe impl Send for Pending {}
+
+impl Pending {
+    fn complete(self) -> Result<(), String> {
+        // SAFETY: The decoder is live (a stalled one is leaked) and `buffer` points into planes
+        // that stay borrowed until this returns, or are leaked if it does not.
+        check(unsafe { (self.api.decoder_decode_cpu_buffer_complete)(self.decoder, &self.buffer, 0) }, "completing the PyroWave decode")
+    }
 }
 
 // SAFETY: Every raw handle is owned by this value, and the SDK may be called from any one thread
@@ -64,6 +90,17 @@ impl GpuDecoder {
         Self::with_api(Api::shared()?, config)
     }
 
+    /// How long `decode` waits for the GPU before it fails (`GPU_DECODE_TIMEOUT` unless changed).
+    pub fn set_decode_timeout(&mut self, timeout: Duration) {
+        self.timeout = timeout;
+    }
+
+    /// Whether a decode missed its deadline. The decoder refuses everything from then on, and the
+    /// buffers of that decode must be leaked, not reused, as the stuck call may still write to them.
+    pub fn stalled(&self) -> bool {
+        self.watchdog.stalled()
+    }
+
     /// Creates the SDK device (the Vulkan driver's default adapter) and the decoder (compute
     /// path). `config.slots` is only the number of plane sets the stream keeps; the buffers are
     /// the caller's. Errors name the step that failed.
@@ -71,7 +108,8 @@ impl GpuDecoder {
         if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (config.width % 2 != 0 || config.height % 2 != 0)) {
             return Err(format!("PyroWave GPU decoding: bad picture {}x{} with {} plane sets", config.width, config.height, config.slots));
         }
-        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut() };
+        let watchdog = Watchdog::new()?;
+        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT };
         // SAFETY: The out-pointers outlive each call, and `s` owns every handle made so Drop
         // releases them on any early return.
         unsafe {
@@ -100,26 +138,31 @@ impl GpuDecoder {
 
     /// Throws away the packets queued for the frame in progress.
     pub fn clear(&mut self) {
+        if self.stalled() { return; }
         // SAFETY: `decoder` is live while self is.
         unsafe { (self.api.decoder_clear)(self.decoder) }
     }
 
     /// Queues one record (or container packet) of the frame. CPU only: it copies into SDK staging.
     pub fn push_packet(&mut self, data: &[u8]) -> Result<(), String> {
+        if self.stalled() { return Err("the PyroWave decoder is stalled".into()); }
         // SAFETY: `data` is a live slice for the call, which copies it.
         check(unsafe { (self.api.decoder_push_packet)(self.decoder, data.as_ptr().cast(), data.len()) }, "pushing a PyroWave packet")
     }
 
     /// Whether every block of the frame has been pushed (or, with `allow_partial`, enough of them).
     pub fn is_ready(&self, allow_partial: bool) -> bool {
+        if self.stalled() { return false; }
         // SAFETY: `decoder` is live while self is.
         unsafe { (self.api.decoder_decode_is_ready)(self.decoder, allow_partial) }
     }
 
     /// Decodes the pushed records into `planes` (tightly packed rows, `GpuConfig::plane_bytes`
-    /// each) and returns when they are final. Missing blocks decode as zero, so a partial frame
-    /// blurs and never corrupts.
+    /// each) and returns when they are final, or fails if the GPU needs longer than the decode
+    /// timeout (then `stalled`). Missing blocks decode as zero, so a partial frame blurs and never
+    /// corrupts.
     pub fn decode(&mut self, planes: [&mut [u8]; 3]) -> Result<(), String> {
+        if self.stalled() { return Err("the PyroWave decoder is stalled: an earlier decode never finished".into()); }
         let config = self.config;
         let mut buffer = CpuBuffer {
             data: [ptr::null_mut(); 3],
@@ -139,11 +182,11 @@ impl GpuDecoder {
             buffer.plane_size_in_bytes[index] = config.plane_bytes(index);
         }
         // SAFETY: `buffer` points into the three live slices, which stay borrowed until the
-        // decode completes; context 0 is one of the SDK's two frame contexts.
-        unsafe {
-            check((self.api.decoder_decode_cpu_buffer_async)(self.decoder, &buffer, 0), "submitting the PyroWave decode")?;
-            check((self.api.decoder_decode_cpu_buffer_complete)(self.decoder, &buffer, 0), "completing the PyroWave decode")
-        }
+        // decode completes (or are leaked by the caller when `stalled`); context 0 is one of the
+        // SDK's two frame contexts.
+        check(unsafe { (self.api.decoder_decode_cpu_buffer_async)(self.decoder, &buffer, 0) }, "submitting the PyroWave decode")?;
+        let pending = Pending { api: self.api.clone(), decoder: self.decoder, buffer };
+        self.watchdog.run(self.timeout, move || pending.complete())
     }
 
     /// The SDK's GPU timestamps since the last reset, as the lines it reports.
@@ -163,6 +206,9 @@ impl GpuDecoder {
 
 impl Drop for GpuDecoder {
     fn drop(&mut self) {
+        // A stalled device is hung: destroying the decoder would idle it and block here for good,
+        // and the stuck call is still using it. Leak both.
+        if self.stalled() { return; }
         // SAFETY: Each non-null handle was made on `self.device`, which goes last; the SDK idles
         // the GPU before destroying the decoder.
         unsafe {

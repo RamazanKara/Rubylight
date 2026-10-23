@@ -510,8 +510,7 @@ impl Pyrowave {
 }
 
 /// How long the decoder thread waits for the GPU to finish a frame before the stream ends.
-#[cfg(windows)]
-const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+pub(crate) const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const GPU_STAGE_NAMES: [&str; 4] = ["clear", "push", "submit", "gpu"];
 const GPU_CLEAR: usize = 0;
 const GPU_PUSH: usize = 1;
@@ -682,8 +681,13 @@ impl GpuStream {
         {
             let _ = after;
             let gpu = &mut self.gpu;
-            lease.with_buffers(|[y, cb, cr]| gpu.decode([y, cb, cr]))
-                .map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+            let decoded = lease.with_buffers(|[y, cb, cr]| gpu.decode([y, cb, cr]));
+            if let Err(e) = decoded {
+                // A decode that missed its deadline may still write into these buffers once the
+                // device comes back: the set is never given back, so nothing reads or reuses it.
+                if self.gpu.stalled() { std::mem::forget(lease); }
+                return Err(Failure::Device(format!("PyroWave GPU decode failed: {e}")));
+            }
             self.stages.add(GPU_WAIT, step);
         }
         self.stages.commit();
@@ -900,7 +904,7 @@ mod tests {
     #[test]
     #[ignore = "real 1080p frames from NIGHTJAR_PYROWAVE_FRAMES"]
     fn a_real_frame_decodes_its_bands_exactly_from_the_blocks_before_their_cut() {
-        let dir = std::env::var_os("NIGHTJAR_PYROWAVE_FRAMES").expect("set NIGHTJAR_PYROWAVE_FRAMES to a dump directory");
+        let Some(dir) = crate::sdl::test_input("NIGHTJAR_PYROWAVE_FRAMES", "a NIGHTJAR_PYROWAVE_DUMP directory") else { return };
         for (width, height, full, data) in dumped_frames(std::path::Path::new(&dir)).into_iter().take(3) {
             let mut decoder = Decoder::new(width, height, full).unwrap();
             decoder.coefficients(&data).unwrap();

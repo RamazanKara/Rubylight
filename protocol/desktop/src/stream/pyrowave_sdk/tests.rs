@@ -12,9 +12,7 @@ use crate::stream::pyrowave::Decoder as Cpu;
 use rubylight_protocol::pyrowave::{push_container, Records, PACKET_CONTIGUOUS, PACKET_FRAME_END, PACKET_FRAME_START, PACKET_RECORD_START};
 use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard};
-#[cfg(windows)]
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const HEADER_BIT: u32 = 0x8000_0000;
 
@@ -957,6 +955,34 @@ fn push_and_decode_into(gpu: &mut GpuDecoder, packets: &[Vec<u8>], buffers: &mut
     assert!(gpu.is_ready(false), "the pushed packets did not complete the frame");
     let [a, b, c] = buffers;
     gpu.decode([a.as_mut_slice(), b.as_mut_slice(), c.as_mut_slice()]).unwrap();
+}
+
+/// A deadline the GPU cannot meet stands in for a hung device (the SDK's wait has no timeout of its
+/// own): the decode fails loudly, the decoder is stalled and refuses everything after.
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the PyroWave SDK and a Vulkan GPU"]
+fn a_decode_that_misses_its_deadline_is_a_loud_error_and_leaves_the_decoder_stalled() {
+    let _gpu = gpu_lock();
+    let fixture = &fixtures()[0];
+    let mut gpu = GpuDecoder::with_api(sdk(), fixture.config()).unwrap();
+    gpu.set_decode_timeout(Duration::ZERO);
+    let mut buffers = plane_buffers(gpu.config());
+    gpu.clear();
+    for packet in fixture.packets() {
+        gpu.push_packet(&packet).unwrap();
+    }
+    let [a, b, c] = &mut buffers;
+    let error = gpu.decode([a.as_mut_slice(), b.as_mut_slice(), c.as_mut_slice()]).unwrap_err();
+    assert!(error.contains("did not finish within") && error.contains("hung or lost"), "{error}");
+    assert!(gpu.stalled());
+    assert!(!gpu.is_ready(true) && gpu.push_packet(&[0; 8]).is_err());
+    let [a, b, c] = &mut buffers;
+    assert!(gpu.decode([a.as_mut_slice(), b.as_mut_slice(), c.as_mut_slice()]).unwrap_err().contains("stalled"));
+    // Dropping it leaks the device instead of idling it, which would block on a hung GPU, and the
+    // buffers stay too: the stuck call may still copy into them.
+    drop(gpu);
+    std::mem::forget(buffers);
 }
 
 #[cfg(unix)]

@@ -253,6 +253,16 @@ pub fn set_host_messages(messages: &[u16]) {
     *lock(&ENGINE.host_messages) = messages.to_vec();
 }
 
+/// The listener's side of [`set_host_messages`]: ignores the announcement once the start was
+/// interrupted, so a `stop()` during the RTSP handshake cannot leave messages behind for the
+/// next stream's renderers.
+pub fn announce_host_messages(messages: &[u16]) {
+    if lock(&ENGINE.interrupt).is_interrupted() {
+        return;
+    }
+    set_host_messages(messages);
+}
+
 /// Whether the host announced `message_type`, from the end of the RTSP handshake until the
 /// stream stops, so also while the renderers start.
 pub fn host_supports(message_type: u16) -> bool {
@@ -390,8 +400,32 @@ pub fn clock_sync(reply: &ClockSyncReply, received_us: u64) {
 mod tests {
     use super::*;
 
+    /// The tests below share the engine's global state.
+    static ENGINE_TESTS: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn an_interrupted_start_leaves_no_host_messages_behind() {
+        let _serial = lock(&ENGINE_TESTS);
+        const CLOCK_SYNC: u16 = 0x5537;
+        *lock(&ENGINE.interrupt) = Interrupt::default();
+        set_host_messages(&[]);
+        announce_host_messages(&[CLOCK_SYNC]);
+        assert!(host_supports(CLOCK_SYNC), "a live start records the announcement");
+        set_host_messages(&[]);
+
+        // `LiInterruptConnection` and `LiStopConnection` run while the handshake is still going;
+        // the announcement that arrives afterwards is dropped.
+        interrupt();
+        stop();
+        announce_host_messages(&[CLOCK_SYNC]);
+        assert!(!host_supports(CLOCK_SYNC), "an interrupted start must not record messages");
+
+        *lock(&ENGINE.interrupt) = Interrupt::default();
+    }
+
     #[test]
     fn the_host_messages_are_known_before_a_session_is_stored() {
+        let _serial = lock(&ENGINE_TESTS);
         // The video renderer starts inside Session::start, before the engine holds the session;
         // its start asks whether the host announced clock sync to decide on the probes.
         const CLOCK_SYNC: u16 = 0x5537;

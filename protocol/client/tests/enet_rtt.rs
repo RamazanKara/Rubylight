@@ -88,4 +88,11 @@ fn the_smoothed_round_trip_time_converges_down_to_the_samples() {
         settled <= Duration::from_millis(3),
         "a 2 ms link reads {settled:?}, expected 2 to 3 ms"
     );
+    // The variance decays by the same rounding: truncation leaves it at 3 ms after the 40 ms
+    // stretch, rounding up lets it settle on a steady link.
+    let variance = client.peer(peer).round_trip_time_variance();
+    assert!(
+        variance <= Duration::from_millis(1),
+        "a steady 2 ms link leaves the variance at {variance:?}, expected 1 ms or less"
+    );
 }

@@ -1,6 +1,14 @@
-# rusty_enet 0.4.0 (MIT, https://github.com/jabuwu/rusty_enet) with one change: the smoothed round
-# trip time rounds up like moonlight-common-c's ENet fork (src/c/protocol.rs, marked "Nightjar").
-# Tests and dev-dependencies are dropped. Used through [patch.crates-io] in protocol/Cargo.toml.
+# rusty_enet 0.4.0 (MIT, https://github.com/jabuwu/rusty_enet), changed in these ways only. Used
+# through [patch.crates-io] in protocol/Cargo.toml.
+# - src/c/protocol.rs, the round trip smoothing in the acknowledgement handler (marked
+#   "Nightjar"): five divisions round up like moonlight-common-c's ENet fork, so the smoothed
+#   round trip time converges on the samples. Variance decay: (v + 3) / 4 instead of v / 4.
+#   Variance step, both directions: (diff + 3) / 4 instead of diff / 4. Mean step, both
+#   directions: (diff + 7) / 8 instead of diff / 8.
+# - src/lib.rs: `#![allow(warnings)]` added, the upstream lint output is not ours to fix.
+# - src/lib.rs: the `mod test` declaration is dropped together with src/test and src/test.rs, and
+#   the dev-dependencies (rand, rand_chacha) with them.
+# - Cargo.toml: the generated header and the docs.rs and exclude metadata are dropped.
 [package]
 edition = "2021"
 rust-version = "1.77"

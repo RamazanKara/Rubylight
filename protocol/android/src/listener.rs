@@ -87,7 +87,7 @@ impl Listener for Events {
     }
 
     fn host_control_messages(&self, messages: &[u16]) {
-        engine::set_host_messages(messages);
+        engine::announce_host_messages(messages);
     }
 
     fn connection_started(&self) {

@@ -61,7 +61,16 @@ fn settings_probe_state() -> &'static ProbeState {
 /// while it runs. `device` is the renderer's, which outlives the process's settings screens.
 pub fn settings_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Option<Result<(), String>> {
     struct Raw(*mut std::ffi::c_void);
+    #[cfg(windows)]
     // SAFETY: D3D11 devices are free-threaded and the renderer outlives the probe thread's use.
+    unsafe impl Send for Raw {}
+    #[cfg(unix)]
+    // SAFETY: The pointer is the renderer's SDL_GPUDevice, which outlives the process's settings
+    // screens, and the probe thread only borrows it to create (and release) a shader module through
+    // `SDL_CreateGPUShader`. That relies on SDL's rule that GPU device-level calls other than the
+    // ones on a command buffer may be made from any thread, and on the Vulkan backend guarding
+    // its own bookkeeping for them (shader creation touches no state the render thread's command
+    // buffers use). Nothing else of the device is used from the probe thread.
     unsafe impl Send for Raw {}
     let mut state = settings_probe_state().lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, done)) = state.iter().find(|(key, _)| *key == ten_bit) {

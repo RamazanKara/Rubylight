@@ -291,7 +291,9 @@ decode:
   codec is affected, so a GPU default does not make a library-less build unusable; only PyroWave
   needs the setting changed there.
 - **Deadline.** `pyrowave_decoder_decode_cpu_buffer_complete` waits on its fence with no timeout,
-  so it runs on a wait thread (`pyrowave_sdk/watchdog.rs`) and `decode` gives up after the same
+  so submit and complete run together as one job on a wait thread (`pyrowave_sdk/watchdog.rs`; the
+  SDK registers its thread index and logger in the submit call, so that thread is set up by the
+  call itself, and one hand-over per frame covers both) and `decode` gives up after the same
   `GPU_DECODE_TIMEOUT` (2 s) as Windows, with `Failure::Device("PyroWave GPU decode failed: the
   PyroWave decode did not finish within 2s: the Vulkan device may be hung or lost")`. A stalled
   decoder is never called, destroyed (that would idle the hung device and block) or reused again,

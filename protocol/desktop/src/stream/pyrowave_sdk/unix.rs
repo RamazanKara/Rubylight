@@ -9,10 +9,15 @@
 //! textures. The readback is one memcpy per plane out of host-visible memory.
 //!
 //! `decode` blocks until the GPU is done and the planes are in the buffers. The SDK's `complete`
-//! waits on its fence without a timeout, so it runs under a `Watchdog`: past `timeout` (the
-//! stream's `GPU_DECODE_TIMEOUT`, as on Windows) `decode` fails loudly and the decoder is
-//! `stalled`, which means it is never called, destroyed or reused again and the plane buffers the
-//! stuck call may still write to are the caller's to leak.
+//! waits on its fence without a timeout (and `async` submits to the queue, which a lost device can
+//! block too), so both run in one job under a `Watchdog`: past `timeout` (the stream's
+//! `GPU_DECODE_TIMEOUT`, as on Windows) `decode` fails loudly and the decoder is `stalled`, which
+//! means it is never called, destroyed or reused again and the plane buffers the stuck call may
+//! still write to are the caller's to leak. One job is one hand-over per frame, as before.
+//!
+//! The SDK sets a thread up inside its entry points (the silent logger in each, the thread index
+//! in `async`; `complete` only waits on the fence and copies, which consult neither), so the wait
+//! thread needs no setup of its own: its first job's `async` does it for the thread's life.
 
 use std::ffi::{c_char, c_void, CStr};
 use std::ptr;
@@ -51,10 +56,16 @@ struct Pending {
 unsafe impl Send for Pending {}
 
 impl Pending {
-    fn complete(self) -> Result<(), String> {
+    /// Submits the decode and waits for it, on the wait thread. Context 0 is one of the SDK's two
+    /// frame contexts.
+    fn run(self) -> Result<(), String> {
         // SAFETY: The decoder is live (a stalled one is leaked) and `buffer` points into planes
-        // that stay borrowed until this returns, or are leaked if it does not.
-        check(unsafe { (self.api.decoder_decode_cpu_buffer_complete)(self.decoder, &self.buffer, 0) }, "completing the PyroWave decode")
+        // that stay borrowed until this returns, or are leaked if it does not. The owner thread
+        // does not call the SDK while it waits on this job.
+        unsafe {
+            check((self.api.decoder_decode_cpu_buffer_async)(self.decoder, &self.buffer, 0), "submitting the PyroWave decode")?;
+            check((self.api.decoder_decode_cpu_buffer_complete)(self.decoder, &self.buffer, 0), "completing the PyroWave decode")
+        }
     }
 }
 
@@ -181,12 +192,10 @@ impl GpuDecoder {
             buffer.row_stride_in_bytes[index] = width as usize * config.sample_bytes();
             buffer.plane_size_in_bytes[index] = config.plane_bytes(index);
         }
-        // SAFETY: `buffer` points into the three live slices, which stay borrowed until the
-        // decode completes (or are leaked by the caller when `stalled`); context 0 is one of the
-        // SDK's two frame contexts.
-        check(unsafe { (self.api.decoder_decode_cpu_buffer_async)(self.decoder, &buffer, 0) }, "submitting the PyroWave decode")?;
+        // `buffer` points into the three live slices, which stay borrowed until the decode ends
+        // (or are leaked by the caller when `stalled`).
         let pending = Pending { api: self.api.clone(), decoder: self.decoder, buffer };
-        self.watchdog.run(self.timeout, move || pending.complete())
+        self.watchdog.run(self.timeout, move || pending.run())
     }
 
     /// The SDK's GPU timestamps since the last reset, as the lines it reports.

@@ -696,17 +696,17 @@ mod tests {
 
     #[test]
     fn gpu_mode_without_a_device_never_builds_a_cpu_decoder() {
-        // No renderer device (Windows) or a picture the SDK cannot take, and no SDK library to take
-        // it (Linux, where the planes cross through the CPU and the device only proves the
-        // renderer): the GPU decoder cannot be built, and setup reports that instead of decoding
-        // on the CPU.
+        // No renderer device (Windows) or no SDK library next to the test executable (Linux, where
+        // the planes cross through the CPU and the device only proves the renderer): the GPU
+        // decoder cannot be built, and setup reports that instead of decoding on the CPU.
         let (mut decoder, shared) = decoder();
         decoder = decoder.with_gpu_decoder(Some(GpuDevice(std::ptr::null_mut())));
-        let side = if cfg!(windows) { 128 } else { 127 };
-        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_PYROWAVE, width: side, height: side, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_PYROWAVE, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
         assert!(decoder.setup(&setup).is_err());
         assert!(decoder.pyrowave.is_none());
         let notices = notices(&shared);
         assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("PyroWave GPU decoding is unavailable")));
+        #[cfg(unix)]
+        assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("libpyrowave-shared.so not found")), "the reason is the missing library");
     }
 }

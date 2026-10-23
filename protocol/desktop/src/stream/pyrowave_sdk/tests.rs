@@ -42,6 +42,14 @@ fn structs_have_the_layout_of_the_c_header() {
     assert_eq!(size_of::<GpuBuffers>(), 144);
     assert_eq!((size_of::<GpuExternalReference>(), offset_of!(GpuExternalReference, queue_family_index)), (16, 8));
     assert_eq!((size_of::<SyncPoint>(), offset_of!(SyncPoint, value)), (16, 8));
+    // pyrowave_cpu_buffer (pyrowave.h): three pointers, three strides, three plane sizes, then
+    // width, height and the format enum, padded to 8.
+    assert_eq!(size_of::<CpuBuffer>(), 88);
+    assert_eq!(
+        (offset_of!(CpuBuffer, data), offset_of!(CpuBuffer, row_stride_in_bytes), offset_of!(CpuBuffer, plane_size_in_bytes)),
+        (0, 24, 48),
+    );
+    assert_eq!((offset_of!(CpuBuffer, width), offset_of!(CpuBuffer, height), offset_of!(CpuBuffer, format)), (72, 76, 80));
     assert_eq!((size_of::<GpuSyncOperation>(), offset_of!(GpuSyncOperation, num_images), offset_of!(GpuSyncOperation, sync)), (32, 8, 16));
 }
 

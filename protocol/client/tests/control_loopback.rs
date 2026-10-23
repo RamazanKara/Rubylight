@@ -221,6 +221,39 @@ fn messages_flow_both_ways_and_stop_disconnects_gracefully() {
 }
 
 #[test]
+fn a_remote_monitor_connection_sends_no_input_at_all() {
+    let mut host = TestHost::new();
+    let config = DriverConfig {
+        input_disabled: true,
+        ..config(&host)
+    };
+    let connecting =
+        thread::spawn(move || connect(config, caps(), &KEY, SessionOptions::default()).unwrap());
+    while !connecting.is_finished() {
+        host.pump();
+        thread::sleep(Duration::from_millis(1));
+    }
+    let (client, handle) = connecting.join().unwrap();
+    let running = thread::spawn(move || client.run(|_| {}));
+    host.until("start and ping", |h| h.has(0x0302) && h.has(0x0200));
+
+    assert!(handle
+        .with_input(|input| input.send_keyboard(0x41, true, 0, 0))
+        .is_err());
+    assert!(handle
+        .with_input(|input| input.send_mouse_move(1, 1))
+        .is_err());
+    // Control traffic still flows (start and ping arrived); only input is refused.
+    handle.stop();
+    host.until("disconnect", |h| h.disconnected);
+    assert_eq!(running.join().unwrap(), Outcome::Stopped);
+    assert!(
+        !host.has(0x0206),
+        "no input packet, not even the haptics enable"
+    );
+}
+
+#[test]
 fn termination_followed_by_disconnect_now_keeps_the_reason() {
     let mut host = TestHost::new();
     let (client, handle) = connect_to(&mut host);

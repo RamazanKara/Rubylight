@@ -276,6 +276,7 @@ impl VideoStream {
         let receive_session = session.clone();
         stream.receive = Some(std::thread::Builder::new().name("VideoRecv".into()).spawn(
             move || {
+                receive_session.prioritize_thread();
                 receive_thread(
                     socket,
                     receive_shared,
@@ -287,11 +288,13 @@ impl VideoStream {
             },
         )?);
         if let Some(decoder) = queued {
-            stream.decode = Some(
-                std::thread::Builder::new()
-                    .name("VideoDec".into())
-                    .spawn(move || decoder_thread(decoder, shared, control))?,
-            );
+            let decode_session = session.clone();
+            stream.decode = Some(std::thread::Builder::new().name("VideoDec".into()).spawn(
+                move || {
+                    decode_session.prioritize_thread();
+                    decoder_thread(decoder, shared, control)
+                },
+            )?);
         }
         stream.pinger = Some(Pinger::start(
             "VideoPing",

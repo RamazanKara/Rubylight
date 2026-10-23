@@ -116,12 +116,17 @@ impl AudioStream {
             decode: None,
         };
         let receive_shared = shared.clone();
+        let decode_session = session.clone();
         stream.receive = Some(std::thread::Builder::new().name("AudioRecv".into()).spawn(
-            move || receive_thread(socket, receiver, direct, receive_shared, session, stop),
+            move || {
+                session.prioritize_thread();
+                receive_thread(socket, receiver, direct, receive_shared, session, stop)
+            },
         )?);
         if let Some(mut renderer) = queued {
             stream.decode = Some(std::thread::Builder::new().name("AudioDec".into()).spawn(
                 move || {
+                    decode_session.prioritize_thread();
                     while let Some(item) = shared.queue.wait() {
                         renderer.play(item.as_deref());
                     }

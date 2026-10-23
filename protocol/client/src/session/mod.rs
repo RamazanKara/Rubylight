@@ -35,6 +35,7 @@ use crate::control::{
 };
 use crate::input::microphone;
 use crate::input::InputQueue;
+use crate::priority::{self, Qos};
 use crate::rtsp::{self, Handshake, HandshakeParams, OpusConfig, RtspError, RtspOutcome};
 use crate::sdp::{self, AudioConfiguration, StreamConfig, StreamLocation};
 use crate::video::{Frame, VideoConfig, VideoReceiver, VideoStats};
@@ -128,6 +129,16 @@ pub struct SessionConfig {
     /// Control and input only: no video or audio threads, decoders or timeouts
     /// (Nightjar's input-only sessions).
     pub input_only: bool,
+    /// A remote monitor session (Nightjar's `AndroidRemoteMonitor`): view-only. The input
+    /// stream is never started, so nothing is sent from this client, and the mouse is not
+    /// wiggled to wake the host's cursor.
+    pub remote_monitor: bool,
+    /// Send mouse and pen motion at once instead of batching it for 1 ms (Nightjar's
+    /// "Unbatched input").
+    pub unbatched_input: bool,
+    /// Nightjar's "Prioritize stream traffic": `SO_PRIORITY` 6 on every socket of the stream
+    /// and nice -4 on the receive, decode and control threads. See [`crate::priority`].
+    pub network_priority: bool,
 }
 
 /// The decoder's answer for a frame (`DR_OK`, `DR_NEED_IDR`).
@@ -286,6 +297,17 @@ impl Shared {
 
     pub(crate) fn log(&self, message: &str) {
         self.listener.log(message);
+    }
+
+    /// Raises the calling session thread when "prioritize stream traffic" is on, and says so
+    /// in the log if the OS refuses.
+    pub(crate) fn prioritize_thread(&self) {
+        if let Err(e) = priority::prioritize_current_thread() {
+            self.log(&format!(
+                "Could not raise the priority of {}: {e}",
+                std::thread::current().name().unwrap_or("a stream thread")
+            ));
+        }
     }
 }
 
@@ -601,6 +623,7 @@ fn start(
     }
 
     listener.stage_starting(Stage::PlatformInit);
+    priority::set_network_priority(config.network_priority);
     listener.stage_complete(Stage::PlatformInit);
 
     listener.stage_starting(Stage::NameResolution);
@@ -650,7 +673,7 @@ fn start(
         if parts.audio_socket.is_none() {
             if let Some(port) = handshake.audio_port() {
                 // notifyAudioPortNegotiationComplete: ping before PLAY.
-                let socket = net::bind_udp(local, 0)
+                let socket = net::bind_udp(local, 0, Qos::Audio)
                     .map_err(|e| fail(Stage::RtspHandshake, io_code(&e), e.to_string()))?;
                 parts.audio_pinger = Some(
                     net::Pinger::start(
@@ -690,6 +713,8 @@ fn start(
     driver_config.local = Some(SocketAddr::new(local, 0));
     driver_config.connect_data = outcome.control_connect_data;
     driver_config.network_grace = config.network_grace;
+    driver_config.unbatched_input = config.unbatched_input;
+    driver_config.input_disabled = config.remote_monitor;
     listener.stage_complete(Stage::ControlStreamInit);
 
     listener.stage_starting(Stage::VideoStreamInit);
@@ -731,6 +756,7 @@ fn start(
         std::thread::Builder::new()
             .name("ControlRecv".into())
             .spawn(move || {
+                events.prioritize_thread();
                 client.run(|event| match event {
                     ControlEvent::Terminated { error } => events.terminate(error),
                     event => {
@@ -784,7 +810,7 @@ fn start(
             stream.bitrate_kbps.max(0) as u32,
             stream.packet_size as usize,
         );
-        let socket = match net::bind_udp(local, buffer) {
+        let socket = match net::bind_udp(local, buffer, Qos::Video) {
             Ok(socket) => socket,
             Err(e) => {
                 decoder.cleanup();
@@ -867,7 +893,7 @@ fn start(
     if outcome.mic_port != 0 {
         if outcome.encryption_enabled & sdp::SS_ENC_MICROPHONE == 0 {
             listener.log("Microphone: encryption was not negotiated; not sending");
-        } else if let Ok(socket) = net::bind_udp(local, 0) {
+        } else if let Ok(socket) = net::bind_udp(local, 0, Qos::BestEffort) {
             *parts.microphone.lock().unwrap_or_else(|p| p.into_inner()) = Some(Microphone {
                 socket,
                 target: SocketAddr::new(remote.ip(), outcome.mic_port),
@@ -883,11 +909,13 @@ fn start(
     listener.stage_complete(Stage::InputStreamStart);
     parts.outcome = Some(outcome);
 
-    // Wiggle the mouse to wake the host's display.
-    let _ = control.with_input(|q| q.send_mouse_move(1, 1));
-    std::thread::sleep(Duration::from_millis(10));
-    let _ = control.with_input(|q| q.send_mouse_move(-1, -1));
-    std::thread::sleep(Duration::from_millis(10));
+    // Wiggle the mouse to wake the host's display; a remote monitor sends no input at all.
+    if !config.remote_monitor {
+        let _ = control.with_input(|q| q.send_mouse_move(1, 1));
+        std::thread::sleep(Duration::from_millis(10));
+        let _ = control.with_input(|q| q.send_mouse_move(-1, -1));
+        std::thread::sleep(Duration::from_millis(10));
+    }
 
     listener.connection_started();
     Ok(())

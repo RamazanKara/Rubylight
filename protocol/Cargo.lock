@@ -1190,6 +1190,7 @@ dependencies = [
  "aes-gcm",
  "butterpollo-core",
  "cbc",
+ "libc",
  "rand_core",
  "ring",
  "rsa",

@@ -26,6 +26,10 @@ serde_json = "1"
 # Receive buffer sizes on the media sockets.
 socket2 = "0.5"
 
+# SO_PRIORITY on the media sockets and nice values on the stream threads.
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # The Rubylight host's protocol code, for interop tests (control, input, SDP, DESCRIBE, pairing).
 butterpollo-core = { version = "3.0.0-alpha.1", git = "https://github.com/RamazanKara/Rubylight", rev = "89376b879abd6621a87e6abf693550d5e45e025d", package = "butterpollo-core" }

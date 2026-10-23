@@ -129,6 +129,7 @@ pub struct InputQueue {
     feature_flags: u32,
     batched_scroll: bool,
     stopped: bool,
+    unbatched: bool,
     entries: VecDeque<Entry>,
     next_id: u64,
     controller_batch: [Option<u64>; MAX_CONTROLLERS as usize],
@@ -155,6 +156,7 @@ impl InputQueue {
             feature_flags: caps.feature_flags,
             batched_scroll: caps.version_at_least(7, 1, 409) && !caps.is_sunshine(),
             stopped: false,
+            unbatched: false,
             entries: VecDeque::new(),
             next_id: 0,
             controller_batch: [None; MAX_CONTROLLERS as usize],
@@ -181,6 +183,28 @@ impl InputQueue {
     /// Refuses further input; what is queued can still be drained.
     pub fn stop(&mut self) {
         self.stopped = true;
+    }
+
+    /// Never sends anything: drops what is queued (including the haptics enable) and refuses
+    /// input, as when moonlight-common-c never starts the input stream of a remote monitor.
+    pub fn disable(&mut self) {
+        self.entries.clear();
+        self.stopped = true;
+    }
+
+    /// Sends mouse and pen motion at once instead of waiting [`MOTION_BATCHING_INTERVAL`]
+    /// to batch it (Nightjar's "Unbatched input"). Motion is still merged while it waits in
+    /// the queue behind other packets.
+    pub fn set_unbatched(&mut self, unbatched: bool) {
+        self.unbatched = unbatched;
+    }
+
+    fn motion_interval(&self) -> Duration {
+        if self.unbatched {
+            Duration::ZERO
+        } else {
+            MOTION_BATCHING_INTERVAL
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -659,16 +683,17 @@ impl InputQueue {
         if self.holding && !contact_lost {
             self.release_held(out);
         }
+        let motion_interval = self.motion_interval();
         while let Some(entry) = self.entries.front() {
             let wait_until = match entry {
                 Entry::RelativeMouse | Entry::AbsoluteMouse => {
-                    self.last_mouse.map(|t| t + MOTION_BATCHING_INTERVAL)
+                    self.last_mouse.map(|t| t + motion_interval)
                 }
                 Entry::Event(Pending {
                     event: InputEvent::Pen { event, .. },
                     ..
                 }) if touch_event::is_batchable(*event) => {
-                    self.last_pen.map(|t| t + MOTION_BATCHING_INTERVAL)
+                    self.last_pen.map(|t| t + motion_interval)
                 }
                 Entry::Text(_) if !contact_lost => {
                     Some(*self.text_ready_at.get_or_insert(now + TEXT_SETTLE))
@@ -1020,6 +1045,48 @@ mod tests {
             take(&mut q, t0 + MOTION_BATCHING_INTERVAL),
             [Input::Relative { x: 6, y: 6 }]
         );
+    }
+
+    #[test]
+    fn unbatched_motion_does_not_wait() {
+        let mut q = queue(&sunshine());
+        q.set_unbatched(true);
+        let t0 = Instant::now();
+        q.send_mouse_move(5, 5).unwrap();
+        assert_eq!(take(&mut q, t0), [Input::Relative { x: 5, y: 5 }]);
+        // The same instant: batched input would wait the interval, unbatched sends now.
+        q.send_mouse_move(1, 1).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(q.poll(t0, false, &mut out), None);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn batched_motion_still_waits_by_default() {
+        let mut q = queue(&sunshine());
+        let t0 = Instant::now();
+        q.send_mouse_move(5, 5).unwrap();
+        assert_eq!(take(&mut q, t0).len(), 1);
+        q.send_mouse_move(1, 1).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(
+            q.poll(t0, false, &mut out),
+            Some(t0 + MOTION_BATCHING_INTERVAL)
+        );
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn a_disabled_queue_sends_nothing() {
+        let mut q = InputQueue::new(&sunshine());
+        assert_ne!(q.len(), 0, "the haptics enable is queued");
+        q.disable();
+        assert_eq!(q.len(), 0);
+        assert!(q.send_mouse_move(1, 1).is_err());
+        assert!(q.send_keyboard(0x41, true, 0, 0).is_err());
+        let mut out = Vec::new();
+        q.poll(Instant::now(), false, &mut out);
+        assert!(out.is_empty());
     }
 
     #[test]

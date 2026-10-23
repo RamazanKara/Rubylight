@@ -524,6 +524,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             location: Location::Auto,
             network_grace: Duration::from_millis(u64::from(settings.network_grace_ms)),
             input_only: role == AppRole::InputOnly,
+            ..Default::default()
         },
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware)),
         Box::new(pipeline::Audio::new(shared.clone())),

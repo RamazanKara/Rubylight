@@ -27,6 +27,7 @@ use super::session::{ControlSession, SendError, SessionOptions};
 use super::wire::{channel, Delivery};
 use crate::crypto::Key;
 use crate::input::{InputPacket, InputQueue};
+use crate::priority::{self, Qos};
 
 /// The ENet peer timeout without a network grace period.
 pub const CONTROL_PEER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -52,6 +53,10 @@ pub struct DriverConfig {
     pub network_grace: Duration,
     pub connect_timeout: Duration,
     pub linger: Duration,
+    /// Send mouse and pen motion at once ([`InputQueue::set_unbatched`]).
+    pub unbatched_input: bool,
+    /// Never send input ([`InputQueue::disable`]), for remote monitor sessions.
+    pub input_disabled: bool,
 }
 
 impl DriverConfig {
@@ -63,6 +68,8 @@ impl DriverConfig {
             network_grace: Duration::ZERO,
             connect_timeout: Duration::from_secs(10),
             linger: Duration::from_secs(2),
+            unbatched_input: false,
+            input_disabled: false,
         }
     }
 
@@ -355,6 +362,8 @@ pub fn connect(
         SocketAddr::V6(_) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
     });
     let socket = UdpSocket::bind(local)?;
+    // The control socket has no QoS class of its own; "prioritize stream traffic" raises it.
+    let _ = priority::prioritize_socket(&socket, Qos::BestEffort);
     let waker = Waker::new(socket.local_addr()?)?;
     let control_socket = ControlSocket {
         socket,
@@ -381,8 +390,13 @@ pub fn connect(
         .connect(config.remote, channel::COUNT, config.connect_data)
         .map_err(|_| ConnectError::Io(io::ErrorKind::AddrNotAvailable.into()))?
         .id();
+    let mut input = InputQueue::new(&caps);
+    input.set_unbatched(config.unbatched_input);
+    if config.input_disabled {
+        input.disable();
+    }
     let shared = Arc::new(Shared {
-        input: Mutex::new(InputQueue::new(&caps)),
+        input: Mutex::new(input),
         session: Mutex::new(ControlSession::new(caps, key, options)),
         stop: AtomicBool::new(false),
         contact_lost: AtomicBool::new(false),

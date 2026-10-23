@@ -340,9 +340,7 @@ impl App {
     }
 
     fn save_hosts(&self) {
-        if let Err(e) = self.store.save_hosts(&self.hosts.records()) {
-            eprintln!("nightjar: saving hosts failed: {e}");
-        }
+        save_hosts(&self.store, &self.hosts);
     }
 
     /// Gamepad buttons and the left stick become arrow keys, Enter and Escape for egui.
@@ -695,11 +693,7 @@ impl App {
                 self.hosts.pair(host, pin, Some(passphrase));
             }
             Command::Wake(host) => self.hosts.wake(host),
-            Command::Rename { host, alias } => {
-                if self.hosts.rename(host, &alias) {
-                    self.save_hosts();
-                }
-            }
+            Command::Rename { host, alias } => rename_host(&mut self.hosts, &self.store, host, &alias),
             Command::HostSettings(id) => {
                 if let Some(host) = self.hosts.get(id) {
                     self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi));
@@ -826,13 +820,7 @@ impl App {
                     self.launcher.message("Could not unpair", e);
                 }
             }
-            Command::Remove(host) => {
-                if let Some(unique_id) = self.hosts.get(host).map(|h| h.record.unique_id.clone()).filter(|id| !id.is_empty()) {
-                    self.launcher.recents = self.store.forget_host(&unique_id, &self.launcher.recents);
-                }
-                self.hosts.remove(host);
-                self.save_hosts();
-            }
+            Command::Remove(host) => remove_host(&mut self.hosts, &self.store, &mut self.launcher.recents, host),
             Command::Refresh(host) => {
                 self.hosts.poll_one(host);
                 match self.launcher.screen {
@@ -1493,4 +1481,85 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
         gui.platform(window, &output.platform_output);
     }
     gui.paint(renderer, output);
+}
+
+fn save_hosts(store: &config::Store, hosts: &Hosts) {
+    if let Err(e) = store.save_hosts(&hosts.records()) {
+        eprintln!("nightjar: saving hosts failed: {e}");
+    }
+}
+
+/// Keeps the name chosen for a PC on this device, and saves it.
+fn rename_host(hosts: &mut Hosts, store: &config::Store, id: u64, alias: &str) {
+    if hosts.rename(id, alias) {
+        save_hosts(store, hosts);
+    }
+}
+
+/// Forgets a PC: its saved library, covers and recent games go with it.
+fn remove_host(hosts: &mut Hosts, store: &config::Store, recents: &mut Vec<config::Recent>, id: u64) {
+    if let Some(unique_id) = hosts.get(id).map(|h| h.record.unique_id.clone()).filter(|id| !id.is_empty()) {
+        *recents = store.forget_host(&unique_id, recents);
+    }
+    hosts.remove(id);
+    save_hosts(store, hosts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn record(unique_id: &str) -> config::HostRecord {
+        config::HostRecord {
+            unique_id: unique_id.into(),
+            name: format!("{unique_id} on the PC"),
+            address: "192.0.2.7".into(),
+            manual: true,
+            ..Default::default()
+        }
+    }
+
+    fn temp_store(tag: &str) -> (config::Store, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("nightjar-main-{tag}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        (config::Store::at(dir.clone()).unwrap(), dir)
+    }
+
+    #[test]
+    fn a_name_chosen_for_a_pc_is_saved_and_comes_back_after_a_restart() {
+        let (store, dir) = temp_store("rename");
+        let mut hosts = Hosts::without_discovery(vec![record("a")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        rename_host(&mut hosts, &store, id, "  Living room  ");
+        assert_eq!(store.hosts()[0].alias.as_deref(), Some("Living room"), "saved trimmed");
+        let restarted = Hosts::without_discovery(store.hosts(), Arc::new(|| {}));
+        assert_eq!(restarted.list[0].display_name(), "Living room");
+        rename_host(&mut hosts, &store, id, "");
+        assert_eq!(store.hosts()[0].alias, None, "an empty name brings the PC's own back");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn removing_a_pc_leaves_nothing_of_it_behind() {
+        let (store, dir) = temp_store("remove");
+        let mut hosts = Hosts::without_discovery(vec![record("gone"), record("kept")], Arc::new(|| {}));
+        let gone = hosts.list[0].id;
+        let recent = |host: &str| config::Recent { host: host.into(), install_id: String::new(), app_id: 1, title: "G".into(), at: 1 };
+        let mut recents = vec![recent("gone"), recent("kept")];
+        for host in ["gone", "kept"] {
+            let cover = store.art_path(host, 1, "");
+            std::fs::create_dir_all(cover.parent().unwrap()).unwrap();
+            std::fs::write(cover, b"x").unwrap();
+        }
+        save_hosts(&store, &hosts);
+        remove_host(&mut hosts, &store, &mut recents, gone);
+        assert_eq!(store.hosts().len(), 1);
+        assert_eq!(store.hosts()[0].unique_id, "kept");
+        assert_eq!(recents.len(), 1);
+        assert_eq!(store.recents().len(), 1, "recent.json is filtered");
+        assert!(!store.art_path("gone", 1, "").exists());
+        assert!(store.art_path("kept", 1, "").exists());
+        std::fs::remove_dir_all(dir).ok();
+    }
 }

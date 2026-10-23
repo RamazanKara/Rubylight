@@ -30,6 +30,8 @@ param(
     [string]$ClientProfile = 'C:\tests\njdecode-client',
     [string]$Agent = 'nightjar-pyrowave-decode',
     [string]$Metric = 'decode_to_present_ms',
+    [hashtable]$ExtraA = @{},   # more settings.json keys for the A legs (for example @{ present_at_host_times = $false })
+    [hashtable]$ExtraB = @{},   # and for the B legs
     [switch]$EarlyDecode,
     [switch]$CaptureVisible,   # leave the client window in the host's capture (a feedback loop)
     [string]$DumpDir,
@@ -116,9 +118,11 @@ try {
     # --- Client side ------------------------------------------------------------------------
     New-Item -ItemType Directory -Force $ClientProfile | Out-Null
     $env:PATH = 'C:\msys64\ucrt64\bin;' + $env:PATH
-    function Set-ClientSettings([int]$Kbps, [string]$Decoder = 'Cpu') {
-        (@{ width = $Width; height = $Height; fps = $Fps; bitrate_kbps = $Kbps; pyrowave_decoder = $Decoder; adaptive_bitrate = $false; codec = $Codec;
-            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false } | ConvertTo-Json -Compress) |
+    function Set-ClientSettings([int]$Kbps, [string]$Decoder = 'Cpu', [hashtable]$Extra = @{}) {
+        $settings = @{ width = $Width; height = $Height; fps = $Fps; bitrate_kbps = $Kbps; pyrowave_decoder = $Decoder; adaptive_bitrate = $false; codec = $Codec;
+            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false }
+        foreach ($key in $Extra.Keys) { $settings[$key] = $Extra[$key] }
+        ($settings | ConvertTo-Json -Compress) |
             Set-Content "$ClientProfile\settings.json"
     }
     function Start-Client([string]$Exe, [string]$Name, [int]$StreamSeconds, [bool]$Early) {
@@ -185,7 +189,7 @@ try {
         $n++; $variant = [string]$leg[0]; $kbps = [int]$leg[1]; $group = if ($kbps -eq 0) { 'default' } else { [string][math]::Round($kbps / 1000) }
         $name = '{0:00}-{1}-{2}' -f $n, $variant, $group
         $exe = if ($variant -eq 'B') { $ClientB } else { $ClientA }
-        Set-ClientSettings $kbps $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA })
+        Set-ClientSettings $kbps $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }) $(if ($variant -eq 'B') { $ExtraB } else { $ExtraA })
         $hostLines = (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
         Write-Host "leg $name ($Seconds s at $kbps kbps, ${Width}x${Height}@$Fps, decoder $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }))"
         $p = Start-Client $exe $name $Seconds $EarlyDecode.IsPresent

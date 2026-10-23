@@ -424,6 +424,17 @@ export interface StreamSession {
   hdr: boolean;
   vrr: boolean;
   encoder_bitrate_kbps: number;
+  /** The host's network bitrate control: `limited` and `floor` mean the picture runs below `ceiling_kbps` because the network lost packets. */
+  link_rate?: {
+    state: 'off' | 'full' | 'limited' | 'floor';
+    reason: string;
+    ceiling_kbps: number;
+    current_kbps: number;
+    delivered_kbps: number;
+    steps_down: number;
+    probes: number;
+    failed_probes: number;
+  };
   /** Error correction (%) for the next video frame; adaptive FEC moves it. Null for PyroWave. */
   fec_percent?: number | null;
   /** PyroWave streams: severe detail loss is likely below this bitrate. */

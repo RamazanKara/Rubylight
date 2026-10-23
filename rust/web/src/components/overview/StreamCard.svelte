@@ -27,6 +27,12 @@
   const belowRecommended = $derived(
     stream.pyrowave_recommended_kbps != null && stream.encoder_bitrate_kbps < stream.pyrowave_recommended_kbps,
   );
+  const limited = $derived(
+    stream.link_rate && (stream.link_rate.state === 'limited' || stream.link_rate.state === 'floor')
+      ? stream.link_rate
+      : null,
+  );
+  const rate = (kbps: number) => (kbps / 1000).toFixed(kbps < 10_000 ? 1 : 0);
   const minimum = $derived(Math.ceil((stream.pyrowave_minimum_kbps ?? 0) / 1000));
   const recommended = $derived(Math.ceil((stream.pyrowave_recommended_kbps ?? 0) / 1000));
   const trend = $derived(perf.history.map((sample) => sample.host_processing_mean_ms));
@@ -48,6 +54,12 @@
         <Badge tone="warn">Stopping</Badge>
       {:else}
         <Badge tone="live">Live</Badge>
+      {/if}
+      {#if limited}
+        <Badge tone="warn">
+          Bitrate limited by the network: <span class="num">{rate(stream.encoder_bitrate_kbps)}</span> of
+          <span class="num">{rate(limited.ceiling_kbps)}</span> Mbps
+        </Badge>
       {/if}
     </div>
     <Button size="sm" {busy} disabled={stopping} onclick={() => ondisconnect(stream)}>

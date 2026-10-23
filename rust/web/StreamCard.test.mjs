@@ -67,3 +67,20 @@ test('present to sent is not invented for a still picture or a stream without fr
   assert.match(idle, /Present to sent<\/dt>\s*<dd class="value num[^"]*">–<\/dd>/);
   assert.doesNotMatch(idle, /No new pictures/);
 });
+
+const link = (state, current, ceiling) => ({
+  state, reason: 'unrecoverable_frames', ceiling_kbps: ceiling, current_kbps: current,
+  delivered_kbps: current, steps_down: 1, probes: 0, failed_probes: 0,
+});
+
+test('a bitrate the host lowered for the network is shown on the card', () => {
+  const limited = html({ encoder_bitrate_kbps: 9_000, link_rate: link('limited', 9_000, 15_000) });
+  assert.match(limited, /Bitrate limited by the network:[\s\S]*?<span class="num[^"]*">9\.0<\/span>[\s\S]*?of[\s\S]*?<span class="num[^"]*">15<\/span>[\s\S]*?Mbps/);
+  assert.match(html({ encoder_bitrate_kbps: 2_000, link_rate: link('floor', 2_000, 15_000) }), /Bitrate limited by the network/);
+});
+
+test('no network badge on a healthy, disabled or older host stream', () => {
+  for (const link_rate of [link('full', 15_000, 15_000), link('off', 15_000, 15_000), undefined]) {
+    assert.doesNotMatch(html({ link_rate }), /limited by the network/);
+  }
+});

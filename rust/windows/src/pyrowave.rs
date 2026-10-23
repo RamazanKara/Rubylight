@@ -538,6 +538,26 @@ impl Encoder {
     pub(crate) fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
         self.lost
             .or_else(|| crate::device_loss::DeviceLost::d3d11(&self.d3d.device))
+            .or_else(|| self.compute_device_removed())
+    }
+    /// The D3D12 device that converts on the compute queue, when it is lost.
+    fn compute_device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
+        let compute = self.compute.as_ref()?.converter.compute();
+        crate::device_loss::DeviceLost::d3d12(&compute.device)
+    }
+    /// A conversion failed before anything reached Vulkan. When the device it
+    /// ran on is lost its queued work is dead, so the capture lease is free and
+    /// the adapter is not quarantined: the host rebuilds the encoder on a new
+    /// device. Any other failure keeps the lease and quarantines.
+    fn conversion_failed(&mut self, error: anyhow::Error) -> anyhow::Error {
+        match self.device_removed() {
+            Some(loss) => {
+                self.lost = Some(loss);
+                self.pending = None;
+                error.context(loss)
+            }
+            None => error,
+        }
     }
     /// The next encode gets a first frame's budget, one stream period.
     #[cfg(test)]
@@ -639,17 +659,22 @@ impl Encoder {
                 .compute
                 .as_mut()
                 .filter(|_| crate::compute::shareable(&image.texture));
-            if let Some(compute) = compute {
-                compute.convert(image, &self.config, self.luminance, after, i.counter)?;
+            let converted = if let Some(compute) = compute {
+                compute.convert(image, &self.config, self.luminance, after, i.counter)
             } else {
                 self.converter
                     .as_mut()
                     .unwrap()
-                    .convert(image, self.luminance)?;
-                i.context.Signal(&i.fence, i.counter)?;
-                // Submit the conversion and the signal now, not whenever
-                // D3D11 next flushes: the encode below waits for that signal.
-                i.context.Flush();
+                    .convert(image, self.luminance)
+                    .and_then(|()| Ok(i.context.Signal(&i.fence, i.counter)?))
+                    .inspect(|()| {
+                        // Submit the conversion and the signal now, not whenever
+                        // D3D11 next flushes: the encode below waits for that signal.
+                        i.context.Flush();
+                    })
+            };
+            if let Err(error) = converted {
+                return Err(self.conversion_failed(error));
             }
             let acquire = p::pyrowave_gpu_sync_operation {
                 images: images.as_ptr(),

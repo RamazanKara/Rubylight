@@ -95,4 +95,19 @@ mod tests {
         );
         assert!(loss.to_string().contains("0x887A0006"));
     }
+
+    #[test]
+    fn a_confirmed_loss_attached_to_an_unclassified_failure_is_found() {
+        // The PyroWave encoder and wait_fence add the loss as context when the
+        // failing call returned something the classifier does not know.
+        let loss = DeviceLost(DXGI_ERROR_DEVICE_REMOVED.0);
+        let error = anyhow::anyhow!("opening the capture failed")
+            .context(loss)
+            .context("encoding failed");
+        assert_eq!(DeviceLost::from_error(&error), Some(loss));
+        assert_eq!(
+            DeviceLost::from_error(&anyhow::anyhow!("opening the capture failed")),
+            None
+        );
+    }
 }

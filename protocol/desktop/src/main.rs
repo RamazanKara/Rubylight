@@ -25,6 +25,7 @@ mod session_page;
 mod session_ui;
 mod shortcuts;
 mod stream;
+mod strings;
 mod theme;
 mod timing_csv;
 mod ui;
@@ -46,6 +47,7 @@ use hosts::{Apps, Event as HostEvent, Hosts};
 use media::Hardware;
 use stream::present::{pacing, PacingMode};
 use stream::{Connecting, Display, Exit, LaunchPlan, Streaming};
+use strings::{tr, trf};
 use ui::{Command, ConnectingView, Dialog, Launcher, Screen, View};
 
 #[cfg(windows)]
@@ -213,6 +215,7 @@ fn run() -> Result<(), String> {
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.recents = store.recents();
     launcher.favourites = store.favourites();
+    launcher.system_languages = sdl::preferred_languages();
     #[cfg(windows)]
     {
         launcher.tearing_supported =
@@ -450,15 +453,15 @@ impl App {
                 network_test::Event::Done(result) => {
                     let host = self.network_test.take().unwrap().host;
                     match result {
-                        Ok(network_test::Outcome::Bandwidth(mbps)) => self.launcher.message("Bandwidth test", format!("{mbps:.1} Mbps received from the PC over pinned HTTPS. This measures transfer speed, not a recommended video bitrate.")),
+                        Ok(network_test::Outcome::Bandwidth(mbps)) => self.launcher.message(tr("Bandwidth test"), trf("{} Mbps received from the PC over pinned HTTPS. This measures transfer speed, not a recommended video bitrate.", &[&format!("{mbps:.1}")])),
                         Ok(network_test::Outcome::Pace(calibration, measurement)) => {
-                            let text = format!("Saved {} Mbps frame pace ({}). Packet loss {:.2}%, worst 100 ms loss {:.2}%, missing frame tails {:.2}%. The calibration applies while the network and endpoint link speeds match.",
-                                calibration.pace_mbps, if calibration.qualified { "confirmed twice" } else { "best measured result; some loss limits exceeded" },
-                                measurement.loss, measurement.worst_window_loss, measurement.tail_loss());
+                            let text = trf("Saved {} Mbps frame pace ({}). Packet loss {}%, worst 100 ms loss {}%, missing frame tails {}%. The calibration applies while the network and endpoint link speeds match.",
+                                &[&calibration.pace_mbps, &if calibration.qualified { tr("confirmed twice") } else { tr("best measured result; some loss limits exceeded") },
+                                &format!("{:.2}", measurement.loss), &format!("{:.2}", measurement.worst_window_loss), &format!("{:.2}", measurement.tail_loss())]);
                             if let Some(host) = self.hosts.get_mut(host) { host.record.pace = Some(calibration); self.save_hosts(); }
-                            self.launcher.message("PyroWave calibration", text);
+                            self.launcher.message(tr("PyroWave calibration"), text);
                         }
-                        Err(error) => self.launcher.message("Network test failed", error),
+                        Err(error) => self.launcher.message(tr("Network test failed"), error),
                     }
                 }
             }
@@ -480,16 +483,16 @@ impl App {
                 match result {
                     Ok(Some(path)) if export => {
                         match std::fs::write(&path, self.launcher.shortcuts.encode()) {
-                            Ok(()) => self.launcher.message("Shortcuts exported", path.display().to_string()),
-                            Err(e) => self.launcher.message("Could not export shortcuts", e.to_string()),
+                            Ok(()) => self.launcher.message(tr("Shortcuts exported"), path.display().to_string()),
+                            Err(e) => self.launcher.message(tr("Could not export shortcuts"), e.to_string()),
                         }
                     }
                     Ok(Some(path)) => match shortcuts::Shortcuts::read(&path) {
                         Ok(entries) => self.launcher.dialog = Dialog::ImportShortcuts(entries),
-                        Err(e) => self.launcher.message("Could not import shortcuts", e),
+                        Err(e) => self.launcher.message(tr("Could not import shortcuts"), e),
                     },
                     Ok(None) => {}
-                    Err(e) => self.launcher.message("File dialog unavailable", e),
+                    Err(e) => self.launcher.message(tr("File dialog unavailable"), e),
                 }
             }
         }
@@ -507,7 +510,7 @@ impl App {
                         self.launcher.identity_ready = true;
                         self.hosts.poll();
                     }
-                    Err(e) => self.launcher.message("No pairing key", e),
+                    Err(e) => self.launcher.message(tr("No pairing key"), e),
                 }
             }
         }
@@ -542,30 +545,30 @@ impl App {
                     }
                     Err(e) => {
                         self.pending_launch = None;
-                        self.launcher.message("Could not quit the app", e);
+                        self.launcher.message(tr("Could not quit the app"), e);
                     }
                 },
                 HostEvent::Wake { result, .. } => match result {
-                    Ok(()) => self.launcher.message("Wake request sent", "The PC should appear online shortly if Wake-on-LAN is enabled."),
-                    Err(e) => self.launcher.message("Could not wake the PC", e),
+                    Ok(()) => self.launcher.message(tr("Wake request sent"), tr("The PC should appear online shortly if Wake-on-LAN is enabled.")),
+                    Err(e) => self.launcher.message(tr("Could not wake the PC"), e),
                 },
                 HostEvent::Unpaired { id, result } => {
                     if crate::hosts::now_unpaired(&result) {
                         self.forget_library(id);
                     }
                     if let Err(e) = result {
-                        self.launcher.message("Could not unpair", e);
+                        self.launcher.message(tr("Could not unpair"), e);
                     }
                 }
                 HostEvent::Session { action, result: Err(e), .. } => {
                     let title = match action {
-                        ActionId::CloseGame => "Could not close the game",
-                        ActionId::End => "Could not end the session",
-                        _ => "The session action failed",
+                        ActionId::CloseGame => tr("Could not close the game"),
+                        ActionId::End => tr("Could not end the session"),
+                        _ => tr("The session action failed"),
                     };
                     self.launcher.message(title, e);
                 }
-                HostEvent::Action { result: Err(e), .. } => self.launcher.message("The PC action failed", e),
+                HostEvent::Action { result: Err(e), .. } => self.launcher.message(tr("The PC action failed"), e),
                 _ => {}
             }
         }
@@ -595,7 +598,7 @@ impl App {
                 Err(e) => {
                     self.connecting = None;
                     if !std::mem::take(&mut self.cancelled) {
-                        self.launcher.message("The stream could not start", e);
+                        self.launcher.message(tr("The stream could not start"), e);
                     }
                 }
             }
@@ -606,9 +609,9 @@ impl App {
             host: c.host_name.clone(),
             stage: c.stage.clone(),
         }).or_else(|| self.network_launch.map(|(host, _, _)| ConnectingView {
-            app: "Starting stream".into(),
+            app: tr("Starting stream").into(),
             host: self.hosts.get(host).map_or(String::new(), |h| h.display_name().to_owned()),
-            stage: "Checking network profile".into(),
+            stage: tr("Checking network profile").into(),
         }));
         let mut commands = Vec::new();
         let launcher = &mut self.launcher;
@@ -673,8 +676,8 @@ impl App {
                 let now = self.hosts.get(host).and_then(|h| h.running_app());
                 match console::recheck_running(named, now) {
                     console::Running::Changed => self.launcher.message(
-                        "The running app changed",
-                        "The PC runs another app now. Check the screen and try again.",
+                        tr("The running app changed"),
+                        tr("The PC runs another app now. Check the screen and try again."),
                     ),
                     console::Running::Gone => self.launch(host, app, false),
                     console::Running::Same => {
@@ -710,7 +713,7 @@ impl App {
                     self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi));
                     self.launcher.edit_overrides = host.record.settings.clone().unwrap_or_default();
                     self.launcher.edit_settings = self.launcher.edit_overrides.apply(&self.launcher.inherited_settings);
-                    self.launcher.edit_name = format!("{} settings", host.display_name());
+                    self.launcher.edit_name = trf("{} settings", &[&host.display_name()]);
                     self.launcher.go(Screen::HostSettings(id));
                 }
             }
@@ -725,7 +728,7 @@ impl App {
                     self.launcher.inherited_settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
                     self.launcher.edit_overrides = host.record.app_settings(&app.uuid, app.id).cloned().unwrap_or_default();
                     self.launcher.edit_settings = self.launcher.edit_overrides.apply(&self.launcher.inherited_settings);
-                    self.launcher.edit_name = format!("{} settings", app.name);
+                    self.launcher.edit_name = trf("{} settings", &[&app.name]);
                     self.launcher.editing_app = Some(app);
                     self.launcher.go(Screen::AppSettings(id));
                 }
@@ -741,7 +744,7 @@ impl App {
                     self.launcher.inherited_settings = self.launcher.settings.clone();
                     self.launcher.edit_overrides = profile.settings.clone();
                     self.launcher.edit_settings = profile.settings.apply(&self.launcher.inherited_settings);
-                    self.launcher.edit_name = format!("{} settings", profile.name);
+                    self.launcher.edit_name = trf("{} settings", &[&profile.name]);
                     self.launcher.go(Screen::ProfileSettings(id));
                 }
             }
@@ -753,7 +756,7 @@ impl App {
             }
             Command::SaveProfiles => {
                 if let Err(e) = self.store.save_profiles(&self.launcher.profiles) {
-                    self.launcher.message("Could not save profiles", e.to_string());
+                    self.launcher.message(tr("Could not save profiles"), e.to_string());
                 }
             }
             Command::NetworkTest { host: id, calibrate } => {
@@ -763,12 +766,12 @@ impl App {
                 let Some(identity) = self.hosts.identity() else { return; };
                 let client = match hosts::client_for(identity, &host.record, &host.record.address) {
                     Ok(client) => client,
-                    Err(error) => { self.launcher.message("Network test unavailable", error); return; }
+                    Err(error) => { self.launcher.message(tr("Network test unavailable"), error); return; }
                 };
                 let settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
                 let (_, _, fps, bitrate) = stream::stream_mode(&settings, display_of(self.window));
                 self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), (bitrate, fps), calibrate, self.waker.clone()));
-                self.launcher.dialog = Dialog::NetworkTest { stage: if calibrate { "Preparing frame-shaped UDP probes" } else { "Receiving 32 MiB from the PC" }.into() };
+                self.launcher.dialog = Dialog::NetworkTest { stage: if calibrate { tr("Preparing frame-shaped UDP probes") } else { tr("Receiving 32 MiB from the PC") }.into() };
             }
             Command::CancelNetworkTest => { self.network_test = None; self.launcher.dialog = Dialog::None; }
             Command::ClearPace(id) => {
@@ -798,7 +801,7 @@ impl App {
                     }
                     self.pads.mappings.insert(key.clone(), mapping.clone());
                     if let Err(e) = self.store.save_controller_mappings(&self.pads.mappings) {
-                        self.launcher.message("Could not save controller mapping", e.to_string());
+                        self.launcher.message(tr("Could not save controller mapping"), e.to_string());
                     }
                 }
             }
@@ -808,7 +811,7 @@ impl App {
             }
             Command::SaveShortcuts => {
                 if let Err(e) = self.store.save_shortcuts(&self.launcher.shortcuts) {
-                    self.launcher.message("Could not save shortcuts", e.to_string());
+                    self.launcher.message(tr("Could not save shortcuts"), e.to_string());
                 }
             }
             Command::ImportShortcuts | Command::ExportShortcuts => {
@@ -823,12 +826,12 @@ impl App {
                     self.hosts.add_manual(&address, port);
                     self.save_hosts();
                 }
-                None => self.launcher.message("That address is not valid", text),
+                None => self.launcher.message(tr("That address is not valid"), text),
             },
             Command::Unpair(host) => {
                 // The library and the certificate go when the PC has answered (see the event).
                 if let Err(e) = self.hosts.unpair(host) {
-                    self.launcher.message("Could not unpair", e);
+                    self.launcher.message(tr("Could not unpair"), e);
                 }
             }
             Command::Remove(host) => remove_host(&mut self.hosts, &self.store, &mut self.launcher.recents, &mut self.launcher.favourites, host),
@@ -918,12 +921,12 @@ impl App {
             settings.fps = 60;
         }
         if settings.hdr && !sdl::hdr_available(self.renderer) {
-            self.launcher.message("HDR output unavailable", "Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output.");
+            self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
             return;
         }
         if settings.codec.is_pyrowave() {
             if let Err(reason) = stream::pyrowave_gpu::probe(self.renderer, settings.hdr) {
-                self.launcher.message("PyroWave output unavailable", format!("{reason}. Restart Nightjar after selecting PyroWave so it can initialize the GPU renderer."));
+                self.launcher.message(tr("PyroWave output unavailable"), trf("{}. Restart Nightjar after selecting PyroWave so it can initialize the GPU renderer.", &[&reason]));
                 return;
             }
         }
@@ -931,7 +934,7 @@ impl App {
             match stream::packed444::probe(self.renderer, self.hardware(&settings)) {
                 Ok(modes) => modes,
                 Err(reason) => {
-                    self.launcher.message("Full chroma unavailable", reason);
+                    self.launcher.message(tr("Full chroma unavailable"), reason);
                     return;
                 }
             }
@@ -945,7 +948,7 @@ impl App {
             return;
         };
         let Some(info) = host.info.clone() else {
-            self.launcher.message("The PC is offline", "Nightjar has not reached this PC yet.");
+            self.launcher.message(tr("The PC is offline"), tr("Nightjar has not reached this PC yet."));
             return;
         };
         let display = display_of(self.window);
@@ -1037,13 +1040,13 @@ impl App {
         let profiles = &self.launcher.profiles;
         let selected = profiles.selected(network.kind(&profiles.home_wifi));
         let warning = if network.error.is_some() && (profiles.automatic || profiles.mobile_limit_kbps > 0) {
-            Some("Network details unavailable; automatic profiles and the mobile data limit could not be applied.")
+            Some(tr("Network details unavailable; automatic profiles and the mobile data limit could not be applied."))
         } else if selected.is_some_and(|id| !profiles.entries.iter().any(|p| p.id == id)) {
-            Some("The selected profile is missing; main settings and PC/game overrides apply.")
+            Some(tr("The selected profile is missing; main settings and PC/game overrides apply."))
         } else if profiles.automatic && profiles.home.is_some() && !profiles.home_wifi.is_empty() && network.wifi && network.ssid.is_none() {
-            Some("Wi-Fi name unavailable; using the other Wi-Fi profile.")
+            Some(tr("Wi-Fi name unavailable; using the other Wi-Fi profile."))
         } else { None };
-        streaming.show_toast(warning.unwrap_or("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input"));
+        streaming.show_toast(warning.unwrap_or(tr("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input")));
         self.streaming = Some((streaming, TimerResolution::begin()));
     }
 
@@ -1094,10 +1097,10 @@ impl App {
             Exit::User | Exit::Reconnect | Exit::Ended(None) => {}
             Exit::Terminated(code) => {
                 if let Some(message) = stream::termination_text(code) {
-                    self.launcher.message("The stream ended", message);
+                    self.launcher.message(tr("The stream ended"), message);
                 }
             }
-            Exit::Ended(Some(message)) => self.launcher.message("The stream ended", message),
+            Exit::Ended(Some(message)) => self.launcher.message(tr("The stream ended"), message),
         }
         }
         // egui forgets held modifiers from before the stream.
@@ -1272,9 +1275,9 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             egui::Area::new(egui::Id::unique("input-only"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .show(&ctx, |ui| {
-                    ui.label(egui::RichText::new("Remote Input connected").font(theme::semibold(26.0)).color(theme::MOON));
+                    ui.label(egui::RichText::new(tr("Remote Input connected")).font(theme::semibold(26.0)).color(theme::MOON));
                     ui.label(&title);
-                    ui.label("Keyboard, mouse and controllers control the PC. Ctrl+Alt+Shift+Q disconnects.");
+                    ui.label(tr("Keyboard, mouse and controllers control the PC. Ctrl+Alt+Shift+Q disconnects."));
                 });
         }
         if s.menu_visible && s.session_page.is_some() {
@@ -1282,7 +1285,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let hints = s.session_hints();
             let mut outcome = session_ui::Outcome::Stay;
             if let Some(page) = s.session_page.as_mut() {
-                egui::Window::new("Session and graphics")
+                egui::Window::new(tr("Session and graphics"))
                     .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                     .collapsible(false).resizable(false).vscroll(true).default_width(440.0)
                     .show(&ctx, |ui| {
@@ -1297,36 +1300,36 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             }
         }
         if s.menu_visible && s.session_page.is_none() {
-            egui::Window::new("Stream controls")
+            egui::Window::new(tr("Stream controls"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .collapsible(false).resizable(false).vscroll(true)
                 .show(&ctx, |ui| {
                     ui.label(&title);
-                    let back = ui.button("Return to stream");
+                    let back = ui.button(tr("Return to stream"));
                     if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
                     if back.clicked() { s.toggle_menu(window, pads); }
-                    ui.checkbox(&mut s.overlay_visible, "Performance overlay");
+                    ui.checkbox(&mut s.overlay_visible, tr("Performance overlay"));
                     let current = s.video_scaling();
                     let (mut scaling, mut top) = current;
-                    egui::ComboBox::from_id_salt("stream-scaling").selected_text(scaling.label()).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("stream-scaling").selected_text(tr(scaling.label())).show_ui(ui, |ui| {
                         use config::VideoScaling;
                         for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
-                            ui.selectable_value(&mut scaling, mode, mode.label());
+                            ui.selectable_value(&mut scaling, mode, tr(mode.label()));
                         }
                     });
-                    ui.checkbox(&mut top, "Align video to top");
+                    ui.checkbox(&mut top, tr("Align video to top"));
                     if (scaling, top) != current { s.set_video_scaling(scaling, top); }
-                    if ui.button("Export statistics (last hour)").clicked() { s.export_statistics = true; }
+                    if ui.button(tr("Export statistics (last hour)")).clicked() { s.export_statistics = true; }
                     if s.microphone_available() {
                         let mut muted = s.microphone_muted;
-                        if ui.checkbox(&mut muted, "Mute microphone").changed() { s.mute_microphone(muted, pads); }
+                        if ui.checkbox(&mut muted, tr("Mute microphone")).changed() { s.mute_microphone(muted, pads); }
                     }
                     ui.add_enabled_ui(s.facts.clipboard, |ui| {
-                        if ui.button("Send clipboard to PC").clicked() { s.clipboard(true); }
-                        if ui.button("Copy PC clipboard here").clicked() { s.clipboard(false); }
+                        if ui.button(tr("Send clipboard to PC")).clicked() { s.clipboard(true); }
+                        if ui.button(tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }
                     });
                     if s.facts.role != nightjar_core::http::AppRole::RemoteMonitor && !shortcuts.data.is_empty() {
-                        ui.collapsing("Keyboard shortcuts", |ui| {
+                        ui.collapsing(tr("Keyboard shortcuts"), |ui| {
                             for shortcut in &shortcuts.data {
                                 if ui.button(format!("{} · {}", shortcut.name, shortcut.keys.join(" + "))).clicked() {
                                     s.toggle_menu(window, pads);
@@ -1338,13 +1341,13 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if s.facts.runtime_bitrate {
                         if s.facts.role == nightjar_core::http::AppRole::Stream {
                             let mut enabled = s.adaptive_bitrate;
-                            if ui.add_enabled(!s.bitrate_busy, egui::Checkbox::new(&mut enabled, "Adapt bitrate to the connection")).changed() {
+                            if ui.add_enabled(!s.bitrate_busy, egui::Checkbox::new(&mut enabled, tr("Adapt bitrate to the connection"))).changed() {
                                 s.enable_adaptive_bitrate(enabled);
                             }
                         }
                         ui.horizontal(|ui| {
                             ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::DragValue::new(&mut s.bitrate_kbps).range(1..=2_000_000).speed(100).suffix(" kbps"));
-                            if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new("Apply bitrate")).clicked() {
+                            if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new(tr("Apply bitrate"))).clicked() {
                                 s.set_bitrate();
                             }
                         });
@@ -1352,9 +1355,9 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if s.facts.reconfigure {
                         ui.separator();
                         let mut quality = s.quality_mode;
-                        egui::ComboBox::from_id_salt("stream-quality").selected_text(quality.label()).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
                             for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
-                                ui.selectable_value(&mut quality, mode, mode.label());
+                                ui.selectable_value(&mut quality, mode, tr(mode.label()));
                             }
                         });
                         if quality != s.quality_mode { s.set_quality(quality); }
@@ -1368,12 +1371,12 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
                                 }
                             });
-                            if ui.button("Apply stream size and rate").clicked() { s.set_mode(s.requested_mode); }
+                            if ui.button(tr("Apply stream size and rate")).clicked() { s.set_mode(s.requested_mode); }
                         });
                     }
                     if s.controller_audio_available() {
                         ui.separator();
-                        ui.label("DualSense USB audio and waveform haptics");
+                        ui.label(tr("DualSense USB audio and waveform haptics"));
                         let outputs = controller_audio::outputs();
                         let inputs = controller_audio::inputs();
                         let mut selections = Vec::new();
@@ -1382,38 +1385,38 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             if !pad.supports_audio() { continue; }
                             let current = pad.audio.as_ref().map(|a| a.device);
                             let mut selected = current;
-                            let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or("Off", |(_, name)| name.as_str());
-                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(format!("Controller {}: {label}", pad.index + 1)).show_ui(ui, |ui| {
-                                ui.selectable_value(&mut selected, None, "Off");
+                            let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
+                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut selected, None, tr("Off"));
                                 for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
                             });
                             if selected != current { selections.push((pad.index, selected)); }
                             if let Some(audio) = &mut pad.audio {
                                 let mut input = audio.input;
-                                let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or("Off", |(_, name)| name.as_str());
+                                let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
                                 ui.add_enabled_ui(s.microphone_available(), |ui| {
-                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(format!("Microphone: {label}")).show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut input, None, "Off");
+                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut input, None, tr("Off"));
                                         for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
                                     });
                                 });
                                 if input != audio.input { input_selections.push((pad.index, input)); }
                                 egui::ComboBox::from_id_salt(("controller-headphones", pad.index))
-                                    .selected_text(match audio.headphone_override { None => "Automatic headset detection", Some(true) => "Headset", Some(false) => "Controller speaker" })
+                                    .selected_text(match audio.headphone_override { None => tr("Automatic headset detection"), Some(true) => tr("Headset"), Some(false) => tr("Controller speaker") })
                                     .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut audio.headphone_override, None, "Automatic headset detection");
-                                        ui.selectable_value(&mut audio.headphone_override, Some(true), "Headset");
-                                        ui.selectable_value(&mut audio.headphone_override, Some(false), "Controller speaker");
+                                        ui.selectable_value(&mut audio.headphone_override, None, tr("Automatic headset detection"));
+                                        ui.selectable_value(&mut audio.headphone_override, Some(true), tr("Headset"));
+                                        ui.selectable_value(&mut audio.headphone_override, Some(false), tr("Controller speaker"));
                                     });
                                 if audio.headphone_override.is_none() && audio.detected_headphones.is_none() {
-                                    ui.weak("Headset detection unavailable. Select Headset when using the controller jack.");
+                                    ui.weak(tr("Headset detection unavailable. Select Headset when using the controller jack."));
                                 }
                             }
                         }
                         for (index, device) in selections {
                             match pads.set_audio(index, device) {
                                 Ok(()) => s.session.input(|q| pads.announce_new(q)),
-                                Err(error) => s.show_toast(format!("Controller audio unavailable: {error}")),
+                                Err(error) => s.show_toast(trf("Controller audio unavailable: {}", &[&error])),
                             }
                         }
                         for (index, device) in input_selections {
@@ -1422,30 +1425,30 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                     if !s.facts.server_commands.is_empty() {
                         ui.separator();
-                        ui.label("PC commands");
+                        ui.label(tr("PC commands"));
                         for (index, name) in s.facts.server_commands.iter().enumerate() {
                             if !name.is_empty() && ui.button(name).clicked() {
                                 s.pending_command = Some(index);
                             }
                         }
                         if let Some(index) = s.pending_command {
-                            ui.label(format!("Run ‘{}’ on the PC?", s.facts.server_commands[index]));
+                            ui.label(trf("Run ‘{}’ on the PC?", &[&s.facts.server_commands[index]]));
                             ui.horizontal(|ui| {
-                                if ui.button("Run command").clicked() {
+                                if ui.button(tr("Run command")).clicked() {
                                     s.pending_command = None;
                                     s.server_command(index);
                                 }
-                                if ui.button("Cancel").clicked() { s.pending_command = None; }
+                                if ui.button(tr("Cancel")).clicked() { s.pending_command = None; }
                             });
                         }
                     }
                     ui.separator();
-                    if s.session_page_available() && ui.button("Session and graphics").clicked() {
+                    if s.session_page_available() && ui.button(tr("Session and graphics")).clicked() {
                         s.session_page_requested = true;
                     }
-                    if ui.button("Reconnect").clicked() { s.exit = Some(Exit::Reconnect); }
-                    if ui.button("Disconnect").clicked() { s.exit = Some(Exit::User); }
-                    ui.label("Ctrl+Alt+Shift+Tab or Start+Select opens this menu.");
+                    if ui.button(tr("Reconnect")).clicked() { s.exit = Some(Exit::Reconnect); }
+                    if ui.button(tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
+                    ui.label(tr("Ctrl+Alt+Shift+Tab or Start+Select opens this menu."));
                 });
         }
         if visible {
@@ -1462,7 +1465,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             ui.spacing_mut().interact_size.y = 16.0;
                             egui::Grid::new("stats").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
                                 if lines.is_empty() {
-                                    ui.label(egui::RichText::new("Measuring…").color(theme::ON_SURFACE_VARIANT));
+                                    ui.label(egui::RichText::new(tr("Measuring…")).color(theme::ON_SURFACE_VARIANT));
                                     ui.end_row();
                                 }
                                 for (k, v) in &lines {

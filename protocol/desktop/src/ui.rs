@@ -7,10 +7,12 @@ use egui::{
 };
 
 use crate::config::{
-    AudioChannels, CodecPreference, DecoderPreference, HostDisplay, MouseMode, Overrides, Profiles, Settings, WindowMode,
+    step_zoom, AudioChannels, CodecPreference, DecoderPreference, HostDisplay, Language, MouseMode, Overrides, Profiles,
+    ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
 };
 use crate::console::{self, EndAction, GameState, Playing, Source};
 use crate::hosts::{Apps, Art, Host, Hosts, Reach};
+use crate::strings::{en, tr, trf};
 use crate::stream::{stream_mode, Display};
 use crate::theme::*;
 
@@ -117,16 +119,16 @@ pub enum Dialog {
 }
 
 /// The header's top-level destinations, left to right.
-pub const DESTINATIONS: [(&str, Screen); 3] = [("Home", Screen::Home), ("PCs", Screen::Hosts), ("Settings", Screen::Settings)];
+pub const DESTINATIONS: [(&str, Screen); 3] = [(en("Home"), Screen::Home), (en("PCs"), Screen::Hosts), (en("Settings"), Screen::Settings)];
 
 /// The settings sections in the order Android lists them (App only on the main settings).
-const SETTINGS_SECTIONS: [&str; 7] = ["Video", "Display & image", "Controls", "Audio", "Streaming", "App", "Advanced"];
+const SETTINGS_SECTIONS: [&str; 7] = [en("Video"), en("Display & image"), en("Controls"), en("Audio"), en("Streaming"), en("App"), en("Advanced")];
 
 /// What the pairing help says, in the order of Nightjar Android's guide.
 const PAIRING_STEPS: [&str; 3] = [
-    "1. Start a Moonlight-compatible host on the PC, such as Apollo, Rubylight, Sunshine or Vibepollo.",
-    "2. Here, choose the PC on the same network and select Pair.",
-    "3. Enter the PIN shown here in your host's settings or web UI, usually on its PIN or pairing page.",
+    en("1. Start a Moonlight-compatible host on the PC, such as Apollo, Rubylight, Sunshine or Vibepollo."),
+    en("2. Here, choose the PC on the same network and select Pair."),
+    en("3. Enter the PIN shown here in your host's settings or web UI, usually on its PIN or pairing page."),
 ];
 
 /// What a PC's options list can hold.
@@ -149,18 +151,18 @@ pub enum HostOption {
 impl HostOption {
     pub fn label(self) -> &'static str {
         match self {
-            Self::OpenLibrary => "Open library",
-            Self::Resume => "Resume",
-            Self::QuitApp => "Quit running app",
-            Self::Pair => "Pair",
-            Self::PairOtp => "Pair with one-time PIN",
-            Self::Wake => "Wake up",
-            Self::Settings => "PC settings",
-            Self::Rename => "Rename",
-            Self::Unpair => "Unpair",
-            Self::PairingHelp => "Pairing help",
-            Self::CheckAgain => "Check again",
-            Self::Remove => "Remove PC",
+            Self::OpenLibrary => en("Open library"),
+            Self::Resume => en("Resume"),
+            Self::QuitApp => en("Quit running app"),
+            Self::Pair => en("Pair"),
+            Self::PairOtp => en("Pair with one-time PIN"),
+            Self::Wake => en("Wake up"),
+            Self::Settings => en("PC settings"),
+            Self::Rename => en("Rename"),
+            Self::Unpair => en("Unpair"),
+            Self::PairingHelp => en("Pairing help"),
+            Self::CheckAgain => en("Check again"),
+            Self::Remove => en("Remove PC"),
         }
     }
 }
@@ -246,6 +248,10 @@ pub struct Launcher {
     pub tearing_supported: bool,
     pub display: Display,
     pub identity_ready: bool,
+    /// The system's preferred languages, for the Language setting's default.
+    pub system_languages: Vec<String>,
+    /// The palette and motion egui's style was last built for.
+    look: Option<(bool, bool)>,
 }
 
 /// What the launcher shows, borrowed from the app each frame.
@@ -266,7 +272,7 @@ fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
         ui.painter().rect_stroke(
             rect.expand(3.0),
             CornerRadius::same(radius + 3),
-            Stroke::new(2.0, MOON),
+            Stroke::new(focus_ring_width(), MOON),
             StrokeKind::Outside,
         );
     } else if response.hovered() {
@@ -289,19 +295,19 @@ fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     }
     let t = ui.ctx().animate_bool_responsive(response.id, *on);
     let enabled = ui.is_enabled();
-    let track = if *on { MOON } else { SURFACE_HIGHEST };
+    let track: Color32 = if *on { *MOON } else { *SURFACE_HIGHEST };
     let track = if enabled { track } else { track.gamma_multiply(0.4) };
     ui.painter().rect_filled(rect, CornerRadius::same(12), track);
     let knob_x = egui::lerp(rect.left() + 12.0..=rect.right() - 12.0, t);
-    let knob = if *on { ON_MOON } else { OUTLINE };
+    let knob = if *on { *ON_MOON } else { *OUTLINE };
     ui.painter().circle_filled(Pos2::new(knob_x, rect.center().y), 8.0, knob);
     focus_ring(ui, rect, &response, 12);
     response
 }
 
 fn primary_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(text).color(ON_MOON).font(semibold(15.0)))
-        .fill(MOON)
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_MOON).font(semibold(15.0)))
+        .fill(*MOON)
         .corner_radius(CornerRadius::same(8))
         .min_size(vec2(0.0, 36.0));
     let response = ui.add(button);
@@ -310,8 +316,8 @@ fn primary_button(ui: &mut Ui, text: &str) -> Response {
 }
 
 fn quiet_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(text).color(ON_SURFACE).font(semibold(15.0)))
-        .fill(SURFACE_HIGHEST)
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(15.0)))
+        .fill(*SURFACE_HIGHEST)
         .corner_radius(CornerRadius::same(8))
         .min_size(vec2(0.0, 36.0));
     let response = ui.add(button);
@@ -320,7 +326,7 @@ fn quiet_button(ui: &mut Ui, text: &str) -> Response {
 }
 
 fn text_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(text).color(ON_SURFACE_VARIANT).font(semibold(15.0)))
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE_VARIANT).font(semibold(15.0)))
         .frame(false)
         .min_size(vec2(0.0, 36.0));
     let response = ui.add(button);
@@ -330,8 +336,8 @@ fn text_button(ui: &mut Ui, text: &str) -> Response {
 
 /// A small pill that jumps to a section of the settings.
 fn chip(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(text).color(ON_SURFACE).font(semibold(13.5)))
-        .fill(SURFACE)
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(13.5)))
+        .fill(*SURFACE)
         .corner_radius(CornerRadius::same(14))
         .min_size(vec2(0.0, 28.0));
     let response = ui.add(button);
@@ -339,9 +345,12 @@ fn chip(ui: &mut Ui, text: &str) -> Response {
     response
 }
 
+/// A spinning arc. With reduced motion (egui's animation time is 0) the arc stands still and
+/// nothing asks for the next frame.
 fn spinner(ui: &mut Ui, radius: f32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(radius * 2.0), Sense::hover());
-    let t = ui.input(|i| i.time) as f32;
+    let still = ui.style().animation_time <= 0.0;
+    let t = if still { 0.0 } else { ui.input(|i| i.time) as f32 };
     let center = rect.center();
     let start = t * 4.0;
     let points: Vec<Pos2> = (0..=24)
@@ -352,7 +361,9 @@ fn spinner(ui: &mut Ui, radius: f32) {
         .collect();
     ui.painter()
         .add(egui::Shape::line(points, Stroke::new(2.5, MOON)));
-    ui.ctx().request_repaint();
+    if !still {
+        ui.ctx().request_repaint();
+    }
 }
 
 impl Launcher {
@@ -388,7 +399,51 @@ impl Launcher {
             tearing_supported: false,
             display,
             identity_ready: false,
+            system_languages: Vec::new(),
+            look: None,
         }
+    }
+
+    /// Brings egui's style, the zoom and the language in line with the settings. Cheap when
+    /// nothing changed: the style is rebuilt only for a new palette or motion setting.
+    fn sync_look(&mut self, ctx: &egui::Context) {
+        let s = &self.settings;
+        let still = match s.reduce_motion {
+            ReduceMotion::Reduce => true,
+            ReduceMotion::Full => false,
+            ReduceMotion::System => crate::theme::system_reduces_motion(),
+        };
+        if self.look != Some((s.high_contrast, still)) {
+            set_look(ctx, s.high_contrast, still);
+            self.look = Some((s.high_contrast, still));
+        }
+        let zoom = crate::config::nearest_zoom(s.ui_zoom) as f32 / 100.0;
+        if (ctx.zoom_factor() - zoom).abs() > f32::EPSILON {
+            ctx.set_zoom_factor(zoom);
+        }
+        crate::strings::set(crate::strings::resolve(s.language, &self.system_languages));
+    }
+
+    /// Ctrl+= and Ctrl+- step the zoom, Ctrl+0 resets it. Returns whether it changed.
+    fn zoom_keys(&mut self, ctx: &egui::Context) -> bool {
+        let step = ctx.input(|i| {
+            if !i.modifiers.command {
+                None
+            } else if i.key_pressed(Key::Equals) || i.key_pressed(Key::Plus) {
+                Some(1)
+            } else if i.key_pressed(Key::Minus) {
+                Some(-1)
+            } else if i.key_pressed(Key::Num0) {
+                Some(0)
+            } else {
+                None
+            }
+        });
+        let Some(step) = step else { return false };
+        let zoom = if step == 0 { 100 } else { step_zoom(self.settings.ui_zoom, step) };
+        let changed = zoom != self.settings.ui_zoom;
+        self.settings.ui_zoom = zoom;
+        changed
     }
 
     pub fn go(&mut self, screen: Screen) {
@@ -574,6 +629,10 @@ impl Launcher {
     pub fn ui(&mut self, ui: &mut Ui, view: View<'_>) -> Vec<Command> {
         let mut commands = Vec::new();
         let ctx = ui.ctx().clone();
+        if self.zoom_keys(&ctx) {
+            commands.push(Command::SaveSettings);
+        }
+        self.sync_look(&ctx);
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
@@ -673,7 +732,7 @@ impl Launcher {
                     if text_button(ui, "‹  Back").clicked() {
                         self.back(commands);
                     }
-                    ui.label(RichText::new("Settings").font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(tr("Settings")).font(semibold(22.0)).color(PAPER));
                 }
                 Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {
                     if text_button(ui, "‹  Back").clicked() {
@@ -685,15 +744,15 @@ impl Launcher {
                     if text_button(ui, "‹  Settings").clicked() {
                         self.back(commands);
                     }
-                    ui.label(RichText::new("Profiles").font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(tr("Profiles")).font(semibold(22.0)).color(PAPER));
                 }
                 Screen::Controllers => {
                     if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
-                    ui.label(RichText::new("Controller mappings").font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(tr("Controller mappings")).font(semibold(22.0)).color(PAPER));
                 }
                 Screen::Shortcuts => {
                     if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
-                    ui.label(RichText::new("Keyboard shortcuts").font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(tr("Keyboard shortcuts")).font(semibold(22.0)).color(PAPER));
                 }
             }
             // The actions sit at the right edge but are registered left to right, so Tab walks
@@ -751,7 +810,7 @@ impl Launcher {
     /// One of the header's top-level destinations; the current one is marked.
     fn destination(&mut self, ui: &mut Ui, name: &str, screen: Screen, commands: &mut Vec<Command>) {
         let current = self.screen == screen;
-        let text = RichText::new(name)
+        let text = RichText::new(tr(name))
             .font(semibold(15.0))
             .color(if current { PAPER } else { ON_SURFACE_VARIANT });
         let response = ui.add(egui::Button::new(if current { text.underline() } else { text }).frame(false).min_size(vec2(0.0, 36.0)));
@@ -773,9 +832,9 @@ impl Launcher {
     }
 
     fn hosts(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>, logo: egui::TextureId) {
-        ui.label(RichText::new("Your PCs").font(semibold(30.0)).color(ON_SURFACE));
+        ui.label(RichText::new(tr("Your PCs")).font(semibold(30.0)).color(ON_SURFACE));
         ui.label(
-            RichText::new("PCs running a Moonlight-compatible host on this network appear here. Add one by address if it doesn't.")
+            RichText::new(tr("PCs running a Moonlight-compatible host on this network appear here. Add one by address if it doesn't."))
                 .color(ON_SURFACE_VARIANT),
         );
         ui.add_space(18.0);
@@ -785,12 +844,12 @@ impl Launcher {
                 egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
                 ui.add_space(14.0);
                 if self.identity_ready {
-                    ui.label(RichText::new("Looking for PCs…").font(semibold(18.0)));
+                    ui.label(RichText::new(tr("Looking for PCs…")).font(semibold(18.0)));
                 } else {
-                    ui.label(RichText::new("Creating this device's pairing key…").font(semibold(18.0)));
+                    ui.label(RichText::new(tr("Creating this device's pairing key…")).font(semibold(18.0)));
                 }
                 ui.label(
-                    RichText::new("Start Sunshine, Apollo, Vibepollo, Rubylight or GeForce Experience on your PC.")
+                    RichText::new(tr("Start Sunshine, Apollo, Vibepollo, Rubylight or GeForce Experience on your PC."))
                         .color(ON_SURFACE_VARIANT),
                 );
                 ui.add_space(12.0);
@@ -832,7 +891,7 @@ impl Launcher {
             }
             ui.add_space(8.0);
             ui.label(
-                RichText::new("Options for a PC: F2, right-click, the three dots, or the controller's X button. Ctrl+N adds a PC.")
+                RichText::new(tr("Options for a PC: F2, right-click, the three dots, or the controller's X button. Ctrl+N adds a PC."))
                     .color(OUTLINE)
                     .font(regular(13.0)),
             );
@@ -850,11 +909,11 @@ impl Launcher {
                 ui.add_space(40.0);
                 ui.horizontal(|ui| {
                     spinner(ui, 10.0);
-                    ui.label(RichText::new("Loading the library…").color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("Loading the library…")).color(ON_SURFACE_VARIANT));
                 });
             }
             Apps::Failed(e) => {
-                ui.label(RichText::new("The library could not be loaded.").font(semibold(18.0)));
+                ui.label(RichText::new(tr("The library could not be loaded.")).font(semibold(18.0)));
                 ui.label(RichText::new(e).color(ERROR));
                 if quiet_button(ui, "Try again").clicked() {
                     commands.push(Command::Refresh(id));
@@ -862,10 +921,10 @@ impl Launcher {
             }
             Apps::Loaded(apps) => {
                 if apps.is_empty() {
-                    ui.label(RichText::new("This PC lists no apps.").color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("This PC lists no apps.")).color(ON_SURFACE_VARIANT));
                     return;
                 }
-                ui.label(RichText::new("Game settings: right-click a game, press F2, or use the controller's left face button.").color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(tr("Game settings: right-click a game, press F2, or use the controller's left face button.")).color(ON_SURFACE_VARIANT));
                 ui.add_space(12.0);
                 scroll(ui, "apps", |ui| {
                     let gap = 20.0;
@@ -910,7 +969,7 @@ impl Launcher {
                                 }
                                 if !app.is_control_action() {
                                     response.context_menu(|ui| {
-                                        if ui.button("Game settings").clicked() {
+                                        if ui.button(tr("Game settings")).clicked() {
                                             commands.push(Command::AppSettings { host: id, app: app.clone() });
                                             ui.close();
                                         }
@@ -938,8 +997,8 @@ impl Launcher {
             ui.vertical_centered(|ui| {
                 egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
                 ui.add_space(14.0);
-                ui.label(RichText::new("No hosts yet").font(semibold(18.0)));
-                ui.label(RichText::new("Pair Nightjar with a PC to see its games here.").color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(tr("No hosts yet")).font(semibold(18.0)));
+                ui.label(RichText::new(tr("Pair Nightjar with a PC to see its games here.")).color(ON_SURFACE_VARIANT));
                 ui.add_space(12.0);
                 let r = primary_button(ui, "Open hosts");
                 self.focus_item(&r, "open-hosts", true);
@@ -961,17 +1020,17 @@ impl Launcher {
             // A failed read stays on screen beside the last good data.
             for host in &view.hosts.list {
                 if let Some(error) = &host.native.error {
-                    ui.label(RichText::new(format!("{}: {error}", host.display_name())).color(ERROR));
+                    ui.label(RichText::new(format!("{}: {}", host.display_name(), tr(error))).color(ERROR));
                 }
             }
             let mut first = true;
             if !starred.is_empty() {
                 section(ui, "Favourites");
-                ui.label(RichText::new("Delete (keyboard) or Y (gamepad) removes the focused favourite.").font(semibold(13.0)).color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(tr("Delete (keyboard) or Y (gamepad) removes the focused favourite.")).font(semibold(13.0)).color(ON_SURFACE_VARIANT));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
                     for (index, item) in starred.iter().enumerate() {
-                        let line = if item.online { format!("On {}", item.host_name) } else { format!("{} is away", item.host_name) };
+                        let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
                         let response = continue_card(ui, &item.title, &line, false);
                         self.focus_item(&response, &format!("favourite:{}:{}", item.host, item.app_id), std::mem::take(&mut first));
                         if response.clicked() {
@@ -989,7 +1048,7 @@ impl Launcher {
                             }
                         }
                         response.context_menu(|ui| {
-                            if ui.button("Remove from favourites").clicked() {
+                            if ui.button(tr("Remove from favourites")).clicked() {
                                 commands.push(Command::ToggleFavourite(star));
                                 ui.close();
                             }
@@ -1003,8 +1062,8 @@ impl Launcher {
                     ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
                     for item in &playing {
                         let (line, running) = match item.playing {
-                            Playing::Running => (format!("Running on {}", item.host_name), true),
-                            Playing::Suspended => (format!("Suspended on {}", item.host_name), false),
+                            Playing::Running => (trf("Running on {}", &[&item.host_name]), true),
+                            Playing::Suspended => (trf("Suspended on {}", &[&item.host_name]), false),
                         };
                         let response = continue_card(ui, &item.title, &line, running);
                         self.focus_item(&response, &format!("continue:{}:{}", item.host, item.app_id), std::mem::take(&mut first));
@@ -1020,7 +1079,7 @@ impl Launcher {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
                     for item in &recent {
-                        let line = if item.online { format!("On {}", item.host_name) } else { format!("{} is away", item.host_name) };
+                        let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
                         let response = continue_card(ui, &item.title, &line, false);
                         self.focus_item(&response, &format!("recent:{}:{}", item.host, item.app_id), std::mem::take(&mut first));
                         if response.clicked() {
@@ -1035,10 +1094,10 @@ impl Launcher {
                 if loading {
                     ui.horizontal(|ui| {
                         spinner(ui, 10.0);
-                        ui.label(RichText::new("Loading the games…").color(ON_SURFACE_VARIANT));
+                        ui.label(RichText::new(tr("Loading the games…")).color(ON_SURFACE_VARIANT));
                     });
                 } else {
-                    ui.label(RichText::new("No games to show. Games appear here once a Rubylight PC is online.").color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("No games to show. Games appear here once a Rubylight PC is online.")).color(ON_SURFACE_VARIANT));
                 }
             }
             ui.horizontal_wrapped(|ui| {
@@ -1089,7 +1148,7 @@ impl Launcher {
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         let source = sources.iter().find(|s| s.id == host_id).expect("source of a listed host");
         let Some(game) = source.library.and_then(|l| l.games.iter().find(|g| g.app_id == app_id)) else {
-            ui.label(RichText::new("This game is no longer in the PC's library.").font(semibold(18.0)));
+            ui.label(RichText::new(tr("This game is no longer in the PC's library.")).font(semibold(18.0)));
             let r = primary_button(ui, "Back");
             self.focus_item(&r, "back", true);
             if r.clicked() {
@@ -1137,26 +1196,26 @@ impl Launcher {
                     ui.label(RichText::new(&store.name).color(ON_SURFACE_VARIANT));
                 }
                 let (status, color) = match detail.state {
-                    GameState::Running => (format!("Running on {}", source.name), MOON),
-                    GameState::Suspended => (format!("Suspended on {}", source.name), TERTIARY),
-                    GameState::Idle => (format!("On {}", source.name), ON_SURFACE_VARIANT),
+                    GameState::Running => (trf("Running on {}", &[&source.name]), MOON),
+                    GameState::Suspended => (trf("Suspended on {}", &[&source.name]), TERTIARY),
+                    GameState::Idle => (trf("On {}", &[&source.name]), ON_SURFACE_VARIANT),
                 };
                 ui.label(RichText::new(status).font(semibold(16.0)).color(color));
                 ui.add_space(8.0);
                 if host.reach == Reach::Offline {
-                    ui.label(RichText::new("This PC is offline. Your saved library is still here. Reconnect to play.").color(ERROR));
+                    ui.label(RichText::new(tr("This PC is offline. Your saved library is still here. Reconnect to play.")).color(ERROR));
                 } else if host.reach == Reach::Unknown {
-                    ui.label(RichText::new("Checking the PC…").color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("Checking the PC…")).color(ON_SURFACE_VARIANT));
                 } else if !source.paired {
-                    ui.label(RichText::new("Pair Nightjar with this PC to play.").color(ERROR));
+                    ui.label(RichText::new(tr("Pair Nightjar with this PC to play.")).color(ERROR));
                 }
                 if let Some(other) = &other_running {
-                    ui.label(RichText::new(format!("{other} is running. Playing this game closes it.")).color(TERTIARY));
+                    ui.label(RichText::new(trf("{} is running. Playing this game closes it.", &[&other])).color(TERTIARY));
                 }
                 ui.add_space(8.0);
                 let can_play = detail.can_start && classic.is_some();
                 ui.horizontal(|ui| {
-                    let r = ui.add_enabled_ui(can_play, |ui| primary_button(ui, if resumes { "Resume" } else { "Play" })).inner;
+                    let r = ui.add_enabled_ui(can_play, |ui| primary_button(ui, if resumes { en("Resume") } else { en("Play") })).inner;
                     self.focus_item(&r, "play", true);
                     if r.clicked() {
                         if let Some(app) = &classic {
@@ -1180,7 +1239,7 @@ impl Launcher {
                     let starred = console::is_starred(source, game, &self.favourites);
                     let r = ui
                         .add_enabled_ui(star.is_some(), |ui| {
-                            quiet_button(ui, if starred { "Remove from favourites" } else { "Add to favourites" })
+                            quiet_button(ui, if starred { en("Remove from favourites") } else { en("Add to favourites") })
                         })
                         .inner;
                     self.focus_item(&r, "favourite", false);
@@ -1191,7 +1250,7 @@ impl Launcher {
                     }
                     if detail.end != EndAction::None {
                         let closing = host.native.acting;
-                        let label = if detail.end == EndAction::CloseGame { "Close game" } else { "Quit game" };
+                        let label = if detail.end == EndAction::CloseGame { en("Close game") } else { en("Quit game") };
                         let r = ui.add_enabled_ui(!closing, |ui| quiet_button(ui, label)).inner;
                         self.focus_item(&r, "end", !can_play);
                         if r.clicked() {
@@ -1213,13 +1272,13 @@ impl Launcher {
                         Apps::NotLoaded | Apps::Loading => {
                             ui.horizontal(|ui| {
                                 spinner(ui, 9.0);
-                                ui.label(RichText::new("Loading the app list…").color(ON_SURFACE_VARIANT));
+                                ui.label(RichText::new(tr("Loading the app list…")).color(ON_SURFACE_VARIANT));
                             });
                         }
                         Apps::Failed(_) | Apps::Loaded(_) => {
                             let why = match &host.apps {
-                                Apps::Failed(e) => format!("The app list could not be loaded. {e}"),
-                                _ => "The PC's app list has no entry for this game.".to_owned(),
+                                Apps::Failed(e) => trf("The app list could not be loaded. {}", &[&e]),
+                                _ => tr("The PC's app list has no entry for this game.").to_owned(),
                             };
                             ui.label(RichText::new(why).color(ERROR));
                             let r = quiet_button(ui, "Try again");
@@ -1241,7 +1300,7 @@ impl Launcher {
                     .profiles
                     .selected(kind)
                     .and_then(|id| self.profiles.entries.iter().find(|p| p.id == id))
-                    .map_or("Main settings", |p| p.name.as_str());
+                    .map_or(tr("Main settings"), |p| p.name.as_str());
                 row(ui, "Stream settings", &format!("{}  \u{b7}  {profile}", console::stream_summary(w, h, fps, kbps)), |ui| {
                     match &classic {
                         Some(app) => {
@@ -1252,7 +1311,7 @@ impl Launcher {
                             }
                             r
                         }
-                        None => ui.add_enabled(false, egui::Button::new("Game settings")),
+                        None => ui.add_enabled(false, egui::Button::new(tr("Game settings"))),
                     }
                 });
                 if !others.is_empty() {
@@ -1272,7 +1331,7 @@ impl Launcher {
     }
 
     fn shortcuts_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
-        ui.label("Send saved chords to the PC from stream controls. Import and export use Nightjar Android's shortcut format.");
+        ui.label(tr("Send saved chords to the PC from stream controls. Import and export use Nightjar Android's shortcut format."));
         ui.horizontal(|ui| {
             let button = primary_button(ui, "New shortcut");
             if std::mem::take(&mut self.focus_screen) { button.request_focus(); }
@@ -1308,8 +1367,8 @@ impl Launcher {
 
     fn controllers_page(&mut self, ui: &mut Ui, pads: &crate::gamepad::Gamepads, commands: &mut Vec<Command>) {
         use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, Mapping};
-        ui.label("Mappings apply to controllers of the same model. Local menu and disconnect chords always use physical buttons.");
-        let selected = if self.controller_key.is_empty() { "Choose a controller" } else { &self.controller_mapping.name };
+        ui.label(tr("Mappings apply to controllers of the same model. Local menu and disconnect chords always use physical buttons."));
+        let selected = if self.controller_key.is_empty() { tr("Choose a controller") } else { &self.controller_mapping.name };
         let chooser = egui::ComboBox::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
             for pad in &pads.pads {
                 if ui.selectable_label(pad.key == self.controller_key, &pad.name).clicked() {
@@ -1318,32 +1377,32 @@ impl Launcher {
             }
             for (key, mapping) in &pads.mappings {
                 if !pads.pads.iter().any(|p| &p.key == key)
-                    && ui.selectable_label(*key == self.controller_key, format!("{} (disconnected)", mapping.name)).clicked() {
+                    && ui.selectable_label(*key == self.controller_key, trf("{} (disconnected)", &[&mapping.name])).clicked() {
                     commands.push(Command::EditController { key: key.clone(), name: mapping.name.clone() });
                 }
             }
         });
         if std::mem::take(&mut self.focus_screen) { chooser.response.request_focus(); }
         if self.controller_key.is_empty() {
-            ui.label("Connect a controller to create a mapping.");
+            ui.label(tr("Connect a controller to create a mapping."));
             return;
         }
         ui.horizontal(|ui| {
             if quiet_button(ui, "Reset mapping").clicked() {
                 self.controller_mapping = Mapping { name: self.controller_mapping.name.clone(), ..Default::default() };
             }
-            ui.checkbox(&mut self.controller_test, "Test input (pause controller navigation)");
+            ui.checkbox(&mut self.controller_test, tr("Test input (pause controller navigation)"));
         });
         let mapping = &mut self.controller_mapping;
         scroll(ui, "controller-mapping", |ui| {
             if self.controller_test {
                 let connected: Vec<_> = pads.pads.iter().filter(|p| p.key == self.controller_key).collect();
-                if connected.is_empty() { ui.label("This controller is disconnected."); }
+                if connected.is_empty() { ui.label(tr("This controller is disconnected.")); }
                 for pad in connected {
                     let report = pad.preview(mapping, self.settings.swap_face_buttons);
-                    let held = BUTTON_MAP.iter().zip(BUTTON_NAMES).filter_map(|(flag, name)| (report.buttons & flag != 0).then_some(name)).collect::<Vec<_>>().join(", ");
-                    ui.label(format!("Controller {}: {}", pad.index + 1, if held.is_empty() { "No buttons held" } else { &held }));
-                    ui.label(format!("Left: {}, {}    Right: {}, {}    Triggers: {}, {}", report.ls.0, report.ls.1, report.rs.0, report.rs.1, report.lt, report.rt));
+                    let held = BUTTON_MAP.iter().zip(BUTTON_NAMES).filter_map(|(flag, name)| (report.buttons & flag != 0).then_some(tr(name))).collect::<Vec<_>>().join(", ");
+                    ui.label(trf("Controller {}: {}", &[&(pad.index + 1), &if held.is_empty() { tr("No buttons held") } else { held.as_str() }]));
+                    ui.label(trf("Left: {}, {}    Right: {}, {}    Triggers: {}, {}", &[&report.ls.0, &report.ls.1, &report.rs.0, &report.rs.1, &report.lt, &report.rt]));
                 }
                 ui.separator();
             }
@@ -1353,15 +1412,16 @@ impl Launcher {
             section(ui, "Axes");
             for (i, name) in AXIS_NAMES.iter().enumerate() {
                 let source = mapping.axes[i];
-                let selected = if source == 0 { "Disabled".to_owned() }
-                    else { format!("{}{}", AXIS_NAMES[source.unsigned_abs() as usize - 1], if source < 0 { " (inverted)" } else { "" }) };
+                let axis = tr(AXIS_NAMES[source.unsigned_abs().max(1) as usize - 1]);
+                let selected = if source == 0 { tr("Disabled").to_owned() }
+                    else if source < 0 { trf("{} (inverted)", &[&axis]) } else { axis.to_owned() };
                 row(ui, name, "Choose the physical axis that drives this output.", |ui| {
                     egui::ComboBox::from_id_salt(("axis-mapping", i)).selected_text(selected).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut mapping.axes[i], 0, "Disabled");
+                        ui.selectable_value(&mut mapping.axes[i], 0, tr("Disabled"));
                         let range = if i < 4 { 0..4 } else { 4..6 };
                         for j in range {
-                            ui.selectable_value(&mut mapping.axes[i], (j + 1) as i8, AXIS_NAMES[j]);
-                            if i < 4 { ui.selectable_value(&mut mapping.axes[i], -((j + 1) as i8), format!("{} (inverted)", AXIS_NAMES[j])); }
+                            ui.selectable_value(&mut mapping.axes[i], (j + 1) as i8, tr(AXIS_NAMES[j]));
+                            if i < 4 { ui.selectable_value(&mut mapping.axes[i], -((j + 1) as i8), trf("{} (inverted)", &[&tr(AXIS_NAMES[j])])); }
                         }
                     }).response
                 });
@@ -1369,16 +1429,16 @@ impl Launcher {
             section(ui, "Buttons");
             for (i, name) in BUTTON_NAMES.iter().enumerate() {
                 let selected = match mapping.buttons[i] {
-                    None => "Default",
-                    Some(0) => "Disabled",
-                    Some(flag) => BUTTON_NAMES[BUTTON_MAP.iter().position(|b| *b == flag).expect("validated button")],
+                    None => tr("Default"),
+                    Some(0) => tr("Disabled"),
+                    Some(flag) => tr(BUTTON_NAMES[BUTTON_MAP.iter().position(|b| *b == flag).expect("validated button")]),
                 };
                 row(ui, name, "Default follows the Nintendo layout setting. Explicit mappings take priority.", |ui| {
                     egui::ComboBox::from_id_salt(("button-mapping", i)).selected_text(selected).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut mapping.buttons[i], None, "Default");
-                        ui.selectable_value(&mut mapping.buttons[i], Some(0), "Disabled");
+                        ui.selectable_value(&mut mapping.buttons[i], None, tr("Default"));
+                        ui.selectable_value(&mut mapping.buttons[i], Some(0), tr("Disabled"));
                         for (target, label) in BUTTON_MAP.iter().zip(BUTTON_NAMES) {
-                            ui.selectable_value(&mut mapping.buttons[i], Some(*target), label);
+                            ui.selectable_value(&mut mapping.buttons[i], Some(*target), tr(label));
                         }
                     }).response
                 });
@@ -1387,14 +1447,14 @@ impl Launcher {
     }
 
     fn profiles_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
-        ui.label("Profiles change the settings used for your next stream. Each PC and game can override them.");
+        ui.label(tr("Profiles change the settings used for your next stream. Each PC and game can override them."));
         let before_profiles = self.profiles.clone();
         let before = self.profiles.active;
         let active = self.profiles.entries.iter().find(|p| Some(p.id) == before)
-            .map_or("Main settings", |p| p.name.as_str());
+            .map_or(tr("Main settings"), |p| p.name.as_str());
         row(ui, "Active profile", "Main settings apply wherever the profile has no override.", |ui| {
             egui::ComboBox::from_id_salt("active-profile").selected_text(active).show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.profiles.active, None, "Main settings");
+                ui.selectable_value(&mut self.profiles.active, None, tr("Main settings"));
                 for profile in &self.profiles.entries {
                     ui.selectable_value(&mut self.profiles.active, Some(profile.id), &profile.name);
                 }
@@ -1410,33 +1470,33 @@ impl Launcher {
         scroll(ui, "profiles", |ui| {
             section(ui, "Network choices");
             ui.label(self.network.description(&self.profiles.home_wifi));
-            if self.network.link_mbps > 0 { ui.label(format!("Link speed: {} Mbps", self.network.link_mbps)); }
+            if self.network.link_mbps > 0 { ui.label(trf("Link speed: {} Mbps", &[&self.network.link_mbps])); }
             let selected = self.profiles.selected(self.network.kind(&self.profiles.home_wifi));
             let selected_name = selected.map(|id| self.profiles.entries.iter().find(|p| p.id == id)
-                .map_or("Missing profile; main settings apply", |p| p.name.as_str())).unwrap_or("Main settings");
-            ui.label(format!("Next stream: {selected_name}, then PC and game overrides."));
+                .map_or(tr("Missing profile; main settings apply"), |p| p.name.as_str())).unwrap_or(tr("Main settings"));
+            ui.label(trf("Next stream: {}, then PC and game overrides.", &[&selected_name]));
             row(ui, "Choose automatically", "Select a profile when a stream starts on this network.", |ui| toggle(ui, &mut self.profiles.automatic));
             ui.add_enabled_ui(self.profiles.automatic, |ui| {
-                for (id, title, selected) in [("mobile-profile", "Mobile or metered", &mut self.profiles.mobile),
-                    ("home-profile", "Home Wi-Fi", &mut self.profiles.home), ("wifi-profile", "Other Wi-Fi", &mut self.profiles.wifi)] {
-                    let name = self.profiles.entries.iter().find(|p| Some(p.id) == *selected).map_or("Active profile", |p| p.name.as_str());
+                for (id, title, selected) in [("mobile-profile", en("Mobile or metered"), &mut self.profiles.mobile),
+                    ("home-profile", en("Home Wi-Fi"), &mut self.profiles.home), ("wifi-profile", en("Other Wi-Fi"), &mut self.profiles.wifi)] {
+                    let name = self.profiles.entries.iter().find(|p| Some(p.id) == *selected).map_or(tr("Active profile"), |p| p.name.as_str());
                     row(ui, title, "An unset rule follows your active profile.", |ui| {
                         egui::ComboBox::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
-                            ui.selectable_value(selected, None, "Active profile");
+                            ui.selectable_value(selected, None, tr("Active profile"));
                             for profile in &self.profiles.entries { ui.selectable_value(selected, Some(profile.id), &profile.name); }
                         }).response
                     });
                 }
-                ui.label("Home Wi-Fi names stay on this device. Names are case-sensitive.");
+                ui.label(tr("Home Wi-Fi names stay on this device. Names are case-sensitive."));
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.home_wifi_name).hint_text("Wi-Fi name").char_limit(32));
+                    ui.add(egui::TextEdit::singleline(&mut self.home_wifi_name).hint_text(tr("Wi-Fi name")).char_limit(32));
                     let valid = !self.home_wifi_name.is_empty() && self.home_wifi_name.len() <= 32
                         && !self.profiles.home_wifi.contains(&self.home_wifi_name) && self.profiles.home_wifi.len() < 50;
-                    if ui.add_enabled(valid, egui::Button::new("Add")).clicked() {
+                    if ui.add_enabled(valid, egui::Button::new(tr("Add"))).clicked() {
                         self.profiles.home_wifi.push(std::mem::take(&mut self.home_wifi_name));
                     }
                     if let Some(ssid) = &self.network.ssid {
-                        if ui.add_enabled(!self.profiles.home_wifi.contains(ssid) && self.profiles.home_wifi.len() < 50, egui::Button::new("Add current Wi-Fi")).clicked() {
+                        if ui.add_enabled(!self.profiles.home_wifi.contains(ssid) && self.profiles.home_wifi.len() < 50, egui::Button::new(tr("Add current Wi-Fi"))).clicked() {
                             self.profiles.home_wifi.push(ssid.clone());
                         }
                     }
@@ -1451,21 +1511,21 @@ impl Launcher {
             section(ui, "Saved profiles");
             for profile in &self.profiles.entries {
                 ui.push_id(profile.id, |ui| {
-                    row(ui, &profile.name, if Some(profile.id) == self.profiles.active { "Active for new streams" } else { "Saved profile" }, |ui| {
+                    row(ui, &profile.name, if Some(profile.id) == self.profiles.active { en("Active for new streams") } else { en("Saved profile") }, |ui| {
                         ui.horizontal(|ui| {
                             if quiet_button(ui, "Edit").clicked() { commands.push(Command::ProfileSettings(profile.id)); }
-                            ui.menu_button("More", |ui| {
-                                if ui.button("Rename").clicked() {
+                            ui.menu_button(tr("More"), |ui| {
+                                if ui.button(tr("Rename")).clicked() {
                                     self.dialog = Dialog::ProfileName { id: Some(profile.id), name: profile.name.clone(), settings: Overrides::default(), error: None };
                                     self.focus_dialog = true;
                                     ui.close();
                                 }
-                                if ui.button("Duplicate").clicked() {
+                                if ui.button(tr("Duplicate")).clicked() {
                                     self.dialog = Dialog::ProfileName { id: None, name: String::new(), settings: profile.settings.clone(), error: None };
                                     self.focus_dialog = true;
                                     ui.close();
                                 }
-                                if ui.button("Delete").clicked() {
+                                if ui.button(tr("Delete")).clicked() {
                                     self.dialog = Dialog::DeleteProfile { id: profile.id, name: profile.name.clone() };
                                     self.focus_dialog = true;
                                     ui.close();
@@ -1485,9 +1545,9 @@ impl Launcher {
         let layered = self.screen != Screen::Settings;
         if layered {
             ui.label(match self.screen {
-                Screen::ProfileSettings(_) => "Unchecked settings follow your main settings.",
-                Screen::HostSettings(_) => "Unchecked settings follow the active profile and main settings.",
-                _ => "Unchecked settings follow this PC, the active profile, and main settings.",
+                Screen::ProfileSettings(_) => tr("Unchecked settings follow your main settings."),
+                Screen::HostSettings(_) => tr("Unchecked settings follow the active profile and main settings."),
+                _ => tr("Unchecked settings follow this PC, the active profile, and main settings."),
             });
             if text_button(ui, "Reset all to inherited").clicked() {
                 self.edit_overrides = Overrides::default();
@@ -1495,8 +1555,8 @@ impl Launcher {
             }
         } else {
             let active = self.profiles.entries.iter().find(|p| Some(p.id) == self.profiles.active)
-                .map_or("Main settings", |p| p.name.as_str());
-            let manage = row(ui, "Profiles", &format!("Active: {active}. PCs and games can override individual settings."), |ui| quiet_button(ui, "Manage profiles"));
+                .map_or(tr("Main settings"), |p| p.name.as_str());
+            let manage = row(ui, "Profiles", &trf("Active: {}. PCs and games can override individual settings.", &[&active]), |ui| quiet_button(ui, "Manage profiles"));
             self.focus_item(&manage, "profiles-link", false);
             if manage.clicked() {
                 commands.push(Command::SaveSettings);
@@ -1531,7 +1591,7 @@ impl Launcher {
         scroll(ui, "settings", |ui| {
             ui.set_max_width(760.0);
             section_at(ui, "Video", &mut jump);
-            let native = format!("Native ({}x{})", display.width, display.height);
+            let native = trf("Native ({}x{})", &[&display.width, &display.height]);
             let current = if s.width == 0 {
                 native.clone()
             } else {
@@ -1568,17 +1628,17 @@ impl Launcher {
             }
             let display_fps = display.refresh_hz.round() as u32;
             let fps_text = if s.fps == 0 {
-                format!("Display ({display_fps} Hz)")
+                trf("Display ({} Hz)", &[&display_fps])
             } else {
-                format!("{} fps", s.fps)
+                trf("{} fps", &[&s.fps])
             };
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["fps"], "Frame rate", "Display matches this monitor's refresh rate.", |ui, s| {
                 egui::ComboBox::from_id_salt("fps")
                     .selected_text(fps_text)
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.fps, 0, format!("Display ({display_fps} Hz)"));
+                        ui.selectable_value(&mut s.fps, 0, trf("Display ({} Hz)", &[&display_fps]));
                         for fps in [30, 60, 90, 120, 144, 165, 240] {
-                            ui.selectable_value(&mut s.fps, fps, format!("{fps} fps"));
+                            ui.selectable_value(&mut s.fps, fps, trf("{} fps", &[&fps]));
                         }
                     })
                     .response
@@ -1587,7 +1647,7 @@ impl Launcher {
             let recommended = stream_mode(&Settings { bitrate_kbps: 0, ..s.clone() }, display).3;
             let mut automatic = s.bitrate_kbps == 0;
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["bitrate_kbps"], "Automatic bitrate",
-                &format!("{:.0} Mbps for {w}x{h} at {fps} fps.", f64::from(recommended) / 1000.0),
+                &trf("{} Mbps for {}x{} at {} fps.", &[&format!("{:.0}", f64::from(recommended) / 1000.0), &w, &h, &fps]),
                 |ui, s| {
                     let r = toggle(ui, &mut automatic);
                     if r.changed() {
@@ -1598,8 +1658,8 @@ impl Launcher {
             );
             if !automatic {
                 let mut mbps = bitrate as f32 / 1000.0;
-                let note = if s.codec.is_pyrowave() { "PyroWave maintains a minimum bitrate for this size and frame rate." }
-                    else { "Higher is sharper and needs a faster network." };
+                let note = if s.codec.is_pyrowave() { en("PyroWave maintains a minimum bitrate for this size and frame rate.") }
+                    else { en("Higher is sharper and needs a faster network.") };
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["bitrate_kbps"], "Bitrate",
                     note,
                     |ui, s| {
@@ -1621,9 +1681,9 @@ impl Launcher {
                 toggle(ui, &mut s.adaptive_bitrate)
             });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["adaptive_quality"], "Automatic quality", "Adjust resolution and frame rate under sustained load. Requires a host that supports live stream changes.", |ui, s| {
-                egui::ComboBox::from_id_salt("quality").selected_text(s.adaptive_quality.label()).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("quality").selected_text(tr(s.adaptive_quality.label())).show_ui(ui, |ui| {
                     for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {
-                        ui.selectable_value(&mut s.adaptive_quality, mode, mode.label());
+                        ui.selectable_value(&mut s.adaptive_quality, mode, tr(mode.label()));
                     }
                 }).response
             });
@@ -1638,7 +1698,7 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["codec"], "Codec", "Automatic picks HEVC, then H.264. PyroWave needs GPU rendering; restart after selecting it on Linux.", |ui, s| {
                 egui::ComboBox::from_id_salt("codec")
                     .selected_text(match s.codec {
-                        CodecPreference::Auto => "Automatic",
+                        CodecPreference::Auto => tr("Automatic"),
                         CodecPreference::H264 => "H.264",
                         CodecPreference::Hevc => "HEVC",
                         CodecPreference::Av1 => "AV1",
@@ -1646,7 +1706,7 @@ impl Launcher {
                         CodecPreference::PyroWave444 => "PyroWave 4:4:4",
                     })
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.codec, CodecPreference::Auto, "Automatic");
+                        ui.selectable_value(&mut s.codec, CodecPreference::Auto, tr("Automatic"));
                         ui.selectable_value(&mut s.codec, CodecPreference::H264, "H.264");
                         ui.selectable_value(&mut s.codec, CodecPreference::Hevc, "HEVC");
                         ui.selectable_value(&mut s.codec, CodecPreference::Av1, "AV1");
@@ -1669,9 +1729,9 @@ impl Launcher {
             }
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["video_scaling"], "Video size", "Fit shows the whole stream; Fill crops the edges; Native uses one display pixel per stream pixel.", |ui, s| {
                 use crate::config::VideoScaling;
-                egui::ComboBox::from_id_salt("video-scaling").selected_text(s.video_scaling.label()).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("video-scaling").selected_text(tr(s.video_scaling.label())).show_ui(ui, |ui| {
                     for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
-                        ui.selectable_value(&mut s.video_scaling, mode, mode.label());
+                        ui.selectable_value(&mut s.video_scaling, mode, tr(mode.label()));
                     }
                 }).response
             });
@@ -1684,12 +1744,12 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["decoder"], "Decoder", "Automatic uses hardware decoding when available. PyroWave always uses GPU wavelets.", |ui, s| {
                 ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| egui::ComboBox::from_id_salt("decoder")
                     .selected_text(match s.decoder {
-                        DecoderPreference::Auto => "Automatic",
-                        DecoderPreference::Software => "Software",
+                        DecoderPreference::Auto => tr("Automatic"),
+                        DecoderPreference::Software => tr("Software"),
                     })
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.decoder, DecoderPreference::Auto, "Automatic");
-                        ui.selectable_value(&mut s.decoder, DecoderPreference::Software, "Software");
+                        ui.selectable_value(&mut s.decoder, DecoderPreference::Auto, tr("Automatic"));
+                        ui.selectable_value(&mut s.decoder, DecoderPreference::Software, tr("Software"));
                     })
                     .response).inner
             });
@@ -1698,11 +1758,11 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["virtual_display"], "Virtual display", "Use a separate display on hosts that support it.", |ui, s| toggle(ui, &mut s.virtual_display));
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["host_display"], "Display arrangement", "Applied only to normal streams on hosts that support display modes.", |ui, s| {
                 egui::ComboBox::from_id_salt("host-display")
-                    .selected_text(host_display_name(s.host_display))
+                    .selected_text(tr(host_display_name(s.host_display)))
                     .show_ui(ui, |ui| {
                         for mode in [HostDisplay::HostDefault, HostDisplay::Exclusive, HostDisplay::ExtendedPrimary,
                             HostDisplay::Extended, HostDisplay::ExtendedIsolated, HostDisplay::ExtendedPrimaryIsolated, HostDisplay::Physical] {
-                            ui.selectable_value(&mut s.host_display, mode, host_display_name(mode));
+                            ui.selectable_value(&mut s.host_display, mode, tr(host_display_name(mode)));
                         }
                     }).response
             });
@@ -1712,30 +1772,30 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
                     .selected_text(match s.window_mode {
-                        WindowMode::Fullscreen => "Fullscreen",
-                        WindowMode::Borderless => "Borderless",
-                        WindowMode::Windowed => "Windowed",
+                        WindowMode::Fullscreen => tr("Fullscreen"),
+                        WindowMode::Borderless => tr("Borderless"),
+                        WindowMode::Windowed => tr("Windowed"),
                     })
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.window_mode, WindowMode::Fullscreen, "Fullscreen");
-                        ui.selectable_value(&mut s.window_mode, WindowMode::Borderless, "Borderless");
-                        ui.selectable_value(&mut s.window_mode, WindowMode::Windowed, "Windowed");
+                        ui.selectable_value(&mut s.window_mode, WindowMode::Fullscreen, tr("Fullscreen"));
+                        ui.selectable_value(&mut s.window_mode, WindowMode::Borderless, tr("Borderless"));
+                        ui.selectable_value(&mut s.window_mode, WindowMode::Windowed, tr("Windowed"));
                     })
                     .response
             });
             let vrr_note = if tearing || cfg!(not(windows)) {
-                "G-Sync, FreeSync or HDMI VRR is on for this display."
+                en("G-Sync, FreeSync or HDMI VRR is on for this display.")
             } else {
-                "This system cannot present with tearing, which VRR needs here."
+                en("This system cannot present with tearing, which VRR needs here.")
             };
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["vrr"], "Variable refresh rate", vrr_note, |ui, s| toggle(ui, &mut s.vrr));
             let immediate_packed = cfg!(windows) && s.experimental_packed_444 && tearing;
             ui.add_enabled_ui(s.vrr && !immediate_packed, |ui| {
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["present_at_host_times"], "Show frames at the PC's frame times",
                     if immediate_packed {
-                        "Full chroma presents frames immediately with VRR, without the extra timing delay."
+                        en("Full chroma presents frames immediately with VRR, without the extra timing delay.")
                     } else {
-                        "Each frame appears at the moment the game made it, plus a steady delay, so motion stays even."
+                        en("Each frame appears at the moment the game made it, plus a steady delay, so motion stays even.")
                     },
                     |ui, s| toggle(ui, &mut s.present_at_host_times),
                 );
@@ -1766,12 +1826,12 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_mode"], "Mouse", "Captured suits games; desktop pointer suits remote work. Ctrl+Alt+Shift+M switches.", |ui, s| {
                 egui::ComboBox::from_id_salt("mouse")
                     .selected_text(match s.mouse_mode {
-                        MouseMode::Capture => "Captured",
-                        MouseMode::Absolute => "Desktop pointer",
+                        MouseMode::Capture => tr("Captured"),
+                        MouseMode::Absolute => tr("Desktop pointer"),
                     })
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.mouse_mode, MouseMode::Capture, "Captured");
-                        ui.selectable_value(&mut s.mouse_mode, MouseMode::Absolute, "Desktop pointer");
+                        ui.selectable_value(&mut s.mouse_mode, MouseMode::Capture, tr("Captured"));
+                        ui.selectable_value(&mut s.mouse_mode, MouseMode::Absolute, tr("Desktop pointer"));
                     })
                     .response
             });
@@ -1794,10 +1854,10 @@ impl Launcher {
                 if s.controller_mouse {
                     setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["analog_scrolling"], "Stick for scrolling", "The other stick moves the pointer. Off lets both sticks move it.", |ui, s| {
                         use crate::config::AnalogScrolling;
-                        egui::ComboBox::from_id_salt("analog-scrolling").selected_text(match s.analog_scrolling { AnalogScrolling::Off => "Off", AnalogScrolling::Left => "Left", AnalogScrolling::Right => "Right" }).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Off, "Off");
-                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Left, "Left");
-                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Right, "Right");
+                        egui::ComboBox::from_id_salt("analog-scrolling").selected_text(match s.analog_scrolling { AnalogScrolling::Off => tr("Off"), AnalogScrolling::Left => tr("Left"), AnalogScrolling::Right => tr("Right") }).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Off, tr("Off"));
+                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Left, tr("Left"));
+                            ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Right, tr("Right"));
                         }).response
                     });
                     setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_fixed_step"], "Precise controller mouse", "Hold X for fixed pixel steps. Press Y to double the step from 1 to 128 pixels.", |ui, s| toggle(ui, &mut s.mouse_fixed_step));
@@ -1819,14 +1879,14 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio"], "Channels", "Surround needs a host and output device that support it.", |ui, s| {
                 egui::ComboBox::from_id_salt("audio")
                     .selected_text(match s.audio {
-                        AudioChannels::Stereo => "Stereo",
-                        AudioChannels::Surround51 => "5.1 surround",
-                        AudioChannels::Surround71 => "7.1 surround",
+                        AudioChannels::Stereo => tr("Stereo"),
+                        AudioChannels::Surround51 => tr("5.1 surround"),
+                        AudioChannels::Surround71 => tr("7.1 surround"),
                     })
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.audio, AudioChannels::Stereo, "Stereo");
-                        ui.selectable_value(&mut s.audio, AudioChannels::Surround51, "5.1 surround");
-                        ui.selectable_value(&mut s.audio, AudioChannels::Surround71, "7.1 surround");
+                        ui.selectable_value(&mut s.audio, AudioChannels::Stereo, tr("Stereo"));
+                        ui.selectable_value(&mut s.audio, AudioChannels::Surround51, tr("5.1 surround"));
+                        ui.selectable_value(&mut s.audio, AudioChannels::Surround71, tr("7.1 surround"));
                     })
                     .response
             });
@@ -1842,16 +1902,16 @@ impl Launcher {
                 let online = host.paired() && host.reach == Reach::Online;
                 row(ui, "Bandwidth", "Receive 32 MiB from this PC. Uses network data and requires a supported paired host.", |ui| {
                     let enabled = online && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::PyroWaveBandwidthProbe));
-                    let button = ui.add_enabled(enabled, egui::Button::new("Test speed"));
+                    let button = ui.add_enabled(enabled, egui::Button::new(tr("Test speed")));
                     if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: false }); }
                     button
                 });
-                let note = host.record.pace.as_ref().map_or_else(|| "Find a frame pace for this network. May take several minutes and uses substantial network data; stop other streams first.".into(),
-                    |p| format!("Saved {} Mbps · {}. Recalibrate after changing the network or stream bitrate.", p.pace_mbps, if p.qualified { "confirmed" } else { "best available" }));
+                let note = host.record.pace.as_ref().map_or_else(|| en("Find a frame pace for this network. May take several minutes and uses substantial network data; stop other streams first.").into(),
+                    |p| trf("Saved {} Mbps · {}. Recalibrate after changing the network or stream bitrate.", &[&p.pace_mbps, &if p.qualified { tr("confirmed") } else { tr("best available") }]));
                 row(ui, "PyroWave frame pace", &note, |ui| {
                     ui.horizontal(|ui| {
                         let enabled = online && host.info.as_ref().is_some_and(|i| i.pyrowave_burst_probe);
-                        let button = ui.add_enabled(enabled, egui::Button::new("Calibrate"));
+                        let button = ui.add_enabled(enabled, egui::Button::new(tr("Calibrate")));
                         if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: true }); }
                         if host.record.pace.is_some() && text_button(ui, "Clear").clicked() { commands.push(Command::ClearPace(host.id)); }
                         button
@@ -1863,10 +1923,10 @@ impl Launcher {
             });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
                 egui::ComboBox::from_id_salt("network-grace")
-                    .selected_text(format!("{} seconds", s.network_grace_ms / 1000))
+                    .selected_text(trf("{} seconds", &[&(s.network_grace_ms / 1000)]))
                     .show_ui(ui, |ui| {
                         for ms in [0, 3000, 5000, 10000, 15000] {
-                            ui.selectable_value(&mut s.network_grace_ms, ms, format!("{} seconds", ms / 1000));
+                            ui.selectable_value(&mut s.network_grace_ms, ms, trf("{} seconds", &[&(ms / 1000)]));
                         }
                     }).response
             });
@@ -1876,16 +1936,57 @@ impl Launcher {
                 row(ui, "Open on Home", "Start on the games to continue and your library. Off starts on the list of PCs.", |ui| {
                     toggle(ui, &mut s.console_home)
                 });
+                row(ui, "Language", "The language of the launcher and the stream menu. System default follows the operating system.", |ui| {
+                    egui::ComboBox::from_id_salt("language")
+                        .selected_text(match s.language {
+                            Language::System => tr("System default"),
+                            Language::English => "English",
+                            Language::German => "Deutsch",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut s.language, Language::System, tr("System default"));
+                            ui.selectable_value(&mut s.language, Language::English, "English");
+                            ui.selectable_value(&mut s.language, Language::German, "Deutsch");
+                        })
+                        .response
+                });
+                row(ui, "UI zoom", "Makes everything bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", |ui| {
+                    egui::ComboBox::from_id_salt("ui-zoom")
+                        .selected_text(format!("{}%", crate::config::nearest_zoom(s.ui_zoom)))
+                        .show_ui(ui, |ui| {
+                            for step in UI_ZOOM_STEPS {
+                                ui.selectable_value(&mut s.ui_zoom, step, format!("{step}%"));
+                            }
+                        })
+                        .response
+                });
+                row(ui, "High contrast", "Black surfaces, white text and thicker outlines and focus rings.", |ui| {
+                    toggle(ui, &mut s.high_contrast)
+                });
+                row(ui, "Reduce motion", "Stops fades, slides and the spinning wheel. Follow system uses the Windows animation setting; other systems do not report one, so motion stays on.", |ui| {
+                    egui::ComboBox::from_id_salt("reduce-motion")
+                        .selected_text(match s.reduce_motion {
+                            ReduceMotion::System => tr("Follow system"),
+                            ReduceMotion::Reduce => tr("Reduce"),
+                            ReduceMotion::Full => tr("Full motion"),
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut s.reduce_motion, ReduceMotion::System, tr("Follow system"));
+                            ui.selectable_value(&mut s.reduce_motion, ReduceMotion::Reduce, tr("Reduce"));
+                            ui.selectable_value(&mut s.reduce_motion, ReduceMotion::Full, tr("Full motion"));
+                        })
+                        .response
+                });
             }
             section_at(ui, "Advanced", &mut jump);
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["experimental_packed_444"], "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
                 |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| toggle(ui, &mut s.experimental_packed_444)).inner);
             ui.add_space(18.0);
             ui.label(
-                RichText::new(
+                RichText::new(tr(
                     "While streaming: Ctrl+Alt+Shift+Q leaves, +Z releases input, +X toggles fullscreen, +D minimizes. \
                      On a controller, Start+Select+LB+RB leaves.",
-                )
+                ))
                 .color(OUTLINE)
                 .font(regular(13.0)),
             );
@@ -1901,7 +2002,7 @@ impl Launcher {
 
     fn dialogs(&mut self, ctx: &egui::Context, view: &View<'_>, commands: &mut Vec<Command>) {
         let frame = Frame::new()
-            .fill(SURFACE_HIGH)
+            .fill(*SURFACE_HIGH)
             .corner_radius(CornerRadius::same(16))
             .inner_margin(Margin::same(28))
             .stroke(Stroke::new(1.0, OUTLINE_VARIANT));
@@ -1927,7 +2028,7 @@ impl Launcher {
                                 if *option == HostOption::Remove {
                                     ui.separator();
                                 }
-                                let label = RichText::new(option.label()).font(semibold(16.0));
+                                let label = RichText::new(tr(option.label())).font(semibold(16.0));
                                 let label = if *option == HostOption::Remove { label.color(ERROR) } else { label };
                                 let button = ui.add_sized(
                                     [ui.available_width(), 38.0],
@@ -1945,7 +2046,7 @@ impl Launcher {
                             if host.reach == Reach::Offline && host.record.mac.is_none() {
                                 ui.add_space(6.0);
                                 ui.label(
-                                    RichText::new("Pair once while the PC is on to enable Wake.")
+                                    RichText::new(tr("Pair once while the PC is on to enable Wake."))
                                         .font(regular(13.0))
                                         .color(OUTLINE),
                                 );
@@ -1967,9 +2068,9 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new("Rename PC").font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Rename PC")).font(semibold(22.0)));
                         ui.label(
-                            RichText::new("The name is kept on this device only. Leave it empty to use the PC's own name.")
+                            RichText::new(tr("The name is kept on this device only. Leave it empty to use the PC's own name."))
                                 .color(ON_SURFACE_VARIANT),
                         );
                         ui.add_space(8.0);
@@ -2005,11 +2106,11 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(format!("Remove {name}?")).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Remove {}?", &[&name])).font(semibold(22.0)));
                         let body = if paired {
-                            "This deletes the PC, its settings and its saved library from this device. The PC still lists this device as paired until you unpair it."
+                            tr("This deletes the PC, its settings and its saved library from this device. The PC still lists this device as paired until you unpair it.")
                         } else {
-                            "This deletes the PC, its settings and its saved library from this device."
+                            tr("This deletes the PC, its settings and its saved library from this device.")
                         };
                         ui.label(RichText::new(body).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
@@ -2036,9 +2137,9 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(format!("Unpair {name}?")).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Unpair {}?", &[&name])).font(semibold(22.0)));
                         ui.label(
-                            RichText::new("The PC drops this device and its saved library is forgotten. It stays in the list; pair again to stream.")
+                            RichText::new(tr("The PC drops this device and its saved library is forgotten. It stays in the list; pair again to stream."))
                                 .color(ON_SURFACE_VARIANT),
                         );
                         ui.add_space(12.0);
@@ -2064,7 +2165,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new("Connect to your PC").font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Connect to your PC")).font(semibold(22.0)));
                         for step in PAIRING_STEPS {
                             ui.label(RichText::new(step).color(ON_SURFACE_VARIANT));
                         }
@@ -2081,14 +2182,14 @@ impl Launcher {
             }
             Dialog::PairError { host, body, one_time } => {
                 let (id, one_time) = (*host, *one_time);
-                let name = view.hosts.get(id).map_or("the PC", |h| h.display_name()).to_owned();
+                let name = view.hosts.get(id).map_or(tr("the PC"), |h| h.display_name()).to_owned();
                 egui::Modal::new(Id::unique("pair-error"))
                     .frame(frame)
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(format!("Pairing with {name} failed")).font(semibold(22.0)));
-                        ui.label(RichText::new(body.as_str()).color(ON_SURFACE_VARIANT));
+                        ui.label(RichText::new(trf("Pairing with {} failed", &[&name])).font(semibold(22.0)));
+                        ui.label(RichText::new(tr(body.as_str())).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             let retry = primary_button(ui, "Try again");
@@ -2118,8 +2219,8 @@ impl Launcher {
             Dialog::NetworkTest { stage } => {
                 egui::Modal::new(Id::unique("network-test")).frame(frame).backdrop_color(Color32::from_black_alpha(150)).show(ctx, |ui| {
                     ui.set_width(420.0);
-                    ui.label(RichText::new("Network test").font(semibold(22.0)));
-                    ui.horizontal(|ui| { spinner(ui, 10.0); ui.label(stage.as_str()); });
+                    ui.label(RichText::new(tr("Network test")).font(semibold(22.0)));
+                    ui.horizontal(|ui| { spinner(ui, 10.0); ui.label(tr(stage.as_str())); });
                     let button = quiet_button(ui, "Cancel");
                     if focus_first { button.request_focus(); focused = true; }
                     if button.clicked() { commands.push(Command::CancelNetworkTest); close = true; }
@@ -2131,11 +2232,11 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(if id.is_some() { "Edit shortcut" } else { "New shortcut" }).font(semibold(22.0)));
-                        let edit = ui.add(egui::TextEdit::singleline(name).hint_text("Shortcut name"));
+                        ui.label(RichText::new(if id.is_some() { tr("Edit shortcut") } else { tr("New shortcut") }).font(semibold(22.0)));
+                        let edit = ui.add(egui::TextEdit::singleline(name).hint_text(tr("Shortcut name")));
                         if focus_first { edit.request_focus(); focused = true; }
                         ui.add(egui::TextEdit::singleline(chord).hint_text("CTRL + ALT + DELETE"));
-                        ui.label("Use letters, digits, F1–F24, CTRL, SHIFT, ALT, WIN, TAB, ENTER, ESC, arrows or other key names.");
+                        ui.label(tr("Use letters, digits, F1–F24, CTRL, SHIFT, ALT, WIN, TAB, ENTER, ESC, arrows or other key names."));
                         if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
                         ui.horizontal(|ui| {
                             if primary_button(ui, "Save").clicked() {
@@ -2154,7 +2255,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(format!("Delete {name}?")).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Delete {}?", &[&name])).font(semibold(22.0)));
                         ui.horizontal(|ui| {
                             let button = quiet_button(ui, "Cancel");
                             if focus_first { button.request_focus(); focused = true; }
@@ -2173,8 +2274,8 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new("Import keyboard shortcuts?").font(semibold(22.0)));
-                        ui.label(format!("Replace your {} saved shortcuts with {} from this file.", self.shortcuts.data.len(), entries.data.len()));
+                        ui.label(RichText::new(tr("Import keyboard shortcuts?")).font(semibold(22.0)));
+                        ui.label(trf("Replace your {} saved shortcuts with {} from this file.", &[&self.shortcuts.data.len(), &entries.data.len()]));
                         egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
                             for entry in &entries.data { ui.label(format!("{} · {}", entry.name, entry.keys.join(" + "))); }
                         });
@@ -2194,8 +2295,8 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(if id.is_some() { "Rename profile" } else { "New profile" }).font(semibold(22.0)));
-                        let edit = ui.add(egui::TextEdit::singleline(name).hint_text("Profile name"));
+                        ui.label(RichText::new(if id.is_some() { tr("Rename profile") } else { tr("New profile") }).font(semibold(22.0)));
+                        let edit = ui.add(egui::TextEdit::singleline(name).hint_text(tr("Profile name")));
                         if focus_first { edit.request_focus(); focused = true; }
                         if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
                         let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
@@ -2217,7 +2318,7 @@ impl Launcher {
                                         if id.is_none() { commands.push(Command::ProfileSettings(saved)); }
                                         close = true;
                                     }
-                                    Err(message) => *error = Some(message.into()),
+                                    Err(message) => *error = Some(tr(message).into()),
                                 }
                             }
                             if quiet_button(ui, "Cancel").clicked() { close = true; }
@@ -2230,8 +2331,8 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(format!("Delete {name}?")).font(semibold(22.0)));
-                        ui.label("If this profile is active, new streams will use main settings instead.");
+                        ui.label(RichText::new(trf("Delete {}?", &[&name])).font(semibold(22.0)));
+                        ui.label(tr("If this profile is active, new streams will use main settings instead."));
                         ui.horizontal(|ui| {
                             let button = quiet_button(ui, "Cancel");
                             if focus_first { button.request_focus(); focused = true; }
@@ -2251,7 +2352,7 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
                         ui.label(RichText::new(format!("{name}?")).font(semibold(22.0)));
-                        ui.label("This changes the session running on the PC. Ending an app can lose unsaved progress.");
+                        ui.label(tr("This changes the session running on the PC. Ending an app can lose unsaved progress."));
                         ui.horizontal(|ui| {
                             let button = quiet_button(ui, "Cancel");
                             if focus_first {
@@ -2272,21 +2373,21 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new("Pair with one-time PIN").font(semibold(22.0)));
-                        ui.label("Enter the PIN and passphrase created on the PC.");
-                        let edit = ui.add(egui::TextEdit::singleline(pin).hint_text("PIN"));
+                        ui.label(RichText::new(tr("Pair with one-time PIN")).font(semibold(22.0)));
+                        ui.label(tr("Enter the PIN and passphrase created on the PC."));
+                        let edit = ui.add(egui::TextEdit::singleline(pin).hint_text(tr("PIN")));
                         if focus_first {
                             edit.request_focus();
                             focused = true;
                         }
-                        ui.add(egui::TextEdit::singleline(passphrase).password(true).hint_text("Passphrase"));
+                        ui.add(egui::TextEdit::singleline(passphrase).password(true).hint_text(tr("Passphrase")));
                         if let Some(error) = error {
                             ui.label(RichText::new(error.as_str()).color(ERROR));
                         }
                         ui.horizontal(|ui| {
                             if primary_button(ui, "Pair").clicked() {
                                 if pin.len() != 4 || !pin.bytes().all(|b| b.is_ascii_digit()) || passphrase.chars().count() < 4 {
-                                    *error = Some("Enter four PIN digits and a passphrase of at least four characters.".into());
+                                    *error = Some(tr("Enter four PIN digits and a passphrase of at least four characters.").into());
                                 } else {
                                     commands.push(Command::PairOtp {
                                         host: *host,
@@ -2308,9 +2409,9 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new("Add a PC").font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Add a PC")).font(semibold(22.0)));
                         ui.label(
-                            RichText::new("Its IP address or name, with :port if the host uses another HTTP port.")
+                            RichText::new(tr("Its IP address or name, with :port if the host uses another HTTP port."))
                                 .color(ON_SURFACE_VARIANT),
                         );
                         ui.add_space(8.0);
@@ -2341,17 +2442,17 @@ impl Launcher {
                     });
             }
             Dialog::Pairing { host, pin } => {
-                let name = view.hosts.get(*host).map_or("the PC", |h| h.display_name()).to_owned();
+                let name = view.hosts.get(*host).map_or(tr("the PC"), |h| h.display_name()).to_owned();
                 let pin = pin.clone();
                 egui::Modal::new(Id::unique("pairing"))
                     .frame(frame)
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(format!("Pair with {name}")).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Pair with {}", &[&name])).font(semibold(22.0)));
                         if !pin.is_empty() {
                             ui.label(
-                                RichText::new("Enter this PIN on the PC: in the host's web page (Sunshine, Apollo, Vibepollo and Rubylight have a PIN page), or in the prompt GeForce Experience shows.")
+                                RichText::new(tr("Enter this PIN on the PC: in the host's web page (Sunshine, Apollo, Vibepollo and Rubylight have a PIN page), or in the prompt GeForce Experience shows."))
                                     .color(ON_SURFACE_VARIANT),
                             );
                         }
@@ -2366,14 +2467,14 @@ impl Launcher {
                                     Align2::CENTER_CENTER,
                                     digit,
                                     semibold(44.0),
-                                    MOON,
+                                    *MOON,
                                 );
                             }
                         });
                         ui.add_space(18.0);
                         ui.horizontal(|ui| {
                             spinner(ui, 9.0);
-                            ui.label(RichText::new("Waiting for the PC…").color(ON_SURFACE_VARIANT));
+                            ui.label(RichText::new(tr("Waiting for the PC…")).color(ON_SURFACE_VARIANT));
                         });
                         ui.add_space(10.0);
                         let r = quiet_button(ui, "Cancel");
@@ -2394,7 +2495,7 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
                         ui.label(RichText::new(title.as_str()).font(semibold(22.0)));
-                        ui.label(RichText::new(body.as_str()).color(ON_SURFACE_VARIANT));
+                        ui.label(RichText::new(tr(body.as_str())).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
                         let r = primary_button(ui, "OK");
                         if focus_first {
@@ -2413,8 +2514,8 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new("Close the game on the PC?").font(semibold(22.0)));
-                        ui.label(RichText::new(format!("{name} closes on the PC. Unsaved progress is lost.")).color(ON_SURFACE_VARIANT));
+                        ui.label(RichText::new(tr("Close the game on the PC?")).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("{} closes on the PC. Unsaved progress is lost.", &[&name])).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             let r = primary_button(ui, "Close game");
@@ -2440,14 +2541,14 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
                         let title = match &start {
-                            Some((_, name)) => format!("Quit {running} and start {name}?"),
-                            None => format!("Quit {running}?"),
+                            Some((_, name)) => trf("Quit {} and start {}?", &[&running, &name]),
+                            None => trf("Quit {}?", &[&running]),
                         };
                         ui.label(RichText::new(title).font(semibold(22.0)));
-                        ui.label(RichText::new("Unsaved progress in the running app is lost.").color(ON_SURFACE_VARIANT));
+                        ui.label(RichText::new(tr("Unsaved progress in the running app is lost.")).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
-                            let r = primary_button(ui, if start.is_some() { "Quit and start" } else { "Quit app" });
+                            let r = primary_button(ui, if start.is_some() { en("Quit and start") } else { en("Quit app") });
                             // Replacing a running game starts on the safe choice (Resume, else Cancel), never on
                             // the button that closes it; "Quit app" is what the player just asked for.
                             let replacing = start.is_some();
@@ -2464,7 +2565,7 @@ impl Launcher {
                             }
                             // Starting another game replaces the running one: carry on with it instead.
                             if let (Some(app), Some(_)) = (resume, &start) {
-                                let r = quiet_button(ui, &format!("Resume {running}"));
+                                let r = quiet_button(ui, &trf("Resume {}", &[&running]));
                                 if focus_first {
                                     r.request_focus();
                                     focused = true;
@@ -2578,7 +2679,7 @@ impl Launcher {
 
     fn connecting(&mut self, ctx: &egui::Context, c: &ConnectingView, commands: &mut Vec<Command>) {
         let frame = Frame::new()
-            .fill(SURFACE_HIGH)
+            .fill(*SURFACE_HIGH)
             .corner_radius(CornerRadius::same(16))
             .inner_margin(Margin::same(28))
             .stroke(Stroke::new(1.0, OUTLINE_VARIANT));
@@ -2588,11 +2689,11 @@ impl Launcher {
             .show(ctx, |ui| {
                 ui.set_width(400.0);
                 ui.label(RichText::new(&c.app).font(semibold(24.0)));
-                ui.label(RichText::new(format!("on {}", c.host)).color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(trf("on {}", &[&c.host])).color(ON_SURFACE_VARIANT));
                 ui.add_space(16.0);
                 ui.horizontal(|ui| {
                     spinner(ui, 10.0);
-                    ui.label(RichText::new(&c.stage).color(ON_SURFACE));
+                    ui.label(RichText::new(tr(&c.stage)).color(ON_SURFACE));
                 });
                 ui.add_space(14.0);
                 let r = quiet_button(ui, "Cancel");
@@ -2619,13 +2720,13 @@ fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
 
 fn host_display_name(mode: HostDisplay) -> &'static str {
     match mode {
-        HostDisplay::HostDefault => "Host default",
-        HostDisplay::Exclusive => "Virtual display only",
-        HostDisplay::ExtendedPrimary => "Extend as primary",
-        HostDisplay::Extended => "Extend",
-        HostDisplay::ExtendedIsolated => "Extend, isolated",
-        HostDisplay::ExtendedPrimaryIsolated => "Extend as primary, isolated",
-        HostDisplay::Physical => "Physical display",
+        HostDisplay::HostDefault => en("Host default"),
+        HostDisplay::Exclusive => en("Virtual display only"),
+        HostDisplay::ExtendedPrimary => en("Extend as primary"),
+        HostDisplay::Extended => en("Extend"),
+        HostDisplay::ExtendedIsolated => en("Extend, isolated"),
+        HostDisplay::ExtendedPrimaryIsolated => en("Extend as primary, isolated"),
+        HostDisplay::Physical => en("Physical display"),
     }
 }
 
@@ -2633,7 +2734,7 @@ fn host_display_name(mode: HostDisplay) -> &'static str {
 /// The three dots on a PC's card: a second stop for focus that opens the options.
 fn options_button(ui: &mut Ui, card: Rect, id: Id) -> Response {
     let rect = Rect::from_min_size(card.right_top() + vec2(-42.0, 10.0), vec2(32.0, 32.0));
-    let response = ui.interact(rect, id, Sense::click()).on_hover_text("Options");
+    let response = ui.interact(rect, id, Sense::click()).on_hover_text(tr("Options"));
     if ui.is_rect_visible(rect) {
         if response.hovered() || response.has_focus() {
             ui.painter().rect_filled(rect, CornerRadius::same(16), SURFACE_HIGHEST);
@@ -2674,14 +2775,14 @@ fn running_entry(host: &Host) -> Option<&nightjar_core::http::App> {
 
 fn running_name(host: &Host) -> String {
     let Some(running) = host.running_app() else {
-        return "the running app".into();
+        return tr("the running app").into();
     };
     if let Apps::Loaded(apps) = &host.apps {
         if let Some(app) = apps.iter().find(|a| a.matches_running_app(running, None)) {
             return app.name.clone();
         }
     }
-    "the running app".into()
+    tr("the running app").into()
 }
 
 /// The classic app id of the app the PC runs now, once the app list is loaded.
@@ -2704,7 +2805,7 @@ fn section_at(ui: &mut Ui, title: &str, jump: &mut Option<&'static str>) {
         ui.scroll_to_cursor(Some(Align::TOP));
         *jump = None;
     }
-    ui.label(RichText::new(title.to_uppercase()).font(semibold(13.0)).color(MOON));
+    ui.label(RichText::new(tr(title).to_uppercase()).font(semibold(13.0)).color(MOON));
     ui.add_space(2.0);
 }
 
@@ -2724,7 +2825,7 @@ fn setting_row(
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
             ui.set_width(240.0);
             let mut own = overrides.has(keys);
-            let response = ui.checkbox(&mut own, "Override");
+            let response = ui.checkbox(&mut own, tr("Override"));
             if response.changed() && !own {
                 overrides.clear(keys);
                 *settings = overrides.apply(inherited);
@@ -2740,7 +2841,7 @@ fn setting_row(
 fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui) -> Response) -> Response {
     let mut out = None;
     Frame::new()
-        .fill(SURFACE)
+        .fill(*SURFACE)
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::symmetric(18, 12))
         .show(ui, |ui| {
@@ -2749,8 +2850,8 @@ fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui
                 let control_width = 240.0;
                 ui.vertical(|ui| {
                     ui.set_width((ui.available_width() - control_width - 16.0).max(200.0));
-                    ui.label(RichText::new(label).font(semibold(15.0)).color(ON_SURFACE));
-                    ui.label(RichText::new(description).font(regular(13.0)).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr(label)).font(semibold(15.0)).color(ON_SURFACE));
+                    ui.label(RichText::new(tr(description)).font(regular(13.0)).color(ON_SURFACE_VARIANT));
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     out = Some(control(ui));
@@ -2772,12 +2873,12 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     };
     painter.rect_filled(rect, CornerRadius::same(12), fill);
     let (status, color) = match (host.reach, host.paired()) {
-        (Reach::Offline, _) => ("Offline".to_owned(), OUTLINE),
-        (Reach::Unknown, _) => ("Checking…".to_owned(), OUTLINE),
-        (Reach::Online, false) => ("Not paired · select to pair".to_owned(), TERTIARY),
+        (Reach::Offline, _) => (tr("Offline").to_owned(), OUTLINE),
+        (Reach::Unknown, _) => (tr("Checking…").to_owned(), OUTLINE),
+        (Reach::Online, false) => (tr("Not paired · select to pair").to_owned(), TERTIARY),
         (Reach::Online, true) => match host.running_app() {
-            Some(_) => ("Paired · an app is running".to_owned(), MOON),
-            None => ("Paired · ready".to_owned(), MOON),
+            Some(_) => (tr("Paired · an app is running").to_owned(), MOON),
+            None => (tr("Paired · ready").to_owned(), MOON),
         },
     };
     // The moon dot: full when ready, a ring otherwise.
@@ -2792,14 +2893,14 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
         Align2::LEFT_CENTER,
         host.display_name(),
         semibold(19.0),
-        ON_SURFACE,
+        *ON_SURFACE,
     );
     painter.text(
         Pos2::new(rect.left() + 20.0, rect.top() + 62.0),
         Align2::LEFT_CENTER,
         &status,
         regular(14.0),
-        color,
+        *color,
     );
     let detail = match (line, host.info.as_ref().and_then(|i| i.gpu_type.clone())) {
         (Some(line), _) => line.to_owned(),
@@ -2811,7 +2912,7 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
         Align2::LEFT_CENTER,
         detail,
         regular(13.0),
-        OUTLINE,
+        *OUTLINE,
     );
     focus_ring(ui, rect, &response, 12);
     response
@@ -2838,13 +2939,13 @@ fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, running: boo
                 .take(2)
                 .collect::<String>()
                 .to_uppercase();
-            painter.text(image.center(), Align2::CENTER_CENTER, initials, semibold(40.0), OUTLINE);
+            painter.text(image.center(), Align2::CENTER_CENTER, initials, semibold(40.0), *OUTLINE);
         }
     }
     if running {
         let badge = Rect::from_min_size(image.left_top() + vec2(10.0, 10.0), vec2(76.0, 24.0));
         painter.rect_filled(badge, CornerRadius::same(12), MOON);
-        painter.text(badge.center(), Align2::CENTER_CENTER, "Running", semibold(12.5), ON_MOON);
+        painter.text(badge.center(), Align2::CENTER_CENTER, tr("Running"), semibold(12.5), *ON_MOON);
     }
 }
 
@@ -2867,7 +2968,7 @@ fn favourite_menu(
     let Some(star) = console::favourite_for(sources, host, app) else { return };
     let starred = favourites.iter().any(|f| f.same_game(&star));
     response.context_menu(|ui| {
-        if ui.button(if starred { "Remove from favourites" } else { "Add to favourites" }).clicked() {
+        if ui.button(if starred { tr("Remove from favourites") } else { tr("Add to favourites") }).clicked() {
             commands.push(Command::ToggleFavourite(star));
             ui.close();
         }
@@ -2880,8 +2981,8 @@ fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response
     paint_cover(ui, image, name, art, running);
     let painter = ui.painter_at(rect.expand(6.0));
     let label_color = if response.has_focus() { MOON } else { ON_SURFACE };
-    let galley = painter.layout(name.to_owned(), semibold(14.5), label_color, POSTER_W);
-    painter.galley(Pos2::new(rect.left() + 2.0, image.bottom() + 8.0), galley, label_color);
+    let galley = painter.layout(name.to_owned(), semibold(14.5), *label_color, POSTER_W);
+    painter.galley(Pos2::new(rect.left() + 2.0, image.bottom() + 8.0), galley, *label_color);
     focus_ring(ui, image, &response, 10);
     response
 }
@@ -2900,9 +3001,9 @@ fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool) -> Respons
         painter.circle_stroke(dot, 6.0, Stroke::new(2.0, color));
     }
     let text = ui.painter_at(rect);
-    let galley = text.layout_no_wrap(title.to_owned(), semibold(18.0), ON_SURFACE);
-    text.galley(Pos2::new(rect.left() + 44.0, rect.top() + 28.0 - galley.size().y / 2.0), galley, ON_SURFACE);
-    text.text(Pos2::new(rect.left() + 20.0, rect.top() + 60.0), Align2::LEFT_CENTER, line, regular(14.0), color);
+    let galley = text.layout_no_wrap(title.to_owned(), semibold(18.0), *ON_SURFACE);
+    text.galley(Pos2::new(rect.left() + 44.0, rect.top() + 28.0 - galley.size().y / 2.0), galley, *ON_SURFACE);
+    text.text(Pos2::new(rect.left() + 20.0, rect.top() + 60.0), Align2::LEFT_CENTER, line, regular(14.0), *color);
     focus_ring(ui, rect, &response, 12);
     response
 }
@@ -3071,6 +3172,8 @@ mod tests {
         size: egui::Vec2,
         /// The text drawn by the last frame, in paint order.
         drawn: Vec<String>,
+        /// The same text with where it landed and the clip it was drawn in.
+        placed: Vec<(String, Rect, Rect)>,
     }
 
     impl Frames {
@@ -3090,7 +3193,7 @@ mod tests {
             if !apps.is_empty() {
                 hosts.list[0].apps = Apps::Loaded(apps);
             }
-            let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0, size: vec2(1280.0, 720.0), drawn: Vec::new() };
+            let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0, size: vec2(1280.0, 720.0), drawn: Vec::new(), placed: Vec::new() };
             frames.settle();
             frames
         }
@@ -3110,8 +3213,10 @@ mod tests {
             });
             output.textures_delta.clear();
             self.drawn.clear();
+            self.placed.clear();
             for clipped in &output.shapes {
                 collect_text(&clipped.shape, &mut self.drawn);
+                collect_placed(&clipped.shape, clipped.clip_rect, &mut self.placed);
             }
             commands
         }
@@ -3169,6 +3274,14 @@ mod tests {
         match shape {
             egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
             egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_text(s, out)),
+            _ => {}
+        }
+    }
+
+    fn collect_placed(shape: &egui::Shape, clip: Rect, out: &mut Vec<(String, Rect, Rect)>) {
+        match shape {
+            egui::Shape::Text(text) => out.push((text.galley.text().to_owned(), text.galley.rect.translate(text.pos.to_vec2()), clip)),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_placed(s, clip, out)),
             _ => {}
         }
     }
@@ -3283,6 +3396,140 @@ mod tests {
         let upper: Vec<String> = SETTINGS_SECTIONS.iter().map(|s| s.to_uppercase()).collect();
         let headings: Vec<&String> = f.drawn.iter().filter(|t| upper.contains(t)).collect();
         assert_eq!(headings, upper.iter().collect::<Vec<_>>(), "and the page has them in the same order");
+    }
+
+    /// A 1280x720 window at 150 % zoom is 853x480 points. Everything drawn must stay inside it
+    /// sideways (a cut-off button label shows as text outside its clip); a dialog, which does not
+    /// scroll, must also stay inside it from top to bottom.
+    fn fit_150(f: &mut Frames) {
+        f.l.settings.ui_zoom = 150;
+        f.l.settings.language = crate::config::Language::German;
+        f.size = vec2(1280.0 / 1.5, 720.0 / 1.5);
+        f.settle();
+        assert!((f.ctx.zoom_factor() - 1.5).abs() < 1e-6, "the zoom setting reached egui");
+    }
+
+    fn assert_fits(f: &Frames, what: &str, whole_height: bool) {
+        let screen = Rect::from_min_size(Pos2::ZERO, f.size);
+        assert!(!f.placed.is_empty(), "{what}: nothing was drawn");
+        for (text, rect, clip) in &f.placed {
+            if text.trim().is_empty() {
+                continue;
+            }
+            assert!(
+                rect.left() >= clip.left() - 1.0 && rect.right() <= clip.right() + 1.0 && rect.right() <= screen.right() + 1.0,
+                "{what}: {text:?} runs past its edge: text {rect:?}, clip {clip:?}, window {screen:?}"
+            );
+            if whole_height {
+                assert!(rect.top() >= -1.0 && rect.bottom() <= screen.bottom() + 1.0, "{what}: {text:?} leaves the window: {rect:?} in {screen:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
+        for state in every_state() {
+            let mut f = state.frames();
+            fit_150(&mut f);
+            assert_fits(&f, &format!("PCs, {}", state.name), false);
+            // Every dialog a PC can open, at the busiest state.
+            let id = f.hosts.list[0].id;
+            let dialogs = [
+                Dialog::HostOptions { host: id },
+                Dialog::AddHost { text: String::new(), error: Some("Cannot reach the host.".into()) },
+                Dialog::Otp { host: id, pin: "1234".into(), passphrase: String::new(), error: None },
+                Dialog::PairingHelp,
+                Dialog::Rename { host: id, text: String::new() },
+                Dialog::ConfirmRemove { host: id, name: "A long name for a gaming PC".into() },
+                Dialog::ConfirmUnpair { host: id, name: "A long name for a gaming PC".into() },
+                Dialog::ConfirmClose { host: id, name: "A game with a rather long title".into() },
+                Dialog::ConfirmQuit { host: id, start: Some((8, "Another long game title".into())), running: "A game with a rather long title".into(), resume: Some(7), named: None },
+                Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
+                Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
+            ];
+            for dialog in dialogs {
+                let name = format!("{:?}", std::mem::discriminant(&dialog));
+                f.l.dialog = dialog;
+                f.settle();
+                assert_fits(&f, &format!("dialog {name} on {}", state.name), true);
+                f.l.dialog = Dialog::None;
+                f.settle();
+            }
+        }
+    }
+
+    #[test]
+    fn at_150_percent_in_german_every_settings_page_fits_the_width() {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        fit_150(&mut f);
+        let id = f.hosts.list[0].id;
+        for screen in [Screen::Home, Screen::Settings, Screen::HostSettings(id), Screen::Profiles, Screen::Controllers, Screen::Shortcuts] {
+            f.l.go(screen);
+            f.settle();
+            assert_fits(&f, &format!("{screen:?}"), false);
+        }
+        for dialog in [
+            Dialog::ProfileName { id: None, name: String::new(), settings: Default::default(), error: None },
+            Dialog::Shortcut { id: None, name: String::new(), chord: String::new(), error: Some("Use between 1 and 8 keys in each chord.".into()) },
+            Dialog::DeleteProfile { id: 1, name: "Travel".into() },
+            Dialog::DeleteShortcut { id: "a".into(), name: "Task manager".into() },
+        ] {
+            let name = format!("{:?}", std::mem::discriminant(&dialog));
+            f.l.dialog = dialog;
+            f.settle();
+            assert_fits(&f, &format!("dialog {name}"), true);
+            f.l.dialog = Dialog::None;
+            f.settle();
+        }
+    }
+
+    #[test]
+    fn reduced_motion_turns_off_animated_transitions_and_full_motion_keeps_them() {
+        use crate::config::ReduceMotion;
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        f.l.settings.reduce_motion = ReduceMotion::Reduce;
+        f.settle();
+        assert_eq!(f.ctx.global_style().animation_time, 0.0, "fades and slides jump");
+        assert_eq!(f.ctx.global_style().scroll_animation.points_per_second, f32::INFINITY, "scrolling jumps");
+        f.l.settings.reduce_motion = ReduceMotion::Full;
+        f.settle();
+        assert!(f.ctx.global_style().animation_time > 0.0);
+        // The system setting decides only on Follow system; the tests' machine may say either.
+        f.l.settings.reduce_motion = ReduceMotion::System;
+        f.settle();
+        assert_eq!(f.ctx.global_style().animation_time == 0.0, crate::theme::system_reduces_motion());
+    }
+
+    #[test]
+    fn the_spinner_stands_still_and_asks_for_no_frames_when_motion_is_reduced() {
+        for still in [true, false] {
+            let ctx = egui::Context::default();
+            set_look(&ctx, false, still);
+            // The first frames ask for repaints of their own (fonts, layout); look at a settled one.
+            let mut delay = std::time::Duration::ZERO;
+            for n in 0..6 {
+                let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0))), time: Some(1.0 + f64::from(n) * 0.1), ..Default::default() };
+                let mut output = ctx.run_ui(input, |ui| spinner(ui, 10.0));
+                output.textures_delta.clear();
+                delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+            }
+            if still {
+                assert!(delay > std::time::Duration::from_secs(1), "no repaint is requested: {delay:?}");
+            } else {
+                assert_eq!(delay, std::time::Duration::ZERO, "the spinning wheel asks for the next frame");
+            }
+        }
+    }
+
+    #[test]
+    fn the_high_contrast_setting_reaches_the_style() {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        f.l.settings.high_contrast = true;
+        f.settle();
+        assert_eq!(f.ctx.global_style().visuals.panel_fill, Color32::BLACK);
+        f.l.settings.high_contrast = false;
+        f.settle();
+        assert_ne!(f.ctx.global_style().visuals.panel_fill, Color32::BLACK);
     }
 
     #[test]

@@ -40,6 +40,7 @@ use sdl3_sys::everything::*;
 use crate::config::{self, AudioChannels, CodecPreference, HostRecord, MouseMode, QualityMode, Settings};
 use crate::gamepad::{Action, Gamepads};
 use crate::hosts::Waker;
+use crate::strings::{en, trf};
 use crate::keymap;
 use crate::media::Hardware;
 use pipeline::{lock, Notice, Shared};
@@ -221,12 +222,12 @@ pub fn video_formats(preference: CodecPreference, hdr: bool, host_scm: u32) -> u
 
 fn stage_text(stage: Stage) -> &'static str {
     match stage {
-        Stage::PlatformInit | Stage::NameResolution => "Finding the PC",
-        Stage::AudioStreamInit | Stage::RtspHandshake => "Negotiating the stream",
-        Stage::ControlStreamInit | Stage::ControlStreamStart => "Opening the control channel",
-        Stage::VideoStreamInit | Stage::VideoStreamStart => "Starting video",
-        Stage::AudioStreamStart => "Starting audio",
-        Stage::InputStreamInit | Stage::InputStreamStart => "Connecting input",
+        Stage::PlatformInit | Stage::NameResolution => en("Finding the PC"),
+        Stage::AudioStreamInit | Stage::RtspHandshake => en("Negotiating the stream"),
+        Stage::ControlStreamInit | Stage::ControlStreamStart => en("Opening the control channel"),
+        Stage::VideoStreamInit | Stage::VideoStreamStart => en("Starting video"),
+        Stage::AudioStreamStart => en("Starting audio"),
+        Stage::InputStreamInit | Stage::InputStreamStart => en("Connecting input"),
     }
 }
 
@@ -235,14 +236,14 @@ pub fn termination_text(code: i32) -> Option<String> {
     Some(match code {
         error::GRACEFUL => return None,
         error::NO_VIDEO_TRAFFIC => {
-            "No video arrived from the PC. A firewall may be blocking UDP ports 47998-48000.".into()
+            en("No video arrived from the PC. A firewall may be blocking UDP ports 47998-48000.").into()
         }
-        error::NO_VIDEO_FRAME => "Video arrived but no complete picture could be assembled.".into(),
-        error::UNEXPECTED_EARLY => "The PC ended the stream before it started.".into(),
-        error::PROTECTED_CONTENT => "The PC stopped streaming protected content.".into(),
-        error::FRAME_CONVERSION => "The PC could not convert the picture for streaming.".into(),
-        error::DISCONNECTED => "The connection to the PC was lost.".into(),
-        other => format!("The stream ended unexpectedly (error {other})."),
+        error::NO_VIDEO_FRAME => en("Video arrived but no complete picture could be assembled.").into(),
+        error::UNEXPECTED_EARLY => en("The PC ended the stream before it started.").into(),
+        error::PROTECTED_CONTENT => en("The PC stopped streaming protected content.").into(),
+        error::FRAME_CONVERSION => en("The PC could not convert the picture for streaming.").into(),
+        error::DISCONNECTED => en("The connection to the PC was lost.").into(),
+        other => trf("The stream ended unexpectedly (error {}).", &[&other]),
     })
 }
 
@@ -302,7 +303,7 @@ impl Connecting {
         Self {
             shared,
             interrupt,
-            stage: "Starting the app on the PC".into(),
+            stage: en("Starting the app on the PC").into(),
             app_name,
             host_name,
             host_id,
@@ -324,7 +325,7 @@ impl Connecting {
                 Notice::Stage(stage) => self.stage = stage_text(stage).into(),
                 Notice::Reconnecting(attempt) => {
                     keep.clear();
-                    self.stage = format!("Reconnecting · attempt {attempt} of 5");
+                    self.stage = trf("Reconnecting · attempt {} of 5", &[&attempt]);
                 }
                 // The rest is for the stream.
                 other => keep.push(other),

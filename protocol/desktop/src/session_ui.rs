@@ -2,6 +2,7 @@
 //! The buttons are plain egui widgets, so Tab, the arrow keys and a controller (mapped to the
 //! arrow keys while the menu is open) reach every one of them.
 
+use crate::strings::{en, tr, trf};
 use egui::RichText;
 use nightjar_core::http::native_api::radeon::{Kind, Value};
 use nightjar_core::http::native_api::session::State as SessionState;
@@ -27,26 +28,26 @@ pub enum Outcome {
 pub fn session_text(state: &State) -> String {
     let Some(session) = &state.session else {
         return match &state.session_error {
-            Some(error) => format!("Session unknown: {error}"),
-            None => "Reading the session…".to_owned(),
+            Some(error) => trf("Session unknown: {}", &[error]),
+            None => tr("Reading the session…").to_owned(),
         };
     };
     let phase = match session.state {
-        SessionState::Idle | SessionState::Unknown => "No session",
-        SessionState::Preparing => "Preparing",
-        SessionState::Launching => "Launching",
-        SessionState::Streaming => "Streaming",
-        SessionState::Suspended => "Suspended",
-        SessionState::Stopping => "Ending",
+        SessionState::Idle | SessionState::Unknown => tr("No session"),
+        SessionState::Preparing => tr("Preparing"),
+        SessionState::Launching => tr("Launching"),
+        SessionState::Streaming => tr("Streaming"),
+        SessionState::Suspended => tr("Suspended"),
+        SessionState::Stopping => tr("Ending"),
     };
-    if session.game_running { format!("{phase}. The game is running.") } else { format!("{phase}.") }
+    if session.game_running { trf("{}. The game is running.", &[&phase]) } else { format!("{phase}.") }
 }
 
 fn describe(exit: HostExit) -> &'static str {
     match exit {
-        HostExit::End => "Ends the stream. The game keeps running on the PC.",
-        HostExit::CloseGame => "Ends the stream and closes the game.",
-        HostExit::QuitApp => "Quits the game on the PC.",
+        HostExit::End => en("Ends the stream. The game keeps running on the PC."),
+        HostExit::CloseGame => en("Ends the stream and closes the game."),
+        HostExit::QuitApp => en("Quits the game on the PC."),
     }
 }
 
@@ -67,45 +68,45 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
     ui.separator();
 
     if let Some(exit) = page.confirming {
-        ui.label(exit.confirm());
+        ui.label(tr(exit.confirm()));
         ui.horizontal(|ui| {
-            let cancel = ui.add_enabled(!working, egui::Button::new("Cancel"));
+            let cancel = ui.add_enabled(!working, egui::Button::new(tr("Cancel")));
             if ctx.memory(|m| m.focused().is_none()) {
                 cancel.request_focus();
             }
             if cancel.clicked() {
                 page.confirming = None;
             }
-            if ui.add_enabled(!working, egui::Button::new(exit.label())).clicked() {
+            if ui.add_enabled(!working, egui::Button::new(tr(exit.label()))).clicked() {
                 page.confirming = None;
                 page.exit(exit);
             }
         });
     } else {
-        let resume = ui.add_enabled(!working, egui::Button::new("Resume"));
+        let resume = ui.add_enabled(!working, egui::Button::new(tr("Resume")));
         if ctx.memory(|m| m.focused().is_none()) {
             resume.request_focus();
         }
         if resume.clicked() {
             outcome = Outcome::Resume;
         }
-        ui.label(RichText::new("Return to the stream.").color(theme::OUTLINE));
-        if ui.add_enabled(!working, egui::Button::new("Disconnect")).clicked() {
+        ui.label(RichText::new(tr("Return to the stream.")).color(theme::OUTLINE));
+        if ui.add_enabled(!working, egui::Button::new(tr("Disconnect"))).clicked() {
             outcome = Outcome::Disconnect;
         }
-        ui.label(RichText::new("Leave the stream. The game keeps running and the session stays suspended on the PC.").color(theme::OUTLINE));
+        ui.label(RichText::new(tr("Leave the stream. The game keeps running and the session stays suspended on the PC.")).color(theme::OUTLINE));
         for entry in state.actions(hints) {
             let enabled = !working && entry.blocked.is_none();
-            if ui.add_enabled(enabled, egui::Button::new(entry.exit.label())).clicked() {
+            if ui.add_enabled(enabled, egui::Button::new(tr(entry.exit.label()))).clicked() {
                 page.confirming = Some(entry.exit);
             }
             let note = entry.blocked.unwrap_or_else(|| describe(entry.exit));
-            ui.label(RichText::new(note).color(theme::OUTLINE));
+            ui.label(RichText::new(tr(note)).color(theme::OUTLINE));
         }
     }
     match &state.exit {
         ExitState::Running(exit) => {
-            ui.label(RichText::new(format!("{}…", exit.label())).color(theme::ON_SURFACE_VARIANT));
+            ui.label(RichText::new(format!("{}…", tr(exit.label()))).color(theme::ON_SURFACE_VARIANT));
         }
         ExitState::Failed(_, failure) => {
             ui.colored_label(theme::ERROR, exit_failure_text(failure));
@@ -114,10 +115,10 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
     }
 
     ui.separator();
-    ui.label(RichText::new("Connection").font(theme::semibold(15.0)));
+    ui.label(RichText::new(tr("Connection")).font(theme::semibold(15.0)));
     egui::Grid::new("session-facts").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
         for (key, value) in lines {
-            ui.label(RichText::new(*key).color(theme::OUTLINE));
+            ui.label(RichText::new(tr(key)).color(theme::OUTLINE));
             ui.label(value);
             ui.end_row();
         }
@@ -129,30 +130,30 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
     }
 
     ui.separator();
-    if ui.add_enabled(!working, egui::Button::new("Back to stream controls")).clicked() && outcome == Outcome::Stay {
+    if ui.add_enabled(!working, egui::Button::new(tr("Back to stream controls"))).clicked() && outcome == Outcome::Stay {
         outcome = Outcome::Back;
     }
     outcome
 }
 
 fn radeon_panel(ui: &mut egui::Ui, page: &Page, state: &State) {
-    ui.label(RichText::new("Radeon graphics").font(theme::semibold(15.0)));
+    ui.label(RichText::new(tr("Radeon graphics")).font(theme::semibold(15.0)));
     let Some(panel) = &state.radeon.panel else {
         let text = match &state.radeon.load_failure {
             Some(failure) => failure.text(),
-            None => "Reading the settings…".to_owned(),
+            None => tr("Reading the settings…").to_owned(),
         };
         ui.label(RichText::new(text).color(theme::ON_SURFACE_VARIANT));
         return;
     };
     if let Some(text) = panel.notice.text() {
-        ui.label(RichText::new(text).color(theme::ON_SURFACE_VARIANT));
+        ui.label(RichText::new(tr(text)).color(theme::ON_SURFACE_VARIANT));
     }
     if let Some(message) = &panel.message {
         ui.label(RichText::new(message).color(theme::OUTLINE));
     }
     if panel.gpus.iter().all(|g| g.rows.is_empty()) {
-        ui.label(RichText::new("The host reports no settings.").color(theme::OUTLINE));
+        ui.label(RichText::new(tr("The host reports no settings.")).color(theme::OUTLINE));
     }
     let failure = state.radeon.write_failure.as_ref();
     for gpu in &panel.gpus {
@@ -160,7 +161,7 @@ fn radeon_panel(ui: &mut egui::Ui, page: &Page, state: &State) {
             continue;
         }
         if panel.gpus.len() > 1 || !gpu.name.is_empty() {
-            let name = if gpu.driver.is_empty() { gpu.name.clone() } else { format!("{} (driver {})", gpu.name, gpu.driver) };
+            let name = if gpu.driver.is_empty() { gpu.name.clone() } else { trf("{} (driver {})", &[&gpu.name, &gpu.driver]) };
             ui.label(RichText::new(name).color(theme::OUTLINE));
         }
         for row in &gpu.rows {
@@ -187,9 +188,9 @@ fn draw_row(ui: &mut egui::Ui, page: &Page, state: &State, row: &Row) {
             }
             Mode::ExternalSetup | Mode::Unsupported | Mode::Unavailable => {
                 ui.label(RichText::new(match row.mode {
-                    Mode::ExternalSetup => "Needs setup",
-                    Mode::Unsupported => "Not supported",
-                    _ => "Unavailable",
+                    Mode::ExternalSetup => tr("Needs setup"),
+                    Mode::Unsupported => tr("Not supported"),
+                    _ => tr("Unavailable"),
                 }).color(theme::OUTLINE));
             }
         });
@@ -198,7 +199,7 @@ fn draw_row(ui: &mut egui::Ui, page: &Page, state: &State, row: &Row) {
         ui.label(RichText::new(note).color(theme::OUTLINE));
     }
     if pending {
-        ui.label(RichText::new("Applying…").color(theme::ON_SURFACE_VARIANT));
+        ui.label(RichText::new(tr("Applying…")).color(theme::ON_SURFACE_VARIANT));
     }
     if let Some(hint) = row.restore_hint() {
         ui.label(RichText::new(hint).color(theme::OUTLINE));

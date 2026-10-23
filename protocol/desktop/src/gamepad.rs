@@ -6,6 +6,7 @@
 //! types and capabilities, the Start+Select+LB+RB quit combo) follows moonlight-qt's
 //! `app/streaming/input/gamepad.cpp` (GPL-3.0, Cameron Gutman and contributors).
 
+use crate::strings::en;
 use nightjar_core::input::packets::{button, capability, motion_type, touch_event};
 use nightjar_core::input::InputQueue;
 use serde::{Deserialize, Serialize};
@@ -53,12 +54,12 @@ pub const BUTTON_MAP: [u32; 21] = [
 ];
 
 pub const BUTTON_NAMES: [&str; 21] = [
-    "A / South", "B / East", "X / West", "Y / North", "Back / Select", "Guide", "Start",
-    "Left stick click", "Right stick click", "Left shoulder", "Right shoulder",
-    "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Share / Misc",
-    "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Touchpad click",
+    en("A / South"), en("B / East"), en("X / West"), en("Y / North"), en("Back / Select"), en("Guide"), en("Start"),
+    en("Left stick click"), en("Right stick click"), en("Left shoulder"), en("Right shoulder"),
+    en("D-pad up"), en("D-pad down"), en("D-pad left"), en("D-pad right"), en("Share / Misc"),
+    en("Paddle 1"), en("Paddle 2"), en("Paddle 3"), en("Paddle 4"), en("Touchpad click"),
 ];
-pub const AXIS_NAMES: [&str; 6] = ["Left stick X", "Left stick Y", "Right stick X", "Right stick Y", "Left trigger", "Right trigger"];
+pub const AXIS_NAMES: [&str; 6] = [en("Left stick X"), en("Left stick Y"), en("Right stick X"), en("Right stick Y"), en("Left trigger"), en("Right trigger")];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

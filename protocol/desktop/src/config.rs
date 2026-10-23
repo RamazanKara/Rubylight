@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use nightjar_core::http::native_api::library::Library;
 use serde::{Deserialize, Serialize};
 
+use crate::strings::en;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CodecPreference {
     Auto,
@@ -57,7 +59,7 @@ pub enum VideoScaling {
 
 impl VideoScaling {
     pub fn label(self) -> &'static str {
-        match self { Self::Fit => "Fit", Self::Fill => "Fill (crop)", Self::Stretch => "Stretch", Self::Native => "Native pixels (1:1)" }
+        match self { Self::Fit => en("Fit"), Self::Fill => en("Fill (crop)"), Self::Stretch => en("Stretch"), Self::Native => en("Native pixels (1:1)") }
     }
 }
 
@@ -101,10 +103,10 @@ impl Upscaling {
 impl QualityMode {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Off => "Off",
-            Self::Motion => "Prefer motion",
-            Self::Detail => "Prefer detail",
-            Self::Battery => "Save power",
+            Self::Off => en("Off"),
+            Self::Motion => en("Prefer motion"),
+            Self::Detail => en("Prefer detail"),
+            Self::Battery => en("Save power"),
         }
     }
 }
@@ -171,6 +173,45 @@ pub struct Settings {
     /// Open on Home (Continue playing, the library across PCs) when a paired PC has the
     /// Rubylight native API. Off starts on the list of PCs. Not a per-PC or per-game override.
     pub console_home: bool,
+    /// The launcher's size in percent: one of [`UI_ZOOM_STEPS`]. Not a per-PC or per-game override.
+    pub ui_zoom: u32,
+    /// Brighter text, black surfaces and thicker outlines and focus rings.
+    pub high_contrast: bool,
+    pub reduce_motion: ReduceMotion,
+    pub language: Language,
+}
+
+/// The launcher's sizes in percent, smallest first (the same steps as Nightjar Android).
+pub const UI_ZOOM_STEPS: [u32; 5] = [85, 100, 115, 130, 150];
+
+/// The step to use for a stored size: the nearest one, so a hand-edited file still works.
+pub fn nearest_zoom(percent: u32) -> u32 {
+    UI_ZOOM_STEPS.into_iter().min_by_key(|step| step.abs_diff(percent)).unwrap_or(100)
+}
+
+/// The step after (`+1`) or before (`-1`) `percent`, kept inside the steps.
+pub fn step_zoom(percent: u32, direction: i32) -> u32 {
+    let at = UI_ZOOM_STEPS.iter().position(|s| *s == nearest_zoom(percent)).unwrap_or(1);
+    let at = (at as i32 + direction).clamp(0, UI_ZOOM_STEPS.len() as i32 - 1);
+    UI_ZOOM_STEPS[at as usize]
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReduceMotion {
+    /// Reduce when the operating system asks for it (Windows: animations off).
+    #[default]
+    System,
+    Reduce,
+    Full,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Language {
+    /// The system's language when Nightjar has it, else English.
+    #[default]
+    System,
+    English,
+    German,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,6 +291,10 @@ impl Default for Settings {
             upscaling: Upscaling::Bilinear,
             upscale_sharpness: 50,
             console_home: true,
+            ui_zoom: 100,
+            high_contrast: false,
+            reduce_motion: ReduceMotion::System,
+            language: Language::System,
         }
     }
 }
@@ -425,17 +470,17 @@ impl Profiles {
 
     pub fn check_name(&self, name: &str, except: Option<u64>) -> Result<(), &'static str> {
         let name = name.trim();
-        if name.is_empty() || name.chars().count() > 32 { return Err("Use a name between 1 and 32 characters."); }
+        if name.is_empty() || name.chars().count() > 32 { return Err(en("Use a name between 1 and 32 characters.")); }
         if self.entries.iter().any(|p| Some(p.id) != except && p.name.to_lowercase() == name.to_lowercase()) {
-            return Err("A profile already uses that name.");
+            return Err(en("A profile already uses that name."));
         }
         Ok(())
     }
 
     pub fn create(&mut self, name: &str, settings: Overrides) -> Result<u64, &'static str> {
         self.check_name(name, None)?;
-        if self.entries.len() >= 50 { return Err("You can save up to 50 profiles."); }
-        let id = self.entries.iter().map(|p| p.id).max().unwrap_or(0).checked_add(1).ok_or("No profile IDs available.")?;
+        if self.entries.len() >= 50 { return Err(en("You can save up to 50 profiles.")); }
+        let id = self.entries.iter().map(|p| p.id).max().unwrap_or(0).checked_add(1).ok_or(en("No profile IDs available."))?;
         self.entries.push(Profile { id, name: name.trim().to_owned(), settings });
         Ok(id)
     }
@@ -952,6 +997,30 @@ mod tests {
         assert!(old.console_home, "a settings file from before Home keeps it on");
         let off: Settings = serde_json::from_str("{\"console_home\": false}").unwrap();
         assert!(!off.console_home);
+    }
+
+    #[test]
+    fn a_settings_file_from_before_accessibility_loads_with_the_defaults() {
+        let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
+        assert_eq!(old.ui_zoom, 100);
+        assert!(!old.high_contrast);
+        assert_eq!(old.reduce_motion, ReduceMotion::System);
+        assert_eq!(old.language, Language::System);
+        let set: Settings =
+            serde_json::from_str("{\"ui_zoom\":150,\"high_contrast\":true,\"reduce_motion\":\"Reduce\",\"language\":\"German\"}").unwrap();
+        assert_eq!((set.ui_zoom, set.high_contrast, set.reduce_motion, set.language), (150, true, ReduceMotion::Reduce, Language::German));
+    }
+
+    #[test]
+    fn zoom_steps_stay_inside_the_range_and_odd_values_snap() {
+        assert_eq!(step_zoom(100, 1), 115);
+        assert_eq!(step_zoom(100, -1), 85);
+        assert_eq!(step_zoom(150, 1), 150, "the top step stays");
+        assert_eq!(step_zoom(85, -1), 85, "the bottom step stays");
+        assert_eq!(nearest_zoom(0), 85);
+        assert_eq!(nearest_zoom(9999), 150);
+        assert_eq!(nearest_zoom(120), 115);
+        assert_eq!(step_zoom(120, 1), 130);
     }
 
     #[test]

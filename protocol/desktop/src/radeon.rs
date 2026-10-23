@@ -16,6 +16,8 @@ use nightjar_core::http::native_api::error::ErrorCode;
 use nightjar_core::http::native_api::radeon::{Choice, ControlState, Kind, Radeon, Range, Restore, Setting, Value};
 use nightjar_core::http::Error;
 
+use crate::strings::{en, tr, trf};
+
 /// What the panel as a whole says above its settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Notice {
@@ -33,13 +35,13 @@ impl Notice {
     pub fn text(self) -> Option<&'static str> {
         Some(match self {
             Notice::None => return None,
-            Notice::ReadOnly => "These settings can be seen but not changed.",
-            Notice::Unsupported => "These settings are not supported on this GPU or driver.",
-            Notice::Unavailable => "The settings are not available right now. Trying again.",
-            Notice::AdlxUnavailable => "The host could not load the AMD driver interface.",
-            Notice::NeedsExternalSetup => "Some settings need a one-time setup in AMD Software on the host.",
-            Notice::NeedsHostControl => "Turn on Host control for this device on the host to change these settings.",
-            Notice::NeedsSession => "You can change these settings while this device owns the session.",
+            Notice::ReadOnly => en("These settings can be seen but not changed."),
+            Notice::Unsupported => en("These settings are not supported on this GPU or driver."),
+            Notice::Unavailable => en("The settings are not available right now. Trying again."),
+            Notice::AdlxUnavailable => en("The host could not load the AMD driver interface."),
+            Notice::NeedsExternalSetup => en("Some settings need a one-time setup in AMD Software on the host."),
+            Notice::NeedsHostControl => en("Turn on Host control for this device on the host to change these settings."),
+            Notice::NeedsSession => en("You can change these settings while this device owns the session."),
         })
     }
 }
@@ -89,15 +91,15 @@ impl Row {
     /// The value as shown: On/Off, an option's label, or the number with its unit.
     pub fn value_text(&self) -> String {
         match &self.value {
-            None => "Not available right now".to_owned(),
+            None => tr("Not available right now").to_owned(),
             Some(value) => self.show(value),
         }
     }
 
     fn show(&self, value: &Value) -> String {
         match value {
-            Value::Bool(true) => "On".into(),
-            Value::Bool(false) => "Off".into(),
+            Value::Bool(true) => tr("On").into(),
+            Value::Bool(false) => tr("Off").into(),
             Value::Integer(n) => with_unit(&n.to_string(), self.unit.as_deref()),
             Value::Choice(c) => match self.options.iter().find(|o| &o.value == c) {
                 Some(option) if !option.label.is_empty() => option.label.clone(),
@@ -109,15 +111,15 @@ impl Row {
     /// "Goes back to 120 fps when you end the session", while a change is pending.
     pub fn restore_hint(&self) -> Option<String> {
         let restore = self.restore.as_ref()?;
-        Some(format!("Goes back to {} when you end the session", self.show(&restore.original)))
+        Some(trf("Goes back to {} when you end the session", &[&self.show(&restore.original)]))
     }
 
     /// The note under the row: what the state means for the user, when the row cannot be edited.
     pub fn state_note(&self) -> Option<String> {
         let fallback = match self.mode {
-            Mode::Unsupported => "Not supported on this GPU or driver",
-            Mode::Unavailable => "Not available right now",
-            Mode::ExternalSetup => "Needs a one-time setup in AMD Software",
+            Mode::Unsupported => tr("Not supported on this GPU or driver"),
+            Mode::Unavailable => tr("Not available right now"),
+            Mode::ExternalSetup => tr("Needs a one-time setup in AMD Software"),
             Mode::Edit | Mode::Value => return None,
         };
         Some(self.message.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| fallback.to_owned()))
@@ -377,16 +379,16 @@ impl Failure {
 
     pub fn text(&self) -> String {
         match self.kind {
-            FailureKind::InvalidValue => "The host does not accept that value.".into(),
-            FailureKind::NotWritable => "This setting cannot be changed.".into(),
-            FailureKind::DriverRejected => "The AMD driver rejected this change.".into(),
-            FailureKind::HostControl => "Turn on Host control for this device on the host.".into(),
-            FailureKind::NoSession => "Start or resume a session to change settings.".into(),
-            FailureKind::Busy => "The host is busy. Try again in a moment.".into(),
-            FailureKind::Unreachable => "Cannot reach the host.".into(),
+            FailureKind::InvalidValue => tr("The host does not accept that value.").into(),
+            FailureKind::NotWritable => tr("This setting cannot be changed.").into(),
+            FailureKind::DriverRejected => tr("The AMD driver rejected this change.").into(),
+            FailureKind::HostControl => tr("Turn on Host control for this device on the host.").into(),
+            FailureKind::NoSession => tr("Start or resume a session to change settings.").into(),
+            FailureKind::Busy => tr("The host is busy. Try again in a moment.").into(),
+            FailureKind::Unreachable => tr("Cannot reach the host.").into(),
             FailureKind::Generic => match &self.host_message {
                 Some(m) if !m.is_empty() => m.clone(),
-                _ => "The change could not be applied.".into(),
+                _ => tr("The change could not be applied.").into(),
             },
         }
     }

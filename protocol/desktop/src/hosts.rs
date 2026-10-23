@@ -16,6 +16,7 @@ use nightjar_core::http::{
     App, AppControl, ClientIdentity, Feature, HostClient, PairResult, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
+use crate::strings::{en, trf};
 use crate::config::{HostRecord, Store};
 
 /// Wakes the UI thread after an event was queued.
@@ -159,17 +160,17 @@ impl Host {
 }
 
 // The pairing and unpairing errors, worded like Nightjar Android's.
-pub const PAIR_OFFLINE: &str = "Wake the PC and start the host app. Use the same network, then retry.";
-pub const PAIR_IN_GAME: &str = "Stop the host's stream, then pair again.";
+pub const PAIR_OFFLINE: &str = en("Wake the PC and start the host app. Use the same network, then retry.");
+pub const PAIR_IN_GAME: &str = en("Stop the host's stream, then pair again.");
 pub const PAIR_PIN_WRONG: &str =
-    "PIN rejected. Try pairing again and enter the new PIN shown on this device in your host's settings or web UI.";
+    en("PIN rejected. Try pairing again and enter the new PIN shown on this device in your host's settings or web UI.");
 pub const PAIR_OTP_PIN_WRONG: &str =
-    "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.";
-pub const PAIR_IN_PROGRESS: &str = "Finish or cancel the pending request on the host.";
-pub const PAIR_DECLINED: &str = "Cancel the old request in your host's settings or web UI, then retry.";
-pub const PAIR_NETWORK: &str = "Use the same network and start the host. Check its firewall, then retry.";
-pub const UNPAIR_FAILED: &str = "Failed to unpair. The PC may still list this device.";
-pub const UNPAIR_NOT_PAIRED: &str = "Device was not paired.";
+    en("PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.");
+pub const PAIR_IN_PROGRESS: &str = en("Finish or cancel the pending request on the host.");
+pub const PAIR_DECLINED: &str = en("Cancel the old request in your host's settings or web UI, then retry.");
+pub const PAIR_NETWORK: &str = en("Use the same network and start the host. Check its firewall, then retry.");
+pub const UNPAIR_FAILED: &str = en("Failed to unpair. The PC may still list this device.");
+pub const UNPAIR_NOT_PAIRED: &str = en("Device was not paired.");
 
 pub enum Event {
     Info {
@@ -329,13 +330,13 @@ fn pair_error(error: &nightjar_core::http::Error) -> String {
 fn describe(error: &nightjar_core::http::Error) -> String {
     use nightjar_core::http::Error;
     match error {
-        Error::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => "The PC did not answer.".into(),
+        Error::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => en("The PC did not answer.").into(),
         Error::Io(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
-            "The PC refused the connection. Is the host running?".into()
+            en("The PC refused the connection. Is the host running?").into()
         }
-        Error::Status { code: 401, .. } | Error::NotPaired => "This PC is not paired.".into(),
+        Error::Status { code: 401, .. } | Error::NotPaired => en("This PC is not paired.").into(),
         Error::CertificateMismatch => {
-            "The PC presented a different certificate. Pair it again.".into()
+            en("The PC presented a different certificate. Pair it again.").into()
         }
         other => {
             let text = other.to_string();
@@ -539,7 +540,7 @@ impl Hosts {
         self.spawn("serverinfo", move || {
             let mut addresses = vec![record.address.clone()];
             addresses.extend(record.other_addresses.iter().cloned());
-            let mut last_error = String::from("No address");
+            let mut last_error = String::from(en("No address"));
             for address in addresses {
                 let result = client_for(&identity, &record, &address)
                     .and_then(|c| c.server_info(likely_online).map_err(|e| describe(&e)));
@@ -613,7 +614,7 @@ impl Hosts {
     /// answered (see `drain`), so a failed or unreachable request leaves the PC paired here.
     pub fn unpair(&mut self, id: u64) -> Result<(), String> {
         let Some(identity) = self.identity.clone() else {
-            return Err("Nightjar has no client identity yet, so it cannot unpair. Restart Nightjar and try again.".into());
+            return Err(en("Nightjar has no client identity yet, so it cannot unpair. Restart Nightjar and try again.").into());
         };
         let Some(host) = self.get(id) else {
             return Ok(());
@@ -814,9 +815,9 @@ impl Hosts {
         self.spawn("cancel", move || {
             let result = client_for(&identity, &record, &record.address).and_then(|c| match c.cancel() {
                 Ok(true) => Ok(()),
-                Ok(false) => Err("The PC declined to quit the app.".into()),
+                Ok(false) => Err(en("The PC declined to quit the app.").into()),
                 Err(nightjar_core::http::Error::Status { code: 599, .. }) => {
-                    Err("The running app belongs to another device.".into())
+                    Err(en("The running app belongs to another device.").into())
                 }
                 Err(e) => Err(describe(&e)),
             });
@@ -842,7 +843,7 @@ impl Hosts {
                 let info = client.server_info_https().map_err(|e| describe(&e))?;
                 let apps = client.app_list(&info.capabilities).map_err(|e| describe(&e))?;
                 if !apps.iter().any(|app| app.id == request.app_id && app.uuid == request.app_uuid && app.control == control) {
-                    return Err("The PC action changed. Refresh the library and try again.".into());
+                    return Err(en("The PC action changed. Refresh the library and try again.").into());
                 }
                 let mut result = client.launch(&request, &info);
                 if control == AppControl::Terminate && matches!(&result,
@@ -853,7 +854,7 @@ impl Hosts {
                 }
                 match result {
                     Ok(Some(_)) => Ok(()),
-                    Ok(None) => Err("The PC declined the action.".into()),
+                    Ok(None) => Err(en("The PC declined the action.").into()),
                     Err(error) if completed_action(control, &error) => Ok(()),
                     Err(error) => Err(describe(&error)),
                 }
@@ -945,7 +946,7 @@ impl Hosts {
                                     // A session read before an action landed is older than its answer.
                                     Ok(_) if !newest => {}
                                     Ok(session) => host.native.session = Some(session),
-                                    Err(e) => host.native.error = Some(format!("The session could not be read. {e}")),
+                                    Err(e) => host.native.error = Some(trf("The session could not be read. {}", &[&e])),
                                 }
                             }
                             Err(e) => host.native.error = Some(e),

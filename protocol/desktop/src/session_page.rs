@@ -23,6 +23,7 @@ use nightjar_core::http::native_api::session::{ActionId, Session, State as Sessi
 use nightjar_core::http::{Error, HostClient};
 
 use crate::hosts::Waker;
+use crate::strings::{en, tr, trf};
 use crate::radeon::{is_missing, Failure, FailureKind, Mode, Panel, Row};
 
 /// How often `/session` is read while the page is open.
@@ -77,17 +78,17 @@ pub enum HostExit {
 impl HostExit {
     pub fn label(self) -> &'static str {
         match self {
-            HostExit::End => "End session",
-            HostExit::CloseGame => "Close game",
-            HostExit::QuitApp => "Quit game",
+            HostExit::End => en("End session"),
+            HostExit::CloseGame => en("Close game"),
+            HostExit::QuitApp => en("Quit game"),
         }
     }
 
     pub fn confirm(self) -> &'static str {
         match self {
-            HostExit::End => "End the stream session on the PC?\nThe game keeps running.",
-            HostExit::CloseGame => "Close the game on the PC?\nUnsaved progress will be lost.",
-            HostExit::QuitApp => "Quit the game on the PC?\nUnsaved progress will be lost.",
+            HostExit::End => en("End the stream session on the PC?\nThe game keeps running."),
+            HostExit::CloseGame => en("Close the game on the PC?\nUnsaved progress will be lost."),
+            HostExit::QuitApp => en("Quit the game on the PC?\nUnsaved progress will be lost."),
         }
     }
 }
@@ -126,25 +127,25 @@ fn blocked(exit: HostExit, session: &Session) -> Option<&'static str> {
         return None;
     }
     Some(match action.reason {
-        Some(ErrorCode::SessionBusy) | Some(ErrorCode::TemporarilyUnavailable) => "The host is busy. Try again in a moment.",
-        Some(ErrorCode::NotSessionOwner) => "This session belongs to another device.",
-        Some(ErrorCode::NoSession) => "There is no session to end.",
-        Some(ErrorCode::HostControlRequired) => "Turn on Host control for this device on the host.",
-        _ if session.state == SessionState::Stopping => "The session is already ending.",
-        _ => "Not available right now.",
+        Some(ErrorCode::SessionBusy) | Some(ErrorCode::TemporarilyUnavailable) => en("The host is busy. Try again in a moment."),
+        Some(ErrorCode::NotSessionOwner) => en("This session belongs to another device."),
+        Some(ErrorCode::NoSession) => en("There is no session to end."),
+        Some(ErrorCode::HostControlRequired) => en("Turn on Host control for this device on the host."),
+        _ if session.state == SessionState::Stopping => en("The session is already ending."),
+        _ => en("Not available right now."),
     })
 }
 
 /// Why an exit action failed, as the page shows it.
 pub fn exit_failure_text(failure: &Failure) -> String {
     match failure.kind {
-        FailureKind::HostControl => "Turn on Host control for this device on the host to close games.".into(),
-        FailureKind::NoSession => "This device does not own the session on the PC.".into(),
-        FailureKind::Busy => "The host is busy. Try again in a moment.".into(),
-        FailureKind::Unreachable => "Cannot reach the host.".into(),
+        FailureKind::HostControl => tr("Turn on Host control for this device on the host to close games.").into(),
+        FailureKind::NoSession => tr("This device does not own the session on the PC.").into(),
+        FailureKind::Busy => tr("The host is busy. Try again in a moment.").into(),
+        FailureKind::Unreachable => tr("Cannot reach the host.").into(),
         _ => match &failure.host_message {
             Some(message) if !message.is_empty() => message.clone(),
-            _ => "The host did not do it.".into(),
+            _ => tr("The host did not do it.").into(),
         },
     }
 }
@@ -160,16 +161,16 @@ pub fn connection_lines(
 ) -> Vec<(&'static str, String)> {
     let mbps = f64::from(bitrate_kbps) / 1000.0;
     let mut lines = vec![
-        ("Host", host.to_owned()),
-        ("Codec", codec.to_owned()),
-        ("Resolution", format!("{} × {} at {} fps", size.0, size.1, size.2)),
-        ("Bitrate", if bitrate_kbps % 1000 == 0 { format!("{mbps:.0} Mbps") } else { format!("{mbps:.1} Mbps") }),
+        (en("Host"), host.to_owned()),
+        (en("Codec"), codec.to_owned()),
+        (en("Resolution"), trf("{} × {} at {} fps", &[&size.0, &size.1, &size.2])),
+        (en("Bitrate"), if bitrate_kbps % 1000 == 0 { format!("{mbps:.0} Mbps") } else { format!("{mbps:.1} Mbps") }),
     ];
     if !link.is_empty() {
-        lines.push(("Link", link.to_owned()));
+        lines.push((en("Link"), link.to_owned()));
     }
     if let Some(network) = network {
-        lines.push(("Connection", network.to_owned()));
+        lines.push((en("Connection"), network.to_owned()));
     }
     lines
 }
@@ -340,7 +341,7 @@ impl Page {
             Err(error) => worker.update(|s| s.setup_error = Some(error)),
         });
         if spawned.is_err() {
-            lock(&shared).setup_error = Some("The page could not start its worker.".into());
+            lock(&shared).setup_error = Some(tr("The page could not start its worker.").into());
         }
         Page { shared, requests, confirming: None }
     }
@@ -491,9 +492,9 @@ impl Worker {
             HostExit::CloseGame => api.session_action(ActionId::CloseGame).map(|_| ()),
             HostExit::QuitApp => match api.quit_app() {
                 Ok(true) => Ok(()),
-                Ok(false) => Err(Error::InvalidArgument("The PC declined to quit the game.".into())),
+                Ok(false) => Err(Error::InvalidArgument(tr("The PC declined to quit the game.").into())),
                 Err(Error::Status { code: 599, .. }) => {
-                    Err(Error::InvalidArgument("The running game belongs to another device.".into()))
+                    Err(Error::InvalidArgument(tr("The running game belongs to another device.").into()))
                 }
                 Err(error) => Err(error),
             },

@@ -52,6 +52,27 @@ pub fn set_hint(name: *const c_char, value: &CStr) {
     unsafe { SDL_SetHint(name, value.as_ptr()) };
 }
 
+/// The system's preferred languages, most preferred first, as lower-case codes ("de", "en").
+pub fn preferred_languages() -> Vec<String> {
+    let mut count = 0;
+    let mut out = Vec::new();
+    // SAFETY: SDL returns a NULL-terminated array of locales that we free, or NULL.
+    unsafe {
+        let list = SDL_GetPreferredLocales(&mut count);
+        if list.is_null() {
+            return out;
+        }
+        for i in 0..usize::try_from(count).unwrap_or(0) {
+            let locale = *list.add(i);
+            if !locale.is_null() && !(*locale).language.is_null() {
+                out.push(CStr::from_ptr((*locale).language).to_string_lossy().to_ascii_lowercase());
+            }
+        }
+        SDL_free(list.cast());
+    }
+    out
+}
+
 /// The renderer's backend name ("direct3d11", "opengl", ...).
 pub fn renderer_name(renderer: *mut SDL_Renderer) -> String {
     // SAFETY: a live renderer; the name is a static string.

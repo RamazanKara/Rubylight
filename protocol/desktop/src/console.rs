@@ -5,6 +5,7 @@
 use nightjar_core::http::native_api::library::{Game, Library};
 use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
+use crate::strings::{tr, trf};
 use crate::config::{Favourite, Recent};
 use crate::hosts::{Host, Reach};
 
@@ -402,10 +403,10 @@ pub fn host_line(source: &Source<'_>) -> HostLine {
 impl HostLine {
     pub fn text(self) -> String {
         match self {
-            Self::Games(n) => format!("Games: {n}"),
-            Self::SavedGames(n) => format!("Offline. Saved games: {n}"),
-            Self::Offline => "Offline".into(),
-            Self::NoLibrary => "Games not loaded yet".into(),
+            Self::Games(n) => trf("Games: {}", &[&n]),
+            Self::SavedGames(n) => trf("Offline. Saved games: {}", &[&n]),
+            Self::Offline => tr("Offline").into(),
+            Self::NoLibrary => tr("Games not loaded yet").into(),
         }
     }
 }

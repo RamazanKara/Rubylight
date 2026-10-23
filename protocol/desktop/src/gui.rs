@@ -81,6 +81,9 @@ fn key_of(code: SDL_Keycode) -> Option<Key> {
         SDLK_F2 => Key::F2,
         SDLK_F10 => Key::F10,
         SDLK_F11 => Key::F11,
+        SDLK_EQUALS => Key::Equals,
+        SDLK_PLUS | SDLK_KP_PLUS => Key::Plus,
+        SDLK_MINUS | SDLK_KP_MINUS => Key::Minus,
         _ => {
             let c = char::from_u32(code.0)?;
             if c.is_ascii_alphabetic() {
@@ -141,13 +144,19 @@ impl Gui {
 
     /// Takes an SDL event. Returns whether egui used it.
     pub fn handle(&mut self, event: &SDL_Event, scale: Scale) -> bool {
+        // Points are the zoomed ones: egui's pixels per point is the display's times the zoom.
+        let zoom = self.ctx.zoom_factor();
+        let point = |x: f32, y: f32| {
+            let p = scale.point(x, y);
+            Pos2::new(p.x / zoom, p.y / zoom)
+        };
         // SAFETY: the union member read matches the event type.
         unsafe {
             let kind = SDL_EventType(event.r#type);
             match kind {
                 SDL_EVENT_MOUSE_MOTION => {
                     let m = event.motion;
-                    self.events.push(Event::PointerMoved(scale.point(m.x, m.y)));
+                    self.events.push(Event::PointerMoved(point(m.x, m.y)));
                 }
                 SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_BUTTON_UP => {
                     let b = event.button;
@@ -158,7 +167,7 @@ impl Gui {
                         _ => return false,
                     };
                     self.events.push(Event::PointerButton {
-                        pos: scale.point(b.x, b.y),
+                        pos: point(b.x, b.y),
                         button,
                         pressed: b.down,
                         modifiers: self.modifiers,
@@ -230,7 +239,8 @@ impl Gui {
         let (mut w, mut h) = (0, 0);
         // SAFETY: a live renderer.
         unsafe { SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h) };
-        let ppp = scale.pixels_per_point;
+        // The UI zoom multiplies the display scale; egui lays out in points of the product.
+        let ppp = scale.pixels_per_point * self.ctx.zoom_factor();
         let mut input = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(
                 Pos2::ZERO,
@@ -243,12 +253,12 @@ impl Gui {
             ..Default::default()
         };
         if let Some(viewport) = input.viewports.get_mut(&egui::ViewportId::ROOT) {
-            viewport.native_pixels_per_point = Some(ppp);
+            viewport.native_pixels_per_point = Some(scale.pixels_per_point);
         } else {
             input.viewports.insert(
                 egui::ViewportId::ROOT,
                 egui::ViewportInfo {
-                    native_pixels_per_point: Some(ppp),
+                    native_pixels_per_point: Some(scale.pixels_per_point),
                     focused: Some(self.focused),
                     ..Default::default()
                 },

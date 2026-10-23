@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use crate::strings::{tr, trf};
 use std::io::Read;
 use std::path::Path;
 
@@ -30,15 +31,15 @@ impl Default for Shortcuts {
 
 impl Shortcuts {
     pub fn parse(text: &str) -> Result<Self, String> {
-        if text.len() > MAX_BYTES { return Err("Shortcut file is larger than 64 KiB.".into()); }
-        let mut entries: Self = serde_json::from_str(text).map_err(|e| format!("Invalid shortcut file: {e}"))?;
-        if entries.version != 1 { return Err("Unsupported shortcut file version.".into()); }
-        if entries.data.len() > 32 { return Err("You can save up to 32 shortcuts.".into()); }
+        if text.len() > MAX_BYTES { return Err(tr("Shortcut file is larger than 64 KiB.").into()); }
+        let mut entries: Self = serde_json::from_str(text).map_err(|e| trf("Invalid shortcut file: {}", &[&e]))?;
+        if entries.version != 1 { return Err(tr("Unsupported shortcut file version.").into()); }
+        if entries.data.len() > 32 { return Err(tr("You can save up to 32 shortcuts.").into()); }
         let mut ids = HashSet::new();
         for entry in &mut entries.data {
             if entry.id.is_empty() || entry.id.len() > 64 || !entry.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
                 || !ids.insert(entry.id.clone()) {
-                return Err("Invalid or repeated shortcut ID.".into());
+                return Err(tr("Invalid or repeated shortcut ID.").into());
             }
             validate_name(&entry.name)?;
             entry.keys = normalize_keys(&entry.keys)?;
@@ -58,15 +59,15 @@ impl Shortcuts {
 
     pub fn save(&mut self, id: Option<&str>, name: &str, chord: &str) -> Result<(), String> {
         validate_name(name)?;
-        if chord.len() > 256 { return Err("Use a chord of at most 256 characters.".into()); }
+        if chord.len() > 256 { return Err(tr("Use a chord of at most 256 characters.").into()); }
         let keys: Vec<_> = chord.split('+').map(|key| key.trim().to_uppercase()).collect();
         let keys = normalize_keys(&keys)?;
         if let Some(id) = id {
-            let entry = self.data.iter_mut().find(|e| e.id == id).ok_or("Shortcut no longer exists.")?;
+            let entry = self.data.iter_mut().find(|e| e.id == id).ok_or(tr("Shortcut no longer exists."))?;
             entry.name = name.trim().into();
             entry.keys = keys;
         } else {
-            if self.data.len() >= 32 { return Err("You can save up to 32 shortcuts.".into()); }
+            if self.data.len() >= 32 { return Err(tr("You can save up to 32 shortcuts.").into()); }
             let id = (1..).map(|i| format!("desktop-{i}")).find(|id| !self.data.iter().any(|e| &e.id == id)).unwrap();
             self.data.push(Shortcut { id, name: name.trim().into(), keys });
         }
@@ -76,17 +77,17 @@ impl Shortcuts {
 
 fn validate_name(name: &str) -> Result<(), String> {
     if name.trim().is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
-        Err("Use a name between 1 and 80 characters without control characters.".into())
+        Err(tr("Use a name between 1 and 80 characters without control characters.").into())
     } else { Ok(()) }
 }
 
 fn normalize_keys(keys: &[String]) -> Result<Vec<String>, String> {
-    if keys.is_empty() || keys.len() > 8 { return Err("Use between 1 and 8 keys in each chord.".into()); }
+    if keys.is_empty() || keys.len() > 8 { return Err(tr("Use between 1 and 8 keys in each chord.").into()); }
     let mut seen = HashSet::new();
     let mut normalized = Vec::new();
     for name in keys {
-        let code = key_code(name).ok_or_else(|| format!("Unsupported key: {name}"))?;
-        if !seen.insert(code) { return Err(format!("Repeated key: {name}")); }
+        let code = key_code(name).ok_or_else(|| trf("Unsupported key: {}", &[&name]))?;
+        if !seen.insert(code) { return Err(trf("Repeated key: {}", &[&name])); }
         normalized.push(key_name(code));
     }
     Ok(normalized)

@@ -45,14 +45,18 @@ Home, PCs and Settings sit in one bar under the top app bar of each of those thr
 
 ## PCs on Android
 
-Every PC card has three dots at its end. They open the PC's options, as does a long press, a mouse's right button, Menu or Shift+F10, and a controller's X. With a D-pad, press Right on a card with nothing further to its right to mark the three dots, then Center. When a key or controller was the last input, the PCs screen says "X or ⋮ for options".
+Every PC card has three dots at its end. They open the PC's options, as does a long press, a mouse's right button, Menu or Shift+F10, and a controller's X. In a PC's library, X opens the selected game's options the same way. With a D-pad, press Right on a card with nothing further to its right to mark the three dots, then Center. When a key or controller was the last input, the PCs screen says "X or ⋮ for options".
 
 The options are one list: **Open library** or **Pair**, **Resume** and **Quit** (a game is running), **Pair with one-time PIN** (hosts that offer it), **Wake PC** (offline, with a known MAC address), **PC settings**, **Rename**, **Unpair** (paired and online) or **Pairing help** (not paired), and **Remove PC**. An offline PC without a MAC address says "Pair once while the PC is on to enable Wake".
 
-- **Rename** keeps a name on this device only (`HostNames`, keyed by the PC's id), and the library, game and settings screens show it. The PC's own name keeps updating underneath. An empty field, or the PC's own name, brings the PC's name back. The name is at most 40 characters. Removing the PC forgets it.
+- **Rename** keeps a name on this device only (`HostNames`, keyed by the PC's id), and the library, the stream's title, shortcuts and the TV channel show it. A game's own settings page and the Home row still say the PC's own name (see Open issues). The PC's own name keeps updating underneath. An empty field, or the PC's own name, brings the PC's name back. The name is at most 40 characters. Removing the PC forgets it.
 - **Unpair** asks first, then asks the PC to forget this device and clears the library saved from it. The PC stays in the list as not paired.
 - **Remove PC** asks first, then deletes the PC, its settings, saved library, covers, hidden games and name from this device. The PC still lists this device until you unpair it.
 - A failed pairing, unpair or wake says why in a dialog. **Try again** is offered where a retry can help (a wrong PIN, the network, a failed unpair) and left out where it cannot (the PC is offline, or no MAC address is known). A pairing you cancelled never shows a result afterwards.
+
+**Open issues**
+
+- A PC's name on its game settings page (`HostStreamSettings`) and in the Home rows (`ConsoleRepository`) is still the PC's own name, not the one given with Rename. Planned for N5.
 
 ## A game's page
 

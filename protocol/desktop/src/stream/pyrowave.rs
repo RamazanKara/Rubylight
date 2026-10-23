@@ -638,6 +638,9 @@ impl Pyrowave {
     }
 }
 
+/// The most a frame may have lost (the SDK gate's 90% packet ratio) once its slices were decoded.
+#[cfg(windows)]
+const SLICED_LOSS_LIMIT_PERCENT: f32 = 10.0;
 /// How long the decoder thread waits for the GPU to finish a frame before the stream ends.
 #[cfg(windows)]
 const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
@@ -855,6 +858,7 @@ impl GpuStream {
         }
         if early == Early::Off { self.stages.reset(); }
         let records_envelope = data.starts_with(&[0, 0, 0, 0]);
+        let sliced = self.race.as_ref().is_some_and(|race| race.lease.is_some());
         let whole_early = early == Early::Active && records_envelope && self.early_bytes == data.len();
         // The slices decoded into a plane set already; the final decode fills that one.
         let mut slot = self.race.as_mut().and_then(|race| race.lease.take()).or_else(|| self.planes.acquire());
@@ -894,7 +898,14 @@ impl GpuStream {
             if !valid { return Err(Failure::Frame("Malformed PyroWave frame container, or a sequence that does not match the negotiated picture".into())); }
         }
         let loss_percent = if records_envelope { self.records.loss_percent } else { 0.0 };
-        if !self.gpu.is_ready(true) {
+        // A slice decode marks the SDK's sequence as decoded, and `is_ready` is then false for the
+        // rest of it. The slices' frame is complete if its chunks were the envelope (`finished`);
+        // what the cache had to fill in is the loss the gate would have judged.
+        if sliced && finished {
+            if loss_percent > SLICED_LOSS_LIMIT_PERCENT {
+                return Err(Failure::Frame("PyroWave frame lost too much of its data after its slices were decoded".into()));
+            }
+        } else if !self.gpu.is_ready(true) {
             return Err(Failure::Frame("PyroWave frame holds no picture data".into()));
         }
         let step = Instant::now();

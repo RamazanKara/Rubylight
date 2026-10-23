@@ -73,7 +73,7 @@ try {
     $hostLog = "$HostProfile\host.stdout.log"
     $hostProcess = Start-Process $HostExe -PassThru -WindowStyle Hidden -WorkingDirectory $HostProfile `
         -RedirectStandardOutput $hostLog -RedirectStandardError "$HostProfile\host.stderr.log" `
-        -ArgumentList '--config-dir', $HostProfile, '--assets', "$install\assets\web", '--port', $Port, '--bind', '127.0.0.1', '--no-tray'
+        -ArgumentList '--config-dir', $HostProfile, '--assets', "`"$install\assets\web`"", '--port', $Port, '--bind', '127.0.0.1', '--no-tray'
     $up = $false
     foreach ($i in 1..60) {
         try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:$Port/serverinfo" | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }

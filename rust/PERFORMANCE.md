@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Behaviour across client link speeds: 1000 to 10 Mbit/s, step changes, Wi-Fi profile, what breaks above the link | [October 23, behaviour across client link speeds](#october-23-behaviour-across-client-link-speeds) |
 | PyroWave at 144 fps: normal against high process priority (reverted), async encode (not worth it), handles left by each encoder or decoder life | [October 23, PyroWave 144 fps pacing and async encode (B4)](#october-23-pyrowave-144-fps-pacing-and-async-encode-b4) |
 | Nightjar Android, Rust engine against the C engine on a phone: picture age, decode, 1% and 5% loss, PyroWave, 30-minute soak | [October 23, Rust engine against the C engine on Android (B8)](#october-23-rust-engine-against-the-c-engine-on-android-b8) |
 | Stream presets (`stream_preset`): frame cap applied, keyframe size, end-to-end latency | [October 23, stream presets (B3)](#october-23-stream-presets-b3) |
@@ -38,6 +39,59 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 23: behaviour across client link speeds
+
+Question: what does a stream look like when the client's link is slower than the PC's, and what breaks? Host: this PC, release package 3.0.0-beta.1 (AMF, WGC capture on the physical display, 1080p60, noise content so the encoder reaches its target bitrate), isolated profile, `pacing_max_bitrate_kbps` unset, every adaptive option at its default. Client: `nightjar-cli` (Nightjar `protocol/`, the Rust engine) in a container on the NUC (Debian 13, 1 GbE, VAAPI decode). The link is shaped on the container's receive side only (`ifb` + `tc tbf`, 50 ms drop-tail queue unless stated, [linkshape.sh](release/linkshape.sh)); each rate was checked with `iperf3 -u` before use. 45 s per arm, first 5 s discarded, loss memory reset before every arm ([linkspeed.py](release/linkspeed.py), [linkspeed_client.py](release/linkspeed_client.py)). Not moonlight-qt and not a phone: decode times and the Android client's own ABR are not represented.
+
+Picture age is the A8 `end_to_end` (host present to client shown, clock-synced). Loss is the share of frames the host sent after warm-up that the client never showed. A freeze is a gap above 100 ms between shown frames. Cells are p50 / p99 ms, loss %, freezes (count / total). "none" means the client showed no frame after warm-up.
+
+| Link Mbit/s | HEVC 20 Mbps | AV1 20 Mbps | H.264 20 Mbps | HEVC above the link (Mbps) |
+| --- | --- | --- | --- | --- |
+| unshaped (1 GbE) | 12.9 / 26.1, 0, 0 | 4.9 / 8.4, 0, 0 | 12.9 / 26.7, 0, 0 | 300: 27.7 / 138.5, 1.5, 1 / 0.3 s |
+| 500 | 13.1 / 26.5, 0, 0 | 5.0 / 8.5, 0, 0 | 12.7 / 25.7, 0, 0 | 500: 30.6 / 180.5, 7.1, 4 / 1.8 s |
+| 300 | 12.9 / 25.7, 0, 0 | 5.1 / 6.8, 0, 0 | 13.4 / 24.5, 0, 0 | 450: 161 / 290, 96.7, 13 / 31.9 s |
+| 150 | 12.9 / 25.7, 0, 0 | 5.1 / 7.7, 0, 0 | 12.6 / 25.9, 0, 0 | 225: 188 / 292, 99.3, 6 / 22.4 s |
+| 80 | 14.2 / 27.0, 0, 0 | 6.0 / 8.5, 0, 0 | 14.0 / 27.5, 0, 0 | 120: none, 100 |
+| 50 | 16.6 / 28.0, 0, 0 | 8.0 / 20.5, 0, 0 | 16.5 / 30.7, 0, 0 | 75: none, 100 |
+| 30 | 20.9 / 34.5, 0, 0 | 11.7 / 23.8, 0, 0 | 20.6 / 34.6, 0, 0 | 45: none, 100 |
+| 20 | 58.8 / 83.2, 15.1, 21 / 6.7 s | 56.7 / 72.1, 11.9, 15 / 4.9 s | 54.4 / 86.8, 36.2, 63 / 14.9 s | 40: none, 100 |
+| 10 | no frame joined | none, 100 | none, 100 | 40: no frame joined |
+
+"Above the link" is 1.5x the rate, at least 40 Mbps, at most 500. 4K60 HEVC at 80 Mbps: 300 Mbit/s link 21.9 / 37.0, 0 % lost; 150 Mbit/s link 28.5 / 42.8, 0 % lost; unshaped 34.6 / 91.4, 13.7 % lost, 19 freezes / 5.9 s. The unshaped and 150 Mbit/s 4K arms lost their first keyframe and latched Wi-Fi pacing (finding 4); the 300 Mbit/s arm did not. 4K picture age is dominated by the NUC's VAAPI decoder (12 to 19 ms a frame against a 16.7 ms budget), not by the link.
+
+Also at a fitting bitrate: a Wi-Fi-like profile (150 Mbit/s, 3 ms +-2 ms jitter, 0.5 % random loss) shows 16.9 / 29.9 ms at 20 Mbps and 18.1 / 31.1 ms at 60 Mbps, 0 frames lost, FEC recovering about 2400 frames in 40 s and no unrecoverable frame. A 5 ms queue on a 150 Mbit/s link costs nothing (12.9 / 26.2, 0 % lost); on a 50 Mbit/s link it drops the startup keyframe, the loss latch fires, pacing falls to 30 Mbps and the picture age rises from 16.6 to 21.1 ms (4 unrecoverable frames, no frame lost in the end).
+
+Step changes in one stream (20 s per step, rate changed on the live shaper):
+
+| Stream | Steps (Mbit/s) | Result |
+| --- | --- | --- |
+| 20 Mbps | 300, 30, 300 | invisible: 0 % lost, 0 freezes, picture age p95 24 to 27 ms in the 5 s after each step |
+| 20 Mbps | 80, 10, 80 | 29.3 % lost, one 20.1 s freeze; picture back within about 1 s of the rate returning |
+| 40 Mbps | 300, 30, 300 | 29.0 % lost, one 20.1 s freeze, 148 recovery keyframes; back within about 1 s |
+| 40 Mbps | 80, 10, 80 | 29.6 % lost, one 20.2 s freeze |
+
+Frames shown per second, steps at second 21.8 and 41.8 (20 Mbps, 80, 10, 80): 60 until the drop, 47 in the second of the drop, 0 for 19 s, 7 in the second the rate returns, 61 in the next.
+
+### Findings, ranked by user impact
+
+1. **A stream above its link never recovers, and the host never lowers the bitrate.** At 1.5x the link (225 Mbps on 150, 450 on 300) 97 to 99 % of frames are lost, and at 120, 75, 45 and 40 Mbps on 80, 50, 30 and 20 Mbit/s no frame arrives for the whole 40 s. The host keeps sending what it was told (`host_sent_mbps` 226.9 on the 225 Mbps arm). In code the loss response only changes pacing, never the encoder: `core/src/keyframe_loss.rs:365` (`bps` returns `base.min(safe)`), applied at `host/src/stream.rs:1871` and `host/src/pyrowave_send/transport.rs:72`. `host_adaptive_bitrate` is the only path that lowers the bitrate: it is opt-in, depends on client loss reports and switches `keyframe_loss_pacing` off (`core/src/config.rs:355-377`, `core/src/adaptive_bitrate.rs:1-6`). Any client that picks a bitrate its link cannot carry (a phone on a weak hotspot, a wrong link estimate) stays on a black or frozen picture until the user restarts at a lower rate. Suggested fix: let the loss latch lower the encoder bitrate too: when it is latched and unrecoverable frames continue for a few seconds, step the bitrate down without waiting for client reports, and raise it back slowly (the controller in `adaptive_bitrate.rs` already has the budget math).
+2. **A link that falls below the stream's bitrate mid-stream freezes the picture for as long as it lasts.** 80 to 10 Mbit/s with a 20 Mbps stream, and 300 to 30 with a 40 Mbps stream, give a 20 s freeze each (0 fps from second 22 to 41) and about 30 % lost overall. The same step to a rate the stream still fits (300 to 30 with 20 Mbps) is invisible. Recovery after the rate returns is about 1 s. Same cause and fix as 1.
+3. **A link close to the stream's bitrate is the worst case.** On a 20 Mbit/s link a 20 Mbps stream (plus 20 % FEC) loses 12 to 36 % of frames with 15 to 63 freezes; H.264 is worst (36 %, 63 freezes / 14.9 s, 189 IDR requests). Picture age is 54 to 59 ms median. The stream is not far above the link, so the latch (pacing at about 30 Mbps) cannot help. Same fix as 1; the bitrate also has to leave room for FEC: `WireBudget::video_bps` (`core/src/adaptive_bitrate.rs:43`) accounts for it, but only when adaptation is on.
+4. **A lost startup keyframe latches slow pacing for a day, even on a fast link.** A keyframe that arrives incomplete sets the latch (`core/src/keyframe_loss.rs:346`). In this run: 4K at 150 Mbit/s and on 1 GbE (2 of 3 4K arms) and a 5 ms queue on 50 Mbit/s. The latch is remembered for 24 h per client uuid and address, the next four sessions start at the Wi-Fi rate and the fifth probes the fast rate (`host/src/state/loss_memory.rs:15-16`). Measured cost on a 1 GbE client: median picture age of HEVC 21 ms instead of 13, AV1 12.5 instead of 5, H.264 21 instead of 13, p99 33 instead of 26 (first run of the matrix, `C:\src\rl-link-work\m-memory`, loss memory left on; it is the confound the table above removes). Nothing in the client says why latency got worse; `POST /api/clients/reset-network-history` clears it. Suggested fix: remember a latch only when it came from sustained loss (several frames, or loss after the startup keyframe), not from one startup keyframe, and probe the fast rate on the second session when the first showed no further loss.
+5. **The host's startup pacing is blind to the client's link.** A wired or unknown route paces at 800 Mbps (`core/src/network_pacing.rs:22-24`) and the host saw `link_bps=2500000000`, its own NIC, in every arm. The first keyframe leaves as a burst the 20 to 150 Mbit/s queue cannot hold, which is what feeds finding 4 (the drop-tail queue was 50 ms of the link rate; a smaller queue hits harder, as the 5 ms arm shows). Suggested fix: pace the first keyframe at a conservative rate and step up once frames arrive complete, or use a client-reported hint as `pyrowaveLinkMbps` already does for PyroWave.
+6. **Picture age rises as the link tightens, even without loss.** HEVC median 12.9 ms at 150 Mbit/s, 14.2 at 80, 16.6 at 50, 20.9 at 30 (AV1 5.1, 6.0, 8.0, 11.7). Likely serialization of the 20 Mbps stream at the lower rates; not separated further. Minor, but it adds to finding 3.
+7. **Unshaped 1 GbE with a 300 Mbps stream loses 1.5 % (p99 138 ms), and a 500 Mbps stream 7 % (p99 181 ms).** The container bridge path is included and not separately attributable.
+
+What the numbers do not show: no link rate down to 30 Mbit/s hurts the default 20 Mbps stream beyond a few ms of picture age; Wi-Fi-like jitter and 0.5 % loss are absorbed by FEC; a 4K stream at 80 Mbps fits 150 Mbit/s. The risk is a bitrate the link cannot carry, and the host has no way out of it on its own.
+
+### Not run
+
+Nightjar's automatic bitrate (the CLI has none; static reading of the Android client: 20 % step-downs after two poor samples and at least 3 s since the last change, +5 % after 15 s healthy), PyroWave (the CLI has none), client queue depth and client FEC counters (the CLI does not print them), a 5 ms queue below 50 Mbit/s, 120 fps, and any real Wi-Fi link. At 10 Mbit/s the HEVC arms produced no frame the timing join could use; AV1 and H.264 arms lost every frame.
+
+### Tooling
+
+`rust/release/linkshape.sh` (tc shaper), `linkspeed_client.py` (runs in the client container), `linkspeed.py` (host side: `list`, `shapecheck`, `run ARM... --work DIR`, `report --work DIR`). Raw results are in `C:\src\rl-link-work\m` (clean) and `m-memory`.
 
 ## October 23: PyroWave 144 fps pacing and async encode (B4)
 

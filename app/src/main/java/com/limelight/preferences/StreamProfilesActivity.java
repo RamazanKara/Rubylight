@@ -443,6 +443,7 @@ public class StreamProfilesActivity extends NightjarActivity {
             listView.setDivider(null);
             listView.setSelector(R.drawable.list_focus_row);
             listView.setPadding(0, 0, 0, getResources().getDimensionPixelSize(R.dimen.space_s));
+            com.limelight.ui.SubPageFocus.apply(getActivity(), view);
             return view;
         }
     }

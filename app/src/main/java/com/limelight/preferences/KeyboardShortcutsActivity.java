@@ -115,6 +115,7 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
             button(R.attr.nightjarButtonTextStyle, entry.name + "\n" + KeyboardShortcuts.format(entry.keys()), !busy, () -> edit(entry))
                     .setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
         }
+        com.limelight.ui.SubPageFocus.apply(this, findViewById(R.id.page_content));
     }
 
     private MaterialButton button(int styleAttr, String text, boolean enabled, Runnable action) {

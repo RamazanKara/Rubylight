@@ -124,6 +124,11 @@ public class ControllerMappingActivity extends NightjarActivity {
     }
 
     private void refresh() {
+        rebuild();
+        com.limelight.ui.SubPageFocus.apply(this, findViewById(R.id.page_content));
+    }
+
+    private void rebuild() {
         mappingList.removeAllViews();
         axisButton.setEnabled(deviceKey != null);
         if (deviceKey == null) {

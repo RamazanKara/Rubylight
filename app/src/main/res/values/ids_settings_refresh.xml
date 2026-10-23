@@ -5,4 +5,6 @@
     <item name="host_profile_follow_all" type="id" />
     <item name="host_profile_follow_screen" type="id" />
     <item name="host_profile_sharpness" type="id" />
+    <item name="focus_ring" type="id" />
+    <item name="sub_page_focused" type="id" />
 </resources>

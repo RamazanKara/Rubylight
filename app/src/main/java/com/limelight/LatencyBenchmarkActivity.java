@@ -66,6 +66,7 @@ public class LatencyBenchmarkActivity extends NightjarActivity implements Choreo
             else startTest();
         });
         benchmark.findViewById(R.id.benchmark_share).setOnClickListener(v -> showShareDialog());
+        com.limelight.ui.SubPageFocus.apply(this, benchmark);
         UiHelper.notifyNewRootView(this);
         showResults();
     }

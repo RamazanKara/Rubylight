@@ -111,6 +111,7 @@ public class GpuDriverSettings extends NightjarActivity {
                         return app.getString(R.string.gpu_driver_removed);
                     });
                 }).setNegativeButton(android.R.string.cancel, null).show());
+        com.limelight.ui.SubPageFocus.apply(this, content);
     }
 
     /** Whether custom drivers can load here. The debug build's demo mode shows the screen as on a supported phone. */

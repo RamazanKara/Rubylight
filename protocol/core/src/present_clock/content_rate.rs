@@ -5,7 +5,8 @@
 //! (30, 60, 90 fps) but not its hitches, and must not flap, because a mode switch can blank the
 //! screen. [`ContentRate`] takes the median interval of the last second, leaves out an isolated
 //! long gap, and reports a rate only after it held within 3 % for two seconds; a reported rate
-//! changes only when a new one has held that long.
+//! changes only when a new one has held that long. A reported rate that the game has left for
+//! two seconds, without settling on another, is withdrawn: the vote it fed should not outlive it.
 
 /// Intervals kept; at 240 fps a second of them fits.
 const RING: usize = 256;
@@ -35,6 +36,8 @@ pub struct ContentRate {
     /// The rate being timed (millihertz) and the host time it first appeared.
     candidate: Option<(i64, i64)>,
     reported: Option<u32>,
+    /// Host time the median first left the reported rate; none while it is back inside.
+    outside_since: Option<i64>,
 }
 
 impl Default for ContentRate {
@@ -57,6 +60,7 @@ impl ContentRate {
             hitches: 0,
             candidate: None,
             reported: None,
+            outside_since: None,
         }
     }
 
@@ -65,7 +69,7 @@ impl ContentRate {
     }
 
     /// The reported rate in millihertz (60 000 for 60 fps), or `None` before one held for
-    /// two seconds.
+    /// two seconds, and again once the game has been away from it for two seconds.
     pub fn rate_mhz(&self) -> Option<u32> {
         self.reported
     }
@@ -134,8 +138,22 @@ impl ContentRate {
                 host_us
             }
         };
-        if host_us - since >= STABLE_US && self.reported.map_or(true, |r| !same_rate(i64::from(r), rate)) {
+        let Some(reported) = self.reported else {
+            if host_us - since >= STABLE_US {
+                self.reported = Some(rate.min(i64::from(u32::MAX)) as u32);
+            }
+            return;
+        };
+        if same_rate(i64::from(reported), rate) {
+            self.outside_since = None;
+        } else if host_us - since >= STABLE_US {
             self.reported = Some(rate.min(i64::from(u32::MAX)) as u32);
+            self.outside_since = None;
+        } else if host_us - *self.outside_since.get_or_insert(host_us) >= STABLE_US {
+            // Unsteady (90 to 120 and back): no rate to vote.
+            self.reported = None;
+            self.outside_since = None;
+            self.candidate = None;
         }
     }
 }

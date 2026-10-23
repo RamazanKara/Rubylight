@@ -339,6 +339,31 @@ fn a_pause_keeps_the_rate_until_the_new_one_holds() {
 }
 
 #[test]
+fn a_rate_the_game_leaves_without_settling_is_withdrawn() {
+    let mut clock = PresentClock::default();
+    let mut host = feed(&mut clock, 0, 60_000, 4);
+    assert!(clock.content_rate_mhz().unwrap().abs_diff(60_000) <= 100);
+    // The game wanders between 90 and 120 fps, never holding either for two seconds.
+    for _ in 0..4 {
+        host = feed(&mut clock, host, 90_000, 1);
+        host = feed(&mut clock, host, 120_000, 1);
+    }
+    assert_eq!(clock.content_rate_mhz(), None, "unsteady content has no rate");
+    // It settles: the new rate is reported again after it holds.
+    feed(&mut clock, host, 90_000, 4);
+    assert!(clock.content_rate_mhz().unwrap().abs_diff(90_000) <= 100);
+}
+
+#[test]
+fn a_short_excursion_keeps_the_rate() {
+    let mut clock = PresentClock::default();
+    let mut host = feed(&mut clock, 0, 60_000, 4);
+    host = feed(&mut clock, host, 90_000, 1);
+    feed(&mut clock, host, 60_000, 3);
+    assert!(clock.content_rate_mhz().unwrap().abs_diff(60_000) <= 100);
+}
+
+#[test]
 fn the_content_rate_survives_rtp_wrap_and_counts_a_repeated_stamp_once() {
     let mut clock = PresentClock::default();
     let start = (u32::MAX as i64 - 90_000) * 100 / 9; // one second before the wrap

@@ -143,6 +143,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile float receivedVideoMbps = -1;
 
     private final PyroWaveDecoderRenderer pyroWaveRenderer = new PyroWaveDecoderRenderer();
+    private volatile int pyroWaveHdrFailure;
     private int pyroWaveFailures;
     private float pyroWaveLossTotal;
     private int pyroWaveLossSamples;
@@ -1142,19 +1143,49 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 getDecoderVideoFormats(av1Decoder, "video/av01", hdr, false);
     }
 
-    @Override
-    public int prepareVideoFormats(int formats, int width, int height, int fps) {
-        float displayRefreshRate = outputDisplay.getRefreshRate();
+    /**
+     * The best PyroWave format in {@code formats} whose output could be set up, or 0. 10-bit
+     * 4:4:4 first, plain SDR 4:2:0 last.
+     */
+    public static int firstPyroWaveFormat(int formats, java.util.function.IntPredicate setup) {
         int[] choices = { MoonBridge.VIDEO_FORMAT_PYROWAVE_MAIN10_444, MoonBridge.VIDEO_FORMAT_PYROWAVE_MAIN10,
                 MoonBridge.VIDEO_FORMAT_PYROWAVE_444, MoonBridge.VIDEO_FORMAT_PYROWAVE };
         for (int choice : choices) {
-            if ((formats & choice) != 0 && !stopping &&
-                    pyroWaveRenderer.setup(renderTarget, choice, width, height, fps, displayRefreshRate,
-                            FramePacingPolicy.pyroWaveMode(prefs.framePacing, prefs.vrr), prefs.fullRange, prefs.stretchVideo,
-                            prefs.upscalingMode, prefs.upscalingSharpness, context, prefs.gpuMaxClocks) && !stopping) {
-                LimeLog.info("PyroWave surface initialized before negotiation: " + Integer.toHexString(choice));
-                return (formats & ~MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) | choice;
+            if ((formats & choice) != 0 && setup.test(choice)) return choice;
+        }
+        return 0;
+    }
+
+    /** String resource saying why PyroWave HDR could not be set up by the last prepareVideoFormats, or 0. */
+    @Override
+    public int pyroWaveHdrFailureReason() {
+        return pyroWaveHdrFailure;
+    }
+
+    @Override
+    public int prepareVideoFormats(int formats, int width, int height, int fps) {
+        float displayRefreshRate = outputDisplay.getRefreshRate();
+        pyroWaveHdrFailure = 0;
+        int choice = firstPyroWaveFormat(formats, candidate -> {
+            if (stopping) return false;
+            boolean ready = pyroWaveRenderer.setup(renderTarget, candidate, width, height, fps, displayRefreshRate,
+                    FramePacingPolicy.pyroWaveMode(prefs.framePacing, prefs.vrr), prefs.fullRange, prefs.stretchVideo,
+                    prefs.upscalingMode, prefs.upscalingSharpness, context, prefs.gpuMaxClocks) && !stopping;
+            if (!ready) {
+                LimeLog.warning("PyroWave surface not created for format " + Integer.toHexString(candidate));
             }
+            return ready;
+        });
+        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 &&
+                (choice & MoonBridge.VIDEO_FORMAT_MASK_10BIT) == 0 && !stopping) {
+            // The host offers PyroWave HDR and so does this phone, but its output surface failed:
+            // the connection falls back to AV1 or HEVC HDR and says why.
+            pyroWaveHdrFailure = PyroWaveDecoderRenderer.hdrFailureSummary(context);
+            LimeLog.warning("PyroWave HDR unavailable on this device: " + context.getString(pyroWaveHdrFailure));
+        }
+        if (choice != 0) {
+            LimeLog.info("PyroWave surface initialized before negotiation: " + Integer.toHexString(choice));
+            return (formats & ~MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) | choice;
         }
         pyroWaveRenderer.cleanup();
         if ((formats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {

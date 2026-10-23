@@ -12,6 +12,7 @@
     <string name="startup_device_resolution_unsupported">Độ phân giải trên 4K cần thiết bị này hỗ trợ HEVC hoặc AV1. Hãy chọn độ phân giải thấp hơn hoặc codec khác.</string>
     <string name="startup_host_update_4k">Hãy cập nhật GeForce Experience trên PC để stream 4K. Stream này ở 1080p.</string>
     <string name="startup_hdr_unavailable">PC và thiết bị này không có codec HDR chung nên stream dùng SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR không dùng được trên thiết bị này (%1$s) nên HDR dùng codec khác.</string>
     <string name="startup_resume_failed">Không thể tiếp tục phiên. Hãy kiểm tra ứng dụng trên PC rồi thử lại.</string>
     <string name="startup_session_owner">Một thiết bị khác đang sở hữu phiên này. Hãy kết thúc phiên trên thiết bị đó hoặc trên PC rồi thử lại.</string>
     <string name="startup_app_minimized">Ứng dụng đang bị thu nhỏ. Hãy khôi phục ứng dụng trên PC, hoặc thoát phiên rồi bắt đầu lại.</string>

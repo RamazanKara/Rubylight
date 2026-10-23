@@ -12,6 +12,7 @@
     <string name="startup_device_resolution_unsupported">高於 4K 的解析度需要這部裝置支援 HEVC 或 AV1。請選擇較低的解析度或其他轉碼器。</string>
     <string name="startup_host_update_4k">請更新電腦上的 GeForce Experience 以串流 4K。這個串流為 1080p。</string>
     <string name="startup_hdr_unavailable">電腦和這部裝置沒有共同支援的 HDR 轉碼器，因此串流會使用 SDR。</string>
+    <string name="startup_pyrowave_hdr_unavailable">這部裝置無法使用 PyroWave HDR（%1$s），因此 HDR 會使用其他轉碼器。</string>
     <string name="startup_resume_failed">無法繼續工作階段。請檢查電腦上的應用程式後再試一次。</string>
     <string name="startup_session_owner">這個工作階段由另一部裝置所有。請在該裝置或電腦上結束工作階段，然後再試一次。</string>
     <string name="startup_app_minimized">應用程式已最小化。請在電腦上將其還原，或結束工作階段後重新啟動。</string>

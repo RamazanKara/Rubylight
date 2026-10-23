@@ -12,6 +12,7 @@
     <string name="startup_device_resolution_unsupported">4K üzerindeki çözünürlükler için bu cihazda HEVC veya AV1 desteği gerekir. Daha düşük bir çözünürlük veya başka bir codec seçin.</string>
     <string name="startup_host_update_4k">4K yayın için bilgisayardaki GeForce Experience’ı güncelleyin. Bu yayın 1080p.</string>
     <string name="startup_hdr_unavailable">Bilgisayar ve bu cihazın ortak bir HDR codec’i olmadığı için yayın SDR olarak sürüyor.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR bu cihazda kullanılamıyor (%1$s), bu yüzden HDR başka bir codec kullanıyor.</string>
     <string name="startup_resume_failed">Oturum sürdürülemedi. Bilgisayardaki uygulamayı kontrol edip tekrar deneyin.</string>
     <string name="startup_session_owner">Bu oturum başka bir cihaza ait. Oturumu o cihazda veya bilgisayarda sonlandırıp tekrar deneyin.</string>
     <string name="startup_app_minimized">Uygulama simge durumunda. Bilgisayarda geri yükleyin veya oturumdan çıkıp yeniden başlatın.</string>

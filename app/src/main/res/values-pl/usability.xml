@@ -12,6 +12,7 @@
     <string name="startup_device_resolution_unsupported">Rozdzielczości powyżej 4K wymagają obsługi HEVC lub AV1 na tym urządzeniu. Wybierz niższą rozdzielczość lub inny kodek.</string>
     <string name="startup_host_update_4k">Zaktualizuj GeForce Experience na komputerze, aby strumieniować w 4K. Ten strumień jest w 1080p.</string>
     <string name="startup_hdr_unavailable">Komputer i to urządzenie nie mają wspólnego kodeka HDR, więc strumień jest w SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR jest niedostępny na tym urządzeniu (%1$s), więc HDR używa innego kodeka.</string>
     <string name="startup_resume_failed">Nie udało się wznowić sesji. Sprawdź aplikację na komputerze i spróbuj ponownie.</string>
     <string name="startup_session_owner">Ta sesja należy do innego urządzenia. Zakończ ją na tamtym urządzeniu lub na komputerze, a potem spróbuj ponownie.</string>
     <string name="startup_app_minimized">Aplikacja jest zminimalizowana. Przywróć ją na komputerze albo zamknij sesję i uruchom ją ponownie.</string>

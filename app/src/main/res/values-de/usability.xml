@@ -11,6 +11,7 @@
     <string name="startup_device_resolution_unsupported">Auflösungen über 4K benötigen HEVC oder AV1 auf diesem Gerät. Wähle eine niedrigere Auflösung oder einen anderen Codec.</string>
     <string name="startup_host_update_4k">Aktualisiere GeForce Experience am PC, um in 4K zu streamen. Dieser Stream läuft in 1080p.</string>
     <string name="startup_hdr_unavailable">PC und Gerät haben keinen gemeinsamen HDR-Codec, daher läuft der Stream in SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave-HDR ist auf diesem Gerät nicht verfügbar (%1$s), daher nutzt HDR einen anderen Codec.</string>
     <string name="startup_resume_failed">Die Sitzung konnte nicht fortgesetzt werden. Prüfe die App am PC und versuche es erneut.</string>
     <string name="startup_session_owner">Die Sitzung gehört einem anderen Gerät. Beende sie dort oder am PC und versuche es erneut.</string>
     <string name="startup_app_minimized">Die App ist minimiert. Stelle sie am PC wieder her oder beende und starte die Sitzung erneut.</string>

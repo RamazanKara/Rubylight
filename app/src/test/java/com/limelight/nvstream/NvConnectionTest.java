@@ -209,6 +209,47 @@ public class NvConnectionTest {
         }
     }
 
+    private static final int RUBYLIGHT_3_HOST = 0x47830301;
+
+    /** The connection's own sequence: offer, intersect, set up the surface, intersect again. */
+    private static int[] connect(int offered, int host, java.util.function.IntPredicate surface) {
+        int common = NvConnection.negotiateVideoFormats(offered, host);
+        int prepared = common;
+        int pyroWave = com.limelight.binding.video.MediaCodecDecoderRenderer.firstPyroWaveFormat(common, surface);
+        if ((common & VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            prepared = (common & ~VIDEO_FORMAT_MASK_PYROWAVE) | pyroWave;
+        }
+        return new int[] {common, NvConnection.negotiateVideoFormats(prepared, host)};
+    }
+
+    @Test
+    public void forcedPyrowaveWithHdrKeepsPyrowaveMain10OnARubylight3Host() {
+        int offered = VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 |
+                VIDEO_FORMAT_AV1_MAIN10 | VIDEO_FORMAT_PYROWAVE | VIDEO_FORMAT_PYROWAVE_MAIN10;
+        int[] flow = connect(offered, RUBYLIGHT_3_HOST, format -> true);
+        assertEquals(VIDEO_FORMAT_PYROWAVE_MAIN10, flow[1] & VIDEO_FORMAT_MASK_PYROWAVE);
+        assertFalse(NvConnection.pyroWaveHdrLost(flow[0], flow[1]));
+
+        // With 4:4:4 on, the 10-bit 4:4:4 profile leads.
+        flow = connect(offered | VIDEO_FORMAT_PYROWAVE_444 | VIDEO_FORMAT_PYROWAVE_MAIN10_444,
+                RUBYLIGHT_3_HOST, format -> true);
+        assertEquals(VIDEO_FORMAT_PYROWAVE_MAIN10_444, flow[1] & VIDEO_FORMAT_MASK_PYROWAVE);
+    }
+
+    @Test
+    public void pyrowaveHdrSurfaceFailureFallsBackToHdrAndIsReported() {
+        int offered = VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 |
+                VIDEO_FORMAT_AV1_MAIN10 | VIDEO_FORMAT_PYROWAVE | VIDEO_FORMAT_PYROWAVE_MAIN10;
+        // Only the SDR surface can be created: HDR stays on AV1, and the loss is detected.
+        int[] flow = connect(offered, RUBYLIGHT_3_HOST, format -> (format & VIDEO_FORMAT_MASK_10BIT) == 0);
+        assertEquals(0, flow[1] & VIDEO_FORMAT_MASK_PYROWAVE);
+        assertTrue((flow[1] & VIDEO_FORMAT_AV1_MAIN10) != 0);
+        assertTrue(NvConnection.pyroWaveHdrLost(flow[0], flow[1]));
+        // A host without PyroWave 10-bit is an ordinary HDR stream, not a loss.
+        flow = connect(offered, 0x01830301, format -> true);
+        assertFalse(NvConnection.pyroWaveHdrLost(flow[0], flow[1]));
+    }
+
     @Test
     public void pyrowaveHdrAnd444DoNotImplyConventionalHdrOr444() {
         int client = VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 |

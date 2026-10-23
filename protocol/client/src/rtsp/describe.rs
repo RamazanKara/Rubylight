@@ -440,6 +440,36 @@ mod tests {
         assert!(plain.microphone.is_none());
     }
 
+    /// Forced PyroWave with HDR on, against a Rubylight 3.0 host (ServerCodecModeSupport
+    /// 0x47830301): the formats the Java side hands over keep PyroWave 10-bit, and so does the pick.
+    #[test]
+    fn forced_pyrowave_hdr_selects_pyrowave_main10() {
+        let info = DescribeInfo::parse(RUBYLIGHT);
+        let scm = 0x4783_0301;
+        let hdr_codecs = VIDEO_FORMAT_H264
+            | VIDEO_FORMAT_H265
+            | VIDEO_FORMAT_H265_MAIN10
+            | VIDEO_FORMAT_AV1_MAIN8
+            | VIDEO_FORMAT_AV1_MAIN10;
+        assert_eq!(
+            info.select_video_format(hdr_codecs | VIDEO_FORMAT_PYROWAVE_MAIN10, scm),
+            VIDEO_FORMAT_PYROWAVE_MAIN10
+        );
+        assert_eq!(
+            info.select_video_format(hdr_codecs | VIDEO_FORMAT_PYROWAVE_MAIN10_444, scm),
+            VIDEO_FORMAT_PYROWAVE_MAIN10_444
+        );
+        // Without PyroWave 10-bit on the device, HDR is AV1 Main10 from the same host.
+        assert_eq!(
+            info.select_video_format(hdr_codecs | VIDEO_FORMAT_PYROWAVE, scm),
+            VIDEO_FORMAT_PYROWAVE
+        );
+        assert_eq!(
+            info.select_video_format(hdr_codecs, scm),
+            VIDEO_FORMAT_AV1_MAIN10
+        );
+    }
+
     #[test]
     fn opus_layouts() {
         let stereo = parse_opus_configs(RUBYLIGHT, 2).unwrap();

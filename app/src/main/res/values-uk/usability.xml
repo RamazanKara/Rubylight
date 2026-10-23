@@ -12,6 +12,7 @@
     <string name="startup_device_resolution_unsupported">Для роздільної здатності понад 4K цей пристрій має підтримувати HEVC або AV1. Виберіть нижчу роздільну здатність або інший кодек.</string>
     <string name="startup_host_update_4k">Оновіть GeForce Experience на ПК, щоб транслювати в 4K. Ця трансляція йде в 1080p.</string>
     <string name="startup_hdr_unavailable">ПК і цей пристрій не мають спільного HDR-кодека, тому трансляція йде в SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR недоступний на цьому пристрої (%1$s), тому HDR іде через інший кодек.</string>
     <string name="startup_resume_failed">Не вдалося відновити сеанс. Перевірте застосунок на ПК і спробуйте ще раз.</string>
     <string name="startup_session_owner">Цей сеанс належить іншому пристрою. Завершіть його на тому пристрої або на ПК і спробуйте ще раз.</string>
     <string name="startup_app_minimized">Застосунок згорнуто. Розгорніть його на ПК або закрийте сеанс і запустіть знову.</string>

@@ -16,6 +16,8 @@ public final class HostNotices {
         VIRTUAL_DISPLAY_UNAVAILABLE, AUTOMATIC_QUALITY_UNAVAILABLE, PYROWAVE_UNAVAILABLE,
         // HDR on this PC: the screen, Android, the decoder or the PC lacks it.
         HDR_UNAVAILABLE,
+        // PyroWave HDR that this device cannot show although the PC offers it.
+        PYROWAVE_HDR_UNAVAILABLE,
         // A codec forced in settings that this device cannot decode.
         CODEC_UNAVAILABLE,
         // GeForce Experience too old for 4K.

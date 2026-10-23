@@ -499,6 +499,16 @@ public class NvConnection {
         return StreamConfiguration.STREAM_CFG_AUTO;
     }
     
+    /**
+     * HDR is streaming, but not as PyroWave although the host and this device both offered
+     * PyroWave 10-bit: the device could not create its HDR output.
+     */
+    static boolean pyroWaveHdrLost(int commonFormats, int negotiatedFormats) {
+        int pyroWaveHdr = MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE & MoonBridge.VIDEO_FORMAT_MASK_10BIT;
+        return (commonFormats & pyroWaveHdr) != 0 && (negotiatedFormats & pyroWaveHdr) == 0 &&
+                (negotiatedFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+    }
+
     static int negotiateVideoFormats(int formats, int serverFormats) {
         formats &= MoonBridge.VIDEO_FORMAT_MASK_H264 | MoonBridge.VIDEO_FORMAT_MASK_H265 |
                 MoonBridge.VIDEO_FORMAT_MASK_AV1 | MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE;
@@ -703,6 +713,21 @@ public class NvConnection {
                     context.negotiatedHeight, context.streamConfig.getRefreshRate());
             context.negotiatedVideoFormats = negotiateVideoFormats(preparedFormats, context.serverCodecModeSupport);
             context.negotiatedHdr = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+            if (pyroWaveHdrLost(commonFormats, context.negotiatedVideoFormats)) {
+                // The host and this device both offer PyroWave HDR, but its output could not be
+                // created here; AV1 or HEVC HDR carries the stream instead. Say so once per PC.
+                int reason = renderer.pyroWaveHdrFailureReason();
+                LimeLog.warning("PyroWave HDR unavailable, streaming " + Integer.toHexString(context.negotiatedVideoFormats) +
+                        (reason != 0 ? ": " + appContext.getString(reason) : ""));
+                if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.PYROWAVE_HDR_UNAVAILABLE)) {
+                    context.connListener.displayTransientMessage(appContext.getString(
+                            R.string.startup_pyrowave_hdr_unavailable,
+                            appContext.getString(reason != 0 ? reason : R.string.pyrowave_check_failed)));
+                }
+            } else if ((context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT &
+                    MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+                HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PYROWAVE_HDR_UNAVAILABLE);
+            }
             if (!context.negotiatedHdr && (offeredFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
                 if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.HDR_UNAVAILABLE)) {
                     context.connListener.displayTransientMessage(appContext.getString(R.string.startup_hdr_unavailable));

@@ -62,9 +62,25 @@ public final class PyroWaveDecoderRenderer {
     }
 
     public static int getReadinessSummary(Context context, boolean hdr) {
+        int readiness = getReadiness(context, hdr);
+        if (readiness == 0) {
+            return GpuDriverStore.usedFallback(context) ? R.string.gpu_driver_system_fallback : R.string.pyrowave_ready;
+        }
+        return failureSummary(readiness);
+    }
+
+    /**
+     * Why PyroWave HDR cannot run here, after its output surface failed. A device whose HDR
+     * readiness check passes still failed to create the 10-bit HDR10 swapchain.
+     */
+    public static int hdrFailureSummary(Context context) {
+        int readiness = getReadiness(context, true);
+        return readiness == 0 ? R.string.pyrowave_missing_swapchain : failureSummary(readiness);
+    }
+
+    private static int failureSummary(int readiness) {
         // Native reason codes are shared with the renderer's device checks.
-        switch (getReadiness(context, hdr)) {
-            case 0: return GpuDriverStore.usedFallback(context) ? R.string.gpu_driver_system_fallback : R.string.pyrowave_ready;
+        switch (readiness) {
             case -1: return R.string.pyrowave_needs_android;
             case -2: return R.string.pyrowave_needs_64_bit;
             case -3: return R.string.pyrowave_decoder_unavailable;

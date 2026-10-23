@@ -12,6 +12,7 @@
     <string name="startup_device_resolution_unsupported">4K를 초과하는 해상도에는 이 기기의 HEVC 또는 AV1 지원이 필요합니다. 더 낮은 해상도나 다른 코덱을 선택하세요.</string>
     <string name="startup_host_update_4k">4K로 스트리밍하려면 PC에서 GeForce Experience를 업데이트하세요. 이 스트림은 1080p입니다.</string>
     <string name="startup_hdr_unavailable">PC와 이 기기가 공통으로 지원하는 HDR 코덱이 없어 SDR로 스트리밍합니다.</string>
+    <string name="startup_pyrowave_hdr_unavailable">이 기기에서는 PyroWave HDR을 사용할 수 없어(%1$s) HDR에 다른 코덱을 사용합니다.</string>
     <string name="startup_resume_failed">세션을 다시 시작할 수 없습니다. PC에서 앱을 확인한 후 다시 시도하세요.</string>
     <string name="startup_session_owner">다른 기기가 이 세션을 사용 중입니다. 해당 기기나 PC에서 세션을 종료한 후 다시 시도하세요.</string>
     <string name="startup_app_minimized">앱이 최소화되어 있습니다. PC에서 앱을 복원하거나, 세션을 종료하고 다시 시작하세요.</string>

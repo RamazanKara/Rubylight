@@ -186,6 +186,22 @@ pub struct Encoder {
     /// When AMF last accepted an input, for the stream's stage timings.
     last_accepted: Option<Instant>,
     input_full: u64,
+    /// Every output unit, with when QueryOutput returned it. Set by the
+    /// slice/tile delivery probe only.
+    unit_log: Option<Vec<OutputUnit>>,
+}
+/// One output buffer from QueryOutput: a frame, or with slice/tile output one
+/// slice or tile of it.
+pub struct OutputUnit {
+    pub pts: i64,
+    /// The driver's buffer type: 0 frame, 1 slice or tile, 2 last slice or tile.
+    pub kind: Option<i64>,
+    pub bytes: usize,
+    /// QueryOutput returned the unit.
+    pub at: Instant,
+    /// The call that submitted the frame began, and AMF accepted the input.
+    pub started: Option<Instant>,
+    pub accepted: Option<Instant>,
 }
 struct ComputeInput {
     converter: crate::compute::Converter,
@@ -423,6 +439,7 @@ impl Encoder {
                 last_submit: None,
                 last_accepted: None,
                 input_full: 0,
+                unit_log: None,
             };
             let mut properties = butterpollo_core::encoder_policy::amf(options, config)?;
             guard_smart_access_video(&mut properties);
@@ -584,6 +601,7 @@ impl Encoder {
             }
             e.configure_ltr(ltr_count);
             e.request_split_frame(options);
+            e.apply_probe_properties(options)?;
             let hevc_request = if allow_hevc_intra_refresh {
                 butterpollo_core::encoder_policy::amf_hevc_intra_refresh(config)
             } else {
@@ -662,7 +680,7 @@ impl Encoder {
         }
     }
     /// An integer or boolean property as the driver now has it.
-    fn read(&self, name: &str) -> Option<i64> {
+    pub fn read(&self, name: &str) -> Option<i64> {
         // SAFETY: Self retains the component and its loaded runtime.
         unsafe { Self::read_component(self.component, name) }
     }
@@ -772,9 +790,52 @@ impl Encoder {
             let result =
                 ((*(*caps).pVtbl).GetProperty.unwrap())(caps, to_wide(name).as_ptr(), &mut value);
             ((*(*caps).pVtbl).Release.unwrap())(caps);
-            (result == AMF_RESULT_AMF_OK && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
-                .then_some(value.__bindgen_anon_1.int64Value)
+            if result != AMF_RESULT_AMF_OK {
+                return None;
+            }
+            match value.type_ {
+                AMF_VARIANT_TYPE_AMF_VARIANT_INT64 => Some(value.__bindgen_anon_1.int64Value),
+                AMF_VARIANT_TYPE_AMF_VARIANT_BOOL => {
+                    Some(i64::from(value.__bindgen_anon_1.boolValue))
+                }
+                _ => None,
+            }
         }
+    }
+    /// An integer or boolean capability, for the probes.
+    pub fn capability(&self, name: &str) -> Option<i64> {
+        self.cap(name)
+    }
+    /// Start recording every output unit (see [`OutputUnit`]). With slice or
+    /// tile output, `poll` then keeps a frame in flight until its last unit.
+    pub fn record_units(&mut self) {
+        self.unit_log = Some(Vec::new());
+    }
+    pub fn take_units(&mut self) -> Vec<OutputUnit> {
+        self.unit_log
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+    /// `probe_amf_properties = Name=int,Name=int`: integer properties set
+    /// before Init, by their exact AMF names, for probes. A refusal is an error.
+    fn apply_probe_properties(&mut self, options: &butterpollo_core::config::Config) -> Result<()> {
+        let Some(list) = options.values.get("probe_amf_properties") else {
+            return Ok(());
+        };
+        for item in list.split(',').filter(|item| !item.trim().is_empty()) {
+            let (name, value) = item
+                .split_once('=')
+                .with_context(|| format!("probe_amf_properties item {item:?} is not Name=int"))?;
+            let value: i64 = value.trim().parse().with_context(|| {
+                format!(
+                    "probe_amf_properties value of {} is not an integer",
+                    name.trim()
+                )
+            })?;
+            self.property_raw(name.trim(), int(value))?;
+        }
+        Ok(())
     }
     /// Set a property and read it back: a driver can accept a value and keep
     /// another.
@@ -1407,6 +1468,9 @@ impl Encoder {
             }
             let buffer = data as *mut AMFBuffer;
             let pts = ((*(*data).pVtbl).GetPts.unwrap())(data);
+            if self.unit_log.is_some() && self.log_unit(buffer, pts) {
+                return Ok(output);
+            }
             let submission = self
                 .in_flight
                 .iter()
@@ -1471,6 +1535,47 @@ impl Encoder {
                 presentation,
             });
             Ok(output)
+        }
+    }
+    /// Record one output unit for the probe. True for a slice or tile that is
+    /// not the last of its frame: the frame stays in flight.
+    ///
+    /// # Safety
+    /// `buffer` is the AMF buffer QueryOutput just returned; this releases it
+    /// when it returns true.
+    unsafe fn log_unit(&mut self, buffer: *mut AMFBuffer, pts: i64) -> bool {
+        let at = Instant::now();
+        // SAFETY: The caller passes the live buffer; the property storage is
+        // initialized and only an INT64 tag is read.
+        unsafe {
+            let v = &*(*buffer).pVtbl;
+            let name = match self.codec {
+                0 => "OutputBufferType",
+                1 => "HevcOutputBufferType",
+                _ => "AV1OutputBufferType",
+            };
+            let mut value: AMFVariantStruct = std::mem::zeroed();
+            let kind = ((v.GetProperty.unwrap())(buffer, to_wide(name).as_ptr(), &mut value)
+                == AMF_RESULT_AMF_OK
+                && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
+                .then_some(value.__bindgen_anon_1.int64Value);
+            let submission = self.in_flight.iter().find(|s| s.pts == pts);
+            let unit = OutputUnit {
+                pts,
+                kind,
+                bytes: (v.GetSize.unwrap())(buffer),
+                at,
+                started: submission.map(|s| s.started),
+                accepted: submission.map(|s| s.accepted),
+            };
+            if let Some(log) = self.unit_log.as_mut() {
+                log.push(unit);
+            }
+            let partial = kind == Some(1);
+            if partial {
+                (v.Release.unwrap())(buffer);
+            }
+            partial
         }
     }
     /// A CPU image, such as the codec probe's, goes through the same GPU

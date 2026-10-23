@@ -1,0 +1,742 @@
+{
+  "bitrate_kbps": 80000,
+  "fps": 60,
+  "frames": 400,
+  "height": 2160,
+  "runs": [
+    {
+      "buffer_type_sequences": {
+        "[Some(0)]": 370
+      },
+      "capability": {
+        "SupportSliceOutput": 1
+      },
+      "codec": "h264",
+      "example_frame": [],
+      "first_to_last_ms": {
+        "max": 0.0,
+        "median": 0.0,
+        "p95": 0.0
+      },
+      "first_unit_bytes": {
+        "max": 168755.0,
+        "median": 162878.0,
+        "p95": 165703.0
+      },
+      "first_unit_ms": {
+        "max": 6.5093,
+        "median": 6.2432,
+        "p95": 6.3764
+      },
+      "frame_bytes": {
+        "max": 168755.0,
+        "median": 162878.0,
+        "p95": 165703.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 6.5093,
+        "median": 6.2432,
+        "p95": 6.3764
+      },
+      "mode": "frame",
+      "properties_effective": {
+        "OutputBufferType": null,
+        "OutputMode": 0,
+        "SlicesPerFrame": 1
+      },
+      "properties_set": [],
+      "units_per_frame": {
+        "max": 1.0,
+        "median": 1.0,
+        "p95": 1.0
+      },
+      "units_requested": 0
+    },
+    {
+      "buffer_type_sequences": {
+        "[Some(1), Some(1), Some(1), Some(2)]": 370
+      },
+      "capability": {
+        "SupportSliceOutput": 1
+      },
+      "codec": "h264",
+      "example_frame": [
+        {
+          "at_ms": 2.1573,
+          "bytes": 43456,
+          "kind": 1
+        },
+        {
+          "at_ms": 3.3444,
+          "bytes": 42847,
+          "kind": 1
+        },
+        {
+          "at_ms": 4.5234000000000005,
+          "bytes": 40609,
+          "kind": 1
+        },
+        {
+          "at_ms": 5.7317,
+          "bytes": 41736,
+          "kind": 2
+        }
+      ],
+      "first_to_last_ms": {
+        "max": 3.7197,
+        "median": 3.5916999999999994,
+        "p95": 3.6212999999999993
+      },
+      "first_unit_bytes": {
+        "max": 46105.0,
+        "median": 42096.0,
+        "p95": 44839.0
+      },
+      "first_unit_ms": {
+        "max": 3.5027,
+        "median": 2.1513,
+        "p95": 2.5290999999999997
+      },
+      "frame_bytes": {
+        "max": 173366.0,
+        "median": 164321.0,
+        "p95": 171187.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 6.4224,
+        "median": 5.7485,
+        "p95": 6.1382
+      },
+      "mode": "units",
+      "properties_effective": {
+        "OutputBufferType": null,
+        "OutputMode": 1,
+        "SlicesPerFrame": 4
+      },
+      "properties_set": [
+        "OutputMode=1",
+        "SlicesPerFrame=4"
+      ],
+      "units_per_frame": {
+        "max": 4.0,
+        "median": 4.0,
+        "p95": 4.0
+      },
+      "units_requested": 4
+    },
+    {
+      "buffer_type_sequences": {
+        "[Some(1), Some(1), Some(1), Some(1), Some(1), Some(1), Some(1), Some(2)]": 370
+      },
+      "capability": {
+        "SupportSliceOutput": 1
+      },
+      "codec": "h264",
+      "example_frame": [
+        {
+          "at_ms": 1.5312,
+          "bytes": 22218,
+          "kind": 1
+        },
+        {
+          "at_ms": 2.1028000000000002,
+          "bytes": 22315,
+          "kind": 1
+        },
+        {
+          "at_ms": 2.7018,
+          "bytes": 22201,
+          "kind": 1
+        },
+        {
+          "at_ms": 3.3135,
+          "bytes": 21703,
+          "kind": 1
+        },
+        {
+          "at_ms": 3.9153000000000002,
+          "bytes": 21330,
+          "kind": 1
+        },
+        {
+          "at_ms": 4.4916,
+          "bytes": 21278,
+          "kind": 1
+        },
+        {
+          "at_ms": 5.0915,
+          "bytes": 21342,
+          "kind": 1
+        },
+        {
+          "at_ms": 5.7292000000000005,
+          "bytes": 20931,
+          "kind": 2
+        }
+      ],
+      "first_to_last_ms": {
+        "max": 4.383,
+        "median": 4.1984,
+        "p95": 4.2254
+      },
+      "first_unit_bytes": {
+        "max": 23656.0,
+        "median": 21869.0,
+        "p95": 23190.0
+      },
+      "first_unit_ms": {
+        "max": 2.1393,
+        "median": 1.7158,
+        "p95": 2.0078
+      },
+      "frame_bytes": {
+        "max": 178365.0,
+        "median": 169075.0,
+        "p95": 176929.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 6.380699999999999,
+        "median": 5.920100000000001,
+        "p95": 6.2179
+      },
+      "mode": "units",
+      "properties_effective": {
+        "OutputBufferType": null,
+        "OutputMode": 1,
+        "SlicesPerFrame": 8
+      },
+      "properties_set": [
+        "OutputMode=1",
+        "SlicesPerFrame=8"
+      ],
+      "units_per_frame": {
+        "max": 8.0,
+        "median": 8.0,
+        "p95": 8.0
+      },
+      "units_requested": 8
+    },
+    {
+      "buffer_type_sequences": {
+        "[Some(0)]": 370
+      },
+      "capability": {
+        "HevcSupportSliceOutput": 1
+      },
+      "codec": "hevc",
+      "example_frame": [],
+      "first_to_last_ms": {
+        "max": 0.0,
+        "median": 0.0,
+        "p95": 0.0
+      },
+      "first_unit_bytes": {
+        "max": 178934.0,
+        "median": 164504.0,
+        "p95": 173522.0
+      },
+      "first_unit_ms": {
+        "max": 6.6389,
+        "median": 5.896400000000001,
+        "p95": 6.0607
+      },
+      "frame_bytes": {
+        "max": 178934.0,
+        "median": 164504.0,
+        "p95": 173522.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 6.6389,
+        "median": 5.896400000000001,
+        "p95": 6.0607
+      },
+      "mode": "frame",
+      "properties_effective": {
+        "HevcOutputBufferType": null,
+        "HevcOutputMode": 0,
+        "HevcSlicesPerFrame": 1
+      },
+      "properties_set": [],
+      "units_per_frame": {
+        "max": 1.0,
+        "median": 1.0,
+        "p95": 1.0
+      },
+      "units_requested": 0
+    },
+    {
+      "buffer_type_sequences": {
+        "[Some(1), Some(1), Some(1), Some(2)]": 370
+      },
+      "capability": {
+        "HevcSupportSliceOutput": 1
+      },
+      "codec": "hevc",
+      "example_frame": [
+        {
+          "at_ms": 2.1978,
+          "bytes": 48380,
+          "kind": 1
+        },
+        {
+          "at_ms": 3.3752999999999997,
+          "bytes": 41367,
+          "kind": 1
+        },
+        {
+          "at_ms": 4.576700000000001,
+          "bytes": 40856,
+          "kind": 1
+        },
+        {
+          "at_ms": 5.8106,
+          "bytes": 42437,
+          "kind": 2
+        }
+      ],
+      "first_to_last_ms": {
+        "max": 3.6747,
+        "median": 3.6073,
+        "p95": 3.6334999999999997
+      },
+      "first_unit_bytes": {
+        "max": 52766.0,
+        "median": 39547.0,
+        "p95": 48369.0
+      },
+      "first_unit_ms": {
+        "max": 2.5681,
+        "median": 2.2723,
+        "p95": 2.3228
+      },
+      "frame_bytes": {
+        "max": 179263.0,
+        "median": 164710.0,
+        "p95": 174226.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 6.1899,
+        "median": 5.8815,
+        "p95": 5.9472
+      },
+      "mode": "units",
+      "properties_effective": {
+        "HevcOutputBufferType": null,
+        "HevcOutputMode": 1,
+        "HevcSlicesPerFrame": 4
+      },
+      "properties_set": [
+        "HevcOutputMode=1",
+        "HevcSlicesPerFrame=4"
+      ],
+      "units_per_frame": {
+        "max": 4.0,
+        "median": 4.0,
+        "p95": 4.0
+      },
+      "units_requested": 4
+    },
+    {
+      "buffer_type_sequences": {
+        "[Some(1), Some(1), Some(1), Some(1), Some(1), Some(1), Some(1), Some(2)]": 370
+      },
+      "capability": {
+        "HevcSupportSliceOutput": 1
+      },
+      "codec": "hevc",
+      "example_frame": [
+        {
+          "at_ms": 1.6882,
+          "bytes": 27326,
+          "kind": 1
+        },
+        {
+          "at_ms": 2.2753,
+          "bytes": 20917,
+          "kind": 1
+        },
+        {
+          "at_ms": 2.8611999999999997,
+          "bytes": 21025,
+          "kind": 1
+        },
+        {
+          "at_ms": 3.4554,
+          "bytes": 20103,
+          "kind": 1
+        },
+        {
+          "at_ms": 4.0541,
+          "bytes": 20894,
+          "kind": 1
+        },
+        {
+          "at_ms": 4.6494,
+          "bytes": 19673,
+          "kind": 1
+        },
+        {
+          "at_ms": 5.2674,
+          "bytes": 22007,
+          "kind": 1
+        },
+        {
+          "at_ms": 5.88,
+          "bytes": 21192,
+          "kind": 2
+        }
+      ],
+      "first_to_last_ms": {
+        "max": 4.4232,
+        "median": 4.203200000000001,
+        "p95": 4.2273
+      },
+      "first_unit_bytes": {
+        "max": 30734.0,
+        "median": 18957.0,
+        "p95": 27180.0
+      },
+      "first_unit_ms": {
+        "max": 1.9143000000000001,
+        "median": 1.677,
+        "p95": 1.7469000000000001
+      },
+      "frame_bytes": {
+        "max": 179380.0,
+        "median": 164703.0,
+        "p95": 173879.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 6.116899999999999,
+        "median": 5.88,
+        "p95": 5.9597
+      },
+      "mode": "units",
+      "properties_effective": {
+        "HevcOutputBufferType": null,
+        "HevcOutputMode": 1,
+        "HevcSlicesPerFrame": 8
+      },
+      "properties_set": [
+        "HevcOutputMode=1",
+        "HevcSlicesPerFrame=8"
+      ],
+      "units_per_frame": {
+        "max": 8.0,
+        "median": 8.0,
+        "p95": 8.0
+      },
+      "units_requested": 8
+    },
+    {
+      "buffer_type_sequences": {
+        "[Some(0)]": 370
+      },
+      "capability": {
+        "AV1SupportTileOutput": 1
+      },
+      "codec": "av1",
+      "example_frame": [],
+      "first_to_last_ms": {
+        "max": 0.0,
+        "median": 0.0,
+        "p95": 0.0
+      },
+      "first_unit_bytes": {
+        "max": 175599.0,
+        "median": 166652.0,
+        "p95": 171403.0
+      },
+      "first_unit_ms": {
+        "max": 5.6025,
+        "median": 4.969399999999999,
+        "p95": 5.245900000000001
+      },
+      "frame_bytes": {
+        "max": 175599.0,
+        "median": 166652.0,
+        "p95": 171403.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 5.6025,
+        "median": 4.969399999999999,
+        "p95": 5.245900000000001
+      },
+      "mode": "frame",
+      "properties_effective": {
+        "AV1OutputBufferType": null,
+        "AV1OutputMode": 0,
+        "Av1NumTilesPerFrame": 1,
+        "Av1TileGroupObu": 0
+      },
+      "properties_set": [],
+      "units_per_frame": {
+        "max": 1.0,
+        "median": 1.0,
+        "p95": 1.0
+      },
+      "units_requested": 0
+    },
+    {
+      "buffer_type_sequences": {
+        "[Some(1), Some(1), Some(1), Some(2)]": 370
+      },
+      "capability": {
+        "AV1SupportTileOutput": 1
+      },
+      "codec": "av1",
+      "example_frame": [
+        {
+          "at_ms": 2.042,
+          "bytes": 44077,
+          "kind": 1
+        },
+        {
+          "at_ms": 3.0863,
+          "bytes": 89324,
+          "kind": 1
+        },
+        {
+          "at_ms": 4.1209999999999996,
+          "bytes": 132330,
+          "kind": 1
+        },
+        {
+          "at_ms": 4.9461,
+          "bytes": 165783,
+          "kind": 2
+        }
+      ],
+      "first_to_last_ms": {
+        "max": 3.3201,
+        "median": 2.9042000000000003,
+        "p95": 2.9797000000000002
+      },
+      "first_unit_bytes": {
+        "max": 53497.0,
+        "median": 44394.0,
+        "p95": 49806.0
+      },
+      "first_unit_ms": {
+        "max": 5.8344,
+        "median": 1.8852,
+        "p95": 2.6142000000000003
+      },
+      "frame_bytes": {
+        "max": 499660.0,
+        "median": 432171.0,
+        "p95": 472722.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 8.738100000000001,
+        "median": 4.7915,
+        "p95": 5.5676
+      },
+      "mode": "units",
+      "properties_effective": {
+        "AV1OutputBufferType": null,
+        "AV1OutputMode": 1,
+        "Av1NumTilesPerFrame": 4,
+        "Av1TileGroupObu": 0
+      },
+      "properties_set": [
+        "AV1OutputMode=1",
+        "Av1NumTilesPerFrame=4"
+      ],
+      "units_per_frame": {
+        "max": 4.0,
+        "median": 4.0,
+        "p95": 4.0
+      },
+      "units_requested": 4
+    },
+    {
+      "buffer_type_sequences": {
+        "[Some(1), Some(1), Some(1), Some(1), Some(1), Some(1), Some(1), Some(2)]": 370
+      },
+      "capability": {
+        "AV1SupportTileOutput": 1
+      },
+      "codec": "av1",
+      "example_frame": [
+        {
+          "at_ms": 5.7948,
+          "bytes": 22599,
+          "kind": 1
+        },
+        {
+          "at_ms": 6.4144,
+          "bytes": 47060,
+          "kind": 1
+        },
+        {
+          "at_ms": 6.8696,
+          "bytes": 67253,
+          "kind": 1
+        },
+        {
+          "at_ms": 7.3358,
+          "bytes": 85750,
+          "kind": 1
+        },
+        {
+          "at_ms": 7.8137,
+          "bytes": 105363,
+          "kind": 1
+        },
+        {
+          "at_ms": 8.297600000000001,
+          "bytes": 125215,
+          "kind": 1
+        },
+        {
+          "at_ms": 8.7862,
+          "bytes": 144087,
+          "kind": 1
+        },
+        {
+          "at_ms": 9.261099999999999,
+          "bytes": 162811,
+          "kind": 2
+        }
+      ],
+      "first_to_last_ms": {
+        "max": 3.8568999999999996,
+        "median": 3.4688,
+        "p95": 3.5817000000000005
+      },
+      "first_unit_bytes": {
+        "max": 29945.0,
+        "median": 23367.0,
+        "p95": 26707.0
+      },
+      "first_unit_ms": {
+        "max": 11.5528,
+        "median": 5.9804,
+        "p95": 6.8732999999999995
+      },
+      "frame_bytes": {
+        "max": 914117.0,
+        "median": 773588.0,
+        "p95": 849791.0
+      },
+      "frames_measured": 370,
+      "last_unit_ms": {
+        "max": 14.9928,
+        "median": 9.4419,
+        "p95": 10.3846
+      },
+      "mode": "units",
+      "properties_effective": {
+        "AV1OutputBufferType": null,
+        "AV1OutputMode": 1,
+        "Av1NumTilesPerFrame": 8,
+        "Av1TileGroupObu": 0
+      },
+      "properties_set": [
+        "AV1OutputMode=1",
+        "Av1NumTilesPerFrame=8"
+      ],
+      "units_per_frame": {
+        "max": 8.0,
+        "median": 8.0,
+        "p95": 8.0
+      },
+      "units_requested": 8
+    }
+  ],
+  "timing": "Instant (QueryPerformanceCounter) from AMF accepting the input to QueryOutput returning each unit; QueryTimeout 1 ms as in the host",
+  "verdicts": {
+    "av1": {
+      "by_units": [
+        {
+          "first_to_last_within_mode_ms": 2.9042000000000003,
+          "first_unit_gain_vs_frame_mode_ms": 3.084199999999999,
+          "full_frame_vs_frame_mode_median_ms": -0.17789999999999928,
+          "full_frame_vs_frame_mode_p95_ms": 0.321699999999999,
+          "reason": "first unit 3.084 ms before the whole frame in frame mode",
+          "slower_full_frame": false,
+          "units": 4,
+          "units_per_frame_median": 4.0,
+          "verdict": "PASS"
+        },
+        {
+          "first_to_last_within_mode_ms": 3.4688,
+          "first_unit_gain_vs_frame_mode_ms": -1.011000000000001,
+          "full_frame_vs_frame_mode_median_ms": 4.472500000000001,
+          "full_frame_vs_frame_mode_p95_ms": 5.1387,
+          "reason": "first unit comes only -1.011 ms before the whole frame in frame mode",
+          "slower_full_frame": true,
+          "units": 8,
+          "units_per_frame_median": 8.0,
+          "verdict": "KILL"
+        }
+      ],
+      "verdict": "PASS"
+    },
+    "h264": {
+      "by_units": [
+        {
+          "first_to_last_within_mode_ms": 3.5916999999999994,
+          "first_unit_gain_vs_frame_mode_ms": 4.0919,
+          "full_frame_vs_frame_mode_median_ms": -0.4946999999999999,
+          "full_frame_vs_frame_mode_p95_ms": -0.23819999999999997,
+          "reason": "first unit 4.092 ms before the whole frame in frame mode",
+          "slower_full_frame": false,
+          "units": 4,
+          "units_per_frame_median": 4.0,
+          "verdict": "PASS"
+        },
+        {
+          "first_to_last_within_mode_ms": 4.1984,
+          "first_unit_gain_vs_frame_mode_ms": 4.5274,
+          "full_frame_vs_frame_mode_median_ms": -0.3230999999999993,
+          "full_frame_vs_frame_mode_p95_ms": -0.15850000000000009,
+          "reason": "first unit 4.527 ms before the whole frame in frame mode",
+          "slower_full_frame": false,
+          "units": 8,
+          "units_per_frame_median": 8.0,
+          "verdict": "PASS"
+        }
+      ],
+      "verdict": "PASS"
+    },
+    "hevc": {
+      "by_units": [
+        {
+          "first_to_last_within_mode_ms": 3.6073,
+          "first_unit_gain_vs_frame_mode_ms": 3.6241000000000008,
+          "full_frame_vs_frame_mode_median_ms": -0.014900000000000801,
+          "full_frame_vs_frame_mode_p95_ms": -0.11350000000000016,
+          "reason": "first unit 3.624 ms before the whole frame in frame mode",
+          "slower_full_frame": false,
+          "units": 4,
+          "units_per_frame_median": 4.0,
+          "verdict": "PASS"
+        },
+        {
+          "first_to_last_within_mode_ms": 4.203200000000001,
+          "first_unit_gain_vs_frame_mode_ms": 4.2194,
+          "full_frame_vs_frame_mode_median_ms": -0.01640000000000086,
+          "full_frame_vs_frame_mode_p95_ms": -0.10099999999999998,
+          "reason": "first unit 4.219 ms before the whole frame in frame mode",
+          "slower_full_frame": false,
+          "units": 8,
+          "units_per_frame_median": 8.0,
+          "verdict": "PASS"
+        }
+      ],
+      "verdict": "PASS"
+    }
+  },
+  "warmup": 30,
+  "width": 3840
+}

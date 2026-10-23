@@ -113,6 +113,28 @@ pub fn hdr_available(renderer: *mut SDL_Renderer) -> bool {
     }
 }
 
+/// Measurement runs on one PC (`NIGHTJAR_EXCLUDE_FROM_CAPTURE=1`): keeps the window out of
+/// screen capture, so a host capturing this display does not see the stream it is sending and
+/// the client's presents do not change the host's capture rate. No effect elsewhere.
+pub fn exclude_from_capture_if_asked(window: *mut SDL_Window) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
+        if !std::env::var_os("NIGHTJAR_EXCLUDE_FROM_CAPTURE").is_some_and(|v| v == "1") {
+            return;
+        }
+        // SAFETY: a live window; the property is its HWND.
+        let hwnd = unsafe { SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut()) };
+        // SAFETY: the window belongs to this process, which is what the call requires.
+        if let Err(error) = unsafe { SetWindowDisplayAffinity(HWND(hwnd), WDA_EXCLUDEFROMCAPTURE) } {
+            eprintln!("nightjar: could not keep the window out of screen capture: {error}");
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = window;
+}
+
 pub fn display_caps(renderer: *mut SDL_Renderer) -> rubylight_protocol::control::DisplayCaps {
     let caps = rubylight_protocol::control::DisplayCaps {
         hdr: hdr_available(renderer),

@@ -199,6 +199,7 @@ fn run() -> Result<(), String> {
         (window, renderer, SDL_RegisterEvents(1))
     };
     sdl::set_icon(window, &theme::logo_rgba(64), 64);
+    sdl::exclude_from_capture_if_asked(window);
     // SAFETY: a live window.
     unsafe { SDL_ShowWindow(window) };
 

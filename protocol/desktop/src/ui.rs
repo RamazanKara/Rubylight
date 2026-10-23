@@ -426,6 +426,10 @@ impl Launcher {
 
     /// Ctrl+= and Ctrl+- step the zoom, Ctrl+0 resets it. Returns whether it changed.
     fn zoom_keys(&mut self, ctx: &egui::Context) -> bool {
+        // In a text field the keys belong to the field.
+        if ctx.text_edit_focused() {
+            return false;
+        }
         let step = ctx.input(|i| {
             if !i.modifiers.command {
                 None
@@ -3204,6 +3208,7 @@ mod tests {
 
         /// A PC as the app sees it after the PC answered (`info`) and its classic list loaded.
         fn with(record: HostRecord, reach: Reach, info: Option<nightjar_core::http::ServerInfo>, apps: Vec<nightjar_core::http::App>) -> Self {
+            crate::theme::own_palette();
             let ctx = egui::Context::default();
             crate::theme::apply(&ctx);
             let mut l = launcher(false, false);
@@ -3524,6 +3529,7 @@ mod tests {
     #[test]
     fn the_spinner_stands_still_and_asks_for_no_frames_when_motion_is_reduced() {
         for still in [true, false] {
+            crate::theme::own_palette();
             let ctx = egui::Context::default();
             set_look(&ctx, false, still);
             // The first frames ask for repaints of their own (fonts, layout); look at a settled one.
@@ -3551,6 +3557,32 @@ mod tests {
         f.l.settings.high_contrast = false;
         f.settle();
         assert_ne!(f.ctx.global_style().visuals.panel_fill, Color32::BLACK);
+    }
+
+    #[test]
+    fn ctrl_equals_minus_and_zero_step_the_zoom_except_in_a_text_field() {
+        let mut f = Frames::new(record("PC", true, true), Reach::Online);
+        assert_eq!(f.l.settings.ui_zoom, 100);
+        f.press_with(Key::Equals, egui::Modifiers::COMMAND);
+        assert_eq!(f.l.settings.ui_zoom, 115);
+        f.press_with(Key::Equals, egui::Modifiers::COMMAND);
+        f.press_with(Key::Equals, egui::Modifiers::COMMAND);
+        f.press_with(Key::Equals, egui::Modifiers::COMMAND);
+        f.press_with(Key::Equals, egui::Modifiers::COMMAND);
+        assert_eq!(f.l.settings.ui_zoom, 150, "the top step is the last one");
+        f.press_with(Key::Minus, egui::Modifiers::COMMAND);
+        assert_eq!(f.l.settings.ui_zoom, 130);
+        f.press_with(Key::Num0, egui::Modifiers::COMMAND);
+        assert_eq!(f.l.settings.ui_zoom, 100);
+        // The Rename dialog's name field has the keyboard.
+        f.press(Key::F2);
+        f.press(Key::ArrowDown);
+        f.press(Key::ArrowDown);
+        f.press(Key::Enter);
+        assert!(matches!(f.l.dialog, Dialog::Rename { .. }));
+        assert!(f.ctx.text_edit_focused(), "the name field is focused");
+        f.press_with(Key::Equals, egui::Modifiers::COMMAND);
+        assert_eq!(f.l.settings.ui_zoom, 100, "a text field keeps Ctrl+=");
     }
 
     #[test]

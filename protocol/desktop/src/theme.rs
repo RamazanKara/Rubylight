@@ -88,7 +88,19 @@ pub fn high_contrast() -> bool {
 }
 
 pub fn set_high_contrast(on: bool) {
+    // A test with its own palette changes only that, never what the other tests see.
+    #[cfg(test)]
+    if TEST_HIGH.with(|h| h.get().is_some()) {
+        TEST_HIGH.with(|h| h.set(Some(on)));
+        return;
+    }
     HIGH_CONTRAST.store(on, Ordering::Relaxed);
+}
+
+/// Test only: gives this thread its own palette setting, off at first.
+#[cfg(test)]
+pub fn own_palette() {
+    TEST_HIGH.with(|h| h.set(Some(false)));
 }
 
 /// The stroke of the focus ring: thick enough to find from across a room, thicker still in high
@@ -195,6 +207,10 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
     v.extreme_bg_color = *SURFACE_LOWEST;
     v.faint_bg_color = *SURFACE_LOW;
     v.override_text_color = Some(*ON_SURFACE);
+    // egui's own weak text (half-faded) and disabled controls would fall below the contrast of
+    // the rest; weak text is the secondary text role, and disabled fades less.
+    v.weak_text_color = Some(*ON_SURFACE_VARIANT);
+    v.disabled_alpha = if high { 0.75 } else { 0.62 };
     v.hyperlink_color = *MOON;
     v.selection.bg_fill = *MOON_CONTAINER;
     v.selection.stroke = Stroke::new(1.0, *ON_MOON_CONTAINER);
@@ -388,6 +404,35 @@ mod tests {
         }
     }
 
+    /// `top` (maybe translucent) painted over the opaque `ground`, as egui blends it.
+    fn over(top: Color32, ground: Color32) -> Color32 {
+        let keep = u32::from(255 - top.a());
+        let mix = |t: u8, g: u8| (u32::from(t) + u32::from(g) * keep / 255).min(255) as u8;
+        Color32::from_rgb(mix(top.r(), ground.r()), mix(top.g(), ground.g()), mix(top.b(), ground.b()))
+    }
+
+    #[test]
+    fn weak_and_disabled_text_stay_readable_in_both_palettes() {
+        // What `ui.weak` and a disabled control draw come from the style, not from a role of
+        // ours, so read them from the style the app sets. Disabled text is exempt from WCAG; it
+        // still has to be read, so it gets 3:1 (4.5:1 in high contrast).
+        for (high, weak_floor, disabled_floor) in [(false, 4.5, 3.0), (true, 7.0, 4.5)] {
+            let ctx = egui::Context::default();
+            own_palette();
+            set_look(&ctx, high, false);
+            let visuals = ctx.global_style().visuals.clone();
+            for ground in GROUNDS {
+                let ground = color(high, ground);
+                let weak = over(visuals.weak_text_color(), ground);
+                let ratio = contrast(weak, ground);
+                assert!(ratio >= weak_floor, "high={high}: weak text on {ground:?} is {ratio:.2}:1, wants {weak_floor}");
+                let disabled = over(visuals.disable(visuals.text_color()), ground);
+                let ratio = contrast(disabled, ground);
+                assert!(ratio >= disabled_floor, "high={high}: disabled text on {ground:?} is {ratio:.2}:1, wants {disabled_floor}");
+            }
+        }
+    }
+
     #[test]
     fn the_focus_ring_stands_out_from_every_surface_in_both_palettes() {
         for high in [false, true] {
@@ -403,6 +448,17 @@ mod tests {
         let thick = focus_ring_width();
         TEST_HIGH.with(|h| h.set(None));
         assert!(thick > normal);
+    }
+
+    #[test]
+    fn a_test_with_its_own_palette_leaves_the_global_one_alone() {
+        own_palette();
+        set_high_contrast(true);
+        assert!(high_contrast());
+        // Another thread has no override of its own: it still sees the global setting.
+        assert!(!std::thread::spawn(high_contrast).join().unwrap());
+        set_high_contrast(false);
+        assert!(!high_contrast());
     }
 
     #[test]

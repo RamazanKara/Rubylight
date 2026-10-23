@@ -5,11 +5,11 @@ import cadence_matrix as cm
 class Cases(unittest.TestCase):
     def test_every_case_name_is_unique_and_names_its_parts(self):
         table = cm.cases()
-        self.assertEqual(len(table), 4 * 3 * 2 + 2 * 2 * 2)
+        self.assertEqual(len(table), 4 * 3 * 2 + 2 * 2 * 2 + 2 + 4)
         spec = table['hevc-144-vrr-jitter']
         self.assertEqual((spec['codec'], spec['fps'], spec['vrr'], spec['content']), ('hevc', 144, True, 'jitter'))
         self.assertIn('pyrowave-90-fixed90', table)
-        self.assertEqual({c['group'] for c in table.values()}, {'core', 'codecs'})
+        self.assertEqual({c['group'] for c in table.values()}, {'core', 'codecs', 'sixty', 'surplus'})
 
     def test_the_content_scripts_are_motion_probes_forms(self):
         self.assertEqual(cm.CONTENT['hitch90'], 'hitch:90:100')

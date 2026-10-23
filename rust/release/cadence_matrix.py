@@ -23,7 +23,8 @@ E2E = pathlib.Path(__file__).resolve().parent / 'e2e.py'
 EXIT_GPU_HANG = 3
 WARMUP = 5
 # The cadences a game can have, as motion_probe's animation argument.
-CONTENT = {'fixed90': '90', 'jitter': 'jitter:8,14,9,13', 'fixed72': '72', 'hitch90': 'hitch:90:100'}
+CONTENT = {'fixed90': '90', 'jitter': 'jitter:8,14,9,13', 'fixed72': '72', 'hitch90': 'hitch:90:100', 'fixed60': '60',
+           'fixed120': '120', 'fixed240': '240'}
 STAMP_WINDOW_US = 20_000
 
 
@@ -37,7 +38,7 @@ def cases():
         name = case_name(codec, fps, vrr, content)
         table[name] = dict(name=name, group=group, codec=codec, fps=fps, vrr=vrr, content=content)
     # HEVC: every game cadence in every stream rate, with and without the VRR hint.
-    for content in CONTENT:
+    for content in ('fixed90', 'jitter', 'fixed72', 'hitch90'):
         for fps in (90, 120, 144):
             for vrr in (False, True):
                 add('core', 'hevc', fps, vrr, content)
@@ -46,6 +47,13 @@ def cases():
         for fps in (90, 144):
             for vrr in (False, True):
                 add('codecs', codec, fps, vrr, 'fixed90')
+    # A 60 Hz game in a 60 fps stream on the 240 Hz display: capture age at the claim without a rate mismatch.
+    for vrr in (False, True):
+        add('sixty', 'hevc', 60, vrr, 'fixed60')
+    # A game faster than the stream, the capture age the stream's claim leaves: 120 and 240 Hz content at 60 fps.
+    for content in ('fixed120', 'fixed240'):
+        for vrr in (False, True):
+            add('surplus', 'hevc', 60, vrr, content)
     return table
 
 

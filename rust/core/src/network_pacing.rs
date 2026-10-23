@@ -12,6 +12,33 @@ pub fn rate_bps(
     wireless: bool,
     needed_bps: u64,
 ) -> u64 {
+    rate_bps_for_client(
+        configured_kbps,
+        stream_kbps,
+        link_bps,
+        wireless,
+        needed_bps,
+        0,
+    )
+}
+
+/// [`rate_bps`] with the client's own link (`x-ss-video[0].pyrowaveLinkMbps`,
+/// zero when it reports none, as stock Moonlight does). The cap is 4/5 of the
+/// slower of the two NICs: a 1 GbE client stays at 800 Mbps, a 100 Mbps
+/// client gets 80, so its first keyframe is not sent faster than its port.
+pub fn rate_bps_for_client(
+    configured_kbps: i64,
+    stream_kbps: u32,
+    link_bps: u64,
+    wireless: bool,
+    needed_bps: u64,
+    client_link_bps: u64,
+) -> u64 {
+    let link_bps = match (link_bps, client_link_bps) {
+        (0, client) => client,
+        (host, 0) => host,
+        (host, client) => host.min(client),
+    };
     let requested = if configured_kbps > 0 {
         (configured_kbps as u64)
             .saturating_mul(1000)
@@ -661,6 +688,37 @@ mod tests {
         assert_eq!(rate_bps(0, 1, 0, false, 0), 800_000_000);
         assert_eq!(rate_bps(0, u32::MAX, 0, true, u64::MAX), 800_000_000);
         assert!(rate_bps(i64::MAX, u32::MAX, u64::MAX, false, u64::MAX) > 0);
+    }
+
+    #[test]
+    fn the_clients_own_link_caps_conventional_pacing_at_four_fifths() {
+        const M: u64 = 1_000_000;
+        let rate = |host: u64, client: u64| {
+            rate_bps_for_client(0, 50_000, host * M, false, 65 * M, client * M)
+        };
+        // No hint (stock Moonlight): unchanged.
+        assert_eq!(rate(0, 0), 800 * M);
+        assert_eq!(rate(1000, 0), 800 * M);
+        // A 1 GbE and a 2.5 GbE client stay at 800 Mbps; 100 Mbps gets 80.
+        assert_eq!(rate(1000, 1000), 800 * M);
+        assert_eq!(rate(1000, 2500), 800 * M);
+        assert_eq!(rate(0, 100), 80 * M);
+        assert_eq!(rate(1000, 100), 80 * M);
+        // The slower of the two NICs decides, whichever side it is.
+        assert_eq!(rate(100, 1000), 80 * M);
+        assert_eq!(rate(100, 2500), 80 * M);
+        assert_eq!(rate(0, 2500), 800 * M);
+        // The plain function is the same policy with no hint.
+        assert_eq!(rate_bps(0, 50_000, 100 * M, false, 65 * M), rate(100, 0));
+        // An explicit cap below the client's link stays; above it, the link wins.
+        assert_eq!(
+            rate_bps_for_client(30_000, 50_000, 0, false, 0, 100 * M),
+            55 * M
+        );
+        assert_eq!(
+            rate_bps_for_client(800_000, 50_000, 0, false, 0, 100 * M),
+            80 * M
+        );
     }
 
     #[test]

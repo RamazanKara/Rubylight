@@ -607,6 +607,22 @@ impl LinkRate {
         }
     }
 
+    /// A provisional (start-up) latch lifted: pacing is back at the route's
+    /// rate. `now_fast` is whether that rate is faster than the Wi-Fi rate. The
+    /// pace changed under frames already in flight, so one fence keeps their
+    /// reports (made under the slow pace) from deciding anything at the new one.
+    pub fn on_unlatch(&mut self, now: Instant, now_fast: bool) {
+        if now_fast && self.is_active() {
+            self.set_fence(now);
+        }
+    }
+
+    /// When the current fence was set to expire, for tests.
+    #[cfg(test)]
+    pub fn fence_at(&self) -> Option<Instant> {
+        self.fence.map(|f| f.at)
+    }
+
     /// A client control ping (`type 4`, 8 bytes), the proof that feedback is
     /// fresh.
     pub fn on_ping(&mut self, now: Instant, payload: &[u8]) {

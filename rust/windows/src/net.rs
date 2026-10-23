@@ -425,6 +425,10 @@ pub struct Link {
     /// Physical Ethernet speed; zero means unknown.
     pub bps: u64,
     pub wireless: bool,
+    /// The NDIS locally unique identifier (LUID) of the interface the route
+    /// leaves by; zero means unknown. A host that changes NIC or Wi-Fi network
+    /// has a different path to the same client.
+    pub interface: u64,
 }
 fn interface_link(row: &windows::Win32::NetworkManagement::IpHelper::MIB_IF_ROW2) -> Link {
     use windows::Win32::NetworkManagement::{IpHelper::*, Ndis::IfOperStatusUp};
@@ -432,6 +436,8 @@ fn interface_link(row: &windows::Win32::NetworkManagement::IpHelper::MIB_IF_ROW2
         return Link::default();
     }
     Link {
+        // SAFETY: `Value` and the bitfield view of the LUID union are the same eight bytes.
+        interface: unsafe { row.InterfaceLuid.Value },
         bps: if row.Type == IF_TYPE_ETHERNET_CSMACD
             && row.InterfaceAndOperStatusFlags._bitfield & 1 != 0
         {
@@ -494,6 +500,8 @@ pub fn routed_link(peer: SocketAddr) -> Link {
         if GetIfEntry2(&mut row).0 != 0 || row.OperStatus != IfOperStatusUp {
             return Link::default();
         }
+        // The interface the route leaves by, whatever the medium under it.
+        let interface = row.InterfaceLuid.Value;
         if row.Type != IF_TYPE_ETHERNET_CSMACD || row.InterfaceAndOperStatusFlags._bitfield & 1 != 0
         {
             return interface_link(&row);
@@ -514,7 +522,7 @@ pub fn routed_link(peer: SocketAddr) -> Link {
             (GetIfEntry2(&mut row).0 == 0).then_some(row)
         });
         FreeMibTable(table.cast());
-        link
+        Link { interface, ..link }
     }
 }
 /// Physical Ethernet speed on the route to this client; zero means unknown.
@@ -1055,11 +1063,13 @@ mod tests {
         }
         let mut wired = interface(IF_TYPE_ETHERNET_CSMACD, true);
         wired.TransmitLinkSpeed = 100_000_000;
+        wired.InterfaceLuid.Value = 0x0006_0000_0000_0001;
         assert_eq!(
             interface_link(&wired),
             Link {
                 bps: 100_000_000,
-                wireless: false
+                wireless: false,
+                interface: 0x0006_0000_0000_0001,
             }
         );
         wired.OperStatus = IfOperStatusDown;

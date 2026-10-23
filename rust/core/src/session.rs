@@ -533,6 +533,92 @@ mod tests {
         );
         assert!(!s.pace_was_fast.load(Ordering::Relaxed));
     }
+    const FAST: u64 = 800_000_000;
+    const SAFE: u64 = 62_000_000;
+    const FRAME: Duration = Duration::from_micros(16_667);
+    fn fence_at(s: &Session) -> Option<Instant> {
+        s.link_rate.lock().unwrap().rate.fence_at()
+    }
+    /// A link session whose first keyframe (wire frame 1) was lost at `t0`,
+    /// with the pace `base` requested for every frame.
+    fn first_keyframe_lost(base: u64, t0: Instant) -> Arc<Session> {
+        let (s, _) = link_session(60, true);
+        s.configure_keyframe_loss(true);
+        s.keyframe_loss_bps_at(base, SAFE, 1, true, t0);
+        s.keyframe_loss_bps_at(base, SAFE, 2, false, t0 + FRAME);
+        let latched = s
+            .keyframe_loss
+            .lock()
+            .unwrap()
+            .unrecoverable(1, 2, FRAME, t0 + Duration::from_millis(100))
+            .unwrap();
+        assert_eq!(latched.kind, crate::keyframe_loss::LatchKind::Startup);
+        s.report_keyframe_loss(Some(latched), None);
+        s
+    }
+    #[test]
+    fn a_latch_confirmed_by_more_evidence_does_not_start_a_second_fence() {
+        let t0 = Instant::now();
+        let s = first_keyframe_lost(FAST, t0);
+        let first = fence_at(&s).expect("the first latch is a reaction to fast pacing");
+        // Three more distinct frames confirm the same latch; it is not new.
+        let at = t0 + Duration::from_secs(1);
+        let confirmed = {
+            let mut loss = s.keyframe_loss.lock().unwrap();
+            for frame in 3..=4 {
+                loss.sending_at(frame, false, at);
+                assert!(loss.unrecoverable(frame, 4, FRAME, at).is_none());
+            }
+            loss.unrecoverable(2, 4, FRAME, at)
+        }
+        .expect("more evidence confirms the latch");
+        assert!(confirmed.confirmed);
+        std::thread::sleep(Duration::from_millis(5));
+        s.report_keyframe_loss(Some(confirmed), None);
+        assert_eq!(fence_at(&s), Some(first));
+    }
+    #[test]
+    fn a_latch_is_a_reaction_to_fast_pacing_only_if_fast_pacing_was_applied() {
+        // The route allows 800 Mbps, but the frame went out at 50 Mbps (the
+        // client's own link): the latch cannot be the whole fix.
+        let s = first_keyframe_lost(50_000_000, Instant::now());
+        assert!(!s.pace_was_fast.load(Ordering::Relaxed));
+        assert_eq!(fence_at(&s), None);
+        // The same loss after frames that really went out fast starts a fence.
+        let s = first_keyframe_lost(FAST, Instant::now());
+        assert!(fence_at(&s).is_some());
+        // A frame paced at the Wi-Fi rate because of the latch is not fast,
+        // whatever the route would have allowed.
+        assert_eq!(
+            s.keyframe_loss_bps_at(FAST, SAFE, 3, false, Instant::now()),
+            SAFE
+        );
+        assert!(!s.pace_was_fast.load(Ordering::Relaxed));
+    }
+    #[test]
+    fn a_lifted_start_up_latch_gives_link_rate_one_fence_for_the_faster_pace() {
+        for (base, fenced) in [(FAST, true), (50_000_000, false)] {
+            let t0 = Instant::now();
+            let s = first_keyframe_lost(base, t0);
+            let held = fence_at(&s);
+            assert_eq!(held.is_some(), fenced);
+            let mut frame = 3;
+            while s.keyframe_loss_active() {
+                let at = t0 + FRAME * frame;
+                s.keyframe_loss_bps_at(base, SAFE, frame, false, at);
+                frame += 1;
+                assert!(frame < 2_000, "the latch never lifted");
+            }
+            assert_eq!(s.pace_was_fast.load(Ordering::Relaxed), base > SAFE);
+            if fenced {
+                let lifted = fence_at(&s).unwrap();
+                assert!(Some(lifted) > held, "the lift starts a fence");
+            } else {
+                assert_eq!(fence_at(&s), None, "the pace did not change");
+            }
+            assert!(s.launch.warnings.snapshot().is_empty());
+        }
+    }
     fn link_warning(s: &Session) -> Option<String> {
         s.launch
             .warnings
@@ -1426,6 +1512,10 @@ mod tests {
         assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 10, false), SAFE);
         assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 11, true), SAFE);
         assert_eq!(s.info()["warnings"][0]["code"], "network_keyframe_loss");
+        // The stream's first keyframe alone: held for now, not remembered.
+        assert!(s.keyframe_loss_ever_latched());
+        assert!(s.keyframe_loss_observed_at().is_some());
+        assert!(s.keyframe_loss_sustained_at().is_none());
 
         // Without reports: the client asks again for the keyframe it was sent.
         let s = Session::new(launch("old", Role::Stream), Negotiated::default());
@@ -2644,19 +2734,36 @@ impl<P, A> Session<P, A> {
         if let Some(why) = ignored {
             tracing::info!(stream_id = %self.launch.id, why, "video loss evidence not counted: the host caused it");
         }
-        if let Some(crate::keyframe_loss::Latched { reason, detail }) = latched {
+        if let Some(crate::keyframe_loss::Latched {
+            reason,
+            detail,
+            kind,
+            confirmed,
+        }) = latched
+        {
             if self.link_sent.live() {
                 let mut link = self.link_rate.lock().unwrap();
                 link.drain(&self.link_sent);
-                // `Latched` is returned once, for a new latch.
+                // A provisional latch confirmed by more evidence is the same
+                // latch, already counted when it began.
                 link.rate.on_latch(
                     Instant::now(),
                     self.pace_was_fast.load(Ordering::Relaxed),
-                    true,
+                    !confirmed,
                 );
             }
-            tracing::warn!(stream_id = %self.launch.id, reason, detail, "video frames are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
-            self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so video is now paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. Check the network path if loss continues."));
+            if confirmed {
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "more video loss after the start-up keyframe; pacing video like a Wi-Fi route for the rest of the stream");
+            } else if kind == crate::keyframe_loss::LatchKind::Startup {
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "the stream's first keyframe was lost; pacing video like a Wi-Fi route until it has been clean for 10 s");
+            } else {
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "video frames are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
+            }
+            if kind == crate::keyframe_loss::LatchKind::Startup {
+                self.launch.warnings.set("network_keyframe_loss", format!("The first video frame was lost on the way to this device ({reason}), so video is paced like Wi-Fi for now. This limits packet bursts without reducing the encoder bitrate. The host returns to the normal rate after 10 seconds without further loss."));
+            } else {
+                self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so video is now paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. Check the network path if loss continues."));
+            }
         }
     }
     /// Read the loss guard without recording a frame that has not been sent.
@@ -2692,16 +2799,46 @@ impl<P, A> Session<P, A> {
     pub fn keyframe_loss_observed_at(&self) -> Option<Instant> {
         self.keyframe_loss.lock().unwrap().observed_at()
     }
+    /// When loss last proved sustained: the only loss the next session
+    /// inherits. A provisional (start-up) latch has none.
+    pub fn keyframe_loss_sustained_at(&self) -> Option<Instant> {
+        self.keyframe_loss.lock().unwrap().sustained_at()
+    }
+    /// Any latch happened in this stream, even a provisional one that lifted.
+    pub fn keyframe_loss_ever_latched(&self) -> bool {
+        self.keyframe_loss.lock().unwrap().ever_latched()
+    }
     /// The pacing rate for the frame about to be sent as `wire_frame`: the
     /// route policy's `base`, or after confirmed losses at most `safe`, the
     /// Wi-Fi route's rate for this stream.
     pub fn keyframe_loss_bps(&self, base: u64, safe: u64, wire_frame: u32, keyframe: bool) -> u64 {
-        let mut loss = self.keyframe_loss.lock().unwrap();
-        loss.sending(wire_frame, keyframe);
-        let bps = loss.bps(base, safe);
-        drop(loss);
+        self.keyframe_loss_bps_at(base, safe, wire_frame, keyframe, Instant::now())
+    }
+    fn keyframe_loss_bps_at(
+        &self,
+        base: u64,
+        safe: u64,
+        wire_frame: u32,
+        keyframe: bool,
+        now: Instant,
+    ) -> u64 {
+        let (bps, lifted) = {
+            let mut loss = self.keyframe_loss.lock().unwrap();
+            loss.sending_at(wire_frame, keyframe, now);
+            (loss.bps(base, safe), loss.take_lifted())
+        };
         // Fast is what was applied to this frame, not what the route allows.
-        self.pace_was_fast.store(bps > safe, Ordering::Relaxed);
+        let fast = bps > safe;
+        self.pace_was_fast.store(fast, Ordering::Relaxed);
+        if let Some(why) = lifted {
+            tracing::info!(stream_id = %self.launch.id, why, "returning to the route's pacing rate: the start-up loss did not recur");
+            self.launch.warnings.clear("network_keyframe_loss");
+            if self.link_sent.live() {
+                let mut link = self.link_rate.lock().unwrap();
+                link.drain(&self.link_sent);
+                link.rate.on_unlatch(now, fast);
+            }
+        }
         bps
     }
     pub fn record_control_ping(&self, now: Instant, payload: &[u8]) {

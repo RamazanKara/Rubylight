@@ -465,6 +465,9 @@ fn apply_overrides(
     let overrides: serde_json::Map<String, serde_json::Value> = overrides
         .iter()
         .filter(|(_, v)| v.as_str() != Some(""))
+        // No preset of its own, like "": the layer below keeps its preset,
+        // where a null would remove it and fall back to Balanced.
+        .filter(|(k, v)| !(k.as_str() == butterpollo_core::stream_preset::SETTING && v.is_null()))
         .filter(|(k, _)| !butterpollo_core::config::removed(k))
         .map(|(k, v)| (butterpollo_core::config::current_name(k).to_owned(), v))
         .filter(|(k, _)| {
@@ -4145,6 +4148,17 @@ mod tests {
         let config = effective(&device);
         assert_eq!(config.get("amd_max_frame_size", ""), "3");
         assert_eq!(config.get("amd_quality", ""), "speed");
+        // A null or empty preset is no preset of its own: the host's stays.
+        set("stream_preset=lowest_latency");
+        for none in [json!(null), json!("")] {
+            let mut device = client.clone();
+            device
+                .extra
+                .insert("config_overrides".into(), json!({ "stream_preset": none }));
+            let config = effective(&device);
+            assert_eq!(config.get("stream_preset", ""), "lowest_latency");
+            assert_eq!(config.get("amd_max_frame_size", ""), "1");
+        }
         // An app's preset beats the device's for what is unset, and the
         // device's explicit value still wins over it.
         set("");

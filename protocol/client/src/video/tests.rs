@@ -72,7 +72,7 @@ impl Host {
     }
 }
 
-fn config(format: u32) -> VideoConfig {
+pub(crate) fn config(format: u32) -> VideoConfig {
     VideoConfig {
         format,
         packet_size: PACKET_SIZE,
@@ -253,5 +253,5 @@ fn fec_status_wire_format() {
     assert_eq!(bytes[20], 3);
 }
 
-mod early_chunks;
+pub(crate) mod early_chunks;
 mod slice_delivery;

@@ -302,21 +302,34 @@ impl RtpQueue {
 
     /// Gives the depacketizer the pending block's data packets that arrived in order and are
     /// not in a hole, so it can pass them on while the rest of the block is still in flight.
-    fn forward_ready<S: VideoSink>(&mut self, depacketizer: &mut Depacketizer, io: &mut Io<S>) {
+    /// `arrived` is the data packet just queued: only it can extend the run, so a packet behind
+    /// a hole costs nothing, and the pending list is searched only while packets that arrived
+    /// out of order are waiting for the hole to fill.
+    fn forward_ready<S: VideoSink>(
+        &mut self,
+        arrived: u16,
+        depacketizer: &mut Depacketizer,
+        io: &mut Io<S>,
+    ) {
+        if arrived != self.buffer_lowest_seq.wrapping_add(self.forwarded as u16) {
+            return;
+        }
+        // In-order arrival is the last one queued.
+        let mut index = self.pending.len() - 1;
         loop {
-            let seq = self.buffer_lowest_seq.wrapping_add(self.forwarded as u16);
-            // In-order arrival finds it last.
-            let Some(index) = self
-                .pending
-                .iter()
-                .rposition(|p| !p.is_parity && p.seq == seq)
-            else {
-                return;
-            };
             let packet = &mut self.pending[index];
             packet.receive_time_us = self.buffer_first_recv_time_us;
             depacketizer.queue_early_packet(packet, io);
             self.forwarded += 1;
+            let waiting = self.pending.len() - self.received_parity_packets as usize;
+            if waiting <= self.forwarded as usize {
+                return;
+            }
+            let seq = self.buffer_lowest_seq.wrapping_add(self.forwarded as u16);
+            let Some(next) = self.pending.iter().rposition(|p| !p.is_parity && p.seq == seq) else {
+                return;
+            };
+            index = next;
         }
     }
 
@@ -551,7 +564,7 @@ impl RtpQueue {
         }
 
         if self.early && !is_parity {
-            self.forward_ready(depacketizer, io);
+            self.forward_ready(seq, depacketizer, io);
         }
 
         if self.reconstruct_frame(depacketizer, io) == 0 {

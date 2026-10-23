@@ -281,6 +281,8 @@ pub struct SessionStats {
     pub frames_need_idr: u64,
     /// Times the 15-frame decode queue overflowed and was flushed.
     pub decode_queue_overflows: u64,
+    /// Early chunks dropped because the decoder fell behind (their frames decode whole).
+    pub early_chunks_dropped: u64,
     pub decode_queue_len: usize,
     /// Opus packets and loss markers delivered, and the pending queue.
     pub audio_packets: u64,
@@ -577,6 +579,7 @@ impl Session {
             stats.frames_submitted = video.counters.submitted.load(Ordering::Relaxed);
             stats.frames_need_idr = video.counters.need_idr.load(Ordering::Relaxed);
             stats.decode_queue_overflows = video.counters.queue_overflows.load(Ordering::Relaxed);
+            stats.early_chunks_dropped = video.counters.chunks_dropped.load(Ordering::Relaxed);
             stats.decode_queue_len = video.queue.len();
         }
         stats

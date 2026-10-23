@@ -6,14 +6,14 @@
 use super::*;
 
 /// A multi-block records host: every block is its own FEC block of full-size packets.
-struct Blocks {
+pub(crate) struct Blocks {
     seq: u16,
     spi: u32,
     frame: u32,
 }
 
 impl Blocks {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             seq: 500,
             spi: 0,
@@ -23,7 +23,7 @@ impl Blocks {
 
     /// One frame as `counts.len()` FEC blocks of that many data packets with 25% parity;
     /// returns the datagrams of each block, parity last.
-    fn frame(&mut self, counts: &[usize], salt: u8) -> Vec<Vec<Vec<u8>>> {
+    pub(crate) fn frame(&mut self, counts: &[usize], salt: u8) -> Vec<Vec<Vec<u8>>> {
         let last_block = counts.len() - 1;
         let mut blocks = Vec::new();
         for (block, &count) in counts.iter().enumerate() {
@@ -72,7 +72,7 @@ impl Blocks {
     }
 }
 
-fn records(early: bool) -> VideoReceiver {
+pub(crate) fn records(early: bool) -> VideoReceiver {
     let mut cfg = config(0x01_0000);
     cfg.pyrowave_records = true;
     cfg.early_chunks = early;
@@ -235,6 +235,75 @@ fn losses_and_reordering_never_differ_from_the_plain_path() {
         for i in 0..delivered.len().saturating_sub(1) {
             if rng.below(100) < 5 {
                 delivered.swap(i, i + 1);
+            }
+        }
+        let mut plain = records(false);
+        let mut early = records(true);
+        let mut plain_events = Vec::new();
+        let mut early_events = Vec::new();
+        for packet in &delivered {
+            plain.receive(packet, 7, &mut plain_events);
+            early.receive(packet, 7, &mut early_events);
+        }
+        assert_eq!(
+            without_chunks(&early_events),
+            without_chunks(&plain_events),
+            "round {round}"
+        );
+        assert_eq!(early.stats(), plain.stats(), "round {round}");
+        assert_chunks_make_the_frames(&early_events);
+    }
+}
+
+#[test]
+fn a_packet_behind_a_hole_waits_and_the_filled_hole_releases_the_run() {
+    let mut host = Blocks::new();
+    let mut rx = records(true);
+    let mut events = Vec::new();
+    let blocks = host.frame(&[20], 5);
+    let packets = &blocks[0];
+    // Arrival order and the chunks out after each: only the packet that extends the run from
+    // the block's start moves it on, and a filled hole releases everything queued behind it.
+    let order = [0, 3, 2, 1, 4, 6, 5];
+    let chunks = [1, 1, 1, 4, 5, 5, 7];
+    for (&index, &expected) in order.iter().zip(&chunks) {
+        rx.receive(&packets[index], 7, &mut events);
+        assert_eq!(chunk_count(&events), expected, "after packet {index}");
+    }
+    // The rest in order completes the block.
+    for packet in &packets[7..20] {
+        rx.receive(packet, 7, &mut events);
+    }
+    assert_eq!(chunk_count(&events), 20);
+    assert_eq!(frames(&events).len(), 1);
+    assert_chunks_make_the_frames(&events);
+}
+
+#[test]
+fn duplicates_never_differ_from_the_plain_path() {
+    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
+    for round in 0..40 {
+        let mut host = Blocks::new();
+        let mut delivered: Vec<Vec<u8>> = Vec::new();
+        for n in 0..5u8 {
+            let counts: Vec<usize> = (0..1 + rng.below(3))
+                .map(|_| 4 + rng.below(25) as usize)
+                .collect();
+            for packet in host.frame(&counts, n).into_iter().flatten() {
+                // Some lost, some repeated right away or a few packets later.
+                if rng.below(100) < 4 {
+                    continue;
+                }
+                delivered.push(packet.clone());
+                if rng.below(100) < 15 {
+                    delivered.push(packet);
+                }
+            }
+        }
+        for i in 0..delivered.len().saturating_sub(4) {
+            if rng.below(100) < 6 {
+                let copy = delivered[i].clone();
+                delivered.insert(i + 1 + rng.below(3) as usize, copy);
             }
         }
         let mut plain = records(false);

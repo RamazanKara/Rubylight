@@ -90,12 +90,16 @@ impl<S: std::os::fd::AsRawFd> PriorityTarget for S {
 
     fn set_tos(&self, ipv6: bool, value: i32) -> io::Result<()> {
         if ipv6 {
-            set_int_option(
+            let result = set_int_option(
                 self.as_raw_fd(),
                 libc::IPPROTO_IPV6,
                 libc::IPV6_TCLASS,
                 value,
-            )
+            );
+            // ENet sets both on every socket: IP_TOS is what an IPv4-mapped remote on an
+            // IPv6 socket uses. Its failure does not matter.
+            let _ = set_int_option(self.as_raw_fd(), libc::IPPROTO_IP, libc::IP_TOS, value);
+            result
         } else {
             set_int_option(self.as_raw_fd(), libc::IPPROTO_IP, libc::IP_TOS, value)
         }
@@ -248,6 +252,17 @@ pub(crate) mod tests {
             read_option(&socket, libc::IPPROTO_IPV6, libc::IPV6_TCLASS),
             CONTROL_TOS
         );
+        // IPv4-mapped remotes use IP_TOS on the same socket, so it is marked too.
+        assert_eq!(
+            read_option(&socket, libc::IPPROTO_IP, libc::IP_TOS),
+            CONTROL_TOS
+        );
+        mark_control_socket(&socket, true, false).unwrap();
+        assert_eq!(
+            read_option(&socket, libc::IPPROTO_IPV6, libc::IPV6_TCLASS),
+            0
+        );
+        assert_eq!(read_option(&socket, libc::IPPROTO_IP, libc::IP_TOS), 0);
     }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]

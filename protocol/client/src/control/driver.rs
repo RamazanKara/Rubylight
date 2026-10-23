@@ -313,6 +313,19 @@ struct Marking {
     unanswered: u32,
 }
 
+/// Marks the control socket and starts the watch over the marking. A refused option is
+/// reported, but the watch runs regardless: if one of the options took, it still has to come
+/// off for a route that drops marked packets.
+fn mark_for_connect<S: priority::PriorityTarget>(socket: &S, ipv6: bool, warn: &Warn) -> Marking {
+    if let Err(e) = priority::mark_control_socket(socket, ipv6, true) {
+        warn.say(&format!("Could not mark the control socket for QoS: {e}"));
+    }
+    Marking {
+        ipv6,
+        unanswered: 0,
+    }
+}
+
 impl ControlSocket {
     /// Sleeps until a datagram arrives or `timeout` passes.
     fn wait(&self, timeout: Duration) {
@@ -420,16 +433,7 @@ pub fn connect(
     let socket = UdpSocket::bind(local)?;
     // Marked before connecting, as the C engine does: the connect retransmissions below take
     // the marking off again for routes that drop it.
-    let ipv6 = local.is_ipv6();
-    let marked = match priority::mark_control_socket(&socket, ipv6, true) {
-        Ok(()) => true,
-        Err(e) => {
-            config
-                .warn
-                .say(&format!("Could not mark the control socket for QoS: {e}"));
-            false
-        }
-    };
+    let marking = mark_for_connect(&socket, local.is_ipv6(), &config.warn);
     let waker = Waker::new(socket.local_addr()?)?;
     let control_socket = ControlSocket {
         socket,
@@ -440,10 +444,7 @@ pub fn connect(
         held_unsequenced: false,
         reinject: None,
         last_receive: None,
-        marking: marked.then_some(Marking {
-            ipv6,
-            unanswered: 0,
-        }),
+        marking: Some(marking),
         warn: config.warn.clone(),
     };
     let settings = HostSettings {
@@ -760,6 +761,39 @@ mod tests {
             }),
         };
         (control, sink, warnings)
+    }
+
+    /// A socket that takes the type of service but refuses the priority.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    struct RefusesPriority(UdpSocket);
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    impl priority::PriorityTarget for RefusesPriority {
+        fn set_priority(&self, _value: i32) -> io::Result<()> {
+            Err(io::ErrorKind::PermissionDenied.into())
+        }
+
+        fn set_tos(&self, ipv6: bool, value: i32) -> io::Result<()> {
+            priority::PriorityTarget::set_tos(&self.0, ipv6, value)
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn the_marking_is_watched_even_when_the_priority_was_refused() {
+        let socket = RefusesPriority(UdpSocket::bind("127.0.0.1:0").unwrap());
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let warn = Warn::new({
+            let warnings = warnings.clone();
+            move |m| warnings.lock().unwrap().push(m.to_string())
+        });
+        let marking = mark_for_connect(&socket, false, &warn);
+        assert_eq!(marking.unanswered, 0);
+        assert_eq!(warnings.lock().unwrap().len(), 1);
+        // The type of service took, so the unmarking below has something to undo.
+        assert_eq!(tos(&socket.0), priority::CONTROL_TOS);
+        let _ = priority::mark_control_socket(&socket, false, false);
+        assert_eq!(tos(&socket.0), 0);
     }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]

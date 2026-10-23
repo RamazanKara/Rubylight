@@ -111,16 +111,32 @@ public class SettingsNavigationTest {
     }
 
     @Test
-    public void anUnknownSectionOrAKeyWithoutOneOpensTheList() {
+    public void anUnknownSectionWithAnUnknownSettingOpensTheList() {
         android.content.Intent intent = new android.content.Intent(
                 (android.content.Context) org.robolectric.RuntimeEnvironment.getApplication(), StreamSettings.class)
-                .putExtra(StreamSettings.EXTRA_SECTION, "nope").putExtra(StreamSettings.EXTRA_FOCUS_KEY, "list_audio_config");
+                .putExtra(StreamSettings.EXTRA_SECTION, "nope").putExtra(StreamSettings.EXTRA_FOCUS_KEY, "no_such_setting");
         ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class, intent).setup().visible();
         try {
             settle(controller.get());
             assertTrue(controller.get().getFragmentManager().findFragmentById(R.id.stream_settings)
                     instanceof StreamSettings.RootFragment);
         } finally { controller.pause().stop().destroy(); }
+    }
+
+    @Test
+    public void anUnknownSectionWithAKnownSettingOpensTheSectionOfTheSetting() {
+        android.content.Intent intent = new android.content.Intent(
+                (android.content.Context) org.robolectric.RuntimeEnvironment.getApplication(), StreamSettings.class)
+                .putExtra(StreamSettings.EXTRA_SECTION, "nope").putExtra(StreamSettings.EXTRA_FOCUS_KEY, "list_audio_config");
+        ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class, intent).setup().visible();
+        try {
+            settle(controller.get());
+            android.app.Fragment shown = controller.get().getFragmentManager().findFragmentById(R.id.stream_settings);
+            assertTrue(shown instanceof StreamSettings.SettingsFragment);
+            assertEquals("audio", shown.getArguments().getString("section"));
+        } finally { controller.pause().stop().destroy(); }
+        assertEquals("audio", StreamSettings.intent(org.robolectric.RuntimeEnvironment.getApplication(), "nope", "list_audio_config")
+                .getStringExtra(StreamSettings.EXTRA_SECTION));
     }
 
     private static void settle(StreamSettings screen) {

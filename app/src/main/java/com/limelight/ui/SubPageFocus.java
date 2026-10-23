@@ -30,19 +30,20 @@ public final class SubPageFocus {
                 == Configuration.UI_MODE_TYPE_TELEVISION || !content.isInTouchMode();
     }
 
-    /** Outlines the focusables under {@code content}, and on the first call moves focus into it when the page is not touch-driven. */
+    /**
+     * Outlines the focusables under {@code content}, and moves focus into it when the page is not touch-driven and
+     * focus is missing or elsewhere: at the start, and again after a rebuild that removed the view that had it.
+     */
     public static void apply(Activity activity, View content) {
         decorate(content);
-        if (content.getTag(R.id.sub_page_focused) == null) {
-            content.setTag(R.id.sub_page_focused, Boolean.TRUE);
-            content.post(() -> focusFirst(activity, content));
-        }
+        content.post(() -> focusFirst(activity, content));
     }
 
     /** Gives the first focusable of {@code content} focus unless something in it already has it. */
     static void focusFirst(Activity activity, View content) {
         if (activity.isFinishing() || activity.isDestroyed() || !directional(activity, content)) return;
-        View current = activity.getCurrentFocus();
+        // The view tree knows its focus before the window reports it.
+        View current = activity.findViewById(android.R.id.content).findFocus();
         if (current != null && within(content, current)) return;
         ArrayList<View> candidates = new ArrayList<>();
         content.addFocusables(candidates, View.FOCUS_DOWN, View.FOCUSABLES_ALL);

@@ -293,6 +293,164 @@ public class SettingsPanesTest {
         } finally { wide.pause().stop().destroy(); }
     }
 
+    private static final String PHONE = "w411dp-h800dp-port-mdpi";
+
+    /** Saves the screen the way the system does before it destroys it. */
+    private static android.os.Bundle save(ActivityController<StreamSettings> controller) {
+        android.os.Bundle state = new android.os.Bundle();
+        controller.saveInstanceState(state);
+        controller.pause().stop().destroy();
+        return state;
+    }
+
+    private static ActivityController<StreamSettings> restore(String qualifiers, android.os.Bundle state) {
+        org.robolectric.RuntimeEnvironment.setQualifiers("+" + qualifiers);
+        ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup(state).visible();
+        settle(controller.get());
+        return controller;
+    }
+
+    @Test @Config(qualifiers = WIDE)
+    public void aWideScreenKeepsTheSearchRowWhenItIsRecreatedWide() {
+        ActivityController<StreamSettings> first = open();
+        row(sections(first.get()), StreamSettings.SEARCH_ROW_KEY);
+        ActivityController<StreamSettings> second = restore(WIDE, save(first));
+        try {
+            ListView list = sections(second.get());
+            assertEquals("the Search row is still first", StreamSettings.SEARCH_ROW_KEY,
+                    ((Preference) list.getItemAtPosition(0)).getKey());
+            assertEquals("video", shownSection(second.get()));
+        } finally { second.pause().stop().destroy(); }
+    }
+
+    @Test @Config(qualifiers = WIDE)
+    public void aPickedSectionSurvivesAWideRecreation() {
+        ActivityController<StreamSettings> first = open();
+        first.get().showSection("audio");
+        settle(first.get());
+        ActivityController<StreamSettings> second = restore(WIDE, save(first));
+        try {
+            assertEquals("audio", shownSection(second.get()));
+            ListView list = sections(second.get());
+            assertTrue(list.isItemChecked(row(list, "audio")));
+            row(list, StreamSettings.SEARCH_ROW_KEY);
+        } finally { second.pause().stop().destroy(); }
+    }
+
+    @Test @Config(qualifiers = WIDE)
+    public void narrowingTheScreenOpensTheListWhenNoSectionWasPicked() {
+        ActivityController<StreamSettings> wide = open();
+        assertEquals("video", shownSection(wide.get()));
+        ActivityController<StreamSettings> phone = restore(PHONE, save(wide));
+        try {
+            StreamSettings screen = phone.get();
+            assertNull("one pane", screen.findViewById(R.id.settings_sections));
+            assertNull("the pane of the wide layout is gone", screen.getFragmentManager().findFragmentById(R.id.settings_sections));
+            assertTrue("the list, not the default section", screen.getFragmentManager().findFragmentById(R.id.stream_settings)
+                    instanceof StreamSettings.RootFragment);
+            assertEquals(screen.getString(R.string.settings), ((com.google.android.material.appbar.MaterialToolbar)
+                    screen.findViewById(R.id.settings_toolbar)).getTitle().toString());
+        } finally { phone.pause().stop().destroy(); }
+    }
+
+    @Test @Config(qualifiers = WIDE)
+    public void narrowingTheScreenKeepsAPickedSection() {
+        ActivityController<StreamSettings> wide = open();
+        wide.get().showSection("streaming");
+        settle(wide.get());
+        ActivityController<StreamSettings> phone = restore(PHONE, save(wide));
+        try {
+            assertEquals("streaming", shownSection(phone.get()));
+            assertNull(phone.get().getFragmentManager().findFragmentById(R.id.settings_sections));
+        } finally { phone.pause().stop().destroy(); }
+    }
+
+    @Test
+    public void aPhoneOverviewGainsASectionNotASecondListWhenTheScreenTurnsWide() {
+        ActivityController<StreamSettings> phone = open();
+        assertTrue(phone.get().getFragmentManager().findFragmentById(R.id.stream_settings) instanceof StreamSettings.RootFragment);
+        ActivityController<StreamSettings> wide = restore(WIDE, save(phone));
+        try {
+            StreamSettings screen = wide.get();
+            assertEquals("video", shownSection(screen));
+            assertTrue(screen.getFragmentManager().findFragmentById(R.id.settings_sections) instanceof StreamSettings.RootFragment);
+        } finally { wide.pause().stop().destroy(); }
+    }
+
+    private static android.content.res.Configuration resized(StreamSettings screen, int widthDp, int heightDp) {
+        android.content.res.Configuration config = new android.content.res.Configuration(screen.getResources().getConfiguration());
+        config.screenWidthDp = widthDp;
+        config.screenHeightDp = heightDp;
+        config.smallestScreenWidthDp = Math.min(widthDp, heightDp);
+        config.orientation = widthDp > heightDp ? android.content.res.Configuration.ORIENTATION_LANDSCAPE :
+                android.content.res.Configuration.ORIENTATION_PORTRAIT;
+        return config;
+    }
+
+    @Test @Config(qualifiers = WIDE)
+    public void crossingTheTwoPaneWidthRecreatesTheScreen() {
+        ActivityController<StreamSettings> controller = open();
+        StreamSettings screen = controller.get();
+        try {
+            assertNotNull(screen.findViewById(R.id.settings_sections));
+            // A window resize (split screen, freeform) does not recreate an activity that handles screenSize itself.
+            controller.configurationChange(resized(screen, 1000, 700));
+            assertFalse("still two panes: kept", screen.isDestroyed());
+            controller.configurationChange(resized(screen, 411, 800));
+            ShadowLooper.idleMainLooper(300, TimeUnit.MILLISECONDS);
+            assertTrue("one pane: recreated for the other layout", screen.isDestroyed());
+        } finally {
+            try { controller.pause().stop().destroy(); } catch (RuntimeException ignored) { /* already recreated */ }
+        }
+    }
+
+    @Test @Config(qualifiers = WIDE)
+    public void backFromAResultReturnsToTheSearchResults() {
+        ActivityController<StreamSettings> controller = open();
+        try {
+            StreamSettings screen = controller.get();
+            screen.showSection("audio");
+            settle(screen);
+            screen.openSearch();
+            SearchView view = screen.findViewById(R.id.settings_search);
+            view.setQuery("bitrate", false);
+            settle(screen);
+            Preference result = firstLeaf(((StreamSettings.SettingsFragment) screen.getFragmentManager()
+                    .findFragmentById(R.id.stream_settings)).getPreferenceScreen());
+            result.getOnPreferenceClickListener().onPreferenceClick(result);
+            settle(screen);
+            assertEquals("", view.getQuery().toString());
+            assertEquals("video", shownSection(screen));
+            screen.getOnBackPressedDispatcher().onBackPressed();
+            settle(screen);
+            assertEquals("the query is back", "bitrate", view.getQuery().toString());
+            assertEquals("the results are showing", screen.getString(R.string.settings_search_results),
+                    ((com.google.android.material.appbar.MaterialToolbar) screen.findViewById(R.id.settings_toolbar))
+                            .getTitle().toString());
+            screen.getOnBackPressedDispatcher().onBackPressed();
+            settle(screen);
+            assertEquals("the section it came from", "audio", shownSection(screen));
+        } finally { controller.pause().stop().destroy(); }
+    }
+
+    @Test @Config(qualifiers = WIDE)
+    public void clickingTheSearchOrPresetRowKeepsTheShownSectionMarked() {
+        ActivityController<StreamSettings> controller = open();
+        try {
+            StreamSettings screen = controller.get();
+            screen.showSection("audio");
+            settle(screen);
+            ListView list = sections(screen);
+            for (String key : new String[] {StreamSettings.SEARCH_ROW_KEY, "stream_presets"}) {
+                int position = row(list, key);
+                list.performItemClick(list.getChildAt(position - list.getFirstVisiblePosition()), position, list.getItemIdAtPosition(position));
+                settle(screen);
+                assertTrue(key + " leaves the shown section marked", list.isItemChecked(row(list, "audio")));
+                assertFalse(key + " is not marked", list.isItemChecked(row(list, key)));
+            }
+        } finally { controller.pause().stop().destroy(); }
+    }
+
     private static Preference firstLeaf(android.preference.PreferenceGroup group) {
         for (int i = 0; i < group.getPreferenceCount(); i++) {
             Preference preference = group.getPreference(i);

@@ -50,7 +50,7 @@ public class SubPageFocusTest {
     private static void collect(View view, java.util.List<View> out) {
         if (view.isFocusable() && view.getVisibility() == View.VISIBLE && !(view instanceof android.widget.AbsListView)
                 && !(view instanceof android.widget.EditText) && !within(MaterialToolbar.class, view)
-                && !(view instanceof android.widget.ScrollView)) {
+                && !(view instanceof android.widget.ScrollView) && !(view instanceof androidx.appcompat.widget.SearchView)) {
             out.add(view);
         }
         if (view instanceof ViewGroup && !(view instanceof android.widget.AbsListView)) {
@@ -71,7 +71,7 @@ public class SubPageFocusTest {
             java.util.List<View> focusables = new java.util.ArrayList<>();
             collect(screen.findViewById(android.R.id.content), focusables);
             for (View view : focusables) {
-                if (view.getTag(R.id.focus_ring) == null) continue;
+                assertNotNull(page.getSimpleName() + " outlines " + view, view.getTag(R.id.focus_ring));
                 assertNotNull(page.getSimpleName() + " outlines " + view, view.getForeground());
             }
         } finally {
@@ -104,5 +104,64 @@ public class SubPageFocusTest {
         } finally {
             controller.pause().stop().destroy();
         }
+    }
+
+    private static View focusOf(Activity screen) {
+        return screen.findViewById(android.R.id.content).findFocus();
+    }
+
+    private static <T extends Activity> void refocusesAfterARebuild(Class<T> page, int contentId) throws Exception {
+        ActivityController<T> controller = Robolectric.buildActivity(page).setup().visible();
+        try {
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            Activity screen = controller.get();
+            View content = screen.findViewById(contentId);
+            assertNotNull(focusOf(screen));
+            java.lang.reflect.Method refresh = page.getDeclaredMethod("refresh");
+            refresh.setAccessible(true);
+            // A rebuild removes the view that had focus.
+            refresh.invoke(screen);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            View after = focusOf(screen);
+            assertNotNull(page.getSimpleName() + " keeps focus after a rebuild", after);
+            assertTrue(page.getSimpleName() + " keeps focus on its content", within(content, after));
+            // And focus that fell to the toolbar comes back.
+            java.util.ArrayList<View> bar = new java.util.ArrayList<>();
+            findToolbar(screen.findViewById(android.R.id.content)).addFocusables(bar, View.FOCUS_DOWN, View.FOCUSABLES_ALL);
+            assertFalse("the toolbar has a focusable", bar.isEmpty());
+            assertTrue(bar.get(0).requestFocus());
+            assertTrue(within(MaterialToolbar.class, focusOf(screen)));
+            refresh.invoke(screen);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertTrue(page.getSimpleName() + " leaves the toolbar after a rebuild", within(content, focusOf(screen)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static View findToolbar(View view) {
+        if (view instanceof MaterialToolbar) return view;
+        if (view instanceof ViewGroup) {
+            for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) {
+                View found = findToolbar(((ViewGroup) view).getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static boolean within(View container, View view) {
+        for (Object p = view; p instanceof View; p = ((View) p).getParent()) {
+            if (p == container) return true;
+        }
+        return false;
+    }
+
+    @Test public void theShortcutsPageRefocusesAfterARebuild() throws Exception {
+        refocusesAfterARebuild(KeyboardShortcutsActivity.class, R.id.page_content);
+    }
+
+    @Test public void theControllerPageRefocusesAfterARebuild() throws Exception {
+        refocusesAfterARebuild(ControllerMappingActivity.class, R.id.page_content);
     }
 }

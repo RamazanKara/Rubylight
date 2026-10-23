@@ -106,6 +106,8 @@ public class StreamSettings extends NightjarActivity {
     private boolean fromShell;
     private int previousDisplayPixelCount;
     private String section;
+    /** The two-pane screen shows a section before one is picked; this one is only that default, not the user's choice. */
+    private boolean sectionDefaulted;
     private MaterialToolbar toolbar;
     private String searchQuery = "";
     private SearchView searchView;
@@ -134,7 +136,7 @@ public class StreamSettings extends NightjarActivity {
     /** The intent for {@link #open}; {@code section} and {@code focusKey} may be null. */
     public static Intent intent(Context context, String section, String focusKey) {
         Intent intent = new Intent(context, StreamSettings.class);
-        if (section == null && focusKey != null) section = sectionOfKey(context, focusKey);
+        if (normalizeSection(section) == null && focusKey != null) section = sectionOfKey(context, focusKey);
         if (section != null) intent.putExtra(EXTRA_SECTION, section);
         if (focusKey != null) intent.putExtra(EXTRA_FOCUS_KEY, focusKey);
         return intent;
@@ -142,7 +144,7 @@ public class StreamSettings extends NightjarActivity {
 
     /**
      * Opens Settings on {@code section} (a key of {@link #SECTIONS}) with the setting {@code focusKey} selected.
-     * Without a section the one that holds the key is used; an unknown section opens the list. Back returns to
+     * Without a (known) section the one that holds the key is used; with neither the list opens. Back returns to
      * the caller.
      */
     public static void open(Context context, String section, String focusKey) {
@@ -210,7 +212,10 @@ public class StreamSettings extends NightjarActivity {
             return;
         }
         section = normalizeSection(section);
-        if (twoPane && section == null) section = defaultSection();
+        if (twoPane && section == null) {
+            section = defaultSection();
+            sectionDefaulted = true;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
             previousDisplayPixelCount = mode.getPhysicalWidth() * mode.getPhysicalHeight();
@@ -354,12 +359,23 @@ public class StreamSettings extends NightjarActivity {
 
     private void openSearchResult(String targetSection, String key) {
         returnSearchQuery = searchQuery;
-        returnSearchSection = section;
+        returnSearchSection = savedSection();
         // The right pane always shows a section; a result that lives in the list of sections (the presets) keeps the one it had.
-        section = targetSection == null && twoPane ? (section != null ? section : defaultSection()) : targetSection;
+        if (targetSection != null || !twoPane) {
+            section = targetSection;
+            sectionDefaulted = false;
+        } else if (section == null) {
+            section = defaultSection();
+            sectionDefaulted = true;
+        }
         searchResultKey = key;
         enterPane = focusRow = twoPane && inContentPane(focusOwner());
         setSearchQuery("");
+    }
+
+    /** The section the user picked: not the one a wide screen shows before any is, which a narrow screen would open inside. */
+    private String savedSection() {
+        return sectionDefaulted ? null : section;
     }
 
     private static String normalizeSection(String section) {
@@ -391,6 +407,7 @@ public class StreamSettings extends NightjarActivity {
 
     void showSection(String newSection) {
         section = newSection;
+        sectionDefaulted = false;
         if (twoPane && !searchQuery.isEmpty()) {
             // Picking a section ends the search; setSearchQuery shows the section.
             returnSearchQuery = null;
@@ -420,6 +437,7 @@ public class StreamSettings extends NightjarActivity {
         else if (returnSearchQuery != null) {
             String query = returnSearchQuery;
             section = returnSearchSection;
+            sectionDefaulted = false;
             returnSearchQuery = null;
             returnSearchSection = null;
             setSearchQuery(query);
@@ -463,7 +481,8 @@ public class StreamSettings extends NightjarActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Framework fragments can be recreated by super.onCreate(), before our views exist.
+        // Framework fragments are recreated by super.onCreate(), before our views exist, and their lists read this.
+        twoPane = getResources().getBoolean(R.bool.settings_two_pane);
         if (savedInstanceState != null) {
             section = normalizeSection(savedInstanceState.getString(STATE_SECTION));
             searchQuery = savedInstanceState.getString("search", "");
@@ -471,9 +490,16 @@ public class StreamSettings extends NightjarActivity {
             returnSearchSection = normalizeSection(savedInstanceState.getString("return_section"));
             searchResultKey = savedInstanceState.getString("search_result");
         } else {
-            section = normalizeSection(getIntent().getStringExtra(EXTRA_SECTION));
+            String named = getIntent().getStringExtra(EXTRA_SECTION);
+            String focusKey = getIntent().getStringExtra(EXTRA_FOCUS_KEY);
+            section = normalizeSection(named);
+            // A link whose section is missing or unknown finds it from the setting it names.
+            String keySection = focusKey == null ? null : sectionOfKey(this, focusKey);
+            if (section == null) section = keySection;
+            if (focusKey != null && keySection == null) LimeLog.warning("Settings link to an unknown setting: " + focusKey);
+            else if (named != null && normalizeSection(named) == null) LimeLog.warning("Settings link to an unknown section: " + named);
             // A deep link names the setting to land on; it only makes sense inside a section.
-            if (section != null) searchResultKey = getIntent().getStringExtra(EXTRA_FOCUS_KEY);
+            if (section != null) searchResultKey = focusKey;
             enterPane = focusRow = searchResultKey != null;
         }
         super.onCreate(savedInstanceState);
@@ -539,7 +565,9 @@ public class StreamSettings extends NightjarActivity {
             transaction.remove(sections);
             changed = true;
         }
-        if (twoPane && content instanceof RootFragment) {
+        // A wide screen's section that nobody picked would open inside it on a narrow one; the list shows instead.
+        boolean unpicked = !twoPane && section == null && searchQuery.isEmpty() && content instanceof SettingsFragment;
+        if (unpicked || (twoPane && content instanceof RootFragment)) {
             transaction.remove(content);
             changed = true;
         }
@@ -557,7 +585,7 @@ public class StreamSettings extends NightjarActivity {
         getFragmentManager().executePendingTransactions();
         stateSaved = true;
         super.onSaveInstanceState(outState);
-        outState.putString(STATE_SECTION, section);
+        outState.putString(STATE_SECTION, savedSection());
         outState.putString("search", searchQuery);
         outState.putString("return_search", returnSearchQuery);
         outState.putString("return_section", returnSearchSection);
@@ -885,6 +913,20 @@ public class StreamSettings extends NightjarActivity {
                 });
             }
             return view;
+        }
+
+        @Override
+        public void onActivityCreated(Bundle savedInstanceState) {
+            super.onActivityCreated(savedInstanceState);
+            StreamSettings activity = (StreamSettings) getActivity();
+            ListView list = (ListView) getView().findViewById(android.R.id.list);
+            android.widget.AdapterView.OnItemClickListener inner = list.getOnItemClickListener();
+            if (!activity.twoPane || inner == null) return;
+            // The list marks whatever row was clicked; the highlight belongs to the section shown on the right.
+            list.setOnItemClickListener((parent, row, position, id) -> {
+                inner.onItemClick(parent, row, position, id);
+                activity.markSection();
+            });
         }
 
         /** Whether the overview starts with a focusable "Search settings" row: for TVs, controllers and wide screens. */

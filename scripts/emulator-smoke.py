@@ -141,7 +141,7 @@ def find(label, scroll=False):
             unchanged_scrolls = unchanged_scrolls + 1 if state == previous_scroll_state else 0
             if unchanged_scrolls >= 3:
                 # At the end: a list left scrolled down by an earlier step (two panes keep both lists) may hold it above.
-                if scroll != True or reversed_once:
+                if scroll != True or reversed_once or not two_panes(root):
                     break
                 reversed_once, scroll, unchanged_scrolls = True, "up", 0
             previous_scroll_state = state
@@ -209,9 +209,14 @@ def open_help():
     find("Connect a PC")
 
 
+def two_panes(root=None):
+    """Whether the list of sections is on screen, which only the two-pane Settings (TV, 840 dp and wider) keeps beside a section."""
+    return any(n.get("resource-id") == f"{PACKAGE}:id/settings_sections" for n in (root if root is not None else tree()).iter("node"))
+
+
 def section_up():
     """Back from a section to the list of sections; with two panes (TV, 840 dp and wider) both are always shown."""
-    if not any(n.get("resource-id") == f"{PACKAGE}:id/settings_sections" for n in tree().iter("node")):
+    if not two_panes():
         navigate_up()
 
 
@@ -517,7 +522,7 @@ def capture_ui_set(width, font, rotation=0):
     find("Display & image · Image", scroll=True)
     screenshot(prefix + "-settings-search")
     tap("Upscaling sharpness", scroll=True)
-    find("Display & image", scroll=True)
+    find("Display & image", scroll=two_panes())
     find("Upscaling sharpness", scroll=True)
     navigate_up()
     assert find(search).get("text") == "sharpness", "Back from a result lost its search query"

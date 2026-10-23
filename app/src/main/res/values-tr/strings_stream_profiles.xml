@@ -114,11 +114,11 @@
     <!-- Presets for one game's stream settings -->
     <string name="game_preset_title">Ön ayar</string>
     <string name="game_preset_competitive">Rekabetçi</string>
-    <string name="game_preset_competitive_summary">En düşük gecikmeli kare zamanlama. Bit hızı PC’yi izler.</string>
+    <string name="game_preset_competitive_summary">Kare hızlandırmayı en düşük gecikmeye ayarlar. Başka hiçbir şey değişmez.</string>
     <string name="game_preset_smoothness">Akıcılık</string>
-    <string name="game_preset_smoothness_summary">En akıcı video. Kareler bekletilir, bu da gecikme ekler. Bu oyun için uyarlanabilir yenileme kapalıdır.</string>
+    <string name="game_preset_smoothness_summary">Kareleri geciktirip gecikmeyi artıran en akıcı kare hızlandırmayı ayarlar ve bu oyun için uyarlanabilir yenilemeyi kapatır. Bit hızı değişmez.</string>
     <string name="game_preset_quality">Kalite</string>
-    <string name="game_preset_quality_summary">Bit hızı, bu oyunun normalde kullanacağından yarı oranında yüksek. Kare zamanlama değişmez; zayıf bağlantıda büyük kareler gecikme ekleyebilir.</string>
+    <string name="game_preset_quality_summary" formatted="false">Bit hızını bilgisayarın değerinin (bilgisayarda yoksa ana ayarların) %150’sine ayarlar; üst sınır ana bilgisayar sınırı ve otomatik bit hızı azamisidir. Kare hızlandırma ve uyarlanabilir yenileme değişmez; zayıf bağlantıda büyüyen kareler gecikmeyi artırabilir.</string>
     <string name="game_preset_custom">Özel</string>
     <string name="game_preset_custom_summary">Aşağıda ayarladığınız kendi değerleriniz.</string>
 </resources>

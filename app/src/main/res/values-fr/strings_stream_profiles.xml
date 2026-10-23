@@ -114,11 +114,11 @@
     <!-- Presets for one game's stream settings -->
     <string name="game_preset_title">Préréglage</string>
     <string name="game_preset_competitive">Compétitif</string>
-    <string name="game_preset_competitive_summary">Frame pacing à la latence la plus basse. Le débit suit celui du PC.</string>
+    <string name="game_preset_competitive_summary">Règle le frame pacing sur la latence la plus basse. Rien d’autre ne change.</string>
     <string name="game_preset_smoothness">Fluidité</string>
-    <string name="game_preset_smoothness_summary">Vidéo la plus fluide. Les images sont retenues, ce qui ajoute du délai. Le rafraîchissement adaptatif est désactivé pour ce jeu.</string>
+    <string name="game_preset_smoothness_summary">Règle le frame pacing le plus fluide, qui retient les images et ajoute du délai, et désactive le rafraîchissement adaptatif pour ce jeu. Le débit ne change pas.</string>
     <string name="game_preset_quality">Qualité</string>
-    <string name="game_preset_quality_summary">Débit augmenté de moitié par rapport à celui que ce jeu utiliserait sinon. Le frame pacing ne change pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
+    <string name="game_preset_quality_summary" formatted="false">Règle le débit à 150 % de celui du PC, ou des réglages principaux si le PC n’en a pas, jusqu’à la limite de l’hôte et au maximum du débit automatique. Le frame pacing et le rafraîchissement adaptatif ne changent pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
     <string name="game_preset_custom">Personnalisé</string>
     <string name="game_preset_custom_summary">Vos propres valeurs, réglées ci-dessous.</string>
 </resources>

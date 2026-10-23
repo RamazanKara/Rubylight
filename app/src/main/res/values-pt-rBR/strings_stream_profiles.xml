@@ -114,11 +114,11 @@
     <!-- Presets for one game's stream settings -->
     <string name="game_preset_title">Predefinição</string>
     <string name="game_preset_competitive">Competitivo</string>
-    <string name="game_preset_competitive_summary">Ritmo de quadros com a menor latência. A taxa de bits segue a do PC.</string>
+    <string name="game_preset_competitive_summary">Define o frame pacing para a menor latência. Nada mais muda.</string>
     <string name="game_preset_smoothness">Fluidez</string>
-    <string name="game_preset_smoothness_summary">Vídeo o mais fluido possível. Os quadros são retidos, o que adiciona atraso. A atualização adaptável fica desativada neste jogo.</string>
+    <string name="game_preset_smoothness_summary">Define o frame pacing mais suave, que retém quadros e adiciona atraso, e desativa a taxa de atualização adaptável para este jogo. A taxa de bits não muda.</string>
     <string name="game_preset_quality">Qualidade</string>
-    <string name="game_preset_quality_summary">Taxa de bits 50% maior do que este jogo usaria. O ritmo de quadros não muda; em uma conexão fraca, os quadros maiores podem adicionar atraso.</string>
+    <string name="game_preset_quality_summary" formatted="false">Define a taxa de bits em 150% da do PC, ou das configurações principais se o PC não tiver uma, até o limite do host e o máximo da taxa de bits automática. O frame pacing e a taxa de atualização adaptável não mudam; em uma conexão fraca, os quadros maiores podem adicionar atraso.</string>
     <string name="game_preset_custom">Personalizado</string>
     <string name="game_preset_custom_summary">Seus próprios valores, definidos abaixo.</string>
 </resources>

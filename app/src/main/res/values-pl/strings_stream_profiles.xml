@@ -118,11 +118,11 @@
     <!-- Presets for one game's stream settings -->
     <string name="game_preset_title">Ustawienie wstępne</string>
     <string name="game_preset_competitive">Rywalizacja</string>
-    <string name="game_preset_competitive_summary">Tempo klatek o najniższym opóźnieniu. Szybkość transmisji jak na PC.</string>
+    <string name="game_preset_competitive_summary">Ustawia frame pacing na najniższe opóźnienie. Nic więcej się nie zmienia.</string>
     <string name="game_preset_smoothness">Płynność</string>
-    <string name="game_preset_smoothness_summary">Najpłynniejszy obraz. Klatki są wstrzymywane, co zwiększa opóźnienie. Adaptacyjne odświeżanie jest wyłączone dla tej gry.</string>
+    <string name="game_preset_smoothness_summary">Ustawia najpłynniejszy frame pacing, który wstrzymuje klatki i zwiększa opóźnienie, oraz wyłącza adaptacyjne odświeżanie dla tej gry. Bitrate się nie zmienia.</string>
     <string name="game_preset_quality">Jakość</string>
-    <string name="game_preset_quality_summary">Szybkość transmisji większa o połowę niż ta, której ta gra użyłaby normalnie. Tempo klatek bez zmian; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
+    <string name="game_preset_quality_summary" formatted="false">Ustawia bitrate na 150% wartości z komputera lub, jeśli komputer jej nie ma, z ustawień głównych, do limitu hosta i maksimum automatycznego bitrate. Frame pacing i adaptacyjne odświeżanie się nie zmieniają; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
     <string name="game_preset_custom">Własne</string>
     <string name="game_preset_custom_summary">Twoje własne wartości, ustawione poniżej.</string>
 </resources>

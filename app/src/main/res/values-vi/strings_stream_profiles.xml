@@ -112,11 +112,11 @@
     <!-- Presets for one game's stream settings -->
     <string name="game_preset_title">Cấu hình có sẵn</string>
     <string name="game_preset_competitive">Thi đấu</string>
-    <string name="game_preset_competitive_summary">Nhịp độ khung hình có độ trễ thấp nhất. Tốc độ bit theo PC.</string>
+    <string name="game_preset_competitive_summary">Đặt frame pacing ở độ trễ thấp nhất. Không có gì khác thay đổi.</string>
     <string name="game_preset_smoothness">Mượt mà</string>
-    <string name="game_preset_smoothness_summary">Video mượt nhất. Các khung hình bị giữ lại nên độ trễ tăng. Tần số quét thích ứng bị tắt cho trò chơi này.</string>
+    <string name="game_preset_smoothness_summary">Đặt frame pacing mượt nhất, giữ lại khung hình và tăng độ trễ, đồng thời tắt tần số quét thích ứng cho trò chơi này. Bitrate không đổi.</string>
     <string name="game_preset_quality">Chất lượng</string>
-    <string name="game_preset_quality_summary">Tốc độ bit cao hơn một nửa so với mức trò chơi này dùng thông thường. Nhịp độ khung hình không đổi; khi kết nối yếu, khung hình lớn hơn có thể làm tăng độ trễ.</string>
+    <string name="game_preset_quality_summary" formatted="false">Đặt bitrate bằng 150% bitrate của PC, hoặc của cài đặt chính nếu PC không có, tối đa đến giới hạn của máy chủ và mức tối đa của bitrate tự động. Frame pacing và tần số quét thích ứng không đổi; khi kết nối yếu, các khung hình lớn hơn có thể làm tăng độ trễ.</string>
     <string name="game_preset_custom">Tùy chỉnh</string>
     <string name="game_preset_custom_summary">Các giá trị riêng của bạn, đặt bên dưới.</string>
 </resources>

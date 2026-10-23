@@ -112,11 +112,11 @@
     <!-- Presets for one game's stream settings -->
     <string name="game_preset_title">预设</string>
     <string name="game_preset_competitive">竞技</string>
-    <string name="game_preset_competitive_summary">延迟最低的帧速调节。码率跟随电脑设置。</string>
+    <string name="game_preset_competitive_summary">将帧调度设为最低延迟，其他设置不变。</string>
     <string name="game_preset_smoothness">流畅</string>
-    <string name="game_preset_smoothness_summary">最流畅的画面。帧会被延后显示，从而增加延迟。此游戏的自适应刷新将关闭。</string>
+    <string name="game_preset_smoothness_summary">将帧调度设为最流畅（会暂存帧并增加延迟），并为这个游戏关闭自适应刷新率。码率不变。</string>
     <string name="game_preset_quality">画质</string>
-    <string name="game_preset_quality_summary">码率比此游戏原本使用的高出一半。帧速调节不变；连接较弱时，更大的帧可能增加延迟。</string>
+    <string name="game_preset_quality_summary" formatted="false">将码率设为电脑码率的 150%（电脑未设置时取主设置的码率），上限为主机限制和自动码率的最大值。帧调度和自适应刷新率不变；连接较弱时，更大的帧可能增加延迟。</string>
     <string name="game_preset_custom">自定义</string>
     <string name="game_preset_custom_summary">你在下方设置的自定义值。</string>
 </resources>

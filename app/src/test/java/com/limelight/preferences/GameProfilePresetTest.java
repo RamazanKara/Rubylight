@@ -6,10 +6,11 @@ import static org.junit.Assert.*;
 
 public class GameProfilePresetTest {
     private static final int BASE = 20000;
+    private static final int QUALITY = GameProfilePreset.qualityBitrate(BASE, false, 0);
 
     private static GameProfilePreset afterSaving(GameProfilePreset preset, HostStreamProfile own) {
-        preset.apply(own, BASE);
-        return GameProfilePreset.of(HostStreamProfile.deserialize(own.serialize()), BASE);
+        preset.apply(own, QUALITY);
+        return GameProfilePreset.of(HostStreamProfile.deserialize(own.serialize()), QUALITY);
     }
 
     @Test
@@ -22,64 +23,105 @@ public class GameProfilePresetTest {
 
     @Test
     public void anEmptyOrOtherwiseSetGameIsCustom() {
-        assertEquals(GameProfilePreset.CUSTOM, GameProfilePreset.of(new HostStreamProfile(), BASE));
+        assertEquals(GameProfilePreset.CUSTOM, GameProfilePreset.of(new HostStreamProfile(), QUALITY));
         HostStreamProfile other = new HostStreamProfile();
         other.pacing = "balanced";
-        assertEquals(GameProfilePreset.CUSTOM, GameProfilePreset.of(other, BASE));
+        assertEquals(GameProfilePreset.CUSTOM, GameProfilePreset.of(other, QUALITY));
         other.bitrate = 12345;
-        assertEquals(GameProfilePreset.CUSTOM, GameProfilePreset.of(other, BASE));
+        assertEquals(GameProfilePreset.CUSTOM, GameProfilePreset.of(other, QUALITY));
     }
 
     @Test
     public void customChangesNothing() {
         HostStreamProfile own = new HostStreamProfile();
         own.bitrate = 9000;
-        GameProfilePreset.CUSTOM.apply(own, BASE);
+        GameProfilePreset.CUSTOM.apply(own, QUALITY);
         assertEquals(Integer.valueOf(9000), own.bitrate);
         assertNull(own.pacing);
     }
 
     @Test
-    public void competitiveKeepsLatencyPacingEvenIfTheMainSettingChanges() {
+    public void competitiveSetsOnlyLatencyPacingAndKeepsTheOtherValues() {
         HostStreamProfile own = new HostStreamProfile();
-        GameProfilePreset.COMPETITIVE.apply(own, BASE);
+        own.bitrate = 40000;
+        own.vrr = Boolean.TRUE;
+        GameProfilePreset.COMPETITIVE.apply(own, QUALITY);
         assertEquals("latency", own.pacing);
-        assertTrue(own.has(HostStreamProfile.Field.PACING));
-        assertNull(own.bitrate);
-        assertNull(own.vrr);
+        assertEquals("The game's own bitrate stays", Integer.valueOf(40000), own.bitrate);
+        assertEquals("Its own adaptive refresh stays", Boolean.TRUE, own.vrr);
+        assertEquals(GameProfilePreset.COMPETITIVE, GameProfilePreset.of(own, QUALITY));
     }
 
     @Test
-    public void smoothnessTurnsAdaptiveRefreshOffBecauseItReplacesFramePacing() {
+    public void smoothnessSetsPacingAndAdaptiveRefreshOffAndKeepsTheBitrate() {
         HostStreamProfile own = new HostStreamProfile();
-        GameProfilePreset.SMOOTHNESS.apply(own, BASE);
+        own.bitrate = 40000;
+        GameProfilePreset.SMOOTHNESS.apply(own, QUALITY);
         assertEquals("smoothness", own.pacing);
-        assertEquals(Boolean.FALSE, own.vrr);
-        assertNull(own.bitrate);
+        assertEquals("Adaptive refresh replaces frame pacing", Boolean.FALSE, own.vrr);
+        assertEquals("The game's own bitrate stays", Integer.valueOf(40000), own.bitrate);
+        assertEquals(GameProfilePreset.SMOOTHNESS, GameProfilePreset.of(own, QUALITY));
     }
 
     @Test
-    public void qualityRaisesOnlyTheBitrateByHalfUpToTheHostLimit() {
+    public void qualitySetsOnlyTheBitrateAndKeepsPacingAndAdaptiveRefresh() {
         HostStreamProfile own = new HostStreamProfile();
-        GameProfilePreset.QUALITY.apply(own, BASE);
+        own.pacing = "balanced";
+        own.vrr = Boolean.TRUE;
+        GameProfilePreset.QUALITY.apply(own, QUALITY);
         assertEquals(Integer.valueOf(30000), own.bitrate);
-        assertNull("Frame pacing is not touched", own.pacing);
-        assertNull(own.vrr);
-        GameProfilePreset.QUALITY.apply(own, HostStreamProfile.MAX_BITRATE_KBPS);
-        assertEquals(Integer.valueOf(HostStreamProfile.MAX_BITRATE_KBPS), own.bitrate);
-        assertEquals(GameProfilePreset.QUALITY, GameProfilePreset.of(own, HostStreamProfile.MAX_BITRATE_KBPS));
+        assertEquals("Frame pacing is not touched", "balanced", own.pacing);
+        assertEquals("Neither is adaptive refresh", Boolean.TRUE, own.vrr);
     }
 
     @Test
-    public void switchingPresetReplacesWhatTheLastOneSet() {
+    public void presetsWithOverlappingValuesShowCustomInsteadOfOne() {
+        HostStreamProfile own = new HostStreamProfile();
+        GameProfilePreset.SMOOTHNESS.apply(own, QUALITY);
+        GameProfilePreset.QUALITY.apply(own, QUALITY);
+        assertEquals(GameProfilePreset.CUSTOM, GameProfilePreset.of(own, QUALITY));
+    }
+
+    @Test
+    public void qualityIsAHalfMoreAndNeverBeyondTheMaximumTheHostAndTheSliderTake() {
+        assertEquals(30000, GameProfilePreset.qualityBitrate(20000, false, 0));
+        assertEquals(HostStreamProfile.MAX_BITRATE_KBPS,
+                GameProfilePreset.qualityBitrate(HostStreamProfile.MAX_BITRATE_KBPS, false, 0));
+        assertEquals(HostStreamProfile.MAX_BITRATE_KBPS,
+                GameProfilePreset.qualityBitrate(1_900_000, false, 0));
+        assertEquals("Never below the slider's minimum", 500, GameProfilePreset.qualityBitrate(100, false, 0));
+    }
+
+    @Test
+    public void qualityStaysWithinTheAutomaticBitrateMaximumOnlyWhileAutomaticBitrateIsOn() {
+        assertEquals("Automatic bitrate on: capped at its maximum", 25000,
+                GameProfilePreset.qualityBitrate(20000, true, 25000));
+        assertEquals("Automatic bitrate off: its maximum does not count", 30000,
+                GameProfilePreset.qualityBitrate(20000, false, 25000));
+        assertEquals("No maximum set", 30000, GameProfilePreset.qualityBitrate(20000, true, 0));
+        assertEquals("A maximum above the wish changes nothing", 30000,
+                GameProfilePreset.qualityBitrate(20000, true, 80000));
+        HostStreamProfile own = new HostStreamProfile();
+        GameProfilePreset.QUALITY.apply(own, GameProfilePreset.qualityBitrate(20000, true, 25000));
+        assertEquals(GameProfilePreset.QUALITY, GameProfilePreset.of(own, GameProfilePreset.qualityBitrate(20000, true, 25000)));
+    }
+
+    @Test
+    public void theQualityBaseIsThePcsBitrateOrTheMainSettingsAndNeverANetworkProfilesValue() {
+        assertEquals(20000, GameProfilePreset.baseBitrate(20000, null));
+        HostStreamProfile pc = new HostStreamProfile();
+        assertEquals("A PC without a bitrate follows the main settings", 20000, GameProfilePreset.baseBitrate(20000, pc));
+        pc.bitrate = 50000;
+        assertEquals(50000, GameProfilePreset.baseBitrate(20000, pc));
+    }
+
+    @Test
+    public void switchingPresetKeepsTheValuesTheNewOneDoesNotName() {
         HostStreamProfile own = new HostStreamProfile();
         own.refreshRateX100 = 12000;
-        GameProfilePreset.QUALITY.apply(own, BASE);
-        GameProfilePreset.SMOOTHNESS.apply(own, BASE);
-        assertNull("Quality's bitrate is gone", own.bitrate);
-        GameProfilePreset.COMPETITIVE.apply(own, BASE);
-        assertNull(own.vrr);
-        assertEquals("Values a preset does not own stay", Integer.valueOf(12000), own.refreshRateX100);
-        assertEquals(GameProfilePreset.COMPETITIVE, GameProfilePreset.of(own, BASE));
+        GameProfilePreset.QUALITY.apply(own, QUALITY);
+        GameProfilePreset.COMPETITIVE.apply(own, QUALITY);
+        assertEquals("Quality's bitrate stays: Competitive does not name it", Integer.valueOf(QUALITY), own.bitrate);
+        assertEquals("Values no preset names stay", Integer.valueOf(12000), own.refreshRateX100);
     }
 }

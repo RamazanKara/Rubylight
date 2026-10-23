@@ -295,14 +295,14 @@ Nothing falls back silently. When the profile picked no longer exists or has a v
 
 Open a game's menu and choose **Stream settings for this game**. The note under it says how many values the game sets. The screen has the same stream rows as a PC, plus the PC's virtual display rows where the host has them; values not set come from this PC, the profile and the main settings, in that order. Removing a PC removes its game values too.
 
-A game's screen starts with a **Preset** row. A preset only fills in three values the game layer already has: frame pacing, adaptive refresh and bitrate. Nothing new is stored: the row names the preset whose values the game holds and says Custom for any other combination, including a game with no values of its own. Picking a preset replaces those three values; everything else (resolution, refresh rate, codec, HDR) stays as it was.
+A game's screen starts with a **Preset** row. Each preset sets only the values it names and leaves every other value of the game as it was, including the other two of frame pacing, adaptive refresh and bitrate. Nothing new is stored: the row names the one preset whose values the game holds, and says Custom when none matches, when two presets' values are both present (Smoothness with Quality, for example), and for a game with no values of its own. Resolution, refresh rate, codec and HDR are never touched.
 
-| Preset | Frame pacing | Adaptive refresh | Bitrate | Trade-off |
-| --- | --- | --- | --- | --- |
-| Competitive | Lowest latency (the app default, set for this game so it holds if the main setting changes) | follows the PC | follows the PC | No extra delay. |
-| Smoothness | Smoothest video | Off for this game, because it replaces frame pacing | follows the PC | Frames are held back, so latency goes up. |
-| Quality | follows the PC | follows the PC | 150% of what the game would otherwise use, up to the host limit | Frame pacing is unchanged, but on a weak connection the larger frames can add delay. The bitrate is stored as a number, so a later change to the PC's bitrate shows the game as Custom. |
-| Custom | any other combination | | | Set each value yourself. |
+| Preset | Sets | Leaves alone | Trade-off |
+| --- | --- | --- | --- |
+| Competitive | Frame pacing: lowest latency (the app default, set for this game so it holds if the main setting changes) | Adaptive refresh, bitrate | No extra delay. |
+| Smoothness | Frame pacing: smoothest video; adaptive refresh off for this game, because it replaces frame pacing | Bitrate | Frames are held back, so latency goes up. |
+| Quality | Bitrate: 150% of the PC's bitrate, or of the main settings' if the PC has none, at most the host's maximum (2000 Mbps) and, with automatic bitrate on for the PC and a maximum set, at most that maximum | Frame pacing, adaptive refresh | On a weak connection the larger frames can add delay. The bitrate is stored as a number, so a later change to the PC's or main bitrate shows the game as Custom. A named profile or the network never changes the base. |
+| Custom | Nothing | Everything | Set each value yourself. |
 
 Radeon settings per game (Anti-Lag, Chill and similar) are not part of the native API yet, so no preset changes them. That part waits for host support.
 

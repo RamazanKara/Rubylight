@@ -114,11 +114,11 @@
     <!-- Presets for one game's stream settings -->
     <string name="game_preset_title">Ajuste predefinido</string>
     <string name="game_preset_competitive">Competitivo</string>
-    <string name="game_preset_competitive_summary">Ritmo de fotogramas con la latencia más baja. La tasa de bits sigue la del PC.</string>
+    <string name="game_preset_competitive_summary">Fija el frame pacing en la latencia más baja. Nada más cambia.</string>
     <string name="game_preset_smoothness">Fluidez</string>
-    <string name="game_preset_smoothness_summary">Vídeo lo más fluido posible. Se retienen fotogramas, lo que añade retardo. La frecuencia adaptativa está desactivada para este juego.</string>
+    <string name="game_preset_smoothness_summary">Fija el frame pacing más suave, que retiene fotogramas y añade retraso, y desactiva la frecuencia adaptativa para este juego. La tasa de bits no cambia.</string>
     <string name="game_preset_quality">Calidad</string>
-    <string name="game_preset_quality_summary">Tasa de bits un 50 % mayor que la que usaría este juego. El ritmo de fotogramas no cambia; con una conexión débil, los fotogramas más grandes pueden añadir retardo.</string>
+    <string name="game_preset_quality_summary" formatted="false">Fija la tasa de bits en el 150 % de la del PC, o de los ajustes principales si el PC no tiene ninguna, hasta el límite del host y el máximo de la tasa de bits automática. El frame pacing y la frecuencia adaptativa no cambian; con una conexión débil, los fotogramas más grandes pueden añadir retraso.</string>
     <string name="game_preset_custom">Personalizado</string>
     <string name="game_preset_custom_summary">Tus propios valores, ajustados abajo.</string>
 </resources>

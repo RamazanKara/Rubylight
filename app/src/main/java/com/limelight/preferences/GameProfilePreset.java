@@ -3,20 +3,24 @@ package com.limelight.preferences;
 import com.limelight.R;
 
 /**
- * Named starting points for one game's stream settings. A preset only fills in values the per-game
- * layer already has (frame pacing, adaptive refresh and bitrate); nothing new is stored, so a game
- * shows a preset when those three values match it and Custom otherwise. Everything else, such as
- * resolution, refresh rate and codec, stays as the PC or the main settings have it.
+ * Named starting points for one game's stream settings. Each preset sets only the values it names
+ * and leaves every other value of the game alone; nothing new is stored, so a game shows a preset
+ * when the values that preset names match it. Resolution, refresh rate, codec and the like stay as
+ * the PC or the main settings have them.
  *
  * <ul>
- * <li>Competitive: lowest-latency frame pacing, the app default, set for this game so it holds when
- * the main setting is changed. Bitrate follows the PC.</li>
- * <li>Smoothness: the smoothest frame pacing, which holds frames back and adds delay, with adaptive
- * refresh off for the game because it replaces frame pacing.</li>
- * <li>Quality: 50% more bitrate than this game would otherwise use, up to the host limit. Frame
- * pacing is unchanged. On a weak link the larger frames can add delay.</li>
- * <li>Custom: any other combination.</li>
+ * <li>Competitive sets frame pacing to lowest latency, the app default, so it holds when the main
+ * setting is changed. Nothing else.</li>
+ * <li>Smoothness sets the smoothest frame pacing, which holds frames back and adds delay, and turns
+ * adaptive refresh off for the game because it replaces frame pacing. Bitrate is not touched.</li>
+ * <li>Quality sets the bitrate to 150% of what the PC or the main settings use, up to the highest
+ * bitrate the host accepts and, with automatic bitrate on, up to its maximum. Frame pacing and
+ * adaptive refresh are not touched. On a weak link the larger frames can add delay.</li>
+ * <li>Custom: any other combination, including two presets' values together.</li>
  * </ul>
+ *
+ * The Quality base is the PC's bitrate if it has one, else the main settings'. A network profile is
+ * left out on purpose: which one applies changes with the network, and the preset must not.
  *
  * Radeon settings per game (for example Anti-Lag or Chill) are not part of the native API yet, so no
  * preset changes them; that part waits for host support.
@@ -38,52 +42,61 @@ public enum GameProfilePreset {
         this.summary = summary;
     }
 
-    /** The bitrate Quality sets, given what the game would use without its own value. */
-    static int qualityBitrate(int baseBitrateKbps) {
-        long wanted = (long) baseBitrateKbps * QUALITY_BITRATE_PERCENT / 100;
-        return (int) Math.min(HostStreamProfile.MAX_BITRATE_KBPS, wanted);
+    /**
+     * The bitrate the game would use without a value of its own, leaving out the network profile: the
+     * PC's value when it has one, else the main settings'.
+     */
+    static int baseBitrate(int mainKbps, HostStreamProfile pc) {
+        return pc != null && pc.bitrate != null ? pc.bitrate : mainKbps;
     }
 
     /**
-     * Sets the values of this preset on {@code own}; Custom changes nothing.
+     * The bitrate Quality sets: 150% of {@code baseBitrateKbps}, at most what the host accepts and
+     * the bitrate slider offers ({@link HostStreamProfile#MAX_BITRATE_KBPS}) and, when automatic
+     * bitrate is on and has a maximum, at most that maximum.
      *
-     * @param baseBitrateKbps the bitrate the game uses when it has none of its own
+     * @param autoMaxKbps the automatic bitrate maximum, or 0 for none; it counts only when {@code autoBitrate}
      */
-    void apply(HostStreamProfile own, int baseBitrateKbps) {
+    static int qualityBitrate(int baseBitrateKbps, boolean autoBitrate, int autoMaxKbps) {
+        long cap = HostStreamProfile.MAX_BITRATE_KBPS;
+        if (autoBitrate && autoMaxKbps > 0) {
+            cap = Math.min(cap, autoMaxKbps);
+        }
+        long wanted = (long) baseBitrateKbps * QUALITY_BITRATE_PERCENT / 100;
+        return (int) Math.max(500, Math.min(cap, wanted));
+    }
+
+    /**
+     * Sets the values this preset names on {@code own} and no others; Custom changes nothing.
+     *
+     * @param qualityKbps what Quality sets, from {@link #qualityBitrate}
+     */
+    void apply(HostStreamProfile own, int qualityKbps) {
         switch (this) {
             case COMPETITIVE:
                 own.pacing = PreferenceConfiguration.DEFAULT_FRAME_PACING;
-                own.vrr = null;
-                own.bitrate = null;
                 break;
             case SMOOTHNESS:
                 own.pacing = "smoothness";
                 own.vrr = Boolean.FALSE;
-                own.bitrate = null;
                 break;
             case QUALITY:
-                own.pacing = null;
-                own.vrr = null;
-                own.bitrate = qualityBitrate(baseBitrateKbps);
+                own.bitrate = qualityKbps;
                 break;
             default:
                 break;
         }
     }
 
-    /** The preset whose values {@code own} holds, or Custom. */
-    static GameProfilePreset of(HostStreamProfile own, int baseBitrateKbps) {
-        if (own.vrr == null && own.bitrate == null &&
-                PreferenceConfiguration.DEFAULT_FRAME_PACING.equals(own.pacing)) {
-            return COMPETITIVE;
+    /** The one preset whose values {@code own} holds, or Custom when none or several match. */
+    static GameProfilePreset of(HostStreamProfile own, int qualityKbps) {
+        boolean competitive = PreferenceConfiguration.DEFAULT_FRAME_PACING.equals(own.pacing);
+        boolean smoothness = "smoothness".equals(own.pacing) && Boolean.FALSE.equals(own.vrr);
+        boolean quality = own.bitrate != null && own.bitrate == qualityKbps;
+        int matches = (competitive ? 1 : 0) + (smoothness ? 1 : 0) + (quality ? 1 : 0);
+        if (matches != 1) {
+            return CUSTOM;
         }
-        if (Boolean.FALSE.equals(own.vrr) && own.bitrate == null && "smoothness".equals(own.pacing)) {
-            return SMOOTHNESS;
-        }
-        if (own.pacing == null && own.vrr == null && own.bitrate != null &&
-                own.bitrate == qualityBitrate(baseBitrateKbps)) {
-            return QUALITY;
-        }
-        return CUSTOM;
+        return competitive ? COMPETITIVE : smoothness ? SMOOTHNESS : QUALITY;
     }
 }

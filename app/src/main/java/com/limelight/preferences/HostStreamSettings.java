@@ -279,6 +279,26 @@ public class HostStreamSettings extends NightjarActivity {
         return config;
     }
 
+    /**
+     * What the Quality preset sets: more than the PC's bitrate, or the main settings' when the PC has
+     * none. A network profile is left out, so the preset reads the same on every network.
+     */
+    private int qualityBitrate() {
+        PreferenceConfiguration main = PreferenceConfiguration.readPreferences(this);
+        HostStreamProfile pc = null;
+        String raw = HostStreamProfile.raw(this, hostUuid);
+        if (raw != null) {
+            try {
+                pc = HostStreamProfile.deserialize(raw);
+            } catch (IllegalArgumentException ignored) {
+                // An unreadable PC layer is reported where it is edited; the main settings serve as base.
+            }
+        }
+        boolean autoBitrate = getSharedPreferences("AdaptiveBitrate", MODE_PRIVATE).getBoolean(hostUuid, false);
+        return GameProfilePreset.qualityBitrate(GameProfilePreset.baseBitrate(main.bitrate, pc), autoBitrate,
+                main.autoBitrateMaxKbps);
+    }
+
     private void applyWithScreen(HostStreamProfile values, PreferenceConfiguration config) {
         boolean followedScreen = config.resolutionFollowsScreen;
         values.applyTo(config);
@@ -893,7 +913,7 @@ public class HostStreamSettings extends NightjarActivity {
             }
             Preference preset = findPreference("preset");
             if (preset != null) {
-                GameProfilePreset current = GameProfilePreset.of(own, activity.baseConfig().bitrate);
+                GameProfilePreset current = GameProfilePreset.of(own, activity.qualityBitrate());
                 preset.setSummary(getString(current.title) + "\n" + getString(current.summary));
             }
             findPreference("reset").setEnabled(!own.isEmpty());
@@ -949,18 +969,18 @@ public class HostStreamSettings extends NightjarActivity {
                     }).setNegativeButton(android.R.string.cancel, null).show();
         }
 
-        /** Competitive, Smoothness or Quality fill in frame pacing, adaptive refresh and bitrate; Custom keeps them. */
+        /** Competitive, Smoothness and Quality each set only the values they name; Custom changes nothing. */
         private void showPreset() {
             GameProfilePreset[] presets = GameProfilePreset.values();
-            int base = activity.baseConfig().bitrate;
+            int quality = activity.qualityBitrate();
             CharSequence[] items = new CharSequence[presets.length];
             for (int i = 0; i < presets.length; i++) {
                 items[i] = getString(presets[i].title) + "\n" + getString(presets[i].summary);
             }
             new NavigationDialogBuilder(activity).setTitle(R.string.game_preset_title)
-                    .setSingleChoiceItems(items, GameProfilePreset.of(activity.overrides, base).ordinal(),
+                    .setSingleChoiceItems(items, GameProfilePreset.of(activity.overrides, quality).ordinal(),
                             (dialog, which) -> {
-                                presets[which].apply(activity.overrides, base);
+                                presets[which].apply(activity.overrides, quality);
                                 updateSummaries();
                                 dialog.dismiss();
                             }).setNegativeButton(android.R.string.cancel, null).show();

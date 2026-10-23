@@ -155,6 +155,44 @@ public class ProfileScreensTest {
     }
 
     @Test
+    public void theQualityPresetIsReadFromThePcOrMainBitrateAndNotFromTheNetworkProfile() {
+        HostCapabilityCache.save(app, "pc", TestHosts.rubylight());
+        PreferenceConfiguration.readPreferences(app); // first read migrates the stored defaults
+        android.preference.PreferenceManager.getDefaultSharedPreferences(app).edit()
+                .putInt(PreferenceConfiguration.BITRATE_PREF_STRING, 20000)
+                .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true).commit();
+        String travel = StreamProfiles.create(app, "Travel", HostStreamProfile.deserialize("v2;bitrate=90000"));
+        StreamProfiles.setActive(app, travel);
+        AppStreamSettings.save(app, "pc", "game", 4, HostStreamProfile.deserialize("v2;bitrate=30000"));
+        Intent game = new Intent(app, HostStreamSettings.class).putExtra(HostStreamSettings.EXTRA_MODE, "GAME")
+                .putExtra("host_uuid", "pc").putExtra("host_name", "Den PC")
+                .putExtra(HostStreamSettings.EXTRA_APP_UUID, "game").putExtra(HostStreamSettings.EXTRA_APP_ID, 4)
+                .putExtra(HostStreamSettings.EXTRA_APP_NAME, "Racer");
+        assertEquals("The profile in use sets 90 Mbps; Quality still reads from the main 20 Mbps",
+                app.getString(R.string.game_preset_quality), presetTitle(game));
+        StreamProfiles.saveValues(app, travel, HostStreamProfile.deserialize("v2;bitrate=5000"));
+        assertEquals("Another network profile value changes nothing",
+                app.getString(R.string.game_preset_quality), presetTitle(game));
+        HostStreamProfile pc = new HostStreamProfile();
+        pc.bitrate = 40000;
+        pc.save(app, "pc");
+        assertEquals("The PC's own bitrate is the base once it has one",
+                app.getString(R.string.game_preset_custom), presetTitle(game));
+        AppStreamSettings.save(app, "pc", "game", 4, HostStreamProfile.deserialize("v2;bitrate=60000"));
+        assertEquals(app.getString(R.string.game_preset_quality), presetTitle(game));
+    }
+
+    private String presetTitle(Intent game) {
+        ActivityController<HostStreamSettings> controller = Robolectric.buildActivity(HostStreamSettings.class, game).setup();
+        try {
+            String summary = summary(settings(controller.get()), "preset");
+            return summary.substring(0, summary.indexOf(10));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void onlyAGameHasPresetsAndItNamesTheOneItsValuesMatch() {
         HostCapabilityCache.save(app, "pc", TestHosts.rubylight());
         AppStreamSettings.save(app, "pc", "game", 4, HostStreamProfile.deserialize("v2;pacing=smoothness;vrr=false"));

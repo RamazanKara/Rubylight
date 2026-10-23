@@ -118,11 +118,11 @@
     <!-- Presets for one game's stream settings -->
     <string name="game_preset_title">Пресет</string>
     <string name="game_preset_competitive">Змагальний</string>
-    <string name="game_preset_competitive_summary">Рівномірність кадрів із найменшою затримкою. Бітрейт береться з ПК.</string>
+    <string name="game_preset_competitive_summary">Встановлює pacing кадрів на мінімальну затримку. Решта не змінюється.</string>
     <string name="game_preset_smoothness">Плавність</string>
-    <string name="game_preset_smoothness_summary">Найплавніше відео. Кадри притримуються, що додає затримку. Для цієї гри адаптивну частоту вимкнено.</string>
+    <string name="game_preset_smoothness_summary">Встановлює найплавніший pacing кадрів, який утримує кадри й додає затримку, і вимикає адаптивну частоту оновлення для цієї гри. Бітрейт не змінюється.</string>
     <string name="game_preset_quality">Якість</string>
-    <string name="game_preset_quality_summary">Бітрейт на половину вищий, ніж ця гра використала б інакше. Рівномірність кадрів не змінюється; за слабкого з’єднання більші кадри можуть додати затримку.</string>
+    <string name="game_preset_quality_summary" formatted="false">Встановлює бітрейт на 150% від значення ПК (або основних налаштувань, якщо в ПК його немає) у межах ліміту хоста й максимуму автоматичного бітрейту. Pacing кадрів і адаптивна частота оновлення не змінюються; за слабкого з’єднання більші кадри можуть додати затримку.</string>
     <string name="game_preset_custom">Власний</string>
     <string name="game_preset_custom_summary">Ваші власні значення, задані нижче.</string>
 </resources>

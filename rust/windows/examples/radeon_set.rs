@@ -1,7 +1,8 @@
 //! Sets Radeon 3D settings through the host's journaled controller and restores them,
 //! for measurements that need a driver feature on (AFMF, B7). Every change is journaled
-//! in JOURNAL_DIR, so `restore` (or the host's startup recovery) puts it back even after
-//! a crash.
+//! in JOURNAL_DIR, so `restore` puts it back even after a crash. The host's startup recovery only
+//! covers the journal in its own config directory; for any other JOURNAL_DIR run
+//! `radeon_set JOURNAL_DIR restore` yourself.
 //!
 //! usage: radeon_set JOURNAL_DIR set ID=VALUE [ID=VALUE ...]
 //!        radeon_set JOURNAL_DIR restore

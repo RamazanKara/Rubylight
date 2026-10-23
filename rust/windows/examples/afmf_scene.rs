@@ -9,7 +9,7 @@
 //! usage: afmf_scene DISPLAY SECONDS FPS [REPORT.json]
 //!   The scene is a borderless top-most popup over the display, so Windows can flip it
 //!   directly to the screen. Changes no display mode, HDR or layout setting. (Exclusive
-//!   fullscreen was tried on the 780M panel and DXGI refused it with 0x887A0001.)
+//!   fullscreen was tried on the 780M panel and DXGI refused it with 0x887A0001; observed, output not saved.)
 #[cfg(not(windows))]
 fn main() {
     eprintln!("This probe requires Windows.");

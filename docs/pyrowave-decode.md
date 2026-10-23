@@ -231,6 +231,84 @@ pyrowave_sdk::tests`.
   `NIGHTJAR_PYROWAVE_FRAMES` for the real-frame one) cover picture equality, early chunks with and
   without lost packets, frame failures then recovery, the ring, eviction and reuse, and a stalled
   fence.
+- **Review fixes.** With HostTimes pacing the pacer's queue is shared with the decoder thread
+  (`Shared.pacer_backlog`), so a full plane ring evicts the oldest queued picture instead of
+  starving the decoder; a sequence header whose size differs from the stream's is a frame failure;
+  `PlanesPass` gives the plane set back when the reuse `Signal` fails and drops the old decoder's
+  sets when it is re-targeted; the settings screen probes only for PyroWave (on the renderer's
+  adapter and HDR state); the CPU-mode early/fallback counters are kept on failed frames. The
+  accuracy test also bounds the signed mean (0.25/255) and pins the 10-bit UNORM16 scale (code
+  over 1023, not code shifted by six).
+
+## The wait between decoded and shown (HostTimes pacing)
+
+Measured with the 1080p/4K 300 Mbps PyroWave loopback on the dev PC (display 5120x1440 at 240 Hz,
+tearing/VRR present, so `PacingMode::HostTimes`), GPU decode, 60 s ABBA legs, first 5 s dropped, two
+legs per variant pooled. `scripts/timing_breakdown.py <ABBA folder>` prints the split from the timing
+CSV (`due_ns`, `present_begin_ns`, the swap chain's frame statistics; see `timing_csv.rs`).
+
+| 1080p 300 | HostTimes (A) | Immediate (B, `present_at_host_times = false`) |
+|---|---|---|
+| hold (decoded to due) p50 / p95 / p99 | 7.21 / 12.22 / 12.94 | 0 |
+| due to present call (ms) p50 / p95 | 0.04 / 0.51 | 0.04 / 0.07 |
+| present call (draw and `SDL_RenderPresent`) p50 / p95 | 0.58 / 0.82 | 0.72 / 0.99 |
+| decode_to_present p50 / p95 / p99 | 7.92 / 12.93 / 13.70 | 0.76 / 1.05 / 1.18 |
+| receive_to_present p50 / p95 / p99 | 10.36 / 15.35 / 16.08 | 3.21 / 3.97 / 4.22 |
+| shown fps | 60.10 | 60.10 |
+| present interval p50 / p99; abs(interval - 16.67) p99 | 16.61 / 25.70; 9.24 | 16.66 / 18.34; 1.96 |
+
+| 4K 300 | HostTimes (A) | Immediate (B) |
+|---|---|---|
+| hold p50 / p95 / p99 | 7.47 / 13.11 / 15.22 | 0 |
+| receive_to_present p50 / p95 / p99 | 10.92 / 16.72 / 19.25 | 3.46 / 4.44 / 4.83 |
+| decode_to_present p50 / p95 | 8.27 / 14.07 | 0.91 / 1.38 |
+| shown fps | 60.05 | 59.76 |
+| present interval p99; abs(interval - 16.67) p99 | 28.17; 11.51 | 21.80; 6.51 |
+
+- The hold is the whole wait: the pacer's hold is 7.2 to 7.5 ms at p50, the presenter starts
+  0.04 ms after the due time and the draw and present call take 0.6 to 0.9 ms. Nothing in the
+  presenter adds to it.
+- Flip time cannot be read here: with a tearing present the swap chain's frame statistics
+  (`GetFrameStatistics`) report a vblank that has no relation to the present (the `call->flip`
+  rows of the script, 20 to 500 ms). A tearing present is scanned out at the next scan line, at
+  most 1/240 s (4.2 ms) after the call. Refresh rate 240 Hz, tearing true (the client log line
+  "renderer direct3d11, display 5120x1440 at 240.00 Hz, tearing true").
+- Why the clock wants about 7 ms: `PresentClock` waits for the 97th percentile of lateness
+  (ready minus the host's frame stamp plus the clock offset) plus 0.5 ms. On this stream lateness
+  is p50 10.1, p97 16.9 ms (spread 6.8 ms). The spread is almost all host side: capture to
+  acquired 0.1 ms, acquired to submitted p50 5.5 / p97 12.1 ms (the host keeps the newest of the
+  240 Hz captures until its 60 fps encode tick, so a stamp is up to 16.7 ms old when encoding
+  starts), encode 1.0, send 1.0, network 0.1, receive to decoded 2.4 (spread 0.7). So the p97 rule
+  is paying for the host's sample-and-hold age, which the client sees only as lateness. HostTimes
+  reproduces the stamps' cadence (the intervals follow the host's stamps, which are 4.2 ms
+  quantised on a 240 Hz display), which is why its present intervals are more uneven than
+  Immediate's here: Immediate shows frames in the order and cadence they arrive.
+- Tighter rule tried: percentile 90 instead of 97 (hold p50 8.6 to 6.0 ms at 1080p and 7.7 to 6.2
+  ms at 4K; receive_to_present p50 12.3 to 9.4 and 11.2 to 9.7, p95 19.3 to 14.9 and 17.6 to 15.4;
+  A legs are noisy, one 1080p A leg sat at 14.5). Interval jitter p99 (abs deviation) 13.1 to 12.7
+  at 1080p and 12.5 to 16.6 at 4K, shown fps 58.7 to 59.0 and 59.6 to 58.4: more late frames at
+  4K. Not shipped: it fails the "jitter no worse than 1 ms more" bar at 4K and the gain is within
+  the leg-to-leg spread of 1 to 2 ms.
+- Default unchanged. Immediate saves about 7 ms of receive_to_present on this PC at the cost of
+  following the arrival cadence instead of the PC's frame times; a source with a small host-side
+  spread (a game presenting right before the capture) gets a much smaller hold than this
+  synthetic desktop animation. Cutting the host's acquired-to-submitted age (submit the capture
+  closest to the encode tick, or stamp the frame with its submit time) would shrink the spread at
+  the source and is a host change.
+
+## Dropping the CPU wait on the decode fence: measured, not shipped
+
+The decoder thread's `GpuDecoder::wait` (2 s timeout) after `decode` was removed in a trial build
+(the presenter's GPU `Wait` and the 500 ms `ready_within` check already cover a decode that does
+not finish). GPU decode, ABBA, old (A) against trial (B), two legs each, pooled:
+
+| 300 Mbps | receive_to_present p50 A / B | p95 A / B | p99 A / B | decode_to_present p50 A / B |
+|---|---|---|---|---|
+| 1080p | 11.02 / 11.30 | 16.51 / 17.89 | 18.83 / 19.51 | 8.14 / 8.53 |
+| 4K | 11.82 / 11.71 | 18.65 / 18.83 | 20.35 / 20.06 | 8.83 / 9.07 |
+
+p95 was worse in both, and the leg to leg spread (10.9 to 13.3 ms between legs of the same
+variant) is larger than any difference, so there is no gain to keep: reverted. The wait stays.
 
 ## Skipping to the newest frame (CPU decode): measured, not shipped
 

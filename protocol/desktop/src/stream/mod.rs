@@ -98,6 +98,9 @@ pub struct Facts {
     pub reconfigure: bool,
     pub touch: bool,
     pub phase_lock: bool,
+    /// PyroWave decodes blocks while a frame arrives (`Settings::early_decode`, or the
+    /// `NIGHTJAR_EARLY_DECODE` override) on this stream.
+    pub early_decode: bool,
     pub app_name: String,
     pub host_name: String,
 }
@@ -394,6 +397,34 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
     }
 }
 
+/// The overlay's early decode line: frames per second decoded ahead, and the fallbacks of the
+/// last interval and in all (`now` and `last` are the early frame and fallback totals).
+fn early_line(now: (u64, u64), last: (u64, u64), secs: f64) -> String {
+    format!("{:.0} early/s, {} whole in the last second, {} fallbacks in all",
+        now.0.saturating_sub(last.0) as f64 / secs, now.1.saturating_sub(last.1), now.1)
+}
+
+/// The line logged when an early decode session ends: the three counters of the decoder and
+/// the chunks the queue dropped.
+fn early_summary(early_frames: u64, fallbacks: u64, chunk_us: u64, chunks_dropped: u64) -> String {
+    format!("nightjar: early decode: {early_frames} frames decoded ahead, {fallbacks} fell back to the whole frame, \
+        {chunks_dropped} chunks dropped, {:.1} ms of decoding done while frames arrived", chunk_us as f64 / 1000.0)
+}
+
+#[cfg(test)]
+mod early_tests {
+    use super::*;
+
+    #[test]
+    fn the_overlay_line_and_the_session_summary_carry_the_counters() {
+        assert_eq!(early_line((130, 3), (70, 2), 2.0), "30 early/s, 1 whole in the last second, 3 fallbacks in all");
+        let summary = early_summary(1200, 4, 8_500, 7);
+        for part in ["1200 frames decoded ahead", "4 fell back", "7 chunks dropped", "8.5 ms"] {
+            assert!(summary.contains(part), "{summary}");
+        }
+    }
+}
+
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
 fn early_decode(setting: bool) -> bool {
     match std::env::var("NIGHTJAR_EARLY_DECODE").as_deref() {
@@ -529,6 +560,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         rtsp_session_url: launched.rtsp_session_url,
         server_codec_mode_support: if scm != 0 { scm } else { SCM_H264 },
     };
+    let early = early_decode(settings.early_decode);
     let session = Session::start(
         &host,
         SessionConfig {
@@ -538,7 +570,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             input_only: role == AppRole::InputOnly,
             ..Default::default()
         },
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early_decode(settings.early_decode))),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early)),
         Box::new(pipeline::Audio::new(shared.clone())),
         Arc::new(pipeline::Events { shared }),
         interrupt,
@@ -566,6 +598,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         touch: outcome.sunshine_feature_flags & nightjar_core::control::negotiation::feature::PEN_TOUCH_EVENTS != 0
             && role != AppRole::RemoteMonitor,
         phase_lock: outcome.host_control_messages.contains(&rubylight_protocol::phase_lock::REPORT_MESSAGE_TYPE),
+        early_decode: early && outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
         app_name: plan.app.name.clone(),
         host_name: plan.host_name.clone(),
     };
@@ -692,6 +725,8 @@ pub struct Streaming {
     last_probe: Instant,
     window: Window,
     last_counters: (u64, u64, u64, u64, u64, u64),
+    /// Early frames and fallbacks at the last overlay update.
+    last_early: (u64, u64),
     last_video: (u64, u64),
     started: Instant,
     first_frame: bool,
@@ -795,6 +830,7 @@ impl Streaming {
             last_probe: Instant::now(),
             window: Window::default(),
             last_counters: (0, 0, 0, 0, 0, 0),
+            last_early: (0, 0),
             last_video: (0, 0),
             started: Instant::now(),
             first_frame: false,
@@ -1512,6 +1548,8 @@ impl Streaming {
                     host_latency: d.host_latency,
                     drops: self.shared.counters.replaced.load(Ordering::Relaxed),
                     clock: self.offset.offset_at(d.enqueue_us as i64).zip(self.offset.rtt_us()),
+                    early: d.early,
+                    first_block_us: d.first_block_us,
                 });
             }
             let host_us = self.rtp_clock.host_us(p.decoded.rtp);
@@ -1615,6 +1653,11 @@ impl Streaming {
             "Decode".into(),
             format!("{decode_ms:.2} ms{}", if now.3 > last.3 { ", errors" } else { "" }),
         ));
+        if self.facts.early_decode {
+            let early = (c.early_frames.load(Ordering::Relaxed), c.early_fallbacks.load(Ordering::Relaxed));
+            let last_early = std::mem::replace(&mut self.last_early, early);
+            lines.push(("Early decode".into(), early_line(early, last_early, secs)));
+        }
         lines.push((
             "Render".into(),
             format!("{:.2} ms", avg(w.render_us as f64, w.shown) / 1000.0),
@@ -2040,6 +2083,11 @@ impl Streaming {
         pads.reset();
         self.upscaler = None;
         self.texture.destroy();
+        if self.facts.early_decode {
+            let c = &self.shared.counters;
+            eprintln!("{}", early_summary(c.early_frames.load(Ordering::Relaxed), c.early_fallbacks.load(Ordering::Relaxed),
+                c.early_us_total.load(Ordering::Relaxed), self.session.stats().early_chunks_dropped));
+        }
         self.session.stop();
     }
 }

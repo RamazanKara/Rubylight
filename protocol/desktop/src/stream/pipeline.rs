@@ -39,6 +39,12 @@ pub struct Decoded {
     pub ready_us: u64,
     /// Host processing latency in 1/10 ms (0 when the host does not report it).
     pub host_latency: u16,
+    /// How early decode went for this frame: 0 off or not PyroWave, 1 early, 2 fell back to
+    /// decoding the whole frame (the timing CSV's `early`).
+    pub early: u8,
+    /// When its first block was decoded, before the frame completed (session clock, µs); 0
+    /// unless `early` is 1.
+    pub first_block_us: u64,
 }
 
 /// Something the UI should know about.
@@ -231,15 +237,16 @@ impl VideoDecoder for Decoder {
             let start = session::now_us();
             let setup = self.setup.expect("decoder setup precedes frames");
             let result = decoder.coefficients(frame.data()).map_err(str::to_owned).and_then(|_| decoder.coefficient_frame());
-            match decoder.source {
-                super::pyrowave::Source::Frame => {}
-                super::pyrowave::Source::Early => { self.shared.counters.early_frames.fetch_add(1, Ordering::Relaxed); }
+            let early = match decoder.source {
+                super::pyrowave::Source::Frame => 0,
+                super::pyrowave::Source::Early => { self.shared.counters.early_frames.fetch_add(1, Ordering::Relaxed); 1 }
                 super::pyrowave::Source::Fallback => {
                     if self.shared.counters.early_fallbacks.fetch_add(1, Ordering::Relaxed) == 0 {
                         eprintln!("nightjar: PyroWave: early chunks did not match the frame, decoding it whole (counted, not repeated)");
                     }
+                    2
                 }
-            }
+            };
             let picture = match result {
                 Ok(picture) => picture,
                 Err(error) => { eprintln!("nightjar: PyroWave: {error}"); self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed); return DecodeStatus::NeedIdr; }
@@ -257,7 +264,8 @@ impl VideoDecoder for Decoder {
             }
             drop(timing);
             let decoded = Decoded { frame: picture, setup, rtp: frame.rtp_timestamp, number: frame.number, receive_us: frame.receive_time_us,
-                enqueue_us: frame.enqueue_time_us, input_us: start, ready_us, host_latency: frame.host_processing_latency };
+                enqueue_us: frame.enqueue_time_us, input_us: start, ready_us, host_latency: frame.host_processing_latency,
+                early, first_block_us: decoder.first_block_us };
             let mut frames = lock(&self.shared.frames);
             frames.push_back(decoded);
             while frames.len() > self.shared.queue_limit { frames.pop_front(); counters.replaced.fetch_add(1, Ordering::Relaxed); }
@@ -303,6 +311,8 @@ impl VideoDecoder for Decoder {
                         input_us: started,
                         ready_us: ready,
                         host_latency: frame.host_processing_latency,
+                        early: 0,
+                        first_block_us: 0,
                     };
                     let mut frames = lock(&self.shared.frames);
                     frames.push_back(decoded);

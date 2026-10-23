@@ -12,8 +12,12 @@
 //! Times are nanoseconds on the session clock (`session::now_us`, the clock 0x5537 offsets are
 //! measured against, `client = host + offset`). Columns that exist only for MediaCodec (release,
 //! callback, frame rates, the host stage milliseconds) are empty; the nine host columns come
-//! from the extended 0x5536 report.
+//! from the extended 0x5536 report. Two desktop columns follow the host columns (a reader
+//! that goes by name ignores them): `early` (0 decoded whole, 1 early decode, 2 early decode
+//! fell back to the whole frame) and `first_block_ns` (when the first block of an early frame
+//! was decoded; empty otherwise), for the early-decode comparison in docs/early-decode.md.
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -40,8 +44,11 @@ pub const OWN_COLUMNS: [&str; 32] = [
     "callback_received_ns", "callback_delay_ms",
 ];
 
+/// The desktop's own columns after the host's.
+pub const EXTRA_COLUMNS: [&str; 2] = ["early", "first_block_ns"];
+
 pub fn header() -> String {
-    format!("{},{}\n", OWN_COLUMNS.join(","), record::HEADER)
+    format!("{},{},{}\n", OWN_COLUMNS.join(","), record::HEADER, EXTRA_COLUMNS.join(","))
 }
 
 /// Rows waiting for the writer.
@@ -68,6 +75,10 @@ pub struct Row {
     pub drops: u64,
     /// The clock offset (`client = host + offset`) and round trip, µs, when known.
     pub clock: Option<(i64, i64)>,
+    /// 0 decoded whole, 1 early decode, 2 early decode fell back (see `Decoded::early`).
+    pub early: u8,
+    /// The first block of an early frame was decoded (µs), 0 when not.
+    pub first_block_us: u64,
 }
 
 enum Message {
@@ -153,11 +164,14 @@ impl Drop for TimingCsv {
 fn run(mut file: BufWriter<File>, inbox: std::sync::mpsc::Receiver<Message>, lost: &AtomicU64) {
     let mut record = Record::default();
     let mut previous_output = 0u64;
+    // The desktop columns of the rows the record holds, in the order it gives them back.
+    let mut extras: VecDeque<String> = VecDeque::new();
     loop {
         let done = match inbox.recv_timeout(Duration::from_millis(100)) {
             Ok(Message::Row(row)) => {
                 let line = own_fields(&row, lost.load(Ordering::Relaxed), previous_output);
                 previous_output = row.output_us;
+                extras.push_back(extra_fields(&row));
                 record.push(PendingRow {
                     number: row.number,
                     line,
@@ -177,7 +191,8 @@ fn run(mut file: BufWriter<File>, inbox: std::sync::mpsc::Receiver<Message>, los
         let now = if done { u64::MAX } else { session::now_us() };
         let rows = record.take_due(now);
         for line in &rows {
-            let _ = writeln!(file, "{line}");
+            let extra = extras.pop_front().unwrap_or_else(|| extra_fields(&Row::default()));
+            let _ = writeln!(file, "{line},{extra}");
         }
         if !rows.is_empty() || done {
             let _ = file.flush();
@@ -239,6 +254,11 @@ pub fn own_fields(row: &Row, lost: u64, previous_output_us: u64) -> String {
     fields.join(",")
 }
 
+/// The two desktop columns of one row, comma separated.
+pub fn extra_fields(row: &Row) -> String {
+    format!("{},{}", row.early, timestamp(row.first_block_us))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,14 +297,20 @@ mod tests {
             host_latency: 25,
             drops: 3,
             clock: Some((-5_000, 800)),
+            early: 1,
+            first_block_us: 1_000_900,
         }
     }
 
     #[test]
     fn the_header_is_the_androids_byte_for_byte() {
         let android = android_header().expect("Android's CSV_HEADER");
-        assert_eq!(header().trim_end(), android.trim_end());
+        let ours = header();
+        let ours = ours.trim_end();
+        assert!(ours.starts_with(android.trim_end()), "Android's columns come first, unchanged");
+        assert_eq!(&ours[android.trim_end().len()..], ",early,first_block_ns");
         assert_eq!(OWN_COLUMNS.len() + 9, android.split(',').count());
+        assert_eq!(ours.split(',').count(), android.split(',').count() + EXTRA_COLUMNS.len());
     }
 
     #[test]
@@ -328,8 +354,29 @@ mod tests {
         assert_eq!(lines.len(), 3, "{text}");
         assert_eq!(format!("{}\n", lines[0]), header());
         let tail = |line: &str| line.split(',').skip(OWN_COLUMNS.len()).collect::<Vec<_>>().join(",");
-        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800");
-        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800");
+        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,1,1000900000");
+        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,1,1000900000");
+        for line in &lines {
+            assert_eq!(line.split(',').count(), header().trim_end().split(',').count());
+        }
+    }
+
+    #[test]
+    fn the_early_columns_say_how_the_frame_was_decoded() {
+        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,");
+        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,");
+        assert_eq!(extra_fields(&row()), "1,1000900000");
+        // Rows come back in the order they went in, each with its own columns.
+        let path = std::env::temp_dir().join(format!("nightjar-timing-early-{}", std::process::id()));
+        let csv = TimingCsv::create(&path).unwrap();
+        for (number, early) in [(1, 0u8), (2, 1), (3, 2)] {
+            csv.row(Row { number, early, first_block_us: if early == 1 { 1_000_900 } else { 0 }, ..row() });
+        }
+        drop(csv);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let ends: Vec<String> = text.lines().skip(1).map(|l| l.rsplit(',').take(2).collect::<Vec<_>>().join("|")).collect();
+        assert_eq!(ends, ["|0", "1000900000|1", "|2"]);
     }
 
     #[test]
@@ -375,6 +422,8 @@ mod tests {
                 drops: 0,
                 // client = host + 4.9 s
                 clock: Some((4_900_000, 600)),
+                early: 1,
+                first_block_us: base + 1_000,
             });
         }
         drop(csv);

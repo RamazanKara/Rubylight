@@ -46,7 +46,13 @@ pub struct Decoder {
     /// completed.
     pub source: Source,
     pub early_blocks: usize,
+    /// When the first block of the last early-decoded frame was decoded (session clock, us);
+    /// 0 for frames decoded whole.
+    pub first_block_us: u64,
     early: Early,
+    /// A chunk came that is not the first of a frame while none was in flight: the start of
+    /// the frame was lost, and the call that gets the frame counts it as a fallback.
+    missed_start: bool,
     /// Envelope bytes the chunks add up to, to check against the frame.
     early_bytes: usize,
     early_done: usize,
@@ -88,7 +94,7 @@ impl Decoder {
             }
         }
         Ok(Self { width, height, chroma444, loss_percent: 0.0, source: Source::Frame, early_blocks: 0,
-            early: Early::Off, early_bytes: 0, early_done: 0, stride, rows,
+            first_block_us: 0, early: Early::Off, missed_start: false, early_bytes: 0, early_done: 0, stride, rows,
             planes: std::array::from_fn(|_| vec![0.0; stride * rows]), bands, seen: vec![false; count],
             records: Records::with_geometry(width as u32, height as u32, chroma444), packet: Vec::new(),
             #[cfg(test)] scratch: vec![0.0; stride * rows], #[cfg(test)] line: vec![0.0; stride.max(rows)] })
@@ -112,6 +118,11 @@ impl Decoder {
             self.early = Early::Active;
             self.early_bytes = 4;
             self.early_done = 0;
+            self.first_block_us = 0;
+            self.missed_start = false;
+        } else if self.early == Early::Off {
+            self.missed_start = true;
+            return;
         }
         if self.early != Early::Active { return; }
         self.early_bytes += 8 + payload.len();
@@ -126,15 +137,17 @@ impl Decoder {
             }
         });
         if failed { self.early = Early::Failed; }
+        if self.early_done > 0 && self.first_block_us == 0 { self.first_block_us = nightjar_core::session::now_us(); }
     }
 
     pub fn coefficients(&mut self, data: &[u8]) -> Result<(), &'static str> {
-        if data.len() > rubylight_protocol::pyrowave::MAX_FRAME_BYTES { return Err("PyroWave frame exceeds the packet budget"); }
         let early = std::mem::replace(&mut self.early, Early::Off);
-        let records = data.starts_with(&[0, 0, 0, 0]);
-        self.packet.clear();
+        let missed_start = std::mem::take(&mut self.missed_start);
         self.source = Source::Frame;
         self.early_blocks = 0;
+        if data.len() > rubylight_protocol::pyrowave::MAX_FRAME_BYTES { return Err("PyroWave frame exceeds the packet budget"); }
+        let records = data.starts_with(&[0, 0, 0, 0]);
+        self.packet.clear();
         let mut finished = false;
         if early != Early::Off {
             // The chunks are the frame only if they add up to its envelope; the frame decides.
@@ -145,7 +158,10 @@ impl Decoder {
             }
             self.source = if finished { Source::Early } else { Source::Fallback };
             if finished { self.early_blocks = self.early_done; }
+        } else if missed_start {
+            self.source = Source::Fallback;
         }
+        if self.source != Source::Early { self.first_block_us = 0; }
         if !finished {
             let push = |packet: &[u8]| { self.packet.extend_from_slice(packet); true };
             let valid = if records { self.records.push_frame(data, push) } else { push_container(data, push) };
@@ -516,6 +532,7 @@ mod tests {
             early.coefficients(&data).unwrap();
             assert_eq!(early.source, Source::Early);
             assert_eq!(whole.source, Source::Frame);
+            assert!(early.first_block_us > 0 && whole.first_block_us == 0, "only an early frame has a first-block time");
             assert!(early.planes == whole.planes, "the planes differ");
             assert_eq!(early.loss_percent, whole.loss_percent);
         }
@@ -546,6 +563,43 @@ mod tests {
             legacy.coefficients(container).unwrap();
             assert!(legacy.planes == whole.planes, "the envelope and the legacy container differ");
             early.coefficient_frame().unwrap();
+        }
+    }
+
+    /// The fixture's records cut into packets of `piece` bytes wherever the cut falls, so a
+    /// record runs over several packets: only the first has RECORD_START, the others continue it.
+    fn spanning_packets(bitstream: &[u8], piece: usize) -> Vec<(u32, Vec<u8>)> {
+        use rubylight_protocol::pyrowave::{PACKET_CONTIGUOUS, PACKET_FRAME_END, PACKET_FRAME_START, PACKET_RECORD_START};
+        let pieces: Vec<&[u8]> = bitstream[8..].chunks(piece).collect();
+        let count = pieces.len();
+        let last = pieces[count - 1].len() + if count == 1 { 16 } else { 0 };
+        let mut prefix = vec![1, 0, 0, 0, last as u8, (last >> 8) as u8, 0, 0];
+        prefix.extend_from_slice(&bitstream[..8]);
+        pieces.iter().enumerate().map(|(i, piece)| {
+            let mut flags = if i == 0 { PACKET_FRAME_START | PACKET_RECORD_START } else { PACKET_CONTIGUOUS };
+            if i == count - 1 { flags |= PACKET_FRAME_END; }
+            let mut payload = if i == 0 { prefix.clone() } else { Vec::new() };
+            payload.extend_from_slice(piece);
+            (flags, payload)
+        }).collect()
+    }
+
+    #[test]
+    fn records_spanning_packets_decode_early_like_the_whole_frame() {
+        for which in 0..4 {
+            let (container, width, height, full) = fixture(which);
+            let bits = bitstream(container);
+            let records = (word(&bits, 4) & 0xff_ffff) as usize;
+            for piece in [97, 300, 1000] {
+                let packets = spanning_packets(&bits, piece);
+                assert!(packets.len() > 3, "the fixture spans packets at {piece} bytes");
+                // Two frames, so the second can reuse the first's decoder state.
+                let (whole, early) = decode_both(width, height, full, &[packets.clone(), packets]);
+                assert_eq!(early.early_blocks, records, "fixture {which}, {piece}-byte packets");
+                assert_eq!(early.loss_percent, 0.0);
+                early.coefficient_frame().unwrap();
+                drop(whole);
+            }
         }
     }
 
@@ -582,12 +636,24 @@ mod tests {
         assert_eq!((early.source, early.early_blocks), (Source::Fallback, 0));
         assert!(early.planes == whole.planes);
 
-        // Chunks of a frame whose start the decoder never saw are ignored.
+        // Chunks of a frame whose start the decoder never saw (the queue dropped its first
+        // chunk) count as a fallback, once: the next frame is not marked.
         let mut early = Decoder::new(width, height, full).unwrap();
         for (flags, payload) in &packets[1..] { early.chunk(false, *flags, payload); }
         early.coefficients(&data).unwrap();
-        assert_eq!(early.source, Source::Frame);
+        assert_eq!((early.source, early.first_block_us), (Source::Fallback, 0));
         assert!(early.planes == whole.planes);
+        early.coefficients(&data).unwrap();
+        assert_eq!(early.source, Source::Frame);
+
+        // A frame over the packet budget is refused and leaves no early state behind.
+        let mut early = Decoder::new(width, height, full).unwrap();
+        for (i, (flags, payload)) in packets.iter().enumerate() { early.chunk(i == 0, *flags, payload); }
+        let oversized = vec![0u8; rubylight_protocol::pyrowave::MAX_FRAME_BYTES + 1];
+        assert!(early.coefficients(&oversized).is_err());
+        assert_eq!((early.source, early.early_blocks), (Source::Frame, 0));
+        early.coefficients(&data).unwrap();
+        assert_eq!(early.source, Source::Frame, "the refused frame took the early state with it");
 
         // A chunk the decoder cannot parse.
         let mut early = Decoder::new(width, height, full).unwrap();

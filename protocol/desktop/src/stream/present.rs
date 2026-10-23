@@ -649,6 +649,8 @@ mod tests {
             input_us: 0,
             ready_us,
             host_latency: 0,
+            early: 0,
+            first_block_us: 0,
         }
     }
 

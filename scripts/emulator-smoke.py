@@ -153,11 +153,16 @@ def find(label, scroll=False):
     raise AssertionError(f"UI node missing: {label}")
 
 
-def find_text(pattern):
-    for _ in range(8):
-        for node in tree().iter("node"):
+def find_text(pattern, scroll=False):
+    for _ in range(12 if scroll else 8):
+        root = tree()
+        for node in root.iter("node"):
             if re.search(pattern, node.get("text") or ""):
                 return node
+        area = next((n for n in root.iter("node") if n.get("scrollable") == "true"), None) if scroll else None
+        if area is not None:
+            x1, y1, x2, y2 = bounds(area)
+            adb("shell", "input", "swipe", str((x1+x2)//2), str(y1+(y2-y1)*3//4), str((x1+x2)//2), str(y1+(y2-y1)//3), "300")
         time.sleep(0.5)
     texts = [n.get("text") for n in tree().iter("node") if n.get("text")]
     raise AssertionError(f"No UI text matches: {pattern}; on screen: {texts[:30]}")
@@ -431,9 +436,9 @@ def capture_ui_set(width, font, rotation=0):
     find("Pair with one-time PIN")
     screenshot(prefix + "-pc-sheet")
     # A long sheet must scroll through its final action without dragging it closed.
-    find("Delete PC", scroll=True)
+    find("Remove PC", scroll=True)
     scroll_to_end()
-    assert_touch_target("Delete PC")
+    assert_touch_target("Remove PC")
     assert_touch_target(close)
     screenshot(prefix + "-pc-sheet-bottom")
     tap(close)
@@ -515,7 +520,7 @@ def capture_ui_set(width, font, rotation=0):
     screenshot(prefix + "-pairing-pin")
     tap("android:id/button2")
     find(HOST_NAME)
-    host_menu("Delete PC")
+    host_menu("Remove PC")
     tap("android:id/button1")
     find(f"{PACKAGE}:id/discovery_add", scroll=True)
     screenshot(prefix + "-home-empty")
@@ -586,7 +591,7 @@ def library_regressions():
     # A game's own stream values open from its sheet and say where unset values come from.
     tap("Stream settings for this game", scroll=True)
     find("Racing Game")
-    find_text(r"(?m)from the main settings$")
+    find_text(r"(?m)from the main settings$", scroll=True)
     screenshot("game-settings-landscape-font-2")
     find(f"{PACKAGE}:id/host_profile_save", scroll=True)
     navigate_up()
@@ -641,7 +646,7 @@ def home_states():
         tap(f"More options for {name}")
         find(action)
         actions = [n.get("text") for n in tree().iter("node") if n.get("class") == "android.widget.Button"]
-        assert len(actions) <= 7 and actions[-1] == "Delete PC", f"{name} menu: {actions}"
+        assert len(actions) <= 7 and actions[-1] == "Remove PC", f"{name} menu: {actions}"
         screenshot(shot)
         tap(f"{PACKAGE}:id/action_sheet_close")
     # D-pad: down onto the first row, right onto its options button, Enter opens the menu.

@@ -14,6 +14,18 @@ a=x-rl-control:0x5530,0x5531,0x5532
 
 Send a message only when its id is in that list. Older hosts and other Moonlight hosts do not send the line; to them, send none of these messages. A host ignores control message ids it does not know.
 
+## PyroWave hints in the RTSP `ANNOUNCE`
+
+A PyroWave client (record framing, `pyrowaveAdaptiveFec` or `pyrowaveFeatures` bit 0) may add these SDP attributes. A host that does not know a key ignores it, so a client sends them unconditionally.
+
+| Attribute | Value | Host behaviour |
+| --- | --- | --- |
+| `x-ss-video[0].pyrowaveLinkMbps` | the client's wired link, Mbps | Caps the requested bitrate at 80% of the link (`network_pacing`). |
+| `x-ss-video[0].pyrowavePaceMbps` | the pace the client's calibration found loss-free, Mbps | The sender's pacing rate when present (`network_pacing`). |
+| `x-ss-video[0].pyrowaveRowOrder` | `1` | Sends the fine records of each 64-row picture band together, with what a band needs before the next band's, after the coarse records as always. Any other value, or no key, keeps the order by block index. A value that is not a number fails the `ANNOUNCE`, like the other numeric keys. |
+
+Row order changes only the order of the records and the padding between packets (within 1% of the size on the test fixtures). Every record still carries its own block index, so a client that sorts or places records by index decodes either order. Under a lost tail, row order loses the last rows at every level and index order the finest level of the bottom rows; the coarse records and the critical FEC block are the same in both.
+
 ## Framing
 
 Each message travels on the control stream like Moonlight's client-to-host control messages: the 16-bit message type, then the payload, encrypted when the session encrypts its control stream. All fields are little-endian. Every payload starts with a version byte, currently `1`. A newer client may append fields; the host reads the fields it knows and ignores the rest. A payload that is too short, has another version or carries implausible values is ignored (logged at debug).

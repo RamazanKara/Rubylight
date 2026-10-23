@@ -825,10 +825,11 @@ impl Encoder {
                     .bitstream
                     .get(packet.offset..end)
                     .context("invalid codec record range")?;
-                let framed = pyrowave::record_frame(
+                let framed = pyrowave::record_frame_with(
                     raw,
                     pyrowave::aligned_payload(self.config.packet_size),
                     limit,
+                    self.config.pyrowave_row_order,
                 )?;
                 if framed.len() <= budget {
                     framed

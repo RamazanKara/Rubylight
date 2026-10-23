@@ -367,7 +367,66 @@ impl Fits {
         }
     }
 }
+/// One block of the picture's index space: its wavelet level (0 is the finest) and its row of
+/// 32x32 blocks inside its band. The index space runs level 4 to 0, per level the components,
+/// per component the bands, per band the blocks in rows; `coarse_count` is its level 4 part.
+struct Block {
+    level: u32,
+    row: u32,
+}
+fn blocks(width: u32, height: u32, chroma444: bool) -> Vec<Block> {
+    let stride = width.div_ceil(32).max(4) * 32;
+    let rows = height.div_ceil(32).max(4) * 32;
+    let mut out = Vec::new();
+    for level in (0..5).rev() {
+        for component in 0..3 {
+            // 4:2:0 chroma has no level 0.
+            if level == 0 && component != 0 && !chroma444 {
+                continue;
+            }
+            let (across, down) = (
+                (stride >> (level + 1)).div_ceil(32),
+                (rows >> (level + 1)).div_ceil(32),
+            );
+            for _band in 0..if level == 4 { 4 } else { 3 } {
+                out.extend(
+                    (0..down).flat_map(|row| (0..across).map(move |_| Block { level, row })),
+                );
+            }
+        }
+    }
+    out
+}
+/// The picture band (64 rows, one level 0 block row) after which each block of the index space is
+/// sent in row order. Band k needs level L's block row r when `r * 2^L - 1 <= k`: the inverse
+/// wavelet's four +-1 lifting steps reach under one block row at every level, so one band of
+/// lookahead covers it. Level 4, the critical FEC block, is all step 0.
+pub fn row_steps(width: u32, height: u32, chroma444: bool) -> Vec<u16> {
+    let bands = (height.div_ceil(32).max(4) * 32).div_ceil(64);
+    blocks(width, height, chroma444)
+        .iter()
+        .map(|b| {
+            if b.level == 4 {
+                0
+            } else {
+                ((b.row << b.level).saturating_sub(1)).min(bands - 1) as u16
+            }
+        })
+        .collect()
+}
 pub fn record_frame(bitstream: &[u8], payload: usize, limit: usize) -> Result<Vec<u8>> {
+    record_frame_with(bitstream, payload, limit, false)
+}
+/// `record_frame`, with the fine records in row order when `rows` is set (the client asked with
+/// `x-ss-video[0].pyrowaveRowOrder`): the coarse records first as ever, then each picture band's
+/// records with what it needs before the next band's. The same records and bytes; only the order
+/// and the padding between packets differ.
+pub fn record_frame_with(
+    bitstream: &[u8],
+    payload: usize,
+    limit: usize,
+    rows: bool,
+) -> Result<Vec<u8>> {
     let all = records(bitstream)?;
     if bitstream.len() > limit {
         bail!("PyroWave frame exceeds transport capacity");
@@ -376,48 +435,111 @@ pub fn record_frame(bitstream: &[u8], payload: usize, limit: usize) -> Result<Ve
         return Ok(bitstream.to_vec());
     }
     let coarse = coarse_count(bitstream);
+    let steps = rows.then(|| {
+        let header = word(bitstream, 0);
+        row_steps(
+            (header & 0x3fff) + 1,
+            ((header >> 14) & 0x3fff) + 1,
+            (word(bitstream, 4) >> 26) & 1 != 0,
+        )
+    });
     let mut out = Vec::with_capacity(bitstream.len());
     out.extend_from_slice(&bitstream[..8]);
     for required in [true, false] {
-        let mut ordinary = Vec::new();
-        for r in all.iter().filter(|r| (r.index < coarse) == required) {
-            if r.size > payload - 8 {
-                let room = payload - (out.len() + 8) % payload;
-                if r.size % payload == room - 4 {
-                    padding(&mut out, 8);
+        let mut class: Vec<Record> = all
+            .iter()
+            .filter(|r| (r.index < coarse) == required)
+            .copied()
+            .collect();
+        if let Some(steps) = steps.as_ref().filter(|_| !required) {
+            let step = |r: &Record| {
+                steps
+                    .get(r.index as usize)
+                    .copied()
+                    .context("PyroWave block index exceeds the picture")
+            };
+            for r in &class {
+                step(r)?;
+            }
+            class.sort_by_key(|r| (steps[r.index as usize], r.index));
+            // A record over a packet goes out once every ordinary record ranked before it has; the
+            // ones ranked after it may still fill the packet it leaves open.
+            let (mut ordinary, mut bigs) = (Vec::new(), Vec::new());
+            for r in class {
+                if r.size > payload - 8 {
+                    bigs.push((ordinary.len(), r));
+                } else {
+                    ordinary.push(r);
                 }
-                out.extend_from_slice(&bitstream[r.offset..r.offset + r.size]);
+            }
+            first_fit(&mut out, bitstream, &ordinary, &bigs, payload);
+            continue;
+        }
+        let mut ordinary = Vec::new();
+        for r in &class {
+            if r.size > payload - 8 {
+                big(&mut out, bitstream, r, payload);
             } else {
                 ordinary.push(*r);
             }
         }
-        let mut fits = Fits::new(&ordinary);
-        for _ in 0..ordinary.len() {
-            loop {
-                let room = payload - (out.len() + 8) % payload;
-                let mut chosen = fits.fitting(room / 4);
-                if chosen != usize::MAX && room - ordinary[chosen].size == 4 {
-                    chosen = fits.exact(room / 4).min(if room >= 16 {
-                        fits.fitting((room - 8) / 4)
-                    } else {
-                        usize::MAX
-                    });
-                }
-                if chosen == usize::MAX {
-                    padding(&mut out, room);
-                    continue;
-                }
-                let r = ordinary[chosen];
-                fits.remove(r.size / 4);
-                out.extend_from_slice(&bitstream[r.offset..r.offset + r.size]);
-                break;
-            }
-        }
+        first_fit(&mut out, bitstream, &ordinary, &[], payload);
     }
     if out.len() > limit {
         return Ok(bitstream.to_vec());
     }
     Ok(out)
+}
+fn big(out: &mut Vec<u8>, bitstream: &[u8], r: &Record, payload: usize) {
+    let room = payload - (out.len() + 8) % payload;
+    if r.size % payload == room - 4 {
+        padding(out, 8);
+    }
+    out.extend_from_slice(&bitstream[r.offset..r.offset + r.size]);
+}
+/// Packs `ordinary` first-fit. Each of `bigs` (with how many ordinary records are ranked before
+/// it) goes out as soon as those are all placed.
+fn first_fit(
+    out: &mut Vec<u8>,
+    bitstream: &[u8],
+    ordinary: &[Record],
+    bigs: &[(usize, Record)],
+    payload: usize,
+) {
+    let mut fits = Fits::new(ordinary);
+    let (mut placed, mut front, mut next) = (vec![false; ordinary.len()], 0, 0);
+    for _ in 0..ordinary.len() {
+        while front < placed.len() && placed[front] {
+            front += 1;
+        }
+        while next < bigs.len() && bigs[next].0 <= front {
+            big(out, bitstream, &bigs[next].1, payload);
+            next += 1;
+        }
+        loop {
+            let room = payload - (out.len() + 8) % payload;
+            let mut chosen = fits.fitting(room / 4);
+            if chosen != usize::MAX && room - ordinary[chosen].size == 4 {
+                chosen = fits.exact(room / 4).min(if room >= 16 {
+                    fits.fitting((room - 8) / 4)
+                } else {
+                    usize::MAX
+                });
+            }
+            if chosen == usize::MAX {
+                padding(out, room);
+                continue;
+            }
+            let r = ordinary[chosen];
+            fits.remove(r.size / 4);
+            placed[chosen] = true;
+            out.extend_from_slice(&bitstream[r.offset..r.offset + r.size]);
+            break;
+        }
+    }
+    for (_, r) in &bigs[next..] {
+        big(out, bitstream, r, payload);
+    }
 }
 pub struct Layout {
     pub critical_shards: usize,
@@ -1159,3 +1281,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod rows_tests;

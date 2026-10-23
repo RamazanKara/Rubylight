@@ -172,6 +172,10 @@ pub struct Negotiated {
     /// (`x-ss-video[0].pyrowavePaceMbps`), 0 when it has none.
     #[serde(default)]
     pub pyrowave_client_pace_mbps: u32,
+    /// The client wants each picture band's PyroWave records together, the coarse ones first
+    /// (`x-ss-video[0].pyrowaveRowOrder:1`). Off without the key, and for any other value.
+    #[serde(default)]
+    pub pyrowave_row_order: bool,
     pub packet_size: usize,
     pub min_fec: usize,
     pub audio_channels: u8,
@@ -215,6 +219,7 @@ impl Default for Negotiated {
             pyrowave_records: false,
             pyrowave_client_link_mbps: 0,
             pyrowave_client_pace_mbps: 0,
+            pyrowave_row_order: false,
             packet_size: 1024,
             min_fec: 0,
             audio_channels: 2,
@@ -319,6 +324,7 @@ impl Negotiated {
             || get("x-ss-video[0].pyrowaveFeatures", 0)? & 1 != 0;
         n.pyrowave_client_link_mbps = get("x-ss-video[0].pyrowaveLinkMbps", 0)?;
         n.pyrowave_client_pace_mbps = get("x-ss-video[0].pyrowavePaceMbps", 0)?;
+        n.pyrowave_row_order = n.pyrowave_records && get("x-ss-video[0].pyrowaveRowOrder", 0)? == 1;
         n.packet_size = get("x-nv-video[0].packetSize", 1024)? as usize;
         n.min_fec = get("x-nv-vqos[0].fec.minRequiredFecPackets", 0)? as usize;
         n.audio_channels = u8::try_from(get("x-nv-audio.surround.numChannels", 2)?)?;
@@ -613,6 +619,33 @@ mod tests {
             describe(0, 7, 0, true, true, true, false)
                 .contains("a=x-ss-pyrowave.bitstream:186f0393\r\n")
         );
+    }
+    #[test]
+    fn the_row_order_hint_is_on_only_for_a_one_with_record_framing() {
+        let sdp = |hint: &str| format!("a=x-ss-video[0].pyrowaveAdaptiveFec:0\n{hint}");
+        let rows = |hint: &str| {
+            Negotiated::from_sdp(sdp(hint).as_bytes())
+                .unwrap()
+                .pyrowave_row_order
+        };
+        assert!(!rows(""), "an old client sends no key");
+        assert!(!rows("a=x-ss-video[0].pyrowaveRowOrder:0\n"));
+        assert!(rows("a=x-ss-video[0].pyrowaveRowOrder:1\n"));
+        assert!(
+            !rows("a=x-ss-video[0].pyrowaveRowOrder:2\n"),
+            "a later value is not this one"
+        );
+        // Without record framing there are no records to reorder.
+        assert!(
+            !Negotiated::from_sdp(b"a=x-ss-video[0].pyrowaveRowOrder:1\n")
+                .unwrap()
+                .pyrowave_row_order
+        );
+        // Garbage is refused like every other numeric key, not read as off.
+        assert!(
+            Negotiated::from_sdp(sdp("a=x-ss-video[0].pyrowaveRowOrder:yes\n").as_bytes()).is_err()
+        );
+        assert!(!Negotiated::default().pyrowave_row_order);
     }
     #[test]
     fn rubylight_control_messages_are_advertised_once_before_the_microphone() {

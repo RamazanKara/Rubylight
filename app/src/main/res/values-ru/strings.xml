@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">Масштабирование: %1$s · добавлено %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">Масштабирование: %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">Движок трансляции: %1$s</string>
     <string name="video_format_measured">Время декодирования, измеренное на этом телефоне: %1$s. Автоматический режим пропускает заметно более медленные кодеки.</string>
     <string name="upscaling_timing_estimate">Оценка включает передачу текстуры, завершение работы GPU и ожидание смены буфера (опрос раз в 1 мс). Тайминги вывода на дисплей недоступны.</string>
     <string name="upscaling_last_timing">Последняя оценка обработки на GPU: %1$s</string>

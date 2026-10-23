@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">アップスケーリング: %1$s · 追加 %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">アップスケーリング: %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">ストリーミングエンジン: %1$s</string>
     <string name="video_format_measured">このスマートフォンで測定したデコード時間: %1$s。[自動] では明らかに遅いコーデックを使用しません。</string>
     <string name="upscaling_timing_estimate">推定値にはテクスチャの受け渡し、GPU の処理完了、スワップ待ち（1 ms ポーリング）が含まれます。ディスプレイの表示タイミングは利用できません。</string>
     <string name="upscaling_last_timing">直近の GPU 処理の推定値: %1$s</string>

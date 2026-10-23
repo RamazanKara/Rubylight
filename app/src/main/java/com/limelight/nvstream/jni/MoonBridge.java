@@ -430,7 +430,6 @@ public class MoonBridge {
         packed444Requested = requested;
     }
 
-
     public static int startConnection(String address, String appVersion, String gfeVersion,
                                       String rtspSessionUrl, int serverCodecModeSupport,
                                       int width, int height, int fps,

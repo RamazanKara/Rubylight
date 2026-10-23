@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">放大：%1$s · 增加 %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">放大：%1$s</string>
     <string name="perf_overlay_gpu_driver">GPU：%1$s</string>
+    <string name="perf_overlay_streaming_engine">串流引擎：%1$s</string>
     <string name="video_format_measured">在此手机上测得的解码时间：%1$s。“自动”会跳过明显较慢的编解码器。</string>
     <string name="upscaling_timing_estimate">估算值包括纹理交接、GPU 完成和交换等待（1 ms 轮询）。显示呈现计时不可用。</string>
     <string name="upscaling_last_timing">最近一次 GPU 路径估算：%1$s</string>

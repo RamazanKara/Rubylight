@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">업스케일링: %1$s · 추가 %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">업스케일링: %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">스트리밍 엔진: %1$s</string>
     <string name="video_format_measured">이 휴대전화에서 측정한 디코딩 시간: %1$s. 자동은 확실히 느린 코덱을 건너뜁니다.</string>
     <string name="upscaling_timing_estimate">추정치에는 텍스처 전달, GPU 완료, 스왑 대기(1 ms 폴링)가 포함됩니다. 디스플레이 프레젠테이션 타이밍은 사용할 수 없습니다.</string>
     <string name="upscaling_last_timing">최근 GPU 경로 추정치: %1$s</string>

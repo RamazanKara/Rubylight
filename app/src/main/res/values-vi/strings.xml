@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">Nâng cấp độ phân giải: %1$s · thêm %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">Nâng cấp độ phân giải: %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">Công cụ phát trực tuyến: %1$s</string>
     <string name="video_format_measured">Thời gian giải mã đo trên điện thoại này: %1$s. Chế độ tự động bỏ qua các codec chậm hơn rõ rệt.</string>
     <string name="upscaling_timing_estimate">Ước tính bao gồm chuyển giao texture, hoàn tất GPU và chờ hoán đổi (lấy mẫu mỗi 1 ms). Không có định thời trình chiếu của màn hình.</string>
     <string name="upscaling_last_timing">Ước tính gần nhất của đường xử lý GPU: %1$s</string>

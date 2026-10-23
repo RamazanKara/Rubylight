@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">Ölçeklendirme: %1$s · ek %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">Ölçeklendirme: %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">Yayın motoru: %1$s</string>
     <string name="video_format_measured">Bu telefonda ölçülen kod çözme süresi: %1$s. Otomatik, belirgin şekilde daha yavaş codec’leri atlar.</string>
     <string name="upscaling_timing_estimate">Tahmin; doku aktarımını, GPU tamamlanmasını ve takas beklemesini (1 ms yoklama) içerir. Ekran sunum zamanlaması kullanılamıyor.</string>
     <string name="upscaling_last_timing">Son GPU yolu tahmini: %1$s</string>

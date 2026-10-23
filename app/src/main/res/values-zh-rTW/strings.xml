@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">升頻：%1$s · 增加 %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">升頻：%1$s</string>
     <string name="perf_overlay_gpu_driver">GPU：%1$s</string>
+    <string name="perf_overlay_streaming_engine">串流引擎：%1$s</string>
     <string name="video_format_measured">在這支手機上測得的解碼時間：%1$s。「自動」會略過明顯較慢的轉碼器。</string>
     <string name="upscaling_timing_estimate">估計值包含材質交接、GPU 完成和交換等待時間 (1 ms 輪詢)。無法取得顯示呈現計時。</string>
     <string name="upscaling_last_timing">上次 GPU 路徑估計值：%1$s</string>

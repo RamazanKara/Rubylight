@@ -2682,7 +2682,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             PerformanceOverlay.measurement(locale, networkMs, "%.0f"),
                             PerformanceOverlay.measurement(locale, varianceMs, "%.0f"));
             StringBuilder decode = new StringBuilder(decoderDiagnostics);
-            decode.append("\nStreaming engine: ").append(StreamEngine.summary());
+            decode.append('\n').append(context.getString(R.string.perf_overlay_streaming_engine, StreamEngine.summary()));
             // The timing block below already lists decode time; show it here only without that block.
             if (mediaCodec && latencyOverlay.isEmpty()) {
                 decode.append('\n').append(shownDecodeTimeMs >= 0 ? context.getString(R.string.perf_overlay_dectime, shownDecodeTimeMs) :

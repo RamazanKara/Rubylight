@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">Mise à l’échelle : %1$s · +%2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">Mise à l’échelle : %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU : %1$s</string>
+    <string name="perf_overlay_streaming_engine">Moteur de streaming : %1$s</string>
     <string name="video_format_measured">Temps de décodage mesuré sur ce téléphone : %1$s. Le mode automatique ignore les codecs nettement plus lents.</string>
     <string name="upscaling_timing_estimate">L’estimation inclut le transfert de texture, l’achèvement GPU et l’attente d’échange (interrogation toutes les 1 ms). Le timing de présentation de l’affichage n’est pas disponible.</string>
     <string name="upscaling_last_timing">Dernière estimation du chemin GPU : %1$s</string>

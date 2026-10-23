@@ -435,6 +435,7 @@
     <string name="perf_overlay_upscaling">Upscaling: %1$s · added %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">Upscaling: %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">Streaming engine: %1$s</string>
     <string name="video_format_measured">Decode time measured on this phone: %1$s. Automatic skips codecs that are clearly slower.</string>
     <string name="upscaling_timing_estimate">Estimate includes texture handoff, GPU completion and swap wait (1 ms polling). Display presentation timing is unavailable.</string>
     <string name="upscaling_last_timing">Last GPU path estimate: %1$s</string>

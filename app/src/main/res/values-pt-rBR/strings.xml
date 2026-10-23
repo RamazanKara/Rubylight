@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">Upscaling: %1$s · adicional de %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">Upscaling: %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">Mecanismo de streaming: %1$s</string>
     <string name="video_format_measured">Tempo de decodificação medido neste celular: %1$s. O modo automático ignora codecs claramente mais lentos.</string>
     <string name="upscaling_timing_estimate">A estimativa inclui a entrega da textura, a conclusão na GPU e a espera da troca de buffers (sondagem de 1 ms). A temporização de apresentação na tela não está disponível.</string>
     <string name="upscaling_last_timing">Última estimativa do caminho da GPU: %1$s</string>

@@ -391,6 +391,7 @@
     <string name="perf_overlay_upscaling">Hochskalierung: %1$s · zusätzlich %2$s</string>
     <string name="perf_overlay_upscaling_pyrowave">Hochskalierung: %1$s</string>
     <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">Streaming-Engine: %1$s</string>
     <string name="video_format_measured">Auf diesem Handy gemessene Dekodierzeit: %1$s. Automatisch lässt deutlich langsamere Codecs weg.</string>
     <string name="upscaling_timing_estimate">Schätzung umfasst Texturübergabe, GPU-Verarbeitung und Ausgabewartezeit (1-ms-Abfrage). Anzeigezeitmessung nicht verfügbar.</string>
     <string name="upscaling_last_timing">Letzte GPU-Zeitschätzung: %1$s</string>

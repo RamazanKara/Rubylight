@@ -439,6 +439,7 @@ impl Ready {
                 }
                 self.mode_report.publish(applied_mode(&prepared.output));
             }
+            prepared.put_scale_back()?;
             self.target.publish(prepared.capture_target());
             self.active.fetch_add(1, Ordering::AcqRel);
             Ok(())
@@ -545,6 +546,9 @@ pub struct Prepared {
     /// The scale the display shows, for lifecycle tests.
     #[cfg(test)]
     scale_snapshot: Option<u32>,
+    /// The scales put back on the display, for lifecycle tests.
+    #[cfg(test)]
+    scales_set: Mutex<Vec<i64>>,
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
@@ -715,6 +719,32 @@ fn apply_virtual_scale(
         },
         _ => scale_display(output, configured, (width, height), set).map(|()| configured),
     }
+}
+
+/// Sets the stream's display scale, then reads the one Windows shows as the baseline a scale
+/// picked during the stream is compared with. It is read after the kept scale is applied, so a
+/// scale Windows refused is never mistaken for one the user picked. `learns` is false when a
+/// scale is configured or the device does not keep one: nothing is read then.
+fn set_up_scale(
+    output: &str,
+    configured: i64,
+    remembered: Option<u32>,
+    dimensions: (u32, u32),
+    learns: bool,
+    set: impl FnOnce(&str, i64, u32, u32) -> Result<()>,
+    read: impl FnOnce(&str) -> Result<u32>,
+) -> Result<(i64, Option<u32>)> {
+    let in_force = apply_virtual_scale(output, configured, remembered, dimensions, set)?;
+    let baseline = if learns {
+        read(output)
+            .inspect_err(|error| {
+                tracing::warn!(error = %format!("{error:#}"), "the display scale could not be read; a scale picked in Windows is not kept")
+            })
+            .ok()
+    } else {
+        None
+    };
+    Ok((in_force, baseline))
 }
 
 impl Prepared {
@@ -1095,24 +1125,16 @@ impl Prepared {
         let scale = virtual_display_scale(virtual_layout, configured_scale);
         // Without a configured scale, the one the device kept from Windows.
         let remembered = kept_scale(remember, &launch.client.extra);
-        let scale = apply_virtual_scale(
+        // A configured scale is the user's setting, so nothing is learned then.
+        let (scale, scale_baseline) = set_up_scale(
             &output,
             scale,
             remembered,
             (width, height),
+            remember && display.is_some() && configured_scale == 0,
             butterpollo_windows::display::virtual_scale,
+            butterpollo_windows::display::output_scale,
         )?;
-        // What Windows shows now is the baseline a scale picked during the stream is compared
-        // with. A configured scale is the user's setting, so nothing is learned then.
-        let scale_baseline = if remember && display.is_some() && configured_scale == 0 {
-            butterpollo_windows::display::output_scale(&output)
-                .inspect_err(|error| {
-                    tracing::warn!(error = %format!("{error:#}"), "the display scale could not be read; a scale picked in Windows is not kept")
-                })
-                .ok()
-        } else {
-            None
-        };
         // The client's choice for this stream comes before the device, app
         // and host layouts.
         let selection = if virtual_layout {
@@ -1294,6 +1316,8 @@ impl Prepared {
                 size_snapshot: None,
                 #[cfg(test)]
                 scale_snapshot: None,
+                #[cfg(test)]
+                scales_set: Mutex::new(Vec::new()),
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
@@ -1407,6 +1431,34 @@ impl Prepared {
             .insert(REMEMBERED_RESOLUTION.into(), serde_json::json!(chosen));
         if let Err(error) = paired.save(&h.paired_path) {
             tracing::warn!(%error, "the device's display resolution could not be saved");
+        }
+    }
+    /// Puts the display's scale back as the stream left it, as resume does for the layout and
+    /// the mode: the baseline a scale picked during the stream is compared with, else the
+    /// configured scale. A paused display's scale changed at the PC is not the device's choice.
+    fn put_scale_back(&self) -> Result<()> {
+        let scale = self.scale_baseline.map_or(self.recovery_scale, i64::from);
+        if scale == 0 {
+            return Ok(());
+        }
+        #[cfg(test)]
+        self.scales_set.lock().unwrap().push(scale);
+        #[cfg(not(test))]
+        let applied = scale_display(
+            &self.output,
+            scale,
+            self.recovery_dimensions,
+            butterpollo_windows::display::virtual_scale,
+        );
+        #[cfg(test)]
+        let applied: Result<()> = Ok(());
+        match (applied, self.scale_baseline) {
+            // The scale a device keeps is not worth failing the resume for.
+            (Err(error), Some(_)) => {
+                tracing::warn!(error = %format!("{error:#}"), scale, "Windows did not take the display scale back after the pause");
+                Ok(())
+            }
+            (applied, _) => applied,
         }
     }
     /// The scale the stream's display shows.
@@ -1787,6 +1839,7 @@ pub(crate) mod tests {
             layout_snapshot: None,
             size_snapshot: None,
             scale_snapshot: None,
+            scales_set: Mutex::new(Vec::new()),
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
@@ -1938,7 +1991,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_scale_windows_did_not_apply_is_not_kept() {
+    fn a_scale_windows_refused_is_a_warning_and_is_not_kept() {
         let fixture = crate::state::test_support::Fixture::new();
         let client = fixture.client(u32::MAX);
         let config = Config::parse("dd_config_revert_delay=0").unwrap();
@@ -1946,25 +1999,23 @@ pub(crate) mod tests {
         fixture.host.paired.write().unwrap().clients[0]
             .extra
             .insert(REMEMBERED_SCALE.into(), serde_json::json!(150));
-        // Windows refused the kept 150% and the display stayed at 100%, which is
-        // the baseline the stream read after the refusal.
-        let mut applied = Vec::new();
-        let in_force = apply_virtual_scale(
+        // Windows refuses the kept 150% and the display stays at 100%. The refusal does
+        // not fail the stream, and the baseline is what Windows shows, not the refused 150.
+        let (in_force, baseline) = set_up_scale(
             "out",
             0,
             Some(150),
             (2560, 1440),
-            |output, percent, width, height| {
-                applied.push((output.to_owned(), percent, width, height));
-                anyhow::bail!("requested DPI scale is outside this display's range")
-            },
+            true,
+            |_, _, _, _| anyhow::bail!("requested DPI scale is outside this display's range"),
+            |_| Ok(100),
         )
         .unwrap();
-        assert_eq!(applied, [("out".to_owned(), 150, 2560, 1440)]);
         assert_eq!(in_force, 0, "recovery does not retry a refused scale");
+        assert_eq!(baseline, Some(100));
         let mut prepared = test_prepared(&fixture.host);
         prepared.resolution_owner = Some(client.uuid.clone());
-        prepared.scale_baseline = Some(100);
+        prepared.scale_baseline = baseline;
         prepared.scale_snapshot = Some(100);
         let limiter =
             limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
@@ -1974,8 +2025,80 @@ pub(crate) mod tests {
                 .extra
                 .get(REMEMBERED_SCALE),
             Some(&serde_json::json!(150)),
-            "what Windows shows is not saved over the kept scale"
+            "the 100% Windows shows is not saved over the kept scale"
         );
+    }
+
+    #[test]
+    fn the_scale_baseline_is_read_after_the_kept_scale_is_applied() {
+        let log = std::cell::RefCell::new(Vec::new());
+        let (in_force, baseline) = set_up_scale(
+            "out",
+            0,
+            Some(200),
+            (2560, 1440),
+            true,
+            |_, percent, _, _| {
+                log.borrow_mut().push(format!("set {percent}"));
+                Ok(())
+            },
+            |_| {
+                log.borrow_mut().push("read".to_owned());
+                Ok(200)
+            },
+        )
+        .unwrap();
+        assert_eq!(*log.borrow(), ["set 200", "read"]);
+        assert_eq!((in_force, baseline), (200, Some(200)));
+        // Nothing is read when a scale is configured or the device keeps none.
+        let (_, baseline) = set_up_scale(
+            "out",
+            150,
+            Some(200),
+            (2560, 1440),
+            false,
+            |_, _, _, _| Ok(()),
+            |_| panic!("the scale is not read"),
+        )
+        .unwrap();
+        assert_eq!(baseline, None);
+    }
+
+    #[test]
+    fn resuming_puts_the_scale_back_that_a_pause_may_have_changed() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let config = Config::parse("dd_config_revert_delay=0").unwrap();
+        *fixture.host.config.write().unwrap() = config.clone();
+        for (baseline, recovery_scale, expected) in [
+            // A device keeping the scale: the baseline, so a change at the PC while paused
+            // is not learned at the next disconnect.
+            (Some(200), 0, vec![200]),
+            // A configured scale.
+            (None, 150, vec![150]),
+            // Nothing to put back.
+            (None, 0, vec![]),
+        ] {
+            let mut prepared = test_prepared(&fixture.host);
+            prepared.scale_baseline = baseline;
+            prepared.recovery_scale = recovery_scale;
+            let limiter =
+                limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen)
+                    .unwrap();
+            let display = Ready::prepare((prepared, limiter)).unwrap().display.clone();
+            let resumed = display
+                .clone()
+                .resume(
+                    &fixture.host.directory,
+                    &config,
+                    Arc::new(Warnings::default()),
+                )
+                .unwrap();
+            assert_eq!(
+                *display._state.lock().unwrap().scales_set.lock().unwrap(),
+                expected
+            );
+            drop(resumed);
+        }
     }
 
     #[test]
@@ -2545,6 +2668,7 @@ pub(crate) mod tests {
             layout_snapshot: None,
             size_snapshot: None,
             scale_snapshot: None,
+            scales_set: Mutex::new(Vec::new()),
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),

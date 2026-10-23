@@ -80,12 +80,19 @@ pub enum DecoderPreference {
 /// Where PyroWave frames are reconstructed: on the CPU with the Rust decoder, or on the GPU
 /// by the PyroWave library's Vulkan decoder (docs/pyrowave-decode.md). `Gpu` never falls back
 /// to the CPU: when the library or the adapter cannot do it, PyroWave is not offered and the
-/// reason is shown.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// reason is shown. The default is `Gpu` on Windows (the ABBA in docs/pyrowave-decode.md: lower
+/// `receive_to_present_ms` at p50 and p95 and no lower fps on every leg) and `Cpu` elsewhere,
+/// where the library does not exist.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PyroWaveDecoder {
-    #[default]
     Cpu,
     Gpu,
+}
+
+impl Default for PyroWaveDecoder {
+    fn default() -> Self {
+        if cfg!(windows) { Self::Gpu } else { Self::Cpu }
+    }
 }
 
 impl PyroWaveDecoder {
@@ -181,7 +188,8 @@ pub struct Settings {
     /// instead of when the frame is complete. Off by default until measured on the wired
     /// client (docs/early-decode.md). `NIGHTJAR_EARLY_DECODE=1` or `0` overrides it.
     pub early_decode: bool,
-    /// PyroWave: reconstruct on the CPU (default) or on the GPU with the PyroWave library.
+    /// PyroWave: reconstruct on the GPU with the PyroWave library (the default on Windows, where it
+    /// measured better on every leg, docs/pyrowave-decode.md) or on the CPU.
     pub pyrowave_decoder: PyroWaveDecoder,
     pub microphone: bool,
     pub cursor_shapes: bool,
@@ -309,7 +317,7 @@ impl Default for Settings {
             background_controllers: false,
             decoder: DecoderPreference::Auto,
             early_decode: false,
-            pyrowave_decoder: PyroWaveDecoder::Cpu,
+            pyrowave_decoder: PyroWaveDecoder::default(),
             microphone: false,
             cursor_shapes: true,
             network_grace_ms: 3000,
@@ -1070,10 +1078,13 @@ mod tests {
     }
 
     #[test]
-    fn pyrowave_decoder_defaults_to_the_cpu_and_reads_from_the_file() {
-        assert_eq!(Settings::default().pyrowave_decoder, PyroWaveDecoder::Cpu);
+    fn pyrowave_decoder_defaults_to_the_gpu_on_windows_and_reads_from_the_file() {
+        let default = if cfg!(windows) { PyroWaveDecoder::Gpu } else { PyroWaveDecoder::Cpu };
+        assert_eq!(Settings::default().pyrowave_decoder, default);
         let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
-        assert_eq!(old.pyrowave_decoder, PyroWaveDecoder::Cpu, "an older file keeps the CPU decoder");
+        assert_eq!(old.pyrowave_decoder, default, "an older file gets the default");
+        let cpu: Settings = serde_json::from_str("{\"pyrowave_decoder\": \"Cpu\"}").unwrap();
+        assert_eq!(cpu.pyrowave_decoder, PyroWaveDecoder::Cpu, "a saved CPU choice stays");
         let gpu: Settings = serde_json::from_str("{\"pyrowave_decoder\": \"Gpu\"}").unwrap();
         assert_eq!(gpu.pyrowave_decoder, PyroWaveDecoder::Gpu);
         let mut overrides = Overrides::default();

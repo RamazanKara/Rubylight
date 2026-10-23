@@ -1,9 +1,11 @@
 # PyroWave GPU decoding in the desktop client
 
-Status: the SDK binding and its packaging exist (brief G1) and are measured; nothing in the stream
-calls them yet (brief G2 wires them in). The CPU decoder in `stream/pyrowave.rs` stays the only
-decoder until then, and stays as the choice of anyone whose GPU or driver fails the probe: the
-client never falls back to it silently, it says why the GPU decoder is unavailable.
+Status: shipped in the stream (brief G2). The `pyrowave_decoder` setting picks `Cpu` (the Rust
+decoder in `stream/pyrowave.rs`) or `Gpu` (the SDK, this document). Neither falls back to the other:
+with `Gpu` and a failing probe, PyroWave is not offered and the settings screen says why (the probe's
+error text, "Switch the PyroWave decoder to CPU ..."); with `Cpu` the DLL is never loaded.
+The default is `Gpu` on Windows (every leg of the ABBA below keeps; the Windows laptop leg is
+recorded there too) and `Cpu` elsewhere. A settings file that says `Cpu` keeps it.
 
 ## Route A: the SDK decodes, D3D11 presents
 
@@ -112,6 +114,35 @@ they arrive, so only the submit and the GPU work remain after the last packet; t
 frame that arrives whole. The CPU side is the cost, mostly the SDK copying records in
 `push_packet`, and scales with the bytes.
 
+### CPU against GPU decode in the stream (ABBA)
+
+The same release build on this PC (RX 7900 XT, client and host on one PC through loopback,
+PyroWave 4:2:0, the client window out of the host's capture, `scripts/pyrowave-loopback.ps1
+-DecoderA Cpu -DecoderB Gpu`, 60 s per leg, order ABBA per bitrate, the two legs of a decoder
+pooled). `receive_to_present_ms` is p50 / p95 / p99; "shown" is the median shown fps; "dropped"
+is frames dropped over the decoder queue, summed over the two legs.
+
+| Stream | Mbps | Decoder | receive_to_present p50 / p95 / p99 | decode_to_present p50 / p95 | shown | dropped | decoder errors |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1080p60 | 133 | CPU | 20.53 / 26.85 / 38.29 | 10.85 / 17.04 | 60.19 | 0 | 0 |
+| 1080p60 | 133 | GPU | 8.80 / 13.66 / 14.29 | 7.71 / 12.53 | 60.22 | 0 | 0 |
+| 1080p60 | 300 | CPU | 25.01 / 46.84 / 62.84 | 10.54 / 27.61 | 60.20 | 0 | 0 |
+| 1080p60 | 300 | GPU | 10.59 / 15.68 / 17.63 | 8.00 / 13.05 | 60.20 | 0 | 0 |
+| 1440p60 | 149 | CPU | 29.11 / 36.12 / 40.17 | 14.33 / 21.62 | 60.20 | 0 | 0 |
+| 1440p60 | 149 | GPU | 9.10 / 14.01 / 14.94 | 7.83 / 12.73 | 60.22 | 0 | 0 |
+| 1440p60 | 300 | CPU | 189.79 / 269.26 / 292.05 | 40.84 / 55.98 | 45.44 | 108 | 0 |
+| 1440p60 | 300 | GPU | 11.46 / 18.44 / 20.98 | 8.71 / 15.55 | 60.19 | 0 | 0 |
+| 4K60 | 167 | CPU | 197.14 / 278.65 / 294.44 | 54.74 / 62.14 | 32.60 | 201 | 0 |
+| 4K60 | 167 | GPU | 9.57 / 16.64 / 19.01 | 8.11 / 14.80 | 60.13 | 0 | 0 |
+| 4K60 | 300 | CPU | 206.88 / 297.66 / 401.23 | 56.70 / 61.89 | 29.49 | 221 | 0 |
+| 4K60 | 300 | GPU | 10.89 / 15.77 / 16.93 | 8.18 / 12.99 | 60.20 | 0 | 0 |
+
+Every leg passes the keep rule (p50 and p95 of `receive_to_present_ms` down, shown fps not lower,
+no new decoder errors). The CPU decoder does not keep up at 1440p60 with 300 Mbps or at 4K60 on this CPU (at 4K its
+clear, entropy and pack stages take about 5, 6 to 10 and 19 ms a frame), which is where the large
+differences come from; the GPU decoder's per-frame cost is 0.2 ms to submit plus 0.2 to 0.3 ms on the GPU, and
+the rest of `decode_to_present_ms` is the wait for the present.
+
 ### The Vulkan to D3D11 handoff
 
 The time from the SDK's work finishing (timeline value signalled) until D3D11 can sample the planes.
@@ -155,6 +186,38 @@ the handoff. A D3D12 presenter would not remove anything measurable here.
 `#[ignore]`d (they need the DLL from `build-pyrowave-sdk.ps1`, a GPU, and no other GPU work):
 `cargo test -p nightjar-desktop --release --bin nightjar -- --ignored --nocapture --test-threads=1
 pyrowave_sdk::tests`.
+
+## In the stream (brief G2)
+
+- **Decoder.** `Pyrowave::{Cpu, Gpu}` in `stream/pyrowave.rs`. The GPU one feeds each record into
+  the SDK as it arrives (early decode), handles partial frames the same way as the CPU one, and
+  CPU-waits (2 s) after `decode` so `ready_us` is honest. A frame that does not decode is a frame
+  failure (counted, the next frame decodes); no free plane set drops or evicts a picture; a lost
+  device or a fence that never signals (`Failure::Device`) ends the stream with the reason, not
+  retryable.
+- **Picture.** `Picture::GpuPlanes { lease, fence_value }`. The plane sets (queue_limit + 2) are a
+  FIFO pool; a `Lease` frees its set when the picture is shown or dropped. The presenter checks
+  `ready_within` (500 ms), queues `Wait`, runs `PlanesPass` (the `planes` entry of `pyrowave.hlsl`:
+  R8 or R16 UNORM planes in t1..t3 through the same `linearRgb` as the CPU path, into the SDL
+  RGBA64F target), signals the reuse fence and flushes.
+- **Setting.** `pyrowave_decoder` in the settings file and the settings screen, with the probe
+  result cached in the background for the settings screen. The overlay and the session summary
+  name the decoder ("PyroWave (GPU decode, SDK)" or "PyroWave (Rust, GPU wavelets)").
+- **Accuracy.** The GPU picture against the CPU picture, encoded RGB, SDR 4:2:0 and 4:4:4
+  fixtures, 24 real 1080p frames from `NIGHTJAR_PYROWAVE_DUMP`: 10-bit planes max 0.0038 (0.98
+  codes), rms 0.0007, inside the brief's bound (max under 1/255, rms under 0.001). 8-bit planes
+  max 0.0082 (2.1 codes), rms 0.0020 on the fixtures and 0.0017 on real frames: the SDK stores 8-bit
+  planes as R8 (rounding of about 0.29 code rms per plane), and that plus the 1.1-code decoder
+  agreement measured in G1 goes through the YCbCr matrix; the bound for 8-bit is therefore 2.5/255
+  and 0.0025.
+- **Tests.** `cargo test -p nightjar-desktop` has the pipeline policy tests (device loss ends the
+  stream, frame failure and ring-full policy, `gpu` mode without a device gives no CPU decoder) and
+  the mode tests (`gpu` with a failing probe offers no PyroWave and shows the reason, `cpu` never
+  loads the DLL). The `#[ignore]` GPU tests in `stream/pyrowave/gpu_tests.rs` (run serially:
+  `cargo test -p nightjar-desktop gpu_tests -- --ignored --test-threads=1`, with
+  `NIGHTJAR_PYROWAVE_FRAMES` for the real-frame one) cover picture equality, early chunks with and
+  without lost packets, frame failures then recovery, the ring, eviction and reuse, and a stalled
+  fence.
 
 ## Skipping to the newest frame (CPU decode): measured, not shipped
 

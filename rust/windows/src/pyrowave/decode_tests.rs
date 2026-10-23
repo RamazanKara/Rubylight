@@ -1621,3 +1621,111 @@ fn pyrowave_recovers_from_a_d3d12_device_lost_before_conversion() -> Result<()> 
 fn pyrowave_recovers_from_a_d3d12_device_lost_mid_frame() -> Result<()> {
     recover_from_loss(Loss::MidFrame, "PyroWave device-loss test (mid frame)")
 }
+
+/// A life of the encoder alone: build it on a fresh capture device, encode one
+/// frame, drop everything.
+fn encoder_life(config: &Negotiated, stage: u32, compute: bool) -> Result<()> {
+    let gpu = Device::new("")?;
+    let (source, _) = picture(config, 0, Scene::Chart);
+    let image = GpuImage::upload(&gpu, &source)?;
+    if stage == 0 {
+        return Ok(());
+    }
+    let mut encoder = Encoder::new_gpu_options(
+        config,
+        &image,
+        &Config::parse(&format!("gpu_compute_conversion = {compute}"))?,
+    )?;
+    if stage == 1 {
+        return Ok(());
+    }
+    let Encoder::Pyrowave(native) = &mut encoder else {
+        unreachable!()
+    };
+    native.restart_interval();
+    let frames = encoder.encode_gpu(&image, true, config.bitrate_kbps)?;
+    ensure!(frames.len() == 1, "encoder dropped the frame");
+    Ok(())
+}
+
+/// A life of the decoder alone: build it, drop it.
+fn decoder_life(config: &Negotiated) -> Result<()> {
+    let gpu = Device::new("")?;
+    drop(Decoder::new(&gpu, config)?);
+    Ok(())
+}
+
+/// Handles open after each of `lives` lives, and the growth after the first
+/// ten, which warm driver and runtime caches.
+fn handles_per_life(name: &str, lives: usize, mut life: impl FnMut() -> Result<()>) -> Result<i64> {
+    let mut handles = Vec::new();
+    for _ in 0..lives {
+        life()?;
+        handles.push(i64::from(handle_count()?));
+    }
+    let growth = handles[lives - 1] - handles[9];
+    println!(
+        "PYROWAVE_HANDLES {}",
+        serde_json::json!({"life":name,"lives":lives,"growth_after_warmup":growth,"handles":handles})
+    );
+    Ok(growth)
+}
+
+/// Handles each encoder or decoder life may leave behind. The pinned SDK and
+/// the AMD Vulkan driver keep 3 events and 1 thread handle per Vulkan
+/// instance they build (measured: the same 4 for the encoder and the decoder,
+/// none for our D3D devices, imports and conversion); the bound catches any
+/// leak of ours on top of that. Handle counts are process-wide: run with
+/// `--test-threads=1`.
+#[test]
+#[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL; run with --test-threads=1"]
+fn pyrowave_lives_do_not_leak_handles() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let _watchdog = Watchdog::start(
+        std::time::Duration::from_secs(300),
+        "PyroWave handle leak test",
+    );
+    let config = Negotiated {
+        width: 1280,
+        height: 720,
+        codec: 3,
+        csc_mode: 3,
+        packet_size: 1392,
+        fps: 60,
+        bitrate_kbps: 2_000_000,
+        ..Default::default()
+    };
+    const LIVES: usize = 50;
+    const SDK_HANDLES_PER_LIFE: i64 = 4;
+    let measured = (LIVES - 10) as i64;
+    let mut cases = Vec::new();
+    for (name, stage, compute, sdk) in [
+        ("device and upload", 0, true, 0),
+        ("encoder built", 1, true, SDK_HANDLES_PER_LIFE),
+        (
+            "encoder, one frame, graphics conversion",
+            2,
+            false,
+            SDK_HANDLES_PER_LIFE,
+        ),
+        (
+            "encoder, one frame, compute conversion",
+            2,
+            true,
+            SDK_HANDLES_PER_LIFE,
+        ),
+    ] {
+        let growth = handles_per_life(name, LIVES, || encoder_life(&config, stage, compute))?;
+        cases.push((name, growth, sdk));
+    }
+    let growth = handles_per_life("decoder", LIVES, || decoder_life(&config))?;
+    cases.push(("decoder", growth, SDK_HANDLES_PER_LIFE));
+    for (name, growth, sdk) in cases {
+        ensure!(
+            growth <= sdk * measured + 4,
+            "{name}: {growth} handles leaked over {measured} lives, expected at most {} per life",
+            sdk
+        );
+    }
+    Ok(())
+}

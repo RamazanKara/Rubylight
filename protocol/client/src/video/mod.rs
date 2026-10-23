@@ -60,6 +60,10 @@ pub struct VideoConfig {
     pub colorspace: u8,
     /// The `remoteInputAesKey` when the host encrypts video (`SS_ENC_VIDEO`).
     pub encryption_key: Option<[u8; 16]>,
+    /// The decoder takes the packets of a PyroWave records envelope as they arrive
+    /// ([`VideoSink::chunk`]), ahead of the completed [`Frame`]. Ignored without
+    /// `pyrowave_records`; the frames themselves are the same either way.
+    pub early_chunks: bool,
 }
 
 impl VideoConfig {
@@ -225,6 +229,12 @@ pub trait VideoSink {
     /// Discard every queued frame that has not reached the decoder.
     fn flush_frames(&mut self) {}
     fn signal(&mut self, signal: VideoSignal);
+    /// One packet of the records envelope of the frame being assembled, in order, as soon as
+    /// it is in the envelope (only with [`VideoConfig::early_chunks`]). `first` starts a new
+    /// envelope, so everything given since the previous `first` is dropped. The `Frame` that
+    /// ends the envelope carries `[0u32]` and then `[payload length][flags][payload]` for
+    /// every chunk, so a sink that sees all chunks since `first` has seen the whole frame.
+    fn chunk(&mut self, _first: bool, _flags: u32, _payload: &[u8]) {}
 }
 
 /// Receiver output as values, for callers that collect it.
@@ -232,6 +242,12 @@ pub trait VideoSink {
 pub enum VideoEvent {
     Frame(Frame),
     Signal(VideoSignal),
+    /// [`VideoSink::chunk`].
+    Chunk {
+        first: bool,
+        flags: u32,
+        payload: Vec<u8>,
+    },
 }
 
 /// Collects everything and never reports a full queue.
@@ -247,6 +263,14 @@ impl VideoSink for Vec<VideoEvent> {
 
     fn signal(&mut self, signal: VideoSignal) {
         self.push(VideoEvent::Signal(signal));
+    }
+
+    fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
+        self.push(VideoEvent::Chunk {
+            first,
+            flags,
+            payload: payload.to_vec(),
+        });
     }
 }
 

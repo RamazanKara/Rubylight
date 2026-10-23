@@ -172,6 +172,16 @@ pub trait VideoDecoder: Send {
     fn setup(&mut self, setup: &VideoSetup) -> Result<(), i32>;
     fn start(&mut self) {}
     fn submit(&mut self, frame: &Frame) -> DecodeStatus;
+    /// The decoder wants the packets of a PyroWave records frame while it arrives
+    /// ([`VideoDecoder::chunk`]). Only asked once, before the stream starts, and honoured on the
+    /// decoder thread only.
+    fn wants_early_chunks(&self) -> bool {
+        false
+    }
+    /// One packet of the records envelope of the next [`VideoDecoder::submit`] frame; see
+    /// [`crate::video::VideoSink::chunk`]. Chunks the decoder never sees (a full queue) are
+    /// caught by the frame itself, which carries them all.
+    fn chunk(&mut self, _first: bool, _flags: u32, _payload: &[u8]) {}
     fn stop(&mut self) {}
     fn cleanup(&mut self) {}
 }
@@ -752,6 +762,7 @@ fn start(
         pyrowave_records: outcome.pyrowave_records_enabled,
         colorspace: stream.color_space as u8,
         encryption_key: video_encrypted.then_some(stream.remote_input_aes_key),
+        early_chunks: video_decoder.wants_early_chunks(),
     })));
     parts.video_shared = Some(video_shared.clone());
     listener.stage_complete(Stage::VideoStreamInit);

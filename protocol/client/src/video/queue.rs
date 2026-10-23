@@ -48,6 +48,12 @@ pub(super) struct RtpQueue {
     rfi: bool,
     fec_supported: bool,
     records: bool,
+    /// Records go to the depacketizer as their packets arrive instead of when the frame
+    /// completes ([`VideoConfig::early_chunks`]).
+    early: bool,
+    /// Data packets of the pending block already given to the depacketizer: the run from the
+    /// block's first packet with no hole. They stay pending for FEC recovery.
+    forwarded: u32,
 }
 
 impl RtpQueue {
@@ -79,6 +85,8 @@ impl RtpQueue {
             rfi: config.rfi,
             fec_supported: config.app_version[0] >= 5,
             records: config.pyrowave_records,
+            early: config.pyrowave_records && config.early_chunks,
+            forwarded: 0,
         }
     }
 
@@ -292,9 +300,34 @@ impl RtpQueue {
         ret
     }
 
+    /// Gives the depacketizer the pending block's data packets that arrived in order and are
+    /// not in a hole, so it can pass them on while the rest of the block is still in flight.
+    fn forward_ready<S: VideoSink>(&mut self, depacketizer: &mut Depacketizer, io: &mut Io<S>) {
+        loop {
+            let seq = self.buffer_lowest_seq.wrapping_add(self.forwarded as u16);
+            // In-order arrival finds it last.
+            let Some(index) = self
+                .pending
+                .iter()
+                .rposition(|p| !p.is_parity && p.seq == seq)
+            else {
+                return;
+            };
+            let packet = &mut self.pending[index];
+            packet.receive_time_us = self.buffer_first_recv_time_us;
+            depacketizer.queue_early_packet(packet, io);
+            self.forwarded += 1;
+        }
+    }
+
     /// Moves the block's data packets to the completed list in sequence order and drops the
-    /// parity packets.
-    fn stage_complete_fec_block<S: VideoSink>(&mut self, io: &mut Io<S>) {
+    /// parity packets. With early records the packets not yet forwarded go straight on to the
+    /// depacketizer, so the envelope stays in packet order across blocks.
+    fn stage_complete_fec_block<S: VideoSink>(
+        &mut self,
+        depacketizer: &mut Depacketizer,
+        io: &mut Io<S>,
+    ) {
         let lowest = self.buffer_lowest_seq;
         let start = self.completed.len();
         for mut packet in self.pending.drain(..) {
@@ -307,6 +340,16 @@ impl RtpQueue {
             self.completed.push(packet);
         }
         self.completed[start..].sort_by_key(|p| p.seq.wrapping_sub(lowest));
+        if self.early {
+            let forwarded = std::mem::take(&mut self.forwarded) as usize;
+            for (index, packet) in self.completed.drain(start..).enumerate() {
+                if index < forwarded {
+                    io.pools.recycle_packet(packet.buf);
+                } else {
+                    depacketizer.queue_rtp_packet(packet, io);
+                }
+            }
+        }
     }
 
     fn submit_completed_frame<S: VideoSink>(
@@ -347,7 +390,7 @@ impl RtpQueue {
             if !self.pending.is_empty() {
                 self.report_fec_status(io);
                 // Keep every data packet of the incomplete block; the records survive holes.
-                self.stage_complete_fec_block(io);
+                self.stage_complete_fec_block(depacketizer, io);
             }
             if frame != self.current_frame {
                 self.submit_completed_frame(depacketizer, io);
@@ -452,6 +495,7 @@ impl RtpQueue {
             self.next_contiguous_seq = self.buffer_lowest_seq;
             self.received_data_packets = 0;
             self.received_parity_packets = 0;
+            self.forwarded = 0;
             self.received_highest_seq = 0;
             self.missing_packets = 0;
             self.use_fast_queue_path = true;
@@ -506,8 +550,12 @@ impl RtpQueue {
             self.received_data_packets += 1;
         }
 
+        if self.early && !is_parity {
+            self.forward_ready(depacketizer, io);
+        }
+
         if self.reconstruct_frame(depacketizer, io) == 0 {
-            self.stage_complete_fec_block(io);
+            self.stage_complete_fec_block(depacketizer, io);
             if self.current_block < self.last_block {
                 self.current_block += 1;
             } else {

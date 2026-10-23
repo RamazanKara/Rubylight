@@ -79,6 +79,7 @@ fn config(format: u32) -> VideoConfig {
         app_version: [7, 1, 431, -1],
         rfi: false,
         pyrowave_records: false,
+        early_chunks: false,
         colorspace: COLORSPACE_REC_709,
         encryption_key: None,
     }
@@ -252,4 +253,5 @@ fn fec_status_wire_format() {
     assert_eq!(bytes[20], 3);
 }
 
+mod early_chunks;
 mod slice_delivery;

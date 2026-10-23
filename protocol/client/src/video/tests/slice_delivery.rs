@@ -71,6 +71,7 @@ fn receiver(fixture: &Fixture) -> VideoReceiver {
         app_version: [7, 1, 431, -1],
         rfi: false,
         pyrowave_records: false,
+        early_chunks: false,
         colorspace: COLORSPACE_REC_709,
         encryption_key: fixture.key,
     })

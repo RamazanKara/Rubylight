@@ -31,9 +31,32 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// Early chunks queued at most: a frame is at most 4092 packets, so this holds a few frames
+/// when the decoder falls behind. A chunk over the bound is dropped, which the decoder finds
+/// from the frame (see [`VideoDecoder::chunk`]).
+const CHUNK_QUEUE_BOUND: usize = 16384;
+
+/// One packet of a records frame in flight, see [`VideoSink::chunk`].
+pub struct Chunk {
+    pub first: bool,
+    pub flags: u32,
+    pub data: Vec<u8>,
+}
+
+/// What the decoder thread takes from the queue, in the order the receiver produced it.
+pub enum Item {
+    Frame(Frame),
+    Chunk(Chunk),
+}
+
 #[derive(Default)]
 struct QueueState {
-    frames: VecDeque<Frame>,
+    items: VecDeque<Item>,
+    /// Frames among `items`, which the bound counts.
+    frames: usize,
+    chunks: usize,
+    /// Chunk payload buffers handed back by the decoder thread.
+    spare: Vec<Vec<u8>>,
     shutdown: bool,
 }
 
@@ -48,34 +71,71 @@ impl FrameQueue {
     /// Queues a frame, or hands it back when the queue holds [`DECODE_UNIT_QUEUE_BOUND`].
     pub fn offer(&self, frame: Frame) -> Result<(), Frame> {
         let mut state = lock(&self.state);
-        if state.shutdown || state.frames.len() >= DECODE_UNIT_QUEUE_BOUND {
+        if state.shutdown || state.frames >= DECODE_UNIT_QUEUE_BOUND {
             return Err(frame);
         }
-        state.frames.push_back(frame);
+        state.items.push_back(Item::Frame(frame));
+        state.frames += 1;
         self.ready.notify_one();
         Ok(())
     }
 
-    pub fn flush(&self) -> Vec<Frame> {
-        lock(&self.state).frames.drain(..).collect()
+    /// Queues an early chunk behind everything queued so far. Dropped over the bound.
+    pub fn offer_chunk(&self, first: bool, flags: u32, payload: &[u8]) {
+        let mut state = lock(&self.state);
+        if state.shutdown || state.chunks >= CHUNK_QUEUE_BOUND {
+            return;
+        }
+        let mut data = state.spare.pop().unwrap_or_default();
+        data.clear();
+        data.extend_from_slice(payload);
+        state.items.push_back(Item::Chunk(Chunk { first, flags, data }));
+        state.chunks += 1;
+        self.ready.notify_one();
     }
 
-    /// The next frame, or `None` once shut down.
-    pub fn wait(&self) -> Option<Frame> {
+    /// Takes back a chunk's buffer once the decoder is done with it.
+    pub fn recycle_chunk(&self, chunk: Chunk) {
+        let mut state = lock(&self.state);
+        if state.spare.len() < CHUNK_QUEUE_BOUND {
+            state.spare.push(chunk.data);
+        }
+    }
+
+    /// Drops every queued frame and chunk, returning the frames.
+    pub fn flush(&self) -> Vec<Frame> {
+        let mut state = lock(&self.state);
+        state.frames = 0;
+        state.chunks = 0;
+        std::mem::take(&mut state.items)
+            .into_iter()
+            .filter_map(|item| match item {
+                Item::Frame(frame) => Some(frame),
+                Item::Chunk(_) => None,
+            })
+            .collect()
+    }
+
+    /// The next frame or chunk, or `None` once shut down.
+    pub fn wait(&self) -> Option<Item> {
         let mut state = lock(&self.state);
         loop {
             if state.shutdown {
                 return None;
             }
-            if let Some(frame) = state.frames.pop_front() {
-                return Some(frame);
+            if let Some(item) = state.items.pop_front() {
+                match item {
+                    Item::Frame(_) => state.frames -= 1,
+                    Item::Chunk(_) => state.chunks -= 1,
+                }
+                return Some(item);
             }
             state = self.ready.wait(state).unwrap_or_else(|p| p.into_inner());
         }
     }
 
     pub fn len(&self) -> usize {
-        lock(&self.state).frames.len()
+        lock(&self.state).frames
     }
 
     pub fn shutdown(&self) {
@@ -167,6 +227,13 @@ impl VideoSink for Sink<'_> {
 
     fn signal(&mut self, signal: VideoSignal) {
         self.signals.push(signal);
+    }
+
+    fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
+        // PyroWave never submits directly, so a direct decoder has asked for no chunks.
+        if self.direct.is_none() {
+            self.shared.queue.offer_chunk(first, flags, payload);
+        }
     }
 }
 
@@ -399,7 +466,15 @@ fn decoder_thread(
     control: ControlHandle,
 ) -> Box<dyn VideoDecoder> {
     let mut signals = Vec::new();
-    while let Some(frame) = shared.queue.wait() {
+    while let Some(item) = shared.queue.wait() {
+        let frame = match item {
+            Item::Chunk(chunk) => {
+                decoder.chunk(chunk.first, chunk.flags, &chunk.data);
+                shared.queue.recycle_chunk(chunk);
+                continue;
+            }
+            Item::Frame(frame) => frame,
+        };
         shared.counters.submitted.fetch_add(1, Ordering::Relaxed);
         let status = decoder.submit(&frame);
         {

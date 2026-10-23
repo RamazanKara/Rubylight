@@ -33,6 +33,7 @@ impl Session {
                 app_version: SUNSHINE,
                 rfi: false,
                 pyrowave_records: false,
+                early_chunks: false,
                 colorspace: 1,
                 encryption_key: None,
             },

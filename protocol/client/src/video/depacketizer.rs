@@ -42,6 +42,8 @@ pub(super) struct Depacketizer {
     frame_type_header: bool,
     header_size: fn(u8) -> u32,
     records: bool,
+    /// Give each envelope packet to the sink as it is appended ([`VideoSink::chunk`]).
+    early: bool,
     colorspace: u8,
     pub(super) hdr_active: bool,
 
@@ -99,6 +101,7 @@ impl Depacketizer {
             frame_type_header: config.at_least(7, 1, 350),
             header_size: header_size_for(config),
             records: config.pyrowave_records,
+            early: config.pyrowave_records && config.early_chunks,
             colorspace: config.colorspace,
             hdr_active: false,
             data: Vec::new(),
@@ -574,7 +577,7 @@ impl Depacketizer {
     /// `queueRtpPacket`: consumes a data packet in frame order.
     pub(super) fn queue_rtp_packet<S: VideoSink>(&mut self, packet: Packet, io: &mut Io<S>) {
         if self.records {
-            self.queue_pyrowave_packet(&packet);
+            self.queue_pyrowave_packet(&packet, io);
         } else {
             let offset = packet.data_offset();
             self.process_rtp_payload(
@@ -615,7 +618,13 @@ impl Depacketizer {
         true
     }
 
-    fn queue_pyrowave_packet(&mut self, packet: &Packet) {
+    /// Appends a packet the RTP queue still holds (its block is incomplete): the same as
+    /// [`Self::queue_rtp_packet`] without taking the buffer.
+    pub(super) fn queue_early_packet<S: VideoSink>(&mut self, packet: &Packet, io: &mut Io<S>) {
+        self.queue_pyrowave_packet(packet, io);
+    }
+
+    fn queue_pyrowave_packet<S: VideoSink>(&mut self, packet: &Packet, io: &mut Io<S>) {
         let offset = packet.data_offset();
         if packet.len < offset + NV_VIDEO_PACKET_SIZE {
             return;
@@ -653,6 +662,9 @@ impl Depacketizer {
         }
         if !self.append_pyrowave_packet(payload, flags) {
             return;
+        }
+        if self.early {
+            io.sink.chunk(first, flags, payload);
         }
         if first {
             self.next_frame_number = le32(video, 4);

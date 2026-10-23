@@ -334,10 +334,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             return;
         }
         // A host that confirms replacement asks the player itself; elsewhere the client quits the game first.
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
-                .setMessage(getString(R.string.library_replace_message_named, model.otherRunningTitle, model.title))
-                .setPositiveButton(R.string.library_replace_confirm, (dialog, which) -> play(app, computer))
-                .setNegativeButton(android.R.string.cancel, null).create());
+        NvApp running = CoverLoaders.appOf(model.otherRunningTitle, model.otherRunningAppId, model.otherRunningSource);
+        UiHelper.showDialog(this, ReplaceRunningPrompt.build(this, model.otherRunningTitle, model.title,
+                () -> play(running, computer), () -> play(app, computer)));
     }
 
     private void onEnd() {

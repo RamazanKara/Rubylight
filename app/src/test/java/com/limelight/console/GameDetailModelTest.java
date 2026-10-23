@@ -128,10 +128,12 @@ public class GameDetailModelTest {
         GameDetailModel model = GameDetailModel.of(snapshot, "tower", 11, "x", "y", true, true, true);
         assertEquals(GameDetailModel.State.IDLE, model.state);
         assertEquals("Zelda", model.otherRunningTitle);
+        assertEquals("Resuming it needs its id", 12, model.otherRunningAppId);
         assertEquals(GameDetailModel.EndAction.NONE, model.endAction);
         // The running game itself replaces nothing.
         GameDetailModel zelda = GameDetailModel.of(snapshot, "tower", 12, "x", "y", true, true, true);
         assertNull(zelda.otherRunningTitle);
+        assertNull(zelda.otherRunningSource);
         assertEquals(GameDetailModel.State.RUNNING, zelda.state);
     }
 

@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">%1$s oyunundan çıkılıp %2$s başlatılsın mı?\nKaydedilmemiş ilerleme kaybolur.</string>
     <string name="library_replace_message">Çalışan oyundan çıkılıp %1$s başlatılsın mı?\nKaydedilmemiş ilerleme kaybolur.</string>
     <string name="library_replace_confirm">Çık ve oyna</string>
+    <string name="library_replace_resume">%1$s oyununa devam et</string>
 </resources>

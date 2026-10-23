@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">Zamknąć %1$s i uruchomić %2$s?\nNiezapisany postęp zostanie utracony.</string>
     <string name="library_replace_message">Zamknąć uruchomioną grę i uruchomić %1$s?\nNiezapisany postęp zostanie utracony.</string>
     <string name="library_replace_confirm">Zamknij i graj</string>
+    <string name="library_replace_resume">Wznów: %1$s</string>
 </resources>

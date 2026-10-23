@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">要退出 %1$s 并启动 %2$s 吗？\n未保存的进度将会丢失。</string>
     <string name="library_replace_message">要退出正在运行的游戏并启动 %1$s 吗？\n未保存的进度将会丢失。</string>
     <string name="library_replace_confirm">退出并开始玩</string>
+    <string name="library_replace_resume">继续 %1$s</string>
 </resources>

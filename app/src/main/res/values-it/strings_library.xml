@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">Chiudere %1$s e avviare %2$s?\nI progressi non salvati andranno persi.</string>
     <string name="library_replace_message">Chiudere il gioco in esecuzione e avviare %1$s?\nI progressi non salvati andranno persi.</string>
     <string name="library_replace_confirm">Chiudi e gioca</string>
+    <string name="library_replace_resume">Riprendi %1$s</string>
 </resources>

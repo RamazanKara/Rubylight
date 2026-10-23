@@ -9,4 +9,5 @@
     <string name="library_replace_message_named">Quit %1$s and start %2$s?\nUnsaved progress will be lost.</string>
     <string name="library_replace_message">Quit the running game and start %1$s?\nUnsaved progress will be lost.</string>
     <string name="library_replace_confirm">Quit and play</string>
+    <string name="library_replace_resume">Resume %1$s</string>
 </resources>

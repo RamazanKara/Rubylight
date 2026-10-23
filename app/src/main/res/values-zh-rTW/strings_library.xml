@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">要結束 %1$s 並啟動 %2$s 嗎？\n未儲存的進度將會遺失。</string>
     <string name="library_replace_message">要結束執行中的遊戲並啟動 %1$s 嗎？\n未儲存的進度將會遺失。</string>
     <string name="library_replace_confirm">結束並開始玩</string>
+    <string name="library_replace_resume">繼續 %1$s</string>
 </resources>

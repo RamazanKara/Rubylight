@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">Thoát %1$s và bắt đầu %2$s?\nTiến trình chưa lưu sẽ bị mất.</string>
     <string name="library_replace_message">Thoát trò chơi đang chạy và bắt đầu %1$s?\nTiến trình chưa lưu sẽ bị mất.</string>
     <string name="library_replace_confirm">Thoát và chơi</string>
+    <string name="library_replace_resume">Tiếp tục %1$s</string>
 </resources>

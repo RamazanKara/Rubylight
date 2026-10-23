@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">Закрити %1$s і запустити %2$s?\nНезбережений прогрес буде втрачено.</string>
     <string name="library_replace_message">Закрити запущену гру і запустити %1$s?\nНезбережений прогрес буде втрачено.</string>
     <string name="library_replace_confirm">Закрити і грати</string>
+    <string name="library_replace_resume">Продовжити %1$s</string>
 </resources>

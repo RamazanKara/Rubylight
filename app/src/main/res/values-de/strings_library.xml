@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">%1$s beenden und %2$s starten?\nUngespeicherter Fortschritt geht verloren.</string>
     <string name="library_replace_message">Laufendes Spiel beenden und %1$s starten?\nUngespeicherter Fortschritt geht verloren.</string>
     <string name="library_replace_confirm">Beenden und spielen</string>
+    <string name="library_replace_resume">%1$s fortsetzen</string>
 </resources>

@@ -30,9 +30,14 @@ public final class GameDetailModel {
     public final EndAction endAction;
     /** The title of another game that runs on the host and would be replaced by playing this one; else null. */
     public final String otherRunningTitle;
+    /** The game behind {@link #otherRunningTitle}, to resume it instead; meaningful only when that title is set. */
+    public final int otherRunningAppId;
+    /** How the host lists that game; null when its library does not. */
+    public final ConsoleSnapshot.Source otherRunningSource;
 
     private GameDetailModel(String hostUuid, String hostName, String title, int appId, ConsoleSnapshot.Source source,
-                            State state, boolean hostOnline, EndAction endAction, String otherRunningTitle) {
+                            State state, boolean hostOnline, EndAction endAction, String otherRunningTitle,
+                            int otherRunningAppId, ConsoleSnapshot.Source otherRunningSource) {
         this.hostUuid = hostUuid;
         this.hostName = hostName;
         this.title = title;
@@ -42,6 +47,8 @@ public final class GameDetailModel {
         this.hostOnline = hostOnline;
         this.endAction = endAction;
         this.otherRunningTitle = otherRunningTitle;
+        this.otherRunningAppId = otherRunningAppId;
+        this.otherRunningSource = otherRunningSource;
     }
 
     /** Resume when the game runs or is suspended on this host, Play otherwise. */
@@ -65,12 +72,16 @@ public final class GameDetailModel {
         ConsoleSnapshot.Host host = snapshot.host(hostUuid);
         ConsoleSnapshot.Source source = null;
         String otherRunning = null;
+        int otherRunningId = 0;
+        ConsoleSnapshot.Source otherRunningSource = null;
         if (host != null) {
             for (ConsoleSnapshot.Source candidate : host.sources) {
                 if (candidate.appId == appId) {
                     source = candidate;
                 } else if (candidate.running && otherRunning == null) {
                     otherRunning = candidate.title;
+                    otherRunningId = candidate.appId;
+                    otherRunningSource = candidate;
                 }
             }
         }
@@ -82,6 +93,13 @@ public final class GameDetailModel {
                 otherRunning = null;
             } else {
                 otherRunning = session.app.title;
+                otherRunningId = session.app.appId;
+                otherRunningSource = null;
+                for (ConsoleSnapshot.Source candidate : host.sources) {
+                    if (candidate.appId == otherRunningId) {
+                        otherRunningSource = candidate;
+                    }
+                }
             }
         } else if (source != null && source.running) {
             state = State.RUNNING;
@@ -97,6 +115,7 @@ public final class GameDetailModel {
         EndAction end = state == State.IDLE ? EndAction.NONE
                 : nativeHost && hostControl ? EndAction.CLOSE_GAME : EndAction.QUIT;
         return new GameDetailModel(hostUuid, host != null ? host.name : fallbackHostName,
-                source != null ? source.title : fallbackTitle, appId, source, state, hostOnline, end, otherRunning);
+                source != null ? source.title : fallbackTitle, appId, source, state, hostOnline, end, otherRunning,
+                otherRunning == null ? 0 : otherRunningId, otherRunning == null ? null : otherRunningSource);
     }
 }

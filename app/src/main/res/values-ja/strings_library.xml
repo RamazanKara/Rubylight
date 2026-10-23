@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">%1$s を終了して %2$s を開始しますか？\n保存していない進行状況は失われます。</string>
     <string name="library_replace_message">実行中のゲームを終了して %1$s を開始しますか？\n保存していない進行状況は失われます。</string>
     <string name="library_replace_confirm">終了してプレイ</string>
+    <string name="library_replace_resume">%1$sを再開</string>
 </resources>

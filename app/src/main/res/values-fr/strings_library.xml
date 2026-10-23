@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">Quitter %1$s et lancer %2$s ?\nLa progression non sauvegardée sera perdue.</string>
     <string name="library_replace_message">Quitter le jeu en cours et lancer %1$s ?\nLa progression non sauvegardée sera perdue.</string>
     <string name="library_replace_confirm">Quitter et jouer</string>
+    <string name="library_replace_resume">Reprendre %1$s</string>
 </resources>

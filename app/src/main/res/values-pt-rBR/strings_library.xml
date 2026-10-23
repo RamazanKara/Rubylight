@@ -7,4 +7,5 @@
     <string name="library_replace_message_named">Encerrar %1$s e iniciar %2$s?\nO progresso não salvo será perdido.</string>
     <string name="library_replace_message">Encerrar o jogo em execução e iniciar %1$s?\nO progresso não salvo será perdido.</string>
     <string name="library_replace_confirm">Encerrar e jogar</string>
+    <string name="library_replace_resume">Retomar %1$s</string>
 </resources>

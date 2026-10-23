@@ -22,9 +22,12 @@ link it says so on stderr and decodes whole. `NIGHTJAR_PYROWAVE_LINK_MBPS` and
 
 ## Slices
 
-A `SlicePlan` follows the records as the packets complete (`RowTracker`): a band is complete
-once a record of a later step has arrived in an earlier packet, because the host's packing
-delays a record by at most one packet. The picture is cut in 4 slices (3 at 4K). When a slice's
+A `SlicePlan` follows the records as the packets complete (`RowTracker`). The host fills the
+room a packet has left with any later record that fits, so a packet can carry records of far
+later steps (measured at 1080p, 399 Mbps: up to 460 packets ahead of their turn). What follows
+the row order is the lowest step among the records each packet completes, a cursor that does
+not go back. A band is complete once the cursor passed its step in an earlier packet. A record
+is out of place when it arrives more than one packet after that. The picture is cut in 4 slices (3 at 4K). When a slice's
 bands are complete the decoder is run on the prefix of the frame: the header was pushed with
 the first packet, the blocks not yet arrived are zero, and the SDK needs no `is_ready` for
 that. The result lands in the plane set the final decode will fill, and the decode is waited
@@ -39,6 +42,21 @@ more than one packet) has `row_ordered` false, is never sliced from the first vi
 decodes whole. The overlay and the session summary count those, and say so when no frame has
 been in order. A slice decoded before the first violation was seen is a prefix of the order
 only as far as that frame went; the final decode fixes the picture, the flag fixes the count.
+
+## Measured
+
+Loopback, 60 s, 1080p60, 399 Mbps, pace 900 (frame time on the wire W = 6.5 ms at p50), beam race
+on, 3589 frames: every frame decoded early, 4 slices on every frame, `row_ordered` on 100%,
+`first_slice_ready - receive` p50 1.65 ms (p95 2.14), `last_slice_ready - receive` p50 7.20 ms
+(p95 7.92). The first slice is ready at 0.25 W. The host log shows `pyrowave_row_order=true`.
+The ignored GPU test passed on 24 of these frames (72 slice decodes, each exact on its rows).
+
+Two things a loopback run needs. The client treats 127.0.0.1 as a remote link (it is not a
+private address), so the host sends 1024 byte packets, and a row-ordered frame in packets that
+small does not fit its wire budget: the host sends it in index order, with a warning event
+(`PyroWave row order was dropped ...`). `NIGHTJAR_STREAM_LOCATION=local` makes the stream local
+(1360 byte packets, row-order framing about 3% larger than index order; at 1024 bytes it is
+about 20% larger). And the host version must parse: `3.0.0-rc.1` style versions were not.
 
 ## The timing CSV
 

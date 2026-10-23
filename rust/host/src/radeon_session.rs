@@ -293,6 +293,39 @@ impl Inner {
             self.dispatch(device);
         }
     }
+    /// Hand on the restore of every device that changed settings and is not in `present`, and
+    /// wait (at most `wait`) until those, and any restore already handed on, are done. For a launch that takes the game over: the new
+    /// game's settings are written only after the old ones are gone, so a late restore cannot
+    /// undo them and the journal's originals are the PC's own.
+    pub fn release_missing(&self, present: &BTreeSet<String>, wait: Duration) {
+        let gone: Vec<String> = {
+            let mut written = locked(&self.written);
+            let gone: Vec<String> = written
+                .iter()
+                .filter(|device| !present.contains(*device))
+                .cloned()
+                .collect();
+            for device in &gone {
+                written.remove(device);
+            }
+            gone
+        };
+        for device in gone {
+            self.dispatch(device);
+        }
+        // Also when nothing new was handed on: a session that ended a moment ago may have its
+        // restore queued or running, and the new write must not overtake it.
+        if !self.flush(wait) {
+            tracing::error!(
+                wait_seconds = wait.as_secs(),
+                "the Radeon settings of the earlier session were still being put back; the new game's settings follow them in the worker's queue"
+            );
+        }
+    }
+    /// Whether any device may have settings changed.
+    pub fn any_held(&self) -> bool {
+        !locked(&self.written).is_empty()
+    }
     /// A device was unpaired or turned off: its settings go back even though its session may
     /// linger until the grace period ends.
     pub fn release_device(&self, device: &str) {
@@ -338,9 +371,30 @@ impl Inner {
         }
         result
     }
+    /// Put back only `ids` of `device`'s settings now and wait for the worker: what a game's
+    /// profile changed, while the device's own panel writes stay for its session's end. The
+    /// device stays noted, so the session still restores the rest.
+    pub fn restore_settings(&self, device: &str, ids: &[String]) -> anyhow::Result<RestoreReport> {
+        let worker = self
+            .worker()
+            .ok_or_else(|| anyhow::anyhow!("this host has no Radeon controls"))?;
+        let result = worker.restore_settings(device, ids);
+        self.record_of(device, Some(ids), &result);
+        result
+    }
     /// Remember what a restore could not put back, so the panel can say so.
     fn record(&self, device: &str, result: &anyhow::Result<RestoreReport>) {
-        let failed: Vec<(String, String)> = match result {
+        self.record_of(device, None, result);
+    }
+    /// As [`Inner::record`]; `only` names the settings a partial restore was about, so the
+    /// failures of the others stay.
+    fn record_of(
+        &self,
+        device: &str,
+        only: Option<&[String]>,
+        result: &anyhow::Result<RestoreReport>,
+    ) {
+        let mut failed: Vec<(String, String)> = match result {
             Ok(report) => report
                 .failed()
                 .map(|outcome| {
@@ -354,6 +408,12 @@ impl Inner {
             Err(error) => vec![("*".into(), format!("{error:#}"))],
         };
         let mut failures = locked(&self.failures);
+        if let Some(only) = only {
+            let mut kept = failures.remove(device).unwrap_or_default();
+            kept.retain(|(id, _)| id != "*" && !only.contains(id));
+            kept.append(&mut failed);
+            failed = kept;
+        }
         if failed.is_empty() {
             failures.remove(device);
         } else {
@@ -389,8 +449,7 @@ impl Inner {
         }
         resume
     }
-    /// Wait until every restore handed on so far has finished, at most `wait`. For tests.
-    #[cfg(test)]
+    /// Wait until every restore handed on so far has finished, at most `wait`.
     pub fn flush(&self, wait: Duration) -> bool {
         let Some(restorer) = self.restorer.get() else {
             return true;

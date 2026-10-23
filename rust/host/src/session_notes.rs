@@ -11,6 +11,7 @@ use butterpollo_core::{
     radeon_profile::Item,
 };
 use std::{
+    collections::BTreeSet,
     sync::{Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -126,6 +127,31 @@ impl SessionNotes {
             .profile
             .as_ref()
             .is_some_and(|(owner, _)| owner == device)
+        {
+            inner.profile = None;
+            inner.bump += 1;
+        }
+    }
+    /// Whether `generation` is still the profile `device` waits for: a newer launch or the end
+    /// of the session replaces or removes it.
+    pub fn is_current(&self, device: &str, generation: u64) -> bool {
+        locked(&self.inner)
+            .profile
+            .as_ref()
+            .is_some_and(|(owner, held)| owner == device && held.generation == generation)
+    }
+    /// Whether a profile note is held, whatever its state.
+    pub fn has_profile(&self) -> bool {
+        locked(&self.inner).profile.is_some()
+    }
+    /// The session has settled with `present` devices in it: the note of a device that is gone
+    /// goes with its session, whether its profile was applied, failed or still being written.
+    pub fn settle(&self, present: &BTreeSet<String>) {
+        let mut inner = locked(&self.inner);
+        if inner
+            .profile
+            .as_ref()
+            .is_some_and(|(device, _)| !present.contains(device))
         {
             inner.profile = None;
             inner.bump += 1;

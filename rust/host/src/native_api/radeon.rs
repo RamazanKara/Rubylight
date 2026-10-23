@@ -311,7 +311,7 @@ fn answer(h: &Host, client: &Client, view: &View, revision: u64) -> Reply {
 
 /// The panel, read at most once a second. The lock stays held through a read, so a burst of
 /// requests shares one driver read. The revision moves when what the panel shows changes.
-fn current_view(h: &Host) -> (Arc<View>, u64) {
+pub(crate) fn current_view(h: &Host) -> (Arc<View>, u64) {
     let mut cache = locked(&h.radeon.cache);
     if let Some(reading) = cache.as_ref()
         && reading.at.elapsed() < CACHE

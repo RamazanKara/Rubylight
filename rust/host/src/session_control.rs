@@ -23,6 +23,7 @@ use butterpollo_core::{
     state::App,
 };
 use std::{
+    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard, PoisonError, TryLockError, mpsc},
     time::Duration,
@@ -246,24 +247,49 @@ impl Host {
         control.persist();
         // Whatever moved the machine (End session, Close game, the grace period running out,
         // /cancel, a reset), a device that is gone from the session gets its Radeon settings
-        // back. Disconnect keeps the owner, so it restores nothing, and nothing is restored
-        // while a launch or teardown runs: a launch that fails gives the session back.
+        // back and its profile note goes. Disconnect keeps the owner, so it restores nothing, and
+        // nothing is restored while a launch or teardown runs: a launch that fails gives the
+        // session back.
+        let settled = matches!(
+            control.machine.state(),
+            State::Idle | State::Streaming | State::Suspended
+        );
+        let present = || self.devices_present(&control.machine);
+        let mut seen = None;
         self.radeon.sync(|| {
-            matches!(
-                control.machine.state(),
-                State::Idle | State::Streaming | State::Suspended
-            )
-            .then(|| {
-                let now = self.session_facts();
-                let mut present = now.streaming;
-                present.extend(control.machine.owner().map(str::to_owned));
-                if now.game_running {
-                    present.extend(now.retained);
-                }
+            settled.then(|| {
+                let present = present();
+                seen = Some(present.clone());
                 present
             })
         });
+        if settled && self.notes.has_profile() {
+            let present = seen.unwrap_or_else(present);
+            self.notes.settle(&present);
+        }
         result
+    }
+    /// The devices that are part of the session now: those streaming, the owner and, while the
+    /// game runs, those with a retained display.
+    fn devices_present(&self, machine: &Machine) -> BTreeSet<String> {
+        let now = self.session_facts();
+        let mut present = now.streaming;
+        present.extend(machine.owner().map(str::to_owned));
+        if now.game_running {
+            present.extend(now.retained);
+        }
+        present
+    }
+    /// The devices that stay when `device`'s launch has just been accepted: those streaming, the
+    /// launching device and the owner of the game now running. A device that is none of these
+    /// has lost its session to the launch (the machine may still name it as owner until the
+    /// stream connects), so its Radeon settings must be back before the new game's are written.
+    pub fn devices_after_launch(&self, device: &str) -> BTreeSet<String> {
+        let now = self.session_facts();
+        let mut present = now.streaming;
+        present.insert(device.to_owned());
+        present.extend(now.game.map(|(_, owner)| owner).filter(|o| !o.is_empty()));
+        present
     }
     /// How long the owner's retained display survives without a stream.
     fn grace_ms(&self, owner: Option<&str>) -> Option<u64> {

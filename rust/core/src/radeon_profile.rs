@@ -154,6 +154,18 @@ pub fn selected(extra: &BTreeMap<String, Value>, fps: Option<u32>) -> Result<Opt
     Ok(Some(Selected { profile, changes }))
 }
 
+impl Selected {
+    /// The first setting whose value still stands for the stream's frame rate, which a launch
+    /// without one cannot supply. Such a profile is refused before anything is written.
+    pub fn without_stream_fps(&self) -> Option<&str> {
+        let token = &table().stream_fps;
+        self.changes
+            .iter()
+            .find(|item| item.value.as_str() == Some(token))
+            .map(|item| item.id.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,5 +307,21 @@ mod tests {
     fn the_console_copy_of_the_table_is_the_host_table() {
         let copy = include_str!("../../web/src/lib/radeon_profiles.json");
         assert_eq!(copy, include_str!("radeon_profiles.json"));
+    }
+
+    #[test]
+    fn a_launch_without_a_frame_rate_leaves_the_token_for_the_host_to_refuse() {
+        let smooth = selected(&extra(json!({"radeon-profile": "smoothness"})), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(smooth.without_stream_fps(), Some("frame_rate_target.fps"));
+        let known = selected(&extra(json!({"radeon-profile": "smoothness"})), Some(90))
+            .unwrap()
+            .unwrap();
+        assert_eq!(known.without_stream_fps(), None);
+        let competitive = selected(&extra(json!({"radeon-profile": "competitive"})), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(competitive.without_stream_fps(), None);
     }
 }

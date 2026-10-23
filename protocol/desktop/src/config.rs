@@ -616,6 +616,20 @@ impl Store {
         let _ = std::fs::remove_file(self.library_path(host));
     }
 
+    /// Everything kept for a PC that is removed: its library, its covers, and its games in the
+    /// recent list. Returns the recent list as it is now.
+    pub fn forget_host(&self, host: &str, recents: &[Recent]) -> Vec<Recent> {
+        self.forget_library(host);
+        let _ = std::fs::remove_dir_all(self.dir.join("art").join(sanitize(host)));
+        let kept: Vec<Recent> = recents.iter().filter(|r| r.host != host).cloned().collect();
+        if kept.len() != recents.len() {
+            if let Err(e) = self.save_recents(&kept) {
+                eprintln!("nightjar: saving recent games failed: {e}");
+            }
+        }
+        kept
+    }
+
     fn library_path(&self, host: &str) -> PathBuf {
         self.dir.join("library").join(format!("{}.json", sanitize(host)))
     }
@@ -716,6 +730,28 @@ mod tests {
         remember(&mut list, recent("pc", "A", 1, 10));
         store.save_recents(&list).unwrap();
         assert_eq!(Store::at(dir.clone()).unwrap().recents(), list);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn removing_a_pc_clears_its_covers_and_recent_games() {
+        let dir = std::env::temp_dir().join(format!("nightjar-forget-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        let mut list = Vec::new();
+        remember(&mut list, recent("gone", "A", 1, 10));
+        remember(&mut list, recent("kept", "B", 2, 20));
+        store.save_recents(&list).unwrap();
+        for host in ["gone", "kept"] {
+            let cover = store.art_path(host, 1, "");
+            std::fs::create_dir_all(cover.parent().unwrap()).unwrap();
+            std::fs::write(&cover, b"x").unwrap();
+        }
+        let after = store.forget_host("gone", &list);
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].host, "kept");
+        assert_eq!(store.recents(), after, "the file is filtered too");
+        assert!(!store.art_path("gone", 1, "").exists(), "its covers are deleted");
+        assert!(store.art_path("kept", 1, "").exists(), "another PC's are not");
         std::fs::remove_dir_all(dir).ok();
     }
 

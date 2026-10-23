@@ -827,7 +827,9 @@ impl App {
                 }
             }
             Command::Remove(host) => {
-                self.forget_library(host);
+                if let Some(unique_id) = self.hosts.get(host).map(|h| h.record.unique_id.clone()).filter(|id| !id.is_empty()) {
+                    self.launcher.recents = self.store.forget_host(&unique_id, &self.launcher.recents);
+                }
                 self.hosts.remove(host);
                 self.save_hosts();
             }

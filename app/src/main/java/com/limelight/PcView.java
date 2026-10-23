@@ -9,6 +9,7 @@ import com.limelight.binding.crypto.AndroidCryptoProvider;
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.HostActions;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.computers.HostMenu;
 import com.limelight.grid.PcGridAdapter;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
@@ -126,17 +127,17 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         }
     }
 
-    private final static int PAIR_ID = 2;
-    private final static int UNPAIR_ID = 3;
-    private final static int WOL_ID = 4;
-    private final static int DELETE_ID = 5;
-    private final static int RESUME_ID = 6;
-    private final static int QUIT_ID = 7;
-    private final static int LIBRARY_ID = 8;
-    private final static int PC_SETTINGS_ID = 12;
-    private final static int OTP_PAIR_ID = 13;
-    private final static int PAIRING_HELP_ID = 14;
-    private final static int RENAME_ID = 15;
+    private final static int PAIR_ID = HostMenu.PAIR;
+    private final static int UNPAIR_ID = HostMenu.UNPAIR;
+    private final static int WOL_ID = HostMenu.WAKE;
+    private final static int DELETE_ID = HostMenu.REMOVE;
+    private final static int RESUME_ID = HostMenu.RESUME;
+    private final static int QUIT_ID = HostMenu.QUIT;
+    private final static int LIBRARY_ID = HostMenu.LIBRARY;
+    private final static int PC_SETTINGS_ID = HostMenu.PC_SETTINGS;
+    private final static int OTP_PAIR_ID = HostMenu.OTP_PAIR;
+    private final static int PAIRING_HELP_ID = HostMenu.PAIRING_HELP;
+    private final static int RENAME_ID = HostMenu.RENAME;
 
     /** How long a row says "Waking…" after a wake signal while the PC has not answered. */
     static final long WAKE_WINDOW_MS = 2 * 60 * 1000;
@@ -474,59 +475,15 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     void showComputerMenu(ComputerObject computer) {
         if (pcMenu != null) return;
         stopComputerUpdates(false);
-        ActionSheet sheet = new ActionSheet(this, computer.details.displayName());
+        String game = computer.runningGame != null ? computer.runningGame.getAppName() : null;
+        ActionSheet sheet = HostMenu.build(this, computer.details, computer.rowState(), game,
+                action -> onComputerAction(computer, action));
         pcMenu = sheet;
-        ComputerDetails details = computer.details;
-        PcGridAdapter.RowState state = computer.rowState();
-        if (state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY) {
-            addPcAction(sheet, computer, LIBRARY_ID, R.drawable.ic_library, getString(R.string.library_open));
-        }
-        if (state == PcGridAdapter.RowState.RUNNING) {
-            String game = computer.runningGame != null ? computer.runningGame.getAppName() : null;
-            addPcAction(sheet, computer, RESUME_ID, R.drawable.ic_play, game != null ?
-                    getString(R.string.pc_menu_resume_game, game) : getString(R.string.applist_menu_resume));
-            if (details.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-                addPcAction(sheet, computer, QUIT_ID, R.drawable.ic_stop, game != null ?
-                        getString(R.string.pc_menu_quit_game, game) : getString(R.string.applist_menu_quit));
-            }
-        }
-        if (state == PcGridAdapter.RowState.NOT_PAIRED) {
-            addPcAction(sheet, computer, PAIR_ID, R.drawable.ic_lock, getString(R.string.pcview_menu_pair_pc));
-            if (details.caps.has(HostCapabilities.Feature.OTP_PAIRING)) {
-                addPcAction(sheet, computer, OTP_PAIR_ID, R.drawable.ic_keyboard, getString(R.string.pair_otp_title));
-            }
-        }
-        if (details.state != ComputerDetails.State.ONLINE && details.macAddress != null) {
-            addPcAction(sheet, computer, WOL_ID, R.drawable.ic_power, getString(R.string.pcview_menu_send_wol));
-        } else if (state == PcGridAdapter.RowState.OFFLINE) {
-            // Wake needs the PC's address from a pairing made while it was on.
-            sheet.addNote(sheet.addGroup(), getString(R.string.host_wake_needs_pairing), false);
-        }
-        addPcAction(sheet, computer, PC_SETTINGS_ID, R.drawable.ic_settings, getString(R.string.pc_menu_settings));
-        addPcAction(sheet, computer, RENAME_ID, R.drawable.ic_edit, getString(R.string.host_menu_rename));
-        if (state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY) {
-            addPcAction(sheet, computer, UNPAIR_ID, R.drawable.ic_unpair, getString(R.string.pcview_menu_unpair_pc));
-        }
-        if (details.pairState != PairState.PAIRED) {
-            addPcAction(sheet, computer, PAIRING_HELP_ID, R.drawable.ic_help, getString(R.string.discovery_help));
-        }
-        sheet.addDivider();
-        sheet.addDestructiveAction(R.drawable.ic_delete, getString(R.string.pcview_menu_delete_pc)).setOnClickListener(v -> {
-            sheet.dismiss();
-            onComputerAction(computer, DELETE_ID);
-        });
         sheet.setOnDismissListener(dialog -> {
             pcMenu = null;
             startComputerUpdates();
         });
         sheet.show();
-    }
-
-    private void addPcAction(ActionSheet sheet, ComputerObject computer, int action, int icon, String label) {
-        sheet.addAction(icon, label).setOnClickListener(v -> {
-            sheet.dismiss();
-            onComputerAction(computer, action);
-        });
     }
 
     /** Sends the wake signal; tests record it instead of broadcasting a magic packet. */
@@ -601,7 +558,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                     hostActions.showError(computer.details.displayName(), getString(R.string.error_manager_not_running), null);
                     return true;
                 }
-                ServerHelper.doStart(this, runningAppOf(computer), computer.details, managerBinder);
+                ServerHelper.doStart(this, HostMenu.runningApp(computer.runningGame, computer.details), computer.details, managerBinder);
                 return true;
 
             case QUIT_ID:
@@ -610,7 +567,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                     return true;
                 }
                 UiHelper.displayQuitConfirmationDialog(this, () -> ServerHelper.doQuit(PcView.this, computer.details,
-                        runningAppOf(computer), managerBinder, null), null);
+                        HostMenu.runningApp(computer.runningGame, computer.details), managerBinder, null), null);
                 return true;
 
             case PC_SETTINGS_ID:
@@ -624,16 +581,6 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             default:
                 return false;
         }
-    }
-
-    /** The running game as its library lists it, or else one with the host's own ID and UUID. */
-    private static NvApp runningAppOf(ComputerObject computer) {
-        if (computer.runningGame != null) {
-            return computer.runningGame;
-        }
-        NvApp app = new NvApp("app", computer.details.runningGameId, false);
-        app.setAppUuid(computer.details.runningGameUuid);
-        return app;
     }
 
     /** A tap does the row's main action; a PC with nothing to do opens its menu. */

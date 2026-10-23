@@ -535,7 +535,7 @@ mod tests {
     const LAST: usize = usize::MAX;
 
     /// Calls that draw text, and which argument is the text. A bare literal there is untranslated.
-    const TEXT_CALLS: [(&str, usize); 31] = [
+    const TEXT_CALLS: [(&str, usize); 32] = [
         ("RichText::new(", 0),
         ("Label::new(", 0),
         ("Button::new(", 0),
@@ -554,6 +554,7 @@ mod tests {
         (".button(", 0),
         (".menu_button(", 0),
         (".collapsing(", 0),
+        ("CollapsingHeader::new(", 0),
         ("Window::new(", 0),
         (".message(", 0),
         (".message(", LAST),
@@ -685,6 +686,32 @@ mod tests {
         assert_eq!(found("show_toast(if a { \"One\" } else { \"Two\" });").len(), 2);
         assert!(found("ui.label(tr(\"Fine\")); ui.small(format!(\"{}\", x)); // ui.label(\"x\")").is_empty());
         assert!(found("ui.label(trf(\"Fine {}\", &[&x])); ui.label(\"1:2\");").is_empty());
+    }
+
+    #[test]
+    fn windows_and_headers_keep_their_ids_across_languages() {
+        // egui derives a window's or header's id from its title, so a translated title would give
+        // each language its own saved state (and shift the focus when the language changes).
+        let mut found = Vec::new();
+        for (file, source) in SOURCES.into_iter().chain(MARKED_ONLY) {
+            let lexed = lex(source);
+            for pattern in ["Window::new(", "CollapsingHeader::new("] {
+                for (at, _) in lexed.code.match_indices(pattern) {
+                    let call = lexed.code[at..].split(".show(").next().unwrap_or("");
+                    if !call.contains(".id(") && !call.contains(".id_salt(") {
+                        found.push(format!("{file}:{}: {pattern}", line_of(&lexed.code, at)));
+                    }
+                }
+            }
+            for (at, _) in lexed.code.match_indices("from_label(") {
+                found.push(format!("{file}:{}: ComboBox::from_label takes its id from the label", line_of(&lexed.code, at)));
+            }
+        }
+        assert!(found.is_empty(), "give these an explicit id:
+{}", found.join("
+"));
+        let source = lex("egui::Window::new(tr(\"T\")).anchor(a).show(&ctx, |ui| {});").code;
+        assert!(!source.split(".show(").next().unwrap().contains(".id("), "the check can fail");
     }
 
     #[test]

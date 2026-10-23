@@ -1286,6 +1286,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let mut outcome = session_ui::Outcome::Stay;
             if let Some(page) = s.session_page.as_mut() {
                 egui::Window::new(tr("Session and graphics"))
+                    .id(egui::Id::unique("session-and-graphics"))
                     .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                     .collapsible(false).resizable(false).vscroll(true).default_width(440.0)
                     .show(&ctx, |ui| {
@@ -1301,6 +1302,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
         }
         if s.menu_visible && s.session_page.is_none() {
             egui::Window::new(tr("Stream controls"))
+                .id(egui::Id::unique("stream-controls"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .collapsible(false).resizable(false).vscroll(true)
                 .show(&ctx, |ui| {
@@ -1329,7 +1331,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         if ui.button(tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }
                     });
                     if s.facts.role != nightjar_core::http::AppRole::RemoteMonitor && !shortcuts.data.is_empty() {
-                        ui.collapsing(tr("Keyboard shortcuts"), |ui| {
+                        egui::CollapsingHeader::new(tr("Keyboard shortcuts")).id_salt("keyboard-shortcuts").show(ui, |ui| {
                             for shortcut in &shortcuts.data {
                                 if ui.button(format!("{} · {}", shortcut.name, shortcut.keys.join(" + "))).clicked() {
                                     s.toggle_menu(window, pads);

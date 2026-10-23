@@ -1422,8 +1422,7 @@ enum Loss {
     /// After the entry check, before the conversion is recorded, so the
     /// conversion itself fails (`conversion_failed`).
     BeforeConversion,
-    /// After the frame is submitted: the D3D12 fences jump to their maximum,
-    /// the Vulkan wait succeeds and only the check after it sees the loss.
+    /// After the frame is submitted, before its completion wait.
     MidFrame,
 }
 
@@ -1613,8 +1612,10 @@ fn pyrowave_recovers_from_a_d3d12_device_lost_before_conversion() -> Result<()> 
     )
 }
 
-/// The device is removed after the frame is submitted: the shared fence jumps to
-/// its maximum, the Vulkan wait succeeds, and the loss must still free the lease.
+/// The device is removed after the frame is submitted, before its wait. Proves
+/// that the check after the wait reports the loss and the lease is released with
+/// no quarantine. It does not prove the race where the wait is satisfied before
+/// Vulkan has run the encode; that rests on `pyrowave_encoder_destroy` idling the GPU.
 #[test]
 #[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL; removes only this process's D3D12 device; run with --test-threads=1"]
 fn pyrowave_recovers_from_a_d3d12_device_lost_mid_frame() -> Result<()> {

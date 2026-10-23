@@ -749,11 +749,16 @@ impl Encoder {
                 self.lost = crate::device_loss::DeviceLost::from_error(error);
             }
             finish_submission(&mut self.pending, completed)?;
-            // The Vulkan encode completed, so the lease is free. Only now ask
-            // whether a device died under the frame: a lost compute device
-            // signals its fences to the maximum, which satisfies that wait
-            // without the conversion having run. The output is garbage, and the
-            // host rebuilds on a new device; the adapter is not quarantined.
+            // The lease is free whatever the wait proved: Vulkan never reads the
+            // capture texture, only the encoder-owned planes in `interop`. Ask
+            // now whether a device died under the frame: a lost compute device
+            // signals its fences to the maximum, which can satisfy that wait
+            // before Vulkan has run the encode (Drop idles Vulkan before it
+            // destroys anything). The output is garbage, and the host rebuilds
+            // on a new device; the adapter is not quarantined. On the graphics
+            // path (compute planes present, frame not shareable) the D3D11
+            // conversion may still be reading the capture when the lease is
+            // returned; capture can then tear a buffer that is discarded anyway.
             // This is the second GetDeviceRemovedReason pair per frame (the
             // first is the entry check). Both stay: the entry check keeps a
             // dead device from being handed new work, this one is the only
@@ -887,7 +892,11 @@ impl Drop for Encoder {
             return;
         }
         // SAFETY: `encoder` and `device` were created in `new_device_reported`; the interop images
-        // go before the device.
+        // go before the device. After a device loss `pending` is already clear while Vulkan may
+        // still be running or queued, because the lost fence satisfies the completion wait early.
+        // `pyrowave_encoder_destroy` goes first: pyrowave.h (SDK 502a3b52, "Implementation
+        // ensures GPU is idle before destroying objects") idles the GPU there, before the
+        // images and the device are destroyed.
         unsafe {
             if !self.encoder.is_null() {
                 (self.api.encoder_destroy)(self.encoder);

@@ -70,8 +70,16 @@ def summarize(rows):
         values = column(rows, name)
         result[name] = {p: percentile(values, p) for p in percentiles}
     fps = column(rows, "shown_fps")
-    result["shown_fps"] = statistics.median(fps) if fps else float("nan")
+    result["shown_fps"] = statistics.median(fps) if fps else rendered_fps(rows)
     return result
+
+
+def rendered_fps(rows):
+    """Shown fps from the render stamps, for CSVs whose shown_fps column is empty. Gaps over a
+    second (between legs, or a stall) are left out so pooled legs do not dilute the rate."""
+    stamps = sorted(v for v in column(rows, "render_ns") if v > 0)
+    gaps = [(b - a) / 1e9 for a, b in zip(stamps, stamps[1:]) if b - a < 1e9]
+    return len(gaps) / sum(gaps) if gaps and sum(gaps) > 0 else float("nan")
 
 
 def keep_rule(a_legs, b_legs, metric="input_to_output_ms"):

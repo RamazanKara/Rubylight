@@ -23,6 +23,13 @@ class PercentileTests(unittest.TestCase):
 
 
 class LegTests(unittest.TestCase):
+    def test_shown_fps_comes_from_the_render_stamps_when_the_column_is_empty(self):
+        first = [{"render_ns": str(int(i * 1e9 / 60))} for i in range(61)]
+        second = [{"render_ns": str(int(500e9 + i * 1e9 / 50))} for i in range(51)]
+        self.assertAlmostEqual(ts.summarize(first)["shown_fps"], 60.0, places=1)
+        self.assertAlmostEqual(ts.summarize(first + second)["shown_fps"], 55.0, delta=0.6)
+        self.assertEqual(ts.summarize([{"shown_fps": "59"}, {"shown_fps": "61"}, {"shown_fps": "60"}])["shown_fps"], 60)
+
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)

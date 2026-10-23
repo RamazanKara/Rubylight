@@ -22,14 +22,57 @@ after the last packet. The release CPU costs (measured on this PC, `cpu_costs_of
 | half conversion plus frame allocation (1080p) | 13.3 ms | no, needs the final planes |
 | GPU inverse wavelet and present | not measured here | no |
 
-At 150 to 300 Mbps and 60 fps a frame is 310 to 620 KB, so the entropy decode is roughly 8 to
-15 ms of single-thread CPU time (extrapolated from the fixture, to be confirmed on the NUC,
-which is slower than this PC). The ceiling for step 1 is that time minus the decode of the
-records that arrive last, and it needs the wire time of the frame (3 to 8 ms at 1 GbE for a
-frame of that size) to hide it. The half conversion (13 ms) is larger than the entropy decode
-and stays after the last packet in this step; that is the piece progressive conversion in
-steps 2 and 3 has to remove. This is an estimate until the A8 run says otherwise. Nobody
-should claim a number before that run.
+The 24.6 ms per MB figure is a lower bound: the fixture is a 72 KB frame that stays in the
+cache, and the figure excludes the plane stores a full 1080p frame makes (three f32 planes,
+about 25 MB). A real frame costs more per byte.
+
+### The decoder thread at high bitrates: model and measurement disagree
+
+At 150 to 300 Mbps and 60 fps a frame is 312 to 625 KB. Taking the fixture costs above at face
+value, the decoder thread would spend per frame:
+
+| bitrate | entropy decode | plane clear | half conversion | total | frame period at 60 fps |
+| --- | --- | --- | --- | --- | --- |
+| 150 Mbps | 7.7 ms | 1.2 ms | 13.3 ms | 22.2 ms | 16.7 ms |
+| 300 Mbps | 15.4 ms | 1.2 ms | 13.3 ms | 29.9 ms | 16.7 ms |
+
+That predicts a saturated thread. The loopback run below says otherwise, so the model is too
+pessimistic in absolute terms: the fixture is a 72 KB frame resident in the cache, and it
+excludes the plane stores. Do not use the table for sizing; use the measured figures.
+
+Measured on this PC (2026-10-23, early decode off, Nightjar desktop against an isolated host
+on loopback, PyroWave 1080p60, about 60 s each, `NIGHTJAR_TIMING_CSV`). The host log shows the
+frames at the bitrate budget (`sent_mbps` 100 to 150 at the default 133 Mbps, 315 to 319 at 300
+Mbps). "Decode" is `input_to_output_ms`, decoder input to output.
+
+| | 133 Mbps (default) | 300 Mbps |
+| --- | --- | --- |
+| decode median | 9.66 ms | 12.77 ms |
+| decode p95 / p99 / max | 13.07 / 14.50 / 16.61 ms | 17.26 / 18.45 / 20.77 ms |
+| frames over 16.7 ms | none | 8.6% |
+| received / presented fps | 60.2 / 59.1 | 60.2 / 59.9 |
+| decoder queue drops (bound 15) | 0 | 0 |
+
+So the decoder keeps up on average at both bitrates and drops nothing, but at 300 Mbps the
+median leaves about 4 ms of the 16.7 ms period and the p95 and p99 are above it. Bursts of
+slow frames then back up the queue (`receive_to_input_ms` p95 82 ms, p99 175 ms at 300 Mbps),
+which is added latency even though no frame is dropped. At 133 Mbps there is about 7 ms of
+headroom. The measurement is not split into entropy decode, plane clear and conversion; it is
+loopback, with the host encoder, a synthetic scrolling-texture animation (about two thirds of
+the picture) and other sessions sharing the PC, so the backlog episodes at 300 Mbps may be
+partly contention. It is one run per bitrate, not a statistic.
+
+The gain needs decoder headroom: a decoder thread that is idle for part of each frame period.
+Then early decode can use the idle time while the frame is still arriving. At most it moves the
+entropy decode of the records that arrive before the last one, and no more than fits inside the
+frame's time on the wire: at line rate that is 2.5 ms for a 312 KB frame and 5.0 ms for a 625 KB
+frame at 1 GbE (half that at 2.5 GbE), a ceiling of 2.5 to 5 ms whatever the bitrate; host
+pacing can spread a frame over longer and raise it. At 300 Mbps that ceiling is about the
+headroom the decoder has left, so early decode could cut the tail; whether it does is for the
+A8 run to say. The half conversion (about 13 ms by the fixture) stays after the last packet in
+this step; it is the piece progressive conversion in steps 2 and 3 has to remove, and the piece
+to make cheaper (on the GPU, or with a cheaper conversion) if the decoder is the limit. Nobody
+should claim a gain before the A8 run says otherwise.
 
 The reason is the bitstream, not the client.
 
@@ -124,7 +167,15 @@ the receive path packet by packet, and the decoder takes them as they come.
   always did, and counts a fallback. The frame is the authority; chunks are a speculative
   head start.
 - Counters (`Shared::counters`): `early_frames`, `early_fallbacks`, `early_us_total` (time
-  inside `chunk`). A fallback is also printed once to stderr; it is not silent.
+  inside `chunk`). A fallback is also printed once to stderr; it is not silent. A non-first
+  chunk that arrives while the decoder has no frame start (its first chunk was dropped) marks
+  the frame a fallback too.
+- Visibility: with the setting on and PyroWave negotiated, the overlay shows an "Early decode"
+  line (frames and fallbacks in the last second); at the end of the session the early frames,
+  fallbacks, time inside `chunk` and chunks dropped over the queue bound are logged to stderr;
+  and the timing CSV gains two columns after the host's, `early` (0 off, 1 early, 2 fallback)
+  and `first_block_ns` (the session-clock time the first block of an early frame was decoded,
+  0 otherwise), so the first packet to the first block decoded can be read per frame.
 
 ### Cost, honestly
 
@@ -176,7 +227,7 @@ on this PC, with A8 records on both sides. Do the idle check first
    a stream for 60 s at 1080p60 with `NIGHTJAR_TIMING_CSV=<file>` set. On the host set
    `BUTTERPOLLO_TIMING_RECORD=<file>`.
 3. Join the two records with `rust/release/timing_report.py` and compare median and p95
-   picture age, and the decode-start column (the first packet to the first block decoded).
+   picture age, and the decode start (`first_block_ns` against the first packet's time).
 4. Repeat with 0.1% and 1% loss (the loss gate), and check `early_fallbacks` stays at 0 on a
    clean link.
 5. Revert the feature, or leave it off, if the median picture age is not better, or if p95
@@ -195,5 +246,4 @@ decode time per megabyte of blocks, the plane clear and the half conversion of a
   the chunk stream is in picture order and the decoder can work on row bands.
 - A row-banded half conversion and inverse wavelet in the presenter, so the work after the
   last packet shrinks to the last band.
-- A settings toggle (once the settings screen rework lands) and an overlay line with the
-  early/fallback counters.
+- A settings toggle, once the settings screen rework lands.

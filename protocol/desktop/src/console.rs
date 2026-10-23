@@ -97,10 +97,15 @@ fn active(session: &Session) -> bool {
         && session.app.is_some()
 }
 
+/// The same store id. An empty id (a host that sent none) matches nothing, not everything.
+fn same_install(a: &str, b: &str) -> bool {
+    !a.is_empty() && a == b
+}
+
 fn running_here(source: &Source<'_>, game: &Game) -> bool {
     game.running
         || source.session.is_some_and(|s| {
-            active(s) && s.app.as_ref().is_some_and(|a| a.install_id == game.install_id || a.app_id == game.app_id)
+            active(s) && s.app.as_ref().is_some_and(|a| same_install(&a.install_id, &game.install_id) || a.app_id == game.app_id)
         })
 }
 
@@ -277,7 +282,7 @@ pub fn detail(source: &Source<'_>, app_id: u32, native: bool) -> Detail {
     let mut other_running = None;
     if source.online {
         let own = session.and_then(|s| s.app.as_ref()).is_some_and(|a| {
-            a.app_id == app_id || game.is_some_and(|g| a.install_id == g.install_id)
+            a.app_id == app_id || game.is_some_and(|g| same_install(&a.install_id, &g.install_id))
         });
         if own {
             let suspended = session.is_some_and(|s| s.state == State::Suspended);
@@ -384,6 +389,25 @@ mod tests {
 
     const DOTA: u32 = 1093052211;
     const DESKTOP: u32 = 881448767;
+
+    #[test]
+    fn an_empty_install_id_matches_nothing() {
+        // A host that sent no store id for the game or for the session must not tie them together.
+        let mut lib = library();
+        for game in &mut lib.games {
+            game.install_id.clear();
+            game.running = false;
+        }
+        let mut running = session();
+        running.state = State::Streaming;
+        running.app.as_mut().unwrap().install_id.clear();
+        assert_eq!(running.app.as_ref().unwrap().app_id, DOTA);
+        let sources = [source(1, "A", true, Some(&lib), Some(&running))];
+        assert_eq!(detail(&sources[0], DESKTOP, true).state, GameState::Idle, "another game is not the running one");
+        assert_ne!(detail(&sources[0], DOTA, true).state, GameState::Idle, "the same app id still matches");
+        let merged = merge_library(&sources);
+        assert!(merged.iter().any(|e| e.title == "Dota 2"));
+    }
 
     #[test]
     fn the_launch_screen_follows_the_setting_and_a_library() {

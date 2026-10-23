@@ -165,6 +165,10 @@ public class ComputerManagerService extends Service {
             // Don't call the listener if this is a failed lookup of a new PC
             ComputerManagerListener currentListener = listener;
             if ((!newPc || details.state == ComputerDetails.State.ONLINE) && currentListener != null) {
+                if (newPc) {
+                    // A rediscovered PC keeps the user's name from the first update on.
+                    details.alias = HostNames.get(this, details.uuid);
+                }
                 currentListener.notifyComputerUpdated(details);
             }
 
@@ -462,7 +466,9 @@ public class ComputerManagerService extends Service {
                 if (tuple.computer.uuid.equals(details.uuid)) {
                     // Update the saved computer with potentially new details
                     tuple.computer.update(details);
-                    tuple.computer.alias = details.alias;
+                    if (!java.util.Objects.equals(tuple.computer.alias, details.alias)) {
+                        tuple.computer.alias = details.alias;
+                    }
 
                     // Start a polling thread if polling is active
                     if (pollingActive && tuple.thread == null) {
@@ -755,7 +761,7 @@ public class ComputerManagerService extends Service {
         return null;
     }
 
-    private boolean pollComputer(ComputerDetails details) throws InterruptedException {
+    boolean pollComputer(ComputerDetails details) throws InterruptedException {
         RedactedLog.addComputerSecrets(details);
         // Poll all addresses in parallel to speed up the process
         LimeLog.info("Starting parallel poll for "+details.name+" ("+details.localAddress +", "+details.remoteAddress +", "+details.manualAddress+", "+details.ipv6Address+")");

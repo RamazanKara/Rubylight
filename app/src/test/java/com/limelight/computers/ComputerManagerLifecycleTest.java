@@ -151,6 +151,41 @@ public class ComputerManagerLifecycleTest {
         }
     }
 
+    public static class OnlineManager extends Manager {
+        @Override boolean pollComputer(ComputerDetails details) {
+            details.state = ComputerDetails.State.ONLINE;
+            return true;
+        }
+    }
+
+    @Test
+    public void aRediscoveredPcIsFirstShownWithItsStoredName() throws Exception {
+        ServiceController<OnlineManager> controller = Robolectric.buildService(OnlineManager.class).create();
+        ComputerManagerService service = controller.get();
+        try {
+            HostNames.set(service, "named-host", "Den PC");
+            List<String> shown = new ArrayList<>();
+            ReflectionHelpers.setField(service, "listener", (ComputerManagerListener) details ->
+                    shown.add(details.displayName()));
+
+            ComputerDetails found = new ComputerDetails();
+            found.uuid = "named-host";
+            found.name = "DESKTOP-9";
+            ComputerDetails.AddressTuple address = new ComputerDetails.AddressTuple("192.168.1.9", 47989);
+            found.activeAddress = address;
+            found.remoteAddress = address;
+            ReflectionHelpers.callInstanceMethod(service, "runPoll",
+                    ReflectionHelpers.ClassParameter.from(ComputerDetails.class, found),
+                    ReflectionHelpers.ClassParameter.from(boolean.class, true),
+                    ReflectionHelpers.ClassParameter.from(int.class, 0));
+
+            assertEquals(Collections.singletonList("Den PC"), shown);
+            assertEquals("DESKTOP-9", found.name);
+        } finally {
+            controller.destroy();
+        }
+    }
+
     @Test
     public void deletingComputerForgetsItsNameAndKeepsOthers() {
         ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();

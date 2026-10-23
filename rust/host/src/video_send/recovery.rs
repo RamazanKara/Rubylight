@@ -61,12 +61,15 @@ fn select(
 ) -> Pace {
     let bitrate = session.bitrate.load(std::sync::atomic::Ordering::Acquire);
     let needed = network_pacing::video_wire_rate_bps(packetizer, bitrate, period, peer.is_ipv6());
-    let base = network_pacing::rate_bps(
+    // The client's own port, when it says so (Nightjar, for wired links).
+    let client_link = u64::from(session.config.pyrowave_client_link_mbps) * 1_000_000;
+    let base = network_pacing::rate_bps_for_client(
         config.integer("pacing_max_bitrate_kbps", 0),
         bitrate,
         route.bps,
         route.wireless,
         needed,
+        client_link,
     );
     let base = adapt(base, needed);
     let safe = network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
@@ -130,6 +133,57 @@ mod tests {
     use std::time::Instant;
 
     #[test]
+    fn a_clients_link_hint_caps_the_startup_pace_for_conventional_codecs() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let packetizer = VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let period = Duration::from_secs_f64(1. / 60.);
+        let peer = "192.0.2.9:12345".parse().unwrap();
+        let route = Link {
+            bps: 1_000_000_000,
+            ..Default::default()
+        };
+        // A 1 GbE host: stock Moonlight (no hint) and a 1 GbE or 2.5 GbE
+        // client stay at 800 Mbps; a 100 Mbps client is paced at 80.
+        for (hint, expected) in [
+            (0, 800_000_000),
+            (1000, 800_000_000),
+            (2500, 800_000_000),
+            (100, 80_000_000),
+        ] {
+            let session = Session::new(
+                fixture.launch(fixture.client(0), Role::Stream),
+                butterpollo_core::rtsp::Negotiated {
+                    pyrowave_client_link_mbps: hint,
+                    ..Default::default()
+                },
+            );
+            session
+                .bitrate
+                .store(40_000, std::sync::atomic::Ordering::Release);
+            session.configure_keyframe_loss(true);
+            let config = Config::default();
+            assert_eq!(
+                pace(&session, &config, &packetizer, period, peer, route).bps,
+                expected,
+                "hint {hint}"
+            );
+            assert_eq!(
+                preview_pace(&session, &config, &packetizer, period, peer, route).bps,
+                expected,
+                "hint {hint}"
+            );
+        }
+    }
+
+    #[test]
     fn the_first_picture_and_live_loss_use_the_same_pace_as_sending() {
         let fixture = crate::state::test_support::Fixture::new();
         let session = fixture.session(fixture.client(0), Role::Stream);
@@ -151,7 +205,7 @@ mod tests {
         let peer = "127.0.0.1:12345".parse().unwrap();
         let route = Link {
             bps: 1_000_000_000,
-            wireless: false,
+            ..Default::default()
         };
         let fast = preview_pace(&session, &config, &packetizer, period, peer, route);
         assert_eq!(fast.bps, 800_000_000);

@@ -13,9 +13,25 @@ use std::{
 };
 
 const RETENTION: u64 = 24 * 60 * 60;
-const PROBE_EVERY: u32 = 5;
+/// One remembered session, then the fast rate is tried again.
+const PROBE_EVERY: u32 = 2;
 const MAX_ROUTES: usize = 256;
 const FIELD: &str = "keyframe_loss_routes";
+/// Only loss that lasted is remembered. Records from before this field
+/// existed (stale 24 h latches, mostly from a rough start) are not.
+const SUSTAINED: &str = "sustained";
+
+/// What a history is about: the client, its address, the host interface the
+/// route leaves by and the client's own link when it reports one. A host that
+/// switches NIC or Wi-Fi, or a client that moves to another port, starts fresh.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Scope {
+    address: IpAddr,
+    /// The host's outgoing interface (LUID); zero when unknown.
+    interface: u64,
+    /// `x-ss-video[0].pyrowaveLinkMbps`; zero when the client sends none.
+    client_link_mbps: u32,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Route {
@@ -26,11 +42,21 @@ struct Route {
     revision: String,
     #[serde(default)]
     remembered_sessions: u32,
+    /// `"sustained"`; anything else, or nothing, is not remembered.
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    interface: u64,
+    #[serde(default)]
+    client_link_mbps: u32,
 }
 
 impl Route {
-    fn matches(&self, client_id: &str, address: IpAddr) -> bool {
-        self.client_id == client_id && self.address == address.to_canonical()
+    fn matches(&self, client_id: &str, scope: &Scope) -> bool {
+        self.client_id == client_id
+            && self.address == scope.address.to_canonical()
+            && self.interface == scope.interface
+            && self.client_link_mbps == scope.client_link_mbps
     }
     fn current(&self, now: u64) -> bool {
         // A clock moved backwards must not make a route persist indefinitely.
@@ -50,14 +76,25 @@ fn read(state: &PairedState, now: u64) -> Vec<Route> {
         .into_iter()
         .flatten()
         .filter_map(|v| serde_json::from_value::<Route>(v.clone()).ok())
-        .filter(|r| r.current(now) && state.clients.iter().any(|c| c.uuid == r.client_id))
+        .filter(|r| {
+            r.kind == SUSTAINED
+                && r.current(now)
+                && state.clients.iter().any(|c| c.uuid == r.client_id)
+        })
         .collect();
     for route in &mut routes {
         route.address = route.address.to_canonical();
     }
     routes.sort_by_key(|r| std::cmp::Reverse(r.observed_at));
     let mut seen = BTreeSet::new();
-    routes.retain(|r| seen.insert((r.client_id.clone(), r.address)));
+    routes.retain(|r| {
+        seen.insert((
+            r.client_id.clone(),
+            r.address,
+            r.interface,
+            r.client_link_mbps,
+        ))
+    });
     routes.truncate(MAX_ROUTES);
     routes
 }
@@ -71,7 +108,7 @@ fn save(h: &Host, state: &mut PairedState, routes: &[Route]) -> Result<()> {
 
 struct Token {
     client: Client,
-    address: IpAddr,
+    scope: Scope,
     epoch: u64,
     /// Only a completed fast probe can forget the exact history it tested.
     probe_revision: Option<String>,
@@ -90,9 +127,11 @@ impl Drop for Guard {
         let Some(token) = self.token.take() else {
             return;
         };
-        let observed = self.session.keyframe_loss_observed_at();
+        // A start-up latch that lifted is not remembered, but it is not a
+        // clean probe either.
+        let observed = self.session.keyframe_loss_sustained_at();
         let healthy_probe = token.probe_revision.is_some()
-            && observed.is_none()
+            && !self.session.keyframe_loss_ever_latched()
             && !self.session.failed()
             && self.started.elapsed() >= Duration::from_secs(5)
             && self.session.stats.frames.load(Ordering::Relaxed) >= 120;
@@ -115,6 +154,22 @@ impl Host {
         self: &Arc<Self>,
         session: &Arc<Session>,
         enabled: bool,
+    ) -> Guard {
+        // The host's outgoing interface: asked of Windows before any lock is held.
+        let interface = if enabled && session.config.codec != 3 {
+            butterpollo_windows::net::routed_link(std::net::SocketAddr::new(session.launch.peer, 0))
+                .interface
+        } else {
+            0
+        };
+        self.configure_keyframe_loss_on(session, enabled, interface)
+    }
+
+    pub(crate) fn configure_keyframe_loss_on(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        enabled: bool,
+        interface: u64,
     ) -> Guard {
         let mut guard = Guard {
             host: self.clone(),
@@ -140,11 +195,16 @@ impl Host {
             session.configure_keyframe_loss(true);
             return guard;
         }
-        let address = session.launch.peer.to_canonical();
+        let scope = Scope {
+            address: session.launch.peer.to_canonical(),
+            interface,
+            client_link_mbps: session.config.pyrowave_client_link_mbps,
+        };
+        let address = scope.address;
         let mut routes = read(&state, now());
         let mut remembered = false;
         let mut probe_revision = None;
-        if let Some(route) = routes.iter_mut().find(|r| r.matches(&client.uuid, address)) {
+        if let Some(route) = routes.iter_mut().find(|r| r.matches(&client.uuid, &scope)) {
             route.remembered_sessions = route.remembered_sessions.saturating_add(1);
             if route.remembered_sessions >= PROBE_EVERY {
                 probe_revision = Some(route.revision.clone());
@@ -161,12 +221,12 @@ impl Host {
             }
         }
         if probe_revision.is_some() {
-            tracing::info!(client = %client.name, %address, "testing the fast video pacing rate after four remembered sessions");
+            tracing::info!(client = %client.name, %address, interface, "testing the fast video pacing rate after a remembered session");
         }
         session.configure_remembered_keyframe_loss(true, remembered);
         guard.token = Some(Token {
             client: client.clone(),
-            address,
+            scope,
             epoch: *epochs.get(&client.uuid).unwrap_or(&0),
             probe_revision,
         });
@@ -198,7 +258,7 @@ impl Host {
         if let Some(observed_at) = observed_at.filter(|at| *at <= now && now - at < RETENTION) {
             if let Some(route) = routes
                 .iter_mut()
-                .find(|r| r.matches(&token.client.uuid, token.address))
+                .find(|r| r.matches(&token.client.uuid, &token.scope))
             {
                 if observed_at >= route.observed_at {
                     route.observed_at = observed_at;
@@ -208,17 +268,20 @@ impl Host {
             } else {
                 routes.push(Route {
                     client_id: token.client.uuid,
-                    address: token.address,
+                    address: token.scope.address,
                     observed_at,
                     revision: uuid::Uuid::new_v4().to_string(),
                     remembered_sessions: 0,
+                    kind: SUSTAINED.into(),
+                    interface: token.scope.interface,
+                    client_link_mbps: token.scope.client_link_mbps,
                 });
             }
             routes.sort_by_key(|r| std::cmp::Reverse(r.observed_at));
             routes.truncate(MAX_ROUTES);
         } else if healthy_probe {
             routes.retain(|r| {
-                !r.matches(&token.client.uuid, token.address)
+                !r.matches(&token.client.uuid, &token.scope)
                     || Some(&r.revision) != token.probe_revision.as_ref()
             });
         } else {
@@ -305,20 +368,31 @@ mod tests {
             },
         )
     }
+    /// Sustained loss: three distinct frames the client could not repair.
     fn loss(s: &Session) {
-        s.keyframe_loss_bps(800_000_000, 60_000_000, 1, true);
-        s.keyframe_loss.lock().unwrap().unrecoverable(
-            1,
-            1,
-            Duration::from_millis(16),
-            Instant::now(),
-        );
+        for frame in 10..=12 {
+            s.keyframe_loss.lock().unwrap().unrecoverable(
+                frame,
+                frame,
+                Duration::from_millis(16),
+                Instant::now(),
+            );
+        }
+    }
+    /// What a rough start looks like: the stream's first keyframe is lost.
+    fn rough_start(s: &Session) {
+        let mut loss = s.keyframe_loss.lock().unwrap();
+        // The first keyframe went out a second ago, so the client's reports
+        // count: it is lost.
+        loss.sending_at(1, true, Instant::now() - Duration::from_secs(1));
+        loss.unrecoverable(1, 1, Duration::from_millis(16), Instant::now());
     }
     fn seed(f: &Fixture, client: &Client) {
         let s = session(f, client, "192.0.2.1", 0);
         let guard = f.host.configure_keyframe_loss(&s, true);
         assert!(!s.keyframe_loss_active());
         loss(&s);
+        assert!(s.keyframe_loss_active());
         drop(guard);
     }
 
@@ -344,10 +418,152 @@ mod tests {
         assert_eq!(saved[0].observed_at, initial[0].observed_at);
         assert_eq!(saved[0].revision, initial[0].revision);
         assert_eq!(saved[0].remembered_sessions, 1);
+        // The count survives a restart: the next session is the probe.
         let reopened = Host::load(f.host.directory.clone(), f.host.assets.clone(), None).unwrap();
-        let guard = reopened.configure_keyframe_loss(&s, true);
+        let next = session(&f, &c, "192.0.2.1", 0);
+        let guard = reopened.configure_keyframe_loss(&next, true);
+        assert!(!next.keyframe_loss_active());
+        assert!(guard.token.as_ref().unwrap().probe_revision.is_some());
+        drop(guard);
+    }
+
+    #[test]
+    fn a_rough_start_is_not_remembered_but_sustained_loss_is() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        // The first keyframe lost, nothing since: provisional, forgotten at
+        // the end of the stream, and the next session starts at the route rate.
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        rough_start(&s);
+        assert!(s.keyframe_loss_active());
+        assert!(s.keyframe_loss_observed_at().is_some());
+        assert!(s.keyframe_loss_sustained_at().is_none());
+        drop(guard);
+        assert!(f.host.keyframe_loss_routes().is_empty());
+        let next = session(&f, &c, "192.0.2.1", 0);
+        drop(f.host.configure_keyframe_loss(&next, true));
+        assert!(!next.keyframe_loss_active());
+        // The same stream losing frames after that is sustained: remembered.
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        rough_start(&s);
+        loss(&s);
+        assert!(s.keyframe_loss_sustained_at().is_some());
+        drop(guard);
+        assert_eq!(
+            f.host.keyframe_loss_routes()[&c.uuid]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let next = session(&f, &c, "192.0.2.1", 0);
+        drop(f.host.configure_keyframe_loss(&next, true));
+        assert!(next.keyframe_loss_active());
+    }
+
+    #[test]
+    fn a_probe_that_had_a_rough_start_does_not_forget_the_history() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        for rough in [true, false] {
+            seed(&f, &c);
+            for _ in 1..PROBE_EVERY {
+                drop(
+                    f.host
+                        .configure_keyframe_loss(&session(&f, &c, "192.0.2.1", 0), true),
+                );
+            }
+            let s = session(&f, &c, "192.0.2.1", 0);
+            let mut guard = f.host.configure_keyframe_loss(&s, true);
+            assert!(guard.token.as_ref().unwrap().probe_revision.is_some());
+            // Long and busy enough to count as a probe.
+            guard.started = Instant::now() - Duration::from_secs(10);
+            s.stats
+                .frames
+                .store(600, std::sync::atomic::Ordering::Relaxed);
+            if rough {
+                rough_start(&s);
+            }
+            drop(guard);
+            assert_eq!(f.host.keyframe_loss_routes().is_empty(), !rough);
+            f.host.reset_keyframe_loss(&c.uuid).unwrap();
+        }
+    }
+
+    #[test]
+    fn records_without_a_kind_are_ignored_and_pruned() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        // What every release before this one wrote: no kind, no interface.
+        let old = json!([{
+            "client_id": c.uuid, "address": "192.0.2.1", "observed_at": now(),
+            "revision": "old", "remembered_sessions": 0
+        }]);
+        f.host.paired.write().unwrap().document["root"][FIELD] = old;
+        assert!(f.host.keyframe_loss_routes().is_empty());
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        assert!(!s.keyframe_loss_active());
+        // Fresh sustained loss replaces it on disk.
+        loss(&s);
+        drop(guard);
+        let saved = PairedState::load(&f.host.paired_path).unwrap();
+        let routes = saved.document["root"][FIELD].as_array().unwrap();
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0]["kind"], "sustained");
+        assert_ne!(routes[0]["revision"], "old");
+    }
+
+    #[test]
+    fn another_host_interface_or_client_link_starts_fresh() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        let on = |interface: u64, hint: u32| {
+            let s = Session::new(
+                {
+                    let mut launch = f.launch(c.clone(), butterpollo_core::session::Role::Stream);
+                    launch.peer = "192.0.2.1".parse().unwrap();
+                    launch
+                },
+                Negotiated {
+                    pyrowave_client_link_mbps: hint,
+                    ..Default::default()
+                },
+            );
+            let guard = f.host.configure_keyframe_loss_on(&s, true, interface);
+            (s, guard)
+        };
+        let (s, guard) = on(7, 1000);
+        assert!(!s.keyframe_loss_active());
+        loss(&s);
+        drop(guard);
+        // The same interface and link: remembered.
+        let (s, guard) = on(7, 1000);
         assert!(s.keyframe_loss_active());
         drop(guard);
+        // A host that switched NIC or Wi-Fi, a client that moved to another
+        // port or stopped sending a hint: no history, and it keeps its own.
+        for (interface, hint) in [(8, 1000), (7, 100), (7, 0), (0, 1000)] {
+            let (s, guard) = on(interface, hint);
+            assert!(!s.keyframe_loss_active(), "{interface} {hint}");
+            drop(guard);
+        }
+        let (s, guard) = on(8, 1000);
+        loss(&s);
+        drop(guard);
+        // Both are kept, each for its own path.
+        let saved = read(&f.host.paired.read().unwrap(), now());
+        assert_eq!(saved.len(), 2);
+        for (interface, hint) in [(7, 1000), (8, 1000)] {
+            assert!(
+                saved
+                    .iter()
+                    .any(|r| r.interface == interface && r.client_link_mbps == hint)
+            );
+        }
     }
 
     #[test]
@@ -397,11 +613,11 @@ mod tests {
     }
 
     #[test]
-    fn fifth_eligible_session_probes_and_a_successful_probe_forgets_its_route() {
+    fn the_session_after_one_remembered_one_probes_and_a_successful_probe_forgets_its_route() {
         let f = Fixture::new();
         let c = f.client(0x071f1f00);
         seed(&f, &c);
-        for _ in 0..4 {
+        for _ in 1..PROBE_EVERY {
             let s = session(&f, &c, "192.0.2.1", 0);
             let guard = f.host.configure_keyframe_loss(&s, true);
             assert!(s.keyframe_loss_active());
@@ -423,7 +639,9 @@ mod tests {
         let f = Fixture::new();
         let c = f.client(0x071f1f00);
         seed(&f, &c);
-        for _ in 0..5 {
+        // One remembered session, then a probe too short to count: the
+        // history stays and the cycle starts again.
+        for _ in 0..PROBE_EVERY {
             let s = session(&f, &c, "192.0.2.1", 0);
             drop(f.host.configure_keyframe_loss(&s, true));
         }
@@ -523,7 +741,7 @@ mod tests {
         drop(guard);
         assert!(f.host.keyframe_loss_routes().is_empty());
         seed(&f, &c);
-        for _ in 0..4 {
+        for _ in 1..PROBE_EVERY {
             drop(
                 f.host
                     .configure_keyframe_loss(&session(&f, &c, "192.0.2.1", 0), true),

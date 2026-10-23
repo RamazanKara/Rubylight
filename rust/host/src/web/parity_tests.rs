@@ -381,13 +381,16 @@ async fn network_history_is_visible_and_only_authenticated_reset_clears_it() {
     let client = f.client(0x071f1f00);
     let session = f.session(client.clone(), Role::Stream);
     let guard = f.host.configure_keyframe_loss(&session, true);
-    session.keyframe_loss_bps(800_000_000, 60_000_000, 1, true);
-    session.keyframe_loss.lock().unwrap().unrecoverable(
-        1,
-        1,
-        Duration::from_millis(16),
-        Instant::now(),
-    );
+    // Three lost frames, not just a rough start: only that is remembered.
+    for frame in 1..=3 {
+        session.keyframe_loss.lock().unwrap().unrecoverable(
+            frame,
+            frame,
+            Duration::from_millis(16),
+            Instant::now(),
+        );
+    }
+    assert!(session.keyframe_loss_sustained_at().is_some());
     drop(guard);
     let listed = value(
         request(&f, "GET", "/api/clients/list", Value::Null).await,
@@ -396,7 +399,7 @@ async fn network_history_is_visible_and_only_authenticated_reset_clears_it() {
     .await;
     let routes = &listed["clients"][0]["network_loss_routes"];
     assert_eq!(routes[0]["address"], "127.0.0.1");
-    assert_eq!(routes[0]["sessions_until_probe"], 5);
+    assert_eq!(routes[0]["sessions_until_probe"], 2);
     assert!(routes[0]["expires_in_seconds"].as_u64().unwrap() <= 86400);
     let rejected = router(f.host.clone())
         .layer(Extension(f.connection(true)))

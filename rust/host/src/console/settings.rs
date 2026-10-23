@@ -106,7 +106,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "video_max_batch_size_kb", "Video send batch limit (KiB)", Number;
         "pacing_max_bitrate_kbps", "Network pacing limit (kbps; 0 uses the route policy: up to 800 Mbps wired, twice the bitrate with FEC headroom on Wi-Fi; positive values set a fixed limit)", Number;
         "host_adaptive_pacing", "Adaptive packet pacing (experimental; off by default, including PyroWave; slower startup and loss-sensitive probes without changing picture bitrate or FPS; disabled by a manual pacing limit or host bitrate adaptation; reconnect after saving)", Bool;
-        "keyframe_loss_pacing", "Slow down after video loss (on by default; after a lost keyframe or three distinct unrecoverable frames within two seconds, video is paced at twice the bitrate for the rest of the stream, with room for error correction; disabled by a manual pacing limit or the adaptive options)", Bool;
+        "keyframe_loss_pacing", "Slow down after video loss (on by default; after a lost keyframe or three distinct unrecoverable frames within two seconds, video is paced at twice the bitrate, with room for error correction, for the rest of the stream (a lost first keyframe alone is lifted after 10 clean seconds); disabled by a manual pacing limit or the adaptive options)", Bool;
         "link_rate_adaptation", "Lower the bitrate when the link cannot carry it (on by default; cuts the picture bitrate on loss that error correction cannot repair, then probes back up; off while Host adaptive bitrate is on or the client sets the bitrate)", Bool;
     ]
     "AMD encoding" => [

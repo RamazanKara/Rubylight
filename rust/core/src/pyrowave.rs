@@ -417,15 +417,17 @@ pub fn row_steps(width: u32, height: u32, chroma444: bool) -> Vec<u16> {
 }
 /// `row_steps` for the frame's own geometry, kept from the frame before: a stream's pictures all
 /// have one size, so the table is built once.
+type RowStepsEntry = (u32, bool, Arc<Vec<u16>>);
 fn cached_row_steps(bitstream: &[u8]) -> Arc<Vec<u16>> {
-    static LAST: Mutex<Option<(u32, bool, Arc<Vec<u16>>)>> = Mutex::new(None);
+    static LAST: Mutex<Option<RowStepsEntry>> = Mutex::new(None);
     let header = word(bitstream, 0);
     let chroma444 = (word(bitstream, 4) >> 26) & 1 != 0;
     let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((h, c, steps)) = last.as_ref() {
-        if *h == header && *c == chroma444 {
-            return steps.clone();
-        }
+    if let Some((h, c, steps)) = last.as_ref()
+        && *h == header
+        && *c == chroma444
+    {
+        return steps.clone();
     }
     let steps = Arc::new(row_steps(
         (header & 0x3fff) + 1,

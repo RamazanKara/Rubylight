@@ -157,4 +157,25 @@ public class ContrastTest {
         assertTrue(theme.getTheme().resolveAttribute(attr, value, true));
         return value.getDimension(theme.getResources().getDisplayMetrics()) / theme.getResources().getDisplayMetrics().density;
     }
+
+    private static com.google.android.material.button.MaterialButton tonalButton(Context theme) {
+        return new com.google.android.material.button.MaterialButton(theme, null, R.attr.nightjarButtonTonalStyle);
+    }
+
+    private static int restStroke(com.google.android.material.button.MaterialButton button) {
+        return button.getStrokeColor().getColorForState(new int[0], 0);
+    }
+
+    @Test
+    @Config(qualifiers = "night")
+    public void aTonalButtonHasAnOutlineAtRestOnlyInHighContrast() {
+        Context normal = new ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.OledBlackTheme);
+        assertEquals("no outline at rest normally", 0, android.graphics.Color.alpha(restStroke(tonalButton(normal))));
+
+        Context high = highContrast(R.style.OledBlackTheme, false);
+        com.google.android.material.button.MaterialButton button = tonalButton(high);
+        assertContrast("tonal button outline at rest", BODY, restStroke(button), 0xFF000000);
+        assertEquals("focused: the amber ring", color(high, androidx.appcompat.R.attr.colorPrimary),
+                button.getStrokeColor().getColorForState(new int[] {android.R.attr.state_focused}, 0));
+    }
 }

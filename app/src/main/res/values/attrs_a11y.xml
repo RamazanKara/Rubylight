@@ -8,6 +8,8 @@
     <attr name="nightjarFocusRingWidth" format="dimension" />
     <!-- Stroke of the focus ring on cards and grid items. -->
     <attr name="nightjarCardFocusRingWidth" format="dimension" />
+    <!-- Colour of a tonal button's outline at rest: none normally, the on-surface colour in high contrast. -->
+    <attr name="nightjarButtonRestStroke" format="color|reference" />
     <!-- Stroke of an unfocused card. -->
     <attr name="nightjarCardStrokeWidth" format="dimension" />
     <!-- Focus animators (res/animator): full, still, thick and thick-still versions. -->

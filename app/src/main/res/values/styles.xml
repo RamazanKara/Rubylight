@@ -96,6 +96,7 @@
         <item name="nightjarFocusRingWidth">2dp</item>
         <item name="nightjarCardFocusRingWidth">3dp</item>
         <item name="nightjarCardStrokeWidth">1dp</item>
+        <item name="nightjarButtonRestStroke">@android:color/transparent</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
@@ -198,6 +199,7 @@
         <item name="nightjarFocusRingWidth">2dp</item>
         <item name="nightjarCardFocusRingWidth">3dp</item>
         <item name="nightjarCardStrokeWidth">1dp</item>
+        <item name="nightjarButtonRestStroke">@android:color/transparent</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
@@ -243,6 +245,7 @@
         <item name="nightjarFocusRingWidth">4dp</item>
         <item name="nightjarCardFocusRingWidth">4dp</item>
         <item name="nightjarCardStrokeWidth">2dp</item>
+        <item name="nightjarButtonRestStroke">?attr/colorOnSurface</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_hc</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_hc</item>
     </style>
@@ -307,7 +310,7 @@
     <style name="Widget.Nightjar.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
         <item name="android:minHeight">@dimen/touch_target</item>
         <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
-        <item name="strokeColor">@color/button_focus_ring</item>
+        <item name="strokeColor">@color/button_tonal_stroke</item>
     </style>
 
     <style name="Widget.Nightjar.Button.Text" parent="Widget.Material3.Button.TextButton">

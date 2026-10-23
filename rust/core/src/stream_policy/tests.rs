@@ -474,6 +474,53 @@ fn a_startup_credit_deficit_does_not_delay_a_steady_source_for_long() {
     assert_eq!(delayed_late, 0);
 }
 #[test]
+fn a_prediction_floor_leaves_a_1000_hz_source_unchanged_and_waits_for_a_slower_one() {
+    // VRR: 16 ms stream period, claims half a period apart. After a claim at
+    // 0, a frame arrives at 3 ms; the next claim is allowed at 8 ms.
+    let start = Instant::now();
+    let period = Duration::from_millis(16);
+    let floor = Duration::from_millis(2);
+    let vrr = || {
+        let mut pacer = Pacer::new(start, period)
+            .with_spacing(0.5)
+            .with_prediction_floor(floor);
+        pacer.claimed(start);
+        pacer
+    };
+    let arrived = start + Duration::from_millis(3);
+    let wait =
+        |pacer: &mut Pacer, interval: Duration| pacer.decide(arrived, arrived, Some(interval));
+    // A 240 Hz game (4.17 ms) and a source of exactly the floor are expected
+    // before the slot is over: wait for them, with the detection window.
+    assert_eq!(
+        wait(&mut vrr(), Duration::from_millis(4)),
+        Pace::WaitUntil(start + Duration::from_millis(11))
+    );
+    assert_eq!(
+        wait(&mut vrr(), floor),
+        Pace::WaitUntil(start + Duration::from_millis(9))
+    );
+    // A 1000 Hz source is below the floor: the claim waits only for its slot,
+    // exactly as with prediction off, however the floor is set.
+    let one_khz = Duration::from_micros(1500);
+    assert_eq!(
+        wait(&mut vrr(), one_khz),
+        Pace::WaitUntil(start + Duration::from_millis(8))
+    );
+    let mut off = Pacer::new(start, period)
+        .with_spacing(0.5)
+        .with_prediction(false);
+    off.claimed(start);
+    assert_eq!(wait(&mut off, one_khz), wait(&mut vrr(), one_khz));
+    // Without the floor the same source would have held the claim.
+    let mut unfloored = Pacer::new(start, period).with_spacing(0.5);
+    unfloored.claimed(start);
+    assert_eq!(
+        wait(&mut unfloored, one_khz),
+        Pace::WaitUntil(start + Duration::from_micros(8500))
+    );
+}
+#[test]
 fn prediction_override_keeps_the_earliest_slot_and_does_not_bypass_rate_limits() {
     let start = Instant::now();
     let period = Duration::from_millis(8);

@@ -251,6 +251,8 @@ pub struct Pacer {
     credit_at: Instant,
     last_claim: Option<Instant>,
     prediction: bool,
+    /// The shortest source interval a prediction waits for.
+    prediction_floor: Duration,
     source_phase: Option<SourcePhase>,
     /// The least time between two claims, in periods.
     spacing: f64,
@@ -272,6 +274,7 @@ impl Pacer {
             credit_at: now,
             last_claim: None,
             prediction: true,
+            prediction_floor: Duration::ZERO,
             source_phase: None,
             spacing: 0.75,
             faster: false,
@@ -299,6 +302,15 @@ impl Pacer {
     /// Prediction remains enabled unless explicitly disabled.
     pub fn with_prediction(mut self, prediction: bool) -> Self {
         self.prediction = prediction;
+        self
+    }
+    /// Predictive waits only for a source whose frames are at least this far
+    /// apart. VRR runs the virtual display at 1000 Hz, whose frame interval is
+    /// the display's own refresh, not content: a wait for the next one would
+    /// hold every claim up to a quarter period for nothing. A game or desktop
+    /// on that display (120 or 240 Hz) shows its own, longer interval.
+    pub fn with_prediction_floor(mut self, floor: Duration) -> Self {
+        self.prediction_floor = floor;
         self
     }
     /// Learn the dominant phase from observed capture
@@ -478,7 +490,9 @@ impl Pacer {
         }
         // A long pause is a static desktop, not the source cadence.
         if self.prediction
-            && let Some(interval) = source_interval.filter(|interval| *interval <= self.period * 4)
+            && let Some(interval) = source_interval.filter(|interval| {
+                *interval >= self.prediction_floor && *interval <= self.period * 4
+            })
         {
             let next = presented + interval;
             let slack = self.period / 4 + Duration::from_micros(500);

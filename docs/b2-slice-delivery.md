@@ -212,3 +212,14 @@ Stop and revert to `off`-only (remove the code) if any of these hold after 2f:
   frame spans several encoder polls; it checks that no other frame was packetized in between. The streamed block layout
   is reported per block through `StreamedBlock` rather than by a `block_layout` function. `BUTTERPOLLO_TEST_SEND_LOSS` is
   parsed by `stream_policy::SendDrop` (`percent` may be fractional); the host applies it in 2c.
+- 2b: `Unit` is `Whole | Slice { index } | Last { index }` on `Encoded`. Frames AMF cannot or may not stream (keyframes,
+  frames after an invalidation, frames with no byte cap, every frame once the host calls `join_slices`) are joined inside
+  `amf/units.rs` and returned whole at their last unit. The frame stays in `in_flight` until its last unit. The slice
+  count asked of AMF is `max(blocks, client slices)`; the host passes the same number to `StreamedFrame`.
+- 2c: units are routed by `stream/slices.rs` (`Route`). The first unit of a frame decides: stream it when this path
+  streams and `streamable(blocks, cap)` holds, otherwise the host joins the units itself (also when the sender has its own
+  thread, which is 2d's job). A new frame starting while a streamed one is open means its last unit never came: warning,
+  recovery frame, units dropped. Overflow sets a flag the main loop turns into `Encoder::join_slices()`, so later frames
+  come back whole from AMF. The hand-off to the threaded sender is not taken while a streamed frame is open.
+  `BUTTERPOLLO_TEST_SEND_LOSS` is applied to the inline path (`slices::send_lossy`), whole frames and streamed alike; the
+  threaded path (`transport.rs`) takes it in 2d.

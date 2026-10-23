@@ -7,6 +7,7 @@ mod device_recovery;
 mod encoder_tests;
 mod game_audio;
 mod qos;
+mod slices;
 use qos::Tagged;
 #[cfg(test)]
 pub(crate) mod reconnect_tests;
@@ -1565,6 +1566,15 @@ impl Media {
                     // a lost keyframe: later frames move to the sender thread.
                     let mut inline_paced = false;
                     let mut send_loss = butterpollo_core::stream_policy::SendLossRecovery::default();
+                    // `video_slice_delivery`: AMF returns a P-frame in slices and
+                    // this path sends them in FEC blocks as they arrive. Off for
+                    // the rest of the session after a frame passes its byte cap,
+                    // or when the sender has its own thread.
+                    let slice_blocks = usize::from(butterpollo_core::encoder_policy::slice_delivery(&c, s.config.codec));
+                    let slices_off = std::cell::Cell::new(false);
+                    let mut slice_route = slices::Route::default();
+                    let mut streaming: Option<slices::Streaming> = None;
+                    let mut send_drop = butterpollo_core::stream_policy::SendDrop::from_env();
                     let batch_kb = match c.integer("video_max_batch_size_kb", 64) {
                         16 => 16,
                         32 => 32,
@@ -1585,7 +1595,8 @@ impl Media {
                         // A large picture or feedback can make even a fast
                         // route block capture. Hand off before that frame sends.
                         let loss_paced = send_thread && video_sender.get().is_none() && s.keyframe_loss_active();
-                        if send_thread && video_sender.get().is_none() && (!sender_decided || !output.is_empty() || inline_paced || loss_paced) {
+                        // A streamed frame stays on this path until its last unit.
+                        if send_thread && video_sender.get().is_none() && streaming.is_none() && !slice_route.streaming() && (!sender_decided || !output.is_empty() || inline_paced || loss_paced) {
                             let mid_stream = sender_decided;
                             sender_decided = true;
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
@@ -1614,10 +1625,207 @@ impl Media {
                                 tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, large_frame, mid_stream, wire_frame = packetizer.frame, "video frames are sent on their own thread for current or adaptive pacing");
                             }
                         }
+                        // Units of a sliced frame: stream them here, or join them
+                        // into the whole frame the other paths send.
+                        let output = if output.iter().any(|frame| frame.unit != butterpollo_windows::encoder::Unit::Whole) || slice_route.streaming() {
+                            let threaded = video_sender.get().is_some();
+                            if threaded {
+                                slices_off.set(true);
+                            }
+                            packetizer.fec_percent = s.frame_fec_percent(false);
+                            let mut routed = Vec::with_capacity(output.len());
+                            for frame in output {
+                                let result = slice_route.route(frame, |first| {
+                                    !threaded && !slices_off.get() && first.frame_cap_bytes.is_some_and(|cap| packetizer.streamable(slice_blocks, cap as usize))
+                                });
+                                if result.interrupted {
+                                    streaming = None;
+                                    s.launch.warnings.event("network_frame", "A streamed video frame lost its last slice; requesting a recovery frame.", butterpollo_core::session::EVENT_PERIOD);
+                                    s.request_host_keyframe();
+                                    next_wire_frame.set(u64::from(packetizer.frame));
+                                }
+                                routed.extend(result.frame);
+                            }
+                            routed
+                        } else {
+                            output
+                        };
                         if let Some(sender) = video_sender.get() { return sender.submit_tick(output, peer, call_latency, &mut claims.borrow_mut(), processing_started); }
                         let polled = Instant::now();
                         let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
                         'frames: for frame in output {
+                            if frame.unit != butterpollo_windows::encoder::Unit::Whole {
+                                // One unit of a P-frame sent block by block.
+                                let last = matches!(frame.unit, butterpollo_windows::encoder::Unit::Last { .. });
+                                if matches!(frame.unit, butterpollo_windows::encoder::Unit::Slice { index: 0 } | butterpollo_windows::encoder::Unit::Last { index: 0 }) {
+                                    let started = Instant::now();
+                                    let encode = frame.latency.unwrap_or(call_latency);
+                                    let claimed = polled.checked_sub(encode).unwrap_or(polled);
+                                    let captured = frame.presentation.unwrap_or(claimed);
+                                    let age = micros(claimed.saturating_duration_since(captured));
+                                    let claim = claims.borrow_mut().take(frame.presentation);
+                                    let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &prepared.output())).max(last_stamp + Duration::from_nanos(11_112));
+                                    last_stamp = stamp;
+                                    let timestamp = (stamp.saturating_duration_since(start).as_secs_f64() * 90000.) as u64 as u32;
+                                    packetizer.fec_percent = s.frame_fec_percent(false);
+                                    let wire_frame = packetizer.frame;
+                                    let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+                                    let bitrate = s.bitrate.load(Ordering::Relaxed);
+                                    let crate::video_send::recovery::Pace { bps, needed } =
+                                        crate::video_send::recovery::pace(&s, &c, &packetizer, stream_period.get(), peer, route);
+                                    let safe = butterpollo_core::network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
+                                    let bps = s.keyframe_loss_bps(bps, safe, wire_frame, false);
+                                    inline_paced |= butterpollo_core::network_pacing::paced(bps, needed);
+                                    let packetize_started = Instant::now();
+                                    let processing = micros(packetize_started.saturating_duration_since(processing_started));
+                                    let cap = frame.frame_cap_bytes.unwrap_or(0) as usize;
+                                    streaming = match packetizer.streamed(timestamp, processing, slice_blocks, slice_blocks.max(s.config.slices as usize), cap) {
+                                        Ok(streamed) => Some(slices::Streaming {
+                                            frame: streamed, wire_frame, timestamp, claim, claimed, age, started, packetize_started, processing, bps,
+                                            sent: slices::Sent::new(batch.dropped), failed: false,
+                                        }),
+                                        Err(error) => {
+                                            slices_off.set(true);
+                                            s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame."), butterpollo_core::session::EVENT_PERIOD);
+                                            s.request_host_keyframe();
+                                            next_wire_frame.set(u64::from(packetizer.frame));
+                                            None
+                                        }
+                                    };
+                                }
+                                let Some(st) = streaming.as_mut() else { continue 'frames };
+                                if !st.failed && !st.sent.abandoned {
+                                    let mut stopped = false;
+                                    let mut fatal = None;
+                                    let slices::Streaming { frame: streamed, sent, bps, wire_frame, .. } = st;
+                                    let (bps, wire_frame) = (*bps, *wire_frame);
+                                    let pushed = streamed.push(&mut packetizer, &frame.bytes, last, &mut packets, |shards, block| {
+                                        sent.lost.push_block(block.data, block.parity);
+                                        if block.index == 0 {
+                                            next_wire_frame.set(u64::from(wire_frame.wrapping_add(1)));
+                                            s.stats.video_frame.store(u64::from(wire_frame) + 1, Ordering::Release);
+                                        }
+                                        let mut remaining = &shards[..];
+                                        while !remaining.is_empty() {
+                                            if s.stopping() || h.stop.load(Ordering::Acquire) {
+                                                stopped = true;
+                                                return Ok(());
+                                            }
+                                            let now = Instant::now();
+                                            if network_pacer.due() > now {
+                                                timer.until_paced(network_pacer.due());
+                                            }
+                                            let budget = butterpollo_core::network_pacing::batch_payload_limit(
+                                                bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024,
+                                            );
+                                            let count = butterpollo_windows::net::Batch::count(remaining, budget);
+                                            let refused = batch.dropped;
+                                            let result = match send_outage.filter(|outage| outage.active(start, Instant::now())) {
+                                                Some(outage) if outage.in_air() => Ok(remaining[..count].iter().map(Vec::len).sum()),
+                                                Some(_) => {
+                                                    batch.refuse(count);
+                                                    Ok(0)
+                                                }
+                                                None => match send_drop.as_mut() {
+                                                    Some(drop) => slices::send_lossy(&mut batch, &m.video, &remaining[..count], peer, drop),
+                                                    None => batch.send(&m.video, &remaining[..count], peer),
+                                                },
+                                            };
+                                            let bytes = match result {
+                                                Ok(bytes) => bytes,
+                                                Err(error) => {
+                                                    fatal = Some(error);
+                                                    return Ok(());
+                                                }
+                                            };
+                                            sent.first_sent.get_or_insert(Instant::now());
+                                            remaining = &remaining[count..];
+                                            sent.packets += count;
+                                            network_pacer.sent(Instant::now(), bytes, if bytes > 0 { count } else { 0 }, peer.ip().to_canonical().is_ipv6(), bps);
+                                            s.stats.packets.fetch_add(count as u64, Ordering::Relaxed);
+                                            s.stats.bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+                                            // As for a whole frame: once the socket refused more
+                                            // than FEC repairs, stop spending the link on it.
+                                            if sent.lost.sent(count, (batch.dropped - refused) as usize) {
+                                                if send_loss.lost(Instant::now(), stream_period.get(), sent.lost.reached_socket()) {
+                                                    s.request_send_loss_recovery();
+                                                }
+                                                sent.abandoned = true;
+                                                break;
+                                            }
+                                        }
+                                        Ok(())
+                                    });
+                                    if stopped {
+                                        return Ok(());
+                                    }
+                                    if let Some(error) = fatal {
+                                        return Err(error);
+                                    }
+                                    if let Err(error) = pushed {
+                                        st.failed = true;
+                                        if let Some(overflow) = error.downcast_ref::<butterpollo_core::packet::SliceOverflow>() {
+                                            slices_off.set(true);
+                                            s.stats.slice_delivery_overflows.fetch_add(1, Ordering::Relaxed);
+                                            tracing::warn!(frame = st.wire_frame, cap_bytes = overflow.cap, frame_bytes = overflow.bytes, "a streamed video frame passed the byte cap its blocks were planned for; slice delivery is off for this stream");
+                                            s.launch.warnings.event("slice_delivery_overflow", format!("A video frame reached {} bytes, past the {} byte cap its blocks were planned for. Slice delivery is off for the rest of this stream and a recovery frame follows. Report this with the host log.", overflow.bytes, overflow.cap), butterpollo_core::session::EVENT_PERIOD);
+                                        } else {
+                                            s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
+                                        }
+                                        s.request_host_keyframe();
+                                        next_wire_frame.set(u64::from(packetizer.frame));
+                                    }
+                                }
+                                if !last {
+                                    continue 'frames;
+                                }
+                                let Some(st) = streaming.take() else { continue 'frames };
+                                if st.failed {
+                                    continue 'frames;
+                                }
+                                // The last unit is out: account for the frame as for a whole one.
+                                let slices::Streaming { frame: streamed, wire_frame, timestamp, claim, claimed, age, started, packetize_started, processing, bps, sent, .. } = st;
+                                let unrecoverable = sent.lost.unrecoverable();
+                                if unrecoverable {
+                                    s.keyframe_abandoned(wire_frame);
+                                    tracing::debug!(frame = wire_frame, finished = streamed.is_done(), "video frame lost on send; the rest of it was not sent");
+                                } else {
+                                    send_loss.delivered(false);
+                                }
+                                if batch.dropped != sent.dropped_at_start {
+                                    s.launch.warnings.event("network_send", "Video packets were dropped by the host after transient socket send failures. You may see stutter or recovery frames; lower bitrate and check the network adapter. The log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
+                                }
+                                if streamed.fec_limited() && fec_reported.is_none_or(|at: Instant| at.elapsed() >= Duration::from_secs(1)) {
+                                    fec_reported = Some(Instant::now());
+                                    s.launch.warnings.event("network_fec", "FEC was reduced or omitted for large video frames because they exceed Moonlight's four-block limit. Packet loss in those frames is harder to recover; lower bitrate or resolution to keep full FEC protection.", butterpollo_core::session::EVENT_PERIOD);
+                                }
+                                let latency = micros(frame.latency.unwrap_or(call_latency));
+                                s.stats.latency_us.store(latency, Ordering::Relaxed);
+                                s.stats.frames.fetch_add(1, Ordering::Relaxed);
+                                let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
+                                let frame_bytes = (sent.packets * packet_bytes) as u64;
+                                let finished = Instant::now();
+                                crate::video_send::recovery::report(&s, &c, crate::video_send::recovery::RecoveryFrame {
+                                    frame: wire_frame, idr: false, after_invalidation: false,
+                                    payload_bytes: streamed.payload_len(), cap_bytes: frame.frame_cap_bytes,
+                                    wire_bytes: frame_bytes.saturating_add((sent.packets * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64),
+                                    pace_bps: bps, elapsed: finished.saturating_duration_since(started), lost: unrecoverable,
+                                });
+                                {
+                                    let mut performance = s.stats.performance.lock().unwrap();
+                                    performance.record_timing(finished,butterpollo_core::performance::Timing{period:stream_period.get(),encode:latency,host:processing,age,sent:micros(finished.saturating_duration_since(claimed))},frame_bytes);
+                                    if let Some(claim) = claim.filter(|_| !unrecoverable) {
+                                        let stamps = claim.sent(polled, packetize_started, sent.first_sent.unwrap_or(finished), finished);
+                                        performance.record_stages(&stamps, processing);
+                                        s.record_sent(wire_frame, timestamp, &stamps, start);
+                                    }
+                                }
+                                if Instant::now() >= link_due {
+                                    link = Some(butterpollo_windows::net::routed_link(peer));
+                                    link_due = Instant::now() + Duration::from_secs(2);
+                                }
+                                continue 'frames;
+                            }
                             let frame_started = Instant::now();
                             let encode = frame.latency.unwrap_or(call_latency);
                             let latency = micros(encode);
@@ -1738,7 +1946,10 @@ impl Media {
                                             batch.refuse(count);
                                             0
                                         }
-                                        None => batch.send(&m.video, &remaining[..count], peer)?,
+                                        None => match send_drop.as_mut() {
+                                            Some(drop) => slices::send_lossy(&mut batch, &m.video, &remaining[..count], peer, drop)?,
+                                            None => batch.send(&m.video, &remaining[..count], peer)?,
+                                        },
                                     };
                                     let finished = Instant::now();
                                     first_sent.get_or_insert(finished);
@@ -2251,6 +2462,10 @@ impl Media {
                             let active = encoder
                                 .as_mut()
                                 .expect("a missing encoder is rebuilt above");
+                            // Frames of a stream that left slice delivery return whole.
+                            if slice_blocks > 0 && (slices_off.get() || video_sender.get().is_some()) {
+                                active.join_slices();
+                            }
                             if rebuilt {
                                 active.set_next_frame(match video_sender.get() {
                                     Some(sender) => sender.next_wire_frame()?,

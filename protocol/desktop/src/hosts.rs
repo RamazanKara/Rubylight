@@ -291,6 +291,14 @@ fn pair_outcome(result: PairResult, one_time: bool) -> Result<String, String> {
     }
 }
 
+/// An unpair answer that leaves this device unpaired: done, or the PC never knew it.
+pub fn now_unpaired(result: &Result<(), String>) -> bool {
+    match result {
+        Ok(()) => true,
+        Err(e) => e == UNPAIR_NOT_PAIRED,
+    }
+}
+
 fn unpair_error(error: &nightjar_core::http::Error) -> String {
     use nightjar_core::http::Error;
     match error {
@@ -589,26 +597,34 @@ impl Hosts {
         self.spawn("wake", move || Some(Event::Wake { id, result: crate::wol::wake(&record) }));
     }
 
-    pub fn unpair(&mut self, id: u64) {
-        let identity = self.identity.clone();
-        let Some(host) = self.get_mut(id) else {
-            return;
+    /// Asks the PC to forget this device. The local certificate stays until the PC has
+    /// answered (see `drain`), so a failed or unreachable request leaves the PC paired here.
+    pub fn unpair(&mut self, id: u64) -> Result<(), String> {
+        let Some(identity) = self.identity.clone() else {
+            return Err("Nightjar has no client identity yet, so it cannot unpair. Restart Nightjar and try again.".into());
+        };
+        let Some(host) = self.get(id) else {
+            return Ok(());
         };
         let record = host.record.clone();
+        self.spawn("unpair", move || {
+            let result = client_for(&identity, &record, &record.address)
+                .map_err(|_| UNPAIR_FAILED.to_string())
+                .and_then(|client| client.unpair().map_err(|e| unpair_error(&e)));
+            Some(Event::Unpaired { id, result })
+        });
+        Ok(())
+    }
+
+    /// The PC no longer lists this device: drop the certificate and what needed it.
+    fn forget_pairing(&mut self, id: u64) {
+        let Some(host) = self.get_mut(id) else { return };
         host.record.server_certificate = None;
         host.apps = Apps::NotLoaded;
         host.art.clear();
         host.art_versions.clear();
         host.native = Native::default();
         host.native_epoch += 1;
-        let Some(identity) = identity else {
-            return;
-        };
-        self.spawn("unpair", move || {
-            let result = client_for(&identity, &record, &record.address)
-                .and_then(|client| client.unpair().map_err(|e| unpair_error(&e)));
-            Some(Event::Unpaired { id, result })
-        });
     }
 
     pub fn load_apps(&mut self, id: u64) {
@@ -958,6 +974,11 @@ impl Hosts {
                 Event::Unpaired { id, result } => {
                     // The PC may be gone by now (removed right after): nothing to tell then.
                     if self.get(id).is_some() {
+                        // Unpaired, or the PC never knew this device: either way it is unpaired.
+                        if now_unpaired(&result) {
+                            self.forget_pairing(id);
+                            changed = true;
+                        }
                         out.push(Event::Unpaired { id, result });
                     }
                 }
@@ -1161,7 +1182,7 @@ mod tests {
         let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
         let id = hosts.list[0].id;
         // The read started while the PC was paired (epoch 0).
-        hosts.unpair(id);
+        send(&mut hosts, Event::Unpaired { id, result: Ok(()) });
         send(&mut hosts, Event::Native { id, epoch: 0, seq: 1, result: Ok(full_read(session("suspended"))) });
         assert!(hosts.list[0].native.library.is_none(), "the library of an unpaired PC is not taken in");
         assert!(hosts.take_library_saves().is_empty(), "and nothing is saved for it");
@@ -1173,6 +1194,24 @@ mod tests {
         assert!(hosts.list[0].native.library.is_some());
         hosts.list[0].record.server_certificate = None;
         assert!(hosts.take_library_saves().is_empty());
+    }
+
+    #[test]
+    fn the_certificate_stays_until_the_pc_has_unpaired_the_device() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        // No identity: the request cannot be made, and the user is told.
+        assert!(hosts.unpair(id).is_err());
+        assert!(hosts.list[0].record.server_certificate.is_some());
+        // The request failed or never got through.
+        send(&mut hosts, Event::Unpaired { id, result: Err(UNPAIR_FAILED.into()) });
+        assert!(hosts.list[0].record.server_certificate.is_some(), "a failed unpair keeps the pairing");
+        // The PC no longer lists this device, or never did.
+        send(&mut hosts, Event::Unpaired { id, result: Err(UNPAIR_NOT_PAIRED.into()) });
+        assert!(hosts.list[0].record.server_certificate.is_none());
+        hosts.list[0].record.server_certificate = Some("pem".into());
+        send(&mut hosts, Event::Unpaired { id, result: Ok(()) });
+        assert!(hosts.list[0].record.server_certificate.is_none());
     }
 
     #[test]

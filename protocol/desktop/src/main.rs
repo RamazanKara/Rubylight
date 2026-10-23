@@ -557,7 +557,14 @@ impl App {
                     Ok(()) => self.launcher.message("Wake request sent", "The PC should appear online shortly if Wake-on-LAN is enabled."),
                     Err(e) => self.launcher.message("Could not wake the PC", e),
                 },
-                HostEvent::Unpaired { result: Err(e), .. } => self.launcher.message("Could not unpair", e),
+                HostEvent::Unpaired { id, result } => {
+                    if crate::hosts::now_unpaired(&result) {
+                        self.forget_library(id);
+                    }
+                    if let Err(e) = result {
+                        self.launcher.message("Could not unpair", e);
+                    }
+                }
                 HostEvent::Session { action, result: Err(e), .. } => {
                     let title = match action {
                         ActionId::CloseGame => "Could not close the game",
@@ -814,9 +821,10 @@ impl App {
                 None => self.launcher.message("That address is not valid", text),
             },
             Command::Unpair(host) => {
-                self.forget_library(host);
-                self.hosts.unpair(host);
-                self.save_hosts();
+                // The library and the certificate go when the PC has answered (see the event).
+                if let Err(e) = self.hosts.unpair(host) {
+                    self.launcher.message("Could not unpair", e);
+                }
             }
             Command::Remove(host) => {
                 self.forget_library(host);

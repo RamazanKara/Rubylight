@@ -166,7 +166,8 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     }
     options.push(HostOption::Settings);
     options.push(HostOption::Rename);
-    if host.paired() {
+    // Unpairing asks the PC to forget this device, so it needs the PC to be reachable.
+    if host.paired() && host.reach == Reach::Online {
         options.push(HostOption::Unpair);
     }
     options.push(HostOption::CheckAgain);
@@ -2996,13 +2997,15 @@ mod tests {
                 HostOption::Wake,
                 HostOption::Settings,
                 HostOption::Rename,
-                HostOption::Unpair,
                 HostOption::CheckAgain,
                 HostOption::Remove
             ]
         );
         host.record.mac = None;
         assert!(!host_options(&host).contains(&HostOption::Wake), "no MAC, no Wake");
+        assert!(!host_options(&host).contains(&HostOption::Unpair), "an offline PC cannot be asked to unpair");
+        host.reach = Reach::Online;
+        assert!(host_options(&host).contains(&HostOption::Unpair));
     }
 
     #[test]

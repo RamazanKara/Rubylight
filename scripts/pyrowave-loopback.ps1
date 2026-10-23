@@ -4,6 +4,7 @@
 #
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <parent nightjar.exe> -ClientB <candidate nightjar.exe>
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe>            # baseline stage split only
+#   .\scripts\pyrowave-loopback.ps1 -ClientA <a.exe> -ClientB <b.exe> -Codec Hevc -Bitrates 0
 #
 # Needs release builds (the MSYS2 UCRT64 runtime DLLs are put on PATH). Takes
 # C:\src\butterpollo-release\GPU-LOCK (waits while another agent holds it) and refuses to start
@@ -12,7 +13,8 @@
 param(
     [Parameter(Mandatory)][string]$ClientA,
     [string]$ClientB,
-    [int[]]$Bitrates = @(133000, 300000),
+    [int[]]$Bitrates = @(133000, 300000),   # 0 is the client's default for the resolution
+    [ValidateSet('PyroWave', 'Hevc', 'H264', 'Av1')][string]$Codec = 'PyroWave',
     [int]$Seconds = 60,
     [string]$Order,
     [string]$Out = ("C:\src\nj-pwd-out\" + (Get-Date -Format 'yyyyMMdd-HHmmss')),
@@ -40,15 +42,31 @@ try {
     foreach ($key in 'RustHostSessionCount', 'RustHostPendingSessionCount') {
         if ($info -notmatch "<$key>0</$key>") { Write-Host "not idle: $key is not 0"; exit 4 }
     }
-} catch { Write-Host "installed host not answering on 47989 ($($_.Exception.Message)); treating it as idle" }
-
-$deadline = (Get-Date).AddMinutes(60)
-while (Test-Path $Lock) {
-    if ((Get-Date) -gt $deadline) { throw "GPU-LOCK still held after 60 minutes: $(Get-Content $Lock -Raw)" }
-    if (-not $said) { Write-Host "waiting for GPU-LOCK ($(Get-Content $Lock -Raw))"; $said = $true }
-    Start-Sleep -Milliseconds 500
+} catch {
+    # A running installed host that does not answer may be mid-stream or hung: not idle. Without
+    # the service (or with it stopped) there is no installed host to disturb.
+    $service = Get-Service ApolloService -ErrorAction SilentlyContinue
+    if ($service -and $service.Status -ne 'Stopped') {
+        Write-Host "not idle: the installed host (service $($service.Status)) does not answer on 47989 ($($_.Exception.Message))"; exit 4
+    }
+    Write-Host 'no installed host service running; treating the PC as idle'
 }
-"$Agent $(Get-Date -Format s)" | Set-Content $Lock
+
+# The lock is created, not checked then written, so two agents cannot both get it.
+$deadline = (Get-Date).AddMinutes(60)
+while ($true) {
+    try {
+        $stream = [IO.File]::Open($Lock, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        $writer = [IO.StreamWriter]::new($stream)
+        $writer.Write("$Agent $(Get-Date -Format s)")
+        $writer.Dispose()
+        break
+    } catch [IO.IOException] {
+        if ((Get-Date) -gt $deadline) { throw "GPU-LOCK still held after 60 minutes: $(Get-Content $Lock -Raw -ErrorAction SilentlyContinue)" }
+        if (-not $said) { Write-Host "waiting for GPU-LOCK ($(Get-Content $Lock -Raw -ErrorAction SilentlyContinue))"; $said = $true }
+        Start-Sleep -Milliseconds 500
+    }
+}
 # Another agent may have started a stream while we waited: look again, now that the lock is ours.
 try {
     $info = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:47989/serverinfo).Content
@@ -92,7 +110,7 @@ try {
     New-Item -ItemType Directory -Force $ClientProfile | Out-Null
     $env:PATH = 'C:\msys64\ucrt64\bin;' + $env:PATH
     function Set-ClientSettings([int]$Kbps) {
-        (@{ width = 1920; height = 1080; fps = 60; bitrate_kbps = $Kbps; adaptive_bitrate = $false; codec = 'PyroWave';
+        (@{ width = 1920; height = 1080; fps = 60; bitrate_kbps = $Kbps; adaptive_bitrate = $false; codec = $Codec;
             window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false } | ConvertTo-Json -Compress) |
             Set-Content "$ClientProfile\settings.json"
     }
@@ -153,7 +171,7 @@ try {
     # --- Legs -------------------------------------------------------------------------------
     $summaryLegs = @(); $n = 0
     foreach ($leg in $legs) {
-        $n++; $variant = [string]$leg[0]; $kbps = [int]$leg[1]; $group = [string][math]::Round($kbps / 1000)
+        $n++; $variant = [string]$leg[0]; $kbps = [int]$leg[1]; $group = if ($kbps -eq 0) { 'default' } else { [string][math]::Round($kbps / 1000) }
         $name = '{0:00}-{1}-{2}' -f $n, $variant, $group
         $exe = if ($variant -eq 'B') { $ClientB } else { $ClientA }
         Set-ClientSettings $kbps
@@ -161,11 +179,14 @@ try {
         Write-Host "leg $name ($Seconds s at $kbps kbps)"
         $p = Start-Client $exe $name $Seconds $EarlyDecode.IsPresent
         Move-ClientWindow $p
-        if (-not $p.WaitForExit(($Seconds + 120) * 1000)) { $p.Kill(); Write-Host "leg $name did not end"; exit 2 }
+        $ended = $p.WaitForExit(($Seconds + 120) * 1000)
+        if (-not $ended) { $p.Kill() }
+        # A hang is looked for first: a leg that stalls or fails because the encoder hung is exit 3, not 2.
         $hostText = (Get-Content $hostLog -ErrorAction SilentlyContinue | Select-Object -Skip $hostLines) -join "`n"
         if ($hostText -match '(?i)gpu hang|encoder hang|device removed') {
             Write-Host "leg ${name}: AMD encoder hang suspected, stopping (exit 3). Do not retry; see $hostLog"; exit 3
         }
+        if (-not $ended) { Write-Host "leg $name did not end"; exit 2 }
         $sent = [regex]::Matches($hostText, 'sent_mbps=([0-9.]+)') | ForEach-Object { [double]$_.Groups[1].Value } | Sort-Object
         $sentMedian = if ($sent.Count) { $sent[[int][math]::Floor(($sent.Count - 1) / 2)] } else { [double]::NaN }
         "$name host sent_mbps median $([math]::Round($sentMedian, 1)) over $($sent.Count) timing lines" | Tee-Object -FilePath "$Out\sent_mbps.txt" -Append | Write-Host

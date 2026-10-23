@@ -1,7 +1,7 @@
 import contextlib, io, json, pathlib, shutil, tempfile, unittest
 import timing_report
 from soak_result import percentile
-from timing_report import (WRAP_US, build_report, case_report, check_bound, main, read_host_record, summarize,
+from timing_report import (WRAP_US, build_report, cadence, case_report, check_bound, main, read_host_record, summarize,
                            unwrap_rtp)
 
 FIXTURES = pathlib.Path(__file__).parent / 'fixtures' / 'timing'
@@ -283,6 +283,117 @@ class BoundCheck(Temporary):
             check_bound([dict(off=None, rtt=None)], read_host_record(HOST_SHARED))
         with self.assertRaisesRegex(ValueError, 'media_epoch_qpc_ms'):
             check_bound([dict(off=1, rtt=2)], None)
+
+
+class Cadence(Temporary):
+    """present_interval and the cadence errors: consecutive-frame gaps, lost frames, the RTP wrap."""
+    HOST_HEAD = ('# rubylight timing record 1\n# media_epoch_qpc_ms=1000.0\n# codec=h264 capture=wgc present_source=etw\n'
+                 'wire_frame,rtp_us,present_us,acquired_us,published_us,claimed_us,submitted_us,encoded_us,packetized_us,'
+                 'prepared_us,first_sent_us,last_sent_us\n')
+
+    def host_record(self, rows):
+        """rows: (wire_frame, present_us, last_sent_us); the RTP stamp is the present time on the 90 kHz wrap."""
+        lines = [self.HOST_HEAD]
+        for frame, present, sent in rows:
+            rtp = round(present * 90 / 1000) % (1 << 32) * 1000 / 90
+            lines.append(f'{frame},{rtp:.0f},{present},,,,,,,,{sent},{sent}\n')
+        path = self.directory / 'host-1.csv'
+        path.write_text(''.join(lines) + '# dropped=0\n')
+        return path
+
+    def client_csv(self, rows):
+        """rows: (frame_number, rtp_host_us, enqueue_us, render_us or None); None is a frame the client dropped."""
+        lines = ['frame_number,receive_ns,enqueue_ns,render_ns,status,rtp_host_us,host_first_sent_us\n']
+        for frame, rtp, enqueue, render in rows:
+            status = 'rendered' if render is not None else 'dropped'
+            shown = '' if render is None else round(render * 1000)
+            lines.append(f'{frame},{round(enqueue * 1000 - 500)},{round(enqueue * 1000)},{shown},{status},{rtp:.0f},{rtp:.0f}\n')
+        path = self.directory / 'client.csv'
+        path.write_text(''.join(lines))
+        return path
+
+    def stages(self, client, record=None):
+        return build_report(client, record)[0]['stages']
+
+    def test_the_host_adds_the_gap_between_last_sent_and_present_gaps(self):
+        # The game presents every 11111 us; the host sends 3000, 3400, 3000, 5000, 3000 us after each present.
+        offsets = [3000, 3400, 3000, 5000, 3000]
+        rows = [(i, 1_000_000 + i * 11111, 1_000_000 + i * 11111 + o) for i, o in enumerate(offsets)]
+        stages = self.stages(self.client_csv([(i, 0, 0, None) for i in range(5)]), self.host_record(rows))
+        self.assertEqual(stages['present_interval']['n'], 4)
+        self.assertEqual(stages['present_interval']['median_ms'], 11.111)
+        self.assertEqual(stages['present_interval']['p99_ms'], 11.111)
+        # |+400|, |-400|, |+2000|, |-2000| us.
+        error = stages['host_cadence_error']
+        self.assertEqual((error['n'], error['median_ms'], error['p99_ms']), (4, .4, 2.0))
+
+    def test_a_lost_frame_spans_its_neighbours_in_the_error_but_not_in_the_interval(self):
+        # Frames 0, 1, 3, 4 sent; frame 3 goes out 700 us later than the others, so the 1 -> 3 pair (two periods in both
+        # the present and the send gap) is 700 us off and the 3 -> 4 pair 700 us off the other way.
+        rows = [(i, 1_000_000 + i * 8000, 1_000_000 + i * 8000 + 2000 + (700 if i == 3 else 0)) for i in (0, 1, 3, 4)]
+        stages = self.stages(self.client_csv([(i, 0, 0, None) for i in (0, 1, 3, 4)]), self.host_record(rows))
+        self.assertEqual(stages['present_interval']['n'], 2)
+        self.assertEqual(stages['present_interval']['p99_ms'], 8.0)
+        error = stages['host_cadence_error']
+        self.assertEqual((error['n'], error['median_ms'], error['p99_ms']), (3, .7, .7))
+        points = [(i, p, (p, False)) for i, p in ((0, 0), (1, 8000), (3, 24000), (4, 32000))]
+        self.assertEqual(cadence(points), ([8000, 8000], [0, 0, 0]))
+
+    def test_the_client_error_follows_the_rtp_gaps_of_the_frames_it_showed(self):
+        # Host stamps 8333 us apart. Frame 3 is dropped by the client; frame 4 is shown 16000 us after frame 2, for a
+        # host gap of 16666 us.
+        rtp = [90_000 + i * 8333 for i in range(5)]
+        render = [None] * 5
+        render[0], render[1], render[2], render[4] = 100_000, 108_334, 116_667, 132_667
+        rows = [(i, rtp[i], 99_000 + i * 8333, render[i]) for i in range(5)]
+        stages = self.stages(self.client_csv(rows))
+        # Shown frames 0, 1, 2 and 4: the interval only for the adjacent pairs 0-1 and 1-2.
+        self.assertEqual(stages['client_present_interval']['n'], 2)
+        self.assertEqual(stages['client_present_interval']['median_ms'], 8.333)
+        self.assertEqual(stages['client_cadence_error']['n'], 3)
+        shown = [(i, render[i], (rtp[i], True)) for i in range(5) if render[i] is not None]
+        self.assertEqual(cadence(shown), ([8334, 8333], [1, 0, 666]))
+        self.assertEqual(stages['arrival_interval']['n'], 4)
+        self.assertEqual(stages['arrival_interval']['median_ms'], 8.333)
+        self.assertEqual(stages['arrival_cadence_error']['p99_ms'], 0)
+
+    def test_the_rtp_wrap_is_not_an_interval_error(self):
+        # Four frames whose RTP stamps cross 2**32 ticks: the gap is 11111 us across the wrap.
+        base = WRAP_US - 22222
+        rows = [(i, (base + i * 11111) % WRAP_US, 5_000 + i * 11111, 6_000 + i * 11111) for i in range(4)]
+        stages = self.stages(self.client_csv(rows))
+        self.assertEqual(stages['client_cadence_error']['n'], 3)
+        self.assertLess(stages['client_cadence_error']['p99_ms'], .002)
+        self.assertLess(stages['arrival_cadence_error']['p99_ms'], .002)
+        self.assertEqual(stages['client_present_interval']['median_ms'], 11.111)
+
+    def test_a_hitch_in_the_game_is_content_not_error(self):
+        # A 100 ms hitch in the game: the host follows it exactly, so there is no error, but the interval shows it.
+        presents = [0, 11111, 111111, 122222, 222222, 233333, 333333, 344444, 444444]
+        rows = [(i, 1_000_000 + p, 1_000_000 + p + 2500) for i, p in enumerate(presents)]
+        stages = self.stages(self.client_csv([(i, 0, 0, None) for i in range(5)]), self.host_record(rows))
+        self.assertEqual(stages['host_cadence_error']['p99_ms'], 0)
+        self.assertEqual(stages['present_interval']['p99_ms'], 100.0)
+
+    def test_a_file_without_pairs_reports_none_and_prints_no_rows(self):
+        path = self.client_csv([(7, 5, 1000, 2000)])
+        stages = self.stages(path)
+        for name in ('present_interval', 'host_cadence_error', 'client_present_interval', 'client_cadence_error'):
+            self.assertEqual(stages[name]['n'], 0, name)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main([str(path)]), 0)
+        self.assertNotIn('cadence_error', output.getvalue())
+
+    def test_the_fixtures_give_cadence_rows(self):
+        stages = report('nightjar-clock-sync.csv', 'host-shared.csv')['stages']
+        self.assertGreater(stages['present_interval']['n'], 5)
+        self.assertAlmostEqual(stages['present_interval']['median_ms'], 16.667, places=0)
+        self.assertGreater(stages['host_cadence_error']['n'], 5)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            main([str(FIXTURES / 'nightjar-clock-sync.csv'), '--host-record', str(HOST_SHARED)])
+        self.assertIn('host_cadence_error', output.getvalue())
 
 
 class Formats(Temporary):

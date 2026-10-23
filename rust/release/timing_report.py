@@ -41,6 +41,9 @@ Assumptions where that document leaves room:
   lie inside `encode`, so a streamed frame's stages are not a partition of `host_total`.
 - A host record without its `# dropped=` footer (the host was stopped before the stream wrote it) has an unknown
   dropped count, shown as such, never 0.
+- Cadence rows (`present_interval`, `host_cadence_error`, `arrival_*`, `client_*`; docs/timing-record.md, "Stages reported")
+  pair each frame with the previous one that has the stamp, in frame-number order. A pair that spans a frame the client
+  never showed counts in the error but not in the interval. They need no clock join.
 - Negative durations are kept in the percentiles (across clocks they are inside the bound) and counted per stage.
 """
 import argparse, csv, json, pathlib, sys
@@ -70,7 +73,9 @@ STAGES = (
     ('host_total', 'host'),
     ('network_first', 'cross'), ('network_last', 'cross'), ('end_to_end', 'cross'),
     ('assemble', 'client'), ('client_queue', 'client'), ('decode', 'client'), ('display', 'client'),
-    ('client_total', 'client'))
+    ('client_total', 'client'),
+    ('present_interval', 'cadence'), ('host_cadence_error', 'cadence'), ('arrival_interval', 'cadence'),
+    ('arrival_cadence_error', 'cadence'), ('client_present_interval', 'cadence'), ('client_cadence_error', 'cadence'))
 
 
 def number(text, column):
@@ -92,6 +97,11 @@ def unwrap_rtp(rtp_us, anchor_us):
 
 def median(values):
     return percentile(values, 50)
+
+
+def wrapped_delta(later, earlier):
+    """later - earlier for two 32-bit RTP times in microseconds, taken the short way round the wrap."""
+    return (later - earlier + WRAP_US / 2) % WRAP_US - WRAP_US / 2
 
 
 def read_host_record(path):
@@ -322,6 +332,50 @@ def stage_values(frame, record_present):
     return values
 
 
+def cadence(points):
+    """Interval and cadence-error samples (microseconds) from (frame, observed_us, source) points, where `source` is
+    (value_us, wraps) for the stamp the observation should follow: the game's present time, or the RTP time (wraps).
+    Points are paired with the previous point of the same series after sorting by frame number, so a frame that never
+    showed (lost, or dropped by the client) is skipped and the pair spans it. The interval is reported only for
+    adjacent frame numbers (a spanning pair would be two periods long); the error, |observed gap - source gap|, is
+    reported for every pair, because the shown gap should still follow the content's own gap across a skipped frame."""
+    intervals, errors = [], []
+    previous = None
+    for frame, seen, (source, wraps) in sorted((p for p in points if p[1] is not None and p[2][0] is not None),
+                                               key=lambda p: p[0]):
+        if previous is not None and frame != previous[0]:
+            gap = seen - previous[1]
+            wanted = wrapped_delta(source, previous[2]) if wraps else source - previous[2]
+            if frame == previous[0] + 1:
+                intervals.append(gap)
+            errors.append(abs(gap - wanted))
+        previous = (frame, seen, source)
+    return intervals, errors
+
+
+def source_stamp(host, prefer):
+    """The host stamp a frame's cadence is judged against: (value, wraps), or (None, False) with none recorded."""
+    if prefer == 'present' and host['present'] is not None:
+        return host['present'], False
+    if host['rtp'] is not None:
+        return host['rtp'], True
+    return (host['present'], False) if host['present'] is not None else (None, False)
+
+
+def cadence_columns(frames, record):
+    """The cadence stages. The host's pair series is the record's rows (all frames the host sent, shown or not), or the
+    host columns of the client file without a record; the client's are over the frames it assembled and shown."""
+    rows = [(n, row) for n, row in record['rows'].items()] if record is not None else         [(f['frame_number'], f['host']) for f in frames if has_host(f)]
+    host_errors = cadence([(n, h['last_sent'], source_stamp(h, 'present')) for n, h in rows])[1]
+    present_gaps = cadence([(n, h['present'], (0, False)) for n, h in rows])[0]
+    client_stamp = lambda f: source_stamp(f['host'], 'rtp')
+    arrival_gaps, arrival_errors = cadence([(f['frame_number'], f['assembled'], client_stamp(f)) for f in frames])
+    shown_gaps, shown_errors = cadence([(f['frame_number'], f['present'], client_stamp(f)) for f in frames])
+    return dict(present_interval=present_gaps, host_cadence_error=host_errors, arrival_interval=arrival_gaps,
+                arrival_cadence_error=arrival_errors, client_present_interval=shown_gaps,
+                client_cadence_error=shown_errors)
+
+
 def summarize(values):
     ms = [v / 1000 for v in values]
     return dict(n=len(ms), median_ms=median(ms), p95_ms=percentile(ms, 95), p99_ms=percentile(ms, 99),
@@ -341,6 +395,7 @@ def build_report(client_path, record_path=None, join=None):
         for name, value in stage_values(frame, record_present).items():
             if value is not None:
                 columns[name].append(value)
+    columns.update(cadence_columns(frames, record))
     stages = {}
     for name, scope in STAGES:
         stage = summarize(columns[name])
@@ -441,9 +496,9 @@ def format_table(report):
              + ('' if report['host_footer'] is None else f', host rows dropped by the writer {report["host_dropped"]}'
                 if report['host_footer'] else ', host rows dropped by the writer unknown (no footer)'),
              '',
-             f'{"stage":<20}{"n":>6}{"median":>10}{"p95":>10}{"p99":>10}  bound (ms)']
+             f'{"stage":<24}{"n":>6}{"median":>10}{"p95":>10}{"p99":>10}  bound (ms)']
     for name, stage in report['stages'].items():
-        if not stage['n'] and name in ('hold_claim_convert', 'overlap'):
+        if not stage['n'] and (name in ('hold_claim_convert', 'overlap') or stage['scope'] == 'cadence'):
             continue
         cells = ('-', '-', '-') if not stage['n'] else tuple(f'{stage[k]:.3f}' for k in ('median_ms', 'p95_ms', 'p99_ms'))
         mark = ''
@@ -452,7 +507,7 @@ def format_table(report):
                 mark = 'lower bound'
             elif stage['bound_ms'] is not None:
                 mark = f'+/- {stage["bound_ms"]:.3f}'
-        lines.append(f'{name:<20}{stage["n"]:>6}{cells[0]:>10}{cells[1]:>10}{cells[2]:>10}  {mark}'.rstrip())
+        lines.append(f'{name:<24}{stage["n"]:>6}{cells[0]:>10}{cells[1]:>10}{cells[2]:>10}  {mark}'.rstrip())
     lines.extend(['', *(f'note: {note}' for note in report['notes'])])
     return '\n'.join(lines).rstrip() + '\n'
 

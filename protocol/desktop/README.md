@@ -18,6 +18,7 @@ MSYS2:
 ```powershell
 C:\msys64\usr\bin\pacman.exe -S --needed mingw-w64-ucrt-x86_64-sdl3 mingw-w64-ucrt-x86_64-ffmpeg mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-pkgconf
 $env:PATH = "C:\msys64\ucrt64\bin;$env:USERPROFILE\.cargo\bin;" + $env:PATH
+$env:LIBCLANG_PATH = "C:\msys64\ucrt64\bin"      # only if another LLVM is installed (bindgen takes the first libclang)
 cargo run --release -p nightjar-desktop      # in protocol/
 ```
 
@@ -107,8 +108,9 @@ Why this combination:
 | `src/gui.rs` | egui input from SDL events, painting with `SDL_RenderGeometryRaw` |
 | `src/theme.rs` | palette, Figtree type, the brand mark rasterised from its vector path |
 | `src/ui.rs` | the launcher: PCs, pairing, library, settings, dialogs |
-| `src/hosts.rs` | host list, mDNS discovery, serverinfo polling, pairing, app list, box art |
-| `src/config.rs` | settings, identity and paired hosts on disk |
+| `src/console.rs` | what Home and the game page show, from what the PCs reported (no egui; tested) |
+| `src/hosts.rs` | host list, mDNS discovery, serverinfo polling, pairing, app list, box art, the native library and session |
+| `src/config.rs` | settings, identity, paired hosts and saved libraries on disk |
 | `src/stream/mod.rs` | launch, session start, input, statistics |
 | `src/stream/pipeline.rs` | the session's decoder, audio renderer and listener |
 | `src/stream/present.rs` | video texture, pacing |
@@ -130,6 +132,17 @@ Done:
 - PIN pairing with the PIN shown in large type; the host certificate is pinned and stored.
 - Library with box art (cached on disk) and placeholders; launch, resume the running app,
   quit it (and "quit and start" another).
+- Home and the game page (Rubylight 3.0 hosts, through the native API; same rules as
+  Nightjar Android's console): Home shows the games to continue (running or suspended on
+  a PC that is online), the library of all PCs merged by game and sorted by title, and the
+  PCs with what each knows ("Games: 12", "Offline. Saved games: 12"). A game opens its page:
+  Play or Resume, the PC, the stream settings that will apply (resolution, frame rate,
+  bitrate, profile), Game settings, and Close game (with the host's Host control
+  permission; otherwise Quit game). Starting a game while another runs asks first. The last
+  library of each PC is kept on disk, so Home works while a PC is away. Back returns to the
+  screen and the item it came from, and a controller drives all of it. "Open on Home" in
+  Settings (on by default) chooses between starting on Home and on the PCs. Read failures
+  show on Home and never block the UI.
 - Settings: resolution (native or presets), frame rate (display or presets), automatic or
   manual bitrate, codec (automatic/H.264/HEVC/AV1), HDR, decoder, window mode
   (fullscreen/borderless/windowed), VRR with "Show frames at the PC's frame times",
@@ -157,7 +170,9 @@ Missing compared with the Android app:
 - Wake-on-LAN, one-time PIN pairing (`pair_with_passphrase` is in the engine), per-PC
   settings, Remote Monitor/Input-only roles from the UI (the tiles are listed and launch),
   microphone, PyroWave, cursor shapes, clipboard sync, phase lock and display caps
-  messages, statistics export, translations.
+  messages, statistics export. Strings are English only (there is no translation mechanism
+  yet). Home does not list recently played games, and the session actions beyond Close game
+  (End, Disconnect) and the Radeon panel are not in the UI yet.
 - A dedicated D3D11 renderer with a waitable swap chain (moonlight-qt's d3d11va/VRR pacer
   design) for frame-latency control beyond what SDL's renderer offers.
 

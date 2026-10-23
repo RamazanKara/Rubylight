@@ -9,6 +9,7 @@ use egui::{
 use crate::config::{
     AudioChannels, CodecPreference, DecoderPreference, HostDisplay, MouseMode, Overrides, Profiles, Settings, WindowMode,
 };
+use crate::console::{self, EndAction, GameState, Playing, Source};
 use crate::hosts::{Apps, Art, Host, Hosts, Reach};
 use crate::stream::{stream_mode, Display};
 use crate::theme::*;
@@ -44,12 +45,20 @@ pub enum Command {
     Remove(u64),
     Refresh(u64),
     OpenApps(u64),
+    /// Fetch a cover that scrolled into view (a new `version` fetches again).
+    RequestArt { host: u64, app: i32, version: String },
+    /// Close the running game through the PC's native API.
+    CloseGame(u64),
     SaveSettings,
     CancelConnect,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
+    /// Games to continue, the merged library and the PCs.
+    Home,
+    /// One game on one PC (`app` is the native library's app id).
+    Game { host: u64, app: u32 },
     Hosts,
     Apps(u64),
     Settings,
@@ -83,6 +92,7 @@ pub enum Dialog {
     Message { title: String, body: String },
     ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String },
     ConfirmAction { host: u64, app: i32, name: String },
+    ConfirmClose { host: u64, name: String },
     ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
     DeleteProfile { id: u64, name: String },
     Shortcut { id: Option<String>, name: String, chord: String, error: Option<String> },
@@ -118,6 +128,14 @@ pub struct Launcher {
     focus_screen: bool,
     focus_dialog: bool,
     settings_return: Screen,
+    /// Where Back goes: the screens left by moving forward, with the item that had focus.
+    trail: Vec<(Screen, Option<String>)>,
+    /// The item with focus on the current screen, by its key.
+    focused_key: Option<String>,
+    /// The item to focus when the screen is drawn again after Back.
+    restore_key: Option<String>,
+    /// Some PC has a library to show, so Home has something on it.
+    home_ready: bool,
     /// The display's tearing support, for the VRR setting's note.
     pub tearing_supported: bool,
     pub display: Display,
@@ -243,6 +261,10 @@ impl Launcher {
             focus_screen: true,
             focus_dialog: false,
             settings_return: Screen::Hosts,
+            trail: Vec::new(),
+            focused_key: None,
+            restore_key: None,
+            home_ready: false,
             tearing_supported: false,
             display,
             identity_ready: false,
@@ -258,6 +280,77 @@ impl Launcher {
         }
         self.screen = screen;
         self.focus_screen = true;
+        self.focused_key = None;
+        self.restore_key = None;
+    }
+
+    /// Start button and the Settings link: Settings from anywhere, once.
+    pub fn open_settings(&mut self) {
+        match self.screen {
+            Screen::Settings => {}
+            Screen::HostSettings(_)
+            | Screen::AppSettings(_)
+            | Screen::ProfileSettings(_)
+            | Screen::Profiles
+            | Screen::Controllers
+            | Screen::Shortcuts => self.go(Screen::Settings),
+            _ => self.open(Screen::Settings),
+        }
+    }
+
+    /// Moves forward, so Back returns here with the same item focused.
+    pub fn open(&mut self, screen: Screen) {
+        if screen == self.screen {
+            return;
+        }
+        if self.trail.len() >= 16 {
+            self.trail.remove(0);
+        }
+        self.trail.push((self.screen, self.focused_key.take()));
+        self.go(screen);
+    }
+
+    /// Back to where the user came from, else `fallback`.
+    fn pop(&mut self, fallback: Screen) {
+        match self.trail.pop() {
+            Some((screen, key)) => {
+                self.go(screen);
+                self.restore_key = key;
+            }
+            None => self.go(fallback),
+        }
+    }
+
+    /// Where the app starts and where Back ends: Home when it is on and has games.
+    pub fn root(&self) -> Screen {
+        if self.settings.console_home && self.home_ready {
+            Screen::Home
+        } else {
+            Screen::Hosts
+        }
+    }
+
+    /// Gives an item focus: the first one on a new screen, or the one that had it before the
+    /// user went forward. Records which item has focus so `open` can remember it.
+    fn focus_item(&mut self, response: &Response, key: &str, first: bool) {
+        if response.has_focus() && self.focused_key.as_deref() != Some(key) {
+            self.focused_key = Some(key.to_owned());
+        }
+        if response.gained_focus() {
+            response.scroll_to_me(None);
+        }
+        if !response.enabled() {
+            return;
+        }
+        if self.restore_key.as_deref() == Some(key) {
+            self.restore_key = None;
+            self.focus_screen = false;
+            response.request_focus();
+            response.scroll_to_me(None);
+        } else if first && self.focus_screen && self.restore_key.is_none() {
+            self.focus_screen = false;
+            response.request_focus();
+        }
     }
 
     /// Gives the screen's first item focus again (after a stream or a dialog).
@@ -283,11 +376,21 @@ impl Launcher {
     fn back(&mut self, commands: &mut Vec<Command>) {
         match &self.dialog {
             Dialog::None => match self.screen {
-                Screen::Hosts => {}
-                Screen::Apps(_) => self.go(Screen::Hosts),
+                Screen::Home => {}
+                Screen::Hosts => {
+                    if !self.trail.is_empty() || self.root() == Screen::Home {
+                        let root = self.root();
+                        self.pop(root);
+                    }
+                }
+                Screen::Apps(_) | Screen::Game { .. } => {
+                    let root = self.root();
+                    self.pop(root);
+                }
                 Screen::Settings => {
                     commands.push(Command::SaveSettings);
-                    self.go(Screen::Hosts);
+                    let root = self.root();
+                    self.pop(root);
                 }
                 Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {
                     commands.extend(self.screen.save_command());
@@ -311,6 +414,8 @@ impl Launcher {
     pub fn ui(&mut self, ui: &mut Ui, view: View<'_>) -> Vec<Command> {
         let mut commands = Vec::new();
         let ctx = ui.ctx().clone();
+        let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+        self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
         if escape && view.connecting.is_none() {
             self.back(&mut commands);
@@ -341,6 +446,8 @@ impl Launcher {
             self.header(ui, logo, &view, &mut commands);
             ui.add_space(22.0);
             match self.screen {
+                Screen::Home => self.home(ui, &view, &mut commands, logo),
+                Screen::Game { host, app } => self.game(ui, &view, host, app, &mut commands),
                 Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
                 Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
                 Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
@@ -351,6 +458,9 @@ impl Launcher {
         });
         if blocked {
             self.focus_screen = held_focus;
+        } else if self.restore_key.take().is_some() {
+            // The remembered item is gone (or not loaded yet): the first one takes focus.
+            ctx.request_repaint();
         }
         self.dialogs(&ctx, &view, &mut commands);
         if let Some(c) = &view.connecting {
@@ -363,6 +473,23 @@ impl Launcher {
         ui.horizontal(|ui| {
             ui.set_min_height(40.0);
             match self.screen {
+                Screen::Home => {
+                    egui::Image::from_texture((logo, vec2(30.0, 30.0))).ui(ui);
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Nightjar").font(semibold(22.0)).color(PAPER));
+                }
+                Screen::Game { host, app } => {
+                    if text_button(ui, "‹  Back").clicked() {
+                        self.back(commands);
+                    }
+                    let name = view
+                        .hosts
+                        .get(host)
+                        .and_then(|h| h.native.library.as_ref())
+                        .and_then(|l| l.games.iter().find(|g| g.app_id == app))
+                        .map_or("", |g| g.title.as_str());
+                    ui.label(RichText::new(name).font(semibold(22.0)).color(PAPER));
+                }
                 Screen::Hosts => {
                     egui::Image::from_texture((logo, vec2(30.0, 30.0))).ui(ui);
                     ui.add_space(4.0);
@@ -370,15 +497,14 @@ impl Launcher {
                 }
                 Screen::Apps(id) => {
                     if text_button(ui, "‹  PCs").clicked() {
-                        self.go(Screen::Hosts);
+                        self.back(commands);
                     }
                     let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
                     ui.label(RichText::new(name).font(semibold(22.0)).color(PAPER));
                 }
                 Screen::Settings => {
                     if text_button(ui, "‹  Back").clicked() {
-                        commands.push(Command::SaveSettings);
-                        self.go(Screen::Hosts);
+                        self.back(commands);
                     }
                     ui.label(RichText::new("Settings").font(semibold(22.0)).color(PAPER));
                 }
@@ -406,9 +532,29 @@ impl Launcher {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 22.0;
                 match self.screen {
+                Screen::Home => {
+                    if text_button(ui, "Settings").clicked() {
+                        self.open(Screen::Settings);
+                    }
+                    if text_button(ui, "PCs").clicked() {
+                        self.open(Screen::Hosts);
+                    }
+                }
+                Screen::Game { .. } => {}
                 Screen::Hosts => {
                     if text_button(ui, "Settings").clicked() {
-                        self.go(Screen::Settings);
+                        self.open(Screen::Settings);
+                    }
+                    if self.home_ready && text_button(ui, "Home").clicked() {
+                        let home = self.trail.iter().rposition(|(s, _)| *s == Screen::Home);
+                        match home {
+                            // Back to the Home this came from, else a fresh one.
+                            Some(at) => {
+                                self.trail.truncate(at + 1);
+                                self.pop(Screen::Home);
+                            }
+                            None => self.go(Screen::Home),
+                        }
                     }
                     if text_button(ui, "Add PC").clicked() {
                         self.dialog = Dialog::AddHost {
@@ -485,19 +631,10 @@ impl Launcher {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 16.0;
                     for (i, host) in chunk.iter().enumerate() {
-                        let response = host_card(ui, host);
-                        if self.focus_screen && row == 0 && i == 0 {
-                            response.request_focus();
-                            self.focus_screen = false;
-                        }
+                        let response = host_card(ui, host, None);
+                        self.focus_item(&response, &format!("host:{}", host.id), row == 0 && i == 0);
                         if response.clicked() {
-                            if host.paired() {
-                                commands.push(Command::OpenApps(host.id));
-                            } else if host.reach == Reach::Offline {
-                                commands.push(Command::Refresh(host.id));
-                            } else {
-                                commands.push(Command::Pair(host.id));
-                            }
+                            host_clicked(host, commands);
                         }
                         response.context_menu(|ui| {
                             if host.record.mac.is_some() && ui.button("Wake up").clicked() {
@@ -585,12 +722,8 @@ impl Launcher {
                                 let is_running = running.is_some_and(|r| app.matches_running_app(r, None));
                                 let art = host.art.get(&app.id);
                                 let response = poster(ui, &app.name, art, is_running);
-                                let focus = self.focus_screen
-                                    && (if running.is_some() { is_running } else { row == 0 && i == 0 });
-                                if focus {
-                                    response.request_focus();
-                                    self.focus_screen = false;
-                                }
+                                let first = if running.is_some() { is_running } else { row == 0 && i == 0 };
+                                self.focus_item(&response, &format!("app:{}", app.id), first);
                                 if response.clicked() {
                                     if app.is_control_action() {
                                         self.dialog = Dialog::ConfirmAction { host: id, app: app.id, name: app.name.clone() };
@@ -640,6 +773,279 @@ impl Launcher {
                 });
             }
         }
+    }
+
+    fn home(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>, logo: egui::TextureId) {
+        if view.hosts.list.is_empty() {
+            ui.add_space(60.0);
+            ui.vertical_centered(|ui| {
+                egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
+                ui.add_space(14.0);
+                ui.label(RichText::new("No hosts yet").font(semibold(18.0)));
+                ui.label(RichText::new("Pair Nightjar with a PC to see its games here.").color(ON_SURFACE_VARIANT));
+                ui.add_space(12.0);
+                let r = primary_button(ui, "Open hosts");
+                self.focus_item(&r, "open-hosts", true);
+                if r.clicked() {
+                    self.open(Screen::Hosts);
+                }
+            });
+            return;
+        }
+        let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+        let entries = console::merge_library(&sources);
+        let playing = console::continue_playing(&sources);
+        let loading = view.hosts.list.iter().any(|h| {
+            h.reach == Reach::Online && h.paired() && h.native_api() && h.native.library.is_none() && h.native.error.is_none()
+        });
+        scroll(ui, "home", |ui| {
+            // A failed read stays on screen beside the last good data.
+            for host in &view.hosts.list {
+                if let Some(error) = &host.native.error {
+                    ui.label(RichText::new(format!("{}: {error}", host.display_name())).color(ERROR));
+                }
+            }
+            let mut first = true;
+            if !playing.is_empty() {
+                section(ui, "Continue playing");
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
+                    for item in &playing {
+                        let (line, running) = match item.playing {
+                            Playing::Running => (format!("Running on {}", item.host_name), true),
+                            Playing::Suspended => (format!("Suspended on {}", item.host_name), false),
+                        };
+                        let response = continue_card(ui, &item.title, &line, running);
+                        self.focus_item(&response, &format!("continue:{}:{}", item.host, item.app_id), std::mem::take(&mut first));
+                        if response.clicked() {
+                            self.open(Screen::Game { host: item.host, app: item.app_id });
+                        }
+                    }
+                });
+            }
+            section(ui, "Library");
+            if entries.is_empty() {
+                if loading {
+                    ui.horizontal(|ui| {
+                        spinner(ui, 10.0);
+                        ui.label(RichText::new("Loading the games…").color(ON_SURFACE_VARIANT));
+                    });
+                } else {
+                    ui.label(RichText::new("No games to show. Games appear here once a Rubylight PC is online.").color(ON_SURFACE_VARIANT));
+                }
+            }
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(20.0, 20.0);
+                for entry in &entries {
+                    let cover = entry.cover();
+                    let art = cover
+                        .and_then(|c| view.hosts.get(c.host).and_then(|h| h.art.get(&(c.app_id as i32))));
+                    let response = poster(ui, &entry.title, art, entry.running());
+                    if let Some(c) = cover {
+                        request_cover(ui, view, c.host, c.app_id, &c.cover_version, &response, commands);
+                    }
+                    self.focus_item(&response, &format!("game:{}", entry.key), std::mem::take(&mut first));
+                    if response.clicked() {
+                        let best = entry.best();
+                        self.open(Screen::Game { host: best.host, app: best.app_id });
+                    }
+                }
+            });
+            section(ui, "Hosts");
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
+                for (host, source) in view.hosts.list.iter().zip(&sources) {
+                    let line = console::host_line(source).text();
+                    let response = host_card(ui, host, Some(&line));
+                    self.focus_item(&response, &format!("host:{}", host.id), std::mem::take(&mut first));
+                    if response.clicked() {
+                        host_clicked(host, commands);
+                    }
+                }
+            });
+            ui.add_space(8.0);
+        });
+    }
+
+    /// Leaves the current screen for the one it was opened from.
+    fn leave(&mut self) {
+        let root = self.root();
+        self.pop(root);
+    }
+
+    fn game(&mut self, ui: &mut Ui, view: &View<'_>, host_id: u64, app_id: u32, commands: &mut Vec<Command>) {
+        let Some(host) = view.hosts.get(host_id) else {
+            self.leave();
+            return;
+        };
+        let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+        let source = sources.iter().find(|s| s.id == host_id).expect("source of a listed host");
+        let Some(game) = source.library.and_then(|l| l.games.iter().find(|g| g.app_id == app_id)) else {
+            ui.label(RichText::new("This game is no longer in the PC's library.").font(semibold(18.0)));
+            let r = primary_button(ui, "Back");
+            self.focus_item(&r, "back", true);
+            if r.clicked() {
+                self.leave();
+            }
+            return;
+        };
+        let detail = console::detail(source, app_id, host.native_api());
+        let classic = match &host.apps {
+            Apps::Loaded(apps) => {
+                let pairs: Vec<(i32, &str)> = apps.iter().map(|a| (a.id, a.uuid.as_str())).collect();
+                console::classic_app(&pairs, &game.install_id, app_id).and_then(|id| apps.iter().find(|a| a.id == id)).cloned()
+            }
+            _ => None,
+        };
+        let online = host.reach == Reach::Online;
+        // The classic app list can know a run the native session does not.
+        let classic_running = online
+            && classic.as_ref().zip(host.running_app()).is_some_and(|(app, running)| app.matches_running_app(running, None));
+        let resumes = detail.resumes() || classic_running;
+        let other_running = if resumes {
+            None
+        } else {
+            detail
+                .other_running
+                .clone()
+                .or_else(|| if online { host.running_app().map(|_| running_name(host)) } else { None })
+        };
+        let merged = console::merge_library(&sources);
+        let others: Vec<console::Copy> = merged
+            .iter()
+            .find(|e| e.copies.iter().any(|c| c.host == host_id && c.app_id == app_id))
+            .map(|e| e.copies.iter().filter(|c| !(c.host == host_id && c.app_id == app_id)).cloned().collect())
+            .unwrap_or_default();
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 28.0;
+            let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H), Sense::hover());
+            let art = host.art.get(&(app_id as i32));
+            paint_cover(ui, rect, &game.title, art, detail.state != GameState::Idle);
+            request_cover(ui, view, host_id, app_id, &game.artwork.version, &response, commands);
+            ui.vertical(|ui| {
+                ui.set_max_width(640.0);
+                ui.label(RichText::new(&game.title).font(semibold(30.0)).color(ON_SURFACE));
+                if let Some(store) = &game.store {
+                    ui.label(RichText::new(&store.name).color(ON_SURFACE_VARIANT));
+                }
+                let (status, color) = match detail.state {
+                    GameState::Running => (format!("Running on {}", source.name), MOON),
+                    GameState::Suspended => (format!("Suspended on {}", source.name), TERTIARY),
+                    GameState::Idle => (format!("On {}", source.name), ON_SURFACE_VARIANT),
+                };
+                ui.label(RichText::new(status).font(semibold(16.0)).color(color));
+                ui.add_space(8.0);
+                if host.reach == Reach::Offline {
+                    ui.label(RichText::new("This PC is offline. Your saved library is still here. Reconnect to play.").color(ERROR));
+                } else if host.reach == Reach::Unknown {
+                    ui.label(RichText::new("Checking the PC…").color(ON_SURFACE_VARIANT));
+                } else if !source.paired {
+                    ui.label(RichText::new("Pair Nightjar with this PC to play.").color(ERROR));
+                }
+                if let Some(other) = &other_running {
+                    ui.label(RichText::new(format!("{other} is running. Playing this game closes it.")).color(TERTIARY));
+                }
+                ui.add_space(8.0);
+                let can_play = detail.can_start && classic.is_some();
+                ui.horizontal(|ui| {
+                    let r = ui.add_enabled_ui(can_play, |ui| primary_button(ui, if resumes { "Resume" } else { "Play" })).inner;
+                    self.focus_item(&r, "play", true);
+                    if r.clicked() {
+                        if let Some(app) = &classic {
+                            if resumes {
+                                commands.push(Command::Launch { host: host_id, app: app.id, resume: true });
+                            } else if let Some(running) = &other_running {
+                                self.dialog = Dialog::ConfirmQuit {
+                                    host: host_id,
+                                    start: Some((app.id, game.title.clone())),
+                                    running: running.clone(),
+                                };
+                                self.focus_dialog = true;
+                            } else {
+                                commands.push(Command::Launch { host: host_id, app: app.id, resume: false });
+                            }
+                        }
+                    }
+                    if detail.end != EndAction::None {
+                        let closing = host.native.acting;
+                        let label = if detail.end == EndAction::CloseGame { "Close game" } else { "Quit game" };
+                        let r = ui.add_enabled_ui(!closing, |ui| quiet_button(ui, label)).inner;
+                        self.focus_item(&r, "end", !can_play);
+                        if r.clicked() {
+                            self.dialog = if detail.end == EndAction::CloseGame {
+                                Dialog::ConfirmClose { host: host_id, name: game.title.clone() }
+                            } else {
+                                Dialog::ConfirmQuit { host: host_id, start: None, running: game.title.clone() }
+                            };
+                            self.focus_dialog = true;
+                        }
+                        if closing {
+                            spinner(ui, 9.0);
+                        }
+                    }
+                });
+                // Why Play is not there yet: the app list is what starts a stream.
+                if detail.can_start && classic.is_none() {
+                    match &host.apps {
+                        Apps::NotLoaded | Apps::Loading => {
+                            ui.horizontal(|ui| {
+                                spinner(ui, 9.0);
+                                ui.label(RichText::new("Loading the app list…").color(ON_SURFACE_VARIANT));
+                            });
+                        }
+                        Apps::Failed(_) | Apps::Loaded(_) => {
+                            let why = match &host.apps {
+                                Apps::Failed(e) => format!("The app list could not be loaded. {e}"),
+                                _ => "The PC's app list has no entry for this game.".to_owned(),
+                            };
+                            ui.label(RichText::new(why).color(ERROR));
+                            let r = quiet_button(ui, "Try again");
+                            self.focus_item(&r, "retry", true);
+                            if r.clicked() {
+                                commands.push(Command::Refresh(host_id));
+                            }
+                        }
+                    }
+                }
+                ui.add_space(14.0);
+                let kind = self.network.kind(&self.profiles.home_wifi);
+                let mut settings = host.record.settings(&self.profiles.settings(&self.settings, kind));
+                if let Some(overrides) = classic.as_ref().and_then(|a| host.record.app_settings(&a.uuid, a.id)) {
+                    settings = overrides.apply(&settings);
+                }
+                let (w, h, fps, kbps) = stream_mode(&settings, self.display);
+                let profile = self
+                    .profiles
+                    .selected(kind)
+                    .and_then(|id| self.profiles.entries.iter().find(|p| p.id == id))
+                    .map_or("Main settings", |p| p.name.as_str());
+                row(ui, "Stream settings", &format!("{}  \u{b7}  {profile}", console::stream_summary(w, h, fps, kbps)), |ui| {
+                    match &classic {
+                        Some(app) => {
+                            let r = quiet_button(ui, "Game settings");
+                            self.focus_item(&r, "settings", false);
+                            if r.clicked() {
+                                commands.push(Command::AppSettings { host: host_id, app: app.clone() });
+                            }
+                            r
+                        }
+                        None => ui.add_enabled(false, egui::Button::new("Game settings")),
+                    }
+                });
+                if !others.is_empty() {
+                    section(ui, "Also on");
+                    ui.horizontal_wrapped(|ui| {
+                        for copy in &others {
+                            let r = quiet_button(ui, &copy.host_name);
+                            self.focus_item(&r, &format!("copy:{}", copy.host), false);
+                            if r.clicked() {
+                                self.go(Screen::Game { host: copy.host, app: copy.app_id });
+                            }
+                        }
+                    });
+                }
+            });
+        });
     }
 
     fn shortcuts_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
@@ -872,6 +1278,9 @@ impl Launcher {
                 self.go(Screen::Profiles);
                 return;
             }
+            row(ui, "Open on Home", "Start on the games to continue and your library. Off starts on the list of PCs.", |ui| {
+                toggle(ui, &mut self.settings.console_home)
+            });
             row(ui, "Input customization", "Controller mappings, stick dead zones and saved keyboard chords.", |ui| {
                 ui.horizontal(|ui| {
                     if quiet_button(ui, "Controllers").clicked() { commands.push(Command::ControllerSettings); }
@@ -1540,6 +1949,32 @@ impl Launcher {
                         }
                     });
             }
+            Dialog::ConfirmClose { host, name } => {
+                let (host, name) = (*host, name.clone());
+                egui::Modal::new(Id::unique("confirm-close"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new("Close the game on the PC?").font(semibold(22.0)));
+                        ui.label(RichText::new(format!("{name} closes on the PC. Unsaved progress is lost.")).color(ON_SURFACE_VARIANT));
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            let r = primary_button(ui, "Close game");
+                            if focus_first {
+                                r.request_focus();
+                                focused = true;
+                            }
+                            if r.clicked() {
+                                commands.push(Command::CloseGame(host));
+                                close = true;
+                            }
+                            if quiet_button(ui, "Cancel").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
             Dialog::ConfirmQuit { host, start, running } => {
                 let (host, start, running) = (*host, start.clone(), running.clone());
                 egui::Modal::new(Id::unique("confirm-quit"))
@@ -1636,6 +2071,17 @@ fn host_display_name(mode: HostDisplay) -> &'static str {
     }
 }
 
+/// What selecting a PC's card does: open its apps, check again, or pair.
+fn host_clicked(host: &Host, commands: &mut Vec<Command>) {
+    if host.paired() {
+        commands.push(Command::OpenApps(host.id));
+    } else if host.reach == Reach::Offline {
+        commands.push(Command::Refresh(host.id));
+    } else {
+        commands.push(Command::Pair(host.id));
+    }
+}
+
 fn running_name(host: &Host) -> String {
     let Some(running) = host.running_app() else {
         return "the running app".into();
@@ -1707,7 +2153,8 @@ fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui
     out.expect("control drawn")
 }
 
-fn host_card(ui: &mut Ui, host: &Host) -> Response {
+/// A PC's card. `line` replaces the address and GPU line (Home shows what it knows of the games).
+fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, CARD_H), Sense::click());
     let painter = ui.painter_at(rect.expand(6.0));
     let fill = if response.hovered() || response.has_focus() {
@@ -1746,8 +2193,9 @@ fn host_card(ui: &mut Ui, host: &Host) -> Response {
         regular(14.0),
         color,
     );
-    let detail = match host.info.as_ref().and_then(|i| i.gpu_type.clone()) {
-        Some(gpu) if !gpu.is_empty() => format!("{}  ·  {gpu}", host.record.address),
+    let detail = match (line, host.info.as_ref().and_then(|i| i.gpu_type.clone())) {
+        (Some(line), _) => line.to_owned(),
+        (None, Some(gpu)) if !gpu.is_empty() => format!("{}  ·  {gpu}", host.record.address),
         _ => host.record.address.clone(),
     };
     painter.text(
@@ -1761,10 +2209,9 @@ fn host_card(ui: &mut Ui, host: &Host) -> Response {
     response
 }
 
-fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H + 34.0), Sense::click());
-    let image = Rect::from_min_size(rect.min, vec2(POSTER_W, POSTER_H));
-    let painter = ui.painter_at(rect.expand(6.0));
+/// The cover art, or the night surface with the banner's orbits when the PC has none.
+fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, running: bool) {
+    let painter = ui.painter_at(image.expand(6.0));
     match art {
         Some(Art::Ready(texture)) => {
             egui::Image::from_texture((texture.id(), image.size()))
@@ -1772,7 +2219,6 @@ fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response
                 .paint_at(ui, image);
         }
         _ => {
-            // No art from the host: the night surface with the banner's orbits.
             painter.rect_filled(image, CornerRadius::same(10), SURFACE);
             let orbits = ui.painter_at(image.shrink(1.0));
             for r in [70.0, 105.0, 140.0] {
@@ -1792,11 +2238,58 @@ fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response
         painter.rect_filled(badge, CornerRadius::same(12), MOON);
         painter.text(badge.center(), Align2::CENTER_CENTER, "Running", semibold(12.5), ON_MOON);
     }
+}
+
+fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H + 34.0), Sense::click());
+    let image = Rect::from_min_size(rect.min, vec2(POSTER_W, POSTER_H));
+    paint_cover(ui, image, name, art, running);
+    let painter = ui.painter_at(rect.expand(6.0));
     let label_color = if response.has_focus() { MOON } else { ON_SURFACE };
     let galley = painter.layout(name.to_owned(), semibold(14.5), label_color, POSTER_W);
     painter.galley(Pos2::new(rect.left() + 2.0, image.bottom() + 8.0), galley, label_color);
     focus_ring(ui, image, &response, 10);
     response
+}
+
+/// A game to carry on with: title, and where it runs.
+fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, 84.0), Sense::click());
+    let painter = ui.painter_at(rect.expand(6.0));
+    let fill = if response.hovered() || response.has_focus() { SURFACE_HIGH } else { SURFACE };
+    painter.rect_filled(rect, CornerRadius::same(12), fill);
+    let color = if running { MOON } else { TERTIARY };
+    let dot = Pos2::new(rect.left() + 26.0, rect.top() + 28.0);
+    if running {
+        painter.circle_filled(dot, 7.0, color);
+    } else {
+        painter.circle_stroke(dot, 6.0, Stroke::new(2.0, color));
+    }
+    let text = ui.painter_at(rect);
+    let galley = text.layout_no_wrap(title.to_owned(), semibold(18.0), ON_SURFACE);
+    text.galley(Pos2::new(rect.left() + 44.0, rect.top() + 28.0 - galley.size().y / 2.0), galley, ON_SURFACE);
+    text.text(Pos2::new(rect.left() + 20.0, rect.top() + 60.0), Align2::LEFT_CENTER, line, regular(14.0), color);
+    focus_ring(ui, rect, &response, 12);
+    response
+}
+
+/// Asks for a cover when it is on screen and the PC can send it.
+fn request_cover(
+    ui: &Ui,
+    view: &View<'_>,
+    host: u64,
+    app: u32,
+    version: &str,
+    response: &Response,
+    commands: &mut Vec<Command>,
+) {
+    let wanted = view
+        .hosts
+        .get(host)
+        .is_some_and(|h| h.reach == Reach::Online && h.art_wanted(app as i32, version));
+    if wanted && ui.is_rect_visible(response.rect) {
+        commands.push(Command::RequestArt { host, app: app as i32, version: version.to_owned() });
+    }
 }
 
 trait UiExt {
@@ -1806,5 +2299,87 @@ trait UiExt {
 impl UiExt for egui::Image<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         ui.add(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn launcher(console_home: bool, home_ready: bool) -> Launcher {
+        let settings = Settings { console_home, ..Default::default() };
+        let display = Display { width: 1920, height: 1080, refresh_hz: 60.0 };
+        let mut launcher = Launcher::new(settings, Profiles::default(), crate::shortcuts::Shortcuts::default(), display);
+        launcher.home_ready = home_ready;
+        launcher
+    }
+
+    #[test]
+    fn back_returns_to_the_screen_and_the_item_it_left() {
+        let mut l = launcher(true, true);
+        l.go(Screen::Home);
+        l.focused_key = Some("game:steam:570".into());
+        l.open(Screen::Game { host: 1, app: 5 });
+        assert_eq!(l.screen, Screen::Game { host: 1, app: 5 });
+        l.focused_key = Some("play".into());
+        let mut commands = Vec::new();
+        l.back(&mut commands);
+        assert_eq!(l.screen, Screen::Home);
+        assert_eq!(l.restore_key.as_deref(), Some("game:steam:570"));
+        assert!(l.focus_screen, "the first item takes focus if the remembered one is gone");
+        // Home is the end of the line.
+        l.back(&mut commands);
+        assert_eq!(l.screen, Screen::Home);
+    }
+
+    #[test]
+    fn back_ends_on_home_when_it_is_on_and_on_the_pcs_when_it_is_not() {
+        let mut on = launcher(true, true);
+        on.go(Screen::Hosts);
+        on.open(Screen::Apps(1));
+        let mut commands = Vec::new();
+        on.back(&mut commands);
+        assert_eq!(on.screen, Screen::Hosts);
+        on.back(&mut commands);
+        assert_eq!(on.screen, Screen::Home, "the PCs list goes back to Home");
+
+        let mut off = launcher(false, true);
+        off.go(Screen::Hosts);
+        off.open(Screen::Apps(1));
+        off.back(&mut commands);
+        off.back(&mut commands);
+        assert_eq!(off.screen, Screen::Hosts, "Open on Home is off: the PCs are the root");
+
+        let mut empty = launcher(true, false);
+        empty.go(Screen::Hosts);
+        empty.back(&mut commands);
+        assert_eq!(empty.screen, Screen::Hosts, "no library, no Home to go back to");
+    }
+
+    #[test]
+    fn settings_open_once_and_back_leaves_them_where_they_were_opened() {
+        let mut l = launcher(true, true);
+        l.go(Screen::Home);
+        l.open_settings();
+        l.open_settings();
+        l.go(Screen::Profiles); // a settings subpage, reached the usual way
+        l.open_settings();
+        assert_eq!(l.screen, Screen::Settings);
+        assert_eq!(l.trail.len(), 1, "Start inside Settings does not stack screens");
+        let mut commands = Vec::new();
+        l.back(&mut commands);
+        assert_eq!(l.screen, Screen::Home);
+        assert!(commands.iter().any(|c| matches!(c, Command::SaveSettings)), "leaving Settings saves them");
+    }
+
+    #[test]
+    fn a_game_page_for_another_copy_replaces_the_page() {
+        let mut l = launcher(true, true);
+        l.go(Screen::Home);
+        l.open(Screen::Game { host: 1, app: 5 });
+        l.go(Screen::Game { host: 2, app: 9 });
+        let mut commands = Vec::new();
+        l.back(&mut commands);
+        assert_eq!(l.screen, Screen::Home, "one Back, not one per copy");
     }
 }

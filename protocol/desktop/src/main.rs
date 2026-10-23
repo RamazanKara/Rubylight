@@ -9,6 +9,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod config;
+mod console;
 mod controller_audio;
 mod controller_mouse;
 mod gamepad;
@@ -30,6 +31,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use nightjar_core::http::native_api::session::ActionId;
 use nightjar_core::http::ClientIdentity;
 use sdl3_sys::everything::*;
 
@@ -223,7 +225,15 @@ fn run() -> Result<(), String> {
         launcher.tearing_supported
     );
 
-    let hosts = Hosts::new(store.hosts(), waker.clone());
+    let mut hosts = Hosts::new(store.hosts(), waker.clone());
+    hosts.load_cached_libraries(&store);
+    {
+        // Open on Home when it is on and some PC has a library to show.
+        let sources: Vec<console::Source> = hosts.list.iter().map(console::Source::of).collect();
+        if console::opens_on_home(settings.console_home, &sources) {
+            launcher.go(Screen::Home);
+        }
+    }
     let identity = match store.identity() {
         Some(saved) => match ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem) {
             Ok(identity) => {
@@ -317,6 +327,13 @@ impl App {
         }
     }
 
+    /// Drops the saved library of a PC that is unpaired or removed.
+    fn forget_library(&self, host: u64) {
+        if let Some(unique_id) = self.hosts.get(host).map(|h| h.record.unique_id.clone()).filter(|id| !id.is_empty()) {
+            self.store.forget_library(&unique_id);
+        }
+    }
+
     fn save_hosts(&self) {
         if let Err(e) = self.store.save_hosts(&self.hosts.records()) {
             eprintln!("nightjar: saving hosts failed: {e}");
@@ -342,7 +359,7 @@ impl App {
                         SDL_GAMEPAD_BUTTON_START => {
                             if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && self.connecting.is_none() {
                                 if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
-                                self.launcher.go(Screen::Settings);
+                                self.launcher.open_settings();
                             }
                             None
                         }
@@ -496,6 +513,11 @@ impl App {
         if changed {
             self.save_hosts();
         }
+        for (unique_id, library) in self.hosts.take_library_saves() {
+            if let Err(e) = self.store.save_library(&unique_id, &library) {
+                eprintln!("nightjar: saving the library failed: {e}");
+            }
+        }
         for event in events {
             match event {
                 HostEvent::Paired { id, result, .. } => {
@@ -507,7 +529,7 @@ impl App {
                             self.launcher.dialog = Dialog::None;
                             self.save_hosts();
                             self.hosts.load_apps(id);
-                            self.launcher.go(Screen::Apps(id));
+                            self.launcher.open(Screen::Apps(id));
                         }
                         Err(e) => self.launcher.message("Pairing failed", e),
                     }
@@ -529,6 +551,14 @@ impl App {
                     Ok(()) => self.launcher.message("Wake request sent", "The PC should appear online shortly if Wake-on-LAN is enabled."),
                     Err(e) => self.launcher.message("Could not wake the PC", e),
                 },
+                HostEvent::Session { action, result: Err(e), .. } => {
+                    let title = match action {
+                        ActionId::CloseGame => "Could not close the game",
+                        ActionId::End => "Could not end the session",
+                        _ => "The session action failed",
+                    };
+                    self.launcher.message(title, e);
+                }
                 HostEvent::Action { result: Err(e), .. } => self.launcher.message("The PC action failed", e),
                 _ => {}
             }
@@ -540,7 +570,7 @@ impl App {
                 _ => Vec::new(),
             };
             for app in ids {
-                self.hosts.request_art(id, app, &self.store);
+                self.hosts.request_art(id, app, "", &self.store);
             }
         }
         if let Some(c) = &mut self.connecting {
@@ -764,24 +794,35 @@ impl App {
                 None => self.launcher.message("That address is not valid", text),
             },
             Command::Unpair(host) => {
+                self.forget_library(host);
                 self.hosts.unpair(host);
                 self.save_hosts();
             }
             Command::Remove(host) => {
+                self.forget_library(host);
                 self.hosts.remove(host);
                 self.save_hosts();
             }
             Command::Refresh(host) => {
                 self.hosts.poll_one(host);
-                if self.launcher.screen == Screen::Apps(host) {
-                    self.hosts.load_apps(host);
+                match self.launcher.screen {
+                    Screen::Apps(id) if id == host => self.hosts.load_apps(host),
+                    // Play needs the classic app list; a failed one is read again.
+                    Screen::Game { host: id, .. }
+                        if id == host && !matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::Loaded(_))) =>
+                    {
+                        self.hosts.load_apps(host);
+                    }
+                    _ => {}
                 }
             }
+            Command::RequestArt { host, app, version } => self.hosts.request_art(host, app, &version, &self.store),
+            Command::CloseGame(host) => self.hosts.session_action(host, ActionId::CloseGame),
             Command::OpenApps(host) => {
                 if !matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::Loaded(_))) {
                     self.hosts.load_apps(host);
                 }
-                self.launcher.go(Screen::Apps(host));
+                self.launcher.open(Screen::Apps(host));
             }
             Command::SaveSettings => {
                 let s = &self.launcher.settings;

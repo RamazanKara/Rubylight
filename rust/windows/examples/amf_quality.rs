@@ -35,6 +35,9 @@ fn main() -> anyhow::Result<()> {
 --codec hevc (h264/hevc/av1) --width 1920 --height 1080 --fps 120 --bitrate 20000\n\
 --frames N: frames to read from stdin (BGRA, or linear gbrpf32le with --hdr 1)\n\
 --source-width N --source-height N: input size, defaults to the encoded size\n\
+--packing 0|1|2: chroma packing (0 is 4:2:0, 1 and 2 are the packed 4:4:4 layouts)\n\
+--ten-bit 1: 10-bit SDR encode (the input stays BGRA)\n\
+--csc-mode N: SDR matrix and range as encoderCscMode (0 is Rec.601 limited, 2 is Rec.709 limited)\n\
 --config FILE: host settings; --out FILE: bitstream"
             );
             return Ok(());
@@ -63,8 +66,10 @@ fn main() -> anyhow::Result<()> {
         csc_mode: if option("--hdr").is_some_and(|v| v == "1") {
             4
         } else {
-            0
+            number("--csc-mode", 0)?.try_into()?
         },
+        chroma_packing: number("--packing", 0)?.try_into()?,
+        sdr_10bit: option("--ten-bit").is_some_and(|v| v == "1"),
         ..Default::default()
     };
     let frames = number("--frames", 300)?;
@@ -189,6 +194,8 @@ fn main() -> anyhow::Result<()> {
             "frames": frames,
             "encoded_frames": encoded_frames,
             "references": config.references,
+            "packing": config.chroma_packing,
+            "ten_bit": config.sdr_10bit,
             "actual_bitrate_kbps": total_bytes as f64 * 8. * config.fps as f64 / frames as f64 / 1000.,
             "frame_bytes_max": all_sizes.last(),
             "all_frame_bytes_p99": all_sizes.get(all_sizes.len().saturating_sub(1) * 99 / 100),

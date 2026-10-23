@@ -54,36 +54,26 @@ impl Filter {
     }
 
     pub fn draw(&self, parameters: &[u32; 8], area: Option<(u32, u32)>) -> bool {
-        self.draw_batch(&[(self, *parameters, area)])
-    }
-
-    /// Records every step on the first filter's deferred context and submits them as one command
-    /// list. The steps run in order; each one starts from cleared state, so they may read what
-    /// the previous one wrote. All filters must share one device.
-    pub fn draw_batch(&self, steps: &[(&Filter, [u32; 8], Option<(u32, u32)>)]) -> bool {
         unsafe {
-            for (filter, parameters, area) in steps { filter.record(&self.deferred, parameters, *area); }
+            let size = area.unwrap_or(self.size);
+            let c = &self.deferred;
+            c.ClearState();
+            c.UpdateSubresource(self.constants[0].as_ref().unwrap(), 0, None, parameters.as_ptr().cast(), 0, 0);
+            c.OMSetRenderTargets(Some(&self.target), None);
+            c.RSSetViewports(Some(&[D3D11_VIEWPORT { Width: size.0 as f32, Height: size.1 as f32,
+                MinDepth: 0.0, MaxDepth: 1.0, ..Default::default() }]));
+            c.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            c.VSSetShader(&self.vertex, None);
+            c.PSSetShader(&self.fragment, None);
+            c.PSSetShaderResources(0, Some(&self.input));
+            c.PSSetSamplers(0, Some(&self.sampler));
+            c.PSSetConstantBuffers(0, Some(&self.constants));
+            c.Draw(3, 0);
             let mut commands = None;
-            if self.deferred.FinishCommandList(false, Some(&mut commands)).is_err() { return false; }
+            if c.FinishCommandList(false, Some(&mut commands)).is_err() { return false; }
             self.context.ExecuteCommandList(commands.as_ref().unwrap(), true);
             true
         }
-    }
-
-    unsafe fn record(&self, c: &ID3D11DeviceContext, parameters: &[u32; 8], area: Option<(u32, u32)>) {
-        let size = area.unwrap_or(self.size);
-        c.ClearState();
-        c.UpdateSubresource(self.constants[0].as_ref().unwrap(), 0, None, parameters.as_ptr().cast(), 0, 0);
-        c.OMSetRenderTargets(Some(&self.target), None);
-        c.RSSetViewports(Some(&[D3D11_VIEWPORT { Width: size.0 as f32, Height: size.1 as f32,
-            MinDepth: 0.0, MaxDepth: 1.0, ..Default::default() }]));
-        c.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        c.VSSetShader(&self.vertex, None);
-        c.PSSetShader(&self.fragment, None);
-        c.PSSetShaderResources(0, Some(&self.input));
-        c.PSSetSamplers(0, Some(&self.sampler));
-        c.PSSetConstantBuffers(0, Some(&self.constants));
-        c.Draw(3, 0);
     }
 }
 

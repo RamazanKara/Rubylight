@@ -39,10 +39,6 @@ impl Pass {
         (!pass.state.is_null()).then_some(pass)
     }
 
-    /// The Direct3D 11 filter behind this pass, when it has one.
-    #[cfg(windows)]
-    pub(super) fn native(&self) -> Option<&super::d3d11::Filter> { self.native.as_ref() }
-
     pub(super) unsafe fn draw(&self, renderer: *mut SDL_Renderer, input: *mut SDL_Texture, output: *mut SDL_Texture, parameters: &[u32; 8], area: Option<(u32, u32)>) -> bool {
         if !SDL_FlushRenderer(renderer) { return false; }
         #[cfg(windows)]

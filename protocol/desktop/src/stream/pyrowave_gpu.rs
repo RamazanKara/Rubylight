@@ -40,14 +40,11 @@ pub struct Reconstruction {
     /// Tests: upload the frame to both textures, as before the single upload.
     #[cfg(test)]
     upload_both: bool,
-    /// Tests: submit the passes one by one, as before the single command list.
-    #[cfg(test)]
-    sequential: bool,
 }
 
 impl Reconstruction {
     pub fn new(renderer: *mut SDL_Renderer, target: *mut SDL_Texture, parameters: [u32; 8]) -> Option<Self> {
-        let mut result = Self { passes: Vec::new(), textures: [ptr::null_mut(); 2], parameters, #[cfg(test)] upload_both: false, #[cfg(test)] sequential: false };
+        let mut result = Self { passes: Vec::new(), textures: [ptr::null_mut(); 2], parameters, #[cfg(test)] upload_both: false };
         unsafe {
             for texture in &mut result.textures {
                 *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_TEXTUREACCESS_TARGET, parameters[2] as i32, parameters[3] as i32);
@@ -86,32 +83,6 @@ impl Reconstruction {
             }
             stages.add(UPLOAD, step);
             let step = Instant::now();
-            #[cfg(windows)]
-            if let [Some(vertical), Some(horizontal), Some(last)] = [self.passes[0].native(), self.passes[1].native(), self.passes[2].native()] {
-                #[cfg(test)]
-                let batch = !self.sequential;
-                #[cfg(not(test))]
-                let batch = true;
-                if batch {
-                    // One command list for all eleven passes: SDL's queue is flushed once, and the
-                    // driver gets one submission instead of eleven.
-                    if !SDL_FlushRenderer(renderer) { return false; }
-                    let steps: [_; 11] = std::array::from_fn(|index| {
-                        let mut parameters = parameters;
-                        if index == 10 {
-                            parameters[5] = 2;
-                            return (last, parameters, None);
-                        }
-                        let level = 4 - (index / 2) as u32;
-                        parameters[4] = level;
-                        parameters[5] = (index % 2) as u32;
-                        (if index % 2 == 0 { vertical } else { horizontal }, parameters, Some((parameters[2] >> level, parameters[3] >> level)))
-                    });
-                    let ok = vertical.draw_batch(&steps);
-                    stages.add(PASSES, step);
-                    return ok;
-                }
-            }
             for level in (0..5).rev() {
                 parameters[4] = level;
                 for pass in 0..2 {
@@ -202,56 +173,46 @@ mod tests {
         bytes
     }
 
-    /// Draws every fixture with the old way (`legacy` true) and the new way, alternating twice so
-    /// a stale texture from the previous frame would show, and requires identical bytes in the
-    /// target and in the first texture.
-    unsafe fn same_pixels_both_ways(legacy: fn(&mut Reconstruction, bool)) {
-        assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
-        #[cfg(windows)]
-        {
-            SDL_SetHint(SDL_HINT_RENDER_DRIVER, c"direct3d11".as_ptr());
-            SDL_SetHint(SDL_HINT_RENDER_DIRECT3D_THREADSAFE, c"1".as_ptr());
-        }
-        let window = SDL_CreateWindow(c"Wavelet variants".as_ptr(), 132, 98, SDL_WINDOW_HIDDEN);
-        let renderer = crate::sdl::create_renderer(window, true);
-        assert!(!renderer.is_null(), "{}", crate::sdl::error());
-        let cases: [(&[u8], bool, bool); 4] = [
-            (include_bytes!("../../tests/fixtures/pyrowave-420-8.bin"), false, false),
-            (include_bytes!("../../tests/fixtures/pyrowave-444-8.bin"), true, false),
-            (include_bytes!("../../tests/fixtures/pyrowave-420-10.bin"), false, true),
-            (include_bytes!("../../tests/fixtures/pyrowave-444-10.bin"), true, true),
-        ];
-        for (data, full, ten) in cases {
-            let (width, height) = if full { (131, 97) } else { (132, 98) };
-            let mut decoder = super::super::pyrowave::Decoder::new(width, height, full).unwrap();
-            decoder.coefficients(data).unwrap();
-            let frame = decoder.coefficient_frame().unwrap();
-            let target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_TEXTUREACCESS_TARGET, width as i32, height as i32);
-            let mut gpu = Reconstruction::new(renderer, target, [width as u32, height as u32, 160, 128, 0, 0, 5 | (u32::from(ten) << 4) | (u32::from(full) << 5), 1.0f32.to_bits()]).unwrap();
-            let mut pictures = Vec::new();
-            for old in [true, false, true, false] {
-                legacy(&mut gpu, old);
-                assert!(gpu.draw(renderer, target, &frame), "{}", crate::sdl::error());
-                pictures.push((read_back(renderer, target), read_back(renderer, gpu.textures[0])));
-            }
-            assert!(pictures[0].0 == pictures[1].0 && pictures[0].0 == pictures[3].0, "444={full} ten={ten}: target differs from the old way");
-            assert!(pictures[0].1 == pictures[1].1 && pictures[0].1 == pictures[3].1, "444={full} ten={ten}: first texture differs from the old way");
-            drop(gpu);
-            SDL_DestroyTexture(target);
-        }
-        SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit();
-    }
-
     #[test]
     #[ignore = "requires a D3D11 or Vulkan display"]
     fn single_upload_draws_the_same_pixels_as_uploading_both_textures() {
-        unsafe { same_pixels_both_ways(|gpu, old| gpu.upload_both = old) }
-    }
-
-    #[test]
-    #[ignore = "requires a D3D11 or Vulkan display"]
-    fn batched_passes_draw_the_same_pixels_as_sequential_passes() {
-        unsafe { same_pixels_both_ways(|gpu, old| gpu.sequential = old) }
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
+            #[cfg(windows)]
+            {
+                SDL_SetHint(SDL_HINT_RENDER_DRIVER, c"direct3d11".as_ptr());
+                SDL_SetHint(SDL_HINT_RENDER_DIRECT3D_THREADSAFE, c"1".as_ptr());
+            }
+            let window = SDL_CreateWindow(c"Wavelet upload".as_ptr(), 132, 98, SDL_WINDOW_HIDDEN);
+            let renderer = crate::sdl::create_renderer(window, true);
+            assert!(!renderer.is_null(), "{}", crate::sdl::error());
+            let cases: [(&[u8], bool, bool); 4] = [
+                (include_bytes!("../../tests/fixtures/pyrowave-420-8.bin"), false, false),
+                (include_bytes!("../../tests/fixtures/pyrowave-444-8.bin"), true, false),
+                (include_bytes!("../../tests/fixtures/pyrowave-420-10.bin"), false, true),
+                (include_bytes!("../../tests/fixtures/pyrowave-444-10.bin"), true, true),
+            ];
+            for (data, full, ten) in cases {
+                let (width, height) = if full { (131, 97) } else { (132, 98) };
+                let mut decoder = super::super::pyrowave::Decoder::new(width, height, full).unwrap();
+                decoder.coefficients(data).unwrap();
+                let frame = decoder.coefficient_frame().unwrap();
+                let target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_TEXTUREACCESS_TARGET, width as i32, height as i32);
+                let mut gpu = Reconstruction::new(renderer, target, [width as u32, height as u32, 160, 128, 0, 0, 5 | (u32::from(ten) << 4) | (u32::from(full) << 5), 1.0f32.to_bits()]).unwrap();
+                // Draw twice per mode so a stale second texture from the previous frame would show.
+                let mut pictures = Vec::new();
+                for both in [true, false, true, false] {
+                    gpu.upload_both = both;
+                    assert!(gpu.draw(renderer, target, &frame), "{}", crate::sdl::error());
+                    pictures.push((read_back(renderer, target), read_back(renderer, gpu.textures[0])));
+                }
+                assert!(pictures[0].0 == pictures[1].0 && pictures[0].0 == pictures[3].0, "444={full} ten={ten}: target differs with a single upload");
+                assert!(pictures[0].1 == pictures[1].1 && pictures[0].1 == pictures[3].1, "444={full} ten={ten}: first texture differs with a single upload");
+                drop(gpu);
+                SDL_DestroyTexture(target);
+            }
+            SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit();
+        }
     }
 
     #[test]

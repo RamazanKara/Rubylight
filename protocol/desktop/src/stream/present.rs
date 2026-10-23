@@ -69,19 +69,27 @@ pub struct Pending {
 pub struct Pacer {
     pub mode: PacingMode,
     pub clock: PresentClock,
-    pub pending: VecDeque<Pending>,
+    /// Shared with the decoder thread (`Shared::pacer_backlog`): when every GPU plane set is
+    /// held by a picture waiting here, the decoder drops the oldest of them instead of the
+    /// newest frame.
+    pending: std::sync::Arc<std::sync::Mutex<VecDeque<Pending>>>,
 }
 
 impl Pacer {
     /// `min_interval_us`: the display's shortest refresh interval.
+    #[cfg(test)]
     pub fn new(mode: PacingMode, min_interval_us: i64) -> Self {
+        Self::with_backlog(mode, min_interval_us, Default::default())
+    }
+
+    pub fn with_backlog(mode: PacingMode, min_interval_us: i64, pending: std::sync::Arc<std::sync::Mutex<VecDeque<Pending>>>) -> Self {
         Self {
             mode,
             clock: PresentClock::new(ClockSettings {
                 min_interval_us,
                 ..Default::default()
             }),
-            pending: VecDeque::new(),
+            pending,
         }
     }
 
@@ -94,7 +102,7 @@ impl Pacer {
             }
             _ => (decoded.ready_us, 0, false),
         };
-        self.pending.push_back(Pending {
+        super::pipeline::lock(&self.pending).push_back(Pending {
             decoded,
             present_us,
             hold_us,
@@ -104,7 +112,7 @@ impl Pacer {
 
     /// When the next picture is due, if one is waiting.
     pub fn next_due(&self) -> Option<u64> {
-        self.pending.front().map(|p| p.present_us)
+        super::pipeline::lock(&self.pending).front().map(|p| p.present_us)
     }
 
     /// The newest picture due at `now_us`; older due ones are dropped (counted in the
@@ -112,11 +120,12 @@ impl Pacer {
     pub fn take_due(&mut self, now_us: u64) -> (Option<Pending>, u32) {
         let mut chosen = None;
         let mut dropped = 0;
-        while self.pending.front().is_some_and(|p| p.present_us <= now_us) {
+        let mut pending = super::pipeline::lock(&self.pending);
+        while pending.front().is_some_and(|p| p.present_us <= now_us) {
             if chosen.is_some() {
                 dropped += 1;
             }
-            chosen = self.pending.pop_front();
+            chosen = pending.pop_front();
         }
         (chosen, dropped)
     }
@@ -620,7 +629,7 @@ pub fn viewport(picture: (i32, i32), area: (i32, i32), scaling: crate::config::V
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -692,7 +701,7 @@ mod tests {
         assert_eq!(pacing(&settings, true), (PacingMode::Immediate, false));
     }
 
-    fn decoded(ready_us: u64) -> Decoded {
+    pub(crate) fn decoded(ready_us: u64) -> Decoded {
         let mut decoder =
             media::VideoDecoder::open(media::Codec::Hevc, media::Hardware::None, 1, false).unwrap();
         assert_eq!(

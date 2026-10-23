@@ -138,19 +138,26 @@ fn bounds(ten: bool) -> (f32, f64) {
     if ten { (1.0 / 255.0, 0.001) } else { (2.5 / 255.0, 0.0025) }
 }
 
-/// Largest and root-mean-square difference of the colour channels, as encoded 0..1 values.
-fn compare(cpu: &[f32], gpu: &[f32]) -> (f32, f64) {
+/// The most the GPU picture may be brighter or darker than the CPU one on average (encoded RGB):
+/// a quarter of a code. A plane scale that is off (a constant gain) or a rounding that all goes one
+/// way shows here long before it shows in the largest difference.
+const MEAN_LIMIT: f64 = 0.25 / 255.0;
+
+/// Largest, root-mean-square and signed mean (GPU minus CPU) difference of the colour channels, as
+/// encoded 0..1 values.
+fn compare(cpu: &[f32], gpu: &[f32]) -> (f32, f64, f64) {
     assert_eq!(cpu.len(), gpu.len());
-    let (mut max, mut squares, mut n) = (0.0f32, 0.0f64, 0usize);
+    let (mut max, mut squares, mut sum, mut n) = (0.0f32, 0.0f64, 0.0f64, 0usize);
     for (c, g) in cpu.chunks(4).zip(gpu.chunks(4)) {
         for k in 0..3 {
-            let d = (encode(c[k]) - encode(g[k])).abs();
-            max = max.max(d);
-            squares += f64::from(d).powi(2);
+            let signed = encode(g[k]) - encode(c[k]);
+            max = max.max(signed.abs());
+            squares += f64::from(signed).powi(2);
+            sum += f64::from(signed);
             n += 1;
         }
     }
-    (max, (squares / n as f64).sqrt())
+    (max, (squares / n as f64).sqrt(), sum / n as f64)
 }
 
 fn cpu_picture(rig: &Rig, case: &Case, data: &[u8], setup: VideoSetup, hdr: bool) -> Vec<f32> {
@@ -178,10 +185,11 @@ fn the_gpu_picture_matches_the_cpu_picture_on_the_fixtures() {
         let mut gpu = gpu_decoder(&rig, case, 2);
         for range in [0, 1] {
             let setup = setup(case.width, case.height, case.full, case.ten, range);
-            let (max, rms) = compare(&cpu_picture(&rig, case, case.bin, setup, false), &gpu_picture(&rig, &mut gpu, case.bin, setup, false));
-            println!("fixture {n} ({}x{} 444={} 10-bit={} range={range}): max {:.5} ({:.2} codes), rms {rms:.6} (encoded RGB, GPU against CPU)", case.width, case.height, case.full, case.ten, max, max * 255.0);
+            let (max, rms, mean) = compare(&cpu_picture(&rig, case, case.bin, setup, false), &gpu_picture(&rig, &mut gpu, case.bin, setup, false));
+            println!("fixture {n} ({}x{} 444={} 10-bit={} range={range}): max {:.5} ({:.2} codes), rms {rms:.6}, mean {:+.2e} (encoded RGB, GPU against CPU)", case.width, case.height, case.full, case.ten, max, max * 255.0, mean);
             let (limit, rms_limit) = bounds(case.ten);
             assert!(max < limit && rms < rms_limit, "fixture {n} range {range}: GPU picture differs from the CPU picture: max {max} (limit {limit}), rms {rms} (limit {rms_limit})");
+            assert!(mean.abs() < MEAN_LIMIT, "fixture {n} range {range}: the GPU picture is {mean:+.2e} off the CPU picture on average (limit {MEAN_LIMIT:.2e})");
         }
     }
 }
@@ -200,6 +208,7 @@ fn the_gpu_picture_matches_the_cpu_picture_on_dumped_real_frames() {
     let mut cpu = Pyrowave::cpu(width, height, full).unwrap();
     let setup = setup(width, height, full, false, 0);
     let mut worst = (0.0f32, 0.0f64);
+    let mut means = 0.0f64;
     let mut cpu_texture = VideoTexture::default();
     let mut gpu_texture = VideoTexture::default();
     for (n, (w, h, f, data)) in frames.iter().enumerate().take(24) {
@@ -208,11 +217,14 @@ fn the_gpu_picture_matches_the_cpu_picture_on_dumped_real_frames() {
         let gpu_out = gpu.frame(data, &mut || false).unwrap();
         let a = present(&rig, &mut cpu_texture, &decoded(cpu_out, setup));
         let b = present(&rig, &mut gpu_texture, &decoded(gpu_out, setup));
-        let (max, rms) = compare(&a, &b);
-        if n % 6 == 0 { println!("frame {n}: max {:.5} ({:.2} codes), rms {rms:.6}", max, max * 255.0); }
+        let (max, rms, mean) = compare(&a, &b);
+        if n % 6 == 0 { println!("frame {n}: max {:.5} ({:.2} codes), rms {rms:.6}, mean {mean:+.2e}", max, max * 255.0); }
         worst = (worst.0.max(max), worst.1.max(rms));
+        means += mean;
     }
     println!("{} real frames {width}x{height} 444={full}: worst max {:.5} ({:.2} codes), worst rms {:.6}", frames.len().min(24), worst.0, worst.0 * 255.0, worst.1);
+    let mean = means / frames.len().min(24) as f64;
+    assert!(mean.abs() < MEAN_LIMIT, "the GPU pictures are {mean:+.2e} off the CPU pictures on average over real frames (limit {MEAN_LIMIT:.2e})");
     let (limit, rms_limit) = bounds(false);
     assert!(worst.0 < limit && worst.1 < rms_limit, "GPU picture differs from the CPU picture on real frames: max {} (limit {limit}), rms {} (limit {rms_limit})", worst.0, worst.1);
 }
@@ -230,7 +242,7 @@ fn frame_picture(rig: &Rig, gpu: &mut Pyrowave, packets: &[(u32, Vec<u8>)], earl
         for (i, (flags, payload)) in packets.iter().enumerate() { gpu.chunk(i == 0, *flags, payload); }
     }
     let output = gpu.frame(&envelope(packets), &mut || false).unwrap_or_else(|e| panic!("GPU decode: {e:?}"));
-    let source = output.source;
+    let source = gpu.source();
     let setup = setup(case.width, case.height, case.full, case.ten, 0);
     let mut texture = VideoTexture::default();
     texture.set_hdr_mode(false, None);
@@ -358,4 +370,141 @@ fn a_decode_that_never_finishes_is_a_loud_presenter_error() {
     let failure = texture.failure.take().expect("the presenter says why");
     assert!(failure.contains("PyroWave GPU decoding failed"), "{failure}");
     assert!(started.elapsed() < std::time::Duration::from_secs(5), "the wait has a deadline");
+}
+
+/// The codes of plane `plane` as the SDK wrote them (R16 UNORM), read back through a staging copy
+/// once the decode is done.
+fn read_plane16(rig: &Rig, gpu: &Pyrowave, lease: &crate::stream::gpu_planes::Lease, fence_value: u64, plane: usize) -> (usize, usize, Vec<u16>) {
+    use windows::Win32::Graphics::Direct3D11::*;
+    let Pyrowave::Gpu(stream) = gpu else { unreachable!() };
+    stream.gpu.wait(fence_value, std::time::Duration::from_secs(5)).expect("the decode finishes");
+    let device = rig.device();
+    // SAFETY: Plain D3D11 calls on live objects; the mapped rows are read before `Unmap`.
+    unsafe {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        lease.textures()[plane].GetDesc(&mut desc);
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+        desc.MiscFlags = 0;
+        let mut staging = None;
+        device.CreateTexture2D(&desc, None, Some(&mut staging)).unwrap();
+        let staging = staging.unwrap();
+        let context = device.GetImmediateContext().unwrap();
+        context.cast::<ID3D11DeviceContext4>().unwrap().Wait(lease.decode_fence(), fence_value).unwrap();
+        context.CopyResource(&staging, &lease.textures()[plane]);
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).unwrap();
+        let (width, height) = (desc.Width as usize, desc.Height as usize);
+        let mut codes = Vec::with_capacity(width * height);
+        for y in 0..height {
+            codes.extend_from_slice(std::slice::from_raw_parts((mapped.pData as *const u8).add(y * mapped.RowPitch as usize).cast::<u16>(), width));
+        }
+        context.Unmap(&staging, 0);
+        (width, height, codes)
+    }
+}
+
+#[test]
+#[ignore = "needs the PyroWave SDK, a GPU and a display"]
+fn ten_bit_planes_are_unorm16_of_the_code_over_1023_not_the_code_shifted() {
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    for which in [1, 3] {
+        let case = fixture_case(which);
+        assert!(case.ten);
+        let mut gpu = gpu_decoder(&rig, &case, 2);
+        let output = gpu.frame(case.bin, &mut || false).unwrap();
+        let Picture::GpuPlanes { lease, fence_value } = &output.picture else { panic!("a plane picture") };
+        let mut cpu = Decoder::new(case.width, case.height, case.full).unwrap();
+        cpu.decode(case.bin).unwrap();
+        // The luma plane: the SDK's UNORM16 value is the CPU decoder's sample (code/1023 in 0..1).
+        let (width, height, planes) = read_plane16(&rig, &gpu, lease, *fence_value, 0);
+        assert!(width >= case.width && height >= case.height);
+        let (mut sum, mut worst, mut n, mut top) = (0.0f64, 0.0f64, 0usize, 0.0f64);
+        for y in 0..case.height {
+            for x in 0..case.width {
+                let sdk_code = f64::from(planes[y * width + x]) / 65535.0 * 1023.0;
+                let cpu_code = f64::from(cpu.sample(0, x, y)) * 1023.0;
+                sum += sdk_code - cpu_code;
+                worst = worst.max((sdk_code - cpu_code).abs());
+                top = top.max(sdk_code);
+                n += 1;
+            }
+        }
+        let mean = sum / n as f64;
+        println!("fixture {which}: luma codes, SDK minus CPU decoder: mean {mean:+.3}, worst {worst:.3}, brightest {top:.1}");
+        // Shifting the code left by six instead (code * 64 of 65535) would be 0.1 % darker: half a
+        // code on average over these ramps, and a missing code at the top.
+        assert!(mean.abs() < 0.15, "fixture {which}: the SDK's luma is {mean:+.3} codes off the CPU decoder's on average");
+        assert!(worst < 1.6, "fixture {which}: worst luma difference {worst:.3} codes");
+        assert!(top > 1000.0, "fixture {which}: the fixture should reach the top of the range (brightest {top:.1})");
+    }
+}
+
+#[test]
+#[ignore = "needs the PyroWave SDK, a GPU and a display"]
+fn a_pacer_backlog_never_starves_the_decoder() {
+    use crate::stream::pipeline::Shared;
+    use crate::stream::present::Pending;
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    let case = fixture_case(0);
+    let data = envelope(&arrived(&host_packets(&bitstream(case.bin)), &[]));
+    let setup = setup(case.width, case.height, case.full, case.ten, 0);
+    let mut gpu = gpu_decoder(&rig, &case, 2);
+    let shared = Shared::new(std::sync::Arc::new(|| {}), 8);
+    // HostTimes: the presenter's queue is empty and both plane sets wait in the pacer.
+    for n in 0..2 {
+        let output = gpu.frame(&data, &mut || false).unwrap();
+        crate::stream::pipeline::lock(&shared.pacer_backlog).push_back(Pending { decoded: decoded(output, setup), present_us: n, hold_us: 0, late: false });
+    }
+    assert!(crate::stream::pipeline::lock(&shared.frames).is_empty());
+    let output = gpu.frame(&data, &mut || shared.evict_oldest()).unwrap_or_else(|e| panic!("the backlog starved the decoder: {e:?}"));
+    let left: Vec<u64> = crate::stream::pipeline::lock(&shared.pacer_backlog).iter().map(|p| p.present_us).collect();
+    assert_eq!(left, [1], "the oldest queued picture went");
+    drop(output);
+}
+
+#[test]
+#[ignore = "needs the PyroWave SDK, a GPU and a display"]
+fn a_failed_signal_still_gives_the_plane_set_back() {
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    let case = fixture_case(0);
+    let data = envelope(&arrived(&host_packets(&bitstream(case.bin)), &[]));
+    let mut gpu = gpu_decoder(&rig, &case, 2);
+    let Pyrowave::Gpu(stream) = &gpu else { unreachable!() };
+    let planes = stream.planes().clone();
+    let output = gpu.frame(&data, &mut || false).unwrap();
+    let Picture::GpuPlanes { lease, .. } = &output.picture else { panic!("a plane picture") };
+    assert_eq!(planes.free_count(), 1);
+    let value = planes.next_reuse_value();
+    let result = crate::stream::d3d11::hand_back(lease, value, || Err("cannot release the PyroWave planes: device removed".into()));
+    assert!(result.unwrap_err().contains("device removed"), "the error still reaches the caller");
+    assert_eq!(planes.free_count(), 2, "the set is not held by a failed draw");
+    drop(output);
+    assert_eq!(planes.free_count(), 2, "and it is not given back twice");
+}
+
+#[test]
+#[ignore = "needs the PyroWave SDK, a GPU and a display"]
+fn a_new_decoders_first_draw_lets_go_of_the_old_decoders_planes() {
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    let case = fixture_case(0);
+    let data = envelope(&arrived(&host_packets(&bitstream(case.bin)), &[]));
+    let setup = setup(case.width, case.height, case.full, case.ten, 0);
+    let mut texture = VideoTexture::default();
+    texture.set_hdr_mode(false, None);
+    let mut first = gpu_decoder(&rig, &case, 2);
+    let Pyrowave::Gpu(stream) = &first else { unreachable!() };
+    let old = stream.planes().clone();
+    present(&rig, &mut texture, &decoded(first.frame(&data, &mut || false).unwrap(), setup));
+    assert_eq!(std::sync::Arc::strong_count(&old), 3, "the decoder, this test and the pass that drew from it");
+    // The same picture format again, from a new decoder (a restarted stream): the pass keeps its
+    // shader state but must not keep the old sets alive.
+    let mut second = gpu_decoder(&rig, &case, 2);
+    present(&rig, &mut texture, &decoded(second.frame(&data, &mut || false).unwrap(), setup));
+    assert_eq!(std::sync::Arc::strong_count(&old), 2, "only the decoder and this test hold the old sets now");
 }

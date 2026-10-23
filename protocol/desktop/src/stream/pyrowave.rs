@@ -183,6 +183,7 @@ impl Decoder {
     }
 
     pub fn coefficients(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        self.source = Source::Frame;
         let early = std::mem::replace(&mut self.early, Early::Off);
         let missed_start = std::mem::take(&mut self.missed_start);
         if early == Early::Off { self.stages.get_mut().reset(); }
@@ -442,7 +443,6 @@ pub fn minimum_bitrate(width: u32, height: u32, fps: u32, chroma444: bool, hdr: 
 /// One reconstructed frame, ready for the presenter.
 pub struct Output {
     pub picture: Picture,
-    pub source: Source,
     pub loss_percent: f32,
     pub first_block_us: u64,
 }
@@ -482,6 +482,16 @@ impl Pyrowave {
         }
     }
 
+    /// Where the picture of the last `frame` came from, also after a frame that failed (the
+    /// early and fallback counters count those too).
+    pub fn source(&self) -> Source {
+        match self {
+            Self::Cpu(decoder) => decoder.source,
+            #[cfg(windows)]
+            Self::Gpu(stream) => stream.source,
+        }
+    }
+
     /// Reconstructs the frame. `evict` drops the oldest picture still queued for the presenter
     /// and says whether there was one; the GPU decoder calls it while no plane set is free.
     pub fn frame(&mut self, data: &[u8], evict: &mut dyn FnMut() -> bool) -> Result<Output, Failure> {
@@ -489,7 +499,7 @@ impl Pyrowave {
             Self::Cpu(decoder) => {
                 decoder.coefficients(data).map_err(|e| Failure::Frame(e.into()))?;
                 let frame = decoder.coefficient_frame().map_err(Failure::Frame)?;
-                Ok(Output { picture: Picture::Frame(frame), source: decoder.source, loss_percent: decoder.loss_percent, first_block_us: decoder.first_block_us })
+                Ok(Output { picture: Picture::Frame(frame), loss_percent: decoder.loss_percent, first_block_us: decoder.first_block_us })
             }
             #[cfg(windows)]
             Self::Gpu(stream) => stream.frame(data, evict),
@@ -522,6 +532,20 @@ const GPU_WAIT: usize = 3;
 #[cfg(windows)]
 const HEADER_BIT: u32 = 0x8000_0000;
 
+/// Gives one record to the SDK; false if it is a sequence header for another picture than the
+/// one negotiated (the CPU path's check, `Decoder::coefficients`) or the SDK refuses it.
+#[cfg(windows)]
+fn push_checked(gpu: &mut GpuDecoder, packet: &[u8]) -> bool {
+    if word(packet, 0) & HEADER_BIT != 0 {
+        let (first, second, config) = (word(packet, 0), word(packet, 4), gpu.config());
+        if (first as usize & 0x3fff) + 1 != config.width as usize || ((first >> 14) as usize & 0x3fff) + 1 != config.height as usize
+            || (second >> 24) & 3 != 0 || (second & (1 << 26) != 0) != config.chroma444 {
+            return false;
+        }
+    }
+    gpu.push_packet(packet).is_ok()
+}
+
 /// PyroWave frames decoded by the SDK on the GPU into shared D3D11 planes. The records go to
 /// the SDK as they complete (early decode) or when the frame does; the SDK runs the entropy
 /// decoding and the inverse wavelets, and the presenter converts the planes to RGB.
@@ -536,6 +560,8 @@ pub struct GpuStream {
     first_block_us: u64,
     /// The records already given to the SDK for the frame in flight, by block index.
     pushed: std::collections::HashSet<u32>,
+    /// Where the last frame's records came from (`Pyrowave::source`).
+    source: Source,
     stages: Stages<4>,
 }
 
@@ -558,6 +584,7 @@ impl GpuStream {
             early_bytes: 0,
             first_block_us: 0,
             pushed: std::collections::HashSet::new(),
+            source: Source::Frame,
             stages: Stages::new(GPU_STAGE_NAMES),
         }
     }
@@ -591,7 +618,7 @@ impl GpuStream {
         let mut failed = false;
         records.drain_new(|index, record| {
             if failed { return; }
-            if gpu.push_packet(record).is_err() { failed = true; return; }
+            if !push_checked(gpu, record) { failed = true; return; }
             pushed.insert(index);
         });
         if failed { self.early = Early::Failed; }
@@ -623,7 +650,7 @@ impl GpuStream {
                 let step = Instant::now();
                 let Self { records, gpu, pushed, .. } = self;
                 finished = records.finish_frame(|packet| {
-                    if word(packet, 0) & HEADER_BIT != 0 || !pushed.contains(&(word(packet, 4) >> 8)) { gpu.push_packet(packet).is_ok() } else { true }
+                    if word(packet, 0) & HEADER_BIT != 0 || !pushed.contains(&(word(packet, 4) >> 8)) { push_checked(gpu, packet) } else { true }
                 });
                 self.stages.add(GPU_PUSH, step);
             }
@@ -631,14 +658,15 @@ impl GpuStream {
         } else if missed_start {
             source = Source::Fallback;
         }
+        self.source = source;
         if !finished {
             let step = Instant::now();
             self.gpu.clear();
             let Self { records, gpu, .. } = self;
-            let push = |packet: &[u8]| gpu.push_packet(packet).is_ok();
+            let push = |packet: &[u8]| push_checked(gpu, packet);
             let valid = if records_envelope { records.push_frame(data, push) } else { push_container(data, push) };
             self.stages.add(GPU_PUSH, step);
-            if !valid { return Err(Failure::Frame("Malformed PyroWave frame container".into())); }
+            if !valid { return Err(Failure::Frame("Malformed PyroWave frame container, or a sequence that does not match the negotiated picture".into())); }
         }
         let loss_percent = if records_envelope { self.records.loss_percent } else { 0.0 };
         if !self.gpu.is_ready(true) {
@@ -652,7 +680,7 @@ impl GpuStream {
         self.stages.add(GPU_WAIT, step);
         self.stages.commit();
         let first_block_us = if source == Source::Early { self.first_block_us } else { 0 };
-        Ok(Output { picture: Picture::GpuPlanes { lease, fence_value }, source, loss_percent, first_block_us })
+        Ok(Output { picture: Picture::GpuPlanes { lease, fence_value }, loss_percent, first_block_us })
     }
 
     pub fn stage_summary(&self) -> Option<String> {

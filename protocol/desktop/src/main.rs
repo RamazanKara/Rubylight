@@ -228,6 +228,10 @@ fn run() -> Result<(), String> {
     {
         launcher.tearing_supported = true;
     }
+    if cfg!(windows) && sdl::renderer_name(renderer) == "direct3d11" {
+        let device = sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
+        launcher.gpu_device = (!device.is_null()).then_some(stream::pipeline::GpuDevice(device));
+    }
     eprintln!(
         "nightjar: renderer {}, display {}x{} at {:.2} Hz, tearing {}",
         sdl::renderer_name(renderer),

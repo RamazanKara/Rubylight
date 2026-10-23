@@ -91,6 +91,8 @@ pub struct Shared {
     pub decode_window: Mutex<DecodeWindow>,
     pub host_client: Mutex<Option<Arc<nightjar_core::http::HostClient>>>,
     pub frames: Mutex<VecDeque<Decoded>>,
+    /// The pacer's queue (`Pacer::with_backlog`), reachable from the decoder thread for `evict_oldest`.
+    pub pacer_backlog: Arc<Mutex<VecDeque<super::present::Pending>>>,
     pub notices: Mutex<Vec<Notice>>,
     pub decoder_name: Mutex<String>,
     pub controller_audio: Mutex<Vec<std::sync::Weak<Mutex<crate::controller_audio::Playback>>>>,
@@ -118,6 +120,7 @@ impl Shared {
             decode_window: Mutex::new(DecodeWindow::default()),
             host_client: Mutex::new(None),
             frames: Mutex::new(VecDeque::new()),
+            pacer_backlog: Default::default(),
             notices: Mutex::new(Vec::new()),
             decoder_name: Mutex::new(String::new()),
             controller_audio: Mutex::new(Vec::new()),
@@ -125,6 +128,30 @@ impl Shared {
             queue_limit,
             waker,
         })
+    }
+
+    /// Frees a GPU plane set when the decoder has none: the oldest picture still queued for the
+    /// presenter goes, first from `frames`, then from the pacer (which, scheduling by host
+    /// times, can hold many pictures that are not due yet). The frame being decoded is not queued yet,
+    /// so it is never the one dropped. True if a picture was dropped.
+    pub fn evict_oldest(&self) -> bool {
+        let dropped = lock(&self.frames).pop_front().is_some() || lock(&self.pacer_backlog).pop_front().is_some();
+        if dropped { self.counters.replaced.fetch_add(1, Ordering::Relaxed); }
+        dropped
+    }
+
+    /// Counts how the frame's blocks were decoded (see `Decoded::early`); returns the `early` code.
+    fn count_source(&self, source: super::pyrowave::Source) -> u8 {
+        match source {
+            super::pyrowave::Source::Frame => 0,
+            super::pyrowave::Source::Early => { self.counters.early_frames.fetch_add(1, Ordering::Relaxed); 1 }
+            super::pyrowave::Source::Fallback => {
+                if self.counters.early_fallbacks.fetch_add(1, Ordering::Relaxed) == 0 {
+                    eprintln!("nightjar: PyroWave: early chunks did not match the frame, decoding it whole (counted, not repeated)");
+                }
+                2
+            }
+        }
     }
 
     pub fn notify(&self, notice: Notice) {
@@ -334,25 +361,14 @@ impl VideoDecoder for Decoder {
             if self.dump.is_some() { self.dump_envelope(&setup, frame.data()); }
             let Some(decoder) = self.pyrowave.as_mut() else { return DecodeStatus::Ok };
             let shared = self.shared.clone();
-            // The presenter's queue holds plane sets: when none is free the oldest picture goes.
-            let mut evict = || {
-                let dropped = lock(&shared.frames).pop_front();
-                if dropped.is_some() { shared.counters.replaced.fetch_add(1, Ordering::Relaxed); }
-                dropped.is_some()
-            };
-            let output = match decoder.frame(frame.data(), &mut evict) {
+            // The presenter's queue and the pacer hold plane sets: when none is free the oldest picture goes.
+            let mut evict = || shared.evict_oldest();
+            let result = decoder.frame(frame.data(), &mut evict);
+            // Counted for frames that failed too, as before the GPU decoder.
+            let early = self.shared.count_source(decoder.source());
+            let output = match result {
                 Ok(output) => output,
                 Err(failure) => return self.failed(failure),
-            };
-            let early = match output.source {
-                super::pyrowave::Source::Frame => 0,
-                super::pyrowave::Source::Early => { self.shared.counters.early_frames.fetch_add(1, Ordering::Relaxed); 1 }
-                super::pyrowave::Source::Fallback => {
-                    if self.shared.counters.early_fallbacks.fetch_add(1, Ordering::Relaxed) == 0 {
-                        eprintln!("nightjar: PyroWave: early chunks did not match the frame, decoding it whole (counted, not repeated)");
-                    }
-                    2
-                }
             };
             let ready_us = session::now_us();
             let counters = &self.shared.counters;
@@ -634,6 +650,41 @@ mod tests {
         assert_eq!(shared.counters.decode_errors.load(Ordering::Relaxed), 1);
         assert_eq!(shared.counters.replaced.load(Ordering::Relaxed), 2);
         assert!(notices(&shared).is_empty(), "only a broken GPU decoder ends the stream");
+    }
+
+    #[test]
+    fn early_and_fallback_frames_are_counted_whatever_the_frame_result() {
+        // `submit` counts before it looks at the result, so a frame that failed after its blocks
+        // were decoded early (or whole, after a mismatch) still shows in the counters, as in the
+        // CPU path before the GPU decoder existed.
+        use super::super::pyrowave::Source;
+        let (_, shared) = decoder();
+        assert_eq!(shared.count_source(Source::Early), 1);
+        assert_eq!(shared.count_source(Source::Fallback), 2);
+        assert_eq!(shared.count_source(Source::Fallback), 2);
+        assert_eq!(shared.count_source(Source::Frame), 0);
+        assert_eq!(shared.counters.early_frames.load(Ordering::Relaxed), 1);
+        assert_eq!(shared.counters.early_fallbacks.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn evicting_drops_queued_pictures_oldest_first_then_the_pacers_so_the_decoder_is_never_starved() {
+        use super::super::present::{tests::decoded, Pending};
+        let (_, shared) = decoder();
+        let pending = |present_us| Pending { decoded: decoded(present_us), present_us, hold_us: 0, late: false };
+        assert!(!shared.evict_oldest(), "nothing queued: the caller reports NoPlanes");
+        // HostTimes: the presenter's queue is empty and the pacer holds every picture.
+        lock(&shared.pacer_backlog).extend([pending(1), pending(2), pending(3)]);
+        lock(&shared.frames).push_back(decoded(10));
+        assert!(shared.evict_oldest(), "the presenter's queue goes first");
+        assert!(lock(&shared.frames).is_empty());
+        assert_eq!(lock(&shared.pacer_backlog).len(), 3);
+        assert!(shared.evict_oldest() && shared.evict_oldest());
+        let left: Vec<u64> = lock(&shared.pacer_backlog).iter().map(|p| p.present_us).collect();
+        assert_eq!(left, [3], "the oldest pacer pictures went, the newest stays");
+        assert_eq!(shared.counters.replaced.load(Ordering::Relaxed), 3);
+        // Even the last queued picture is older than the frame being decoded, so it may go.
+        assert!(shared.evict_oldest() && !shared.evict_oldest());
     }
 
     #[test]

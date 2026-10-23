@@ -246,6 +246,8 @@ pub struct Launcher {
     header_width: f32,
     /// The display's tearing support, for the VRR setting's note.
     pub tearing_supported: bool,
+    /// The renderer's Direct3D 11 device, which the PyroWave GPU decoder's settings probe runs on.
+    pub gpu_device: Option<crate::stream::pipeline::GpuDevice>,
     pub display: Display,
     pub identity_ready: bool,
     /// The system's preferred languages, for the Language setting's default.
@@ -397,6 +399,7 @@ impl Launcher {
             home_ready: false,
             header_width: 0.0,
             tearing_supported: false,
+            gpu_device: None,
             display,
             identity_ready: false,
             system_languages: Vec::new(),
@@ -1699,15 +1702,19 @@ impl Launcher {
                     ui.add(egui::DragValue::new(&mut s.quality_min_fps).range(15..=240).suffix(" fps"))
                 });
             }
-            // The GPU decoder's probe runs once in the background; PyroWave is not offered while it
-            // fails, and the reason is shown with the decoder setting.
-            let gpu_decoder_error = if s.pyrowave_decoder == crate::config::PyroWaveDecoder::Gpu {
-                let probe = crate::stream::pyrowave_mode::settings_probe();
+            // The GPU decoder's probe runs in the background, on the renderer's adapter and the HDR
+            // plane format, and only when it matters: PyroWave is selected or the codec menu is
+            // open. PyroWave is not offered while it fails, and the reason is shown with the
+            // decoder setting.
+            let probe_device = self.gpu_device.map_or(std::ptr::null_mut(), |d| d.0);
+            let (gpu_mode, ten_bit) = (s.pyrowave_decoder == crate::config::PyroWaveDecoder::Gpu, s.hdr);
+            let gpu_probe = move |ui: &Ui| {
+                if !gpu_mode { return None; }
+                let probe = crate::stream::pyrowave_mode::settings_probe(probe_device, ten_bit);
                 if probe.is_none() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(200)); }
                 probe.and_then(Result::err)
-            } else {
-                None
             };
+            let gpu_decoder_error = if s.codec.is_pyrowave() { gpu_probe(ui) } else { None };
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["codec"], "Codec", "Automatic picks HEVC, then H.264. PyroWave needs GPU rendering; restart after selecting it on Linux.", |ui, s| {
                 egui::ComboBox::from_id_salt("codec")
                     .selected_text(match s.codec {
@@ -1723,7 +1730,8 @@ impl Launcher {
                         ui.selectable_value(&mut s.codec, CodecPreference::H264, "H.264");
                         ui.selectable_value(&mut s.codec, CodecPreference::Hevc, "HEVC");
                         ui.selectable_value(&mut s.codec, CodecPreference::Av1, "AV1");
-                        if gpu_decoder_error.is_none() {
+                        let menu_error = gpu_probe(ui);
+                        if menu_error.is_none() {
                             ui.selectable_value(&mut s.codec, CodecPreference::PyroWave, "PyroWave 4:2:0");
                             ui.selectable_value(&mut s.codec, CodecPreference::PyroWave444, "PyroWave 4:4:4");
                         }
@@ -3447,6 +3455,23 @@ mod tests {
         let upper: Vec<String> = SETTINGS_SECTIONS.iter().map(|s| s.to_uppercase()).collect();
         let headings: Vec<&String> = f.drawn.iter().filter(|t| upper.contains(t)).collect();
         assert_eq!(headings, upper.iter().collect::<Vec<_>>(), "and the page has them in the same order");
+    }
+
+    #[test]
+    fn the_pyrowave_gpu_probe_starts_only_with_pyrowave_selected_or_the_codec_menu_open() {
+        use crate::config::{CodecPreference, PyroWaveDecoder};
+        let started = || crate::stream::pyrowave_mode::settings_probe_started(true);
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        f.size = vec2(1280.0, 12000.0);
+        f.l.settings.hdr = true;
+        f.l.settings.pyrowave_decoder = PyroWaveDecoder::Gpu;
+        f.l.settings.codec = CodecPreference::Hevc;
+        f.l.go(Screen::Settings);
+        f.settle();
+        assert!(!started(), "an ordinary settings view does not probe");
+        f.l.settings.codec = CodecPreference::PyroWave;
+        f.settle();
+        assert!(started(), "PyroWave selected probes, with the HDR plane format");
     }
 
     /// A 1280x720 window at 150 % zoom is 853x480 points. Everything drawn must stay inside it

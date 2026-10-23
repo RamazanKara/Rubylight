@@ -36,33 +36,41 @@ pub fn gpu_probe(_device: *mut std::ffi::c_void, _ten_bit: bool) -> Result<(), S
     Err("PyroWave GPU decoding needs Windows".to_owned())
 }
 
-/// `gpu_probe` for settings screens, which have no renderer: on the default adapter, run once on a
-/// thread of its own (it loads the DLL and builds a Vulkan device). None while it runs.
-pub fn settings_probe() -> Option<Result<(), String>> {
-    static STATE: std::sync::Mutex<Option<Option<Result<(), String>>>> = std::sync::Mutex::new(None);
-    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-    match state.as_ref() {
-        Some(done) => done.clone(),
-        None => {
-            *state = Some(None);
-            std::thread::spawn(|| {
-                let result = default_probe();
-                *STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Some(result));
-            });
-            None
-        }
+type ProbeState = std::sync::Mutex<Vec<(bool, Option<Result<(), String>>)>>;
+
+fn settings_probe_state() -> &'static ProbeState {
+    static STATE: ProbeState = std::sync::Mutex::new(Vec::new());
+    &STATE
+}
+
+/// `gpu_probe` for settings screens, on the renderer's device (so its adapter's LUID) and the plane
+/// format the stream would use (`ten_bit` is the HDR setting). It loads the DLL and builds a Vulkan
+/// device, so it runs once per format on a thread of its own and the result is remembered. None
+/// while it runs. `device` is the renderer's, which outlives the process's settings screens.
+pub fn settings_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Option<Result<(), String>> {
+    struct Raw(*mut std::ffi::c_void);
+    // SAFETY: D3D11 devices are free-threaded and the renderer outlives the probe thread's use.
+    unsafe impl Send for Raw {}
+    let mut state = settings_probe_state().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, done)) = state.iter().find(|(key, _)| *key == ten_bit) {
+        return done.clone();
     }
+    state.push((ten_bit, None));
+    let device = Raw(device);
+    std::thread::spawn(move || {
+        let device = device;
+        let result = gpu_probe(device.0, ten_bit);
+        let mut state = settings_probe_state().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = state.iter_mut().find(|(key, _)| *key == ten_bit) { entry.1 = Some(result); }
+    });
+    None
 }
 
-#[cfg(windows)]
-fn default_probe() -> Result<(), String> {
-    super::pyrowave_sdk::probe(None, false)?;
-    super::d3d11::PlanesPass::compiles()
-}
-
-#[cfg(not(windows))]
-fn default_probe() -> Result<(), String> {
-    gpu_probe(std::ptr::null_mut(), false)
+/// Whether `settings_probe` has been asked for `ten_bit` yet (tests: settings views that do not
+/// need the probe must not start it).
+#[cfg(test)]
+pub fn settings_probe_started(ten_bit: bool) -> bool {
+    settings_probe_state().lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(key, _)| *key == ten_bit)
 }
 
 #[cfg(test)]
@@ -82,6 +90,25 @@ mod tests {
         let result = availability(PyroWaveDecoder::Gpu, || panic!("gpu mode never falls back to the CPU decoder"), || Err("no Vulkan device for this adapter".into()));
         assert_eq!(result, Err("no Vulkan device for this adapter".to_owned()));
         assert_eq!(availability(PyroWaveDecoder::Gpu, || panic!("not in gpu mode"), || Ok(())), Ok(()));
+    }
+
+    #[test]
+    fn the_settings_probe_is_remembered_and_fails_loudly_without_a_renderer_device() {
+        // A null device is "no Direct3D 11 renderer": the answer is that reason, never the default
+        // adapter's. (The settings screen tests own the 10-bit key.)
+        let done = (0..500).find_map(|_| {
+            settings_probe(std::ptr::null_mut(), false).or_else(|| {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                None
+            })
+        });
+        let done = done.expect("the settings probe never finished");
+        assert!(done.clone().is_err());
+        if cfg!(windows) {
+            assert!(done.clone().unwrap_err().contains("Direct3D 11 renderer"));
+        }
+        assert!(settings_probe_started(false));
+        assert_eq!(settings_probe(std::ptr::null_mut(), false), Some(done), "remembered");
     }
 
     #[cfg(windows)]

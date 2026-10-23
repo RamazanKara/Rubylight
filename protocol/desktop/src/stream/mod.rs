@@ -774,11 +774,12 @@ impl Streaming {
         let quality_mode = if facts.reconfigure { settings.adaptive_quality } else { QualityMode::Off };
         let quality_policy = (quality_mode != QualityMode::Off).then(|| quality::Quality::new(
             quality_mode, mode, settings.quality_min_short_edge, settings.quality_min_fps, 0));
+        let backlog = connecting.shared.pacer_backlog.clone();
         Self {
             session,
             shared: connecting.shared,
             facts,
-            pacer: Pacer::new(connecting.pacing, min_interval),
+            pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog),
             texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear),
             upscaler: None,
             upscale_failed: false,

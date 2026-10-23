@@ -139,11 +139,17 @@ impl PlanesPass {
         Ok(())
     }
 
-    fn views(&mut self, lease: &Lease) -> windows::core::Result<[Option<ID3D11ShaderResourceView>; 3]> {
-        if !self.owner.as_ref().is_some_and(|owner| std::sync::Arc::ptr_eq(owner, lease.planes())) {
+    /// Points the pass at the plane sets of `planes`, letting go of the views and the references
+    /// to the previous decoder's sets (a new setup makes a new decoder with new textures).
+    pub fn retarget(&mut self, planes: &std::sync::Arc<Planes>) {
+        if !self.owner.as_ref().is_some_and(|owner| std::sync::Arc::ptr_eq(owner, planes)) {
             self.views.clear();
-            self.owner = Some(lease.planes().clone());
+            self.owner = Some(planes.clone());
         }
+    }
+
+    fn views(&mut self, lease: &Lease) -> windows::core::Result<[Option<ID3D11ShaderResourceView>; 3]> {
+        self.retarget(lease.planes());
         if let Some(views) = self.views.get(&lease.set()) { return Ok(views.clone()); }
         let mut views = [None, None, None];
         for (view, texture) in views.iter_mut().zip(lease.textures()) {
@@ -159,6 +165,7 @@ impl PlanesPass {
     /// for the decode fence before the (unbounded) GPU `Wait` is queued; an error is the loud
     /// failure, and the stream ends with it.
     pub fn draw(&mut self, lease: &Lease, fence_value: u64, parameters: &[u32; 8], deadline: std::time::Duration) -> Result<(), String> {
+        self.retarget(lease.planes());
         fence_ready_within(lease.decode_fence(), fence_value, deadline)?;
         let views = self.views(lease).map_err(|e| format!("cannot read the PyroWave planes: {e}"))?;
         // SAFETY: The immediate context belongs to this (the presenting) thread; the deferred
@@ -184,12 +191,22 @@ impl PlanesPass {
             // The next decode into this set waits for the draw that read it. The signal is flushed
             // now: a decode that waits on a signal still in the queue would wait for ever.
             let value = lease.planes().next_reuse_value();
-            self.queue.Signal(lease.reuse_fence(), value).map_err(|e| format!("cannot release the PyroWave planes: {e}"))?;
-            self.context.Flush();
-            lease.release_after(value);
+            hand_back(lease, value, || {
+                self.queue.Signal(lease.reuse_fence(), value).map_err(|e| format!("cannot release the PyroWave planes: {e}"))?;
+                self.context.Flush();
+                Ok(())
+            })?;
         }
         Ok(())
     }
+}
+
+/// Gives the plane set back as `value` on the reuse fence. The set goes back also when the signal
+/// fails: the draw is queued and the error ends the stream, so the set must not stay held.
+pub(crate) fn hand_back(lease: &Lease, value: u64, signal: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    let signalled = signal();
+    lease.release_after(value);
+    signalled
 }
 
 pub struct Packed {

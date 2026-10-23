@@ -8,6 +8,7 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod autostream;
 mod config;
 mod console;
 mod controller_audio;
@@ -105,6 +106,7 @@ struct App {
     screenshot_requested: bool,
     stick_held: [bool; 4],
     running: bool,
+    autostream: Option<autostream::Autostream>,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -286,6 +288,7 @@ fn run() -> Result<(), String> {
         screenshot_requested: false,
         stick_held: [false; 4],
         running: true,
+        autostream: autostream::Autostream::from_env(),
     };
     match identity {
         Some(identity) => {
@@ -312,6 +315,9 @@ fn run() -> Result<(), String> {
     }
     eprintln!("nightjar: leaving");
     app.shutdown();
+    if app.autostream.as_ref().is_some_and(|a| a.failed) {
+        std::process::exit(2);
+    }
     Ok(())
 }
 
@@ -431,7 +437,7 @@ impl App {
         // Wait for input or a worker; animate the spinner while something runs.
         let busy = self.connecting.is_some() || self.network_launch.is_some() || self.network_test.is_some()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
-            || self.identity.is_some();
+            || self.identity.is_some() || self.autostream.is_some();
         let timeout = if busy { 16 } else { 250 };
         // SAFETY: event polling on the main thread.
         unsafe {
@@ -592,6 +598,7 @@ impl App {
                 }
             }
         }
+        self.autostream_step();
         if let Some(c) = &mut self.connecting {
             match c.poll() {
                 Ok(Some((session, facts))) => {
@@ -900,6 +907,38 @@ impl App {
         }
     }
 
+    /// Drives the unattended measurement start (see `autostream`); does nothing otherwise.
+    fn autostream_step(&mut self) {
+        let Some(auto) = self.autostream.as_mut() else { return };
+        if auto.failed || self.connecting.is_some() || self.network_launch.is_some() {
+            return;
+        }
+        let host = auto.host_seen(&self.hosts);
+        let seen = autostream::Seen {
+            identity: self.hosts.identity().is_some(),
+            host,
+            pair_error: matches!(self.launcher.dialog, Dialog::PairError { .. }),
+        };
+        match auto.next(&seen) {
+            autostream::Step::Wait => {}
+            autostream::Step::AddHost => {
+                let id = self.hosts.add_manual(&auto.address, auto.port);
+                auto.host_added(id);
+            }
+            autostream::Step::Pair(id) => {
+                eprintln!("nightjar: autostream pairing, enter PIN {} on the PC", auto.pin);
+                self.launcher.dialog = Dialog::Pairing { host: id, pin: auto.pin.clone() };
+                self.hosts.pair(id, auto.pin.clone(), None);
+            }
+            autostream::Step::LoadApps(id) => self.hosts.load_apps(id),
+            autostream::Step::Launch(host, app) => self.launch(host, app, false),
+            autostream::Step::Fail(why) => {
+                auto.fail(&why);
+                self.running = false;
+            }
+        }
+    }
+
     fn launch(&mut self, host_id: u64, app_id: i32, resume: bool) {
         if self.connecting.is_some() || self.network_launch.is_some() { return; }
         self.network_launch = Some((host_id, app_id, resume));
@@ -999,6 +1038,7 @@ impl App {
     }
 
     fn begin_stream(&mut self, connecting: Connecting, session: nightjar_core::session::Session, facts: stream::Facts) {
+        if let Some(auto) = self.autostream.as_mut() { auto.streaming_began(); }
         let settings = connecting.settings.clone();
         self.pads.configure(&settings);
         let display = display_of(self.window);
@@ -1200,8 +1240,18 @@ impl App {
             && !streaming.has_picture() && streaming.since_start() > Duration::from_secs(12) && streaming.exit.is_none() {
             streaming.exit = Some(Exit::Terminated(nightjar_core::session::error::NO_VIDEO_TRAFFIC));
         }
+        if let Some(auto) = &self.autostream {
+            if streaming.exit.is_none() && streaming.since_start() >= auto.length() {
+                streaming.exit = Some(Exit::User);
+            }
+        }
         if let Some(exit) = streaming.exit.take() {
+            let planned = matches!(exit, Exit::User);
             self.end_stream(exit);
+            if let Some(auto) = self.autostream.as_mut() {
+                if !planned { auto.fail("the stream ended before its time"); }
+                self.running = false;
+            }
         }
     }
 

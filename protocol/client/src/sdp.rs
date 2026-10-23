@@ -168,6 +168,9 @@ pub struct StreamConfig {
     pub microphone: bool,
     /// The host frames PyroWave records (HostCapabilities PyroWaveRecords).
     pub pyrowave_records_supported: bool,
+    /// Ask the host to send PyroWave records in picture row order (`pyrowaveRowOrder`), which a
+    /// client that decodes bands as they arrive relies on. Only sent with records.
+    pub pyrowave_row_order: bool,
 }
 
 impl Default for StreamConfig {
@@ -197,6 +200,7 @@ impl Default for StreamConfig {
             haptics_pcm: false,
             microphone: false,
             pyrowave_records_supported: false,
+            pyrowave_row_order: false,
         }
     }
 }
@@ -432,6 +436,10 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
             a.add("x-nv-vqos[0].bitStreamFormat", "3");
             if p.pyrowave_records_enabled {
                 a.add("x-ss-video[0].pyrowaveFeatures", "1");
+                // A host that does not know the key ignores it; one that does needs records for it.
+                if c.pyrowave_row_order {
+                    a.add("x-ss-video[0].pyrowaveRowOrder", "1");
+                }
             }
             // The calibrated pace is a PyroWave frame pace, only when known.
             if c.pyrowave_pace_mbps > 0 {

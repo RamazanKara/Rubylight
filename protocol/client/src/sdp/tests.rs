@@ -326,6 +326,40 @@ fn link_speed_hint_is_sent_for_every_codec_and_only_pyrowave_gets_the_pace() {
 }
 
 #[test]
+fn row_order_is_requested_only_for_pyrowave_with_records_and_the_setting() {
+    const ROW_ORDER: &str = "x-ss-video[0].pyrowaveRowOrder";
+    for (format, records, row_order, sent) in [
+        (VIDEO_FORMAT_PYROWAVE, true, true, true),
+        (VIDEO_FORMAT_PYROWAVE, true, false, false),
+        (VIDEO_FORMAT_PYROWAVE, false, true, false),
+        (VIDEO_FORMAT_H264, true, true, false),
+        (VIDEO_FORMAT_H265, true, true, false),
+    ] {
+        let config = StreamConfig { pyrowave_row_order: row_order, ..Default::default() };
+        let mut p = params(&config, SUNSHINE, "10.0.0.7", format);
+        p.pyrowave_records_enabled = records;
+        let sdp = generate(&p).text;
+        let line = attribute(&sdp, ROW_ORDER);
+        assert_eq!(line, sent.then_some("a=x-ss-video[0].pyrowaveRowOrder:1"), "{format:#x} records={records} row_order={row_order}");
+        // Next to the records key, before the pace hint, and nothing else moves.
+        if sent {
+            let features = sdp.find("pyrowaveFeatures:1").unwrap();
+            assert!(features < sdp.find("pyrowaveRowOrder:1").unwrap());
+        }
+    }
+    // With the request off the description is the same as a client that never heard of it.
+    let off = StreamConfig { pyrowave_row_order: false, ..Default::default() };
+    let on = StreamConfig { pyrowave_row_order: true, ..Default::default() };
+    let mut p = params(&off, SUNSHINE, "10.0.0.7", VIDEO_FORMAT_PYROWAVE);
+    p.pyrowave_records_enabled = true;
+    let without = generate(&p).text;
+    let mut p = params(&on, SUNSHINE, "10.0.0.7", VIDEO_FORMAT_PYROWAVE);
+    p.pyrowave_records_enabled = true;
+    let with = generate(&p).text;
+    assert_eq!(with.replace("a=x-ss-video[0].pyrowaveRowOrder:1 \r\n", ""), without);
+}
+
+#[test]
 fn gamestream_h264_720p_on_gfe_3_22() {
     let config = StreamConfig {
         width: 1280,

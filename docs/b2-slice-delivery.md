@@ -1,6 +1,6 @@
 # B2 step 2: send each AMF slice as it arrives
 
-Design for the host half of B2 step 2 in [rubylight-3.0-plan.md](rubylight-3.0-plan.md). Status: design, not implemented.
+Design for the host half of B2 step 2 in [rubylight-3.0-plan.md](rubylight-3.0-plan.md). Status: 2a (core) is implemented; the host half (2b to 2f) is not. Section 10 lists where the code differs from this design.
 Step 1 passed (`rust/release/fixtures/amf-unit-probe-7900xt.json`): at 4K60 on the RX 7900 XT, AMF returns 4 or 8
 HEVC or H.264 slices per frame, the first 3.6 to 4.5 ms before the whole frame would arrive in frame mode.
 
@@ -30,7 +30,7 @@ What each field needs, and what we know when slice 1 arrives:
 | last payload length `[4..6]` | yes | write the full shard size `slice`. Both clients ignore it for H.264/HEVC (common-c `VideoDepacketizer.c` ~908 uses it only for non-H.264/HEVC; Nightjar `depacketizer.rs` only for `Codec::Opaque`) |
 | block count (byte 27 bits 6-7) | yes, must be fixed at block 0 | fixed per streamed frame, chosen before slice 1 (section 2) |
 | block number, per-block `dataShards`, `pct` | per block | each block's own values |
-| SOF/EOF flags, frame index, RTP timestamp | no / last packet only | EOF set on the last packet of the last block, same as today |
+| SOF/EOF flags, frame index, RTP timestamp | no / last packet only | per block, as today: SOF on the first and EOF on the last data shard of every block (the code, not only the frame's last packet) |
 | total size | yes | not on the wire |
 
 Receivers, checked:
@@ -58,7 +58,7 @@ Protocol limits (all enforced in `frame_blocks` today): at most 4 blocks; `data 
 Plan per streamed frame, `B` = configured blocks (2 or 4), `S` = slices requested from AMF:
 
 1. Eligible only if: `Encoded::frame_cap_bytes` is `Some(cap)` (AMF `MaxAUSize`, auto = 2x per-frame budget), the frame
-   is a P-frame, and `ceil(cap / slice) <= B * 1023`. Otherwise the frame goes the whole-frame way (section 5).
+   is a P-frame, and `ceil((cap + 8) / slice) <= B * 1023` (the 8-byte frame header counts). Otherwise the frame goes the whole-frame way (section 5).
 2. Block `k < B - 1` is emitted when unit `ceil((k + 1) * S / B)` has arrived (with `S = B`, one slice per block).
    It contains every complete buffered shard minus a hold-back, and never more than `255 - parity(k)` shards at the
    frame's FEC percentage (the rest is carried).
@@ -68,14 +68,17 @@ Plan per streamed frame, `B` = configured blocks (2 or 4), `S` = slices requeste
 4. On the last unit, the remainder is split over the remaining blocks with the same fitting as `conventional_fec`:
    full percentage if it fits 255, otherwise lower the percentage per block, down to 0% at 1023 data shards
    (`fec_limited` counts it, as for whole frames today).
-5. If fewer than `B - k` shards exist at the end (tiny frame that still got streamed), impossible by rule 3.
+5. If no block has left when the last unit arrives (small frame, or every earlier block was held back), the block count
+   is still free: the frame is framed whole with `conventional_fec`, byte for byte as `conventional_blocks` would, with the
+   exact last payload length. Once block 0 has left, at least `B - k` shards exist at the end by rule 3.
 
 At 4K60 HEVC 80 Mbps a frame is ~167 KB (~122 shards), the cap ~243 shards: all 4 blocks fit at full FEC. At 500 Mbps
 HEVC the cap is ~1515 shards: rule 3 holds back until the remainder fits two blocks at 0%, so at most 2 blocks go
 early and the tail loses FEC only when the frame really is that big, as whole frames do today.
 
 Overflow (a unit past `cap`, which `MaxAUSize` should make impossible): the frame cannot be completed in the
-announced block count. Send what fits, then log `warn!` once per session, bump a `slice_delivery_overflow` counter in
+announced block count. `StreamedFrame::push` fails with `SliceOverflow` (blocks already built stay sent, no more are
+built, and the frame index stays consumed even if block 0 had not left). The caller then logs `warn!` once per session, bump a `slice_delivery_overflow` counter in
 the stream stats, request a recovery frame through the existing `EncoderRecovery` path, and disable slice delivery
 for the rest of the session. Loud, never a silently broken stream. Unit test it with a fake cap.
 
@@ -127,11 +130,12 @@ more than 0.002 SSIM loss is a kill (section 8).
   Same two hops per unit as a whole frame has today. `State`'s single pending slot gains a "streaming" state that
   `skip_pending` and `claim_backlog` must not drop; a newer frame waits until the streamed one has its last block.
 
-Core code (`rust/core/src/packet.rs`): factor the per-block body of `frame_blocks` into `fill_block(block, first_shard,
-shards, pct, blocks_total, last)` and build both `conventional_blocks` and the new
-`VideoPacketizer::streamed(timestamp, latency_us, blocks, cap) -> StreamedFrame` on it, with
-`StreamedFrame::push(&[u8], last: bool, FnMut(&mut PacketBlock) -> Result<usize>)`. `block_layout` gets a streamed
-counterpart for `SendLoss`.
+Core code (`rust/core/src/packet.rs`): the per-block body of `frame_blocks` is `VideoPacketizer::fill_block(&BlockFill,
+&mut PacketBlock)`, and both `conventional_blocks` and the new
+`VideoPacketizer::streamed(timestamp, latency_us, blocks, slices, cap) -> StreamedFrame` are built on it, with
+`StreamedFrame::push(&mut VideoPacketizer, unit, last, &mut PacketBlock, emit: FnMut(&mut [Vec<u8>], StreamedBlock))`.
+`emit` sends each block before `push` returns (the shard buffers are reused). `StreamedBlock { index, data, parity }`
+feeds `SendLoss::push_block` (the streamed counterpart of `block_layout`).
 
 ## 6. Config and measurement gate
 
@@ -200,3 +204,11 @@ Stop and revert to `off`-only (remove the code) if any of these hold after 2f:
 - **2e timing** (`performance.rs`, `docs/timing-record.md`, `timing_report.py` and its tests): `first_unit_us`,
   `early_blocks`, `overlap` stage.
 - **2f measurement** (runner, no code): section 6 runs and SSIM; result into `rust/PERFORMANCE.md` and the plan table.
+
+## 10. Where the code differs from this design
+
+- 2a: EOF is per block in the code (section 1 table corrected). The eligibility test counts the 8-byte frame header
+  (`cap + 8`). `push` takes the packetizer as an argument instead of borrowing it for the frame's life, because a streamed
+  frame spans several encoder polls; it checks that no other frame was packetized in between. The streamed block layout
+  is reported per block through `StreamedBlock` rather than by a `block_layout` function. `BUTTERPOLLO_TEST_SEND_LOSS` is
+  parsed by `stream_policy::SendDrop` (`percent` may be fractional); the host applies it in 2c.

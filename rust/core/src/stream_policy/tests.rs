@@ -1707,6 +1707,80 @@ fn send_loss_knows_whether_any_packet_reached_the_socket() {
     assert!(loss.sent(4, 4));
     assert!(loss.reached_socket());
 }
+
+#[test]
+fn streamed_send_loss_matches_the_whole_frame_layout() {
+    // Blocks are added as they are built, a batch never spans an unbuilt one.
+    let layout = vec![(30, 6), (30, 6), (20, 4), (8, 2)];
+    let mut seed = 99u64;
+    let mut random = move |range: usize| {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 33) as usize % range
+    };
+    for _ in 0..500 {
+        let mut whole = SendLoss::new(layout.clone());
+        let mut streamed = SendLoss::streamed();
+        assert!(!streamed.unrecoverable() && !streamed.reached_socket());
+        for &(data, parity) in &layout {
+            streamed.push_block(data, parity);
+            let mut left = data + parity;
+            while left > 0 {
+                let batch = 1 + random(left.min(10));
+                let dropped = if random(4) == 0 { random(batch + 1) } else { 0 };
+                assert_eq!(
+                    whole.sent(batch, dropped),
+                    streamed.sent(batch, dropped),
+                    "{layout:?}"
+                );
+                assert_eq!(whole.reached_socket(), streamed.reached_socket());
+                left -= batch;
+            }
+        }
+        assert_eq!(whole.unrecoverable(), streamed.unrecoverable());
+    }
+    // The first block lost beyond its parity ends the frame before the rest
+    // of it is built.
+    let mut streamed = SendLoss::streamed();
+    streamed.push_block(4, 1);
+    assert!(streamed.sent(5, 2));
+}
+
+#[test]
+fn test_send_loss_is_seeded_per_datagram_and_rejects_bad_values() {
+    let mut loss = SendDrop::parse(" 1 : 42 ").unwrap();
+    assert!(!loss.in_air());
+    let mut again = SendDrop::parse("1:42").unwrap();
+    let mut other_seed = SendDrop::parse("1:43").unwrap();
+    let first: Vec<bool> = (0..200_000).map(|_| loss.drops()).collect();
+    let second: Vec<bool> = (0..200_000).map(|_| again.drops()).collect();
+    let third: Vec<bool> = (0..200_000).map(|_| other_seed.drops()).collect();
+    assert_eq!(first, second);
+    assert_ne!(first, third);
+    // About 1% of 200,000.
+    let lost = first.iter().filter(|lost| **lost).count();
+    assert!((1_700..2_300).contains(&lost), "{lost} lost");
+    let mut half = SendDrop::parse("0.5:7:air").unwrap();
+    assert!(half.in_air());
+    let lost = (0..200_000).filter(|_| half.drops()).count();
+    assert!((800..1_200).contains(&lost), "{lost} lost");
+    let mut all = SendDrop::parse("100:1").unwrap();
+    assert!((0..1000).all(|_| all.drops()));
+    for bad in [
+        "",
+        "1",
+        "0:1",
+        "-1:1",
+        "101:1",
+        "x:1",
+        "1:x",
+        "1:1:1",
+        "1:1:air:1",
+    ] {
+        assert_eq!(SendDrop::parse(bad), None, "{bad}");
+    }
+}
 #[test]
 fn a_faster_source_repays_a_startup_deficit_instead_of_lagging_every_claim() {
     // The 2x virtual display at 60 fps. A slow start left the credit short;

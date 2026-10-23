@@ -567,6 +567,18 @@ impl SendLoss {
             refused: 0,
         }
     }
+    /// A frame whose blocks are not all known yet, as when it is sent while
+    /// the encoder still produces it. Add each with [`Self::push_block`]
+    /// before its packets are recorded; the result then matches `new` with
+    /// the whole layout.
+    pub fn streamed() -> Self {
+        Self::new(Vec::new())
+    }
+    /// The next block of a streamed frame: its data and parity shards.
+    pub fn push_block(&mut self, data: usize, parity: usize) {
+        self.blocks.push((data, parity));
+        self.lost.push(0);
+    }
     /// Record a batch of the next `packets` packets, of which `dropped` were
     /// refused. Which ones is not known, so each block covered by the batch
     /// is charged as if they all fell in it. Returns whether the frame is
@@ -682,6 +694,61 @@ impl SendOutage {
         elapsed >= self.every
             && Duration::from_nanos((elapsed.as_nanos() % self.every.as_nanos()) as u64)
                 < self.length
+    }
+}
+/// Test-only random loss on the host's video socket, from
+/// `BUTTERPOLLO_TEST_SEND_LOSS=percent:seed[:air]`: each video datagram is
+/// lost with that probability (in percent, fractions allowed), decided by a
+/// generator seeded with `seed`, so two runs lose the same datagrams in the
+/// same order. Like [`SendOutage`], lost datagrams are refused as by a full
+/// socket, or with `:air` counted sent and lost after the socket.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendDrop {
+    /// Loss probability in millionths.
+    millionths: u64,
+    state: u64,
+    air: bool,
+}
+impl SendDrop {
+    pub fn parse(value: &str) -> Option<Self> {
+        let mut fields = value.trim().split(':').map(str::trim);
+        let percent: f64 = fields.next()?.parse().ok()?;
+        let seed: u64 = fields.next()?.parse().ok()?;
+        let air = match fields.next() {
+            None => false,
+            Some("air") => true,
+            Some(_) => return None,
+        };
+        (fields.next().is_none() && percent > 0. && percent <= 100.).then_some(Self {
+            millionths: (percent * 10_000.).round() as u64,
+            state: seed,
+            air,
+        })
+    }
+    pub fn from_env() -> Option<Self> {
+        let loss = Self::parse(&std::env::var("BUTTERPOLLO_TEST_SEND_LOSS").ok()?);
+        if let Some(loss) = &loss {
+            tracing::warn!(
+                loss_millionths = loss.millionths,
+                air = loss.air,
+                "BUTTERPOLLO_TEST_SEND_LOSS drops video datagrams at random; unset it outside tests"
+            );
+        }
+        loss
+    }
+    /// Lost in the air: the host sent it and does not know it was lost.
+    pub fn in_air(&self) -> bool {
+        self.air
+    }
+    /// Whether the next datagram is lost.
+    pub fn drops(&mut self) -> bool {
+        // SplitMix64.
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        z % 1_000_000 < self.millionths
     }
 }
 /// `prefer_sdr_10bit` streams an HDR request as ten-bit SDR.

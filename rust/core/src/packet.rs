@@ -405,7 +405,6 @@ impl VideoPacketizer {
         });
         let blocks = plan.len();
         let sealer = self.key.as_ref().map(crypto::PacketSealer::new);
-        let envelope = if sealer.is_some() { 32 } else { 0 };
         let packet_count = plan
             .iter()
             .map(|b| b.data + crate::pyrowave::parity(b.data, b.percentage, minimum))
@@ -421,90 +420,484 @@ impl VideoPacketizer {
                 bail!("invalid FEC block split");
             }
             let count = planned.data.min(total_shards - first_shard);
-            if count >= 1024 {
-                bail!("FEC shard index overflow");
-            }
-            let percentage = planned.percentage;
-            let (fec, effective) = block_parity(count, percentage, minimum);
-            if count + fec > 255 && percentage > 0 {
-                bail!("FEC parity count exceeds protocol limit");
-            }
-            if shards.len() < count + fec {
-                shards.resize_with(count + fec, Vec::new);
-            }
-            let shards = &mut shards[..count + fec];
-            for shard in shards.iter_mut() {
-                shard.resize(envelope + block_size, 0);
-                shard.fill(0);
-            }
-            for (i, shard) in shards.iter_mut().take(count).enumerate() {
-                let s = &mut shard[envelope..];
-                // Place the short header and source payload directly into their
-                // final shards instead of allocating/copying a full packed frame.
-                let offset = (first_shard + i) * slice;
-                let h = header.len().saturating_sub(offset).min(slice);
-                if h > 0 {
-                    s[32..32 + h].copy_from_slice(&header[offset..offset + h]);
-                }
-                let begin = offset.saturating_sub(header.len());
-                let n = (slice - h).min(payload.len() - begin);
-                s[32 + h..32 + h + n].copy_from_slice(&payload[begin..begin + n]);
-                s[16..20]
-                    .copy_from_slice(&(self.sequence.wrapping_add(i as u32) << 8).to_le_bytes());
-                s[20..24].copy_from_slice(&frame.to_le_bytes());
-                s[24] = 1 | if i == 0 { 4 } else { 0 } | if i == count - 1 { 2 } else { 0 };
-                s[26] = 0x10;
-                if layout
-                    .as_ref()
-                    .is_some_and(|l| l.starts.get(first_shard + i) == Some(&true))
-                {
-                    s[26] |= 0x80;
-                }
-                s[27] = ((block as u8) << 4) | (((blocks - 1) as u8) << 6);
-            }
-            if fec > 0 {
-                if envelope == 0 {
-                    cauchy_encode(shards, count, fec)?;
-                } else {
-                    cauchy_encode_offset::<32>(shards, count, fec)?;
-                }
-            }
-            for (i, shard) in shards.iter_mut().enumerate() {
-                let s = &mut shard[envelope..];
-                let seq = self.sequence.wrapping_add(i as u32) as u16;
-                s[0] = 0x90;
-                s[2..4].copy_from_slice(&seq.to_be_bytes());
-                s[4..8].copy_from_slice(&timestamp.to_be_bytes());
-                s[20..24].copy_from_slice(&frame.to_le_bytes());
-                s[27] = ((block as u8) << 4) | (((blocks - 1) as u8) << 6);
-                let info = ((i as u32) << 12) | ((count as u32) << 22) | ((effective as u32) << 4);
-                s[28..32].copy_from_slice(&info.to_le_bytes());
-                if let Some(sealer) = &sealer {
-                    let mut iv = [0; 12];
-                    iv[..8].copy_from_slice(&self.iv_counter.to_le_bytes());
-                    iv[11] = b'V';
-                    self.iv_counter = self
-                        .iv_counter
-                        .checked_add(1)
-                        .context("video nonce exhausted")?;
-                    // FEC excludes the reserved envelope. Its owned payload is
-                    // now encrypted in place with no extra allocation or move.
-                    let tag = sealer.seal(&iv, s)?;
-                    shard[..12].copy_from_slice(&iv);
-                    shard[12..16].copy_from_slice(&frame.to_le_bytes());
-                    shard[16..32].copy_from_slice(&tag);
-                }
-            }
-            self.sequence = self.sequence.wrapping_add((count + fec) as u32);
+            let filled = self.fill_block(
+                &BlockFill {
+                    block,
+                    blocks,
+                    first_shard,
+                    count,
+                    percentage: planned.percentage,
+                    minimum,
+                    header: &header,
+                    payload,
+                    layout: layout.as_ref(),
+                    sealer: sealer.as_ref(),
+                    timestamp,
+                    frame,
+                },
+                shards,
+            )?;
             first_shard += count;
-            // Packets can escape now, even if the sender abandons later blocks.
-            if block == 0 {
-                self.frame = self.frame.wrapping_add(1);
-            }
-            Ok(count + fec)
+            Ok(filled)
         };
         Ok((packet_count, fec_limited, next))
     }
+    /// Build one FEC block, the shards `first_shard..first_shard + count` of
+    /// the frame's byte stream (`header`, then `payload`), with its parity,
+    /// and advance the packet and nonce counters. Returns the packets in
+    /// `shards`. The frame index advances once block 0 is built.
+    fn fill_block(&mut self, spec: &BlockFill, shards: &mut PacketBlock) -> Result<usize> {
+        let BlockFill {
+            block,
+            blocks,
+            first_shard,
+            count,
+            percentage,
+            minimum,
+            header,
+            payload,
+            layout,
+            sealer,
+            timestamp,
+            frame,
+        } = *spec;
+        let block_size = self.packet_size + 16;
+        let slice = block_size - 32;
+        let envelope = if sealer.is_some() { 32 } else { 0 };
+        if count >= 1024 {
+            bail!("FEC shard index overflow");
+        }
+        let (fec, effective) = block_parity(count, percentage, minimum);
+        if count + fec > 255 && percentage > 0 {
+            bail!("FEC parity count exceeds protocol limit");
+        }
+        if shards.len() < count + fec {
+            shards.resize_with(count + fec, Vec::new);
+        }
+        let shards = &mut shards[..count + fec];
+        for shard in shards.iter_mut() {
+            shard.resize(envelope + block_size, 0);
+            shard.fill(0);
+        }
+        for (i, shard) in shards.iter_mut().take(count).enumerate() {
+            let s = &mut shard[envelope..];
+            // Place the short header and source payload directly into their
+            // final shards instead of allocating/copying a full packed frame.
+            let offset = (first_shard + i) * slice;
+            let h = header.len().saturating_sub(offset).min(slice);
+            if h > 0 {
+                s[32..32 + h].copy_from_slice(&header[offset..offset + h]);
+            }
+            let begin = offset.saturating_sub(header.len());
+            let n = (slice - h).min(payload.len() - begin);
+            s[32 + h..32 + h + n].copy_from_slice(&payload[begin..begin + n]);
+            s[16..20].copy_from_slice(&(self.sequence.wrapping_add(i as u32) << 8).to_le_bytes());
+            s[20..24].copy_from_slice(&frame.to_le_bytes());
+            s[24] = 1 | if i == 0 { 4 } else { 0 } | if i == count - 1 { 2 } else { 0 };
+            s[26] = 0x10;
+            if layout.is_some_and(|l| l.starts.get(first_shard + i) == Some(&true)) {
+                s[26] |= 0x80;
+            }
+            s[27] = ((block as u8) << 4) | (((blocks - 1) as u8) << 6);
+        }
+        if fec > 0 {
+            if envelope == 0 {
+                cauchy_encode(shards, count, fec)?;
+            } else {
+                cauchy_encode_offset::<32>(shards, count, fec)?;
+            }
+        }
+        for (i, shard) in shards.iter_mut().enumerate() {
+            let s = &mut shard[envelope..];
+            let seq = self.sequence.wrapping_add(i as u32) as u16;
+            s[0] = 0x90;
+            s[2..4].copy_from_slice(&seq.to_be_bytes());
+            s[4..8].copy_from_slice(&timestamp.to_be_bytes());
+            s[20..24].copy_from_slice(&frame.to_le_bytes());
+            s[27] = ((block as u8) << 4) | (((blocks - 1) as u8) << 6);
+            let info = ((i as u32) << 12) | ((count as u32) << 22) | ((effective as u32) << 4);
+            s[28..32].copy_from_slice(&info.to_le_bytes());
+            if let Some(sealer) = sealer {
+                let mut iv = [0; 12];
+                iv[..8].copy_from_slice(&self.iv_counter.to_le_bytes());
+                iv[11] = b'V';
+                self.iv_counter = self
+                    .iv_counter
+                    .checked_add(1)
+                    .context("video nonce exhausted")?;
+                // FEC excludes the reserved envelope. Its owned payload is
+                // now encrypted in place with no extra allocation or move.
+                let tag = sealer.seal(&iv, s)?;
+                shard[..12].copy_from_slice(&iv);
+                shard[12..16].copy_from_slice(&frame.to_le_bytes());
+                shard[16..32].copy_from_slice(&tag);
+            }
+        }
+        self.sequence = self.sequence.wrapping_add((count + fec) as u32);
+        // Packets can escape now, even if the sender abandons later blocks.
+        if block == 0 {
+            self.frame = self.frame.wrapping_add(1);
+        }
+        Ok(count + fec)
+    }
+}
+/// A streamed frame's encoder output passed the cap its block plan relied on.
+/// The frame cannot be finished in the block count already announced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SliceOverflow {
+    pub cap: usize,
+    pub bytes: usize,
+}
+impl std::fmt::Display for SliceOverflow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "streamed video frame reached {} bytes, past its {} byte cap",
+            self.bytes, self.cap
+        )
+    }
+}
+impl std::error::Error for SliceOverflow {}
+/// A FEC block of a streamed frame as it was built, for the sender's
+/// accounting (`SendLoss::push_block`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamedBlock {
+    pub index: usize,
+    pub data: usize,
+    pub parity: usize,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StreamState {
+    Open,
+    Done,
+    Abandoned,
+}
+impl VideoPacketizer {
+    /// Whether a P-frame capped at `cap` payload bytes can be streamed in
+    /// `blocks` FEC blocks: even all at 0% parity its shards must fit.
+    pub fn streamable(&self, blocks: usize, cap: usize) -> bool {
+        (256..=1400).contains(&self.packet_size)
+            && self.fec_percent <= 100
+            && (2..=4).contains(&blocks)
+            && (cap + 8).div_ceil(self.packet_size + 16 - 32) <= blocks * 1023
+    }
+    /// Start a P-frame whose encoder output arrives in units (slices) and
+    /// leaves in `blocks` FEC blocks as soon as each is complete. `slices`
+    /// is how many units the encoder was asked for and `cap` the most payload
+    /// bytes it can return. The frame takes its index when block 0 is built.
+    pub fn streamed(
+        &self,
+        timestamp: u32,
+        latency_us: u64,
+        blocks: usize,
+        slices: usize,
+        cap: usize,
+    ) -> Result<StreamedFrame> {
+        if !self.streamable(blocks, cap) {
+            bail!("video frame cannot be streamed in {blocks} blocks");
+        }
+        let slice = self.packet_size + 16 - 32;
+        let mut header = [0u8; 8];
+        header[0] = 1;
+        header[1..3].copy_from_slice(&((latency_us / 100).min(65535) as u16).to_le_bytes());
+        header[3] = 1;
+        // The last payload length is not known yet. Receivers read it only
+        // for codecs other than H.264 and HEVC; every shard is full.
+        header[4..6].copy_from_slice(&(slice as u16).to_le_bytes());
+        let (percentage, minimum) = (self.fec_percent, self.min_fec);
+        // The most data shards a block holds at the frame's percentage.
+        let max_data = if percentage == 0 {
+            1023
+        } else {
+            (1..=255)
+                .rev()
+                .find(|&n| n + block_parity(n, percentage, minimum).0 <= 255)
+                .unwrap_or(1)
+        };
+        Ok(StreamedFrame {
+            sealer: self.key.as_ref().map(crypto::PacketSealer::new),
+            header,
+            payload: Vec::new(),
+            timestamp,
+            frame: self.frame,
+            slice,
+            percentage,
+            minimum,
+            max_data,
+            blocks,
+            slices: slices.max(1),
+            cap,
+            units: 0,
+            next_block: 0,
+            first_shard: 0,
+            early: 0,
+            fec_limited: false,
+            state: StreamState::Open,
+        })
+    }
+}
+/// Data shards of each of `blocks` blocks holding `shards` in all, and the
+/// largest percentage up to `percentage` at which every block fits
+/// Moonlight's limits (down to 0% at 1023 shards).
+fn tail_split(
+    shards: usize,
+    blocks: usize,
+    percentage: usize,
+    minimum: usize,
+) -> Option<([usize; 4], usize)> {
+    if blocks == 0 || blocks > 4 || shards < blocks || shards > blocks * 1023 {
+        return None;
+    }
+    let mut data = [0; 4];
+    for (i, data) in data.iter_mut().take(blocks).enumerate() {
+        *data = shards / blocks + usize::from(i < shards % blocks);
+    }
+    let fits = |percentage| {
+        percentage == 0
+            || data[..blocks]
+                .iter()
+                .all(|&d| d + block_parity(d, percentage, minimum).0 <= 255)
+    };
+    let percentage = (0..=percentage).rev().find(|&p| fits(p))?;
+    Some((data, percentage))
+}
+/// One P-frame sent block by block while the encoder is still producing it.
+///
+/// The frame's bytes are one stream (8-byte header, then the units in order)
+/// cut into full shards, and an FEC block is a contiguous run of them. A
+/// block is built once enough units have arrived, never ends on a short shard
+/// (the unfilled tail waits for the next block) and the block count, which
+/// every packet announces, is fixed by the plan before block 0 leaves. Only
+/// the frame's last shard is short, as on a whole frame.
+///
+/// With `B` blocks and `S` slices, block `k < B - 1` leaves once unit
+/// `ceil((k + 1) * S / B)` has arrived, minus a hold-back that keeps one
+/// complete shard for every later block, and only while the cap still fits
+/// the later blocks at 0% parity. The last unit splits what remains over the
+/// remaining blocks like a whole frame. If the cap was too small, the frame
+/// fails with [`SliceOverflow`], the caller's cue to ask for a recovery frame.
+pub struct StreamedFrame {
+    sealer: Option<crypto::PacketSealer>,
+    header: [u8; 8],
+    payload: Vec<u8>,
+    timestamp: u32,
+    frame: u32,
+    slice: usize,
+    percentage: usize,
+    minimum: usize,
+    max_data: usize,
+    blocks: usize,
+    slices: usize,
+    cap: usize,
+    units: usize,
+    next_block: usize,
+    first_shard: usize,
+    early: usize,
+    fec_limited: bool,
+    state: StreamState,
+}
+impl StreamedFrame {
+    /// Add the encoder's next unit and build every block that is ready, each
+    /// passed to `emit` (to be sent before it returns) from the reused
+    /// `shards`. After a failure the frame is abandoned: nothing more is
+    /// built, and its index stays consumed, so the client sees the gap.
+    pub fn push(
+        &mut self,
+        packetizer: &mut VideoPacketizer,
+        unit: &[u8],
+        last: bool,
+        shards: &mut PacketBlock,
+        mut emit: impl FnMut(&mut [Vec<u8>], StreamedBlock) -> Result<()>,
+    ) -> Result<()> {
+        match self.state {
+            StreamState::Open => {}
+            StreamState::Done => bail!("streamed video frame is already finished"),
+            StreamState::Abandoned => bail!("streamed video frame was abandoned"),
+        }
+        if packetizer.frame != self.frame.wrapping_add(u32::from(self.next_block > 0)) {
+            self.state = StreamState::Abandoned;
+            bail!("another video frame was packetized during a streamed frame");
+        }
+        let result = self.push_unit(packetizer, unit, last, shards, &mut emit);
+        if result.is_err() {
+            self.state = StreamState::Abandoned;
+            // Nothing was sent: the frame index still has to be consumed, or
+            // the client would not notice the missing picture.
+            if self.next_block == 0 && packetizer.frame == self.frame {
+                packetizer.frame = packetizer.frame.wrapping_add(1);
+            }
+        }
+        result
+    }
+    fn push_unit(
+        &mut self,
+        packetizer: &mut VideoPacketizer,
+        unit: &[u8],
+        last: bool,
+        shards: &mut PacketBlock,
+        emit: &mut impl FnMut(&mut [Vec<u8>], StreamedBlock) -> Result<()>,
+    ) -> Result<()> {
+        self.payload.extend_from_slice(unit);
+        self.units += 1;
+        if self.payload.len() > self.cap {
+            return Err(SliceOverflow {
+                cap: self.cap,
+                bytes: self.payload.len(),
+            }
+            .into());
+        }
+        let stream_len = 8 + self.payload.len();
+        if !last {
+            return self.send_ready(packetizer, stream_len, shards, emit);
+        }
+        if self.payload.is_empty() {
+            bail!("encoded frame is empty");
+        }
+        if self.next_block == 0 {
+            // Nothing has left yet, so the block count is still free: this is
+            // a whole frame, framed as one.
+            let total_shards = stream_len.div_ceil(self.slice);
+            let (blocks, percentage) =
+                conventional_fec(total_shards, self.percentage, self.minimum);
+            let last_shard = stream_len % self.slice;
+            let length = if last_shard == 0 {
+                self.slice
+            } else {
+                last_shard
+            };
+            self.header[4..6].copy_from_slice(&(length as u16).to_le_bytes());
+            self.fec_limited = percentage < self.percentage;
+            let aligned = total_shards.div_ceil(blocks);
+            for block in 0..blocks {
+                let data = total_shards.saturating_sub(block * aligned).min(aligned);
+                if data == 0 {
+                    bail!("invalid FEC block split");
+                }
+                self.emit_block(packetizer, data, percentage, blocks, shards, emit)?;
+            }
+        } else {
+            let remaining = self.blocks - self.next_block;
+            let rest = (stream_len - self.first_shard * self.slice).div_ceil(self.slice);
+            let Some((data, percentage)) =
+                tail_split(rest, remaining, self.percentage, self.minimum)
+            else {
+                bail!("streamed video frame has no room for its last {remaining} blocks");
+            };
+            self.fec_limited = percentage < self.percentage;
+            for &data in &data[..remaining] {
+                self.emit_block(packetizer, data, percentage, self.blocks, shards, emit)?;
+            }
+        }
+        self.state = StreamState::Done;
+        Ok(())
+    }
+    /// Build the blocks before the last whose unit has arrived and whose
+    /// complete shards, hold-back and cap rule allow it.
+    fn send_ready(
+        &mut self,
+        packetizer: &mut VideoPacketizer,
+        stream_len: usize,
+        shards: &mut PacketBlock,
+        emit: &mut impl FnMut(&mut [Vec<u8>], StreamedBlock) -> Result<()>,
+    ) -> Result<()> {
+        while self.next_block < self.blocks - 1
+            && self.units >= ((self.next_block + 1) * self.slices).div_ceil(self.blocks)
+        {
+            let later = self.blocks - self.next_block - 1;
+            let complete = stream_len / self.slice - self.first_shard;
+            // Keep a complete shard for each later block.
+            let data = complete.saturating_sub(later).min(self.max_data);
+            if data == 0 {
+                break;
+            }
+            // Whatever the encoder still adds, up to the cap, must fit the
+            // later blocks without parity.
+            let after = (self.first_shard + data) * self.slice;
+            if (self.cap + 8).saturating_sub(after).div_ceil(self.slice) > later * 1023 {
+                break;
+            }
+            self.emit_block(packetizer, data, self.percentage, self.blocks, shards, emit)?;
+            self.early += 1;
+        }
+        Ok(())
+    }
+    fn emit_block(
+        &mut self,
+        packetizer: &mut VideoPacketizer,
+        data: usize,
+        percentage: usize,
+        blocks: usize,
+        shards: &mut PacketBlock,
+        emit: &mut impl FnMut(&mut [Vec<u8>], StreamedBlock) -> Result<()>,
+    ) -> Result<()> {
+        let filled = packetizer.fill_block(
+            &BlockFill {
+                block: self.next_block,
+                blocks,
+                first_shard: self.first_shard,
+                count: data,
+                percentage,
+                minimum: self.minimum,
+                header: &self.header,
+                payload: &self.payload,
+                layout: None,
+                sealer: self.sealer.as_ref(),
+                timestamp: self.timestamp,
+                frame: self.frame,
+            },
+            shards,
+        )?;
+        let block = StreamedBlock {
+            index: self.next_block,
+            data,
+            parity: filled - data,
+        };
+        self.first_shard += data;
+        self.next_block += 1;
+        emit(&mut shards[..filled], block)
+    }
+    /// The frame was fully built.
+    pub fn is_done(&self) -> bool {
+        self.state == StreamState::Done
+    }
+    /// Blocks built so far.
+    pub fn blocks_built(&self) -> usize {
+        self.next_block
+    }
+    /// Blocks built before the last unit arrived.
+    pub fn early_blocks(&self) -> usize {
+        self.early
+    }
+    /// Units received so far.
+    pub fn units(&self) -> usize {
+        self.units
+    }
+    /// Payload bytes received so far.
+    pub fn payload_len(&self) -> usize {
+        self.payload.len()
+    }
+    /// Whether the last blocks carry less parity than the frame's percentage.
+    pub fn fec_limited(&self) -> bool {
+        self.fec_limited
+    }
+}
+/// One FEC block of a frame: where it sits and what it is built from.
+#[derive(Clone, Copy)]
+struct BlockFill<'a> {
+    block: usize,
+    /// Blocks in the whole frame, announced on every packet.
+    blocks: usize,
+    first_shard: usize,
+    count: usize,
+    percentage: usize,
+    minimum: usize,
+    header: &'a [u8; 8],
+    /// The frame after `header`, at least up to this block's last shard.
+    payload: &'a [u8],
+    layout: Option<&'a crate::pyrowave::Layout>,
+    sealer: Option<&'a crypto::PacketSealer>,
+    timestamp: u32,
+    frame: u32,
 }
 pub fn control_header(b: &[u8]) -> Result<(u16, &[u8])> {
     if b.len() < 2 {
@@ -924,5 +1317,7 @@ fn cauchy_encode_offset<const OFFSET: usize>(
     }
     Ok(())
 }
+#[cfg(test)]
+mod streamed_tests;
 #[cfg(test)]
 mod tests;

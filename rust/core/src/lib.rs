@@ -77,6 +77,7 @@ pub mod state;
 pub mod steam;
 pub mod steam_deck;
 pub mod stream_policy;
+pub mod stream_preset;
 pub mod timing_record;
 pub mod topology;
 pub mod tray;

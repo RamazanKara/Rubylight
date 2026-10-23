@@ -1,0 +1,47 @@
+{
+  "setting": "stream_preset",
+  "default": "balanced",
+  "covered": [
+    { "key": "amd_rc", "default": "vbr_latency" },
+    { "key": "amd_max_frame_size", "default": "auto" },
+    { "key": "amd_quality", "default": "speed" },
+    { "key": "amd_preanalysis", "default": "false" }
+  ],
+  "presets": [
+    {
+      "id": "lowest_latency",
+      "label": "Lowest latency",
+      "description": "Keeps the AMD encoder on its fastest settings and limits every frame, recovery keyframes included, to one frame's share of the bitrate, so a lost frame costs less time on the wire.",
+      "settings": {
+        "amd_max_frame_size": "1",
+        "amd_quality": "speed",
+        "amd_preanalysis": "false"
+      },
+      "evidence": {
+        "amd_max_frame_size": "rust/PERFORMANCE.md, \"October 7, 2026: AMF rate control and recovery keyframes\", \"Decision and limits\": a one-frame cap cut the largest recovery frame of 4K40 HEVC by 66% (265,995 to 89,626 bytes) with the same steady-state frame sizes and encode time within 0.1 ms.",
+        "amd_quality": "rust/PERFORMANCE.md, \"October 7: AMF split-frame encoding\", quality preset rows: the quality preset costs 1.0 ms (HEVC) and 12 ms (AV1) per 4K60 frame over speed.",
+        "amd_preanalysis": "rust/PERFORMANCE.md, same table: pre-analysis takes 25 ms per 4K60 frame (HEVC and AV1) against 5-6 ms without."
+      }
+    },
+    {
+      "id": "balanced",
+      "label": "Balanced",
+      "description": "The defaults. Nothing is changed.",
+      "settings": {},
+      "evidence": {}
+    },
+    {
+      "id": "reference",
+      "label": "Reference quality",
+      "description": "Spends the whole bitrate on the picture: constant bitrate, and no size limit on recovery keyframes. Frames get larger, so it suits a fast, steady link.",
+      "settings": {
+        "amd_rc": "cbr",
+        "amd_max_frame_size": "0"
+      },
+      "evidence": {
+        "amd_rc": "rust/PERFORMANCE_WORK.md, \"AMF settings per codec: quality at a given bitrate\": constant bitrate raised VMAF by up to 0.5 (HEVC), 0.3 (AV1) and 1.0 (H.264) on the first clip and moved it by -0.75 to +0.24 on the second, with the same encode time. The 99th-percentile frame grows by 30-67%. Small and content-dependent; HDR rows were -0.23 to +0.48.",
+        "amd_max_frame_size": "rust/PERFORMANCE.md, \"Decision and limits\": the cap lowered encoded payload from 64 to 51 Mbps in the 63 Mbps recovery run, so removing it keeps recovery keyframes at full quality."
+      }
+    }
+  ]
+}

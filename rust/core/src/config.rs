@@ -551,6 +551,11 @@ impl Config {
         if changed("frame_limiter_fps_limit") {
             crate::framegen::Rate::parse(next.get("frame_limiter_fps_limit", "0"))?;
         }
+        if changed(crate::stream_preset::SETTING)
+            && !crate::stream_preset::valid(next.get(crate::stream_preset::SETTING, ""))
+        {
+            bail!("stream_preset must be lowest_latency, balanced or reference");
+        }
         if changed("hardware_metrics_interval")
             && next.values.contains_key("hardware_metrics_interval")
             && !(500..=10000).contains(&next.integer("hardware_metrics_interval", 0))
@@ -804,6 +809,7 @@ pub fn override_allowed(key: &str) -> bool {
         "max_bitrate",
         "minimum_fps_target",
         "stream_reconfigure",
+        "stream_preset",
         // Codec and capture
         "fec_percentage",
         "adaptive_fec",
@@ -1186,6 +1192,32 @@ mod tests {
                 super::Config::parse(&format!("hardware_metrics_interval={value}\n")).unwrap();
             assert_eq!(config.hardware_metrics_interval(), expected);
         }
+    }
+    #[test]
+    fn stream_preset_saves_only_a_preset_name_and_clears_with_null() {
+        let mut config = super::Config::default();
+        for value in ["lowest_latency", "balanced", "reference", "Reference"] {
+            change(&mut config, "stream_preset", value).unwrap();
+            assert_eq!(config.get("stream_preset", ""), value);
+        }
+        for value in ["custom", "fastest", "lowest", "5"] {
+            assert!(
+                change(&mut config, "stream_preset", value).is_err(),
+                "{value}"
+            );
+            assert_eq!(config.get("stream_preset", ""), "Reference");
+        }
+        let mut object = serde_json::Map::new();
+        object.insert("stream_preset".into(), serde_json::Value::Null);
+        config.update(&object).unwrap();
+        assert!(!config.values.contains_key("stream_preset"));
+        // A file the host did not write may hold anything; it still loads.
+        let loaded = super::Config::parse(
+            "stream_preset = fastest
+",
+        )
+        .unwrap();
+        assert_eq!(loaded.get("stream_preset", ""), "fastest");
     }
     #[test]
     fn hardware_metrics_saves_validate_interval_and_selection() {

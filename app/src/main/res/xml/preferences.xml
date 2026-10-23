@@ -85,6 +85,20 @@
             android:entries="@array/adaptive_quality_fps_names"
             android:entryValues="@array/adaptive_quality_fps_values"
             android:defaultValue="30" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_auto_bitrate_min_kbps"
+            android:title="@string/title_auto_bitrate_min"
+            android:dialogMessage="@string/summary_auto_bitrate_min"
+            android:entries="@array/auto_bitrate_min_names"
+            android:entryValues="@array/auto_bitrate_min_values"
+            android:defaultValue="0" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_auto_bitrate_max_kbps"
+            android:title="@string/title_auto_bitrate_max"
+            android:dialogMessage="@string/summary_auto_bitrate_max"
+            android:entries="@array/auto_bitrate_max_names"
+            android:entryValues="@array/auto_bitrate_max_values"
+            android:defaultValue="0" />
     </PreferenceCategory>
 
     <!-- Display & image -->

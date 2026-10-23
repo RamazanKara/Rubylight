@@ -8,4 +8,10 @@
     <string name="stream_auto_bitrate_unavailable">Bu bilgisayar yayın bit hızını bildirmiyor. Bu yayın için otomatik bit hızı kapalı.</string>
     <string name="stream_auto_bitrate_status">Otomatik bit hızı: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Ana bilgisayar meşgul. Birazdan tekrar deneyin.</string>
+    <string name="title_auto_bitrate_min">Otomatik bit hızı alt sınırı</string>
+    <string name="summary_auto_bitrate_min">Otomatik bit hızının inebileceği en düşük bit hızı. Varsayılan 2 Mbps. Akış bit hızından yüksek bir değer, akış bit hızını alt sınır olarak bırakır. PyroWave ile kullanılmaz.</string>
+    <string name="auto_bitrate_min_default">Varsayılan (2 Mbps)</string>
+    <string name="title_auto_bitrate_max">Otomatik bit hızı üst sınırı</string>
+    <string name="summary_auto_bitrate_max">Otomatik bit hızının kullandığı en yüksek bit hızı. Bunun üzerinde başlayan akış bu değere indirilir. Akış bit hızı, yukarıda ayarlanan bit hızını kullanır. PyroWave ile kullanılmaz.</string>
+    <string name="auto_bitrate_max_default">Akış bit hızı</string>
 </resources>

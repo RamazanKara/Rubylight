@@ -8,4 +8,10 @@
     <string name="stream_auto_bitrate_unavailable">Ce PC n’indique pas le débit de son stream. Le débit automatique est désactivé pour ce stream.</string>
     <string name="stream_auto_bitrate_status">Débit automatique : %1$.1f Mbit/s</string>
     <string name="stream_bitrate_busy">Hôte occupé. Réessayez dans un instant.</string>
+    <string name="title_auto_bitrate_min">Débit automatique minimal</string>
+    <string name="summary_auto_bitrate_min">Débit le plus bas auquel le débit automatique descend. Par défaut : 2 Mbit/s. Une valeur supérieure au débit du stream conserve le débit du stream comme plancher. Inutilisé avec PyroWave.</string>
+    <string name="auto_bitrate_min_default">Par défaut (2 Mbit/s)</string>
+    <string name="title_auto_bitrate_max">Débit automatique maximal</string>
+    <string name="summary_auto_bitrate_max">Débit le plus élevé utilisé par le débit automatique. Un stream qui démarre au-dessus est ramené à cette valeur. Débit du stream utilise le débit réglé plus haut. Inutilisé avec PyroWave.</string>
+    <string name="auto_bitrate_max_default">Débit du stream</string>
 </resources>

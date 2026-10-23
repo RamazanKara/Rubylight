@@ -3962,7 +3962,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             long now = SystemClock.uptimeMillis();
                             if (details != null) {
                                 int ceiling = Math.max(details.initialEncoderBitrateKbps, applied);
-                                if (controller != null) adaptiveBitrate = new AdaptiveBitrateController(ceiling, applied, streamFps, now);
+                                if (controller != null) adaptiveBitrate = new AdaptiveBitrateController(ceiling, applied, streamFps, now,
+                                        prefConfig.autoBitrateMinKbps, prefConfig.autoBitrateMaxKbps);
                                 if (pyroController != null) pyroWaveBitrate = new PyroWaveBitrateController(ceiling, applied, streamFps, now);
                             } else {
                                 if (controller != null) controller.applied(target, applied, now);

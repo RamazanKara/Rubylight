@@ -8,4 +8,10 @@
     <string name="stream_auto_bitrate_unavailable">Ten komputer nie podaje szybkości transmisji strumienia. Automatyczna szybkość transmisji jest wyłączona dla tego strumienia.</string>
     <string name="stream_auto_bitrate_status">Automatyczna szybkość transmisji: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host jest zajęty. Spróbuj ponownie za chwilę.</string>
+    <string name="title_auto_bitrate_min">Minimalny automatyczny bitrate</string>
+    <string name="summary_auto_bitrate_min">Najniższy bitrate, do którego schodzi automatyczny bitrate. Domyślnie 2 Mb/s. Wartość wyższa niż bitrate strumienia zostawia bitrate strumienia jako dolną granicę. Nie dotyczy PyroWave.</string>
+    <string name="auto_bitrate_min_default">Domyślny (2 Mb/s)</string>
+    <string name="title_auto_bitrate_max">Maksymalny automatyczny bitrate</string>
+    <string name="summary_auto_bitrate_max">Najwyższy bitrate używany przez automatyczny bitrate. Strumień zaczynający powyżej tej wartości jest do niej obniżany. Bitrate strumienia używa bitrate ustawionego wyżej. Nie dotyczy PyroWave.</string>
+    <string name="auto_bitrate_max_default">Bitrate strumienia</string>
 </resources>

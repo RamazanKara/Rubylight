@@ -28,6 +28,8 @@ These tables include every preference, including actions, grouped as the Setting
 | Automatic stream quality<br>`adaptive_quality_mode` | Off | Off; Preserve motion; Preserve detail; Extend battery life | Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Requires the host's reconfigure capability and an adaptive decoder; PyroWave is unsupported. The stream menu can override the mode per PC. |
 | Minimum automatic resolution<br>`adaptive_quality_min_resolution` | 720p | 360p; 540p; 720p; 1080p | Sets the smallest short edge for automatic quality, with the aspect ratio preserved. The selected starting resolution is the ceiling; a minimum above that ceiling is clamped down. Available while Automatic stream quality is on. |
 | Minimum automatic frame rate<br>`adaptive_quality_min_fps` | 30 FPS | 30 FPS; 45 FPS; 60 FPS | Sets the lowest FPS automatic quality may request, including Battery mode. Recovery increases one step after 30 healthy seconds; reductions are at least 15 seconds apart. Available while Automatic stream quality is on. |
+| Automatic bitrate minimum<br>`list_auto_bitrate_min_kbps` | Built-in (2 Mbps) | Built-in; 5; 10; 15; 20; 30; 50 Mbps | Lowest bitrate Automatic bitrate steps down to. A value above the stream bitrate keeps the stream bitrate as the floor. Not used with PyroWave. |
+| Automatic bitrate maximum<br>`list_auto_bitrate_max_kbps` | Stream bitrate | Stream bitrate; 10; 15; 20; 30; 50; 80; 150 Mbps | Highest bitrate Automatic bitrate uses. A stream that starts above it is lowered to it. A maximum below the minimum yields to the minimum. Not used with PyroWave. |
 
 ### Display & image
 

@@ -1,7 +1,13 @@
 package com.limelight.nvstream;
 
 public final class AdaptiveBitrateController {
+    /** Lowest rate the controller steps down to unless the person sets a higher minimum. */
+    public static final int DEFAULT_FLOOR_KBPS = 2000;
+    // A request to come down to a person's maximum may repeat this often, like any other change.
+    private static final long LIMIT_RETRY_MS = 3000;
+
     private int ceilingKbps;
+    private final int maxLimitKbps;
     private int currentKbps;
     private int floorKbps;
     private float frameMs;
@@ -15,9 +21,24 @@ public final class AdaptiveBitrateController {
     private boolean decodeBitrateInsensitive;
 
     public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs) {
+        this(ceilingKbps, currentKbps, fps, nowMs, 0, 0);
+    }
+
+    /**
+     * minKbps and maxKbps are the person's limits for the automatic rate, 0 for none. The minimum
+     * replaces the built-in floor and the maximum lowers the ceiling, but neither is raised above
+     * what the host allows. A minimum above the maximum yields to the minimum.
+     */
+    public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs, int minKbps, int maxKbps) {
         this.ceilingKbps = Math.min(StreamConfiguration.MAX_BITRATE_KBPS, ceilingKbps);
         this.currentKbps = Math.min(currentKbps, this.ceilingKbps);
-        floorKbps = Math.min(2000, this.currentKbps);
+        maxLimitKbps = maxKbps > 0 ? Math.max(maxKbps, minKbps) : 0;
+        if (maxLimitKbps > 0 && this.ceilingKbps > maxLimitKbps) {
+            // The stream may start above the maximum; sample() brings it down.
+            this.currentKbps = Math.min(currentKbps, StreamConfiguration.MAX_BITRATE_KBPS);
+            this.ceilingKbps = maxLimitKbps;
+        }
+        floorKbps = Math.min(minKbps > 0 ? minKbps : DEFAULT_FLOOR_KBPS, Math.min(this.currentKbps, this.ceilingKbps));
         frameMs = 1000.0f / fps;
         lastChangeMs = nowMs;
     }
@@ -36,6 +57,9 @@ public final class AdaptiveBitrateController {
     // lowers the bitrate (and with it the host's pacing rate) before losses pile up.
     public int sample(long nowMs, boolean recentVideo, boolean poorConnection, float lossPercent, float decodeMs,
                       float jitterMs, float queueMs) {
+        if (maxLimitKbps > 0 && currentKbps > ceilingKbps && nowMs - lastChangeMs >= LIMIT_RETRY_MS) {
+            return ceilingKbps;
+        }
         if (!recentVideo && !poorConnection) {
             healthySinceMs = -1;
             poorSamples = 0;

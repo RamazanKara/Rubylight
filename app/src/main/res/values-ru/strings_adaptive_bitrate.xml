@@ -8,4 +8,10 @@
     <string name="stream_auto_bitrate_unavailable">Этот ПК не сообщает битрейт трансляции. Автоматический битрейт для этой трансляции выключен.</string>
     <string name="stream_auto_bitrate_status">Автоматический битрейт: %1$.1f Мбит/с</string>
     <string name="stream_bitrate_busy">Хост занят. Повторите попытку чуть позже.</string>
+    <string name="title_auto_bitrate_min">Минимум автоматического битрейта</string>
+    <string name="summary_auto_bitrate_min">Самый низкий битрейт, до которого опускается автоматический битрейт. По умолчанию 2 Мбит/с. Значение выше битрейта потока оставляет нижней границей битрейт потока. Не используется с PyroWave.</string>
+    <string name="auto_bitrate_min_default">По умолчанию (2 Мбит/с)</string>
+    <string name="title_auto_bitrate_max">Максимум автоматического битрейта</string>
+    <string name="summary_auto_bitrate_max">Самый высокий битрейт, который использует автоматический битрейт. Поток, начавшийся выше, снижается до этого значения. Битрейт потока использует битрейт, заданный выше. Не используется с PyroWave.</string>
+    <string name="auto_bitrate_max_default">Битрейт потока</string>
 </resources>

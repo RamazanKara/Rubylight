@@ -2,6 +2,8 @@ package com.limelight;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 import com.limelight.binding.video.DecoderBenchmark;
@@ -364,6 +366,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             // A host's library can arrive while this screen is away, which makes Home available.
             ShellBar.refresh(this);
         }
+        // A PC removed from its settings page is gone from the manager but still in this list.
+        dropRemovedComputers();
         if (!hostActions.deliverPendingResult() && !hostActions.isPairing()) {
             startComputerUpdates();
         }
@@ -618,6 +622,24 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             default:
                 showComputerMenu(computer);
                 break;
+        }
+    }
+
+    /** Takes the rows of PCs the manager no longer knows off the list. */
+    void dropRemovedComputers() {
+        ComputerManagerService.ComputerManagerBinder binder = managerBinder;
+        if (binder == null) {
+            return;
+        }
+        List<ComputerDetails> gone = new ArrayList<>();
+        for (int i = 0; i < pcGridAdapter.getCount(); i++) {
+            ComputerDetails details = ((ComputerObject) pcGridAdapter.getItem(i)).details;
+            if (binder.getComputer(details.uuid) == null) {
+                gone.add(details);
+            }
+        }
+        for (ComputerDetails details : gone) {
+            removeFromList(details);
         }
     }
 

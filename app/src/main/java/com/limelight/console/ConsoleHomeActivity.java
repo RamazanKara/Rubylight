@@ -202,6 +202,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         super.onResume();
         shown = true;
         ShellBar.refresh(this);
+        feed.prune();
         feed.resume();
         // A game may have started or ended while another screen was in front.
         refreshedSignature = null;

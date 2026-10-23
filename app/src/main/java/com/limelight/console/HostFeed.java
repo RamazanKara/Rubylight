@@ -13,6 +13,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.PairingManager;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -134,6 +135,24 @@ final class HostFeed {
     /** A host was removed from this device; it leaves the feed at once instead of at the next poll. */
     void forget(String uuid) {
         if (hosts.remove(uuid) != null) {
+            listener.onHostsChanged();
+        }
+    }
+
+    /** Drops the hosts the manager no longer knows, such as one removed from its own settings page. */
+    void prune() {
+        ComputerManagerService.ComputerManagerBinder current = binder;
+        if (current == null) {
+            return;
+        }
+        boolean changed = false;
+        for (Iterator<String> it = hosts.keySet().iterator(); it.hasNext(); ) {
+            if (current.getComputer(it.next()) == null) {
+                it.remove();
+                changed = true;
+            }
+        }
+        if (changed) {
             listener.onHostsChanged();
         }
     }

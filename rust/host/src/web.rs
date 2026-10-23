@@ -1,5 +1,7 @@
 mod apps;
 mod clients;
+#[cfg(test)]
+pub(crate) use clients::handle as update_clients;
 mod config;
 mod displays;
 mod logs;

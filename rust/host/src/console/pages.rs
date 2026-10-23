@@ -537,6 +537,9 @@ async fn devices(
         }
         editor += "</div></fieldset>";
         editor += &super::settings::render("client_", super::settings::CLIENT, client);
+        // What this form rendered, so a save from a stale page does not send back a
+        // layout the user did not touch (issue #40).
+        editor += &hidden("layout_original", text(client, "virtual_display_layout"));
         let mut advanced = client.clone();
         for key in [
             "name",

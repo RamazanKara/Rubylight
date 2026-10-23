@@ -4,7 +4,7 @@ use crate::state::Shared;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
-pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyhow::Result<Value> {
+pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyhow::Result<Value> {
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     Ok(match (method, path) {
         ("GET", "/api/clients/list") => {

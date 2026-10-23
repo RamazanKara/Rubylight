@@ -169,6 +169,22 @@ fn payload(h: &Shared, fields: &Fields) -> Result<Value, String> {
             client.remove("cert");
             client.extend(copy(&["uuid", "name"]));
             super::settings::apply("client_", super::settings::CLIENT, fields, &mut client)?;
+            // The form posts the layout, and the stored markers in the options JSON, on
+            // every save. Only a layout the user changed from what the page showed goes
+            // on (as theirs); a rename from a stale page must not lock a learned one.
+            if let Some(original) = fields.get("layout_original") {
+                client.remove(crate::display_session::SET_BY_USER);
+                client.remove(crate::display_session::LEARNED_OVER);
+                let posted = client
+                    .get("virtual_display_layout")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if posted == original {
+                    client.remove("virtual_display_layout");
+                } else if !posted.is_empty() {
+                    client.insert(crate::display_session::SET_BY_USER.into(), json!(true));
+                }
+            }
             let perm = PERMISSIONS.iter().fold(0, |mask, (bit, _)| {
                 if fields.contains_key(&format!("perm_{bit}")) {
                     mask | bit
@@ -288,6 +304,75 @@ pub(crate) async fn action(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A save from the device form that was rendered with `original` as the
+    /// device's layout and now posts `posted`, renaming the device.
+    fn device_form(uuid: &str, original: &str, posted: &str) -> Fields {
+        let advanced = json!({
+            "virtual_display_layout": original,
+            "virtual_display_layout_learned_over": "extended_primary",
+            "virtual_display_layout_set_by_user": true,
+        });
+        Fields::from([
+            ("op".into(), "client-save".into()),
+            ("uuid".into(), uuid.into()),
+            ("name".into(), "Renamed".into()),
+            ("client_virtual_display_layout".into(), posted.into()),
+            ("layout_original".into(), original.into()),
+            ("advanced".into(), advanced.to_string()),
+        ])
+    }
+    fn save_device(f: &crate::state::test_support::Fixture, fields: &Fields) {
+        let data = payload(&f.host, fields).unwrap();
+        crate::web::update_clients(&f.host, "POST", "/api/clients/update", &data).unwrap();
+    }
+    fn device_layout(f: &crate::state::test_support::Fixture) -> (Value, bool, bool) {
+        let paired = f.host.paired.read().unwrap();
+        let extra = &paired.clients[0].extra;
+        (
+            extra
+                .get("virtual_display_layout")
+                .cloned()
+                .unwrap_or(Value::Null),
+            extra.contains_key(crate::display_session::SET_BY_USER),
+            extra.contains_key(crate::display_session::LEARNED_OVER),
+        )
+    }
+    #[test]
+    fn a_rename_from_a_stale_page_does_not_lock_a_learned_layout() {
+        // Issue #40: the page showed "extended", the host has since learned
+        // "exclusive"; the rename re-posts the old value and the stored markers.
+        let f = crate::state::test_support::Fixture::new();
+        let client = f.client(u32::MAX);
+        {
+            let mut paired = f.host.paired.write().unwrap();
+            let extra = &mut paired.clients[0].extra;
+            extra.insert("virtual_display_layout".into(), "exclusive".into());
+            extra.insert(
+                crate::display_session::LEARNED_OVER.into(),
+                "extended_primary".into(),
+            );
+        }
+        save_device(&f, &device_form(&client.uuid, "extended", "extended"));
+        assert_eq!(
+            device_layout(&f),
+            (json!("exclusive"), false, true),
+            "the layout the user did not touch stays as the host has it"
+        );
+        assert_eq!(f.host.paired.read().unwrap().clients[0].name, "Renamed");
+    }
+    #[test]
+    fn a_layout_picked_in_the_no_js_form_is_the_users() {
+        let f = crate::state::test_support::Fixture::new();
+        let client = f.client(u32::MAX);
+        f.host.paired.write().unwrap().clients[0]
+            .extra
+            .insert("virtual_display_layout".into(), "extended".into());
+        save_device(&f, &device_form(&client.uuid, "extended", "exclusive"));
+        assert_eq!(device_layout(&f), (json!("exclusive"), true, false));
+        // And clearing it goes back to the host setting.
+        save_device(&f, &device_form(&client.uuid, "exclusive", ""));
+        assert_eq!(device_layout(&f), (Value::Null, false, false));
+    }
     #[test]
     fn form_actions_cannot_inject_paths_or_methods() {
         assert!(route(&Fields::from([("op".into(), "POST /api/quit".into())])).is_err());

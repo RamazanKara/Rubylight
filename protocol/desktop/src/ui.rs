@@ -2464,6 +2464,26 @@ impl Launcher {
         None
     }
 
+    /// The PC answered a pairing request. Returns true when this device is now paired and the
+    /// PIN dialog was still open. Pairing that was cancelled meanwhile says nothing: a failure
+    /// the user walked away from is not shown as an error.
+    pub fn pairing_finished(&mut self, host: u64, result: Result<(), String>) -> bool {
+        let one_time = match &self.dialog {
+            Dialog::Pairing { host: asked, pin } if *asked == host => pin.is_empty(),
+            _ => return false,
+        };
+        match result {
+            Ok(()) => {
+                self.dialog = Dialog::None;
+                true
+            }
+            Err(e) => {
+                self.pair_failed(host, e, one_time);
+                false
+            }
+        }
+    }
+
     /// Shows why pairing failed, with a way to try again.
     pub fn pair_failed(&mut self, host: u64, body: impl Into<String>, one_time: bool) {
         self.dialog = Dialog::PairError { host, body: body.into(), one_time };
@@ -3333,6 +3353,35 @@ mod tests {
         assert_eq!(stops.len(), 3, "Home, PCs and Settings: {stops:?}");
         assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
         assert!(1280.0 - stops[2].right() < 80.0, "Settings is at the right edge");
+    }
+
+    #[test]
+    fn a_pairing_that_was_cancelled_never_shows_an_error() {
+        let mut f = Frames::new(record("PC", false, false), Reach::Online);
+        let id = f.hosts.list[0].id;
+        let waiting = |f: &mut Frames| {
+            f.l.dialog = Dialog::Pairing { host: id, pin: "1234".into() };
+            f.l.focus_dialog = true;
+            f.settle();
+        };
+        waiting(&mut f);
+        let commands = f.press(Key::Escape);
+        assert!(commands.iter().any(|c| matches!(c, Command::CancelPair)), "Escape cancels the request");
+        assert!(!f.l.pairing_finished(id, Err(crate::hosts::PAIR_NETWORK.into())), "the late failure");
+        assert!(f.no_dialog(), "is not shown");
+        assert!(!f.l.pairing_finished(id, Ok(())), "and a late success does not open the library");
+        assert!(f.no_dialog());
+        // A pairing the user still waits for does report both.
+        waiting(&mut f);
+        assert!(!f.l.pairing_finished(id, Err(crate::hosts::PAIR_PIN_WRONG.into())));
+        assert!(matches!(f.l.dialog, Dialog::PairError { one_time: false, .. }));
+        waiting(&mut f);
+        assert!(f.l.pairing_finished(id, Ok(())));
+        assert!(f.no_dialog());
+        // Another PC's answer is not this dialog's.
+        waiting(&mut f);
+        assert!(!f.l.pairing_finished(id + 1, Err(crate::hosts::PAIR_NETWORK.into())));
+        assert!(matches!(f.l.dialog, Dialog::Pairing { .. }));
     }
 
     #[test]

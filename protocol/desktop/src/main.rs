@@ -524,18 +524,10 @@ impl App {
         for event in events {
             match event {
                 HostEvent::Paired { id, result, .. } => {
-                    let one_time = match &self.launcher.dialog {
-                        Dialog::Pairing { host, pin } if *host == id => pin.is_empty(),
-                        _ => continue,
-                    };
-                    match result {
-                        Ok(_) => {
-                            self.launcher.dialog = Dialog::None;
-                            self.save_hosts();
-                            self.hosts.load_apps(id);
-                            self.launcher.open(Screen::Apps(id));
-                        }
-                        Err(e) => self.launcher.pair_failed(id, e, one_time),
+                    if self.launcher.pairing_finished(id, result.map(|_| ())) {
+                        self.save_hosts();
+                        self.hosts.load_apps(id);
+                        self.launcher.open(Screen::Apps(id));
                     }
                 }
                 HostEvent::Quit { id, result } => match result {

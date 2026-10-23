@@ -210,6 +210,9 @@ pub struct Encoder {
     units: units::Sequencer,
     /// The last poll took a unit of a joined frame and returned nothing.
     unit_held: bool,
+    /// A later slice named a different picture type than its frame's first
+    /// slice, and it was logged.
+    unit_idr_reported: bool,
 }
 /// One output buffer from QueryOutput: a frame, or with slice/tile output one
 /// slice or tile of it.
@@ -475,6 +478,7 @@ impl Encoder {
                 slices_joined: false,
                 units: Default::default(),
                 unit_held: false,
+                unit_idr_reported: false,
             };
             let mut properties = butterpollo_core::encoder_policy::amf(options, config)?;
             guard_smart_access_video(&mut properties);
@@ -1572,8 +1576,6 @@ impl Encoder {
             let idr = output_is_idr(picture_type, requested_idr);
             let bytes = std::slice::from_raw_parts(raw, size as usize);
             if self.slice_blocks > 0 {
-                let bytes = bytes.to_vec();
-                (v.Release.unwrap())(buffer);
                 let streamable = !self.slices_joined
                     && !idr
                     && !after_invalidation
@@ -1582,6 +1584,19 @@ impl Encoder {
                     streamed: streamable,
                     idr,
                 });
+                (v.Release.unwrap())(buffer);
+                // Whether a frame is a keyframe is read from its first slice.
+                // If a later one says otherwise, that assumption is wrong for
+                // this driver: say so, once, rather than stream a keyframe.
+                if idr != pushed.meta.idr && !self.unit_idr_reported {
+                    self.unit_idr_reported = true;
+                    tracing::error!(
+                        pts,
+                        first_slice_idr = pushed.meta.idr,
+                        this_slice_idr = idr,
+                        "AMF reported a different picture type on a later slice of one frame; slice delivery decides a frame's type from its first slice. Report this with the host log."
+                    );
+                }
                 if let Some(lost) = pushed.abandoned {
                     self.lost_frame(lost);
                 }

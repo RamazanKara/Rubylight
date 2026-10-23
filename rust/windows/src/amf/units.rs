@@ -57,7 +57,7 @@ impl Sequencer {
         &mut self,
         pts: i64,
         kind: Option<i64>,
-        bytes: Vec<u8>,
+        bytes: &[u8],
         first: impl FnOnce() -> Meta,
     ) -> Pushed {
         let abandoned = match &self.open {
@@ -68,7 +68,7 @@ impl Sequencer {
             let meta = first();
             self.open = None;
             return Pushed {
-                step: Step::Whole(bytes),
+                step: Step::Whole(bytes.to_vec()),
                 meta: Meta {
                     streamed: false,
                     ..meta
@@ -92,15 +92,15 @@ impl Sequencer {
             } else {
                 Unit::Slice { index }
             };
-            Step::Unit(unit, bytes)
+            Step::Unit(unit, bytes.to_vec())
         } else if !last {
-            open.joined.extend_from_slice(&bytes);
+            open.joined.extend_from_slice(bytes);
             Step::Hold
         } else if index == 0 {
-            Step::Whole(bytes)
+            Step::Whole(bytes.to_vec())
         } else {
             let mut joined = std::mem::take(&mut open.joined);
-            joined.extend_from_slice(&bytes);
+            joined.extend_from_slice(bytes);
             Step::Whole(joined)
         };
         if last {
@@ -139,7 +139,7 @@ mod tests {
             .iter()
             .map(|&(kind, bytes)| {
                 sequencer
-                    .push(pts, Some(kind), bytes.to_vec(), || {
+                    .push(pts, Some(kind), bytes, || {
                         calls += 1;
                         meta
                     })
@@ -183,7 +183,7 @@ mod tests {
             steps,
             [Step::Hold, Step::Hold, Step::Whole(b"aabbbc".to_vec())]
         );
-        let pushed = sequencer.push(8, Some(2), b"x".to_vec(), || JOINED);
+        let pushed = sequencer.push(8, Some(2), b"x", || JOINED);
         assert_eq!(pushed.step, Step::Whole(b"x".to_vec()));
         assert!(pushed.meta.idr && !pushed.meta.streamed);
         assert_eq!(pushed.abandoned, None);
@@ -192,8 +192,8 @@ mod tests {
     #[test]
     fn the_first_unit_meta_is_kept_for_the_whole_frame() {
         let mut sequencer = Sequencer::default();
-        sequencer.push(1, Some(1), vec![1], || JOINED);
-        let pushed = sequencer.push(1, Some(2), vec![2], || panic!("decided twice"));
+        sequencer.push(1, Some(1), &[1], || JOINED);
+        let pushed = sequencer.push(1, Some(2), &[2], || panic!("decided twice"));
         assert_eq!(pushed.meta, JOINED);
         assert_eq!(pushed.step, Step::Whole(vec![1, 2]));
     }
@@ -202,7 +202,7 @@ mod tests {
     fn a_frame_returned_whole_passes_through_in_either_mode() {
         let mut sequencer = Sequencer::default();
         for kind in [None, Some(0)] {
-            let pushed = sequencer.push(3, kind, b"frame".to_vec(), || STREAMED);
+            let pushed = sequencer.push(3, kind, b"frame", || STREAMED);
             assert_eq!(pushed.step, Step::Whole(b"frame".to_vec()));
             assert!(!pushed.meta.streamed);
         }
@@ -211,8 +211,8 @@ mod tests {
     #[test]
     fn a_frame_without_its_last_unit_is_reported_when_the_next_arrives() {
         let mut sequencer = Sequencer::default();
-        sequencer.push(1, Some(1), b"a".to_vec(), || STREAMED);
-        let pushed = sequencer.push(2, Some(1), b"b".to_vec(), || STREAMED);
+        sequencer.push(1, Some(1), b"a", || STREAMED);
+        let pushed = sequencer.push(2, Some(1), b"b", || STREAMED);
         assert_eq!(pushed.abandoned, Some(1));
         assert_eq!(
             pushed.step,
@@ -220,8 +220,8 @@ mod tests {
         );
         // A joined frame's leftovers never reach the next one.
         let mut sequencer = Sequencer::default();
-        sequencer.push(1, Some(1), b"stale".to_vec(), || JOINED);
-        let pushed = sequencer.push(2, Some(2), b"new".to_vec(), || JOINED);
+        sequencer.push(1, Some(1), b"stale", || JOINED);
+        let pushed = sequencer.push(2, Some(2), b"new", || JOINED);
         assert_eq!(pushed.abandoned, Some(1));
         assert_eq!(pushed.step, Step::Whole(b"new".to_vec()));
     }
@@ -229,11 +229,11 @@ mod tests {
     #[test]
     fn forgetting_a_frame_drops_its_units_only() {
         let mut sequencer = Sequencer::default();
-        sequencer.push(1, Some(1), b"a".to_vec(), || JOINED);
+        sequencer.push(1, Some(1), b"a", || JOINED);
         sequencer.forget(2);
         assert!(sequencer.open.is_some());
         sequencer.forget(1);
-        let pushed = sequencer.push(1, Some(2), b"b".to_vec(), || JOINED);
+        let pushed = sequencer.push(1, Some(2), b"b", || JOINED);
         assert_eq!(pushed.step, Step::Whole(b"b".to_vec()));
         assert_eq!(pushed.abandoned, None);
     }

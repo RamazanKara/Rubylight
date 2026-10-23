@@ -8,8 +8,9 @@
 
 use anyhow::Result;
 use butterpollo_core::{
-    packet::StreamedFrame,
-    performance::Claim,
+    packet::{SliceOverflow, StreamedFrame, VideoPacketizer},
+    performance::{Claim, Stamps},
+    session::Stats,
     stream_policy::{SendDrop, SendLoss},
 };
 use butterpollo_windows::{
@@ -17,9 +18,107 @@ use butterpollo_windows::{
     net::Batch,
 };
 use std::{
+    cell::Cell,
     net::{SocketAddr, UdpSocket},
+    sync::atomic::Ordering,
     time::Instant,
 };
+
+/// Whether slice delivery is still on for the stream. A frame past its byte
+/// cap, or a sender thread that cannot stream, turns it off for the rest of
+/// the stream; the encoder is then told to return whole frames.
+pub struct Delivery {
+    blocks: usize,
+    off: Cell<bool>,
+}
+
+impl Delivery {
+    /// `blocks` is `video_slice_delivery` (0 when off).
+    pub fn new(blocks: usize) -> Self {
+        Self {
+            blocks,
+            off: Cell::new(false),
+        }
+    }
+    pub fn blocks(&self) -> usize {
+        self.blocks
+    }
+    pub fn turn_off(&self) {
+        self.off.set(true);
+    }
+    /// A new P-frame may be streamed on this path.
+    pub fn streams(&self, threaded: bool) -> bool {
+        self.blocks > 0 && !self.off.get() && !threaded
+    }
+    /// The encoder should return whole frames from now on.
+    pub fn joins(&self, threaded: bool) -> bool {
+        self.blocks > 0 && (self.off.get() || threaded)
+    }
+}
+
+/// A streamed frame failed to build or to be sent as it should. A frame past
+/// the byte cap its blocks were planned for turns slice delivery off and is
+/// counted; the overflow is returned for the log.
+pub fn note_failure(
+    delivery: &Delivery,
+    stats: &Stats,
+    error: &anyhow::Error,
+) -> Option<SliceOverflow> {
+    let overflow = *error.downcast_ref::<SliceOverflow>()?;
+    delivery.turn_off();
+    stats
+        .slice_delivery_overflows
+        .fetch_add(1, Ordering::Relaxed);
+    Some(overflow)
+}
+
+/// A streamed frame is open (units sent, the last one not seen), so the
+/// stream must not move to another sender in the middle of it.
+pub fn open(route: &Route, streaming: &Option<Streaming>) -> bool {
+    streaming.is_some() || route.streaming()
+}
+
+/// Forget the streamed frame the stream will not finish. Its index is
+/// consumed if no block left, so the client sees the gap. The payload buffer
+/// goes back to `spare`. Returns the next frame number to expect on the wire.
+pub fn drop_frame(
+    streaming: &mut Option<Streaming>,
+    packetizer: &mut VideoPacketizer,
+    spare: &mut Vec<u8>,
+) -> u32 {
+    if let Some(mut open) = streaming.take() {
+        open.frame.abandon(packetizer);
+        *spare = open.frame.into_buffer();
+    }
+    packetizer.frame
+}
+
+/// A frame that could not even be started is dropped before any packet: its
+/// index is consumed, as for any other dropped frame. Returns the next frame
+/// number to expect on the wire.
+pub fn refuse_frame(packetizer: &mut VideoPacketizer) -> u32 {
+    packetizer.skip_frame();
+    packetizer.frame
+}
+
+/// The points of a streamed frame. `encoded` is when its first unit was in
+/// hand: the units that follow arrive while the frame is already leaving, so
+/// the time to its last unit falls in `send`, after `first_sent`, instead of
+/// swallowing the stages before it.
+pub fn stamps(
+    claim: &Claim,
+    first_polled: Instant,
+    packetize_started: Instant,
+    first_sent: Option<Instant>,
+    finished: Instant,
+) -> Stamps {
+    claim.sent(
+        first_polled,
+        packetize_started,
+        first_sent.unwrap_or(finished),
+        finished,
+    )
+}
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Mode {
@@ -110,12 +209,25 @@ pub struct Streaming {
     pub age: u64,
     pub started: Instant,
     pub packetize_started: Instant,
+    /// When the encoder's first unit and its latest were in hand.
+    pub first_polled: Instant,
+    pub last_polled: Instant,
+    /// The frame's payload so far, over all units, even those not sent.
+    pub payload_bytes: usize,
     pub processing: u64,
     pub bps: u64,
     pub sent: Sent,
     /// A unit overflowed the plan, or the frame failed to build: the rest of
     /// its units are dropped.
     pub failed: bool,
+}
+
+impl Streaming {
+    /// A unit of `bytes` came in at `polled`.
+    pub fn unit(&mut self, polled: Instant, bytes: usize) {
+        self.last_polled = polled;
+        self.payload_bytes += bytes;
+    }
 }
 
 /// The socket side of a streamed frame.
@@ -244,6 +356,208 @@ mod tests {
         assert!(route.route(slice(2, b"a"), |_| true).frame.is_none());
         assert!(route.route(last(3, b"b"), |_| true).frame.is_none());
         assert!(route.route(last(0, b"c"), |_| true).frame.is_some());
+    }
+
+    const SLICE: usize = 1376;
+
+    fn packetizer() -> VideoPacketizer {
+        VideoPacketizer {
+            sequence: 100,
+            iv_counter: 5,
+            frame: 7,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: None,
+        }
+    }
+    fn streaming(packetizer: &mut VideoPacketizer, spare: Vec<u8>, cap: usize) -> Streaming {
+        let now = Instant::now();
+        Streaming {
+            frame: packetizer.streamed_in(spare, 9000, 500, 4, 4, cap).unwrap(),
+            wire_frame: packetizer.frame,
+            timestamp: 9000,
+            claim: None,
+            claimed: now,
+            age: 0,
+            started: now,
+            packetize_started: now,
+            first_polled: now,
+            last_polled: now,
+            payload_bytes: 0,
+            processing: 0,
+            bps: 0,
+            sent: Sent::new(0),
+            failed: false,
+        }
+    }
+    fn push(
+        streaming: &mut Streaming,
+        packetizer: &mut VideoPacketizer,
+        bytes: usize,
+        last: bool,
+    ) -> Result<usize> {
+        let mut shards = Vec::new();
+        let mut built = 0;
+        streaming.unit(Instant::now(), bytes);
+        streaming.frame.push(
+            packetizer,
+            &vec![0x55; bytes],
+            last,
+            &mut shards,
+            |packets, _| {
+                built += packets.len();
+                Ok(())
+            },
+        )?;
+        Ok(built)
+    }
+
+    #[test]
+    fn an_interrupted_frame_that_built_no_block_consumes_its_index() {
+        let mut packetizer = packetizer();
+        let mut open = Some(streaming(&mut packetizer, Vec::new(), 100 * SLICE));
+        // Too little for a block: nothing left the host.
+        assert_eq!(
+            push(open.as_mut().unwrap(), &mut packetizer, SLICE / 2, false).unwrap(),
+            0
+        );
+        let mut spare = Vec::new();
+        let next = drop_frame(&mut open, &mut packetizer, &mut spare);
+        assert!(open.is_none());
+        assert_eq!((next, packetizer.frame), (8, 8), "the next frame takes 8");
+        assert_eq!((packetizer.sequence, packetizer.iv_counter), (100, 5));
+        assert!(spare.capacity() >= SLICE / 2, "the buffer comes back");
+        // Nothing open: the number is where it was.
+        assert_eq!(drop_frame(&mut open, &mut packetizer, &mut spare), 8);
+    }
+
+    #[test]
+    fn an_interrupted_frame_with_a_block_out_does_not_consume_a_second_index() {
+        let mut packetizer = packetizer();
+        let mut open = Some(streaming(&mut packetizer, Vec::new(), 100 * SLICE));
+        assert!(push(open.as_mut().unwrap(), &mut packetizer, 30 * SLICE, false).unwrap() > 0);
+        assert_eq!(packetizer.frame, 8, "block 0 took index 7");
+        let next = drop_frame(&mut open, &mut packetizer, &mut Vec::new());
+        assert_eq!((next, packetizer.frame), (8, 8));
+    }
+
+    #[test]
+    fn a_frame_that_could_not_start_consumes_its_index() {
+        let mut packetizer = packetizer();
+        // A cap past what four blocks hold cannot be streamed.
+        assert!(packetizer.streamed(0, 0, 4, 4, 5000 * SLICE).is_err());
+        assert_eq!(packetizer.frame, 7);
+        assert_eq!(refuse_frame(&mut packetizer), 8);
+        assert_eq!(packetizer.frame, 8);
+    }
+
+    #[test]
+    fn the_next_frame_after_a_dropped_one_shows_the_client_a_gap() {
+        let mut packetizer = packetizer();
+        let mut open = Some(streaming(&mut packetizer, Vec::new(), 100 * SLICE));
+        push(open.as_mut().unwrap(), &mut packetizer, SLICE / 2, false).unwrap();
+        drop_frame(&mut open, &mut packetizer, &mut Vec::new());
+        let mut frame = packetizer.streamed(9100, 500, 2, 2, 100 * SLICE).unwrap();
+        let mut index = None;
+        frame
+            .push(
+                &mut packetizer,
+                &vec![1; 3 * SLICE],
+                true,
+                &mut Vec::new(),
+                |packets, _| {
+                    index.get_or_insert(u32::from_le_bytes(packets[0][20..24].try_into().unwrap()));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(index, Some(8), "frame 7 is missing on the wire");
+    }
+
+    #[test]
+    fn an_overflow_turns_delivery_off_and_the_encoder_is_told_to_join() {
+        let stats = Stats::default();
+        let delivery = Delivery::new(4);
+        assert!(delivery.streams(false) && !delivery.joins(false));
+        let mut packetizer = packetizer();
+        let mut open = streaming(&mut packetizer, Vec::new(), 40 * SLICE);
+        push(&mut open, &mut packetizer, 30 * SLICE, false).unwrap();
+        let error = push(&mut open, &mut packetizer, 30 * SLICE, false).unwrap_err();
+        let overflow = note_failure(&delivery, &stats, &error).unwrap();
+        assert_eq!(
+            overflow,
+            SliceOverflow {
+                cap: 40 * SLICE,
+                bytes: 60 * SLICE
+            }
+        );
+        assert_eq!(stats.slice_delivery_overflows.load(Ordering::Relaxed), 1);
+        assert!(!delivery.streams(false) && delivery.joins(false));
+        // Other failures are not overflows and leave it on.
+        let delivery = Delivery::new(4);
+        assert!(note_failure(&delivery, &stats, &anyhow::anyhow!("socket gone")).is_none());
+        assert!(delivery.streams(false) && !delivery.joins(false));
+        assert_eq!(stats.slice_delivery_overflows.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn delivery_is_off_for_a_sender_thread_and_when_not_asked_for() {
+        let delivery = Delivery::new(2);
+        assert!(!delivery.streams(true) && delivery.joins(true));
+        let off = Delivery::new(0);
+        assert!(!off.streams(false) && !off.joins(false) && !off.joins(true));
+    }
+
+    #[test]
+    fn the_stream_does_not_hand_off_while_a_streamed_frame_is_open() {
+        let mut route = Route::default();
+        let mut packetizer = packetizer();
+        assert!(!open(&route, &None));
+        route.route(slice(0, b"a"), |_| true);
+        assert!(open(&route, &None), "the route has an open frame");
+        route.route(last(1, b"b"), |_| true);
+        assert!(!open(&route, &None));
+        let held = Some(streaming(&mut packetizer, Vec::new(), 100 * SLICE));
+        assert!(open(&route, &held), "so does a streamed frame being sent");
+        // A frame being joined sent nothing, so a hand-off may happen.
+        route.route(slice(0, b"a"), |_| false);
+        assert!(!open(&route, &None));
+    }
+
+    #[test]
+    fn stamps_of_a_streamed_frame_keep_the_stage_order() {
+        let base = Instant::now();
+        let at = |us: u64| base + std::time::Duration::from_micros(us);
+        let claim = Claim {
+            key: at(0),
+            presented: at(0),
+            acquired: at(100),
+            published: at(150),
+            claimed: at(200),
+            submitted: at(700),
+        };
+        // The first unit came in at 1.0 ms and the last, much later, at 7.9 ms.
+        let stamps = stamps(&claim, at(1000), at(1100), Some(at(1500)), at(8000));
+        assert_eq!(
+            stamps.stages(),
+            [100, 50, 50, 500, 300, 100, 400, 0, 6500],
+            "encode ends at the first unit; the wait for the last falls in send"
+        );
+        assert_eq!(stamps.total(), 8000);
+        // The last unit's time as the encode end would absorb everything.
+        let wrong = claim.sent(at(7900), at(1100), at(1500), at(8000));
+        assert!(wrong.stages()[4] > 7000);
+    }
+
+    #[test]
+    fn a_streaming_frame_counts_the_payload_of_every_unit() {
+        let mut packetizer = packetizer();
+        let mut open = streaming(&mut packetizer, Vec::new(), 100 * SLICE);
+        let later = open.first_polled + std::time::Duration::from_millis(3);
+        open.unit(open.first_polled, 100);
+        open.unit(later, 250);
+        assert_eq!((open.payload_bytes, open.last_polled), (350, later));
     }
 
     fn sockets() -> (UdpSocket, UdpSocket) {

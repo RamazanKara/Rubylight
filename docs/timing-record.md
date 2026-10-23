@@ -57,6 +57,15 @@ wire_frame,rtp_us,present_us,acquired_us,published_us,claimed_us,submitted_us,en
 
 All values are integer µs on the media clock. The send thread does a non-blocking `try_send` into a bounded channel (4096 rows) at the point where `host_timings.record` is called today. A writer thread does the file IO. A full channel drops rows and counts them, and never blocks the send thread.
 
+#### Streamed frames (`video_slice_delivery`)
+
+A P-frame the host sends block by block while the encoder still produces it has its first blocks on the wire before its last slice exists. Its points keep the order above, so no stage is negative:
+
+- `encoded_us` is when the encoder's **first** slice was in the host's hands, and `packetized_us` when packetizing began on it. `encode` therefore ends at the first slice, not at the end of the encoder's work.
+- `prepared_us` equals `first_sent_us`, as for any inline frame, and `last_sent_us` is the last packet of the **last** block.
+- The wait for the remaining slices falls in `send` (`first_sent_us` to `last_sent_us`), together with pacing. For a streamed frame `send` is not network time alone. The time from the first slice to the last slice is logged at trace level (`target: "pacing"`, `streamed picture`, field `encode_span_us`, with `units` and `early_blocks`) until 2e adds `first_unit_us` and `early_blocks` columns to the record.
+- Frames the host does not stream (keyframes, recovery frames, frames the plan cannot split) are joined and stamped as before.
+
 ### Client record
 
 - **Nightjar latency CSV**: append these columns at the end and leave the existing ones and their order as they are: `rtp_host_us` (game present), `host_present_us`, `host_acquired_us`, `host_submitted_us`, `host_encoded_us`, `host_first_sent_us`, `host_last_sent_us`, `clock_offset_us`, `clock_rtt_us`. Host columns are µs on the host clock. A column is empty when its source is missing (no extension, report lost, or no 0x5537). The offset and RTT are read once per CSV flush, outside the stats lock, for the newest exchange. Drift within one flush is about 50 µs/s at most.

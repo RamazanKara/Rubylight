@@ -564,13 +564,23 @@ fn abandoning_a_frame_that_built_no_block_consumes_its_index() {
     assert_eq!(p.frame, 7);
     frame.abandon(&mut p);
     assert_eq!((p.frame, p.sequence, p.iv_counter), (8, 100, 5));
-    assert!(frame.push(&mut p, &payload, true, &mut shards, |_, _| Ok(())).is_err());
+    assert!(
+        frame
+            .push(&mut p, &payload, true, &mut shards, |_, _| Ok(()))
+            .is_err()
+    );
     frame.abandon(&mut p);
     assert_eq!(p.frame, 8, "abandoning twice consumes it once");
     // Dropped after block 0 left: the block took the number already.
     let mut frame = p.streamed(9000, 500, 4, 4, 100 * SLICE).unwrap();
     frame
-        .push(&mut p, &payload[..30 * SLICE], false, &mut shards, |_, _| Ok(()))
+        .push(
+            &mut p,
+            &payload[..30 * SLICE],
+            false,
+            &mut shards,
+            |_, _| Ok(()),
+        )
         .unwrap();
     assert!(frame.blocks_built() > 0);
     assert_eq!(p.frame, 9);
@@ -578,7 +588,9 @@ fn abandoning_a_frame_that_built_no_block_consumes_its_index() {
     assert_eq!(p.frame, 9);
     // A finished frame is left alone, and a frame another one overtook too.
     let mut frame = p.streamed(9000, 500, 2, 2, 100 * SLICE).unwrap();
-    frame.push(&mut p, &payload, true, &mut shards, |_, _| Ok(())).unwrap();
+    frame
+        .push(&mut p, &payload, true, &mut shards, |_, _| Ok(()))
+        .unwrap();
     assert_eq!(p.frame, 10);
     frame.abandon(&mut p);
     assert_eq!(p.frame, 10);
@@ -613,15 +625,17 @@ fn the_payload_buffer_is_reused_across_frames_and_the_length_outlives_it() {
     let mut p = packetizer(20, 2, None);
     let mut shards = PacketBlock::new();
     let mut frame = p.streamed(9000, 500, 2, 2, 100 * SLICE).unwrap();
-    frame.push(&mut p, &payload, true, &mut shards, |_, _| Ok(())).unwrap();
+    frame
+        .push(&mut p, &payload, true, &mut shards, |_, _| Ok(()))
+        .unwrap();
     assert_eq!(frame.payload_len(), payload.len());
     let buffer = frame.into_buffer();
     assert!(buffer.is_empty() && buffer.capacity() >= payload.len());
     let (pointer, capacity) = (buffer.as_ptr(), buffer.capacity());
-    let mut frame = p
-        .streamed_in(buffer, 9000, 500, 2, 2, 100 * SLICE)
+    let mut frame = p.streamed_in(buffer, 9000, 500, 2, 2, 100 * SLICE).unwrap();
+    frame
+        .push(&mut p, &payload, true, &mut shards, |_, _| Ok(()))
         .unwrap();
-    frame.push(&mut p, &payload, true, &mut shards, |_, _| Ok(())).unwrap();
     let buffer = frame.into_buffer();
     assert_eq!((buffer.as_ptr(), buffer.capacity()), (pointer, capacity));
 }
@@ -633,10 +647,7 @@ fn the_payload_buffer_is_reused_across_frames_and_the_length_outlives_it() {
 /// bytes, all zero when the packets are plain); the frame count (u32); then per
 /// frame its kind (1 P, 2 IDR), its payload (u32 length, bytes) and its
 /// packets (u32 count, then u16 length and bytes each).
-fn fixture(
-    key: Option<[u8; 16]>,
-    frames: &[(u8, Vec<u8>, Vec<Vec<u8>>)],
-) -> Vec<u8> {
+fn fixture(key: Option<[u8; 16]>, frames: &[(u8, Vec<u8>, Vec<Vec<u8>>)]) -> Vec<u8> {
     let mut out = b"RLSLICE1".to_vec();
     out.extend_from_slice(&1392u32.to_le_bytes());
     out.extend_from_slice(&key.unwrap_or([0; 16]));

@@ -967,6 +967,14 @@ impl App {
                 return;
             }
             LaunchApp::Gone => return,
+            LaunchApp::Failed(why) => {
+                self.launcher.message(tr("The stream could not start"), trf("The app list could not be loaded. {}", &[&why]));
+                return;
+            }
+            LaunchApp::Missing => {
+                self.launcher.message(tr("The stream could not start"), tr("The PC's app list has no entry for this game.").to_owned());
+                return;
+            }
         };
         if app.is_control_action() {
             self.hosts.control_action(host_id, app_id);
@@ -1606,15 +1614,20 @@ enum LaunchApp {
     Ready(nightjar_core::http::App),
     /// The list is being read; the launch waits for it.
     Wait,
-    /// No list, or the app is not in it.
+    /// No list was read yet.
     Gone,
+    /// The list could not be read; the reason is shown.
+    Failed(String),
+    /// The list has no such app.
+    Missing,
 }
 
 fn launch_app(apps: &Apps, app_id: i32) -> LaunchApp {
     match apps {
         Apps::Loading => LaunchApp::Wait,
-        Apps::Loaded(apps) => apps.iter().find(|app| app.id == app_id).cloned().map_or(LaunchApp::Gone, LaunchApp::Ready),
-        Apps::NotLoaded | Apps::Failed(_) => LaunchApp::Gone,
+        Apps::Loaded(apps) => apps.iter().find(|app| app.id == app_id).cloned().map_or(LaunchApp::Missing, LaunchApp::Ready),
+        Apps::NotLoaded => LaunchApp::Gone,
+        Apps::Failed(why) => LaunchApp::Failed(why.clone()),
     }
 }
 
@@ -1637,9 +1650,10 @@ mod tests {
         };
         assert!(matches!(launch_app(&Apps::Loading, 5), LaunchApp::Wait), "a reload in flight keeps the launch");
         assert!(matches!(launch_app(&Apps::Loaded(vec![app.clone()]), 5), LaunchApp::Ready(a) if a.id == 5));
-        assert!(matches!(launch_app(&Apps::Loaded(vec![app]), 6), LaunchApp::Gone));
+        assert!(matches!(launch_app(&Apps::Loaded(vec![app]), 6), LaunchApp::Missing));
         assert!(matches!(launch_app(&Apps::NotLoaded, 5), LaunchApp::Gone));
-        assert!(matches!(launch_app(&Apps::Failed("x".into()), 5), LaunchApp::Gone));
+        // A reload that ends in an error is shown, not dropped.
+        assert!(matches!(launch_app(&Apps::Failed("x".into()), 5), LaunchApp::Failed(why) if why == "x"));
     }
 
     fn record(unique_id: &str) -> config::HostRecord {

@@ -79,6 +79,7 @@ fn key_of(code: SDL_Keycode) -> Option<Key> {
         SDLK_SPACE => Key::Space,
         SDLK_INSERT => Key::Insert,
         SDLK_F2 => Key::F2,
+        SDLK_F10 => Key::F10,
         SDLK_F11 => Key::F11,
         _ => {
             let c = char::from_u32(code.0)?;
@@ -425,5 +426,18 @@ impl Gui {
             // SAFETY: cursors we created.
             unsafe { SDL_DestroyCursor(cursor) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_keys_the_launcher_listens_for_reach_egui() {
+        assert_eq!(key_of(SDLK_F2), Some(Key::F2));
+        assert_eq!(key_of(SDLK_F10), Some(Key::F10), "Shift+F10 opens a PC's options");
+        assert_eq!(key_of(SDLK_F11), Some(Key::F11));
+        assert_eq!(key_of(SDLK_N), Some(Key::N), "Ctrl+N adds a PC");
     }
 }

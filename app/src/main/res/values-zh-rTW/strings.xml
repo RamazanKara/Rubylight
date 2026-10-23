@@ -223,8 +223,8 @@
     <string name="summary_enable_perf_overlay">即時顯示串流速度、延遲和影格遺失。你也可以從串流選單中顯示。</string>
     <string name="title_enable_post_stream_toast">串流後顯示解碼時間</string>
     <string name="summary_enable_post_stream_toast">串流結束時顯示平均解碼時間。</string>
-    <string name="title_rust_engine">新串流引擎（測試版）</string>
-    <string name="summary_rust_engine">以新引擎取代目前的引擎進行串流。新引擎尚不支援的串流仍使用目前的引擎。串流出現問題時請關閉。</string>
+    <string name="title_rust_engine">新串流引擎</string>
+    <string name="summary_rust_engine">預設開啟。關閉後使用經典引擎，例如串流出現問題時。早於 GFE 3.22 的主機會自動使用經典引擎。</string>
     <string name="toast_controller_type_changed">動作控制可能會變更控制器類型。</string>
     <string name="local_network_rationale">請允許存取區域網路，以尋找你的電腦。</string>
     <string name="resolution_360p">360p</string>

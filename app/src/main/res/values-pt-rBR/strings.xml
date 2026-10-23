@@ -223,8 +223,8 @@
     <string name="summary_enable_perf_overlay">Mostra em tempo real a velocidade, o atraso e a perda de quadros da transmissão. Também é possível mostrá-la pelo menu da transmissão.</string>
     <string name="title_enable_post_stream_toast">Mostrar tempo de decodificação após a transmissão</string>
     <string name="summary_enable_post_stream_toast">Mostra o tempo médio de decodificação quando uma transmissão termina.</string>
-    <string name="title_rust_engine">Novo mecanismo de transmissão (beta)</string>
-    <string name="summary_rust_engine">Transmite com o novo mecanismo no lugar do atual. Transmissões que ele ainda não suporta continuam no atual. Desative se uma transmissão apresentar problemas.</string>
+    <string name="title_rust_engine">Novo mecanismo de transmissão</string>
+    <string name="summary_rust_engine">Ativado por padrão. Desative para usar o mecanismo clássico, por exemplo se uma transmissão apresentar problemas. Hosts anteriores ao GFE 3.22 usam o mecanismo clássico automaticamente.</string>
     <string name="toast_controller_type_changed">Os controles de movimento podem mudar o tipo de controle.</string>
     <string name="local_network_rationale">Permita o acesso à rede local para encontrar seus PCs.</string>
     <string name="resolution_360p">360p</string>

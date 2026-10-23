@@ -235,7 +235,9 @@ public class AdvancedOptionsTest {
             SharedPreferences.Editor editor = prefs().edit().putBoolean(LEGACY_UNLOCK, legacy)
                     // Do not rerun the older migration that enables the latency switches.
                     .putInt(PreferenceConfiguration.PREFS_VERSION_PREF_STRING, PreferenceConfiguration.PROFILE_NATIVE_VERSION)
-                    .putString("performance_overlay_mode", "debug");
+                    .putString("performance_overlay_mode", "debug")
+                    // Choices made after the new engine became the default are kept, off included.
+                    .putBoolean(PreferenceConfiguration.RUST_ENGINE_DEFAULT_ON_PREF_STRING, true);
             for (Map.Entry<String, Boolean> entry : choices.entrySet()) editor.putBoolean(entry.getKey(), entry.getValue());
             editor.commit();
             try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {

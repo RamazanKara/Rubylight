@@ -878,6 +878,25 @@ public class PreferenceConfiguration {
         return wasOn;
     }
 
+    // Set once the new streaming engine became the default, so a later choice of the classic engine is kept.
+    static final String RUST_ENGINE_DEFAULT_ON_PREF_STRING = "rust_engine_default_on";
+
+    // The new streaming engine used to start off, and first launch stored that default like a choice.
+    // It now starts on; a stored "off" is switched on once because it cannot be told apart from the old
+    // default. Choosing the classic engine afterwards is kept.
+    static boolean migrateRustEngineDefault(SharedPreferences prefs) {
+        if (prefs.getBoolean(RUST_ENGINE_DEFAULT_ON_PREF_STRING, false)) {
+            return false;
+        }
+        boolean wasOff = prefs.contains(RUST_ENGINE_PREF_STRING) && !prefs.getBoolean(RUST_ENGINE_PREF_STRING, false);
+        SharedPreferences.Editor editor = prefs.edit().putBoolean(RUST_ENGINE_DEFAULT_ON_PREF_STRING, true);
+        if (wasOff) {
+            editor.putBoolean(RUST_ENGINE_PREF_STRING, true);
+        }
+        editor.apply();
+        return wasOff;
+    }
+
     // For the overlay and the log: where this stream's resolution comes from.
     public String resolutionSource() {
         return resolutionFollowsScreen ? (fromPcProfile ? "native, PC profile" : "native") :
@@ -920,6 +939,9 @@ public class PreferenceConfiguration {
 
         // Migrate legacy preferences to the new locations
         migrateOverlayMode(prefs);
+        if (migrateRustEngineDefault(prefs)) {
+            com.limelight.LimeLog.info("New streaming engine switched to its new default: on");
+        }
         if (prefs.contains(LEGACY_ENABLE_51_SURROUND_PREF_STRING)) {
             if (prefs.getBoolean(LEGACY_ENABLE_51_SURROUND_PREF_STRING, false)) {
                 prefs.edit()
@@ -1125,7 +1147,7 @@ public class PreferenceConfiguration {
         config.pcKeyboardOpacity = Math.max(30, Math.min(100, prefs.getInt(PC_KEYBOARD_OPACITY_PREF_STRING, 90)));
         config.mouseSpeed = Math.max(25, Math.min(400, prefs.getInt(MOUSE_SPEED_PREF_STRING, DEFAULT_MOUSE_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
-        config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, false);
+        config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, true);
         config.experimentalPacked444 = prefs.getBoolean(PACKED_444_PREF_STRING, false);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);
         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);

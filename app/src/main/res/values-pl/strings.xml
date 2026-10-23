@@ -223,8 +223,8 @@
     <string name="summary_enable_perf_overlay">Pokazuje na żywo szybkość strumienia, opóźnienie i utratę klatek. Możesz ją też włączyć z menu strumienia.</string>
     <string name="title_enable_post_stream_toast">Pokaż czas dekodowania po strumieniowaniu</string>
     <string name="summary_enable_post_stream_toast">Pokazuje średni czas dekodowania po zakończeniu strumienia.</string>
-    <string name="title_rust_engine">Nowy silnik strumieniowania (beta)</string>
-    <string name="summary_rust_engine">Strumieniuje nowym silnikiem zamiast obecnego. Strumienie, których jeszcze nie obsługuje, zostają przy obecnym. Wyłącz, jeśli strumień działa nieprawidłowo.</string>
+    <string name="title_rust_engine">Nowy silnik strumieniowania</string>
+    <string name="summary_rust_engine">Domyślnie włączony. Wyłącz, aby używać klasycznego silnika, na przykład gdy strumień działa nieprawidłowo. Hosty starsze niż GFE 3.22 automatycznie używają klasycznego silnika.</string>
     <string name="toast_controller_type_changed">Sterowanie ruchem może zmienić typ kontrolera.</string>
     <string name="local_network_rationale">Zezwól na dostęp do sieci lokalnej, aby znaleźć komputery.</string>
     <string name="resolution_360p">360p</string>

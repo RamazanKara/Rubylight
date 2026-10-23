@@ -680,7 +680,7 @@
             android:key="checkbox_rust_engine"
             android:title="@string/title_rust_engine"
             android:dialogMessage="@string/summary_rust_engine"
-            android:defaultValue="false" />
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="experimental_packed_444"
             android:title="@string/title_packed_444"

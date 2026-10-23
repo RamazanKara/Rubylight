@@ -255,8 +255,8 @@
     <string name="summary_enable_perf_overlay">Shows stream speed, delay and frame loss live. You can also show it from the stream menu.</string>
     <string name="title_enable_post_stream_toast">Show decode time after streaming</string>
     <string name="summary_enable_post_stream_toast">Shows the average decode time when a stream ends.</string>
-    <string name="title_rust_engine">New streaming engine (beta)</string>
-    <string name="summary_rust_engine">Streams with the new engine in place of the current one. Streams it cannot handle yet keep the current engine. Turn it off if a stream misbehaves.</string>
+    <string name="title_rust_engine">New streaming engine</string>
+    <string name="summary_rust_engine">Turned on by default. Turn it off to use the classic engine, for example if a stream misbehaves. Hosts older than GFE 3.22 use the classic engine automatically.</string>
 
 
     <!-- Toasts -->

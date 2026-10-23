@@ -223,8 +223,8 @@
     <string name="summary_enable_perf_overlay">Affiche en direct la vitesse, le délai et la perte d’images du stream. Vous pouvez aussi l’afficher depuis le menu du stream.</string>
     <string name="title_enable_post_stream_toast">Afficher le temps de décodage après le stream</string>
     <string name="summary_enable_post_stream_toast">Affiche le temps de décodage moyen à la fin d’un stream.</string>
-    <string name="title_rust_engine">Nouveau moteur de streaming (bêta)</string>
-    <string name="summary_rust_engine">Diffuse avec le nouveau moteur au lieu de l’actuel. Les streams qu’il ne gère pas encore gardent l’actuel. Désactivez-le si un stream pose problème.</string>
+    <string name="title_rust_engine">Nouveau moteur de streaming</string>
+    <string name="summary_rust_engine">Activé par défaut. Désactivez-le pour utiliser le moteur classique, par exemple si un stream pose problème. Les hôtes antérieurs à GFE 3.22 utilisent automatiquement le moteur classique.</string>
     <string name="toast_controller_type_changed">Les commandes de mouvement peuvent modifier le type de manette.</string>
     <string name="local_network_rationale">Autorisez l’accès au réseau local pour trouver vos PC.</string>
     <string name="resolution_360p">360p</string>

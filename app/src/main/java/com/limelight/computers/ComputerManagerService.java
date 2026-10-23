@@ -291,6 +291,11 @@ public class ComputerManagerService extends Service {
             ComputerManagerService.this.removeComputer(computer);
         }
 
+        /** Gives the PC a name on this device only; null shows the PC's own name again. */
+        public void renameComputer(String uuid, String alias) {
+            ComputerManagerService.this.renameComputer(uuid, alias);
+        }
+
         public void stopPolling() {
             // Just call the unbind handler to cleanup
             ComputerManagerService.this.onUnbind(null);
@@ -449,12 +454,15 @@ public class ComputerManagerService extends Service {
     }
 
     private void addTuple(ComputerDetails details) {
+        // The user's name for the PC is stored beside the database, not in it.
+        details.alias = HostNames.get(this, details.uuid);
         synchronized (pollingTuples) {
             for (PollingTuple tuple : pollingTuples) {
                 // Check if this is the same computer
                 if (tuple.computer.uuid.equals(details.uuid)) {
                     // Update the saved computer with potentially new details
                     tuple.computer.update(details);
+                    tuple.computer.alias = details.alias;
 
                     // Start a polling thread if polling is active
                     if (pollingActive && tuple.thread == null) {
@@ -513,6 +521,17 @@ public class ComputerManagerService extends Service {
         }
     }
 
+    public void renameComputer(String uuid, String alias) {
+        HostNames.set(this, uuid, alias);
+        synchronized (pollingTuples) {
+            for (PollingTuple tuple : pollingTuples) {
+                if (uuid.equals(tuple.computer.uuid)) {
+                    tuple.computer.alias = alias;
+                }
+            }
+        }
+    }
+
     public void removeComputer(ComputerDetails computer) {
         if (!getLocalDatabaseReference()) {
             return;
@@ -526,6 +545,7 @@ public class ComputerManagerService extends Service {
             HostCapabilityCache.forget(this, computer.uuid);
             com.limelight.nativeapi.ConsoleRepository.forgetHost(this, computer.uuid);
             HostNotices.forget(this, computer.uuid);
+            HostNames.forget(this, computer.uuid);
             com.limelight.preferences.AppQuitOnLeave.forget(this, computer.uuid);
             com.limelight.preferences.AppStreamSettings.forget(this, computer.uuid);
             for (String preferences : new String[] {"AdaptiveBitrate", "PyroWaveBitrate"}) {

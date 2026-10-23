@@ -76,7 +76,7 @@ public class ComputerManagerLifecycleTest {
         ComputerDetails computer = new ComputerDetails();
         computer.uuid = "removed-host";
         String[] files = {"HostStreamProfiles", "HostDisplayChoices", "AdaptiveBitrate", "PyroWaveBitrate",
-                HostCapabilityCache.PREFERENCES, HostNotices.PREFERENCES};
+                HostCapabilityCache.PREFERENCES, HostNotices.PREFERENCES, HostNames.PREFERENCES};
         try {
             for (String file : files) {
                 service.getSharedPreferences(file, 0).edit()
@@ -87,6 +87,82 @@ public class ComputerManagerLifecycleTest {
                 assertFalse(service.getSharedPreferences(file, 0).contains(computer.uuid));
                 assertEquals("retained", service.getSharedPreferences(file, 0).getString("another-host", null));
             }
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ComputerDetails tupleOf(ComputerManagerService service, String uuid) {
+        List<Object> tuples = ReflectionHelpers.getField(service, "pollingTuples");
+        for (Object tuple : tuples) {
+            ComputerDetails computer = ReflectionHelpers.getField(tuple, "computer");
+            if (uuid.equals(computer.uuid)) return computer;
+        }
+        return null;
+    }
+
+    private static void addTuple(ComputerManagerService service, ComputerDetails computer) {
+        ReflectionHelpers.callInstanceMethod(service, "addTuple",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer));
+    }
+
+    @Test
+    public void aNameGivenToAPcSurvivesPollsThatRenameTheHost() {
+        ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
+        ComputerManagerService service = controller.get();
+        try {
+            ComputerDetails stored = new ComputerDetails();
+            stored.uuid = "named-host";
+            stored.name = "DESKTOP-1";
+            addTuple(service, stored);
+            assertNull(tupleOf(service, "named-host").alias);
+
+            service.renameComputer("named-host", "Den PC");
+            ComputerDetails tuple = tupleOf(service, "named-host");
+            assertEquals("Den PC", tuple.alias);
+            assertEquals("Den PC", HostNames.get(service, "named-host"));
+
+            // A poll reads a new host name; the alias, not the name, is shown and it stays.
+            ComputerDetails polled = new ComputerDetails();
+            polled.uuid = "named-host";
+            polled.name = "DESKTOP-2";
+            tuple.update(polled);
+            assertEquals("DESKTOP-2", tuple.name);
+            assertEquals("Den PC", tuple.alias);
+            assertEquals("Den PC", tuple.displayName());
+            assertEquals("Den PC", new ComputerDetails(tuple).displayName());
+
+            // Discovery adds the PC again, with no alias of its own; the stored one applies.
+            ComputerDetails rediscovered = new ComputerDetails();
+            rediscovered.uuid = "named-host";
+            rediscovered.name = "DESKTOP-3";
+            addTuple(service, rediscovered);
+            assertEquals("Den PC", rediscovered.alias);
+            assertEquals("Den PC", tupleOf(service, "named-host").alias);
+            assertEquals("DESKTOP-3", tupleOf(service, "named-host").name);
+
+            // The name shown goes back to the PC's own when the alias is cleared.
+            service.renameComputer("named-host", null);
+            assertEquals("DESKTOP-3", tupleOf(service, "named-host").displayName());
+            assertNull(HostNames.get(service, "named-host"));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test
+    public void deletingComputerForgetsItsNameAndKeepsOthers() {
+        ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
+        ComputerManagerService service = controller.get();
+        try {
+            HostNames.set(service, "removed-host", "Den PC");
+            HostNames.set(service, "another-host", "Kitchen");
+            ComputerDetails computer = new ComputerDetails();
+            computer.uuid = "removed-host";
+            service.removeComputer(computer);
+            assertNull(HostNames.get(service, "removed-host"));
+            assertEquals("Kitchen", HostNames.get(service, "another-host"));
         } finally {
             controller.destroy();
         }

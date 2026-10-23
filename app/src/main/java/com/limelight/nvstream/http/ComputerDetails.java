@@ -74,6 +74,12 @@ public class ComputerDetails {
     // Persistent attributes
     public String uuid;
     public String name;
+    /**
+     * The name this device shows instead of {@link #name}, set by the user and kept in HostNames. It is
+     * not persistent in the database and {@link #update} leaves it alone, so a poll that renames the
+     * PC cannot replace it.
+     */
+    public String alias;
     public AddressTuple localAddress;
     public AddressTuple remoteAddress;
     public AddressTuple manualAddress;
@@ -170,6 +176,12 @@ public class ComputerDetails {
     public ComputerDetails(ComputerDetails details) {
         // Copy details from the other computer
         update(details);
+        this.alias = details.alias;
+    }
+
+    /** What this device calls the PC: the name the user gave it, else the PC's own. */
+    public String displayName() {
+        return alias != null && !alias.isEmpty() ? alias : name;
     }
 
     public int guessExternalPort() {

@@ -2866,11 +2866,14 @@ using its normal first-frame budget of 1/60 second: CPU reference and
 readback time cannot inflate the plain-packet budget. These are picture
 quality measurements, not sustained throughput measurements.
 
-The 400, 125 and 30 Mbps cases run at both sizes, along with a 1000 Mbps
-control. At 1000 Mbps the test requires at least 40 dB on every plane and
+The 400, 125 and 30 Mbps cases run at both sizes, along with a 2000 Mbps
+control. At 2000 Mbps the test requires at least 40 dB on every plane and
 35 dB on every chart panel; at 400 Mbps it requires 24 dB on every plane.
 The control is needed because 400 Mbps still loses fine text and noise at
-1080p, especially in 4:4:4. These are regression limits for this chart,
+1080p, especially in 4:4:4. A record-framed bitrate is the wire total, so
+1000 Mbps leaves 1.82 MB per 1080p frame and 4:4:4 scores 42.8/37.3/36.6 dB
+(Y/Cb/Cr, SDR8); 2000 Mbps encodes 3.28 MB and scores 82.0/63.0/62.7 dB.
+The first control ran at 1000 Mbps, before the bitrate became the wire total. These are regression limits for this chart,
 not recommended quality targets or assertions that the codec is lossless.
 
 On an AMD machine, use the usual Rust SDK environment, then run from the

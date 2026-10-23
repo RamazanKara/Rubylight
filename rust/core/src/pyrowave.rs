@@ -853,6 +853,23 @@ mod tests {
         }
     }
     #[test]
+    fn record_budget_is_the_wire_rate_less_overhead_and_parity() {
+        // The GPU end-to-end test's 40 dB control for 1080p 4:4:4 needs about
+        // 3.3 MB of picture. A record budget is a wire budget, so 1 Gbps
+        // allows 2.08 MB per frame and leaves 4:4:4 at 42.8/37.3/36.6 dB:
+        // that is the rate, not a codec fault. The control runs at 2 Gbps.
+        let period = Duration::from_secs_f64(1. / 60.);
+        for (kbps, least, most) in [
+            (1_000_000, 1_700_000, 1_900_000),
+            (2_000_000, 3_500_000, 3_900_000),
+        ] {
+            let image = budget(kbps, period, 1392, true, 20);
+            let wire = (f64::from(kbps) * 125. * period.as_secs_f64()) as usize;
+            assert!((least..=most).contains(&image), "{kbps}: {image}");
+            assert!(image < wire, "{kbps}: {image} of {wire}");
+        }
+    }
+    #[test]
     fn critical_parity_bound_covers_every_adaptive_percentage() {
         for minimum in [2, 24, 42, 44, 255] {
             for critical in 0..=256 {

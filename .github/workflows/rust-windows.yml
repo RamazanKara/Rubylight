@@ -157,6 +157,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python -m unittest discover -s rust/release -p test_timing_report.py -v
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover -s rust/release -p test_chroma_quality.py -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       # A signed release is built from this run's checkout and downloads,
       # never from an earlier run's cache.
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae

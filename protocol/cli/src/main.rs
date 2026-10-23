@@ -793,6 +793,10 @@ fn run() -> i32 {
     if let Some(v) = env("BUTTERPOLLO_TEST_REFRESH_X100") {
         stream.client_refresh_rate_x100 = atoi(&v) as i32;
     }
+    // The wired link speed an app reports for its port, sent for every codec (0 sends none).
+    if let Some(v) = env("BUTTERPOLLO_TEST_LINK_MBPS") {
+        stream.pyrowave_link_mbps = atoi(&v).clamp(0, 9999) as i32;
+    }
     if !(2..=8192).contains(&stream.width)
         || !(2..=8192).contains(&stream.height)
         || !(1..=240).contains(&stream.fps)

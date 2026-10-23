@@ -9,9 +9,9 @@ Nightjar opens on Home when a paired PC supports the API. Home has four parts:
 - **Favourites**: games you starred, first on the page. Long-press a game card (with a D-pad or controller, hold the select button) and choose **Add to favourites**, or use the star on the game's page. A favourite belongs to one PC, so the same title on two PCs is two entries. Favourites are kept when the app updates, and a favourite whose PC is offline stays on Home with its saved cover.
 - **Continue playing**: games that are running or suspended, with a Running or Suspended badge.
 - **Library**: the games of every paired PC with covers. A game on several PCs is one card ("On 2 hosts").
-- **Hosts**: your PCs, with their game counts. An offline PC keeps the games it last reported and says so.
+- **PCs**: your PCs, with their game counts. An offline PC keeps the games it last reported and says so. Each card has three dots at its end with the PC's options, the same list as on the PCs screen (see below); with a D-pad, press Right on the card to mark the dots, then Center.
 
-Turn Home off with **Open on Home** in settings to start on the list of PCs. **Hosts** in the Home menu opens that list at any time.
+Turn Home off with **Open on Home** in settings to start on the list of PCs. The shell bar under the top bar (Home, PCs, Settings; see below) opens that list at any time. A PC paired from the PCs screen that offers the API lands on Home, where its games are; any other PC opens its game list as before.
 
 ## PCs on the Windows and Linux client
 
@@ -41,7 +41,8 @@ Home, PCs and Settings sit in one bar under the top app bar of each of those thr
 - Help left the PCs toolbar. Find it under Settings, App, Help, press F1, or use the pairing guide.
 - Settings applies the Back rule only when the bar opened it; opened with Ctrl+comma or from a menu, Back just closes it. If Home turns on or off while you are in Settings, Back restarts the task on the new first screen.
 - Home appears in the bar as soon as the first library is read, without a resume.
-- Open issue (N5): Home's menu opens the list of PCs as a new PcView on top of Home, so Back from there steps through a duplicate instead of returning to Home.
+- Home's old toolbar menu is gone; PCs in the bar replaces it. Home shows the PC the way the PCs screen does, with the name given to it by Rename.
+- A game's page has the bar too, with Home marked as the current destination because the page belongs to Home. Home in the bar closes the page (Home is underneath); PCs and Settings open as they do from Home.
 
 ## PCs on Android
 
@@ -49,14 +50,11 @@ Every PC card has three dots at its end. They open the PC's options, as does a l
 
 The options are one list: **Open library** or **Pair**, **Resume** and **Quit** (a game is running), **Pair with one-time PIN** (hosts that offer it), **Wake PC** (offline, with a known MAC address), **PC settings**, **Rename**, **Unpair** (paired and online) or **Pairing help** (not paired), and **Remove PC**. An offline PC without a MAC address says "Pair once while the PC is on to enable Wake".
 
-- **Rename** keeps a name on this device only (`HostNames`, keyed by the PC's id), and the library, the stream's title, shortcuts and the TV channel show it. A game's own settings page and the Home row still say the PC's own name (see Open issues). The PC's own name keeps updating underneath. An empty field, or the PC's own name, brings the PC's name back. The name is at most 40 characters. Removing the PC forgets it.
+- **Rename** keeps a name on this device only (`HostNames`, keyed by the PC's id), and the library, the stream's title, shortcuts and the TV channel show it. A game's own settings page, a PC's settings page and the Home row say it too. The PC's own name keeps updating underneath. An empty field, or the PC's own name, brings the PC's name back. The name is at most 40 characters. Removing the PC forgets it.
 - **Unpair** asks first, then asks the PC to forget this device and clears the library saved from it. The PC stays in the list as not paired.
 - **Remove PC** asks first, then deletes the PC, its settings, saved library, covers, hidden games and name from this device. The PC still lists this device until you unpair it.
 - A failed pairing, unpair or wake says why in a dialog. **Try again** is offered where a retry can help (a wrong PIN, the network, a failed unpair) and left out where it cannot (the PC is offline, or no MAC address is known). A pairing you cancelled never shows a result afterwards.
-
-**Open issues**
-
-- A PC's name on its game settings page (`HostStreamSettings`) and in the Home rows (`ConsoleRepository`) is still the PC's own name, not the one given with Rename. Planned for N5.
+- A PC's settings page lists **Rename**, **Unpair** (paired and online) and **Remove PC** under Host, the same actions as the list's options. Remove closes the page.
 
 ## Accessibility on Android
 

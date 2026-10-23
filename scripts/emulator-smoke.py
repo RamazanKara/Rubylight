@@ -851,20 +851,21 @@ def stream_ui_checks():
         # Let the sheet finish sliding in before it is measured and captured.
         time.sleep(0.8)
         assert not any(n.get("resource-id") == hint_id for n in tree().iter("node")), "The hint stayed over the menu"
-        for label in ("Stream", "Keyboard", "Overlay", "Input", "Touch mode", "Display", "Overlay and diagnostics"):
+        for label in ("Stream", "System keyboard", "PC keyboard", "Overlay", "Input", "Touch mode", "Display", "Overlay and diagnostics"):
             find(label, scroll=True)
         # Capture the menu from its top: the quick row and the first section. Swipe only while the
         # quick row is cut off, so a sheet already at its top is never dragged closed.
         for _ in range(10):
             root = tree()
             area = next((n for n in root.iter("node") if n.get("scrollable") == "true"), None)
-            keyboard = next((n for n in root.iter("node") if n.get("text") == "Keyboard"), None)
+            keyboard = next((n for n in root.iter("node") if n.get("text") == "System keyboard"), None)
             if area is None or (keyboard is not None and bounds(keyboard)[1] > bounds(area)[1]):
                 break
             x1, y1, x2, y2 = bounds(area)
             adb("shell", "input", "swipe", str((x1 + x2) // 2), str(y1 + (y2 - y1) // 4),
                 str((x1 + x2) // 2), str(y1 + (y2 - y1) * 3 // 4), "500")
-        find("Keyboard")
+        find("System keyboard")
+        find("PC keyboard")
         width, height = screenshot("stream-menu" + suffix)
         root = ET.fromstring(LOGS.joinpath("stream-menu" + suffix + ".xml").read_bytes())
         sheet = next(n for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/design_bottom_sheet")
@@ -882,7 +883,8 @@ def stream_ui_checks():
         find(f"{PACKAGE}:id/action_sheet_back")
         screenshot("stream-menu-overlay-page" + suffix)
         adb("shell", "input", "keyevent", "4")
-        find("Keyboard", scroll="up")
+        find("System keyboard", scroll="up")
+        find("PC keyboard")
         find("Input", scroll=True)
         adb("shell", "input", "keyevent", "4")
         for _ in range(8):
@@ -1139,6 +1141,8 @@ def main():
             find("One-time PIN")
             screenshot("16-otp-pairing")
             tap("android:id/button2")
+            # Let the dialog finish closing, or the long press on the card lands on its scrim.
+            time.sleep(1)
             open_host_profile()
             # The PC's details moved from its menu to its settings screen.
             tap("View details", scroll=True)

@@ -12,7 +12,7 @@
     <string name="desktop_controls_navigation">Navigation</string>
     <string name="desktop_controls_numpad">Numpad</string>
     <string name="desktop_controls_shortcuts">Shortcuts</string>
-    <string name="desktop_controls_system_keyboard">Phone keyboard</string>
+    <string name="desktop_controls_system_keyboard">System keyboard</string>
     <string name="desktop_controls_pad_hint">Move · Tap to click\nTwo fingers to scroll or right-click</string>
     <string name="desktop_controls_pad_no_tap">Move · Two fingers to scroll\nUse the mouse buttons to click</string>
     <string name="desktop_controls_pad_accessibility">Trackpad. Move one finger to move the pointer. Move two fingers to scroll. Tap with two fingers to right-click.</string>

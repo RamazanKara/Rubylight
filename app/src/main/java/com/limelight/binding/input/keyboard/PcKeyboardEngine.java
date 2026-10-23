@@ -59,6 +59,14 @@ public final class PcKeyboardEngine {
         return find(owner) != null;
     }
 
+    /** Whether the key is down now, for any owner; the view draws it pressed. */
+    public boolean isKeyHeld(PcKey key) {
+        for (int i = 0; i < held.size(); i++) {
+            if (held.get(i).key == key) return true;
+        }
+        return false;
+    }
+
     /** Press a key for the given owner (a touch pointer or a controller button). A modifier key only changes state. */
     public void press(PcKey key, Object owner, long now) {
         if (key.modifier != null) {

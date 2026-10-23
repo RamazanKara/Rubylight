@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">Teclado de PC</string>
+    <string name="pc_keyboard_close">Fechar teclado</string>
+    <string name="pc_keyboard_layout_auto">Automático</string>
+    <string name="pc_keyboard_layout_us">Inglês (EUA)</string>
+    <string name="pc_keyboard_layout_de">Alemão (QWERTZ)</string>
+    <string name="pc_keyboard_layout_title">Layout do teclado</string>
+    <string name="pc_keyboard_layout_summary">O layout do teclado de PC na tela. As teclas enviam posições de tecla, então o layout de teclado do Windows no PC decide qual caractere é digitado. Defina os dois com o mesmo layout.</string>
+    <string name="pc_keyboard_size_title">Tamanho do teclado</string>
+    <string name="pc_keyboard_opacity_title">Opacidade do teclado</string>
+</resources>

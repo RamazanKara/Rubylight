@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">Bàn phím PC</string>
+    <string name="pc_keyboard_close">Đóng bàn phím</string>
+    <string name="pc_keyboard_layout_auto">Tự động</string>
+    <string name="pc_keyboard_layout_us">Tiếng Anh (Mỹ)</string>
+    <string name="pc_keyboard_layout_de">Tiếng Đức (QWERTZ)</string>
+    <string name="pc_keyboard_layout_title">Bố cục bàn phím</string>
+    <string name="pc_keyboard_layout_summary">Bố cục của bàn phím PC trên màn hình. Các phím gửi vị trí phím, nên bố cục bàn phím Windows trên PC quyết định ký tự được gõ. Hãy đặt cả hai cùng một bố cục.</string>
+    <string name="pc_keyboard_size_title">Kích thước bàn phím</string>
+    <string name="pc_keyboard_opacity_title">Độ mờ của bàn phím</string>
+</resources>

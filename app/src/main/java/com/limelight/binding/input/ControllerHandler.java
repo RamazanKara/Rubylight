@@ -335,6 +335,27 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return !usbDeviceContexts.isEmpty();
     }
 
+    /**
+     * Takes over the buttons and left stick of USB-driver controllers (Android sees no key events for
+     * them) while the on-screen PC keyboard is open. Called on the USB thread.
+     */
+    public interface PadCapture {
+        /** A button, as a {@code ControllerPacket} flag, went down or up. */
+        void button(int flag, boolean down);
+        /** The left stick, y growing downwards like Android reports it. */
+        void stick(float x, float y);
+    }
+
+    private volatile PadCapture padCapture;
+
+    /** While set, USB-driver controllers send nothing to the game; null gives the input back. */
+    public void setPadCapture(PadCapture capture) {
+        padCapture = capture;
+        if (capture != null) {
+            releaseInput();
+        }
+    }
+
     public void setInputEnabled(boolean enabled) {
         inputEnabled = enabled;
         if (!enabled) {
@@ -3297,6 +3318,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             steerMenu(context, buttons);
             return;
         }
+        PadCapture capture = padCapture;
+        if (capture != null) {
+            capturePad(context, capture, buttons, leftStickX, leftStickY);
+            return;
+        }
         if (context.steeringMenu) {
             // Buttons still held from the menu reach the host only after they were let go.
             context.steeringMenu = false;
@@ -3347,6 +3373,27 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ((Game) activityContext).showStreamMenu();
             }
         }
+    }
+
+    // The keyboard owns the pad: report each change to it, and treat what is still held on the way
+    // out like buttons held from the menu, so they reach the game only after they were let go.
+    private static final int[] CAPTURED_BUTTONS = {ControllerPacket.UP_FLAG, ControllerPacket.DOWN_FLAG,
+            ControllerPacket.LEFT_FLAG, ControllerPacket.RIGHT_FLAG, ControllerPacket.A_FLAG, ControllerPacket.B_FLAG,
+            ControllerPacket.X_FLAG, ControllerPacket.Y_FLAG, ControllerPacket.LB_FLAG, ControllerPacket.RB_FLAG,
+            ControllerPacket.PLAY_FLAG};
+
+    private void capturePad(UsbDeviceContext context, PadCapture capture, int buttons, float stickX, float stickY) {
+        if (!context.steeringMenu) {
+            context.steeringMenu = true;
+            context.menuButtons = context.lastButtons;
+            context.menuComboPending = false;
+        }
+        int changed = buttons ^ context.menuButtons;
+        context.menuButtons = buttons;
+        for (int flag : CAPTURED_BUTTONS) {
+            if ((changed & flag) != 0) capture.button(flag, (buttons & flag) != 0);
+        }
+        capture.stick(stickX, stickY);
     }
 
     // While the stream menu or one of its dialogs has focus, a newly pressed D-pad direction, A or B

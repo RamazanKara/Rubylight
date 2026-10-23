@@ -34,6 +34,7 @@
         <item>Clic centrale</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar non può disegnare la forma del cursore del PC e mostra la freccia predefinita.</string>
     <string name="title_four_finger_tap">Tocco con quattro dita</string>

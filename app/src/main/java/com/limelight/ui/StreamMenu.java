@@ -27,7 +27,7 @@ import java.util.function.Supplier;
  */
 public final class StreamMenu {
     public enum Item {
-        KEYBOARD, OVERLAY, MICROPHONE,
+        KEYBOARD, PC_KEYBOARD, OVERLAY, MICROPHONE,
         TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
@@ -132,8 +132,10 @@ public final class StreamMenu {
         ComputerDetails host = o.host;
         HostCapabilities caps = host.caps;
 
-        // Keyboard opens Android's keyboard and closes the menu: an action, not a switch.
+        // The keyboards open and close the menu: actions, not switches. The PC keyboard is the full
+        // layout drawn here; Keyboard is Android's own.
         if (o.canSendInput) entries.add(action(Section.QUICK, Item.KEYBOARD, R.string.desktop_controls_system_keyboard, R.drawable.ic_keyboard));
+        if (o.canSendInput) entries.add(action(Section.QUICK, Item.PC_KEYBOARD, R.string.pc_keyboard_title, R.drawable.ic_keyboard_keys));
         if (o.mediaStream()) {
             entries.add(entry(Section.QUICK, Item.OVERLAY, R.string.stream_overlay_menu, R.drawable.ic_overlay, o.overlayShown));
         }

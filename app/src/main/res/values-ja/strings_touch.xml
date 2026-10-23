@@ -34,6 +34,7 @@
         <item>中クリック</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar は PC のカーソル形状を描画できないため、標準の矢印を表示します。</string>
     <string name="title_four_finger_tap">4本指タップ</string>

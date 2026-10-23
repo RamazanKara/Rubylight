@@ -5,6 +5,7 @@ public final class FingerTapGesture {
     public static final String KEYBOARD = "keyboard";
     public static final String MIDDLE_CLICK = "middle_click";
     public static final String DESKTOP_CONTROLS = "desktop_controls";
+    public static final String PC_KEYBOARD = "pc_keyboard";
     public static final String NONE = "none";
     public static final long TIME_LIMIT_MS = 300;
 

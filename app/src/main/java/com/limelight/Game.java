@@ -61,6 +61,8 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.KeyboardOverlay;
+import com.limelight.ui.PcKeyboardOverlay;
+import com.limelight.binding.input.keyboard.PcKeyboardController;
 import com.limelight.ui.DesktopControlsPanel;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
@@ -198,6 +200,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
     private KeyboardOverlay keyboardOverlay;
+    private PcKeyboardOverlay pcKeyboard;
+    // Controller keys the on-screen PC keyboard took on their way down, so their release goes to it too.
+    private final android.util.SparseBooleanArray pcKeyboardKeys = new android.util.SparseBooleanArray();
     private boolean desktopWindowFocused = true;
     private boolean dispatchingDesktopTouch;
     private int desktopHeldButtons;
@@ -1334,6 +1339,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (keyboardOverlay != null) {
                     hideKeyboardOverlay();
                 }
+                hidePcKeyboard();
 
                 performanceOverlayScroll.setVisibility(View.GONE);
                 notificationOverlayView.setVisibility(View.GONE);
@@ -2398,7 +2404,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void onBackPressed() {
-        if (connected) {
+        if (connected && isPcKeyboardVisible()) {
+            hidePcKeyboard();
+        } else if (connected) {
             showStreamMenu();
         } else {
             super.onBackPressed();
@@ -2411,6 +2419,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void showStreamDialog(android.app.Dialog dialog) {
+        hidePcKeyboard();
         setInputGrabState(false);
         suppressPipRefCount++;
         updatePipAutoEnter();
@@ -2530,6 +2539,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         Runnable action = null;
         ComputerDetails details = conn.getHostDetails();
         switch (item) {
+            case PC_KEYBOARD: action = this::togglePcKeyboard; break;
             case KEYBOARD: action = this::toggleKeyboard; break;
             case TOUCH_MODE: action = this::showTouchModeDialog; break;
             case MOUSE_CURSOR: action = this::toggleCursorVisibility; break;
@@ -2648,7 +2658,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             setInputGrabState(true);
         }
         cursorVisible = !cursorVisible;
-        if (cursorVisible || isKeyboardOverlayVisible()) {
+        if (cursorVisible || isKeyboardOverlayVisible() || isPcKeyboardVisible()) {
             inputCaptureProvider.showCursor();
         } else {
             inputCaptureProvider.hideCursor();
@@ -3075,6 +3085,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (virtualController != null && prefConfig.onscreenController) virtualController.collectVisibleBounds(out);
         if (gameTouchControls != null) gameTouchControls.collectVisibleBounds(parent, out);
         if (isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(keyboardOverlay, parent, out);
+        if (isPcKeyboardVisible()) com.limelight.ui.OverlayPlacement.addVisible(pcKeyboard, parent, out);
     }
 
     private CharSequence hardwarePerformanceText(boolean debug) {
@@ -3214,6 +3225,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (FingerTapGesture.NONE.equals(action)) return;
         if (FingerTapGesture.DESKTOP_CONTROLS.equals(action)) {
             toggleKeyboardOverlay();
+        } else if (FingerTapGesture.PC_KEYBOARD.equals(action)) {
+            togglePcKeyboard();
         } else if (FingerTapGesture.MIDDLE_CLICK.equals(action)) {
             if (middleButtonUpPending) {
                 bitrateHandler.removeCallbacks(middleButtonUp);
@@ -4008,7 +4021,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
             // Enabling capture may hide the cursor again, so
             // we will need to show it again.
-            if (cursorVisible || isKeyboardOverlayVisible()) {
+            if (cursorVisible || isKeyboardOverlayVisible() || isPcKeyboardVisible()) {
                 inputCaptureProvider.showCursor();
             }
         }
@@ -4103,6 +4116,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         showStreamMenu();
                         break;
 
+                    case KeyEvent.KEYCODE_K:
+                        togglePcKeyboard();
+                        break;
+
                     case KeyEvent.KEYCODE_S:
                         togglePerformanceOverlay();
                         break;
@@ -4129,6 +4146,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 case KeyEvent.KEYCODE_Z:
                 case KeyEvent.KEYCODE_Q:
                 case KeyEvent.KEYCODE_M:
+                case KeyEvent.KEYCODE_K:
                 case KeyEvent.KEYCODE_S:
                 case KeyEvent.KEYCODE_C:
                     // Remember that a special key combo was activated, so we can consume all key
@@ -4232,6 +4250,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public boolean handleKeyDown(KeyEvent event) {
         if (handleRemoteMenuKey(event)) return true;
+        if (isPcKeyboardVisible() && handlePcKeyboardKey(event)) return true;
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -4319,6 +4338,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public boolean handleKeyUp(KeyEvent event) {
         if (handleRemoteMenuKey(event)) return true;
+        if ((pcKeyboardKeys.size() > 0 || isPcKeyboardVisible()) && handlePcKeyboardKey(event)) return true;
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -4435,6 +4455,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         if (!visible) {
             hideKeyboardOverlay();
+            hidePcKeyboard();
             setInputGrabState(true);
         }
         streamView.requestFocus();
@@ -4454,6 +4475,163 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
+    private void togglePcKeyboard() {
+        if (!foreground || !connected || isFinishing() || streamMenu != null || !conn.canSendInput()) {
+            return;
+        }
+        if (isPcKeyboardVisible()) {
+            hidePcKeyboard();
+            return;
+        }
+        // One keyboard at a time: the extra-keys panel and the system keyboard make room.
+        hideKeyboardOverlay();
+        hideSystemKeyboard();
+        if (pcKeyboard == null) {
+            pcKeyboard = new PcKeyboardOverlay(this, prefConfig.pcKeyboardLayout, prefConfig.pcKeyboardSize,
+                    prefConfig.pcKeyboardOpacity, this::sendPcKeyboardKey, this::hidePcKeyboard);
+            ViewCompat.setOnApplyWindowInsetsListener(pcKeyboard, (view, windowInsets) -> {
+                androidx.core.graphics.Insets safe = windowInsets.getInsets(
+                        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                view.setPadding(safe.left, 0, safe.right, safe.bottom);
+                return windowInsets;
+            });
+            ((FrameLayout) streamView.getParent()).addView(pcKeyboard,
+                    new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.BOTTOM));
+            ViewCompat.requestApplyInsets(pcKeyboard);
+        } else {
+            pcKeyboard.setVisibility(View.VISIBLE);
+            pcKeyboard.bringToFront();
+        }
+        setInputGrabState(true);
+        // Whatever the game held is let go, and the pads steer the keyboard until it closes.
+        controllerHandler.releaseInput();
+        controllerHandler.setPadCapture(new ControllerHandler.PadCapture() {
+            @Override public void button(int flag, boolean down) {
+                PcKeyboardController.Pad pad = padForFlag(flag);
+                if (pad != null) runOnUiThread(() -> padToPcKeyboard(pad, down));
+            }
+            @Override public void stick(float x, float y) {
+                runOnUiThread(() -> {
+                    if (isPcKeyboardVisible()) pcKeyboard.controller().stick(x, y, SystemClock.uptimeMillis());
+                });
+            }
+        });
+        streamView.requestFocus();
+    }
+
+    private boolean isPcKeyboardVisible() {
+        return pcKeyboard != null && pcKeyboard.getVisibility() == View.VISIBLE;
+    }
+
+    /** Closing lets go of every key and modifier it pressed, and gives the pads back to the game. */
+    private void hidePcKeyboard() {
+        if (pcKeyboard == null || pcKeyboard.getVisibility() != View.VISIBLE) return;
+        pcKeyboard.releaseInputs();
+        pcKeyboard.setVisibility(View.GONE);
+        if (controllerHandler != null) controllerHandler.setPadCapture(null);
+        if (grabbedInput && !cursorVisible && !isKeyboardOverlayVisible() && inputCaptureProvider != null) {
+            inputCaptureProvider.hideCursor();
+        }
+    }
+
+    private void sendPcKeyboardKey(int vk, boolean down, byte modifiers) {
+        if (!connected || conn == null || !conn.canSendInput()) return;
+        sendKeyboardInput((short) (0x8000 | vk), down ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP, modifiers, (byte) 0);
+    }
+
+    private void hideSystemKeyboard() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsets insets = streamView.getRootWindowInsets();
+            if (insets != null && insets.isVisible(WindowInsets.Type.ime())) {
+                getWindow().getInsetsController().hide(WindowInsets.Type.ime());
+            }
+        } else {
+            InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            inputManager.hideSoftInputFromWindow(streamView.getWindowToken(), 0);
+        }
+    }
+
+    private void padToPcKeyboard(PcKeyboardController.Pad pad, boolean down) {
+        if (isPcKeyboardVisible()) pcKeyboard.controller().pad(pad, down, SystemClock.uptimeMillis());
+    }
+
+    private static PcKeyboardController.Pad padForFlag(int flag) {
+        switch (flag) {
+            case ControllerPacket.UP_FLAG: return PcKeyboardController.Pad.UP;
+            case ControllerPacket.DOWN_FLAG: return PcKeyboardController.Pad.DOWN;
+            case ControllerPacket.LEFT_FLAG: return PcKeyboardController.Pad.LEFT;
+            case ControllerPacket.RIGHT_FLAG: return PcKeyboardController.Pad.RIGHT;
+            case ControllerPacket.A_FLAG: return PcKeyboardController.Pad.A;
+            case ControllerPacket.B_FLAG: return PcKeyboardController.Pad.B;
+            case ControllerPacket.X_FLAG: return PcKeyboardController.Pad.X;
+            case ControllerPacket.Y_FLAG: return PcKeyboardController.Pad.Y;
+            case ControllerPacket.LB_FLAG: return PcKeyboardController.Pad.LB;
+            case ControllerPacket.RB_FLAG: return PcKeyboardController.Pad.RB;
+            case ControllerPacket.PLAY_FLAG: return PcKeyboardController.Pad.START;
+            default: return null;
+        }
+    }
+
+    private PcKeyboardController.Pad padForKey(int keyCode) {
+        boolean flip = prefConfig.flipFaceButtons;
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP: return PcKeyboardController.Pad.UP;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return PcKeyboardController.Pad.DOWN;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return PcKeyboardController.Pad.LEFT;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return PcKeyboardController.Pad.RIGHT;
+            // OK on a TV remote.
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER: return PcKeyboardController.Pad.A;
+            case KeyEvent.KEYCODE_BUTTON_A: return flip ? PcKeyboardController.Pad.B : PcKeyboardController.Pad.A;
+            case KeyEvent.KEYCODE_BUTTON_B: return flip ? PcKeyboardController.Pad.A : PcKeyboardController.Pad.B;
+            case KeyEvent.KEYCODE_BUTTON_X: return flip ? PcKeyboardController.Pad.Y : PcKeyboardController.Pad.X;
+            case KeyEvent.KEYCODE_BUTTON_Y: return flip ? PcKeyboardController.Pad.X : PcKeyboardController.Pad.Y;
+            case KeyEvent.KEYCODE_BUTTON_L1: return PcKeyboardController.Pad.LB;
+            case KeyEvent.KEYCODE_BUTTON_R1: return PcKeyboardController.Pad.RB;
+            case KeyEvent.KEYCODE_BUTTON_START: return PcKeyboardController.Pad.START;
+            default: return null;
+        }
+    }
+
+    /**
+     * While the PC keyboard is open a controller or TV remote steers it, not the game. Everything on a
+     * controller is consumed, so no button reaches the game; a physical keyboard still types to the PC.
+     */
+    private boolean handlePcKeyboardKey(KeyEvent event) {
+        boolean remote = ControllerHandler.isRemoteControlEvent(event);
+        if (!remote && !ControllerHandler.isGameControllerDevice(event.getDevice())) return false;
+        int keyCode = event.getKeyCode();
+        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+        if (!isPcKeyboardVisible()) {
+            // A release of a key the keyboard took stays with it, even if it just closed.
+            if (down) return false;
+            boolean taken = pcKeyboardKeys.get(keyCode);
+            pcKeyboardKeys.delete(keyCode);
+            return taken;
+        }
+        PcKeyboardController.Pad pad = padForKey(keyCode);
+        if (pad == null) return !remote;
+        if (down) {
+            pcKeyboardKeys.put(keyCode, true);
+            // The keyboard repeats keys itself.
+            if (event.getRepeatCount() > 0) return true;
+        } else {
+            pcKeyboardKeys.delete(keyCode);
+        }
+        pcKeyboard.controller().pad(pad, down, event.getEventTime());
+        return true;
+    }
+
+    private void handlePcKeyboardMotion(MotionEvent event) {
+        if (event.getActionMasked() != MotionEvent.ACTION_MOVE) return;
+        float hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X), hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y);
+        float x = hatX != 0 ? hatX : event.getAxisValue(MotionEvent.AXIS_X);
+        float y = hatY != 0 ? hatY : event.getAxisValue(MotionEvent.AXIS_Y);
+        pcKeyboard.controller().stick(x, y, event.getEventTime());
+    }
+
     private void toggleKeyboardOverlay() {
         if (!foreground || !connected || isFinishing() || streamMenu != null || !conn.canSendInput()) {
             return;
@@ -4462,6 +4640,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             hideKeyboardOverlay();
             return;
         }
+        hidePcKeyboard();
         if (keyboardOverlay == null) {
             keyboardOverlay = new KeyboardOverlay(this, new DesktopControlsPanel.Sink() {
                 @Override public void sendKeys(int[] keys) {
@@ -4902,6 +5081,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int eventSource = event.getSource();
         int deviceSources = event.getDevice() != null ? event.getDevice().getSources() : 0;
         if ((eventSource & InputDevice.SOURCE_CLASS_JOYSTICK) != 0) {
+            if (isPcKeyboardVisible()) {
+                handlePcKeyboardMotion(event);
+                return true;
+            }
             if (controllerHandler.handleMotionEvent(event)) {
                 return true;
             }
@@ -6199,6 +6382,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void releaseKeyboardInput() {
         if (gameTouchControls != null) gameTouchControls.releaseInput();
+        // Sticky modifiers and held keys of the PC keyboard go up with everything else.
+        if (pcKeyboard != null) pcKeyboard.releaseInputs();
         synchronized (pressedKeys) {
             for (Map.Entry<Short, Byte> key : pressedKeys.entrySet()) {
                 conn.sendKeyboardInput(key.getKey(), KeyboardPacket.KEY_UP, (byte) 0, key.getValue());

@@ -34,6 +34,7 @@
         <item>Средний щелчок</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar не может нарисовать форму курсора ПК и показывает стандартную стрелку.</string>
     <string name="title_four_finger_tap">Касание четырьмя пальцами</string>

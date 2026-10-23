@@ -34,6 +34,7 @@
         <item>Orta tıklama</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar bilgisayarın imleç şeklini çizemiyor, bu yüzden varsayılan oku gösteriyor.</string>
     <string name="title_four_finger_tap">Dört parmakla dokunma</string>

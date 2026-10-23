@@ -34,6 +34,7 @@
         <item>中键单击</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar 无法绘制电脑的光标形状，因此显示默认箭头。</string>
     <string name="title_four_finger_tap">四指轻点</string>

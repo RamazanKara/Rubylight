@@ -13,12 +13,19 @@ import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 
+import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
+import com.limelight.binding.input.keyboard.PcKey;
+import com.limelight.binding.input.keyboard.PcKeyboardController;
+import com.limelight.binding.input.keyboard.PcKeyboardLayout;
+import com.limelight.binding.input.keyboard.PcModifier;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.input.KeyboardPacket;
+import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.ui.StreamView;
 import com.limelight.ui.StreamMenu;
 
@@ -184,6 +191,145 @@ public class GameKeyboardOverlayTest {
             assertEquals(visible, capture.visible());
             assertTrue((boolean) ReflectionHelpers.getField(game, "grabbedInput"));
         }
+    }
+
+    private static Game pcKeyboardGame(RecordingConnection connection) {
+        Game game = game(connection);
+        game.setTheme(R.style.AppTheme);
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.pcKeyboardLayout = "us";
+        prefs.pcKeyboardSize = 50;
+        prefs.pcKeyboardOpacity = 90;
+        ReflectionHelpers.setField(game, "prefConfig", prefs);
+        ReflectionHelpers.setField(game, "controllerHandler", new ControllerHandler(game, connection, game, prefs));
+        StreamView stream = new StreamView(game);
+        stream.setFocusableInTouchMode(true);
+        FrameLayout parent = new FrameLayout(game);
+        parent.addView(stream);
+        game.setContentView(parent);
+        ReflectionHelpers.setField(game, "streamView", stream);
+        return game;
+    }
+
+    private static boolean pcKeyboardVisible(Game game) {
+        return (boolean) ReflectionHelpers.callInstanceMethod(game, "isPcKeyboardVisible");
+    }
+
+    private static PcKeyboardController pcKeyboardController(Game game) {
+        PcKeyboardOverlay overlay = ReflectionHelpers.getField(game, "pcKeyboard");
+        return overlay.controller();
+    }
+
+    private static boolean padKey(Game game, int action, int keyCode) {
+        KeyEvent event = new KeyEvent(0, 0, action, keyCode, 0);
+        return action == KeyEvent.ACTION_DOWN ? game.handleKeyDown(event) : game.handleKeyUp(event);
+    }
+
+    @Test
+    public void pcKeyboardOpensAndClosesAndExcludesTheOtherKeyboards() {
+        Game game = pcKeyboardGame(new RecordingConnection());
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertTrue(pcKeyboardVisible(game));
+        // The extra-keys panel takes over: only one keyboard at a time.
+        ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+        assertFalse(pcKeyboardVisible(game));
+        View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
+        assertEquals(View.VISIBLE, panel.getVisibility());
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertTrue(pcKeyboardVisible(game));
+        assertEquals(View.GONE, panel.getVisibility());
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertFalse(pcKeyboardVisible(game));
+    }
+
+    @Test
+    public void closingThePcKeyboardLetsGoOfEveryHeldAndStickyKey() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        PcKeyboardController keyboard = pcKeyboardController(game);
+        PcKeyboardLayout layout = keyboard.layout();
+        long now = 1000;
+        // Ctrl locked, Shift armed, and A held down.
+        keyboard.engine().tapModifier(PcModifier.CTRL);
+        keyboard.engine().tapModifier(PcModifier.CTRL);
+        keyboard.engine().tapModifier(PcModifier.SHIFT);
+        keyboard.touchDown(layout.key("A"), 1, now);
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game, "pressedKeys");
+        assertFalse(pressed.isEmpty());
+
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+
+        assertFalse(pcKeyboardVisible(game));
+        assertTrue("Nothing stays pressed on the host", pressed.isEmpty());
+        int ups = 0, downs = 0;
+        for (int[] key : connection.keys) {
+            if (key[1] == KeyboardPacket.KEY_DOWN) downs++; else ups++;
+        }
+        assertEquals("Every key sent down is sent up", downs, ups);
+        assertTrue(downs >= 3);
+    }
+
+    @Test
+    public void controllerKeysSteerTheKeyboardWhileOpenAndReachTheGameAfterwards() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X);
+        padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_X);
+        assertTrue("A closed keyboard sends no keys", connection.keys.isEmpty());
+
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        connection.keys.clear();
+        // X is Backspace, Y is Space: pressed and released on the host, and consumed.
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X));
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_X));
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_Y));
+        assertEquals(4, connection.keys.size());
+        assertEquals(KeyboardPacket.KEY_DOWN, connection.keys.get(0)[1]);
+        assertEquals(KeyboardPacket.KEY_UP, connection.keys.get(1)[1]);
+        // Buttons without a job are swallowed too, so the game never sees them.
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_THUMBL));
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_THUMBL));
+        assertEquals(4, connection.keys.size());
+
+        // B closes it. The release that follows still belongs to the keyboard.
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_B));
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_B));
+        assertFalse(pcKeyboardVisible(game));
+        padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X);
+        padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_X);
+        assertEquals("Closed again: the pad no longer types", 4, connection.keys.size());
+    }
+
+    @Test
+    public void closeWithAButtonHeldStillSwallowsItsRelease() {
+        Game game = pcKeyboardGame(new RecordingConnection());
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertFalse(pcKeyboardVisible(game));
+        assertTrue("The game never saw the press, so it must not see the release",
+                padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_Y));
+        assertEquals(0, ((android.util.SparseBooleanArray) ReflectionHelpers.getField(game, "pcKeyboardKeys")).size());
+    }
+
+    @Test
+    public void dpadMovesFocusAndAPressesTheFocusedKey() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        PcKeyboardController keyboard = pcKeyboardController(game);
+        PcKey start = keyboard.focus().focused();
+        connection.keys.clear();
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT));
+        assertNotSame(start, keyboard.focus().focused());
+        assertTrue("Moving focus presses nothing", connection.keys.isEmpty());
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER));
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER));
+        assertEquals(2, connection.keys.size());
+        assertEquals(0x8000 | keyboard.focus().focused().vk, connection.keys.get(0)[0]);
     }
 
     private static class Capture extends InputCaptureProvider {

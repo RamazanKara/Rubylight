@@ -143,6 +143,42 @@ public class ControllerInputReleaseTest {
     }
 
     @Test
+    public void usbDriverPadSteersThePcKeyboardAndGivesTheGameOnlyNewPressesAfterwards() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        usbPad(handler);
+        List<String> events = new ArrayList<>();
+        try {
+            usb(handler, ControllerPacket.X_FLAG);
+            handler.setPadCapture(new ControllerHandler.PadCapture() {
+                @Override public void button(int flag, boolean down) { events.add(flag + (down ? "+" : "-")); }
+                @Override public void stick(float x, float y) { events.add("stick"); }
+            });
+            int sent = connection.states.size();
+            // X was held before the keyboard opened: it is no press for the keyboard, only its release is seen.
+            usb(handler, ControllerPacket.X_FLAG | ControllerPacket.A_FLAG);
+            usb(handler, ControllerPacket.A_FLAG);
+            usb(handler, 0);
+            assertEquals(java.util.Arrays.asList(ControllerPacket.A_FLAG + "+", "stick",
+                    ControllerPacket.X_FLAG + "-", "stick", ControllerPacket.A_FLAG + "-", "stick"), events);
+            assertEquals("Nothing reaches the host while the keyboard is open", sent, connection.states.size());
+            // Closed with A held: the game sees A only after a new press.
+            usb(handler, ControllerPacket.A_FLAG);
+            handler.setPadCapture(null);
+            usb(handler, ControllerPacket.A_FLAG);
+            if (!connection.states.isEmpty()) {
+                assertEquals(0, connection.states.get(connection.states.size() - 1)[0] & ControllerPacket.A_FLAG);
+            }
+            usb(handler, 0);
+            usb(handler, ControllerPacket.A_FLAG);
+            assertEquals(ControllerPacket.A_FLAG, connection.states.get(connection.states.size() - 1)[0] & ControllerPacket.A_FLAG);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
     public void releasingInputClearsEveryContextAndDoesNotFuseStaleAxes() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             RecordingConnection connection = new RecordingConnection();

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">Клавіатура ПК</string>
+    <string name="pc_keyboard_close">Закрити клавіатуру</string>
+    <string name="pc_keyboard_layout_auto">Автоматично</string>
+    <string name="pc_keyboard_layout_us">Англійська (США)</string>
+    <string name="pc_keyboard_layout_de">Німецька (QWERTZ)</string>
+    <string name="pc_keyboard_layout_title">Розкладка клавіатури</string>
+    <string name="pc_keyboard_layout_summary">Розкладка екранної клавіатури ПК. Клавіші передають позиції клавіш, тож символ, який набирається, визначає розкладка клавіатури Windows на ПК. Виберіть однакову розкладку в обох місцях.</string>
+    <string name="pc_keyboard_size_title">Розмір клавіатури</string>
+    <string name="pc_keyboard_opacity_title">Прозорість клавіатури</string>
+</resources>

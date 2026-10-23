@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">PC 키보드</string>
+    <string name="pc_keyboard_close">키보드 닫기</string>
+    <string name="pc_keyboard_layout_auto">자동</string>
+    <string name="pc_keyboard_layout_us">영어(미국)</string>
+    <string name="pc_keyboard_layout_de">독일어(QWERTZ)</string>
+    <string name="pc_keyboard_layout_title">키보드 레이아웃</string>
+    <string name="pc_keyboard_layout_summary">화면 PC 키보드의 레이아웃입니다. 키는 키 위치를 보내므로 입력되는 문자는 PC의 Windows 키보드 레이아웃이 결정합니다. 둘을 같은 레이아웃으로 맞추세요.</string>
+    <string name="pc_keyboard_size_title">키보드 크기</string>
+    <string name="pc_keyboard_opacity_title">키보드 불투명도</string>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">PC klavyesi</string>
+    <string name="pc_keyboard_close">Klavyeyi kapat</string>
+    <string name="pc_keyboard_layout_auto">Otomatik</string>
+    <string name="pc_keyboard_layout_us">İngilizce (ABD)</string>
+    <string name="pc_keyboard_layout_de">Almanca (QWERTZ)</string>
+    <string name="pc_keyboard_layout_title">Klavye düzeni</string>
+    <string name="pc_keyboard_layout_summary">Ekrandaki PC klavyesinin düzeni. Tuşlar tuş konumlarını gönderir, bu yüzden yazılan karakteri PC’deki Windows klavye düzeni belirler. İkisini de aynı düzene ayarlayın.</string>
+    <string name="pc_keyboard_size_title">Klavye boyutu</string>
+    <string name="pc_keyboard_opacity_title">Klavye opaklığı</string>
+</resources>

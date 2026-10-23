@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">Tastiera PC</string>
+    <string name="pc_keyboard_close">Chiudi tastiera</string>
+    <string name="pc_keyboard_layout_auto">Automatico</string>
+    <string name="pc_keyboard_layout_us">Inglese (USA)</string>
+    <string name="pc_keyboard_layout_de">Tedesco (QWERTZ)</string>
+    <string name="pc_keyboard_layout_title">Layout della tastiera</string>
+    <string name="pc_keyboard_layout_summary">Il layout della tastiera PC sullo schermo. I tasti inviano posizioni dei tasti, quindi è il layout di tastiera di Windows sul PC a decidere quale carattere viene digitato. Imposta entrambi sullo stesso layout.</string>
+    <string name="pc_keyboard_size_title">Dimensione della tastiera</string>
+    <string name="pc_keyboard_opacity_title">Opacità della tastiera</string>
+</resources>

@@ -436,6 +436,29 @@
             android:title="@string/title_checkbox_right_alt_as_meta"
             android:dialogMessage="@string/summary_checkbox_right_alt_as_meta"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_pc_keyboard_layout"
+            android:title="@string/pc_keyboard_layout_title"
+            android:dialogMessage="@string/pc_keyboard_layout_summary"
+            android:entries="@array/pc_keyboard_layout_names"
+            android:entryValues="@array/pc_keyboard_layout_values"
+            android:defaultValue="auto" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_pc_keyboard_size"
+            android:title="@string/pc_keyboard_size_title"
+            android:defaultValue="50"
+            seekbar:min="30"
+            android:max="70"
+            seekbar:step="5"
+            android:text="%" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_pc_keyboard_opacity"
+            android:title="@string/pc_keyboard_opacity_title"
+            android:defaultValue="90"
+            seekbar:min="30"
+            android:max="100"
+            seekbar:step="5"
+            android:text="%" />
     </PreferenceCategory>
 
     <!-- Audio -->

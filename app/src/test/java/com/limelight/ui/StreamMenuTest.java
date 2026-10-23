@@ -67,7 +67,7 @@ public class StreamMenuTest {
                 options("rubylight-serverinfo.xml", NvApp.Role.STREAM)));
         assertEquals(Arrays.asList(StreamMenu.Section.QUICK, StreamMenu.Section.INPUT, StreamMenu.Section.DISPLAY,
                 StreamMenu.Section.QUALITY, StreamMenu.Section.HOST, StreamMenu.Section.SESSION), new ArrayList<>(menu.keySet()));
-        assertEquals(Arrays.asList(KEYBOARD, OVERLAY), menu.get(StreamMenu.Section.QUICK));
+        assertEquals(Arrays.asList(KEYBOARD, PC_KEYBOARD, OVERLAY), menu.get(StreamMenu.Section.QUICK));
         assertEquals(Arrays.asList(TOUCH_MODE, ONSCREEN_CONTROLS, KEYBOARD_KEYS), menu.get(StreamMenu.Section.INPUT));
         assertEquals(Arrays.asList(ZOOM, OVERLAY_PAGE), menu.get(StreamMenu.Section.DISPLAY));
         // Resolution and frame rate (automatic quality) are Quality, not "Bitrate".
@@ -219,7 +219,7 @@ public class StreamMenuTest {
         Map<StreamMenu.Section, List<StreamMenu.Item>> sections = sections(input);
         assertNull("Input-only has no video to show or tune", sections.get(StreamMenu.Section.DISPLAY));
         assertNull(sections.get(StreamMenu.Section.QUALITY));
-        assertEquals(Arrays.asList(KEYBOARD), sections.get(StreamMenu.Section.QUICK));
+        assertEquals(Arrays.asList(KEYBOARD, PC_KEYBOARD), sections.get(StreamMenu.Section.QUICK));
         assertEquals(R.string.stream_end_input, input.get(input.size() - 1).label);
         assertEquals(R.string.stream_input_title, StreamMenu.title(NvApp.Role.INPUT_ONLY));
     }
@@ -229,7 +229,7 @@ public class StreamMenuTest {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.microphoneOffered = true;
         options.microphoneMuted = true;
-        StreamMenu.Entry mic = StreamMenu.mainPage(options).get(2);
+        StreamMenu.Entry mic = StreamMenu.mainPage(options).get(3);
         assertEquals(MICROPHONE, mic.item);
         assertEquals(Boolean.FALSE, mic.checked);
         assertEquals(R.drawable.ic_mic_off, mic.icon);
@@ -396,6 +396,8 @@ public class StreamMenuTest {
             assertFalse("Keyboard is an action, not a switch", menu.row(KEYBOARD).isCheckable());
             assertEquals(activity.getString(R.string.desktop_controls_system_keyboard),
                     menu.row(KEYBOARD).getText().toString());
+            assertFalse("The PC keyboard is an action too", menu.row(PC_KEYBOARD).isCheckable());
+            assertEquals(activity.getString(R.string.pc_keyboard_title), menu.row(PC_KEYBOARD).getText().toString());
             assertEquals(activity.getString(R.string.desktop_controls_open),
                     menu.row(KEYBOARD_KEYS).getText().toString());
             MaterialButton overlay = menu.row(OVERLAY);

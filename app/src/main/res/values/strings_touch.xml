@@ -34,6 +34,7 @@
         <item>Middle click</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
 
     <string-array name="trackpad_acceleration_curve_values" translatable="false">
@@ -58,6 +59,7 @@
         <item>middle_click</item>
         <item>desktop_controls</item>
         <item>none</item>
+        <item>pc_keyboard</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar can’t draw the PC’s cursor shape, so it shows the default arrow.</string>
     <string name="title_four_finger_tap">Four-finger tap</string>

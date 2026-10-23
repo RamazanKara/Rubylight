@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">PC 鍵盤</string>
+    <string name="pc_keyboard_close">關閉鍵盤</string>
+    <string name="pc_keyboard_layout_auto">自動</string>
+    <string name="pc_keyboard_layout_us">英文（美國）</string>
+    <string name="pc_keyboard_layout_de">德文（QWERTZ）</string>
+    <string name="pc_keyboard_layout_title">鍵盤配置</string>
+    <string name="pc_keyboard_layout_summary">螢幕上 PC 鍵盤的配置。按鍵傳送的是按鍵位置，因此輸入哪個字元由 PC 上的 Windows 鍵盤配置決定。請將兩者設為同一種配置。</string>
+    <string name="pc_keyboard_size_title">鍵盤大小</string>
+    <string name="pc_keyboard_opacity_title">鍵盤不透明度</string>
+</resources>

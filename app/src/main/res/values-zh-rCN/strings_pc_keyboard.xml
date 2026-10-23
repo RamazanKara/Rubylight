@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">PC 键盘</string>
+    <string name="pc_keyboard_close">关闭键盘</string>
+    <string name="pc_keyboard_layout_auto">自动</string>
+    <string name="pc_keyboard_layout_us">英语（美国）</string>
+    <string name="pc_keyboard_layout_de">德语（QWERTZ）</string>
+    <string name="pc_keyboard_layout_title">键盘布局</string>
+    <string name="pc_keyboard_layout_summary">屏幕上 PC 键盘的布局。按键发送的是按键位置，因此输入哪个字符由 PC 上的 Windows 键盘布局决定。请把两者设为同一种布局。</string>
+    <string name="pc_keyboard_size_title">键盘大小</string>
+    <string name="pc_keyboard_opacity_title">键盘不透明度</string>
+</resources>

@@ -34,6 +34,7 @@
         <item>가운데 클릭</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar가 PC의 커서 모양을 그릴 수 없어 기본 화살표를 표시합니다.</string>
     <string name="title_four_finger_tap">네 손가락 탭</string>

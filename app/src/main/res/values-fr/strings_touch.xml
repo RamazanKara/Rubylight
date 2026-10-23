@@ -34,6 +34,7 @@
         <item>Clic du milieu</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar ne peut pas dessiner la forme du curseur du PC et affiche la flèche par défaut.</string>
     <string name="title_four_finger_tap">Appui à quatre doigts</string>

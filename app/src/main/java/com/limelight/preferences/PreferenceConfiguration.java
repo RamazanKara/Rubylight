@@ -105,6 +105,9 @@ public class PreferenceConfiguration {
     private static final String TRACKPAD_AREA_PREF_STRING = "list_trackpad_area";
     private static final String THREE_FINGER_TAP_PREF_STRING = "list_three_finger_tap";
     private static final String FOUR_FINGER_TAP_PREF_STRING = "list_four_finger_tap";
+    private static final String PC_KEYBOARD_LAYOUT_PREF_STRING = "list_pc_keyboard_layout";
+    private static final String PC_KEYBOARD_SIZE_PREF_STRING = "seekbar_pc_keyboard_size";
+    private static final String PC_KEYBOARD_OPACITY_PREF_STRING = "seekbar_pc_keyboard_opacity";
     private static final String MOUSE_SPEED_PREF_STRING = "seekbar_mouse_speed";
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     // Off: streams use the C engine. The Rust engine is a beta and falls back per stream.
@@ -248,6 +251,9 @@ public class PreferenceConfiguration {
     public int trackpadSpeed, mouseSpeed, localCursorSpeed;
     public boolean trackpadAcceleration, trackpadMomentum;
     public String trackpadAccelerationCurve, trackpadMomentumGlide, trackpadArea, threeFingerTap;
+    /** The on-screen PC keyboard: layout id or "auto", its share of the window height and its opacity, both in percent. */
+    public String pcKeyboardLayout;
+    public int pcKeyboardSize, pcKeyboardOpacity;
     public String fourFingerTap = FingerTapGesture.NONE;
     public MoonBridge.AudioConfiguration audioConfiguration;
     public int framePacing;
@@ -1108,6 +1114,9 @@ public class PreferenceConfiguration {
                 FingerTapGesture.KEYBOARD);
         config.fourFingerTap = prefs.getString(FOUR_FINGER_TAP_PREF_STRING,
                 FingerTapGesture.NONE);
+        config.pcKeyboardLayout = prefs.getString(PC_KEYBOARD_LAYOUT_PREF_STRING, "auto");
+        config.pcKeyboardSize = Math.max(30, Math.min(70, prefs.getInt(PC_KEYBOARD_SIZE_PREF_STRING, 50)));
+        config.pcKeyboardOpacity = Math.max(30, Math.min(100, prefs.getInt(PC_KEYBOARD_OPACITY_PREF_STRING, 90)));
         config.mouseSpeed = Math.max(25, Math.min(400, prefs.getInt(MOUSE_SPEED_PREF_STRING, DEFAULT_MOUSE_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, false);

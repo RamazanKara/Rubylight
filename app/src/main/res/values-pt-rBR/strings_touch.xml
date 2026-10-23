@@ -34,6 +34,7 @@
         <item>Clique do meio</item>
         <item>@string/desktop_controls_open</item>
         <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">O Nightjar não consegue desenhar o formato do cursor do PC e mostra a seta padrão.</string>
     <string name="title_four_finger_tap">Toque com quatro dedos</string>

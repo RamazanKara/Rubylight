@@ -89,13 +89,14 @@ fn uneven_game_frame_times_are_kept() {
 fn delay_tracks_the_jitter_percentile_and_falls_slowly() {
     let mut clock = PresentClock::default();
     let mut noise = Lcg(4);
-    run(&mut clock, 500, |_| 10_000, |i| if i < 250 { noise.next(12_000) } else { noise.next(2_000) }, 0);
-    // Rose to cover ~12 ms of jitter; after it calmed down falls at 25 us a frame.
+    run(&mut clock, 300, |_| 10_000, |i| if i < 250 { noise.next(12_000) } else { noise.next(2_000) }, 0);
+    // Rose to cover ~12 ms of jitter; once the window has no more of it, it falls.
     let high = clock.delay_us().unwrap();
-    run(&mut clock, 100, |_| 10_000, |_| noise.next(2_000), 0);
+    run(&mut clock, 200, |_| 10_000, |_| noise.next(2_000), 0);
     let lower = clock.delay_us().unwrap();
     assert!(lower < high);
-    assert!(high - lower <= 100 * 25 + 1);
+    // The gap to the percentile closes by dt / 500 ms, never slower than 25 us a frame.
+    assert!(high - lower >= 200 * 25 - 1);
     run(&mut clock, 2000, |_| 10_000, |_| noise.next(2_000), 0);
     let settled = clock.delay_us().unwrap();
     // Steady state: the ~97th percentile of 0..2 ms plus the margin (the clocks' offset
@@ -138,6 +139,73 @@ fn a_late_burst_at_the_start_does_not_hold_the_stream() {
     // A restarted video clock warms up again.
     let late_again = clock.schedule(rtp(1_000), (shown[699].1 + 80_000) as u64);
     assert_eq!(late_again.hold_us, clock.settings.margin_us);
+}
+
+/// The fixed part of a frame's ready time: the clocks' offset and the 20 ms path.
+const BASE_US: i64 = 987_654_321 + 20_000;
+
+/// Runs `frames` frames at `fps` through the clock. `extra(i, interval)` is the frame's
+/// lateness on top of the path (a 1 ms noise is added). Returns the shown frames.
+fn run_fps(
+    fps: i64,
+    frames: usize,
+    seed: u64,
+    mut extra: impl FnMut(usize, i64) -> i64,
+) -> Vec<(i64, i64, bool)> {
+    let interval = 1_000_000 / fps;
+    let mut clock = PresentClock::default();
+    let mut noise = Lcg(seed);
+    run(&mut clock, frames, |_| interval, |i| extra(i, interval) + noise.next(1_000), 0)
+}
+
+fn holds(shown: &[(i64, i64, bool)]) -> impl Iterator<Item = i64> + '_ {
+    shown.iter().map(|s| s.1 - (s.0 + BASE_US))
+}
+
+#[test]
+fn a_stall_in_mid_stream_does_not_hold_the_stream_for_long() {
+    // The stall holds the frames back and delivers them at once: the first is `stall` late,
+    // each next one an interval less. The delay rises to cover it, then has to come back.
+    for fps in [30, 60, 144] {
+        for stall in [100_000, 200_000] {
+            let at = 1000;
+            let shown = run_fps(fps, 1000 + 128 + 3 * fps as usize + 50, 7, |i, interval| {
+                if i >= at { (stall - (i - at) as i64 * interval).max(0) } else { 0 }
+            });
+            let back = at + 128 + 2 * fps as usize;
+            for (i, hold) in holds(&shown).enumerate().skip(back) {
+                assert!((0..=3_000).contains(&hold), "{fps} fps, {stall} us: frame {i} held {hold} us");
+            }
+            let over = at + (stall / (1_000_000 / fps)) as usize + 2;
+            let longest = holds(&shown).skip(over).max().unwrap();
+            assert!(longest <= 50_000 + 1_500, "{fps} fps, {stall} us: held {longest} us");
+        }
+    }
+}
+
+#[test]
+fn a_stall_of_a_fixed_size_every_64_frames_is_late_only_the_first_time() {
+    for fps in [30, 60, 144] {
+        let shown = run_fps(fps, 64 * 20, 8, |i, _| if i >= 200 && (i - 200) % 64 < 8 { 20_000 } else { 0 });
+        let first = shown.iter().position(|s| s.2).expect("the first burst is late");
+        assert!(first >= 200, "{fps} fps: frame {first}");
+        let again = shown[200 + 64..].iter().filter(|s| s.2).count();
+        assert_eq!(again, 0, "{fps} fps: late again");
+        assert!(holds(&shown).all(|h| h <= 50_000));
+    }
+}
+
+#[test]
+fn a_300_ms_start_burst_at_144_fps_is_shown_as_it_comes_and_then_released() {
+    // 36 frames fit in the first 250 ms of host time; the rest of the burst, 50 ms late and
+    // falling, goes into the window.
+    let shown = run_fps(144, 1000, 9, |i, interval| (300_000 - i as i64 * interval).max(0));
+    assert!(shown[..36].iter().all(|s| !s.2), "the warm-up frames are shown as they come");
+    let holds: Vec<i64> = holds(&shown).collect();
+    assert!(holds[44..].iter().all(|h| (0..=51_500).contains(h)));
+    for (i, hold) in holds.iter().enumerate().skip(44 + 128 + 2 * 144) {
+        assert!((0..=3_000).contains(hold), "frame {i} held {hold} us");
+    }
 }
 
 #[test]

@@ -9,7 +9,9 @@
 //! [`PresentClock`] shows each frame at that time plus a constant delay, so the intervals
 //! on screen are the game's intervals. The delay is a high percentile of how late frames
 //! have been ready recently, plus a margin; it rises at once when frames get later and
-//! falls slowly when they get earlier. A frame later than the delay is shown at once.
+//! falls when they get earlier (by a share of the gap per 100 ms, so a stall is forgotten in
+//! seconds). A frame later than the delay is shown at once, and never held more than
+//! `max_hold_us` beyond the typical frame.
 //!
 //! Scheduling needs no shared clock: the delay is measured against the frames' own
 //! timestamps, so any offset between the two clocks cancels and slow drift is followed
@@ -126,7 +128,8 @@ pub struct Settings {
     pub percentile: u8,
     /// Added to the delay for the present call itself, in microseconds.
     pub margin_us: i64,
-    /// How fast the delay may fall per frame, in microseconds.
+    /// The least the delay falls per frame when it is above the percentile, in microseconds;
+    /// it falls faster the further above it is, see [`FALL_TAU_US`].
     pub decay_us: i64,
     /// The longest a frame is held after it is ready, in microseconds.
     pub max_hold_us: i64,
@@ -173,8 +176,9 @@ pub struct PresentClock {
     unwrap: Option<(u32, i64)>,
     delay_us: Option<i64>,
     last_present: Option<i64>,
-    /// Frames still to be shown without a delay, see [`WARMUP_FRAMES`].
-    warmup_left: usize,
+    /// Host time of the first frame and of the previous one, in microseconds.
+    start_us: Option<i64>,
+    last_host_us: Option<i64>,
     /// Frames shown late since the clock started.
     pub late_frames: u64,
     pub frames: u64,
@@ -188,12 +192,18 @@ impl Default for PresentClock {
 
 /// A jump this large between two frames' timestamps is a restarted video clock.
 const DISCONTINUITY_TICKS: i64 = 10 * 90_000;
-/// Frames after the start (or a restarted clock) that are shown as soon as they are ready and
-/// left out of the lateness window. The first pictures wait for the decoder and the GPU to
-/// warm up and come in a burst, 90 ms late and falling; with the delay seeded from them and
-/// falling at `decay_us` a frame, every picture was held for the longest hold for the first
-/// minute of the stream.
-const WARMUP_FRAMES: usize = 16;
+/// Host time after the start (or a restarted clock) in which frames are shown as soon as they
+/// are ready and left out of the lateness window. The first pictures wait for the decoder and
+/// the GPU to warm up and come in a burst, 90 ms late and falling; with the delay seeded from
+/// them and falling at `decay_us` a frame, every picture was held for the longest hold for the
+/// first minute of the stream. Counted in host time so the frame rate does not matter.
+const WARMUP_US: i64 = 250_000;
+/// Time constant of the delay's fall, in host microseconds: the gap between the delay and the
+/// lateness percentile shrinks by `dt / TAU` for each `dt` of host time (at least `decay_us`
+/// a frame), so a stall's delay is gone in seconds at any frame rate.
+const FALL_TAU_US: i64 = 500_000;
+/// The longest host time step that counts towards the fall.
+const FALL_STEP_MAX_US: i64 = 100_000;
 
 impl PresentClock {
     pub fn new(settings: Settings) -> Self {
@@ -206,7 +216,8 @@ impl PresentClock {
             unwrap: None,
             delay_us: None,
             last_present: None,
-            warmup_left: WARMUP_FRAMES,
+            start_us: None,
+            last_host_us: None,
             late_frames: 0,
             frames: 0,
         }
@@ -220,7 +231,8 @@ impl PresentClock {
         self.unwrap = None;
         self.delay_us = None;
         self.last_present = None;
-        self.warmup_left = WARMUP_FRAMES;
+        self.start_us = None;
+        self.last_host_us = None;
     }
 
     /// The current delay from host present to client present, beyond the clocks' offset.
@@ -246,11 +258,11 @@ impl PresentClock {
         ticks * 100 / 9
     }
 
-    fn quantile(&self) -> i64 {
+    fn quantile(&self, percentile: u8) -> i64 {
         let mut sorted = [0i64; MAX_WINDOW];
         let values = &mut sorted[..self.len];
         values.copy_from_slice(&self.window[..self.len]);
-        let rank = (self.len - 1) * usize::from(self.settings.percentile.min(100)) / 100;
+        let rank = (self.len - 1) * usize::from(percentile.min(100)) / 100;
         *values.select_nth_unstable(rank).1
     }
 
@@ -259,8 +271,9 @@ impl PresentClock {
         let ready = ready_us as i64;
         let host = self.host_us(rtp);
         let lateness = ready - host;
-        let mut present = if self.warmup_left > 0 {
-            self.warmup_left -= 1;
+        let start = *self.start_us.get_or_insert(host);
+        let step = self.last_host_us.replace(host).map_or(0, |last| host - last);
+        let mut present = if host - start < WARMUP_US {
             ready + self.settings.margin_us
         } else {
             let window = self.settings.window.clamp(1, MAX_WINDOW);
@@ -272,11 +285,19 @@ impl PresentClock {
             self.window[self.next] = lateness;
             self.next = (self.next + 1) % window;
             self.len = (self.len + 1).min(window);
-            let wanted = self.quantile() + self.settings.margin_us;
-            let delay = match self.delay_us {
-                Some(held) if wanted < held => (held - self.settings.decay_us.max(0)).max(wanted),
+            let wanted = self.quantile(self.settings.percentile) + self.settings.margin_us;
+            let mut delay = match self.delay_us {
+                Some(held) if wanted < held => {
+                    let dt = step.clamp(0, FALL_STEP_MAX_US);
+                    let fall = (held - wanted) * dt / FALL_TAU_US;
+                    let fall = fall.max(self.settings.decay_us.max(0));
+                    (held - fall).max(wanted)
+                }
                 _ => wanted,
             };
+            // However long the frames were late, a frame is held at most `max_hold_us` beyond
+            // the typical one.
+            delay = delay.min(self.quantile(50) + self.settings.max_hold_us.max(0));
             self.delay_us = Some(delay);
             host + delay
         };

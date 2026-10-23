@@ -70,7 +70,7 @@ public class TvChannelHelper {
 
             ChannelBuilder builder = new ChannelBuilder()
                     .setType(TvContract.Channels.TYPE_PREVIEW)
-                    .setDisplayName(computer.name)
+                    .setDisplayName(computer.displayName())
                     .setInternalProviderId(computer.uuid)
                     .setAppLinkIntent(ServerHelper.createPcShortcutIntent(context, computer));
 

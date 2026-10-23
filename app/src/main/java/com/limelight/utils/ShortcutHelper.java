@@ -98,8 +98,8 @@ public class ShortcutHelper {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
             ShortcutInfo sinfo = new ShortcutInfo.Builder(context, computer.uuid)
                     .setIntent(ServerHelper.createPcShortcutIntent(context, computer))
-                    .setShortLabel(computer.name)
-                    .setLongLabel(computer.name)
+                    .setShortLabel(computer.displayName())
+                    .setLongLabel(computer.displayName())
                     .setIcon(Icon.createWithResource(context, R.mipmap.ic_pc_scut))
                     .build();
 
@@ -150,8 +150,8 @@ public class ShortcutHelper {
         }
         ShortcutInfo info = new ShortcutInfo.Builder(context, computer.uuid)
                 .setIntent(ServerHelper.createPcShortcutIntent(context, computer))
-                .setShortLabel(computer.name)
-                .setLongLabel(computer.name)
+                .setShortLabel(computer.displayName())
+                .setLongLabel(computer.displayName())
                 .setIcon(Icon.createWithResource(context, R.mipmap.ic_pc_scut))
                 .build();
         return sm.requestPinShortcut(info, null);
@@ -175,7 +175,7 @@ public class ShortcutHelper {
 
             ShortcutInfo sInfo = new ShortcutInfo.Builder(context, getShortcutIdForGame(computer, app))
                 .setIntent(ServerHelper.createAppShortcutIntent(context, computer, app))
-                .setShortLabel(app.getAppName() + " (" + computer.name + ")")
+                .setShortLabel(app.getAppName() + " (" + computer.displayName() + ")")
                 .setIcon(appIcon)
                 .build();
 

@@ -58,6 +58,15 @@ The crate is a member of the `protocol/` workspace but not a default member, so
 `cargo test` there and `build-android.sh` stay the engine's; test it with
 `cargo test -p nightjar-desktop` and `cargo clippy -p nightjar-desktop --all-targets`.
 
+PyroWave GPU decoding (`pyrowave_decoder = Gpu`, [docs/pyrowave-decode.md](../../docs/pyrowave-decode.md))
+loads `libpyrowave-shared.so` from beside the executable and needs a Vulkan 1.3 device. Build the
+library with `scripts/build-pyrowave-sdk.sh` (git, cmake 3.27 or newer, ninja, a C++ compiler and `libvulkan-dev`;
+it needs the Rubylight host's checkout for its patches, see the script's header) and set `NIGHTJAR_PYROWAVE_SDK` to that folder
+to run from `cargo`, or use `package-linux.sh -s <folder>`, which checks the library against
+`pyrowave-sdk.pin` and packs a tar.gz with it, its `build-info.txt`, its licences and the list of
+system libraries the executable needs. Without the library the client says so when the GPU
+decoder is asked for; it never switches to the CPU one by itself.
+
 ## Design
 
 ### One window: SDL3, with egui drawn through SDL's renderer

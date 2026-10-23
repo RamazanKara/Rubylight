@@ -2,6 +2,152 @@
 //! Pair with tests/moonlight_client.c to measure picture age independently of
 //! either host's processing counter. Requires an explicitly selected display.
 //! Animation pacing never changes the display's resolution, refresh rate or HDR.
+//!
+//! The animation argument is `current` (present at the display's refresh), a
+//! rate in Hz, or a script of intervals, the cadence a game would have:
+//! `jitter:8,14,9,13` repeats those intervals in milliseconds, and
+//! `hitch:90:100[:EVERY]` runs at 90 Hz with one 100 ms interval every EVERY
+//! frames (default two seconds' worth). Every present still waits for the
+//! swap chain, so a script slower than the display is exact and a faster one
+//! is quantised to the display's refresh, as a vsynced game is.
+
+#[cfg_attr(not(windows), allow(dead_code))]
+mod schedule {
+    use anyhow::{Result, bail};
+    use std::time::Duration;
+
+    /// Intervals between the probe's presents.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Schedule {
+        Fixed(Duration),
+        Cycle(Vec<Duration>),
+        Hitch {
+            period: Duration,
+            hitch: Duration,
+            every: u64,
+        },
+    }
+
+    fn millis(text: &str) -> Result<Duration> {
+        let ms: f64 = text.trim().parse()?;
+        if !(0.5..=5000.0).contains(&ms) {
+            bail!("interval {ms} ms must be 0.5..5000 ms");
+        }
+        Ok(Duration::from_secs_f64(ms / 1000.0))
+    }
+
+    impl Schedule {
+        pub fn parse(text: &str) -> Result<Self> {
+            if let Some(list) = text.strip_prefix("jitter:") {
+                let cycle = list.split(',').map(millis).collect::<Result<Vec<_>>>()?;
+                if cycle.len() < 2 {
+                    bail!("jitter needs at least two intervals, e.g. jitter:8,14,9,13");
+                }
+                return Ok(Self::Cycle(cycle));
+            }
+            if let Some(rest) = text.strip_prefix("hitch:") {
+                let mut parts = rest.split(':');
+                let hz: f64 = parts.next().unwrap_or("").parse()?;
+                if !(1.0..=1000.0).contains(&hz) {
+                    bail!("hitch rate must be 1..1000 Hz");
+                }
+                let hitch = millis(parts.next().unwrap_or(""))?;
+                let every = match parts.next() {
+                    Some(n) => n.parse()?,
+                    None => (hz * 2.0).round() as u64,
+                };
+                if every < 2 || parts.next().is_some() {
+                    bail!("usage: hitch:HZ:HITCH_MS[:EVERY_FRAMES>=2]");
+                }
+                return Ok(Self::Hitch {
+                    period: Duration::from_secs_f64(1.0 / hz),
+                    hitch,
+                    every,
+                });
+            }
+            let hz: u32 = text.parse()?;
+            if !(1..=1000).contains(&hz) {
+                bail!("animation rate must be 1..1000 Hz");
+            }
+            Ok(Self::Fixed(Duration::from_secs_f64(1.0 / f64::from(hz))))
+        }
+
+        /// The wait before frame `index` (counted from zero).
+        pub fn interval(&self, index: u64) -> Duration {
+            match self {
+                Self::Fixed(period) => *period,
+                Self::Cycle(cycle) => cycle[(index % cycle.len() as u64) as usize],
+                Self::Hitch {
+                    period,
+                    hitch,
+                    every,
+                } => {
+                    if index % every == every - 1 {
+                        *hitch
+                    } else {
+                        *period
+                    }
+                }
+            }
+        }
+
+        pub fn fixed_hz(&self) -> Option<u32> {
+            match self {
+                Self::Fixed(period) => Some((1.0 / period.as_secs_f64()).round() as u32),
+                _ => None,
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn us(d: Duration) -> u128 {
+            d.as_micros()
+        }
+
+        #[test]
+        fn a_rate_is_a_fixed_interval() {
+            let fixed = Schedule::parse("90").unwrap();
+            assert_eq!(fixed.fixed_hz(), Some(90));
+            assert_eq!(us(fixed.interval(0)), 11_111);
+            assert_eq!(us(fixed.interval(12_345)), 11_111);
+            assert!(Schedule::parse("0").is_err());
+            assert!(Schedule::parse("1001").is_err());
+            assert!(Schedule::parse("fast").is_err());
+        }
+
+        #[test]
+        fn jitter_cycles_through_its_intervals() {
+            let script = Schedule::parse("jitter:8,14,9,13.5").unwrap();
+            let seen: Vec<_> = (0..6).map(|i| us(script.interval(i))).collect();
+            assert_eq!(seen, [8000, 14000, 9000, 13500, 8000, 14000]);
+            assert_eq!(script.fixed_hz(), None);
+            assert!(Schedule::parse("jitter:8").is_err());
+            assert!(Schedule::parse("jitter:8,x").is_err());
+            assert!(Schedule::parse("jitter:8,0.1").is_err());
+        }
+
+        #[test]
+        fn a_hitch_comes_every_n_frames_and_replaces_one_interval() {
+            let script = Schedule::parse("hitch:90:100:4").unwrap();
+            let seen: Vec<_> = (0..8).map(|i| us(script.interval(i))).collect();
+            assert_eq!(
+                seen,
+                [11_111, 11_111, 11_111, 100_000, 11_111, 11_111, 11_111, 100_000]
+            );
+            // Two seconds of frames by default.
+            let default = Schedule::parse("hitch:90:100").unwrap();
+            assert_eq!(us(default.interval(179)), 100_000);
+            assert_eq!(us(default.interval(178)), 11_111);
+            assert!(Schedule::parse("hitch:90").is_err());
+            assert!(Schedule::parse("hitch:90:100:1").is_err());
+            assert!(Schedule::parse("hitch:90:100:4:5").is_err());
+        }
+    }
+}
+
 #[cfg(not(windows))]
 fn main() {
     eprintln!("This probe requires Windows.");
@@ -143,15 +289,16 @@ float4 picture(float4 p : SV_Position) : SV_Target {
     pub fn run() -> Result<()> {
         let mut args = std::env::args().skip(1);
         let display_name = args.next().context(
-            "usage: motion_probe DISPLAY SECONDS [REPORT.json [ANIMATION_HZ|current [STRIP_HEIGHT [noise]]]]",
+            "usage: motion_probe DISPLAY SECONDS [REPORT.json [ANIMATION_HZ|current|SCRIPT [STRIP_HEIGHT [noise]]]]",
         )?;
         let seconds: u64 = args.next().context("duration is required")?.parse()?;
         let report = args.next();
-        let animation_hz: Option<u32> = args
-            .next()
-            .filter(|s| s != "current")
-            .map(|s| s.parse())
+        let animation_text = args.next().filter(|s| s != "current");
+        let animation = animation_text
+            .as_deref()
+            .map(crate::schedule::Schedule::parse)
             .transpose()?;
+        let animation_hz = animation.as_ref().and_then(|a| a.fixed_hz());
         let strip_height: Option<u32> = args.next().map(|s| s.parse()).transpose()?;
         // Per-pixel noise above the bottom 128 rows, new every frame: a
         // high-bitrate picture for encoder and network tests.
@@ -162,9 +309,6 @@ float4 picture(float4 p : SV_Position) : SV_Target {
         };
         if !(1..=3600).contains(&seconds) || args.next().is_some() {
             bail!("duration must be 1..3600 seconds");
-        }
-        if animation_hz.is_some_and(|hz| !(1..=1000).contains(&hz)) {
-            bail!("animation rate must be 1..1000 Hz");
         }
         enable_dpi_awareness();
         let _com = ComGuard::new()?;
@@ -179,7 +323,6 @@ float4 picture(float4 p : SV_Position) : SV_Target {
         let mut window_y = display.y + (display.height - window_height) as i32;
         let source_mode = butterpollo_windows::display::mode(&display.display_name)?;
         let timer = butterpollo_windows::timing::Timer::new()?;
-        let interval = animation_hz.map(|hz| Duration::from_secs_f64(1.0 / f64::from(hz)));
         println!("MOTION stage=display name={}", display.display_name);
         if display.width < 640 || display.height < 128 {
             bail!("the motion barcode needs a display of at least 640 by 128");
@@ -317,7 +460,10 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                 if WaitForSingleObject(wait.0, 1000) != WAIT_OBJECT_0 {
                     bail!("presentation event timed out");
                 }
-                if let Some(interval) = interval {
+                let planned = animation
+                    .as_ref()
+                    .map(|a| a.interval(frames.len() as u64));
+                if let Some(interval) = planned {
                     timer.until(next_frame);
                     // Bound catch-up after a stall to one frame. A delayed
                     // renderer must not manufacture a burst of fresh pictures.
@@ -372,6 +518,10 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                     println!("MOTION stage=first-present");
                 }
                 let mut sample = serde_json::json!({"frame":frame,"qpc":ticks});
+                if let Some(interval) = planned {
+                    // The wait that followed the previous present.
+                    sample["planned_us"] = serde_json::json!(interval.as_micros());
+                }
                 if presentation_stats {
                     sample["present_id"] = serde_json::json!(swap.GetLastPresentCount().ok());
                     let mut stats = DXGI_FRAME_STATISTICS::default();
@@ -398,7 +548,7 @@ float4 picture(float4 p : SV_Position) : SV_Target {
             }
             let data = serde_json::json!({
                 "scope":"render timestamp to independent decode; excludes remote display scanout",
-                "display":display,"animation_hz":animation_hz,
+                "display":display,"animation_hz":animation_hz,"animation":animation_text,
                 "display_refresh_hz":source_mode.dmDisplayFrequency,"seconds":start.elapsed().as_secs_f64(),
                 "window_height":window_height,"window_y":window_y,
                 "qpc_frequency":frequency,"presented_frames":frames.len(),"frames":frames

@@ -387,6 +387,8 @@ public class AdaptiveBitrateControllerTest {
         int kbps;
         long now;
         int lowest;
+        // Game calls suspend() every second while the request is in flight.
+        boolean suspendBeforeApply;
 
         Run(AdaptiveBitrateController controller, int startKbps) {
             this.controller = controller;
@@ -399,6 +401,10 @@ public class AdaptiveBitrateControllerTest {
                 float[] n = network.at(now, kbps);
                 int target = controller.sample(now, true, false, n[0], 2, n[1], n[2]);
                 if (target != 0) {
+                    if (suspendBeforeApply) {
+                        controller.suspend();
+                        controller.suspend();
+                    }
                     controller.applied(target, target, now);
                     kbps = target;
                     lowest = Math.min(lowest, kbps);
@@ -512,7 +518,17 @@ public class AdaptiveBitrateControllerTest {
 
     @Test
     public void failedStepBackReturnsToTheWorkingRateAndLowersTheStableRate() {
+        failedStepBackReturnsToTheWorkingRate(false);
+    }
+
+    @Test
+    public void failedStepBackStillReturnsWhenSuspendCallsComeBetweenRequestAndApply() {
+        failedStepBackReturnsToTheWorkingRate(true);
+    }
+
+    private static void failedStepBackReturnsToTheWorkingRate(boolean suspendBeforeApply) {
         Run run = new Run(new AdaptiveBitrateController(40000, 40000, 60, 0), 40000);
+        run.suspendBeforeApply = suspendBeforeApply;
         run.seconds(20, CALM_NETWORK);
         run.seconds(18, LOSS);
         int working = run.kbps;
@@ -594,5 +610,108 @@ public class AdaptiveBitrateControllerTest {
         up.setStreamSize(1920, 1080);
         up.setFrameRate(60);
         assertEquals(AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 60, hevc), lowestUnderLoss(up, 80000));
+    }
+
+    @Test
+    public void queueGrowthTheBitrateCausesKeepsCuttingBelowTheLinkRate() {
+        // A 30 Mbps link with a 3 s buffer: the queue grows in proportion to the rate above the link.
+        int capacity = 30000;
+        float[] queue = {0};
+        float[] peak = {0};
+        Run run = new Run(new AdaptiveBitrateController(50000, 50000, 60, 0), 50000);
+        run.seconds(30, CALM_NETWORK);
+        run.seconds(90, (now, kbps) -> {
+            queue[0] = Math.max(0, Math.min(3000, queue[0] + (kbps - capacity) * 1000f / capacity));
+            peak[0] = Math.max(peak[0], queue[0]);
+            return new float[] {queue[0] >= 3000 ? 5 : 0, 1, queue[0]};
+        });
+        assertTrue("lowest " + run.lowest, run.lowest < capacity);
+        assertTrue("the buffer overflowed: peak " + peak[0] + " ms", peak[0] < 3000);
+    }
+
+    @Test
+    public void aHoldEndsWhenTheQueueStartsToGrow() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(50000, 50000, 60, 0);
+        Run run = new Run(controller, 50000);
+        run.seconds(30, CALM_NETWORK);
+        run.seconds(120, (now, kbps) -> new float[] {0, 20, 0});
+        int held = run.kbps;
+        assertTrue(held < 50000);
+        float[] queue = {20};
+        run.seconds(30, (now, kbps) -> new float[] {0, 20, queue[0] += 15});
+        assertTrue("held " + held + " then " + run.kbps, run.kbps < held);
+    }
+
+    @Test
+    public void stepBackSurvivesSuspendCallsBeforeTheHostAppliesIt() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(40000, 40000, 60, 0);
+        for (long now = 1000; now <= 12000; now += 1000) controller.sample(now, true, false, 0, 2, 1, 0);
+        controller.sample(13000, true, false, 10, 2, 1, 0);
+        int cut = controller.sample(14000, true, false, 10, 2, 1, 0);
+        assertEquals(32000, cut);
+        controller.applied(cut, cut, 14000);
+        int back = 0;
+        long now = 14000;
+        while (back == 0) back = controller.sample(now += 1000, true, false, 0, 2, 1, 0);
+        controller.suspend();
+        controller.suspend();
+        controller.applied(back, back, now);
+        assertEquals(0, controller.sample(now + 1000, true, false, 10, 2, 1, 0));
+        assertEquals(cut, controller.sample(now + 3000, true, false, 10, 2, 1, 0));
+    }
+
+    @Test
+    public void poorSamplesMinutesApartAroundAStaticScreenDoNotCut() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(40000, 40000, 60, 0);
+        assertEquals(0, controller.sample(5000, true, false, 10, 2));
+        assertEquals(0, controller.sample(6000, false, false, 0, 2));
+        assertEquals(0, controller.sample(300000, true, false, 10, 2));
+        assertEquals(32000, controller.sample(301000, true, false, 10, 2));
+    }
+
+    private static Run heldByJitter(AdaptiveBitrateController controller) {
+        Run run = new Run(controller, 50000);
+        run.seconds(30, CALM_NETWORK);
+        run.seconds(120, (now, kbps) -> new float[] {0, 8, 0});
+        int held = run.kbps;
+        run.seconds(30, (now, kbps) -> new float[] {0, 8, 0});
+        assertEquals("is held", held, run.kbps);
+        return run;
+    }
+
+    @Test
+    public void aFrameRateChangeEndsTheHold() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(50000, 50000, 120, 0);
+        Run run = heldByJitter(controller);
+        int held = run.kbps;
+        controller.setFrameRate(120);
+        run.seconds(10, (now, kbps) -> new float[] {0, 8, 0});
+        assertTrue("cut again from " + held + " to " + run.kbps, run.kbps < held);
+    }
+
+    @Test
+    public void aGapInVideoEndsTheHold() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(50000, 50000, 120, 0);
+        Run run = heldByJitter(controller);
+        int held = run.kbps;
+        controller.sample(run.now += 1000, false, false, 0, 2, 0, -1);
+        run.seconds(10, (now, kbps) -> new float[] {0, 8, 0});
+        assertTrue("cut again from " + held + " to " + run.kbps, run.kbps < held);
+    }
+
+    @Test
+    public void aFloorRaisedAboveTheCurrentRateStillLetsLossCut() {
+        AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(80000, 80000, 30, 0, 0, 0, 3840, 2160, hevc);
+        // Automatic quality dropped to 720p30 and congestion cut the rate there; then 1440p60 comes back.
+        controller.setStreamSize(1280, 720);
+        controller.applied(3000, 3000, 0);
+        controller.setStreamSize(2560, 1440);
+        controller.setFrameRate(60);
+        assertTrue(AdaptiveBitrateController.builtInFloorKbps(2560, 1440, 60, hevc) > 3000);
+        Run run = new Run(controller, 3000);
+        run.seconds(30, LOSS);
+        assertTrue("lowest " + run.lowest, run.lowest < 3000);
+        assertEquals(AdaptiveBitrateController.DEFAULT_FLOOR_KBPS, run.lowest);
     }
 }

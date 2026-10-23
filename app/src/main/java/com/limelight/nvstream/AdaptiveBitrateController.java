@@ -66,15 +66,22 @@ public final class AdaptiveBitrateController {
     private float decodeBeforeReductionMs = -1;
     private int decodeBeforeReductionKbps;
     private boolean decodeBitrateInsensitive;
-    // Jitter and queue seen over the current run of poor samples, against their trigger thresholds.
-    private float severitySum;
-    private int severityCount;
+    // The last few poor samples of the current run: jitter and queue against their trigger
+    // thresholds, and the queue delay itself (-1 if unknown).
+    private static final int RUN_SAMPLES = 3;
+    // A queue rising by this much per sample over the run is bitrate-caused growth, never held.
+    private static final float QUEUE_RISE_MS_PER_SAMPLE = 2;
+    private static final float QUEUE_RISE_MIN_MS = 3;
+    private final float[] runSeverity = new float[RUN_SAMPLES];
+    private final float[] runQueueMs = new float[RUN_SAMPLES];
+    private int runCount;
     private float lastCutSeverity = -1;
     private int ineffectiveCuts;
     private boolean networkBitrateInsensitive;
     private long calmSinceMs = -1;
     private int stableKbps;
-    private boolean stepBackPending;
+    // The rate a step back asked for; applied() with this request is that step back. Kept across suspend().
+    private int stepBackTargetKbps;
     private int stepBackFromKbps = -1;
     private int stepBackFailures;
 
@@ -145,7 +152,9 @@ public final class AdaptiveBitrateController {
         if (!recentVideo && !poorConnection) {
             healthySinceMs = -1;
             calmSinceMs = -1;
+            poorSamples = 0;
             resetPoorRun();
+            resetHold();
             previousQueueMs = -1;
             return 0;
         }
@@ -178,11 +187,11 @@ public final class AdaptiveBitrateController {
             calmSinceMs = -1;
             poorSamples++;
             if (poor) {
-                severitySum += Math.max(jitterMs > 0 ? jitterMs / jitterLimit : 0, queueMs > 0 ? queueMs / queueLimit : 0);
-                severityCount++;
+                addToRun(Math.max(jitterMs > 0 ? jitterMs / jitterLimit : 0, queueMs > 0 ? queueMs / queueLimit : 0),
+                        recentVideo && queueMs >= 0 ? queueMs : -1);
             }
             // Heat and decoder pressure step down less often and not as far as network congestion.
-            int floor = poor ? floorKbps : Math.max(floorKbps, ceilingKbps / 2);
+            int floor = poor ? cutFloorKbps() : Math.max(floorKbps, ceilingKbps / 2);
             if (poorSamples >= 2 && nowMs - lastChangeMs >= (poor ? 3000 : 15000)) {
                 int target = poor ? networkTarget(nowMs, hardPoor, floor) : Math.max(floor, currentKbps * 80 / 100);
                 if (target < currentKbps && thermalLevel < 2 && slowDecoder) {
@@ -223,9 +232,9 @@ public final class AdaptiveBitrateController {
                     if (nowMs - healthySinceMs >= healthyNeeded && nowMs - lastChangeMs >= STEP_BACK_SPACING_MS) {
                         int gap = stable - currentKbps;
                         int step = Math.max((gap + 1) / 2, Math.min(gap, STEP_BACK_MIN_KBPS));
-                        stepBackPending = true;
+                        stepBackTargetKbps = currentKbps + step;
                         stepBackFromKbps = currentKbps;
-                        return currentKbps + step;
+                        return stepBackTargetKbps;
                     }
                 } else if (nowMs - healthySinceMs >= 15000 && nowMs - lastChangeMs >= 15000) {
                     int target = Math.min(ceilingKbps, currentKbps + Math.max(250, currentKbps / 20));
@@ -257,12 +266,21 @@ public final class AdaptiveBitrateController {
             ineffectiveCuts = 0;
             return cut;
         }
+        float severity = runSeverity();
+        if (queueRising()) {
+            // A queue that keeps growing is the stream outrunning the link; only a lower rate stops it,
+            // even when the last cut slowed the growth without ending it.
+            networkBitrateInsensitive = false;
+            ineffectiveCuts = 0;
+            lastCutSeverity = severity;
+            return cut;
+        }
         if (networkBitrateInsensitive) {
             return currentKbps;
         }
-        // Only jitter or queueing: judge whether the previous cut lowered it. Cutting further for a
-        // signal that does not follow the bitrate only ratchets the picture down to the floor.
-        float severity = severitySum / Math.max(1, severityCount);
+        // Only jitter or a queue that is not growing: judge whether the previous cut lowered it.
+        // Cutting further for a signal that does not follow the bitrate only ratchets the picture
+        // down to the floor.
         if (lastCutSeverity >= 0) {
             ineffectiveCuts = severity > lastCutSeverity * CUT_HELPED_RATIO ? ineffectiveCuts + 1 : 0;
         }
@@ -275,8 +293,45 @@ public final class AdaptiveBitrateController {
     }
 
     private void resetPoorRun() {
-        severitySum = 0;
-        severityCount = 0;
+        runCount = 0;
+    }
+
+    private void addToRun(float severity, float queueMs) {
+        if (runCount == RUN_SAMPLES) {
+            System.arraycopy(runSeverity, 1, runSeverity, 0, RUN_SAMPLES - 1);
+            System.arraycopy(runQueueMs, 1, runQueueMs, 0, RUN_SAMPLES - 1);
+            runCount--;
+        }
+        runSeverity[runCount] = severity;
+        runQueueMs[runCount] = queueMs;
+        runCount++;
+    }
+
+    // Mean over the last poor samples, those just before the decision rather than the ones right
+    // after the previous change.
+    private float runSeverity() {
+        float sum = 0;
+        for (int i = 0; i < runCount; i++) sum += runSeverity[i];
+        return sum / Math.max(1, runCount);
+    }
+
+    private boolean queueRising() {
+        if (runCount < 2 || runQueueMs[0] < 0 || runQueueMs[runCount - 1] < 0) return false;
+        float rise = runQueueMs[runCount - 1] - runQueueMs[0];
+        return rise >= QUEUE_RISE_MIN_MS && rise / (runCount - 1) >= QUEUE_RISE_MS_PER_SAMPLE;
+    }
+
+    // What cuts judged earlier no longer say anything: the frame rate changed or video stopped.
+    private void resetHold() {
+        networkBitrateInsensitive = false;
+        ineffectiveCuts = 0;
+        lastCutSeverity = -1;
+    }
+
+    // A floor raised above the current rate (a larger stream size after congestion cut the rate)
+    // only bounds cuts that start above it; loss must still be able to cut, down to the default floor.
+    private int cutFloorKbps() {
+        return floorKbps <= currentKbps ? floorKbps : Math.min(DEFAULT_FLOOR_KBPS, currentKbps);
     }
 
     /** ThermalMonitor level: warm holds the rate, hot steps it down. */
@@ -289,6 +344,7 @@ public final class AdaptiveBitrateController {
         frameMs = 1000.0f / fps;
         updateFloor();
         suspend();
+        resetHold();
         decodeBeforeReductionMs = -1;
         decodeBitrateInsensitive = false;
     }
@@ -309,15 +365,13 @@ public final class AdaptiveBitrateController {
         // The host may enforce a lower cap. Do not repeatedly probe beyond it.
         if (appliedKbps < requestedKbps) {
             ceilingKbps = Math.min(ceilingKbps, appliedKbps);
-        }
-        boolean raised = appliedKbps > currentKbps;
-        boolean steppedBack = stepBackPending && raised;
-        stepBackPending = false;
-        if (appliedKbps < floorKbps) {
             hostFloorCapKbps = Math.min(hostFloorCapKbps, appliedKbps);
         }
+        boolean raised = appliedKbps > currentKbps;
+        boolean steppedBack = stepBackTargetKbps > 0 && requestedKbps == stepBackTargetKbps && raised;
+        stepBackTargetKbps = 0;
         currentKbps = Math.min(StreamConfiguration.MAX_BITRATE_KBPS, appliedKbps);
-        floorKbps = Math.min(floorKbps, appliedKbps);
+        updateFloor();
         lastChangeMs = nowMs;
         // Steps back follow each other without waiting for a fresh healthy window.
         if (!steppedBack || currentKbps >= Math.min(stableKbps, ceilingKbps)) {
@@ -342,6 +396,5 @@ public final class AdaptiveBitrateController {
         poorSamples = 0;
         resetPoorRun();
         previousQueueMs = -1;
-        stepBackPending = false;
     }
 }

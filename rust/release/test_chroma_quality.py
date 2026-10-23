@@ -1,3 +1,5 @@
+# Local measurement tool tests: they need numpy and pillow, which CI does not install.
+# Run: python -m unittest discover -s rust/release -p test_chroma_quality.py
 import pathlib, shutil, tempfile, unittest
 import numpy as np
 import chroma_fixtures as fixtures

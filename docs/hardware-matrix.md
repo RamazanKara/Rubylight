@@ -1,8 +1,105 @@
 # Hardware matrix
 
-What the A5 probes found on real hardware. Each section names the machine and driver it was measured on. Regenerate with the command under the section.
+What we have run Rubylight 3.0 on, and what we expect to work. Every cell has one label. It is a promise about our evidence, not about your PC.
 
-## Radeon 3D settings (ADLX)
+| Label | Meaning |
+|---|---|
+| **Tested** | It ran on that hardware, on a Windows build and (where a client is involved) a client named in the row, and the evidence is linked. |
+| **Expected** | The code path is supported and should work, but we have not run it there. Other AMD generations stay Expected until someone runs them. |
+| **Experimental** | Opt-in or preview, and not promised. "ran" means we ran it on that hardware, "not run" means we did not. |
+| **Unsupported** | Not offered in 3.0, or the hardware cannot do it. |
+
+Our hardware: an RX 7900 XT (RDNA 3) with a Ryzen 7 5800X3D on Windows 11 25H2, build 26200 (the Radeon probes name 26200.9550); a Radeon 780M laptop (RDNA 3 iGPU), mostly as a client; a Retroid Pocket 6 phone; and an Intel NUC on Debian as the Linux test client. Everything else is Expected at best. Evidence is in [PERFORMANCE.md](../rust/PERFORMANCE.md), the [release notes](../rust/RELEASE_NOTES.md) and the [3.0 plan](rubylight-3.0-plan.md). A 3.0 build in the "Build and date" column means the run was on the 3.0 line. An older build means the code path was not re-run on 3.0.
+
+Written 2026-10-23 against main `79b6c3131`.
+
+## 1. GPU generations
+
+Rubylight 3.0 accepts any AMD Radeon with a working AMF video encoder. There is no generation floor. NVIDIA and Intel stay on [2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). The host asks AMF for its codecs at startup and offers only what the driver reports, so the codec column below says what we measured, not what a generation should have.
+
+| Generation | Label | Codecs AMF exposes | Evidence |
+|---|---|---|---|
+| GCN, Polaris, Vega (Radeon HD 7000 to RX 500, Vega, Radeon VII) | Expected | Not recorded. [Features](features.md) says H.264 and HEVC work on all supported GPUs and AV1 where the encoder has it; we have not checked that on these. | None. |
+| RDNA 1 (RX 5000) | Expected | Not recorded. | None. |
+| RDNA 2 (RX 6000) | Expected | Not recorded. | Users report daily use on RX 6800 XT and 6900 XT ([README](../README.md#runs-on-your-hardware)). Those are reports, not our runs. |
+| RDNA 3 desktop (RX 7000) | Tested on the RX 7900 XT | H.264, HEVC (8 and 10-bit, SDR and HDR) and AV1, all streamed; 4:2:0 only. | [alpha.1 gate](../rust/PERFORMANCE.md#october-22-30-alpha1-hardware-gate), [AMF 4:4:4 probe](../rust/PERFORMANCE.md#october-7-444-from-amf), [`amf-unit-probe-7900xt.json`](../rust/release/fixtures/amf-unit-probe-7900xt.json). Driver 32.0.32015.2008, AMD Software 26.9.2, Windows 11 26200. |
+| RDNA 3 iGPU (Radeon 780M, 890M) | Expected | The 780M ran packed 4:4:4 in HEVC and AV1 (see section 3). Nothing else is recorded. | [2.5.12 notes](../rust/RELEASE_NOTES.md#new-in-2512). The Windows build is not named there. 890M handhelds are user reports only. |
+| RDNA 4 (RX 9000) | Expected | Not recorded. AMD's maintainers say its encoders are 4:2:0 only, 8 and 10-bit ([PERFORMANCE.md](../rust/PERFORMANCE.md#october-7-444-from-amf)); we did not test it. | Users report daily use on the 9070 and 9070 XT. [rc.14](../rust/RELEASE_NOTES.md#new-in-rc14) fixed an RDNA 4 driver freeze that a forced one-frame encoder queue exposed. We have no RDNA 4 card. |
+
+## 2. Windows
+
+| Windows | Label | Evidence |
+|---|---|---|
+| Windows 11 25H2, build 26200 | Tested | Every 3.0 gate: [alpha.1](../rust/PERFORMANCE.md#october-22-30-alpha1-hardware-gate), [alpha.2](../rust/PERFORMANCE.md#october-22-30-alpha2-gate), and the Radeon probes on 26200.9550 (section 5). |
+| Windows 11, other builds | Expected | No run. The 2.5 branch's build 26200 floor was reverted on 2026-10-22 ([plan](rubylight-3.0-plan.md), decision 1a). |
+| Windows 10 | Expected | No run on 3.0. Its code paths were put back in the AMD-only port ([plan](rubylight-3.0-plan.md#status), A1). The per-client virtual display is off by default there ([PERFORMANCE.md](../rust/PERFORMANCE.md#october-14-frame-rates-above-60)), so Windows 10 streams the physical display unless you turn it on. |
+
+## 3. Features
+
+Columns: **RX 7900 XT** is Windows 11 26200 with the driver named in the evidence. **780M** and **Other AMD** are hosts. When the 780M was only the client, its cell stays as the host label.
+
+| Feature | RX 7900 XT | 780M | Other AMD | Evidence | Build and date |
+|---|---|---|---|---|---|
+| **Capture and displays** | | | | | |
+| Windows Graphics Capture, physical display | Tested | Expected | Expected | [alpha.1 gate](../rust/PERFORMANCE.md#october-22-30-alpha1-hardware-gate): HEVC and AV1 1440p120, 4 runs per case against 2.6.0; 30-minute 1080p60 soak | 3.0 `a14f1932b`, 2026-10-22 |
+| Desktop Duplication | Tested | Expected | Expected | Same gate, HEVC and AV1 1440p120 | 3.0 `a14f1932b`, 2026-10-22 |
+| Physical displays (stream the PC's own monitor) | Tested | Expected | Expected | Same gate, 5120x1440 at 240 Hz source; [alpha.2](../rust/PERFORMANCE.md#october-22-30-alpha2-gate): the physical display's mode and position were unchanged after a killed virtual-display stream | 3.0 `a14f1932b`, `b758a8044`, 2026-10-22 |
+| Virtual display driver (per-client display, direct push) | Tested | Expected | Expected | Same gate: driver 0.2.0 installed over 2.6.0 with no restart, 8 of 8 streams passed; alpha.2 crash test | 3.0 `a14f1932b`, 2026-10-22 |
+| Keyed-mutex ring | Tested | Expected | Expected | [Fence ring under GPU load](../rust/PERFORMANCE.md#october-22-fence-ring-under-gpu-load), 4 runs per transport and range | 3.0 main, driver 2.6.0.7064, 2026-10-22 |
+| Fence ring (the default) | Tested | Expected | Expected | Same section: no worse on any metric; became the default | 3.0 main, driver 2.6.0.7064, 2026-10-22 |
+| HDR on a virtual display (HEVC, AV1) | Tested | Expected | Expected | Fence-ring runs above (SDR and HDR, 3.0); [native HDR streams and pixels](../rust/PERFORMANCE.md#native-virtual-hdr-results-october-12), 28 of 28 and 4 of 4 | 3.0 main 2026-10-22; 2.2.9 2026-10-12, Windows 11 Pro 26200 |
+| HDR on a physical HDR monitor | Expected | Expected | Expected | None. The HDR runs used a virtual HDR source, physical HDR stayed off, and nothing was calibrated against a panel ([Oct 12](../rust/PERFORMANCE.md#october-12-rubylight-229-released-package-refresh)) | - |
+| **Codecs** | | | | | |
+| H.264 | Tested | Expected | Expected | [Stream presets](../rust/PERFORMANCE.md#october-23-stream-presets-b3): H.264 1080p60 20 Mbps, 7 runs; [timing record](../rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines) | 3.0 `10aa9f0be`, 2026-10-23 |
+| HEVC | Tested | Expected | Expected | Alpha.1 gate; stream presets (4K60 80 Mbps); timing record | 3.0 `a14f1932b`, 2026-10-22 and `10aa9f0be`, 2026-10-23 |
+| AV1 | Tested | Expected | Expected (only where the encoder has AV1) | Alpha.1 gate (1440p120); timing record | 3.0 `a14f1932b`, 2026-10-22 |
+| PyroWave | Tested | Expected | Expected | Timing record (PyroWave 1080p60); [PyroWave 144 fps and async encode](../rust/PERFORMANCE.md#october-23-pyrowave-144-fps-pacing-and-async-encode-b4); [device loss tests](../rust/RELEASE_NOTES.md#new-in-300-beta1) | 3.0 alpha.3 to beta.1, 2026-10-23 |
+| **Chroma** | | | | | |
+| PyroWave 4:4:4 (SDR and HDR) | Tested | Expected | Expected | [Decoded end to end](../rust/PERFORMANCE.md#october-7-pyrowave-decoded-end-to-end); the 3.0 [B4 row](rubylight-3.0-plan.md#status) records every case passing at the 2 Gbps control rate | 3.0 main, 2026-10-23 |
+| Packed 4:4:4 over HEVC and AV1 (off by default) | Experimental, not run | Experimental, ran | Experimental, not run | [2.5.12 notes](../rust/RELEASE_NOTES.md#new-in-2512): all four packed modes at about 1440p120 for 10 s each on the 780M, host p95 at most 3.58 ms above matched 4:2:0. Bounded synthetic runs, no sustained end-to-end result | 2.5.12, Windows build not recorded |
+| 4:4:4 straight from AMF (H.264, HEVC, AV1) | Unsupported | Unsupported | Unsupported | [4:4:4 from AMF](../rust/PERFORMANCE.md#october-7-444-from-amf): the 7900 XT encodes 4:2:0 only and rejects 4:4:4 input. The other two cells rest on AMD's statement for VCN 5.0 and below, not on our runs | rc era, driver 32.0.31041.1004, 2026-10-07 |
+| **Delivery and rate** | | | | | |
+| Slice delivery, H.264 and HEVC (off by default) | Experimental, ran | Experimental, not run | Experimental, not run | [Slice delivery 2f](../rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f): 4K60 loopback, real Wi-Fi 6E to the 780M laptop as client, Retroid Pocket 6 at 1080p. Misses its 1 ms gate on the phone and in the Wi-Fi emulation | 3.0 `36c3c8ac3`, 2026-10-23 |
+| Slice delivery, AV1 and PyroWave | Unsupported | Unsupported | Unsupported | Always sent whole ([beta.1 notes](../rust/RELEASE_NOTES.md#new-in-300-beta1)); AV1 tiles missed the bitrate in the host probe ([`amf-unit-probe-7900xt.json`](../rust/release/fixtures/amf-unit-probe-7900xt.json)) | 3.0 beta.1 |
+| Host bitrate adaptation (`host_adaptive_bitrate`, opt-in) | Experimental, ran | Experimental, not run | Experimental, not run | [Link speeds, with the option on](../rust/PERFORMANCE.md#with-host_adaptive_bitrate--true): no collapse above the link, but it cuts too far and does not come back. NUC client, not a phone | 3.0 beta.1, 2026-10-23 |
+| Link rate adaptation (`link_rate_adaptation`) | Experimental, not run | Experimental, not run | Experimental, not run | Only the problem is measured ([link speeds](../rust/PERFORMANCE.md#october-23-behaviour-across-client-link-speeds)). The controller exists but is not wired into the host yet ([plan](rubylight-3.0-plan.md#status)) | - |
+| Loss recovery (reference invalidation, FEC) | Tested | Expected | Expected | Slice-delivery runs at 1% and 5% loss; [Android engine runs](../rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8) at 1% and 5% send loss | 3.0 `36c3c8ac3`, 2026-10-23 |
+| Frame rates above 60, and VRR | Tested | Expected | Expected | [Frame rates above 60](../rust/PERFORMANCE.md#october-14-frame-rates-above-60): 1440p at 60 to 240 fps; [116 fps VRR capture](../rust/PERFORMANCE.md#october-7-116-fps-vrr-capture-wgc-and-ddx); alpha.1 gate at 120 fps | 2.3.0, 2026-10-14, Windows 26200; 3.0 `a14f1932b` at 120 fps |
+| **Control** | | | | | |
+| Radeon control (read, change, restore) | Tested | Expected | Expected | [Radeon 3D settings](#5-radeon-3d-settings-adlx): all 24 configurable settings proven by round trip; [alpha.2 gate](../rust/PERFORMANCE.md#october-22-30-alpha2-gate): Anti-Lag from a phone, crash restore. Other GPUs and drivers: the host asks ADLX for each setting and offers only what it proves | 3.0 alpha.2, AMD Software 26.9.2, Windows 11 25H2 26200.9550, 2026-10-22 |
+| Stream presets | Tested | Expected | Expected | [Stream presets](../rust/PERFORMANCE.md#october-23-stream-presets-b3): 13 loopback runs read back the encoder settings each preset sets. No phone run | 3.0 `10aa9f0be`, 2026-10-23 |
+| **Audio and input** | | | | | |
+| Audio (stereo) | Tested | Expected | Expected | Alpha.1 gate streams include the audio tone check; [audio continuity under CPU load](../rust/PERFORMANCE.md#october-7-release-audio-continuity-under-cpu-load) | 3.0 `a14f1932b`, 2026-10-22; rc.20, 2026-10-07 |
+| Surround, microphone, game-only audio | Expected | Expected | Expected | None recorded | - |
+| Keyboard and mouse | Tested | Expected | Expected | [Input on the control thread](../rust/PERFORMANCE.md#october-7-input-on-the-control-thread), Windows 11 26200 | rc era, 2026-10-07 |
+| Virtual DualShock 4 and DualSense pads | Tested | Expected | Expected | [Native controller checks](../rust/PERFORMANCE.md#native-controller-and-moonlight-62-command-checks), signed driver 0.1.0.39. No network client or live pad | rc era, 2026-10-06 |
+| Xbox and Switch Pro profiles, Steam Deck pads, DualSense USB haptics, back grips | Expected | Expected | Expected | None recorded | - |
+| **Rendering paths** | | | | | |
+| D3D12 compute path (the default) | Tested | Expected | Expected | Every 3.0 gate runs it; compute off against on, [1080p60](../rust/PERFORMANCE.md#1080p-at-60-fps) | 3.0 `a14f1932b`, 2026-10-22 |
+| D3D11 path (`gpu_compute_conversion = false`) | Tested | Expected | Expected | [Single-pass D3D11 conversion](../rust/PERFORMANCE.md#october-12-single-pass-d3d11-420-conversion): 1080p60 HEVC SDR and HDR and PyroWave SDR streams, 9 GPU correctness tests | 2.2.8, 2026-10-12. Not re-run on 3.0 |
+
+A D3D12-only host and virtual-display-only streaming are not offered. That work is parked on `claude/d3d12-virtual-only`, and any of it returns beside the existing paths, never instead of them.
+
+## 4. Clients
+
+| Client | Label | Where it ran | Evidence | Build and date |
+|---|---|---|---|---|
+| Nightjar Android, Rust engine (the default) | Tested | Retroid Pocket 6, Android 13, Wi-Fi 5 GHz | [Rust against C engine](../rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8): HEVC 1080p60 picture age median 6.92 ms, 30-minute soak steady | Nightjar main `6456da5d` and later, 2026-10-23 |
+| Nightjar Android, classic (C) engine | Tested | Retroid Pocket 6 | Same section | Same |
+| Nightjar Android, couch loop (Home, Play, Radeon panel, End session) | Tested | Retroid Pocket 6 and the Android emulator | [Alpha.2 gate](../rust/PERFORMANCE.md#october-22-30-alpha2-gate) | Nightjar 0.8.0, 3.0 alpha.2, 2026-10-22 |
+| Nightjar Android, PyroWave | Tested | Retroid Pocket 6, 1080p60 at 400 Mbps | Same B8 section: end to end median 35.0 ms on Rust against 36.2 ms on C | Nightjar main, 2026-10-23 |
+| Nightjar Android, on-screen keyboard | Tested | Retroid Pocket 6, key events read on the host | [B12 row](rubylight-3.0-plan.md#status) | Nightjar main `10f088b1`, 2026-10-23 |
+| Nightjar Android, HDR on an HDR phone | Expected | None | The HDR10 end-to-end check is still open in the [plan](rubylight-3.0-plan.md#status), B3 | - |
+| Nightjar Android, other phones, tablets and Android TV | Expected | None | The Retroid Pocket 6 is the only phone in our records. The Shield report ([#7](https://github.com/RamazanKara/nightjar/issues/7)) still needs the reporter's data | - |
+| Nightjar desktop, Windows | Experimental | Radeon 780M laptop over LAN and Wi-Fi 6E | A 6-minute 1080p60 HEVC stream: end to end median 7.06 ms, p99 10.29 ms ([B9 row](rubylight-3.0-plan.md#status)); slice-delivery runs; [PyroWave decode stage split](../rust/PERFORMANCE.md#october-23-pyrowave-desktop-decode-stage-split-brief-1) on loopback | Nightjar main `60cf18bd`, 3.0 alpha.3 to beta.1, 2026-10-23 |
+| Nightjar desktop, Linux | Experimental | The desktop app was not run. `nightjar-cli` ran on the NUC (Debian 13, 1 GbE, VAAPI decode) | [Link speeds](../rust/PERFORMANCE.md#october-23-behaviour-across-client-link-speeds) | 3.0 beta.1, 2026-10-23 |
+| Moonlight 6.2.0 (stock), Windows | Tested | Radeon 780M laptop over Wi-Fi, 1080p60 HEVC SDR, two 165 s sessions | [Performance overview](performance.md#october-12-229-measurements) and [Oct 12](../rust/PERFORMANCE.md#october-12-single-pass-d3d11-420-conversion) | 2.2.8 and 2.2.9, 2026-10-12. Not re-run on 3.0 |
+| moonlight-common-c client, Linux (stands in for stock Moonlight on another PC) | Tested | NUC on wired LAN: PIN pairing, then 60 s of HEVC 1080p60, every frame decoded | [Alpha.1 gate](../rust/PERFORMANCE.md#october-22-30-alpha1-hardware-gate) | 3.0 alpha.1, 2026-10-22 |
+| Moonlight on phones (Android, iOS) and other stock clients | Expected | None | "Not tested yet: stock Moonlight on a phone" in the alpha.1, alpha.2 and alpha.3 notes | - |
+
+## 5. Radeon 3D settings (ADLX)
+
+What the A5 probes found on real hardware. Each section names the machine and driver it was measured on. Regenerate with the command under the section.
 
 The ADLX 3D settings services (`rust/windows/src/radeon`), probed and then written on this PC. The probe (`radeon_probe`) reads every value and range ADLX offers and never calls a setter, so its "Writable" column comes from ADLX's own `IsSupported` and `GetRange` answers. The "Proven writable" column comes from A5 step 2: the ignored hardware test `prove_configurable_settings_round_trip` wrote a different valid value to every setting through the journaled write path, read it back, restored the original, and a probe afterwards matched the one before.
 

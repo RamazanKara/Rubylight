@@ -74,7 +74,7 @@ Existing **Steam and Playnite synchronization** stays available through source m
 
 ## Runs on your hardware
 
-**GPUs.** Any AMD Radeon with a working AMF encoder, on Windows 10 or 11. Our measurements are on an RX 7900 XT. Users report daily use on RDNA 2, 3 and 4: RX 6800 XT, 6900 XT, 7900 XT, 7900 XTX, 9070 and 9070 XT, plus Radeon 890M handhelds. See [hardware matrix](docs/hardware-matrix.md) for the Radeon settings probed on real hardware.
+**GPUs.** Any AMD Radeon with a working AMF encoder, on Windows 10 or 11. Our measurements are on an RX 7900 XT. Users report daily use on RDNA 2, 3 and 4: RX 6800 XT, 6900 XT, 7900 XT, 7900 XTX, 9070 and 9070 XT, plus Radeon 890M handhelds. The [hardware matrix](docs/hardware-matrix.md) labels each GPU generation, Windows version, feature and client Tested, Expected, Experimental or Unsupported, with the evidence, and holds the Radeon settings probed on real hardware.
 
 **Clients.** Rubylight speaks the Moonlight protocol, so Moonlight, Artemis and other Sunshine-compatible clients work unchanged.
 
@@ -112,6 +112,7 @@ Picture age excludes display time and does not measure input-to-photon latency. 
 | Set up displays, HDR, frame limits or controllers | [Configuration](docs/configuration.md) |
 | Fix pairing, a black screen, colours or stutter | [Troubleshooting](docs/troubleshooting.md) |
 | See everything it does and how fast | [Features](docs/features.md) · [Performance](docs/performance.md) · [Architecture](docs/architecture.md) |
+| Check what we have tested on my GPU, Windows or client | [Hardware matrix](docs/hardware-matrix.md) |
 | Build or integrate Rubylight | [Build guide](docs/building.md) · [Developer guide](rust/README.md) · [HTTP API](docs/api.md) · [Native API](docs/native-api.md) |
 | See what 3.0 will contain | [3.0 roadmap](docs/rubylight-3.0-plan.md) |
 

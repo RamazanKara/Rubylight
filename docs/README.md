@@ -49,7 +49,7 @@ The full [configuration guide](configuration.md) starts with the defaults. If a 
 | [Native API v1](native-api.md) | The paired-client API behind Nightjar: capabilities, library, session actions and Radeon settings. The design and contract. |
 | [Control messages](control-messages.md) | Rubylight's own client-to-host messages (phase lock, display luminance, mid-stream resolution change) and how a client finds out the host takes them. |
 | [Hardware metrics](hardware-metrics.md) | Client overlay telemetry: discovery, paired-client authentication, JSON readings, units, polling and errors. |
-| [Hardware matrix](hardware-matrix.md) | What the Radeon settings probes found on real hardware, per GPU and driver. |
+| [Hardware matrix](hardware-matrix.md) | What we have tested and what we only expect, per GPU generation, Windows version, feature and client, plus the Radeon settings probes per GPU and driver. |
 | [Third-party components](../rust/THIRD_PARTY.md) | Codec SDKs, drivers and licensing. |
 | [Detailed performance record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, rejected experiments and reproduction instructions. |
 

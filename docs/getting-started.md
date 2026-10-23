@@ -10,7 +10,7 @@ Rubylight is a Windows x64 streaming host written in Rust, for AMD Radeon GPUs. 
 
 | What you need | Check |
 | --- | --- |
-| **Host PC** | Windows 10 or 11 x64 with an **AMD Radeon GPU** (any Radeon with a working AMF video encoder) and the AMD Radeon driver, which provides the AMF video encoder. Rubylight 3.0 does not run on NVIDIA or Intel graphics: setup stops and says so, and those PCs stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). The available stream formats depend on the GPU's encoder. |
+| **Host PC** | Windows 10 or 11 x64 with an **AMD Radeon GPU** (any Radeon with a working AMF video encoder) and the AMD Radeon driver, which provides the AMF video encoder. Rubylight 3.0 does not run on NVIDIA or Intel graphics: setup stops and says so, and those PCs stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). The available stream formats depend on the GPU's encoder. The [hardware matrix](hardware-matrix.md) shows what we have tested. |
 | **Client device** | Moonlight or a Sunshine-compatible client. Install Rubylight on the gaming PC and the client on the device you play from. |
 | **Local network** | Put both devices on the same network for the first pairing and stream. Close another streaming host if it is already using the default ports. |
 | **Display to capture** | Use an active physical monitor, or the virtual display supplied with the installed service. Portable mode needs the drivers installed separately for virtual displays and emulated controllers. |

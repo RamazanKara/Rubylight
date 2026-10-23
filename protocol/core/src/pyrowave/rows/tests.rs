@@ -183,3 +183,28 @@ fn an_index_outside_the_picture_is_a_violation_and_a_fresh_tracker_has_no_report
     tracker.record(1_000_000);
     assert_eq!(tracker.report().violations, 1);
 }
+
+#[test]
+fn records_pulled_far_forward_to_fill_packets_do_not_make_a_frame_unordered() {
+    // The host's first-fit packing puts a later record into the room a packet has left, so the
+    // lowest step of each packet is what follows the row order, not each record.
+    let steps = row_steps(1920, 1080, false);
+    let order = row_ordered(&steps);
+    let (mut main, mut late): (Vec<u32>, Vec<u32>) = (Vec::new(), Vec::new());
+    for (n, &index) in order.iter().enumerate() {
+        if steps[index as usize] >= 3 && n % 3 == 0 { late.push(index) } else { main.push(index) }
+    }
+    // Every packet of 12: ten records in order and two pulled forward from far ahead.
+    let mut mixed = Vec::new();
+    let mut pulled = late.iter().copied();
+    for packet in main.chunks(10) {
+        mixed.extend_from_slice(packet);
+        mixed.extend(pulled.by_ref().take(2));
+    }
+    mixed.extend(pulled);
+    let mut tracker = RowTracker::new(1920, 1080, false);
+    feed(&mut tracker, &mixed, 12);
+    let report = tracker.report();
+    assert_eq!((report.records as usize, report.violations), (steps.len(), 0), "{report:?}");
+    assert!(report.ordered());
+}

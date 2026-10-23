@@ -72,17 +72,21 @@ impl RowReport {
 /// Follows a frame's records as they complete, packet by packet, and says how many picture bands
 /// are exact.
 ///
-/// A step is complete once a record of a later step has been seen in an earlier packet, because
-/// the host's packing delays a record by at most one packet. The last steps (the ones no later
-/// step follows) complete with the frame: [`RowTracker::finish`].
+/// The host's packing fills the room left in a packet with any later record that fits, so a
+/// packet can carry records of far later steps than the ones it is there to send. What follows
+/// the row order is the lowest step in each packet (its cursor): it never goes back by more than
+/// a packet. A step is complete once the cursor passed it in an earlier packet. The last steps
+/// (the ones no later step follows) complete with the frame: [`RowTracker::finish`].
 #[derive(Clone, Debug)]
 pub struct RowTracker {
     steps: Vec<u16>,
     bands: u32,
-    /// Per step: the packet in which the first record of a later step completed, `u32::MAX` for
-    /// none yet.
+    /// Per step: the packet whose lowest step was the first above it, `u32::MAX` for none yet.
     crossed_in: Vec<u32>,
+    /// The highest of the packets' lowest steps so far.
     highest: Option<u16>,
+    /// The lowest step among the records the current packet completed.
+    lowest_here: Option<u16>,
     packet: u32,
     complete: u32,
     report: RowReport,
@@ -97,6 +101,7 @@ impl RowTracker {
             bands,
             crossed_in: vec![u32::MAX; bands as usize],
             highest: None,
+            lowest_here: None,
             packet: 0,
             complete: 0,
             report: RowReport::default(),
@@ -108,6 +113,7 @@ impl RowTracker {
     pub fn begin_frame(&mut self) {
         self.crossed_in.fill(u32::MAX);
         self.highest = None;
+        self.lowest_here = None;
         self.packet = 0;
         self.complete = 0;
         self.report = RowReport::default();
@@ -116,7 +122,22 @@ impl RowTracker {
 
     /// A packet of the frame was fed; the records it completes follow with [`Self::record`].
     pub fn packet(&mut self) {
+        self.close_packet();
         self.packet += 1;
+    }
+
+    /// The packet that was fed last is over: its lowest step moves the cursor.
+    fn close_packet(&mut self) {
+        let Some(step) = self.lowest_here.take() else { return };
+        if self.highest.map_or(true, |highest| step > highest) {
+            let from = self.highest.map_or(0, usize::from);
+            for s in from..usize::from(step) {
+                if self.crossed_in[s] == u32::MAX {
+                    self.crossed_in[s] = self.packet;
+                }
+            }
+            self.highest = Some(step);
+        }
     }
 
     /// A record of block `index` completed in the current packet. An index outside the picture
@@ -127,28 +148,18 @@ impl RowTracker {
             self.report.violations += 1;
             return;
         };
-        match self.highest {
-            Some(highest) if step < highest => {
-                // Later than a record of a later step: in place only within the next packet.
-                if self.packet > self.crossed_in[usize::from(step)].saturating_add(1) {
-                    self.report.violations += 1;
-                }
-            }
-            Some(highest) if step == highest => {}
-            _ => {
-                let from = self.highest.map_or(0, usize::from);
-                for s in from..usize::from(step) {
-                    if self.crossed_in[s] == u32::MAX {
-                        self.crossed_in[s] = self.packet;
-                    }
-                }
-                self.highest = Some(step);
-            }
+        self.lowest_here = Some(self.lowest_here.map_or(step, |lowest| lowest.min(step)));
+        if self.highest.is_some_and(|highest| step < highest)
+            && self.packet > self.crossed_in[usize::from(step)].saturating_add(1)
+        {
+            // Later than the cursor passing its step by more than the next packet.
+            self.report.violations += 1;
         }
     }
 
     /// The frame's last packet has been fed: every band is complete.
     pub fn finish(&mut self) {
+        self.close_packet();
         self.finished = true;
     }
 
@@ -159,7 +170,7 @@ impl RowTracker {
         if self.finished {
             return self.bands;
         }
-        // Step s is complete when a later step crossed it in a packet before the current one.
+        // Step s is complete when the cursor crossed it in a packet before the current one.
         while self.complete < self.bands
             && self.crossed_in.get(self.complete as usize).is_some_and(|&p| p < self.packet)
         {

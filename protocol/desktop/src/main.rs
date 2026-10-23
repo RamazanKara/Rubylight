@@ -582,6 +582,16 @@ impl App {
                 self.hosts.request_art(id, app, "", &self.store);
             }
         }
+        // A launch without a network query in flight is waiting for its app list (see
+        // `launch_ready`); it goes on once the list is no longer loading.
+        if self.network_query.is_none() {
+            if let Some((host, app, resume)) = self.network_launch {
+                if !matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::Loading)) {
+                    self.network_launch = None;
+                    self.launch_ready(host, app, resume);
+                }
+            }
+        }
         if let Some(c) = &mut self.connecting {
             match c.poll() {
                 Ok(Some((session, facts))) => {
@@ -903,8 +913,16 @@ impl App {
         let Some(host) = self.hosts.get(host_id) else {
             return;
         };
-        let Apps::Loaded(apps) = &host.apps else { return; };
-        let Some(app) = apps.iter().find(|app| app.id == app_id).cloned() else { return; };
+        let app = match launch_app(&host.apps, app_id) {
+            LaunchApp::Ready(app) => app,
+            LaunchApp::Wait => {
+                // The list is being read again (the first native read of a run reloads it).
+                // Starting over once it lands keeps the launch instead of dropping it unseen.
+                self.network_launch = Some((host_id, app_id, resume));
+                return;
+            }
+            LaunchApp::Gone => return,
+        };
         if app.is_control_action() {
             self.hosts.control_action(host_id, app_id);
             return;
@@ -1527,10 +1545,46 @@ fn remove_host(
     save_hosts(store, hosts);
 }
 
+/// What a launch can do with a PC's app list as it is now.
+enum LaunchApp {
+    Ready(nightjar_core::http::App),
+    /// The list is being read; the launch waits for it.
+    Wait,
+    /// No list, or the app is not in it.
+    Gone,
+}
+
+fn launch_app(apps: &Apps, app_id: i32) -> LaunchApp {
+    match apps {
+        Apps::Loading => LaunchApp::Wait,
+        Apps::Loaded(apps) => apps.iter().find(|app| app.id == app_id).cloned().map_or(LaunchApp::Gone, LaunchApp::Ready),
+        Apps::NotLoaded | Apps::Failed(_) => LaunchApp::Gone,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn a_launch_waits_for_an_app_list_being_read_again_instead_of_dropping() {
+        let app = nightjar_core::http::App {
+            name: "Desktop".into(),
+            id: 5,
+            hdr_supported: false,
+            uuid: String::new(),
+            host_index: None,
+            art_version: String::new(),
+            control: nightjar_core::http::AppControl::None,
+            monitor_resume: false,
+        };
+        assert!(matches!(launch_app(&Apps::Loading, 5), LaunchApp::Wait), "a reload in flight keeps the launch");
+        assert!(matches!(launch_app(&Apps::Loaded(vec![app.clone()]), 5), LaunchApp::Ready(a) if a.id == 5));
+        assert!(matches!(launch_app(&Apps::Loaded(vec![app]), 6), LaunchApp::Gone));
+        assert!(matches!(launch_app(&Apps::NotLoaded, 5), LaunchApp::Gone));
+        assert!(matches!(launch_app(&Apps::Failed("x".into()), 5), LaunchApp::Gone));
+    }
 
     fn record(unique_id: &str) -> config::HostRecord {
         config::HostRecord {

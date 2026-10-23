@@ -15,6 +15,7 @@
   import PrepCommands from './PrepCommands.svelte';
   import VideoSettings from './VideoSettings.svelte';
   import LosslessSettings from './LosslessSettings.svelte';
+  import RadeonSettings from './RadeonSettings.svelte';
   import { api, type App, type SessionStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { guardNavigation, link, navigate } from '../../lib/router.svelte';
@@ -344,6 +345,10 @@
 
     <Panel collapsible title="Video and input">
       <VideoSettings {draft} />
+    </Panel>
+
+    <Panel collapsible title="Radeon" description="Driver settings for this game, applied when it starts and put back when the session ends.">
+      <RadeonSettings {draft} />
     </Panel>
 
     <Panel collapsible title="Lossless Scaling" description="Upscaling and frame generation by Lossless Scaling while the app runs.">

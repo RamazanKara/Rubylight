@@ -245,6 +245,10 @@ export interface App {
   'image-path'?: string;
   detached?: string[];
   'config-overrides'?: Record<string, string | number | boolean>;
+  /** competitive, smoothness, quality or custom. */
+  'radeon-profile'?: string;
+  /** The Radeon settings of a custom profile: setting id to value. */
+  'radeon-settings'?: Record<string, string | number | boolean>;
   [extra: string]: unknown;
 }
 export interface AppsDocument {

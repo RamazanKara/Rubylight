@@ -1,6 +1,7 @@
 // The editable copy of an app. The host replaces the whole record on save, so
 // every key it sent is kept, including the ones this editor never shows.
 import type { App, PrepCommand } from '../../lib/api';
+import { PROFILE_KEY, SETTINGS_KEY, profileError, profileOf, rowsOf, settingsOf, type SettingRow } from './radeon';
 
 export interface PrepRow extends PrepCommand {
   /** Keeps each row's inputs in place when rows move. */
@@ -63,6 +64,7 @@ export type TextKey =
   | 'dd-configuration-option'
   | 'frame-generation-mode'
   | 'gamepad'
+  | 'radeon-profile'
   | 'lossless-scaling-profile';
 export function blankApp(): App {
   return { name: '', cmd: '', 'working-dir': '', 'prep-cmd': [] };
@@ -97,7 +99,7 @@ function textRows(value: unknown): TextRow[] {
 }
 
 /** The record to send: blank command rows are dropped. */
-function assemble(app: App, prep: PrepRow[], detached: TextRow[], keepDetached: boolean): App {
+function assemble(app: App, prep: PrepRow[], detached: TextRow[], keepDetached: boolean, radeon: SettingRow[]): App {
   const record: App = { ...app };
   record['prep-cmd'] = prep
     .filter((row) => row.do.trim() || row.undo.trim())
@@ -105,12 +107,16 @@ function assemble(app: App, prep: PrepRow[], detached: TextRow[], keepDetached: 
   const commands = detached.map((row) => row.value).filter((value) => value.trim());
   if (commands.length || keepDetached) record.detached = commands;
   else delete record.detached;
+  // Only a Custom profile lists settings; the host refuses them beside any other.
+  const settings = settingsOf(radeon);
+  if (profileOf(record[PROFILE_KEY]) === 'custom' && Object.keys(settings).length) record[SETTINGS_KEY] = settings;
+  else delete record[SETTINGS_KEY];
   return record;
 }
 
 function normalise(source: App): App {
   const copy = $state.snapshot(source) as App;
-  return assemble(copy, prepRows(copy['prep-cmd']), textRows(copy.detached), 'detached' in copy);
+  return assemble(copy, prepRows(copy['prep-cmd']), textRows(copy.detached), 'detached' in copy, rowsOf(copy[SETTINGS_KEY]));
 }
 
 export class AppDraft {
@@ -118,13 +124,19 @@ export class AppDraft {
   app = $state<App>(blankApp());
   prep = $state<PrepRow[]>([]);
   detached = $state<TextRow[]>([]);
+  /** The settings of a Custom Radeon profile. */
+  radeon = $state<SettingRow[]>([]);
   #saved = $state.raw<App>(blankApp());
   #baseline = $state('');
 
+  /** Why the Radeon profile cannot be saved, or ''. */
+  readonly radeonError = $derived(profileError(this.app[PROFILE_KEY], this.radeon));
   readonly changed = $derived(stable(this.record()) !== this.#baseline);
   readonly nameMissing = $derived(this.app.name.trim() === '');
   readonly invalid = $derived(
-    this.nameMissing || Object.keys(NUMBERS).some((key) => this.numberError(key as NumberKey) !== ''),
+    this.nameMissing ||
+      this.radeonError !== '' ||
+      Object.keys(NUMBERS).some((key) => this.numberError(key as NumberKey) !== ''),
   );
 
   constructor(source: App = blankApp()) {
@@ -142,6 +154,7 @@ export class AppDraft {
     this.app = $state.snapshot(source) as App;
     this.prep = prepRows(copy['prep-cmd']);
     this.detached = textRows(copy.detached);
+    this.radeon = rowsOf(copy[SETTINGS_KEY]);
     this.#baseline = stable(normalise(copy));
   }
 
@@ -158,7 +171,13 @@ export class AppDraft {
   }
 
   record(): App {
-    return assemble($state.snapshot(this.app) as App, this.prep, this.detached, 'detached' in this.#saved);
+    return assemble(
+      $state.snapshot(this.app) as App,
+      this.prep,
+      this.detached,
+      'detached' in this.#saved,
+      $state.snapshot(this.radeon) as SettingRow[],
+    );
   }
 
   /** The cover file's path on the host; '' for none. */

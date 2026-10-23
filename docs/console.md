@@ -32,6 +32,14 @@ Four settings under **Settings > App** change how Nightjar looks. They are globa
 - **High contrast**: black surfaces, white text, brighter amber, outlines on every control and a thicker focus ring. Body text is at least 7:1 against its background and the focus ring at least 3:1. The normal theme meets WCAG AA (4.5:1) for text.
 - **Reduce motion**: **Follow system**, **Reduce** or **Full motion**. Reduce stops fades, slides, scroll animation and the spinning wheel. Follow system reads Windows' "Show animations in Windows" switch. Linux has no single setting Nightjar can read, so there Follow system leaves motion on; pick **Reduce** to turn it off.
 
+## The shell bar
+
+Home, PCs and Settings sit in one bar under the top app bar of each of those three screens. The current one is highlighted. Home is hidden until a PC has a library to show. On a TV the bar and the screens keep clear of the overscan edge.
+
+- The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from any other of the three goes to that first screen. Back there leaves the app.
+- Switching does not stack screens: the first screen is brought back to the front, and any other screen closes when it opens a sibling.
+- Help left the PCs toolbar. Find it under Settings, App, Help, press F1, or use the pairing guide.
+
 ## A game's page
 
 Pick a card to see the PC the game runs on and the stream settings it will use (resolution, frame rate, bitrate, and which profile layer set them), then **Play** or **Resume**. If another game is running on that PC, the page says that playing this game closes it. **Close game** appears when the PC has granted this device Host control. Without it you get the classic Quit.

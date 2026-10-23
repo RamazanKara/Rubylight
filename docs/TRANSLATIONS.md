@@ -22,7 +22,7 @@ Nightjar ships in 15 languages. English (`values`) is the source; every other la
 | Ukrainian (Українська) | `values-uk` | 23 strings reused unchanged from the Moonlight/Artemis community translation, 56 more adapted from it; the rest machine-assisted | Community review wanted |
 | Vietnamese (Tiếng Việt) | `values-vi` | 61 strings reused unchanged from the Moonlight/Artemis community translation, 18 more adapted from it; the rest machine-assisted | Community review wanted |
 
-Each language has 1,011 strings. "Machine-assisted" means the text was drafted by translation tooling, checked against the rules below and reviewed for terminology, but not yet read by a native speaker. Corrections from native speakers are the most useful contribution for these languages.
+Each language has 1,519 strings. "Machine-assisted" means the text was drafted by translation tooling, checked against the rules below and reviewed for terminology, but not yet read by a native speaker. Corrections from native speakers are the most useful contribution for these languages.
 
 The reused sentences come from the community translations of [Moonlight Android](https://github.com/moonlight-stream/moonlight-android) and [Artemis Android](https://github.com/ClassicOldSong/moonlight-android) (both GPL-3.0, like Nightjar). A sentence was reused only where its English source was identical to Nightjar's, with the app name replaced; those projects' translations also set the terminology for each language.
 

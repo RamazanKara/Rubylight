@@ -163,6 +163,28 @@ Summed over the four limited arms (`r20` x3 and the step): loss 5.89 baseline, 5
 
 **Caveats.** Two runs per side on a Wi-Fi laptop cannot resolve effects below the run-to-run spread: a single baseline run of `r20-av1-def` lost 0 %, 3.1 % or 7.0 % depending on the pass. Only the sign of large effects is trustworthy, which is enough for (a) and (c), not to call (b) better or worse. The step arm of the first (a) round was invalid (the harness issued the step a minute late because a new ssh connection from the laptop stalled while the stream ran); the harness now sends step commands over one open shell (`fix(release): link speed step arms ...`) and the step arm was rerun for all four (a) passes. A 45 s arm is short for a probe cycle.
 
+## October 24: beam-raced PyroWave on the desktop client (B10 step 4)
+
+Nightjar desktop `b10-step4`, loopback to an isolated Rubylight host (RX 7900 XT), 1080p60 PyroWave
+4:2:0, 399 Mbps, pace 900, release builds, `beam_race` on, `NIGHTJAR_STREAM_LOCATION=local` (1360 byte
+packets), 60 s, 3589 frames. The frame time on the wire is W = 6.48 ms at p50.
+
+| Measure | Value |
+|---|---|
+| Frames with `row_ordered` | 100% (3589 of 3589) |
+| Slices decoded per frame | 4 on every frame |
+| `first_slice_ready - receive` | p50 1.65 ms, p95 2.14 ms (0.25 W) |
+| `last_slice_ready - receive` | p50 7.20 ms, p95 7.92 ms |
+| Slice decodes against the whole-frame decode | exact on 24 frames (72 slice decodes), all three planes |
+
+The host log shows `pyrowave_records=true pyrowave_row_order=true`. The first quarter of the picture is
+on the GPU about 1.65 ms after the frame's first packet, while the frame takes 6.5 ms to arrive. What
+this does not show: a presented-picture gain (the present path still shows whole frames), Wi-Fi, or
+loss. Loopback counts as a remote link, so without `NIGHTJAR_STREAM_LOCATION=local` the host drops row
+order for the 1024 byte packets (a row-ordered frame is about 20% larger there, about 3% at 1360
+bytes) and says so with a warning. Details in Nightjar `docs/beam-racing.md`.
+
+## October 23: PyroWave desktop decode stage split (brief 1)
 
 Nightjar desktop, PyroWave 4:2:0 at 1080p60, loopback to an isolated Rubylight host (RX 7900 XT, one 5120x1440 display, WGC, a scrolling texture), release builds of Nightjar `pyrowave-decode-1`. Legs of 60 s, the first 5 s dropped, A B B A per bitrate, early decode off. The full tables, the harness (`scripts/pyrowave-loopback.ps1`) and the stage timers are in Nightjar's `docs/pyrowave-decode.md`.
 

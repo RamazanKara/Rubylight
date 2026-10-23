@@ -4,6 +4,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.widget.Toast;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -24,6 +25,7 @@ import com.limelight.utils.UiHelper;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 /**
  * One game on one host: Play, or Resume when it runs or is suspended there; Close game when this device
@@ -86,6 +88,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     /** Ends the game on the host, then calls {@code onComplete} on any thread. */
     protected void end(NvApp app, ComputerDetails computer, Runnable onComplete) {
         ServerHelper.doQuit(this, computer, app, feed.binder(), onComplete);
+    }
+
+    /** Closes the game on the host; {@code onDone} learns on any thread whether it is closed. */
+    protected void close(NvApp app, ComputerDetails computer, Consumer<Boolean> onDone) {
+        ServerHelper.doQuitReporting(this, computer, app, feed.binder(), onDone);
     }
 
     @Override
@@ -189,6 +196,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         final boolean refresh = !signature.equals(loadedSignature);
         loadedSignature = signature;
         final int mine = ++generation;
+        final int starVersion = favouriteVersion;
         final boolean online = computer.state == ComputerDetails.State.ONLINE;
         final boolean nativeHost = computer.caps.has(HostCapabilities.Feature.NATIVE_API);
         if (refresh) {
@@ -196,11 +204,13 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         }
         worker.execute(() -> {
             try {
-                favouriteCache = repo.isFavourite(hostUuid, appId);
                 ConsoleSnapshot snapshot = repo.cached(Collections.singletonList(computer));
+                // Read here, after the saved library says which id the host gives the game, and in this task:
+                // a toggle made meanwhile bumps the version and the stale answer is dropped.
+                Boolean starred = repo.isFavourite(hostUuid, keyIn(snapshot), appId);
                 boolean control = false;
                 if (refresh) {
-                    show(mine, computer, online, nativeHost, snapshot, false, false);
+                    show(mine, computer, online, nativeHost, snapshot, false, false, starVersion, starred);
                     snapshot = repo.refresh(Collections.singletonList(computer));
                     NativeCapabilities capabilities = online ? repo.capabilities(computer) : null;
                     control = capabilities != null && capabilities.hostControl;
@@ -208,24 +218,40 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 } else {
                     control = controlCache;
                 }
-                show(mine, computer, online, nativeHost, snapshot, control, true);
+                show(mine, computer, online, nativeHost, snapshot, control, true, starVersion, starred);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (RuntimeException e) {
                 com.limelight.LimeLog.warning("Game detail could not load: " + e);
-                show(mine, computer, online, nativeHost, ConsoleSnapshot.empty(), false, true);
+                show(mine, computer, online, nativeHost, ConsoleSnapshot.empty(), false, true, starVersion, null);
             }
         });
     }
 
     /** Whether the game is starred, as last read; the toggle flips it and re-renders without a reload. */
-    private volatile boolean favouriteCache;
+    private boolean favouriteCache;
+
+    /** Counts toggles, so a read that began before one cannot undo it. */
+    private int favouriteVersion;
 
     /** Host control as last read; a host that did not answer counts as without. */
     private volatile boolean controlCache;
 
+    /** The host's stable id of this game in the library, or empty. */
+    private String keyIn(ConsoleSnapshot snapshot) {
+        ConsoleSnapshot.Host listed = snapshot.host(hostUuid);
+        if (listed != null) {
+            for (ConsoleSnapshot.Source candidate : listed.sources) {
+                if (candidate.appId == appId) {
+                    return candidate.stableId();
+                }
+            }
+        }
+        return "";
+    }
+
     private void show(int mine, ComputerDetails computer, boolean online, boolean nativeHost, ConsoleSnapshot snapshot,
-                      boolean control, boolean done) {
+                      boolean control, boolean done, int starVersion, Boolean starred) {
         GameDetailModel next = GameDetailModel.of(snapshot, hostUuid, appId, titleExtra, hostNameExtra, online,
                 nativeHost, control);
         runOnUiThread(() -> {
@@ -233,6 +259,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 return;
             }
             model = next;
+            if (starred != null && starVersion == favouriteVersion) {
+                favouriteCache = starred;
+            }
             render(next, computer);
             if (done) {
                 loading.setVisibility(View.GONE);
@@ -306,10 +335,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         }
         boolean starred = !favouriteCache;
         favouriteCache = starred;
+        favouriteVersion++;
         renderFavourite();
         String starTitle = model.title;
         String starHost = model.hostName;
-        worker.execute(() -> repo.setFavourite(hostUuid, starHost, appId, starTitle, starred));
+        String starKey = model.source != null ? model.source.stableId() : "";
+        worker.execute(() -> repo.setFavourite(hostUuid, starHost, starKey, appId, starTitle, starred));
     }
 
     private NvApp app() {
@@ -326,17 +357,63 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             return;
         }
         NvApp app = app();
-        boolean askFirst = model.otherRunningTitle != null
-                && !computer.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT)
-                && computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH);
-        if (!askFirst) {
+        PlayPlan plan = PlayPlan.of(model, computer.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT),
+                computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH),
+                computer.caps.has(HostCapabilities.Feature.NATIVE_API), controlCache);
+        if (plan.kind == PlayPlan.Kind.START) {
             play(app, computer);
             return;
         }
-        // A host that confirms replacement asks the player itself; elsewhere the client quits the game first.
-        NvApp running = CoverLoaders.appOf(model.otherRunningTitle, model.otherRunningAppId, model.otherRunningSource);
-        UiHelper.showDialog(this, ReplaceRunningPrompt.build(this, model.otherRunningTitle, model.title,
-                () -> play(running, computer), () -> play(app, computer)));
+        // A host that confirms replacement asks the player itself; elsewhere the client asks, then closes the game.
+        NvApp running = plan.runningApp();
+        UiHelper.showDialog(this, ReplaceRunningPrompt.build(this, plan.runningTitle, model.title,
+                plan.canResume ? () -> resumeRunning(running) : null,
+                () -> replaceRunning(plan, running, app)));
+    }
+
+    /** What the host runs may have changed while the prompt was open: Resume only acts on what was named. */
+    private void resumeRunning(NvApp running) {
+        ComputerDetails computer = currentHost();
+        if (computer == null || PlayPlan.recheck(running, computer.runningGameId, computer.runningGameUuid)
+                != PlayPlan.Check.SAME) {
+            runningChanged();
+            return;
+        }
+        play(running, computer);
+    }
+
+    private void replaceRunning(PlayPlan plan, NvApp running, NvApp app) {
+        ComputerDetails computer = currentHost();
+        if (computer == null) {
+            return;
+        }
+        PlayPlan.Check check = PlayPlan.recheck(running, computer.runningGameId, computer.runningGameUuid);
+        if (check == PlayPlan.Check.CHANGED) {
+            // Another game than the one named runs now: closing it would not be what the player agreed to.
+            runningChanged();
+            return;
+        }
+        if (check == PlayPlan.Check.SAME && plan.closeNatively) {
+            // Like Close game: through the native API, and only a closed game is followed by the start.
+            close(running, computer, closed -> {
+                if (closed) {
+                    runOnUiThread(() -> {
+                        if (!isFinishing() && !isDestroyed()) {
+                            play(app, computer);
+                        }
+                    });
+                }
+            });
+            return;
+        }
+        // Gone already, or the classic quit: the connection quits what runs, then starts.
+        play(app, computer);
+    }
+
+    private void runningChanged() {
+        Toast.makeText(this, R.string.library_replace_changed, Toast.LENGTH_LONG).show();
+        loadedSignature = null;
+        scheduleReload();
     }
 
     private void onEnd() {

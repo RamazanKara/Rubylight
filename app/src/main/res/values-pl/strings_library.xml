@@ -8,4 +8,7 @@
     <string name="library_replace_message">Zamknąć uruchomioną grę i uruchomić %1$s?\nNiezapisany postęp zostanie utracony.</string>
     <string name="library_replace_confirm">Zamknij i graj</string>
     <string name="library_replace_resume">Wznów: %1$s</string>
+    <string name="library_replace_close_start">Zamknij %1$s i uruchom %2$s</string>
+    <string name="library_replace_message_running">%1$s działa na tym komputerze. Uruchomienie %2$s zamknie go, a niezapisany postęp zostanie utracony.</string>
+    <string name="library_replace_changed">Uruchomiona gra się zmieniła. Sprawdź ekran i spróbuj ponownie.</string>
 </resources>

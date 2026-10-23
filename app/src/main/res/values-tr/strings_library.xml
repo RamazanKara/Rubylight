@@ -8,4 +8,7 @@
     <string name="library_replace_message">Çalışan oyundan çıkılıp %1$s başlatılsın mı?\nKaydedilmemiş ilerleme kaybolur.</string>
     <string name="library_replace_confirm">Çık ve oyna</string>
     <string name="library_replace_resume">%1$s oyununa devam et</string>
+    <string name="library_replace_close_start">%1$s kapat ve %2$s başlat</string>
+    <string name="library_replace_message_running">%1$s bu bilgisayarda çalışıyor. %2$s başlatılırsa kapanır ve kaydedilmemiş ilerleme kaybolur.</string>
+    <string name="library_replace_changed">Çalışan oyun değişti. Ekranı kontrol edip yeniden dene.</string>
 </resources>

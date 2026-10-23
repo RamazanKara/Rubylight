@@ -1,6 +1,7 @@
 package com.limelight.console;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -27,6 +28,7 @@ public class ReplaceRunningPromptTest {
     private AlertDialog show(Runnable resume, Runnable replace) {
         AlertDialog dialog = ReplaceRunningPrompt.build(context, "Zelda", "Portal", resume, replace);
         dialog.show();
+        idle();
         return dialog;
     }
 
@@ -37,13 +39,34 @@ public class ReplaceRunningPromptTest {
     @Test
     public void tappingAnotherGameOffersResumeCloseAndStartOrCancel() {
         AlertDialog dialog = show(() -> { }, () -> { });
-        assertEquals(context.getString(R.string.library_replace_resume, "Zelda"),
-                dialog.getButton(DialogInterface.BUTTON_NEUTRAL).getText().toString());
-        assertEquals(context.getString(R.string.library_replace_confirm),
+        assertEquals("Resume Zelda", dialog.getButton(DialogInterface.BUTTON_NEUTRAL).getText().toString());
+        assertEquals("Close Zelda and start Portal",
                 dialog.getButton(DialogInterface.BUTTON_POSITIVE).getText().toString());
         assertEquals(context.getString(android.R.string.cancel),
                 dialog.getButton(DialogInterface.BUTTON_NEGATIVE).getText().toString());
-        assertTrue(dialog.getButton(DialogInterface.BUTTON_NEUTRAL).getText().toString().contains("Zelda"));
+    }
+
+    @Test
+    public void theMessageSaysWhatRunsAndWhatStartingDoes() {
+        AlertDialog dialog = show(() -> { }, () -> { });
+        String message = ((android.widget.TextView) dialog.findViewById(android.R.id.message)).getText().toString();
+        assertTrue(message, message.contains("Zelda") && message.contains("Portal"));
+        assertTrue(message, message.contains("closes") && message.contains("unsaved"));
+    }
+
+    @Test
+    public void focusStartsOnResumeNeverOnTheButtonThatClosesTheGame() {
+        AlertDialog dialog = show(() -> { }, () -> { });
+        assertTrue(dialog.getButton(DialogInterface.BUTTON_NEUTRAL).hasFocus());
+        assertFalse(dialog.getButton(DialogInterface.BUTTON_POSITIVE).hasFocus());
+    }
+
+    @Test
+    public void withNothingToResumeThereIsNoResumeButtonAndFocusStartsOnCancel() {
+        AlertDialog dialog = show(null, () -> { });
+        assertEquals(android.view.View.GONE, dialog.getButton(DialogInterface.BUTTON_NEUTRAL).getVisibility());
+        assertTrue(dialog.getButton(DialogInterface.BUTTON_NEGATIVE).hasFocus());
+        assertFalse(dialog.getButton(DialogInterface.BUTTON_POSITIVE).hasFocus());
     }
 
     @Test

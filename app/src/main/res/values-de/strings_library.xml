@@ -8,4 +8,7 @@
     <string name="library_replace_message">Laufendes Spiel beenden und %1$s starten?\nUngespeicherter Fortschritt geht verloren.</string>
     <string name="library_replace_confirm">Beenden und spielen</string>
     <string name="library_replace_resume">%1$s fortsetzen</string>
+    <string name="library_replace_close_start">%1$s schließen und %2$s starten</string>
+    <string name="library_replace_message_running">%1$s läuft auf diesem PC. Beim Start von %2$s wird es geschlossen, und ungespeicherter Fortschritt geht verloren.</string>
+    <string name="library_replace_changed">Das laufende Spiel hat sich geändert. Prüfe den Bildschirm und versuche es erneut.</string>
 </resources>

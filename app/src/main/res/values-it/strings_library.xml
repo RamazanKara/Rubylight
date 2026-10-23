@@ -8,4 +8,7 @@
     <string name="library_replace_message">Chiudere il gioco in esecuzione e avviare %1$s?\nI progressi non salvati andranno persi.</string>
     <string name="library_replace_confirm">Chiudi e gioca</string>
     <string name="library_replace_resume">Riprendi %1$s</string>
+    <string name="library_replace_close_start">Chiudi %1$s e avvia %2$s</string>
+    <string name="library_replace_message_running">%1$s è in esecuzione su questo PC. Avviare %2$s lo chiude e i progressi non salvati vanno persi.</string>
+    <string name="library_replace_changed">Il gioco in esecuzione è cambiato. Controlla lo schermo e riprova.</string>
 </resources>

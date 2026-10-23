@@ -134,11 +134,22 @@ public class ServerHelper {
                               final NvApp app,
                               final ComputerManagerService.ComputerManagerBinder managerBinder,
                               final Runnable onComplete) {
-        if (!computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-            Toast.makeText(parent, R.string.host_launch_permission_denied, Toast.LENGTH_LONG).show();
+        doQuitReporting(parent, computer, app, managerBinder, ok -> {
             if (onComplete != null) {
                 onComplete.run();
             }
+        });
+    }
+
+    /** Like the plain quit, but {@code onDone} learns whether the host closed the game; it runs on any thread. */
+    public static void doQuitReporting(final Activity parent,
+                              final ComputerDetails computer,
+                              final NvApp app,
+                              final ComputerManagerService.ComputerManagerBinder managerBinder,
+                              final java.util.function.Consumer<Boolean> onDone) {
+        if (!computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
+            Toast.makeText(parent, R.string.host_launch_permission_denied, Toast.LENGTH_LONG).show();
+            onDone.accept(false);
             return;
         }
         Toast.makeText(parent, parent.getResources().getString(R.string.applist_quit_app) + " " + app.getAppName() + "...", Toast.LENGTH_SHORT).show();
@@ -147,6 +158,7 @@ public class ServerHelper {
             public void run() {
                 NvHTTP httpConn;
                 String message;
+                boolean quit = false;
                 try {
                     boolean closed = false;
                     if (app.getRole() == NvApp.Role.STREAM && computer.caps.has(HostCapabilities.Feature.NATIVE_API)) {
@@ -157,11 +169,13 @@ public class ServerHelper {
                                 .closeGameIfAllowed();
                     }
                     if (closed) {
+                        quit = true;
                         message = parent.getResources().getString(R.string.applist_quit_success) + " " + app.getAppName();
                     } else {
                         httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort,
                                 managerBinder.getUniqueId(), computer.serverCert, PlatformBinding.getCryptoProvider(parent));
                         if (app.getRole() != NvApp.Role.STREAM ? httpConn.disconnectRole(app.getRole()) : httpConn.quitApp()) {
+                            quit = true;
                             message = parent.getResources().getString(R.string.applist_quit_success) + " " + app.getAppName();
                         } else {
                             message = parent.getResources().getString(R.string.applist_quit_fail) + " " + app.getAppName();
@@ -186,9 +200,7 @@ public class ServerHelper {
                     message = e.getMessage();
                     e.printStackTrace();
                 } finally {
-                    if (onComplete != null) {
-                        onComplete.run();
-                    }
+                    onDone.accept(quit);
                 }
 
                 final String toastMessage = message;

@@ -8,4 +8,7 @@
     <string name="library_replace_message">Закрыть запущенную игру и запустить %1$s?\nНесохранённый прогресс будет потерян.</string>
     <string name="library_replace_confirm">Закрыть и играть</string>
     <string name="library_replace_resume">Продолжить %1$s</string>
+    <string name="library_replace_close_start">Закрыть %1$s и запустить %2$s</string>
+    <string name="library_replace_message_running">%1$s запущена на этом ПК. Запуск %2$s закроет её, а несохранённый прогресс будет потерян.</string>
+    <string name="library_replace_changed">Запущенная игра изменилась. Проверьте экран и повторите попытку.</string>
 </resources>

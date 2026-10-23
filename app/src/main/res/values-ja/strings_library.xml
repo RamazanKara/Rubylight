@@ -8,4 +8,7 @@
     <string name="library_replace_message">実行中のゲームを終了して %1$s を開始しますか？\n保存していない進行状況は失われます。</string>
     <string name="library_replace_confirm">終了してプレイ</string>
     <string name="library_replace_resume">%1$sを再開</string>
+    <string name="library_replace_close_start">%1$s を閉じて %2$s を開始</string>
+    <string name="library_replace_message_running">%1$s はこの PC で実行中です。%2$s を開始すると実行中のゲームが閉じられ、保存していない進行状況は失われます。</string>
+    <string name="library_replace_changed">実行中のゲームが変わりました。画面を確認してもう一度お試しください。</string>
 </resources>

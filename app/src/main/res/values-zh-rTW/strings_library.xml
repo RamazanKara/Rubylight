@@ -8,4 +8,7 @@
     <string name="library_replace_message">要結束執行中的遊戲並啟動 %1$s 嗎？\n未儲存的進度將會遺失。</string>
     <string name="library_replace_confirm">結束並開始玩</string>
     <string name="library_replace_resume">繼續 %1$s</string>
+    <string name="library_replace_close_start">關閉 %1$s 並開始 %2$s</string>
+    <string name="library_replace_message_running">%1$s 正在這台電腦上執行。開始 %2$s 會將其關閉，未儲存的進度將會遺失。</string>
+    <string name="library_replace_changed">執行中的遊戲已變更。請查看畫面後再試一次。</string>
 </resources>

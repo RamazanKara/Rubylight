@@ -10,4 +10,7 @@
     <string name="library_replace_message">Quit the running game and start %1$s?\nUnsaved progress will be lost.</string>
     <string name="library_replace_confirm">Quit and play</string>
     <string name="library_replace_resume">Resume %1$s</string>
+    <string name="library_replace_close_start">Close %1$s and start %2$s</string>
+    <string name="library_replace_message_running">%1$s is running on this PC. Starting %2$s closes it, and unsaved progress is lost.</string>
+    <string name="library_replace_changed">The running game changed. Check the screen and try again.</string>
 </resources>

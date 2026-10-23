@@ -8,4 +8,7 @@
     <string name="library_replace_message">¿Cerrar el juego en ejecución e iniciar %1$s?\nSe perderá el progreso no guardado.</string>
     <string name="library_replace_confirm">Cerrar y jugar</string>
     <string name="library_replace_resume">Reanudar %1$s</string>
+    <string name="library_replace_close_start">Cerrar %1$s e iniciar %2$s</string>
+    <string name="library_replace_message_running">%1$s se está ejecutando en este PC. Al iniciar %2$s se cierra y se pierde el progreso no guardado.</string>
+    <string name="library_replace_changed">El juego en ejecución ha cambiado. Revisa la pantalla e inténtalo de nuevo.</string>
 </resources>

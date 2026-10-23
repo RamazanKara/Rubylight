@@ -28,4 +28,9 @@ public final class DemoGameDetail extends GameDetailActivity {
         runOnUiThread(() -> Toast.makeText(this, R.string.demo_offline, Toast.LENGTH_SHORT).show());
         if (onComplete != null) onComplete.run();
     }
+
+    @Override protected void close(NvApp app, ComputerDetails computer, java.util.function.Consumer<Boolean> onDone) {
+        runOnUiThread(() -> Toast.makeText(this, R.string.demo_offline, Toast.LENGTH_SHORT).show());
+        onDone.accept(true);
+    }
 }

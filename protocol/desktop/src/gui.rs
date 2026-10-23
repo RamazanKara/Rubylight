@@ -123,8 +123,12 @@ pub fn tap(key: Key) -> [Event; 2] {
 
 impl Gui {
     pub fn new() -> Self {
+        let ctx = egui::Context::default();
+        // The UI zoom is ours (85-150 % steps, saved in the settings); egui's own Ctrl+=/-/0 would
+        // zoom outside those steps and never be saved.
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
         Self {
-            ctx: egui::Context::default(),
+            ctx,
             textures: HashMap::new(),
             events: Vec::new(),
             modifiers: Modifiers::NONE,
@@ -449,5 +453,34 @@ mod tests {
         assert_eq!(key_of(SDLK_F10), Some(Key::F10), "Shift+F10 opens a PC's options");
         assert_eq!(key_of(SDLK_F11), Some(Key::F11));
         assert_eq!(key_of(SDLK_N), Some(Key::N), "Ctrl+N adds a PC");
+    }
+
+    fn zoom_after_ctrl(ctx: &egui::Context, key: Key) -> f32 {
+        let ctrl = Modifiers { ctrl: true, command: true, ..Modifiers::NONE };
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
+            events: vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: ctrl,
+            }],
+            ..Default::default()
+        };
+        ctx.run_ui(input, |_| {}).textures_delta.clear();
+        // A new zoom takes effect at the start of the next pass.
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        ctx.zoom_factor()
+    }
+
+    #[test]
+    fn egui_does_not_zoom_on_its_own_ctrl_keys() {
+        // The default context would, which is why `Gui::new` turns it off.
+        assert!(zoom_after_ctrl(&egui::Context::default(), Key::Equals) > 1.0);
+        let gui = Gui::new();
+        for key in [Key::Equals, Key::Plus, Key::Minus, Key::Num0] {
+            assert_eq!(zoom_after_ctrl(&gui.ctx, key), 1.0, "{key:?}");
+        }
     }
 }

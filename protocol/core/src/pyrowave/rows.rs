@@ -136,7 +136,7 @@ impl RowTracker {
             }
             Some(highest) if step == highest => {}
             _ => {
-                let from = self.highest.map_or(0, |h| usize::from(h));
+                let from = self.highest.map_or(0, usize::from);
                 for s in from..usize::from(step) {
                     if self.crossed_in[s] == u32::MAX {
                         self.crossed_in[s] = self.packet;

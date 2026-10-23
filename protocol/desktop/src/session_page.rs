@@ -524,6 +524,8 @@ mod tests {
             game_running: true,
             since_unix_ms: None,
             suspended_until_unix_ms: None,
+            launcher: None,
+            radeon_profile: None,
             actions: actions.iter().map(|&(id, allowed, reason)| Action { id, allowed, reason }).collect(),
         }
     }

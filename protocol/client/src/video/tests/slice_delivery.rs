@@ -157,7 +157,7 @@ fn streamed_packets_carry_the_header_and_stream_index_the_receiver_reads() {
             let block = (packet[27] >> 4) & 3;
             blocks_seen.insert(block);
             assert_eq!(u16::from_be_bytes([packet[2], packet[3]]), sequence);
-            if (index as u32) < data {
+            if index < data {
                 let stream_index = u32::from_le_bytes(packet[16..20].try_into().unwrap());
                 assert_eq!(stream_index >> 8, u32::from(sequence), "block {block}");
                 assert_eq!(stream_index & 0xff, 0);

@@ -164,12 +164,14 @@ impl Drop for TimingCsv {
 fn run(mut file: BufWriter<File>, inbox: std::sync::mpsc::Receiver<Message>, lost: &AtomicU64) {
     let mut record = Record::default();
     let mut previous_output = 0u64;
+    let mut shown = ShownFps::default();
     // The desktop columns of the rows the record holds, in the order it gives them back.
     let mut extras: VecDeque<String> = VecDeque::new();
     loop {
         let done = match inbox.recv_timeout(Duration::from_millis(100)) {
             Ok(Message::Row(row)) => {
-                let line = own_fields(&row, lost.load(Ordering::Relaxed), previous_output);
+                let fps = shown.push(row.render_us);
+                let line = own_fields(&row, lost.load(Ordering::Relaxed), previous_output, fps);
                 previous_output = row.output_us;
                 extras.push_back(extra_fields(&row));
                 record.push(PendingRow {
@@ -220,8 +222,26 @@ fn milliseconds(ns: u64) -> String {
     format!("{}.{:06}", ns / 1_000_000, ns % 1_000_000)
 }
 
+/// Shown pictures per second over the last second of presents.
+#[derive(Default)]
+struct ShownFps {
+    renders: VecDeque<u64>,
+}
+
+impl ShownFps {
+    /// Adds a present and gives the rate when the window spans two or more.
+    fn push(&mut self, render_us: u64) -> Option<f64> {
+        self.renders.push_back(render_us);
+        while self.renders.front().is_some_and(|first| render_us.saturating_sub(*first) > 1_000_000) {
+            self.renders.pop_front();
+        }
+        let span = render_us.saturating_sub(*self.renders.front()?);
+        (self.renders.len() >= 2 && span > 0).then(|| (self.renders.len() - 1) as f64 * 1e6 / span as f64)
+    }
+}
+
 /// The receiver's own 32 columns of one row, comma separated.
-pub fn own_fields(row: &Row, lost: u64, previous_output_us: u64) -> String {
+pub fn own_fields(row: &Row, lost: u64, previous_output_us: u64, shown_fps: Option<f64>) -> String {
     let mut fields = vec![String::new(); OWN_COLUMNS.len()];
     let mut set = |name: &str, value: String| {
         let at = OWN_COLUMNS.iter().position(|c| *c == name).expect("a known column");
@@ -248,6 +268,9 @@ pub fn own_fields(row: &Row, lost: u64, previous_output_us: u64) -> String {
     set("receive_to_present_ms", receive_to_render);
     set("decode_interval_ms", duration(previous_output_us, row.output_us));
     set("fps_sample_ns", timestamp(row.render_us));
+    if let Some(fps) = shown_fps {
+        set("shown_fps", format!("{fps:.2}"));
+    }
     set("present_drops", row.drops.to_string());
     set("enqueue_ns", timestamp(row.enqueue_us));
     set("queue_wait_ms", duration(row.enqueue_us, row.input_us));
@@ -314,8 +337,21 @@ mod tests {
     }
 
     #[test]
+    fn shown_fps_counts_the_presents_of_the_last_second() {
+        let mut shown = ShownFps::default();
+        assert_eq!(shown.push(5_000_000), None, "one present has no rate");
+        let mut last = None;
+        for i in 1..=120u64 {
+            last = shown.push(5_000_000 + i * 16_667);
+        }
+        assert!((last.unwrap() - 60.0).abs() < 0.1, "{last:?}");
+        // A stall: the next present, 2 s later, has only itself in the window.
+        assert_eq!(shown.push(5_000_000 + 120 * 16_667 + 2_000_000), None);
+    }
+
+    #[test]
     fn a_row_fills_the_columns_the_report_reads() {
-        let fields = own_fields(&row(), 2, 1_000_000 + 1_000);
+        let fields = own_fields(&row(), 2, 1_000_000 + 1_000, Some(59.94));
         let fields: Vec<&str> = fields.split(',').collect();
         assert_eq!(fields.len(), OWN_COLUMNS.len());
         let at = |name: &str| fields[OWN_COLUMNS.iter().position(|c| *c == name).unwrap()];
@@ -332,6 +368,7 @@ mod tests {
         assert_eq!(at("decode_interval_ms"), "3.500000");
         assert_eq!(at("csv_rows_lost"), "2");
         assert_eq!(at("present_drops"), "3");
+        assert_eq!(at("shown_fps"), "59.94");
         assert_eq!(at("release_ns"), "", "MediaCodec's release time has no counterpart");
     }
 

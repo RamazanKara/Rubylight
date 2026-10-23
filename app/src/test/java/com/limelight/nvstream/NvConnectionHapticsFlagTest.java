@@ -1,6 +1,7 @@
 package com.limelight.nvstream;
 
 import android.app.Application;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
 
@@ -9,6 +10,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.LimelightCryptoProvider;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.utils.WiredLink;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -24,8 +26,9 @@ import static org.junit.Assert.*;
 
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class,
-        shadows = {NvConnectionRecoveryTest.FakeHost.class, NvConnectionHapticsFlagTest.CapturingBridge.class},
-        instrumentedPackages = "com.limelight.nvstream.jni")
+        shadows = {NvConnectionRecoveryTest.FakeHost.class, NvConnectionHapticsFlagTest.CapturingBridge.class,
+                NvConnectionHapticsFlagTest.FakeWiredLink.class},
+        instrumentedPackages = {"com.limelight.nvstream.jni", "com.limelight.utils"})
 public class NvConnectionHapticsFlagTest {
     // Haptics PCM switches a Vibepollo host's control loop to 5 ms; only a USB DualSense with
     // waveform haptics enabled can play it.
@@ -41,8 +44,19 @@ public class NvConnectionHapticsFlagTest {
         }
     }
 
-    // Only a PyroWave stream looks up the wired link; any other codec sends no pacing hints.
-    @Test public void otherCodecsSendNoPyroWavePacingHints() throws Exception {
+    // The wired link speed goes to the host for every codec so it can cap its pacing; only a
+    // PyroWave stream carries a calibrated pace.
+    @Test public void wiredLinkSpeedIsHintedForOtherCodecsButNoPace() throws Exception {
+        FakeWiredLink.mbps = 2500;
+        CapturingBridge.linkMbps = CapturingBridge.paceMbps = -1;
+        startStream();
+        assertEquals(2500, CapturingBridge.linkMbps);
+        assertEquals(0, CapturingBridge.paceMbps);
+    }
+
+    // Wi-Fi, cellular and a port that reports no speed leave the hint out.
+    @Test public void unknownLinkSpeedSendsNoHint() throws Exception {
+        FakeWiredLink.mbps = 0;
         CapturingBridge.linkMbps = CapturingBridge.paceMbps = -1;
         startStream();
         assertEquals(0, CapturingBridge.linkMbps);
@@ -99,6 +113,16 @@ public class NvConnectionHapticsFlagTest {
             @Override public byte[] getPemEncodedClientCertificate() { return new byte[0]; }
             @Override public String encodeBase64String(byte[] data) { return ""; }
         };
+    }
+
+    @Implements(value = WiredLink.class, isInAndroidSdk = false)
+    public static class FakeWiredLink {
+        static int mbps;
+
+        @Implementation
+        public static int mbpsToward(Context context, String host) {
+            return mbps;
+        }
     }
 
     @Implements(value = MoonBridge.class, isInAndroidSdk = false)

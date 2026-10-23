@@ -1,9 +1,10 @@
-Carry the PyroWave pacing hints in the stream configuration. pyrowaveLinkMbps is this
-client's own wired-link speed toward the host (0 when unknown, Wi-Fi or cellular) and
-pyrowavePaceMbps a loss-free pace found by calibration (0 when there is none). Both use the
-names and meaning of Nonary's moonlight-common-c, so a PyroWave host that reads them paces a
-client behind a slower network port the same way for either client. android_sdp.c sends them
-as x-ss-video[0].pyrowaveLinkMbps and x-ss-video[0].pyrowavePaceMbps when above zero.
+Carry the pacing hints in the stream configuration. pyrowaveLinkMbps is this client's own
+wired-link speed toward the host (0 when unknown, Wi-Fi or cellular) and pyrowavePaceMbps a
+loss-free PyroWave pace found by calibration (0 when there is none). Both use the names and
+meaning of Nonary's moonlight-common-c, so a host that reads them paces a client behind a
+slower network port the same way for either client. android_sdp.c sends them as
+x-ss-video[0].pyrowaveLinkMbps (every codec) and x-ss-video[0].pyrowavePaceMbps (PyroWave
+only) when above zero.
 Independent of the other patches; add it at the end of the list.
 
 diff --git a/src/Limelight.h b/src/Limelight.h
@@ -15,8 +16,8 @@ index 22bee46..ed67a46 100644
      char remoteInputAesKey[16];
      char remoteInputAesIv[16];
 +
-+    // Routed client wired-link speed in Mbps, used by PyroWave host pacing.
-+    // Zero means unknown; other codecs do not advertise this value.
++    // Routed client wired-link speed in Mbps, used by host pacing for every
++    // codec. Zero means unknown.
 +    int pyrowaveLinkMbps;
 +
 +    // Highest frame pace in Mbps that calibration kept within its loss limit.

@@ -449,12 +449,8 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             if (PyroWaveRecordsEnabled) {
                 err |= addAttributeString(&optionHead, "x-ss-video[0].pyrowaveFeatures", "1");
             }
-            // Pacing hints for the host, in Nonary's moonlight-common-c form: this client's own
-            // wired-link speed and a calibrated loss-free pace, each only when known.
-            if (StreamConfig.pyrowaveLinkMbps > 0) {
-                snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.pyrowaveLinkMbps);
-                err |= addAttributeString(&optionHead, "x-ss-video[0].pyrowaveLinkMbps", payloadStr);
-            }
+            // The calibrated loss-free frame pace, in Nonary's moonlight-common-c form, only
+            // when known.
             if (StreamConfig.pyrowavePaceMbps > 0) {
                 snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.pyrowavePaceMbps);
                 err |= addAttributeString(&optionHead, "x-ss-video[0].pyrowavePaceMbps", payloadStr);
@@ -478,6 +474,13 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         else {
             err |= addAttributeString(&optionHead, "x-nv-clientSupportHevc", "0");
             err |= addAttributeString(&optionHead, "x-nv-vqos[0].bitStreamFormat", "0");
+        }
+
+        // This client's own wired-link speed, for every codec so a host can cap its pacing,
+        // only when known (zero on Wi-Fi, cellular or an unreadable port).
+        if (StreamConfig.pyrowaveLinkMbps > 0) {
+            snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.pyrowaveLinkMbps);
+            err |= addAttributeString(&optionHead, "x-ss-video[0].pyrowaveLinkMbps", payloadStr);
         }
 
         if (AppVersionQuad[0] >= 7) {

@@ -968,17 +968,20 @@ public class NvConnection {
                     ByteBuffer ib = ByteBuffer.allocate(16);
                     ib.putInt(context.riKeyId);
 
-                    // Pacing hints for a PyroWave host, which sends frames in bursts at its own
-                    // link rate: this device's wired port speed toward it, and the frame pace
-                    // calibrated on this same path (PyroWavePaceCalibration), if any. Zero leaves
-                    // either out of the stream description.
+                    // Pacing hints for the host, which sends frames in bursts at its own link
+                    // rate: this device's wired port speed toward it, for every codec so a host
+                    // can cap its pacing, and for PyroWave the frame pace calibrated on this
+                    // same path (PyroWavePaceCalibration), if any. Zero (Wi-Fi, cellular,
+                    // unknown) leaves either out of the stream description.
                     boolean pyroWave = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
-                    int pyroWaveLinkMbps = pyroWave ? WiredLink.mbpsToward(appContext, context.serverAddress.address) : 0;
+                    int pyroWaveLinkMbps = WiredLink.mbpsToward(appContext, context.serverAddress.address);
                     int pyroWavePaceMbps = pyroWave ?
                             PyroWavePaceStore.paceMbpsFor(appContext, hostDetails.uuid, pyroWaveLinkMbps) : 0;
                     if (pyroWave) {
                         LimeLog.info("PyroWave pacing hints: link " + pyroWaveLinkMbps + " Mbps, calibrated pace " +
                                 pyroWavePaceMbps + " Mbps");
+                    } else if (pyroWaveLinkMbps > 0) {
+                        LimeLog.info("Pacing hint: link " + pyroWaveLinkMbps + " Mbps");
                     }
 
                     synchronized (MoonBridge.class) {

@@ -12,7 +12,7 @@ The menu is one sheet:
 
 | Part | What it holds |
 | --- | --- |
-| Top row | **Phone keyboard** (Android's keyboard), **Overlay** (show or hide the performance overlay) and **Microphone** (mute or unmute, when the PC offers a microphone). Overlay and Microphone switch in place. |
+| Top row | **System keyboard** (Android's keyboard), **PC keyboard** (the full on-screen PC keyboard, see below), **Overlay** (show or hide the performance overlay) and **Microphone** (mute or unmute, when the PC offers a microphone). Overlay and Microphone switch in place. |
 | Input | Touch mode, Show mouse cursor (with a mouse attached), Show on-screen controls, Edit controller layout, Controls for this game, Keyboard & mouse. |
 | Display | Video scaling (Fit, Fill, Stretch or 1:1, local video without upscaling), Enable pinch zoom and pan, Reset zoom, **Overlay and diagnostics**, Picture-in-picture, Video output (with an external display). |
 | Quality | Set bitrate, Automatic stream quality and Automatic bitrate, where the host supports them. |
@@ -126,7 +126,7 @@ These options in **Settings → Controls** shape Trackpad and Local cursor movem
 - **Pointer acceleration** with **Acceleration strength** (Gentle, Medium or Strong): slow finger movement moves the pointer less, for precise aiming, and fast swipes move it farther.
 - **Glide after a flick** with **Glide distance** (Short, Medium or Long): after a quick flick, the pointer keeps moving and slows down. Touching the screen stops it at once, and so do changing the touch mode, opening the stream menu, picture-in-picture, leaving the app and disconnecting. A finger that rests before lifting, a drag and a two-finger scroll do not glide.
 - **Trackpad area** (Full screen, Right half, Left half, Bottom half or Top half): Trackpad and Local cursor gestures count only when the first finger lands in that part of the screen; a gesture that starts elsewhere is ignored until every finger lifts. Use it to keep a thumb resting on one side, for example in strategy games.
-- **Three-finger tap** and **Four-finger tap**: assign each gesture to **Phone keyboard**, **Keyboard & mouse**, **Middle click**, or **Off** in Settings → Controls → Touch & mouse. Three fingers open Android’s keyboard by default; four fingers are off by default. **Keyboard & mouse** opens or hides the desktop panel in its saved mode. These gestures work in Trackpad, Direct mouse and Local cursor modes. Lift all fingers quickly without dragging. Four fingers never also trigger the three-finger action; five fingers, a drag or a canceled touch do not trigger either shortcut.
+- **Three-finger tap** and **Four-finger tap**: assign each gesture to **System keyboard**, **PC keyboard**, **Keyboard & mouse**, **Middle click**, or **Off** in Settings → Controls → Touch & mouse. Three fingers open Android’s keyboard by default; four fingers are off by default. **Keyboard & mouse** opens or hides the desktop panel in its saved mode. These gestures work in Trackpad, Direct mouse and Local cursor modes. Lift all fingers quickly without dragging. Four fingers never also trigger the three-finger action; five fingers, a drag or a canceled touch do not trigger either shortcut.
 
 With an external display, the phone always works as a Trackpad (or stays off with Touch off), since a pointer drawn on the phone would not match the external screen.
 
@@ -140,17 +140,41 @@ USB and Bluetooth mice and keyboards use Android's input support. Android 8+ pro
 
 Leave **Desktop mouse mode** off for games that need relative mouse look; enable it for desktop pointer behavior. Enable **Mouse back/forward buttons** only when needed; some devices report right-click through the same Android key path.
 
-Open the stream menu and select **Phone keyboard** in its top row for Android's on-screen keyboard. Opening it hides the desktop panel. It stays hidden when a stream starts, including on tablets. Hardware key events and text input are sent to the host; Android may reserve system keys. Check the host keyboard layout if punctuation or language-specific keys differ.
+Open the stream menu and select **System keyboard** in its top row for Android's on-screen keyboard. Opening it hides the desktop panel. It stays hidden when a stream starts, including on tablets. Hardware key events and text input are sent to the host; Android may reserve system keys. Check the host keyboard layout if punctuation or language-specific keys differ.
 
 Select **stream menu → Input → Keyboard & mouse** for the desktop panel. Use the mode selector in the compact toolbar to choose **Keyboard**, **Trackpad**, or **Combined**. The adjacent key-bank selector opens its choices in the same toolbar; select a bank or use Back to return. Keyboard banks provide letters and numbers, F1–F12, navigation and punctuation, a number pad, and shortcuts. Bank choices scroll horizontally; tall key layouts scroll vertically. The single toolbar frees screen space while preserving key sizes and any custom panel height. Combined mode puts the trackpad beside the keyboard on wide screens and below it on narrow screens.
 
-Tap Ctrl, Alt, Shift or Win to combine it with the next panel key; hold a modifier to send it alone, for example Win to open Start. Selected modifiers stay local until a key is sent. **Shortcuts** includes copy/paste, Show desktop, **Task Manager** (Ctrl+Shift+Esc), **Switch window** (Alt+Tab) and **Close window** (Alt+F4). **Phone keyboard** opens Android's text keyboard, which uses its own modifiers.
+Tap Ctrl, Alt, Shift or Win to combine it with the next panel key; hold a modifier to send it alone, for example Win to open Start. Selected modifiers stay local until a key is sent. **Shortcuts** includes copy/paste, Show desktop, **Task Manager** (Ctrl+Shift+Esc), **Switch window** (Alt+Tab) and **Close window** (Alt+F4). **System keyboard** opens Android's text keyboard, which uses its own modifiers.
 
 Move one finger on the trackpad to move the pointer; tap to left-click, use two fingers to scroll, or tap two fingers to right-click. Hold **L** while moving on the pad to drag. The **L/R** buttons work independently of keys and the pad, including in Combined mode.
 
 The panel follows **Local cursor** and **Desktop mouse mode**, using its own pointer-speed setting. Movement scales to the streamed picture, including local-cursor zoom, so a dense display does not slow it down. Empty panel margins absorb touches, and the panel leaves keyboard focus on the stream. In split-screen or freeform windows, the first direct button press works while Android is restoring window focus.
 
 The gear opens customization: key and panel size, background opacity, pointer speed, scrolling direction, tap-to-click, mouse buttons (including optional middle/Back/Forward), trackpad side, visible banks, and modifiers that stay selected for several keys. **Edit keyboard shortcuts** adds, edits, deletes or reorders saved chords inside the stream. Apply saves panel settings for this device; Reset panel restores defaults while keeping saved shortcuts. Closing the panel, changing modes, losing focus or disconnecting releases held mouse buttons and clears modifiers. The host's input permissions still apply.
+
+### PC keyboard
+
+**stream menu → PC keyboard** (top row), **Ctrl+Alt+Shift+K** or a finger-tap gesture set to **PC keyboard** opens a full PC keyboard over the bottom of the stream: Esc and F1-F12, the number row, letters, Tab, Caps, Enter, Backspace, Space, arrows, Home, End, PgUp, PgDn, Ins, Del and PrtSc. It is for keys a phone keyboard lacks, such as F-keys, Ctrl combinations and Win. Opening it closes the desktop panel and the system keyboard, and the other way round.
+
+- **Modifiers are sticky.** Tap Ctrl, Alt, Shift or Win once to apply it to the next key (blue), tap twice to lock it (amber) and tap again to release it. Locked modifiers stay held on the PC until released.
+- **Keys repeat** while held, like a PC keyboard, and several fingers can press at once.
+- **Layout.** English (US) or German (QWERTZ), chosen from the system language. Change it for this stream with the layout label in the keyboard's header, or permanently in **Settings → Controls → Keyboard → Keyboard layout**. The keys send key positions, not characters, so the Windows layout on the PC decides which character appears. Set both to the same layout.
+- **Size and opacity** are in the same settings: the keyboard takes 30-70% of the screen height (default 50%) and 30-100% opacity (default 90%). It only covers the bottom of the stream and respects display cutouts and system bars. It fits landscape phones, handhelds and TVs.
+- **Closing releases everything.** Closing the keyboard, leaving the stream or losing input releases every key and modifier it pressed, so none stays stuck on the PC.
+
+While the keyboard is open, controllers and TV remotes steer it and the game gets no controller input; a physical keyboard and mouse keep working. Closing it gives the controller back to the game, and buttons still held at that moment reach the game only after they were let go.
+
+| Control | Action |
+| --- | --- |
+| D-pad or left stick | Move focus between keys (the focused key has a white outline). Holding repeats the move. |
+| A (OK on a TV remote, Select) | Press the focused key. Hold to repeat. Modifier keys arm, lock and release. |
+| B | Close the keyboard. |
+| X | Backspace |
+| Y | Space |
+| LB / RB | Toggle Shift / Ctrl |
+| Start | Enter |
+
+With **Flip face buttons** on, A/B and X/Y swap here as they do in games. A TV remote uses the D-pad and OK. This works for Android-mapped and USB-driver controllers alike.
 
 ### Keyboard options
 
@@ -302,6 +326,7 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Shortcut | Action |
 | --- | --- |
 | Android Back / Ctrl+Alt+Shift+M | Open the stream menu. Back in a page of the menu returns to the menu; Back again closes it. With **Keyboard Back sends Windows key** on, a keyboard's Back key sends Win instead. |
+| Ctrl+Alt+Shift+K | Show or hide the PC keyboard. |
 | Ctrl+Alt+Shift+S | Show or hide the performance overlay. |
 | Ctrl+Alt+Shift+Z | Toggle input capture. |
 | Ctrl+Alt+Shift+C | Toggle the local cursor's visibility and recapture input if needed. With a mouse attached, **stream menu → Input → Show mouse cursor** does the same. |
@@ -312,7 +337,7 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Start+LB when the controller has no Select/Back button | Send Select/Back. |
 | Start+Select when the controller has no Guide button | Send Guide; without Select, use Start+RB. |
 | Select+LB when device-motion fallback emulates a touchpad-capable controller | Send a touchpad click. |
-| Three-finger tap in Trackpad, Direct mouse or Local cursor mode | Toggle the on-screen keyboard, or middle-click when **Three-finger tap** is set to Middle click. |
+| Three-finger tap in Trackpad, Direct mouse or Local cursor mode | Toggle the system keyboard (or the PC keyboard when set so), or middle-click when **Three-finger tap** is set to Middle click. |
 | Stream menu → Overlay (top row) | Show or hide the overlay. **Display → Overlay and diagnostics** chooses Compact, Statistics or Debug. |
 
 Nightjar can also pin app shortcuts to the Android launcher. For external game libraries and intent-based shortcuts, see [frontends](FRONTENDS.md).

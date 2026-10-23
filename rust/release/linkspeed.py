@@ -319,6 +319,18 @@ def run_arm(spec, host, work, sampler_admin, keep_memory=False):
     client = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'nuc', shlex.join(command)], text=True, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT)
     steps = []
+    # Step arms keep one shell open in the container: a new ssh connection from a Wi-Fi host stalls for
+    # about a minute while the stream runs, which would put the step after the end of the arm.
+    channel = None
+    if spec['steps']:
+        channel = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'nuc', 'docker exec -i ljs sh'], text=True, stdin=subprocess.PIPE,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def shape_now(rate, queue):
+        if channel is None or rate >= 1000:
+            shape(rate, queue)
+        else:
+            channel.stdin.write(f'{NUC_WORK}/linkshape.sh set {rate} {queue}\n'); channel.stdin.flush()
 
     def stepper():
         deadline = time.monotonic() + 40
@@ -331,7 +343,7 @@ def run_arm(spec, host, work, sampler_admin, keep_memory=False):
             if wait > 0:
                 time.sleep(wait)
             t0 = time.perf_counter()
-            shape(rate, spec['queue'])
+            shape_now(rate, spec['queue'])
             steps.append(dict(offset=offset, rate=rate, issued_qpc_ms=t0 * 1000, done_qpc_ms=time.perf_counter() * 1000))
 
     thread = threading.Thread(target=stepper, daemon=True); thread.start()
@@ -341,6 +353,8 @@ def run_arm(spec, host, work, sampler_admin, keep_memory=False):
         client.kill(); text = client.communicate()[0] + '\nTIMEOUT'
     (out / 'runner.log').write_text(text)
     thread.join(timeout=30)
+    if channel is not None:
+        channel.stdin.close(); channel.wait(timeout=10)
     time.sleep(2.5)  # the host writes the record's footer at stream teardown
     sampler.stop_flag.set(); sampler.join(timeout=5)
     subprocess.run(['scp', '-q', '-r', f'nuc:{NUC_WORK_HOST}/{spec["name"]}/.', str(out)], check=False)

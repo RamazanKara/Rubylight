@@ -509,4 +509,59 @@ public class ShellNavigationTest {
             controller.pause().stop().destroy();
         }
     }
+
+    /** Calls PcView's "pairing succeeded" hook the way HostActions does after a PIN was accepted. */
+    private static void paired(PcView screen, com.limelight.nvstream.http.ComputerDetails computer) {
+        com.limelight.computers.HostActions actions = org.robolectric.util.ReflectionHelpers.callInstanceMethod(screen, "hostActions");
+        com.limelight.computers.HostActions.Callbacks callbacks = org.robolectric.util.ReflectionHelpers.getField(actions, "callbacks");
+        callbacks.onPaired(computer);
+    }
+
+    @Test
+    public void aNewlyPairedNativeHostLandsOnHome() {
+        ActivityController<PcViewLifecycleTest.Library> controller = pcs();
+        try {
+            PcViewLifecycleTest.Library screen = controller.get();
+            paired(screen, com.limelight.nativeapi.NativeApiFixtures.nativeHost("fresh", "Fresh", true));
+            Intent home = nextStarted(screen);
+            assertEquals(ConsoleHomeActivity.class.getName(), home.getComponent().getClassName());
+            assertNull("not the classic game list", nextStarted(screen));
+            assertFalse("PCs is the first screen until Home has a library, so Back returns to it", screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aNewlyPairedNativeHostBringsBackHomeWhenItIsTheFirstScreen() throws Exception {
+        cacheALibrary();
+        ActivityController<PcViewLifecycleTest.Library> controller = pcs();
+        try {
+            PcViewLifecycleTest.Library screen = controller.get();
+            paired(screen, com.limelight.nativeapi.NativeApiFixtures.nativeHost("fresh", "Fresh", true));
+            Intent home = nextStarted(screen);
+            assertEquals(ConsoleHomeActivity.class.getName(), home.getComponent().getClassName());
+            assertRootFlags(home);
+            assertTrue(screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aNewlyPairedClassicHostOrAnyHostWithHomeOffOpensItsGameList() {
+        ActivityController<PcViewLifecycleTest.Library> controller = pcs();
+        try {
+            PcViewLifecycleTest.Library screen = controller.get();
+            org.robolectric.util.ReflectionHelpers.setField(screen, "managerBinder",
+                    new com.limelight.computers.ComputerManagerService().new ComputerManagerBinder());
+            paired(screen, com.limelight.nativeapi.NativeApiFixtures.classicHost("old", "Old"));
+            assertEquals(com.limelight.AppView.class.getName(), nextStarted(screen).getComponent().getClassName());
+            turnHomeOff();
+            paired(screen, com.limelight.nativeapi.NativeApiFixtures.nativeHost("fresh", "Fresh", true));
+            assertEquals(com.limelight.AppView.class.getName(), nextStarted(screen).getComponent().getClassName());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

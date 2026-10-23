@@ -22,6 +22,7 @@ import com.limelight.preferences.HostStreamSettings;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
+import com.limelight.console.HomeSettings;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
 import com.limelight.update.UpdateFlow;
@@ -64,7 +65,14 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
         @Override public ComputerManagerService.ComputerManagerBinder binder() { return managerBinder; }
         @Override public boolean isForeground() { return inForeground; }
-        @Override public void onPaired(ComputerDetails computer) { doAppList(computer, true, false); }
+        @Override public void onPaired(ComputerDetails computer) {
+            if (HomeSettings.landsOnHome(PcView.this, computer)) {
+                // Home is where its games are; the PCs screen steps aside unless it is the first screen.
+                ShellBar.open(PcView.this, ShellBar.Destination.PCS, ShellBar.Destination.HOME);
+            } else {
+                doAppList(computer, true, false);
+            }
+        }
         @Override public void onRemoved(ComputerDetails computer) { removeFromList(computer); }
         @Override public void onRenamed(ComputerDetails computer) { pcGridAdapter.notifyDataSetChanged(); }
         @Override public void onWakeSent(ComputerDetails computer) {

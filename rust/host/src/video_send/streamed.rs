@@ -66,6 +66,10 @@ impl Streams {
         }
     }
 
+    pub fn is_open(&self) -> bool {
+        self.open.is_some()
+    }
+
     /// The frame number to expect next on the wire: a frame takes its number
     /// when its first block is built, so an open one that has built none
     /// still owes it.

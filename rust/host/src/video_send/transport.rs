@@ -458,6 +458,32 @@ pub(super) fn run(
     pacing_due: Instant,
     send_loss: SendLossRecovery,
 ) -> Result<()> {
+    run_with(
+        shared,
+        socket,
+        s,
+        c,
+        h,
+        start,
+        pacing_due,
+        send_loss,
+        SendDrop::from_env(),
+    )
+}
+
+/// [`run`] with the test loss given instead of read from the environment.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_with(
+    shared: &Slot,
+    socket: Arc<UdpSocket>,
+    s: Arc<Session>,
+    c: Config,
+    h: Shared,
+    start: Instant,
+    pacing_due: Instant,
+    send_loss: SendLossRecovery,
+    send_drop: Option<SendDrop>,
+) -> Result<()> {
     let _priority = butterpollo_windows::capture::Priority::new();
     let mut batch = Batch::default();
     batch.waits = Some(Default::default());
@@ -481,7 +507,7 @@ pub(super) fn run(
         reported_pacing: None,
         slow_reported: None,
         outage: SendOutage::from_env(),
-        send_drop: SendDrop::from_env(),
+        send_drop,
         send_loss,
         batch_kb,
     };

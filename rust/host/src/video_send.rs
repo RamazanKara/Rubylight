@@ -78,6 +78,11 @@ struct State {
     /// Updated after actual send progress, never a wall-clock-only countdown.
     transmitting_remaining: Option<Duration>,
     recycled: Vec<Vec<PacketBlock>>,
+    /// A streamed frame is open on the packetizer thread: some of its blocks
+    /// may be out and the encoder still produces the rest. It counts toward
+    /// the claim backlog only, so a new picture is not claimed (and aged)
+    /// behind it, while recreation still waits just for what is queued.
+    streaming: bool,
     next_wire_frame: u32,
     skipped: u32,
     error: Option<String>,
@@ -126,7 +131,8 @@ impl State {
     fn claim_backlog(&self, recovery_lead: Option<Duration>) -> Result<usize> {
         Ok(self.backlog()?
             + usize::from(
-                self.sending_keyframe
+                self.streaming
+                    || self.sending_keyframe
                     || (self.transmitting_keyframe
                         && !self
                             .transmitting_remaining
@@ -154,6 +160,7 @@ impl Slot {
         state.ready = None;
         state.sending = false;
         state.sending_keyframe = false;
+        state.streaming = false;
         state.transmitting = false;
         state.transmitting_keyframe = false;
         state.transmitting_remaining = None;
@@ -271,10 +278,14 @@ impl Sender {
                         shared, &s, &mut packetizer, &frame.bytes, streamed::is_last(frame.unit),
                         polled, encode, &mut fec_reported,
                     )?;
+                    shared.state.lock().unwrap().streaming = streams.is_open();
                     return Ok(streams.next_wire_frame(&packetizer));
                 }
                 // A frame that begins while another is open means the other lost its last unit.
-                streams.interrupted(&s, &mut packetizer);
+                if streams.is_open() {
+                    streams.interrupted(&s, &mut packetizer);
+                    shared.state.lock().unwrap().streaming = false;
+                }
                 packetizer.frame = packetizer.frame.wrapping_add(std::mem::take(&mut owed));
                 let captured = frame.presentation.unwrap_or(claimed);
                 let stamp = present_stamper.as_mut().map_or(captured, |stamper| {
@@ -296,6 +307,7 @@ impl Sender {
                         shared, &s, &mut packetizer, &frame.bytes, streamed::is_last(frame.unit),
                         polled, encode, &mut fec_reported,
                     )?;
+                    shared.state.lock().unwrap().streaming = streams.is_open();
                     return Ok(streams.next_wire_frame(&packetizer));
                 }
                 if frame.bytes.is_empty() {
@@ -370,6 +382,7 @@ impl Sender {
                 transmitting_keyframe: false,
                 transmitting_remaining: None,
                 recycled: Vec::new(),
+                streaming: false,
                 next_wire_frame,
                 skipped: 0,
                 error: None,

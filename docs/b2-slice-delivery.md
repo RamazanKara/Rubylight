@@ -230,11 +230,13 @@ Stop and revert to `off`-only (remove the code) if any of these hold after 2f:
 - 2d: the threaded path sends one `Prepared` per FEC block (`Prepared.stream: Option<Part { first, last }>`, `last` from
   the new `StreamedBlock::is_last`, since the block count is fixed by the plan but a small frame can end up with fewer).
   The packetizer thread keeps the open frame (`video_send/streamed.rs`) and a unit of it travels through the same pending
-  slot as a whole frame. There is no separate "streaming" flag in `State`: `skip_pending` leaves non-`Whole` pending
+  slot as a whole frame. `skip_pending` leaves non-`Whole` pending
   units and ready parts alone, because dropping one would strand the frame. The paced sender (`transport.rs`) keeps the
   `Sending` state across the parts: pacing, `SendLoss` (incremental), outage and `SendDrop` apply per part, and the frame
   is accounted (stats, timing record, claim) once, after its last part. A frame whose last part never comes is not
   accounted, and the next first part restarts the state. A new frame starting while one is open abandons it (warning,
   recovery frame). The sender thread cannot turn delivery off: it counts the overflow in `slice_delivery_overflows` and
-  the stream thread's `Delivery::sync` takes it in. Only the first unit takes the picture's claim. Between two parts the
-  sender's backlog can read 0, so the stream thread may claim the next picture while the encoder still finishes this one.
+  the stream thread's `Delivery::sync` takes it in. Only the first unit takes the picture's claim. While a frame is open `State.streaming` is set;
+  it counts in `claim_backlog` only (the stream thread does not claim the next picture behind a frame the encoder is
+  still finishing), not in `backlog`, so recreating the encoder does not wait for it. A frame whose last unit never
+  comes keeps the flag until the next frame begins.

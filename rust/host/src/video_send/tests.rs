@@ -321,6 +321,7 @@ fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
         transmitting_keyframe: false,
         transmitting_remaining: None,
         recycled: Vec::new(),
+        streaming: false,
         next_wire_frame: 1,
         skipped: 0,
         error: None,
@@ -1676,6 +1677,28 @@ fn a_streamed_frame_goes_out_in_order_and_is_timed_once() {
             .iter()
             .all(|packet| packet[20..24] == 1u32.to_le_bytes())
     );
+    // On the wire in order: blocks never go back, and the RTP sequence and the
+    // stream packet index step by one per packet across the parts.
+    let block = |packet: &Vec<u8>| (packet[27] >> 4) & 3;
+    assert_eq!(block(&packets[0]), 0);
+    assert_eq!(block(packets.last().unwrap()), 1);
+    for pair in packets.windows(2) {
+        assert!(block(&pair[0]) <= block(&pair[1]));
+        let sequence = |p: &Vec<u8>| u16::from_be_bytes(p[2..4].try_into().unwrap());
+        assert_eq!(sequence(&pair[1]), sequence(&pair[0]).wrapping_add(1));
+    }
+    // A data shard carries its packet index (the FEC covers it, so parity
+    // shards do not): it is the same count.
+    for packet in &packets {
+        let info = u32::from_le_bytes(packet[28..32].try_into().unwrap());
+        if (info >> 12) & 0x3ff < info >> 22 {
+            let index = u32::from_le_bytes(packet[16..20].try_into().unwrap()) >> 8;
+            assert_eq!(
+                index,
+                u32::from(u16::from_be_bytes(packet[2..4].try_into().unwrap()))
+            );
+        }
+    }
     let (stream, blocks) = streamed_payload(&packets);
     assert_eq!(blocks, 2);
     let mut expected = vec![0; 8];
@@ -1690,4 +1713,191 @@ fn a_streamed_frame_goes_out_in_order_and_is_timed_once() {
     assert!(points[5] <= points[6] && points[6] <= points[7] && points[7] <= points[8]);
     assert!(points[8] <= points[9]);
     assert_eq!(session.info()["performance"]["stages"]["frames"], 1);
+}
+
+/// A streamed frame's first block, then a whole frame: the open frame is
+/// abandoned on the packetizer thread, and the sender must account for the
+/// second frame alone.
+#[test]
+fn a_frame_cut_off_after_its_first_block_leaves_no_stats_or_timing_behind() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    receiver
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    let now = Instant::now();
+    let mut handoff = handoff(packetizer(None));
+    handoff.slice_blocks = 2;
+    handoff.slices = 2;
+    let sender = Sender::new(
+        socket,
+        session.clone(),
+        fixture.host.config.read().unwrap().clone(),
+        fixture.host.clone(),
+        now - Duration::from_millis(500),
+        handoff,
+    )
+    .unwrap();
+    let (sink, rows) = butterpollo_core::timing_record::channel(8);
+    *session.timing_record.write().unwrap() = Some(Arc::new(sink));
+    let mut claims = Claims::default();
+    for ms in [8, 4] {
+        let key = now - Duration::from_millis(ms);
+        claims.push(Claim {
+            key,
+            presented: key,
+            acquired: key,
+            published: key,
+            claimed: key,
+            submitted: key,
+        });
+    }
+    let addr = receiver.local_addr().unwrap();
+    let mut cut = slice(0, 20, 1);
+    cut.presentation = Some(now - Duration::from_millis(8));
+    sender
+        .submit_tick(vec![cut], addr, Duration::ZERO, &mut claims, now)
+        .unwrap();
+    // Block 0 is on the wire.
+    let mut buffer = [0; 2048];
+    receiver.recv(&mut buffer).unwrap();
+    let mut whole = frame(2);
+    whole.presentation = Some(now - Duration::from_millis(4));
+    sender
+        .submit_tick(vec![whole], addr, Duration::ZERO, &mut claims, now)
+        .unwrap();
+    assert_eq!(sender.next_wire_frame().unwrap(), 3);
+    // One frame was accounted: the whole one, which is number 2.
+    let row = rows.try_recv().unwrap();
+    assert_eq!(row.wire_frame, 2);
+    assert!(rows.try_recv().is_err());
+    assert_eq!(session.stats.frames.load(Ordering::Relaxed), 1);
+    let performance = &session.info()["performance"];
+    assert_eq!(performance["stages"]["frames"], 1);
+    assert_eq!(performance["sample_frames"], 1);
+}
+
+/// The paced sender with the test loss given directly: block 0 of a streamed
+/// frame loses more than its parity, so block 1 is never offered.
+#[test]
+fn a_streamed_frame_lost_in_its_first_block_stops_and_is_not_stamped() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    receiver
+        .set_read_timeout(Some(Duration::from_millis(300)))
+        .unwrap();
+    let now = Instant::now();
+    let mut handoff = handoff(packetizer(None));
+    handoff.slice_blocks = 2;
+    handoff.slices = 2;
+    let mut sender = Sender::packetizer(session.clone(), now, handoff).unwrap();
+    let (sink, rows) = butterpollo_core::timing_record::channel(8);
+    *session.timing_record.write().unwrap() = Some(Arc::new(sink));
+    let key = now - Duration::from_millis(4);
+    let mut claims = Claims::default();
+    claims.push(Claim {
+        key,
+        presented: key,
+        acquired: key,
+        published: key,
+        claimed: key,
+        submitted: key,
+    });
+    let addr = receiver.local_addr().unwrap();
+    let mut first = slice(0, 20, 1);
+    first.presentation = Some(key);
+    sender
+        .submit_tick(vec![first], addr, Duration::ZERO, &mut claims, now)
+        .unwrap();
+    // Block 0's packet count, read before the paced sender starts.
+    let block0 = wait_prepared(&sender).ready.as_ref().unwrap().counts[0];
+    let shared = sender.slot.clone();
+    let s = session.clone();
+    let config = fixture.host.config.read().unwrap().clone();
+    let host = fixture.host.clone();
+    sender.transport = Some(thread::spawn(move || {
+        let result = transport::run_with(
+            &shared,
+            socket,
+            s,
+            config,
+            host,
+            now,
+            Instant::now(),
+            Default::default(),
+            butterpollo_core::stream_policy::SendDrop::parse("100:5"),
+        );
+        shared.finish(result);
+    }));
+    sender
+        .submit_tick(vec![last(1, 20, 2)], addr, Duration::ZERO, &mut claims, now)
+        .unwrap();
+    assert_eq!(sender.next_wire_frame().unwrap(), 2);
+    let stats = &session.stats;
+    // Only block 0 was offered to the socket, and it was refused.
+    let offered = stats.packets.load(Ordering::Relaxed) as usize;
+    assert!(offered > 0 && offered <= block0, "{offered} of {block0}");
+    let mut buffer = [0; 2048];
+    assert!(
+        receiver.recv(&mut buffer).is_err(),
+        "nothing reached the client"
+    );
+    // The unrecoverable frame is counted, asks for a recovery frame, and has
+    // no stage timings or record.
+    assert_eq!(stats.send_loss_recoveries.load(Ordering::Relaxed), 1);
+    assert!(rows.try_recv().is_err());
+    assert_eq!(session.info()["performance"]["stages"]["frames"], 0);
+}
+
+#[test]
+fn an_open_streamed_frame_counts_toward_the_claim_backlog_only() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let sender = streaming_sender(session, 2, 2);
+    submit_units(&sender, vec![slice(0, 20, 1)]);
+    take_prepared(&sender);
+    // The packetizer is idle again; the frame still waits for its last unit.
+    {
+        let state = sender.slot.state.lock().unwrap();
+        let (state, timeout) = sender
+            .slot
+            .changed
+            .wait_timeout_while(state, WAIT, |s| s.sending || s.pending.is_some())
+            .unwrap();
+        assert!(!timeout.timed_out());
+        assert!(state.streaming);
+    }
+    assert_eq!(sender.backlog().unwrap(), 0);
+    assert_eq!(sender.claim_backlog(None).unwrap(), 1);
+    // The recreated encoder need not wait for it.
+    assert_eq!(sender.next_wire_frame().unwrap(), 2);
+    submit_units(&sender, vec![last(1, 20, 2)]);
+    take_prepared(&sender);
+    {
+        let state = sender.slot.state.lock().unwrap();
+        let (state, timeout) = sender
+            .slot
+            .changed
+            .wait_timeout_while(state, WAIT, |s| s.sending || s.streaming)
+            .unwrap();
+        assert!(!timeout.timed_out());
+        assert_eq!(state.claim_backlog(None).unwrap(), 0);
+    }
+    // A frame that begins over an open one closes it.
+    submit_units(&sender, vec![slice(0, 20, 1)]);
+    take_prepared(&sender);
+    submit_units(&sender, vec![frame(2)]);
+    take_prepared(&sender);
+    let state = sender.slot.state.lock().unwrap();
+    let (state, timeout) = sender
+        .slot
+        .changed
+        .wait_timeout_while(state, WAIT, |s| s.sending || s.streaming)
+        .unwrap();
+    assert!(!timeout.timed_out());
+    assert_eq!(state.claim_backlog(None).unwrap(), 0);
 }

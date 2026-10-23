@@ -80,6 +80,8 @@ public class StreamSettings extends NightjarActivity {
     private static final String STATE_SECTION = "section";
     /** Opens this section of {@link #SECTIONS} instead of the list; an unknown name opens the list. */
     public static final String EXTRA_SECTION = "com.limelight.preferences.SECTION";
+    /** The key of the setting to scroll to and select once the section shows; see {@link #open}. */
+    public static final String EXTRA_FOCUS_KEY = "com.limelight.preferences.FOCUS_KEY";
     static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";
     // Top-level screen keys (preferences_root.xml) and the preference categories each one shows
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
@@ -108,6 +110,14 @@ public class StreamSettings extends NightjarActivity {
     private String searchQuery = "";
     private SearchView searchView;
     private String searchResultKey;
+    /** Two panes (sections left, one section right): layout-television and layout-w840dp. */
+    private boolean twoPane;
+    /** The next right-pane list takes focus: a section was opened by the D-pad, or a result or deep link picked a row. */
+    private boolean enterPane;
+    /** The row named by searchResultKey takes focus once selected: a deep link, or a search result picked in the content pane. */
+    private boolean focusRow;
+    private String previewSection;
+    private boolean swallowReturnKeyUp;
     private String returnSearchQuery;
     private String returnSearchSection;
     private TextView contextLabel;
@@ -117,6 +127,68 @@ public class StreamSettings extends NightjarActivity {
     private boolean searchPending;
     private final Handler navigationHandler = new Handler();
     private final Runnable searchUpdate = this::renderSearch;
+    private final Runnable sectionPreview = () -> {
+        if (previewSection != null && searchQuery.isEmpty()) showSection(previewSection);
+    };
+
+    /** The intent for {@link #open}; {@code section} and {@code focusKey} may be null. */
+    public static Intent intent(Context context, String section, String focusKey) {
+        Intent intent = new Intent(context, StreamSettings.class);
+        if (section == null && focusKey != null) section = sectionOfKey(context, focusKey);
+        if (section != null) intent.putExtra(EXTRA_SECTION, section);
+        if (focusKey != null) intent.putExtra(EXTRA_FOCUS_KEY, focusKey);
+        return intent;
+    }
+
+    /**
+     * Opens Settings on {@code section} (a key of {@link #SECTIONS}) with the setting {@code focusKey} selected.
+     * Without a section the one that holds the key is used; an unknown section opens the list. Back returns to
+     * the caller.
+     */
+    public static void open(Context context, String section, String focusKey) {
+        Intent intent = intent(context, section, focusKey);
+        if (!(context instanceof android.app.Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
+    }
+
+    /** The section of the setting with this key in preferences.xml, or null for an unknown key. */
+    static String sectionOfKey(Context context, String key) {
+        String category = null;
+        try (XmlResourceParser parser = context.getResources().getXml(R.xml.preferences)) {
+            for (int event = parser.getEventType(); event != XmlPullParser.END_DOCUMENT; event = parser.next()) {
+                if (event != XmlPullParser.START_TAG) continue;
+                String name = parser.getAttributeValue("http://schemas.android.com/apk/res/android", "key");
+                if (name == null) continue;
+                if (parser.getName().equals("PreferenceCategory")) category = name;
+                if (name.equals(key)) return sectionOf(category);
+            }
+        } catch (XmlPullParserException | IOException e) {
+            LimeLog.warning("Unable to read preference keys: " + e);
+        }
+        return null;
+    }
+
+    static boolean isTelevision(Context context) {
+        return (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
+                == Configuration.UI_MODE_TYPE_TELEVISION;
+    }
+
+    /** Whether a gamepad is connected: it reaches the toolbar's search icon as badly as a TV remote does. */
+    private static boolean hasGamepad() {
+        for (int id : android.view.InputDevice.getDeviceIds()) {
+            android.view.InputDevice device = android.view.InputDevice.getDevice(id);
+            if (device != null && !device.isVirtual() && (device.getSources() & android.view.InputDevice.SOURCE_GAMEPAD)
+                    == android.view.InputDevice.SOURCE_GAMEPAD) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The section the right pane shows before one is picked: the first row of the list. */
+    private String defaultSection() {
+        return isTelevision(this) ? "input" : "video";
+    }
 
     /** Whether custom GPU drivers can load here. The debug build's demo mode shows their screen anyway. */
     protected boolean supportsGpuDrivers() {
@@ -130,6 +202,7 @@ public class StreamSettings extends NightjarActivity {
 
     void reloadSettings() {
         navigationHandler.removeCallbacks(searchUpdate);
+        navigationHandler.removeCallbacks(sectionPreview);
         searchPending = false;
         if (isFinishing() || isDestroyed()) return;
         if (stateSaved) {
@@ -137,22 +210,101 @@ public class StreamSettings extends NightjarActivity {
             return;
         }
         section = normalizeSection(section);
+        if (twoPane && section == null) section = defaultSection();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
             previousDisplayPixelCount = mode.getPhysicalWidth() * mode.getPhysicalHeight();
         }
-        getFragmentManager().beginTransaction().replace(
-                R.id.stream_settings, section == null && searchQuery.isEmpty() ?
-                        new RootFragment() : SettingsFragment.forSection(section)
-        ).commit();
+        android.app.FragmentTransaction transaction = getFragmentManager().beginTransaction();
+        if (twoPane && getFragmentManager().findFragmentById(R.id.settings_sections) == null) {
+            transaction.add(R.id.settings_sections, new RootFragment());
+        }
+        transaction.replace(R.id.stream_settings, section == null && searchQuery.isEmpty() ?
+                new RootFragment() : SettingsFragment.forSection(section)).commit();
         updateHeader();
+        markSection();
+    }
+
+    /** The preference list of the fragment in a pane, or null while it has no view. */
+    private ListView listOf(int container) {
+        android.app.Fragment fragment = getFragmentManager().findFragmentById(container);
+        View view = fragment == null ? null : fragment.getView();
+        return view == null ? null : view.findViewById(android.R.id.list);
+    }
+
+    /** The list of sections: the left pane, or the whole screen while a phone shows the overview. */
+    private ListView sectionList() {
+        return listOf(twoPane ? R.id.settings_sections : R.id.stream_settings);
+    }
+
+    /** The view holding focus in this screen's tree, which is set before the window reports focus. */
+    private View focusOwner() {
+        return findViewById(android.R.id.content).findFocus();
+    }
+
+    private boolean inContentPane(View view) {
+        for (android.view.ViewParent parent = view == null ? null : view.getParent(); parent != null; parent = parent.getParent()) {
+            if (parent instanceof View && ((View) parent).getId() == R.id.stream_settings) return true;
+        }
+        return false;
+    }
+
+    /** Marks the section the right pane shows in the list of sections. */
+    private void markSection() {
+        android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.settings_sections);
+        if (twoPane && fragment instanceof RootFragment) ((RootFragment) fragment).mark(section);
+    }
+
+    /** Moves focus from the content pane back to the section it shows. */
+    private void focusSectionList() {
+        ListView list = sectionList();
+        if (list == null) return;
+        markSection();
+        int position = RootFragment.positionOf(list, section);
+        if (position >= 0) list.setSelection(position);
+        list.requestFocus();
+    }
+
+    /** Called when a section row is selected: the right pane follows after a short pause, so a fast scroll does not rebuild it per row. */
+    void previewSection(String key) {
+        if (!twoPane || !searchQuery.isEmpty() || key.equals(section)) return;
+        previewSection = key;
+        navigationHandler.removeCallbacks(sectionPreview);
+        navigationHandler.postDelayed(sectionPreview, 100);
+    }
+
+    /** Opens a section from its row; {@code enter} moves focus into it, which is what Center does after the D-pad. */
+    void activateSection(String key, boolean enter) {
+        navigationHandler.removeCallbacks(sectionPreview);
+        if (twoPane && enter) {
+            enterPane = true;
+            if (key.equals(section) && searchQuery.isEmpty()) {
+                ListView list = listOf(R.id.stream_settings);
+                if (list != null) {
+                    enterPane = false;
+                    list.requestFocus();
+                }
+                return;
+            }
+        }
+        showSection(key);
+    }
+
+    /** Called by a content list when it is built: whether it takes focus (see {@link #enterPane}). */
+    boolean takesFocus(boolean contentPane) {
+        if (!twoPane) return isTelevision(this);
+        if (!contentPane) return isTelevision(this) && !enterPane;
+        boolean enter = enterPane;
+        enterPane = false;
+        return enter;
     }
 
     private void updateHeader() {
+        boolean overview = section == null || twoPane;
         toolbar.setTitle(!searchQuery.isEmpty() ? R.string.settings_search_results :
-                section == null ? R.string.settings : sectionTitle(section));
+                overview ? R.string.settings : sectionTitle(section));
         if (searchQuery.isEmpty()) {
-            contextLabel.setText(section == null ? R.string.settings_global_context : R.string.settings_changes_saved);
+            contextLabel.setText(overview ? R.string.settings_global_context : R.string.settings_changes_saved);
         } else {
             android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.stream_settings);
             if (fragment instanceof SettingsFragment) {
@@ -161,9 +313,9 @@ public class StreamSettings extends NightjarActivity {
             }
         }
         // The shell bar belongs to the list of sections; a section or the search results keep the back arrow and title.
-        findViewById(R.id.shell_bar).setVisibility(section == null && searchQuery.isEmpty() ? View.VISIBLE : View.GONE);
+        findViewById(R.id.shell_bar).setVisibility(overview && searchQuery.isEmpty() ? View.VISIBLE : View.GONE);
         toolbar.setNavigationContentDescription(returnSearchQuery != null ? R.string.settings_back_to_search :
-                section == null ? R.string.settings_navigate_up : R.string.settings_back_to_overview);
+                overview ? R.string.settings_navigate_up : R.string.settings_back_to_overview);
     }
 
     private void renderSearch() {
@@ -195,7 +347,7 @@ public class StreamSettings extends NightjarActivity {
     /** Shows the search field under the top app bar and focuses it; search stays out of the way until asked for. */
     public void openSearch() {
         searchView.setVisibility(View.VISIBLE);
-        linkListToSearch(findViewById(android.R.id.list), searchView);
+        linkListsToSearch();
         searchView.setIconified(false);
         searchView.requestFocus();
     }
@@ -203,8 +355,10 @@ public class StreamSettings extends NightjarActivity {
     private void openSearchResult(String targetSection, String key) {
         returnSearchQuery = searchQuery;
         returnSearchSection = section;
-        section = targetSection;
+        // The right pane always shows a section; a result that lives in the list of sections (the presets) keeps the one it had.
+        section = targetSection == null && twoPane ? (section != null ? section : defaultSection()) : targetSection;
         searchResultKey = key;
+        enterPane = focusRow = twoPane && inContentPane(focusOwner());
         setSearchQuery("");
     }
 
@@ -237,14 +391,28 @@ public class StreamSettings extends NightjarActivity {
 
     void showSection(String newSection) {
         section = newSection;
+        if (twoPane && !searchQuery.isEmpty()) {
+            // Picking a section ends the search; setSearchQuery shows the section.
+            returnSearchQuery = null;
+            returnSearchSection = null;
+            setSearchQuery("");
+            return;
+        }
         reloadSettings();
+    }
+
+    private void linkListsToSearch() {
+        linkListToSearch(listOf(R.id.settings_sections), searchView);
+        linkListToSearch(listOf(R.id.stream_settings), searchView);
     }
 
     private void navigateBack() {
         if (searchQuery.isEmpty() && searchView.getVisibility() == View.VISIBLE) {
             searchView.clearFocus();
             searchView.setVisibility(View.GONE);
-            linkListToSearch(findViewById(android.R.id.list), searchView);
+            linkListsToSearch();
+            ListView list = sectionList();
+            if (list != null && RootFragment.showsSearchRow(this, twoPane)) list.requestFocus();
         }
         else if (!searchQuery.isEmpty()) {
             setSearchQuery("");
@@ -256,7 +424,10 @@ public class StreamSettings extends NightjarActivity {
             returnSearchSection = null;
             setSearchQuery(query);
         }
-        else if (section != null) {
+        else if (twoPane && inContentPane(focusOwner())) {
+            focusSectionList();
+        }
+        else if (section != null && !twoPane) {
             showSection(null);
         }
         else {
@@ -301,6 +472,9 @@ public class StreamSettings extends NightjarActivity {
             searchResultKey = savedInstanceState.getString("search_result");
         } else {
             section = normalizeSection(getIntent().getStringExtra(EXTRA_SECTION));
+            // A deep link names the setting to land on; it only makes sense inside a section.
+            if (section != null) searchResultKey = getIntent().getStringExtra(EXTRA_FOCUS_KEY);
+            enterPane = focusRow = searchResultKey != null;
         }
         super.onCreate(savedInstanceState);
 
@@ -311,6 +485,8 @@ public class StreamSettings extends NightjarActivity {
         UiHelper.setLocale(this);
 
         setContentView(R.layout.activity_stream_settings);
+        twoPane = findViewById(R.id.settings_sections) != null;
+        dropMisplacedPanes();
         toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), R.menu.settings);
         TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> navigateBack());
         ShellBar.install(this, ShellBar.Destination.SETTINGS);
@@ -350,6 +526,27 @@ public class StreamSettings extends NightjarActivity {
         updateHeader();
 
         UiHelper.notifyNewRootView(this);
+    }
+
+    /** A recreated activity gets back the fragments of the layout it had; the other layout has no place for them. */
+    private void dropMisplacedPanes() {
+        android.app.FragmentManager fragments = getFragmentManager();
+        android.app.Fragment sections = fragments.findFragmentById(R.id.settings_sections);
+        android.app.Fragment content = fragments.findFragmentById(R.id.stream_settings);
+        android.app.FragmentTransaction transaction = fragments.beginTransaction();
+        boolean changed = false;
+        if (!twoPane && sections != null) {
+            transaction.remove(sections);
+            changed = true;
+        }
+        if (twoPane && content instanceof RootFragment) {
+            transaction.remove(content);
+            changed = true;
+        }
+        if (changed) {
+            transaction.commitAllowingStateLoss();
+            fragments.executePendingTransactions();
+        }
     }
 
     @Override
@@ -440,7 +637,9 @@ public class StreamSettings extends NightjarActivity {
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
 
-        if (getFragmentManager().findFragmentById(R.id.stream_settings) == null) {
+        // A recreated two-pane screen gets its section back but not the list of sections, when it came from one pane.
+        if (getFragmentManager().findFragmentById(R.id.stream_settings) == null
+                || (twoPane && getFragmentManager().findFragmentById(R.id.settings_sections) == null)) {
             reloadSettings();
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
@@ -451,6 +650,12 @@ public class StreamSettings extends NightjarActivity {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+
+        // Window resizes (split screen, freeform) cross the two-pane width without recreating the activity.
+        if (getResources().getBoolean(R.bool.settings_two_pane) != twoPane) {
+            recreate();
+            return;
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
@@ -471,6 +676,26 @@ public class StreamSettings extends NightjarActivity {
     // NOTE: This will NOT be called on Android 13+ with android:enableOnBackInvokedCallback="true"
     public void onBackPressed() {
         navigateBack();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (super.dispatchKeyEvent(event)) return true;
+        // Left (Right in RTL) from the content pane returns to the list; rows that use the key, such as a slider, ran first.
+        int towardList = getResources().getConfiguration().getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ?
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT : android.view.KeyEvent.KEYCODE_DPAD_LEFT;
+        if (twoPane && event.getKeyCode() == towardList) {
+            if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && inContentPane(focusOwner())) {
+                swallowReturnKeyUp = true;
+                if (event.getRepeatCount() == 0) focusSectionList();
+                return true;
+            }
+            if (event.getAction() == android.view.KeyEvent.ACTION_UP && swallowReturnKeyUp) {
+                swallowReturnKeyUp = false;
+                return true;
+            }
+        }
+        return false;
     }
 
     private void finishSettings() {
@@ -530,14 +755,28 @@ public class StreamSettings extends NightjarActivity {
         list.setNextFocusUpId(search != null && search.getVisibility() == View.VISIBLE ? R.id.settings_search : View.NO_ID);
     }
 
-    private static void stylePreferenceList(View view, android.app.Activity activity) {
+    private static boolean isWithin(ViewGroup ancestor, View view) {
+        for (android.view.ViewParent p = view.getParent(); p != null; p = p.getParent()) {
+            if (p == ancestor) return true;
+        }
+        return false;
+    }
+
+    private static void stylePreferenceList(View view, android.app.Activity activity, boolean contentPane) {
         ListView list = view.findViewById(android.R.id.list);
         com.limelight.ui.UiNavigation.bindPreferencesWhenReady(list);
         View search = activity.findViewById(R.id.settings_search);
         linkListToSearch(list, search);
-        if ((view.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
-                == Configuration.UI_MODE_TYPE_TELEVISION && (search == null || !search.hasFocus())) {
+        // The first focus lands on content, never on the toolbar; with two panes only one list takes it.
+        if (((StreamSettings) activity).takesFocus(contentPane) && (search == null || !search.hasFocus())) {
             list.requestFocus();
+            // The window may hand focus to the first focusable (the toolbar) once it is laid out; take it back.
+            list.post(() -> {
+                View owner = activity.findViewById(android.R.id.content).findFocus();
+                View toolbar = activity.findViewById(R.id.settings_toolbar);
+                boolean onToolbar = owner != null && toolbar instanceof ViewGroup && isWithin((ViewGroup) toolbar, owner);
+                if (!list.hasFocus() && (owner == null || onToolbar) && list.isAttachedToWindow()) list.requestFocus();
+            });
         }
         list.setDivider(null);
         list.setDividerHeight(0);
@@ -557,6 +796,8 @@ public class StreamSettings extends NightjarActivity {
         }
         return value;
     }
+
+    static final String SEARCH_ROW_KEY = "settings_search";
 
     public static class RootFragment extends PreferenceFragment {
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater = (prefs, key) -> updateSummaries();
@@ -591,8 +832,7 @@ public class StreamSettings extends NightjarActivity {
         public void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
             addPreferencesFromResource(R.xml.preferences_root);
-            if ((getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
-                    == Configuration.UI_MODE_TYPE_TELEVISION) {
+            if (isTelevision(getActivity())) {
                 findPreference("input").setOrder(-1);
             }
             stylePreferences(getPreferenceScreen());
@@ -601,9 +841,23 @@ public class StreamSettings extends NightjarActivity {
                 if (row == null) continue;
                 row.setLayoutResource(R.layout.settings_section);
                 row.setOnPreferenceClickListener(preference -> {
-                    ((StreamSettings) getActivity()).showSection(key);
+                    ListView list = (ListView) getView().findViewById(android.R.id.list);
+                    ((StreamSettings) getActivity()).activateSection(key, list.hasFocus());
                     return true;
                 });
+            }
+            if (showsSearchRow(getActivity(), ((StreamSettings) getActivity()).twoPane)) {
+                Preference search = new Preference(getActivity());
+                search.setKey(SEARCH_ROW_KEY);
+                search.setTitle(R.string.settings_search_hint);
+                search.setPersistent(false);
+                search.setOrder(-2);
+                search.setLayoutResource(R.layout.settings_search_row);
+                search.setOnPreferenceClickListener(preference -> {
+                    ((StreamSettings) getActivity()).openSearch();
+                    return true;
+                });
+                getPreferenceScreen().addPreference(search);
             }
 
         }
@@ -611,8 +865,47 @@ public class StreamSettings extends NightjarActivity {
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
             View view = super.onCreateView(inflater, container, savedInstanceState);
-            stylePreferenceList(view, getActivity());
+            StreamSettings activity = (StreamSettings) getActivity();
+            stylePreferenceList(view, activity, false);
+            if (activity.twoPane) {
+                ListView list = view.findViewById(android.R.id.list);
+                list.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
+                // The right pane follows the row the D-pad is on.
+                list.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                    @Override
+                    public void onItemSelected(android.widget.AdapterView<?> parent, View row, int position, long id) {
+                        Object item = parent.getItemAtPosition(position);
+                        if (list.hasFocus() && item instanceof Preference && SECTIONS.containsKey(((Preference) item).getKey())) {
+                            activity.previewSection(((Preference) item).getKey());
+                        }
+                    }
+
+                    @Override
+                    public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+                });
+            }
             return view;
+        }
+
+        /** Whether the overview starts with a focusable "Search settings" row: for TVs, controllers and wide screens. */
+        static boolean showsSearchRow(Context context, boolean twoPane) {
+            return twoPane || isTelevision(context) || hasGamepad();
+        }
+
+        static int positionOf(ListView list, String key) {
+            for (int i = 0; key != null && i < list.getCount(); i++) {
+                Object item = list.getItemAtPosition(i);
+                if (item instanceof Preference && key.equals(((Preference) item).getKey())) return i;
+            }
+            return -1;
+        }
+
+        /** Highlights the row of the section shown in the other pane. */
+        void mark(String section) {
+            ListView list = getView() == null ? null : (ListView) getView().findViewById(android.R.id.list);
+            if (list == null || list.getAdapter() == null) return;
+            int position = positionOf(list, section);
+            if (position >= 0) list.setItemChecked(position, true);
         }
 
         @Override
@@ -620,7 +913,12 @@ public class StreamSettings extends NightjarActivity {
             super.onResume();
             getPreferenceManager().getSharedPreferences().registerOnSharedPreferenceChangeListener(summaryUpdater);
             updateSummaries();
-            ((StreamSettings) getActivity()).searchResultKey = null;
+            StreamSettings activity = (StreamSettings) getActivity();
+            if (activity.twoPane) {
+                activity.markSection();
+            } else {
+                activity.searchResultKey = null;
+            }
         }
 
         @Override
@@ -854,14 +1152,22 @@ public class StreamSettings extends NightjarActivity {
                 StreamSettings activity = (StreamSettings) getActivity();
                 if (activity.searchResultKey != null) {
                     String key = activity.searchResultKey;
+                    boolean focus = activity.focusRow;
                     activity.searchResultKey = null;
+                    activity.focusRow = false;
                     ListView list = getView().findViewById(android.R.id.list);
                     list.post(() -> {
-                        for (int i = 0; i < list.getCount(); i++) {
-                            Object item = list.getItemAtPosition(i);
-                            if (item instanceof Preference && key.equals(((Preference) item).getKey())) {
-                                list.setSelection(i);
-                                break;
+                        int position = RootFragment.positionOf(list, key);
+                        if (position >= 0) {
+                            list.setSelection(position);
+                            if (activity.twoPane && focus) list.requestFocus();
+                        } else if (activity.twoPane) {
+                            // A row of the list of sections, such as the presets.
+                            ListView sections = activity.sectionList();
+                            int row = sections == null ? -1 : RootFragment.positionOf(sections, key);
+                            if (row >= 0) {
+                                sections.setSelection(row);
+                                if (focus) sections.requestFocus();
                             }
                         }
                     });
@@ -1126,7 +1432,7 @@ public class StreamSettings extends NightjarActivity {
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
             View view = super.onCreateView(inflater, container, savedInstanceState);
-            stylePreferenceList(view, getActivity());
+            stylePreferenceList(view, getActivity(), true);
             return view;
         }
 

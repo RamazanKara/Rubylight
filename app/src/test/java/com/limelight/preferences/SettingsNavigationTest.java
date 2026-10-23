@@ -72,6 +72,57 @@ public class SettingsNavigationTest {
         } finally { controller.pause().stop().destroy(); }
     }
 
+    @Test
+    public void openNamesTheSectionAndTheSettingToLandOn() {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        android.content.Intent both = StreamSettings.intent(context, "audio", "list_audio_config");
+        assertEquals(StreamSettings.class.getName(), both.getComponent().getClassName());
+        assertEquals("audio", both.getStringExtra(StreamSettings.EXTRA_SECTION));
+        assertEquals("list_audio_config", both.getStringExtra(StreamSettings.EXTRA_FOCUS_KEY));
+        // The section follows from the key when the caller only knows the setting.
+        assertEquals("video", StreamSettings.intent(context, null, "checkbox_enable_hdr").getStringExtra(StreamSettings.EXTRA_SECTION));
+        assertEquals("audio", StreamSettings.intent(context, null, "list_audio_config").getStringExtra(StreamSettings.EXTRA_SECTION));
+        android.content.Intent plain = StreamSettings.intent(context, null, null);
+        assertFalse(plain.hasExtra(StreamSettings.EXTRA_SECTION));
+        assertFalse(plain.hasExtra(StreamSettings.EXTRA_FOCUS_KEY));
+        assertNull(StreamSettings.sectionOfKey(context, "no_such_setting"));
+    }
+
+    @Test
+    public void openStartsSettingsAndDeepLinkScrollsToTheSetting() {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        StreamSettings.open(context, "audio", "list_audio_config");
+        android.content.Intent started = org.robolectric.Shadows.shadowOf((Application) context).getNextStartedActivity();
+        assertEquals("audio", started.getStringExtra(StreamSettings.EXTRA_SECTION));
+        assertTrue("from a non-activity context", (started.getFlags() & android.content.Intent.FLAG_ACTIVITY_NEW_TASK) != 0);
+        ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class, started).setup().visible();
+        try {
+            StreamSettings screen = controller.get();
+            settle(screen);
+            settle(screen);
+            StreamSettings.SettingsFragment fragment = (StreamSettings.SettingsFragment)
+                    screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+            assertEquals("audio", fragment.getArguments().getString("section"));
+            assertEquals(screen.getString(R.string.settings_section_audio),
+                    ((com.google.android.material.appbar.MaterialToolbar) screen.findViewById(R.id.settings_toolbar)).getTitle().toString());
+            android.widget.ListView list = (android.widget.ListView) fragment.getView().findViewById(android.R.id.list);
+            assertEquals("list_audio_config", ((Preference) list.getSelectedItem()).getKey());
+        } finally { controller.pause().stop().destroy(); }
+    }
+
+    @Test
+    public void anUnknownSectionOrAKeyWithoutOneOpensTheList() {
+        android.content.Intent intent = new android.content.Intent(
+                (android.content.Context) org.robolectric.RuntimeEnvironment.getApplication(), StreamSettings.class)
+                .putExtra(StreamSettings.EXTRA_SECTION, "nope").putExtra(StreamSettings.EXTRA_FOCUS_KEY, "list_audio_config");
+        ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class, intent).setup().visible();
+        try {
+            settle(controller.get());
+            assertTrue(controller.get().getFragmentManager().findFragmentById(R.id.stream_settings)
+                    instanceof StreamSettings.RootFragment);
+        } finally { controller.pause().stop().destroy(); }
+    }
+
     private static void settle(StreamSettings screen) {
         ShadowLooper.idleMainLooper(150, TimeUnit.MILLISECONDS);
         screen.getFragmentManager().executePendingTransactions();

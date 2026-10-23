@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Search settings" at the top of the sections, for the D-pad and controllers: the toolbar icon is hard to reach with them. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="@dimen/touch_target"
+    android:gravity="center_vertical" android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+    android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_m"
+    android:descendantFocusability="blocksDescendants" android:background="@drawable/settings_section_background">
+    <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginEnd="@dimen/space_l"
+        tools:ignore="UseAppTint" android:src="@drawable/ic_library_search" android:tint="?attr/colorOnSurfaceVariant"
+        android:importantForAccessibility="no" />
+    <TextView android:id="@android:id/title" android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_weight="1" android:textAppearance="@style/TextAppearance.Nightjar.Body"
+        android:textColor="?attr/colorOnSurface" />
+</LinearLayout>

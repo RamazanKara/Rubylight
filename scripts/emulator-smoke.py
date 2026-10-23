@@ -102,6 +102,7 @@ def wait_for_system_process(root):
 def find(label, scroll=False):
     previous_scroll_state = None
     unchanged_scrolls = 0
+    reversed_once = False
     for attempt in range(64 if scroll else 8):
         root = tree()
         if any(n.get("resource-id") == "android:id/immersive_cling_title" for n in root.iter("node")):
@@ -139,11 +140,18 @@ def find(label, scroll=False):
             state = ET.tostring(root)
             unchanged_scrolls = unchanged_scrolls + 1 if state == previous_scroll_state else 0
             if unchanged_scrolls >= 3:
-                break
+                # At the end: a list left scrolled down by an earlier step (two panes keep both lists) may hold it above.
+                if scroll != True or reversed_once:
+                    break
+                reversed_once, scroll, unchanged_scrolls = True, "up", 0
             previous_scroll_state = state
-            area = next((n for n in root.iter("node") if n.get("scrollable") == "true"), None)
-            if area is not None:
+            # Two panes (a TV, 840 dp and wider) scroll side by side; the label may be in either one.
+            scrolled = []
+            for area in (n for n in root.iter("node") if n.get("scrollable") == "true"):
                 x1, y1, x2, y2 = bounds(area)
+                if any(x1 < sx2 and sx1 < x2 for sx1, sx2 in scrolled):
+                    continue
+                scrolled.append((x1, x2))
                 start, end = y1+(y2-y1)*3//4, y1+(y2-y1)//3
                 if scroll == "up":
                     start, end = end, start
@@ -199,6 +207,12 @@ def open_help():
     tap("App", scroll=True)
     tap("Help", scroll=True)
     find("Connect a PC")
+
+
+def section_up():
+    """Back from a section to the list of sections; with two panes (TV, 840 dp and wider) both are always shown."""
+    if not any(n.get("resource-id") == f"{PACKAGE}:id/settings_sections" for n in tree().iter("node")):
+        navigate_up()
 
 
 def close_help():
@@ -469,7 +483,7 @@ def capture_ui_set(width, font, rotation=0):
         tap(title, scroll=True)
         find(setting, scroll=True)
         screenshot(prefix + "-" + name)
-        navigate_up()
+        section_up()
     # Named profiles: the list, the choice by network and the precedence order on one screen.
     tap("Video", scroll=True)
     tap("Profiles", scroll=True)
@@ -480,7 +494,7 @@ def capture_ui_set(width, font, rotation=0):
     screenshot(prefix + "-profiles-order")
     navigate_up()
     find("Bitrate on mobile data", scroll=True)
-    navigate_up()
+    section_up()
     find("Presets", scroll=True)
     search = f"{PACKAGE}:id/search_src_text"
     # Search sits behind a top app bar action until it is used.
@@ -503,7 +517,7 @@ def capture_ui_set(width, font, rotation=0):
     find("Display & image · Image", scroll=True)
     screenshot(prefix + "-settings-search")
     tap("Upscaling sharpness", scroll=True)
-    find("Display & image")
+    find("Display & image", scroll=True)
     find("Upscaling sharpness", scroll=True)
     navigate_up()
     assert find(search).get("text") == "sharpness", "Back from a result lost its search query"

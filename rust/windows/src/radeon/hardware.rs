@@ -439,6 +439,80 @@ fn worker_writes_and_restores_anti_lag() {
     );
 }
 
+/// The per-game profiles of plan B5 (`butterpollo_core::radeon_profile`) against the real
+/// driver: each named profile is written as the host writes it at launch (the stream's 60 fps
+/// in place of `$stream_fps`), every value is read back, and the session's restore must leave
+/// the driver as it was found.
+#[test]
+#[ignore = "changes real driver settings"]
+fn game_profiles_apply_and_restore() {
+    use butterpollo_core::radeon_profile::selected;
+    let _exclusive = exclusive();
+    assert_host_idle();
+    let gpu = first_gpu();
+    let start = helper().read(gpu).expect("read");
+    let _restore = Restore::new(gpu, &start);
+    let dir = scratch_dir("profiles");
+    let worker = Worker::start(helper(), dir.join(JOURNAL_FILE), Timing::default());
+    let until = std::time::Instant::now() + Duration::from_secs(60);
+    while worker.status().phase == Phase::Recovering {
+        assert!(
+            std::time::Instant::now() < until,
+            "the recovery never ended"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    for name in ["competitive", "smoothness", "quality"] {
+        let extra = std::collections::BTreeMap::from([(
+            "radeon-profile".to_owned(),
+            serde_json::json!(name),
+        )]);
+        let profile = selected(&extra, Some(60))
+            .expect("valid")
+            .expect("a profile");
+        let changes: Vec<Change> = profile
+            .changes
+            .iter()
+            .map(|item| Change {
+                id: item.id.clone(),
+                value: match &item.value {
+                    serde_json::Value::Bool(on) => Value::Bool(*on),
+                    serde_json::Value::Number(n) => Value::Int(n.as_i64().expect("whole")),
+                    serde_json::Value::String(text) => Value::Choice(text.clone()),
+                    other => panic!("{other}"),
+                },
+            })
+            .collect();
+        let session = format!("hw-profile-{name}");
+        let after = worker
+            .apply(&session, gpu, changes.clone())
+            .unwrap_or_else(|e| panic!("{name}: the driver refused the profile: {e}"));
+        for change in &changes {
+            let now = after
+                .iter()
+                .find(|s| s.id == change.id)
+                .and_then(|s| s.value.clone());
+            println!(
+                "{name}: {} = {:?}",
+                change.id,
+                now.as_ref().map(Value::display)
+            );
+            assert_eq!(now.as_ref(), Some(&change.value), "{name}: {}", change.id);
+            assert_eq!(
+                helper().read_value(gpu, &change.id).expect("read"),
+                change.value,
+                "{name}: {} read in a new process",
+                change.id
+            );
+        }
+        let report = worker.restore_session(&session).expect("restore");
+        assert!(report.is_clean(), "{name}: {:?}", report.outcomes);
+        let moved = diff(&start, &helper().read(gpu).expect("read"));
+        assert!(moved.is_empty(), "{name}: after the restore: {moved:?}");
+        println!("{name}: applied, read back and restored");
+    }
+}
+
 /// Safety net: write back every setting to the values in `RADEON_SNAPSHOT` (default the file
 /// `snapshot` leaves behind).
 #[test]

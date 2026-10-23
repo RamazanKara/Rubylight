@@ -45,6 +45,12 @@ public final class ShellBar {
         }
     }
 
+    /**
+     * Set on the intent that opens Settings from the bar. Settings applies the shell Back rule only then;
+     * opened any other way (Ctrl+comma, a menu), Back simply returns to the screen it came from.
+     */
+    public static final String EXTRA_FROM_SHELL = "com.limelight.ui.FROM_SHELL";
+
     private ShellBar() {
     }
 
@@ -64,7 +70,7 @@ public final class ShellBar {
             case HOME:
                 return new Intent(context, ConsoleHomeActivity.class);
             case SETTINGS:
-                return new Intent(context, StreamSettings.class);
+                return new Intent(context, StreamSettings.class).putExtra(EXTRA_FROM_SHELL, true);
             default:
                 // Stays on the list instead of forwarding to Home the way a launcher start does.
                 return HomeSettings.pcList(context);
@@ -153,8 +159,10 @@ public final class ShellBar {
             @Override
             public void handleOnBackPressed() {
                 if (current == root(activity)) {
+                    // Let the activity's own Back run, then take Back over again for the next press.
                     setEnabled(false);
                     activity.getOnBackPressedDispatcher().onBackPressed();
+                    setEnabled(true);
                 } else {
                     leave(activity, current);
                 }

@@ -99,6 +99,9 @@ public class StreamSettings extends NightjarActivity {
             PreferenceConfiguration.LANGUAGE_PREF_STRING, "export_latency_csv", "about_app", "check_updates_now", "gpu_driver");
 
     private PreferenceConfiguration previousPrefs;
+    /** The shell root when Settings opened, and whether the bar opened it; see finishSettings. */
+    private ShellBar.Destination startRoot;
+    private boolean fromShell;
     private int previousDisplayPixelCount;
     private String section;
     private MaterialToolbar toolbar;
@@ -192,6 +195,7 @@ public class StreamSettings extends NightjarActivity {
     /** Shows the search field under the top app bar and focuses it; search stays out of the way until asked for. */
     public void openSearch() {
         searchView.setVisibility(View.VISIBLE);
+        linkListToSearch(findViewById(android.R.id.list), searchView);
         searchView.setIconified(false);
         searchView.requestFocus();
     }
@@ -240,6 +244,7 @@ public class StreamSettings extends NightjarActivity {
         if (searchQuery.isEmpty() && searchView.getVisibility() == View.VISIBLE) {
             searchView.clearFocus();
             searchView.setVisibility(View.GONE);
+            linkListToSearch(findViewById(android.R.id.list), searchView);
         }
         else if (!searchQuery.isEmpty()) {
             setSearchQuery("");
@@ -300,6 +305,8 @@ public class StreamSettings extends NightjarActivity {
         super.onCreate(savedInstanceState);
 
         previousPrefs = PreferenceConfiguration.readPreferences(this);
+        startRoot = ShellBar.root(this);
+        fromShell = getIntent().getBooleanExtra(ShellBar.EXTRA_FROM_SHELL, false);
 
         UiHelper.setLocale(this);
 
@@ -480,8 +487,21 @@ public class StreamSettings extends NightjarActivity {
                 return;
             }
         }
-        // Back from Settings goes to the root: Home, or the list of PCs when the app opens there.
-        ShellBar.leave(this, ShellBar.Destination.SETTINGS);
+        // Turning Home on or off here moves the root; restart the task on the new one so Back does not
+        // land on a screen that is no longer the first.
+        ShellBar.Destination root = ShellBar.root(this);
+        if (root != startRoot) {
+            finish();
+            startActivity(ShellBar.intentFor(this, root)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            return;
+        }
+        if (fromShell) {
+            // Back from Settings opened by the bar goes to the root: Home, or the list of PCs when the app opens there.
+            ShellBar.leave(this, ShellBar.Destination.SETTINGS);
+        } else {
+            finish();
+        }
     }
 
     private static void stylePreferences(PreferenceGroup group) {
@@ -501,11 +521,20 @@ public class StreamSettings extends NightjarActivity {
         }
     }
 
+    /**
+     * UP from the list goes to the search field only while it is shown; hidden, it would be a dead end on
+     * API below 26, so the default search finds the shell bar instead.
+     */
+    private static void linkListToSearch(View list, View search) {
+        if (list == null) return;
+        list.setNextFocusUpId(search != null && search.getVisibility() == View.VISIBLE ? R.id.settings_search : View.NO_ID);
+    }
+
     private static void stylePreferenceList(View view, android.app.Activity activity) {
         ListView list = view.findViewById(android.R.id.list);
         com.limelight.ui.UiNavigation.bindPreferencesWhenReady(list);
-        list.setNextFocusUpId(R.id.settings_search);
         View search = activity.findViewById(R.id.settings_search);
+        linkListToSearch(list, search);
         if ((view.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
                 == Configuration.UI_MODE_TYPE_TELEVISION && (search == null || !search.hasFocus())) {
             list.requestFocus();

@@ -1002,6 +1002,9 @@ impl Hosts {
                 let dropped = self.list[drop].record.clone();
                 let kept = &mut self.list[keep].record;
                 kept.manual |= dropped.manual;
+                if kept.alias.is_none() {
+                    kept.alias = dropped.alias;
+                }
                 if kept.pace.is_none() { kept.pace = dropped.pace; }
                 if kept.settings.is_none() {
                     kept.settings = dropped.settings;
@@ -1228,6 +1231,24 @@ mod tests {
         let busy = INFO.replace("<currentgame>0", "<currentgame>7").replace("SERVER_FREE", "SERVER_BUSY");
         hosts.list[0].info = Some(ServerInfo::parse(&busy, 47989).unwrap());
         assert_eq!(hosts.list[0].pairing_blocked(), Some(PAIR_IN_GAME));
+    }
+
+    #[test]
+    fn merging_two_records_of_one_pc_keeps_the_name_chosen_here() {
+        let mut named = paired_record("uid");
+        named.set_alias("Living room");
+        named.address = "192.0.2.20".into();
+        let mut plain = paired_record("uid");
+        plain.server_certificate = None;
+        plain.address = "192.0.2.21".into();
+        for (first, second) in [(named.clone(), plain.clone()), (plain.clone(), named.clone())] {
+            let mut hosts = Hosts::without_discovery(vec![first, second], Arc::new(|| {}));
+            let id = hosts.list[0].id;
+            let info = ServerInfo::parse(INFO, 47989).unwrap();
+            assert!(hosts.apply_info(id, hosts.list[0].record.address.clone(), Ok(Box::new(info))));
+            assert_eq!(hosts.list.len(), 1, "the two records are one PC");
+            assert_eq!(hosts.list[0].display_name(), "Living room");
+        }
     }
 
     #[test]

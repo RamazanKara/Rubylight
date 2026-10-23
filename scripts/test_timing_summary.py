@@ -27,9 +27,15 @@ class LegTests(unittest.TestCase):
         first = [{"render_ns": str(int(i * 1e9 / 60))} for i in range(61)]
         second = [{"render_ns": str(int(500e9 + i * 1e9 / 50))} for i in range(51)]
         self.assertAlmostEqual(ts.summarize(first)["shown_fps"], 60.0, places=1)
-        self.assertAlmostEqual(ts.summarize(first + second)["shown_fps"], 55.0, delta=0.6)
+        # A stall counts: 61 frames in 1 s, then a 1 s gap and 60 more in the next second.
+        stalled = first + [{"render_ns": str(int(2e9 + i * 1e9 / 60))} for i in range(61)]
+        self.assertAlmostEqual(ts.summarize(stalled)["shown_fps"], 121 / 3.0, delta=0.5)
         # Legs from separate processes have separate clocks: pooled rates average, not add.
         self.assertAlmostEqual(ts.pooled([first, first])["shown_fps"], 60.0, places=1)
+        self.assertAlmostEqual(ts.pooled([first, second])["shown_fps"], 55.0, delta=0.1)
+        # A leg without the column still counts when another has it.
+        column = [{"shown_fps": "50", "render_ns": "0"}] * 3
+        self.assertAlmostEqual(ts.pooled([first, column])["shown_fps"], 55.0, delta=0.1)
         self.assertEqual(ts.summarize([{"shown_fps": "59"}, {"shown_fps": "61"}, {"shown_fps": "60"}])["shown_fps"], 60)
 
     def setUp(self):

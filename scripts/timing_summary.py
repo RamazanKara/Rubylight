@@ -75,20 +75,21 @@ def summarize(rows):
 
 
 def rendered_fps(rows):
-    """Shown fps from the render stamps, for CSVs whose shown_fps column is empty. Gaps over a
-    second (between legs, or a stall) are left out so pooled legs do not dilute the rate."""
+    """Shown fps of one leg from its render stamps, for CSVs whose shown_fps column is empty:
+    (n - 1) / (last - first), stalls included."""
     stamps = sorted(v for v in column(rows, "render_ns") if v > 0)
-    gaps = [(b - a) / 1e9 for a, b in zip(stamps, stamps[1:]) if b - a < 1e9]
-    return len(gaps) / sum(gaps) if gaps and sum(gaps) > 0 else float("nan")
+    if len(stamps) < 2 or stamps[-1] <= stamps[0]:
+        return float("nan")
+    return (len(stamps) - 1) / ((stamps[-1] - stamps[0]) / 1e9)
 
 
 def pooled(legs):
-    """Summary of all legs together; the shown fps is the mean of the legs' own, since each leg
-    has its own clock."""
+    """Summary of all legs together; the shown fps is the mean of the legs' own (from the
+    column, or the render stamps for a leg without it), since each leg has its own clock."""
     result = summarize([row for rows in legs for row in rows])
     rates = [summarize(rows)["shown_fps"] for rows in legs]
     rates = [r for r in rates if r == r]
-    if rates and not any(column(rows, "shown_fps") for rows in legs):
+    if rates:
         result["shown_fps"] = sum(rates) / len(rates)
     return result
 

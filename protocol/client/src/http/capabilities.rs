@@ -181,7 +181,8 @@ fn flag(value: &str) -> Option<bool> {
     }
 }
 
-/// "2.2.21" or "2.0.0-rc.19" as [major, minor, patch, rc], a release after its candidates.
+/// "2.2.21", "2.0.0-rc.19" or "3.0.0-beta.1" as [major, minor, patch, pre-release], a release
+/// after its candidates.
 pub fn parse_rubylight_version(version: &str) -> Option<[u32; 4]> {
     let mut rest = version;
     let number = |rest: &mut &str| -> Option<u32> {
@@ -200,7 +201,9 @@ pub fn parse_rubylight_version(version: &str) -> Option<[u32; 4]> {
             rest = rest.strip_prefix('.')?;
         }
     }
-    if let Some(after) = rest.strip_prefix("-rc.") {
+    // A pre-release counts as one release candidate of its number: below the release, which is
+    // all the version checks ask. (The 3.0 hosts report "3.0.0-beta.N".)
+    if let Some(after) = ["-rc.", "-beta.", "-alpha."].iter().find_map(|tag| rest.strip_prefix(tag)) {
         rest = after;
         parts[3] = number(&mut rest).filter(|&rc| rc > 0)?;
     }
@@ -661,11 +664,14 @@ mod tests {
             Some([2, 2, 21, u32::MAX])
         );
         assert_eq!(parse_rubylight_version("2.0.0-rc.19"), Some([2, 0, 0, 19]));
+        assert_eq!(parse_rubylight_version("3.0.0-beta.1"), Some([3, 0, 0, 1]));
+        assert_eq!(parse_rubylight_version("3.0.0-alpha.2+abc.1"), Some([3, 0, 0, 2]));
+        assert!(parse_rubylight_version("3.0.0-beta.1").unwrap() < parse_rubylight_version("3.0.0").unwrap());
         assert_eq!(
             parse_rubylight_version("2.2.1+abc.1"),
             Some([2, 2, 1, u32::MAX])
         );
-        for bad in ["", "2.2", "02.1.1", "2.2.1-rc.0", "2.2.1+", "2.2.1x"] {
+        for bad in ["", "2.2", "02.1.1", "2.2.1-rc.0", "2.2.1+", "2.2.1x", "3.0.0-beta", "3.0.0-beta.0", "3.0.0-gamma.1"] {
             assert_eq!(parse_rubylight_version(bad), None, "{bad}");
         }
         assert!(parse_rubylight_version("2.2.1").unwrap() >= HOST_DISPLAY_MODES_VERSION);

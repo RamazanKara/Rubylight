@@ -4,8 +4,9 @@ Home, a game's page and the in-stream **Session and graphics** menu use Rubyligh
 
 ## Home
 
-Nightjar opens on Home when a paired PC supports the API. Home has three parts:
+Nightjar opens on Home when a paired PC supports the API. Home has four parts:
 
+- **Favourites**: games you starred, first on the page. Long-press a game card (with a D-pad or controller, hold the select button) and choose **Add to favourites**, or use the star on the game's page. A favourite belongs to one PC, so the same title on two PCs is two entries. Favourites are kept when the app updates, and a favourite whose PC is offline stays on Home with its saved cover.
 - **Continue playing**: games that are running or suspended, with a Running or Suspended badge.
 - **Library**: the games of every paired PC with covers. A game on several PCs is one card ("On 2 hosts").
 - **Hosts**: your PCs, with their game counts. An offline PC keeps the games it last reported and says so.

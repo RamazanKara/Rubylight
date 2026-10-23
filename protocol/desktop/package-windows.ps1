@@ -1,14 +1,22 @@
 # Builds a release nightjar.exe and zips it with the DLLs it needs, so it runs on a PC
 # without MSYS2.
 #
-#   .\package-windows.ps1 [-FfmpegDir <prefix from ffmpeg-decode-only.sh>] [-Out <folder>] [-TargetDirectory <dir>]
+#   .\package-windows.ps1 [-FfmpegDir <prefix from ffmpeg-decode-only.sh>] [-PyrowaveSdkDir <folder from
+#       scripts\build-pyrowave-sdk.ps1>] [-Out <folder>] [-TargetDirectory <dir>]
 #
 # Needs the toolchain from README.md ("Building", Windows). The DLLs are found by reading the
 # import tables (objdump) of the exe and of every DLL copied, down to the system ones, which are
 # left out. With -FfmpegDir the exe is built against that decode-only FFmpeg and its DLLs are
 # preferred; without it the package carries MSYS2's FFmpeg and everything that drags in.
+#
+# With -PyrowaveSdkDir the package also carries the PyroWave SDK the GPU decoder loads at run time
+# (libpyrowave-shared-1.dll, so the import walk cannot see it): the DLL next to the exe, its
+# build-info.txt and its licences. The script refuses a DLL that is not the one protocol\desktop\
+# pyrowave-sdk.pin names (commit, Granite, API, patches) or whose SHA-256 is not the one the build
+# recorded. Without it the package has no GPU decoder and the client says so when asked for it.
 param(
     [string]$FfmpegDir = '',
+    [string]$PyrowaveSdkDir = '',
     [string]$Out = (Join-Path $PSScriptRoot '..\..\dist'),
     [string]$TargetDirectory = ''
 )
@@ -25,6 +33,35 @@ if ($FfmpegDir) {
     $search = @("$FfmpegDir\bin") + $search
 }
 if (-not $TargetDirectory) { $TargetDirectory = Join-Path $workspace 'target' }
+
+# key=value lines (the pin, build-info.txt) as a hashtable.
+function Read-KeyValues([string]$path) {
+    $values = @{}
+    Get-Content $path | Where-Object { $_ -match '^\s*[a-z_0-9]+=' } | ForEach-Object {
+        $key, $value = $_ -split '=', 2
+        $values[$key.Trim()] = $value.Trim()
+    }
+    $values
+}
+# The SDK is checked before the long build, so a wrong one fails in a second.
+$sdkDll = $null
+if ($PyrowaveSdkDir) {
+    $PyrowaveSdkDir = (Resolve-Path $PyrowaveSdkDir).Path
+    $sdkDll = Join-Path $PyrowaveSdkDir 'libpyrowave-shared-1.dll'
+    foreach ($path in $sdkDll, (Join-Path $PyrowaveSdkDir 'build-info.txt'), (Join-Path $PyrowaveSdkDir 'licenses')) {
+        if (-not (Test-Path $path)) { throw "$path is missing; build the SDK with scripts\build-pyrowave-sdk.ps1" }
+    }
+    $pin = Read-KeyValues (Join-Path $PSScriptRoot 'pyrowave-sdk.pin')
+    $built = Read-KeyValues (Join-Path $PyrowaveSdkDir 'build-info.txt')
+    foreach ($key in 'pyrowave_commit', 'api_version', 'patches') {
+        if ($built[$key] -ne $pin[$key]) { throw "the PyroWave SDK in $PyrowaveSdkDir has $key=$($built[$key]), pyrowave-sdk.pin says $($pin[$key])" }
+    }
+    if (-not "$($built['granite_commit'])".StartsWith($pin['granite_commit'])) {
+        throw "the PyroWave SDK in $PyrowaveSdkDir has granite_commit=$($built['granite_commit']), pyrowave-sdk.pin says $($pin['granite_commit'])"
+    }
+    $sha = (Get-FileHash $sdkDll -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($built['dll_sha256'] -ne $sha) { throw "libpyrowave-shared-1.dll is $sha, build-info.txt recorded $($built['dll_sha256']): it is not the DLL that was built" }
+}
 
 Push-Location $workspace
 try {
@@ -48,6 +85,8 @@ function Test-System([string]$name) {
 $found = [ordered]@{}
 $queue = [System.Collections.Generic.Queue[string]]::new()
 $queue.Enqueue($exe)
+# The SDK is loaded at run time, so nothing imports it; its own imports still need to travel.
+if ($sdkDll) { $queue.Enqueue($sdkDll) }
 while ($queue.Count -gt 0) {
     foreach ($name in Get-Imports $queue.Dequeue()) {
         if ($found.Contains($name.ToLowerInvariant()) -or (Test-System $name)) { continue }
@@ -65,6 +104,11 @@ if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item $exe $stage
 foreach ($path in $found.Values) { Copy-Item $path $stage }
+if ($sdkDll) {
+    Copy-Item $sdkDll $stage
+    Copy-Item (Join-Path $PyrowaveSdkDir 'build-info.txt') (Join-Path $stage 'pyrowave-sdk-build-info.txt')
+    Copy-Item (Join-Path $PyrowaveSdkDir 'licenses') (Join-Path $stage 'licenses-pyrowave') -Recurse
+}
 Copy-Item (Join-Path $PSScriptRoot 'README.md') $stage
 $zip = Join-Path $Out "$name.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }

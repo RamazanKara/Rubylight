@@ -45,10 +45,17 @@ try {
 $deadline = (Get-Date).AddMinutes(60)
 while (Test-Path $Lock) {
     if ((Get-Date) -gt $deadline) { throw "GPU-LOCK still held after 60 minutes: $(Get-Content $Lock -Raw)" }
-    Write-Host "waiting for GPU-LOCK ($((Get-Item $Lock).LastWriteTime))"
-    Start-Sleep -Seconds 20
+    if (-not $said) { Write-Host "waiting for GPU-LOCK ($(Get-Content $Lock -Raw))"; $said = $true }
+    Start-Sleep -Milliseconds 500
 }
 "$Agent $(Get-Date -Format s)" | Set-Content $Lock
+# Another agent may have started a stream while we waited: look again, now that the lock is ours.
+try {
+    $info = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:47989/serverinfo).Content
+    foreach ($key in 'RustHostSessionCount', 'RustHostPendingSessionCount') {
+        if ($info -notmatch "<$key>0</$key>") { Remove-Item $Lock -Force; Write-Host "not idle after the lock: $key"; exit 4 }
+    }
+} catch { }
 
 $hostProcess = $null; $anim = $null
 try {

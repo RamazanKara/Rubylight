@@ -1,6 +1,6 @@
 """Per-stage latency of a stream from the host and client timing records (3.0 A8, measure only).
 
-    python timing_report.py CLIENT.csv [--host-record FILE_OR_DIR] [--join MODE] [--json PATH] [--check-bound]
+    python timing_report.py CLIENT.csv [--host-record FILE_OR_DIR] [--join MODE] [--json PATH] [--check-bound] [--skip-first S]
 
 CLIENT.csv is a Nightjar latency CSV (it has `receive_ns`) or a `frames.csv` (it has `wire_frame`) from the C receiver
 or nightjar-cli. --host-record is a `host-<stream_id>.csv` from BUTTERPOLLO_TIMING_RECORD, or the directory holding
@@ -382,9 +382,31 @@ def summarize(values):
                 negative=sum(v < 0 for v in ms))
 
 
-def build_report(client_path, record_path=None, join=None):
+def drop_warmup(client, record, seconds):
+    """Keep the frames from `seconds` after the stream's first frame on: the first frame number whose host time (the
+    record's present, else the client's own first packet) is that late is the cutoff for both sides."""
+    if not seconds:
+        return
+    if record is not None:
+        times = [(n, r['present'] if r['present'] is not None else r['acquired']) for n, r in record['rows'].items()]
+    else:
+        times = [(f['frame_number'], f['host']['present'] if f['host']['present'] is not None else f['first_packet'])
+                 for f in client['frames']]
+    times = sorted((n, t) for n, t in times if t is not None)
+    if not times:
+        return
+    cutoff = next((n for n, t in times if t >= times[0][1] + seconds * 1e6), None)
+    if cutoff is None:
+        raise ValueError(f'--skip-first {seconds}: the stream is shorter than that')
+    client['frames'] = [f for f in client['frames'] if f['frame_number'] >= cutoff]
+    if record is not None:
+        record['rows'] = {n: r for n, r in record['rows'].items() if n >= cutoff}
+
+
+def build_report(client_path, record_path=None, join=None, skip_first=0):
     client = read_client(client_path)
     record = read_host_record(record_path) if record_path else None
+    drop_warmup(client, record, skip_first)
     frames = client['frames']
     attach_host(frames, record)
     mode = choose_join(client, record, join)
@@ -453,10 +475,10 @@ def wait_for_footer(directory, seconds):
         time.sleep(.1)
 
 
-def case_report(case):
+def case_report(case, skip_first=0):
     """The report of an e2e.py --record case: its receiver's frames.csv and the host records in record/."""
     case = pathlib.Path(case)
-    return build_report(case / 'frames.csv', case / 'record')[0]
+    return build_report(case / 'frames.csv', case / 'record', skip_first=skip_first)[0]
 
 
 def check_bound(frames, record):
@@ -518,11 +540,13 @@ def main(argv=None):
     parser.add_argument('--host-record', type=pathlib.Path, help='host-<stream_id>.csv, or the directory holding it')
     parser.add_argument('--join', choices=JOINS, help='force a join mode instead of choosing one')
     parser.add_argument('--json', type=pathlib.Path, metavar='PATH', help='also write the report as JSON')
+    parser.add_argument('--skip-first', type=float, default=0, metavar='SECONDS',
+                        help='leave out the first SECONDS of the stream (warm-up) on both sides')
     parser.add_argument('--check-bound', action='store_true',
                         help='fail when clock_offset_us differs from the shared QPC offset by more than rtt/2 on over 1%% of rows')
     args = parser.parse_args(argv)
     try:
-        report, client, record = build_report(args.client, args.host_record, args.join)
+        report, client, record = build_report(args.client, args.host_record, args.join, args.skip_first)
         if args.check_bound:
             report['bound_check'] = check_bound(client['frames'], record)
     except (ValueError, OSError) as error:

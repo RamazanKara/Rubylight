@@ -8,7 +8,7 @@ No display-mode, HDR or default-audio change; the installed host must be idle.
 
 usage: e2e.py --package DIR --work DIR --client EXE --codec CODEC [--mode 1280x720x60] [--seconds 12]
               [--vrr] [--recovery N] [--motion-at-rate] [--name NAME] [--noise-height PIXELS] [--hw-decoder TYPE]
-              [--launch-fps FPS] [--record]
+              [--launch-fps FPS] [--record] [--motion-script SCRIPT] [--skip-first SECONDS] [--port PORT]
 Writes WORK/e2e-NAME/result.json, NAME defaulting to CODEC[-vrr][-recovery|-at-rate].
 A mode faster than the captured display refreshes is recorded as skipped.
 
@@ -27,6 +27,11 @@ The host traces every claim (RUST_LOG=info,pacing=trace) and the stream
 fails if it encoded an unchanged picture again; the receiver's count of
 pictures seen twice or skipped is reported only, since the strip at the
 stream rate repeats and skips some pictures by itself.
+
+--motion-script SCRIPT: the strip's animation, in motion_probe's argument form (a rate in Hz, jitter:8,14,9,13 or
+hitch:90:100), instead of twice the stream rate or the stream rate; the cadence of a game for the pacing matrix.
+--skip-first SECONDS: the warm-up left out of the --record timing table.
+--port PORT: the host's HTTP port (default 48523, inside the 48518-48544 block); another runner takes another block.
 
 --motion-at-rate: the same strip, minimum frame rate and trace without
 requests, the control for --recovery. BUTTERPOLLO_E2E_RUST_LOG replaces the
@@ -61,6 +66,9 @@ parser.add_argument('--hw-decoder', metavar='TYPE', help="the receiver decodes o
 parser.add_argument('--launch-fps', metavar='FPS', help="launch at this rate and ask for the mode's in the stream request, as Artemis's Warp frame pacing does")
 parser.add_argument('--record', action='store_true',
                     help='write the host timing record (BUTTERPOLLO_TIMING_RECORD) and the receiver frames.csv into the case, and the joined stage table into result.json as timing')
+parser.add_argument('--motion-script', metavar='SCRIPT', help="the motion strip's animation: Hz, jitter:8,14,9,13 or hitch:90:100")
+parser.add_argument('--port', type=int, default=48523, help="the host's HTTP port; its other ports follow from it")
+parser.add_argument('--skip-first', type=float, default=0, metavar='SECONDS', help='warm-up left out of the --record timing table')
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
 args = parser.parse_args()
@@ -82,7 +90,7 @@ assert case.resolve().parent == args.work.resolve(), 'test output must stay insi
 if case.exists():
     import shutil; shutil.rmtree(case)
 # The keyframe-request stream is judged on the host's per-claim trace.
-env, display, sink = prepare(args, case, rust_log='info,pacing=trace' if at_rate else 'info')
+env, display, sink = prepare(args, case, args.port, rust_log='info,pacing=trace' if at_rate else 'info')
 profile = case / 'config'
 host_exe = args.package / 'butterpollo.exe'
 audio_probe = args.client.parent / 'audio_probe.exe'
@@ -120,18 +128,21 @@ try:
         watch()
         if log.exists() and 'encoder capability probe completed' in log.read_text(errors='replace'):
             try:
-                if plain.get('http://127.0.0.1:48523/serverinfo', timeout=1).ok: break
+                if plain.get(f'http://127.0.0.1:{args.port}/serverinfo', timeout=1).ok: break
             except requests.RequestException: pass
         assert time.monotonic() < deadline, 'host not ready'
         time.sleep(.2)
     fixture_seconds = str(int(args.seconds) + 90)
     tone = spawn([str(audio_probe), fixture_seconds, sink['id'], '--render-only'], 'tone.log', env=env)
-    motion_rate = int(fps) if at_rate else int(fps) * 2
+    motion_rate = args.motion_script or (int(fps) if at_rate else int(fps) * 2)
     strip = [str(args.noise_height), 'noise'] if args.noise_height else ['128']
     motion = spawn([str(motion_probe), display['display_name'], fixture_seconds, str(case / 'motion.json'), str(motion_rate), *strip], 'motion.log', env=env)
     time.sleep(.5)
     assert tone.poll() is None and motion.poll() is None, 'audio or motion fixture exited'
-    client_env = receiver_environment(env, display, args.mode, args.client, args.vrr)
+    client_env = receiver_environment(env, display, args.mode, args.client, args.vrr, args.port)
+    if args.motion_script:
+        # A script below the stream rate delivers fewer pictures by design; the matrix reads the timing table.
+        client_env['BUTTERPOLLO_TEST_MIN_FPS'] = '1'
     if args.hw_decoder:
         client_env['BUTTERPOLLO_TEST_HW_DECODER'] = args.hw_decoder
     if args.launch_fps:
@@ -190,7 +201,7 @@ if args.launch_fps:
 if args.record:
     # A record that cannot be joined fails the case: a missing measurement is not a pass.
     try:
-        result['timing'] = case_report(case)
+        result['timing'] = case_report(case, args.skip_first)
     except (ValueError, OSError) as error:
         result.update(timing=dict(error=str(error)), passed=False)
 (case / 'result.json').write_text(json.dumps(result, indent=2))

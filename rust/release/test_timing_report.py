@@ -375,6 +375,21 @@ class Cadence(Temporary):
         self.assertEqual(stages['host_cadence_error']['p99_ms'], 0)
         self.assertEqual(stages['present_interval']['p99_ms'], 100.0)
 
+    def test_skip_first_drops_the_warm_up_on_both_sides(self):
+        # 2 s of frames 8 ms apart; the first second is warm-up with a 5 ms error on every send.
+        rows = [(i, 1_000_000 + i * 8000, 1_000_000 + i * 8000 + 2000 + (5000 * (i % 2) if i < 125 else 0)) for i in range(250)]
+        record = self.host_record(rows)
+        client = self.client_csv([(i, 0, 0, None) for i in range(250)])
+        everything = build_report(client, record)[0]['stages']
+        later = build_report(client, record, skip_first=1)[0]
+        self.assertGreater(everything['host_cadence_error']['p99_ms'], 4.9)
+        self.assertEqual(later['stages']['host_cadence_error']['p99_ms'], 0)
+        self.assertEqual(later['stages']['present_interval']['n'], 124)
+        self.assertEqual(later['host_rows'], 125)
+        self.assertEqual(later['rows'], 125)
+        with self.assertRaisesRegex(ValueError, 'shorter'):
+            build_report(client, record, skip_first=5)
+
     def test_a_file_without_pairs_reports_none_and_prints_no_rows(self):
         path = self.client_csv([(7, 5, 1000, 2000)])
         stages = self.stages(path)

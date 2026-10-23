@@ -9,6 +9,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 ## Unreleased
 
 - **A device keeps the Windows display scale you pick, not only the resolution** ([#36](https://github.com/RamazanKara/Rubylight/issues/36)). With **Remember the resolution I pick** on, setting 200% (or any scale) on the stream's virtual display in Windows now comes back with the next stream, applied after the display is at the kept resolution. A **Virtual display scale** set in the host settings still wins, and nothing is kept then. A scale Windows refuses is logged as a warning and the stream goes on. The refresh rate is not kept: the stream's rate (and VRR) always decides it.
+- **A display layout you set for a device stays** ([#40](https://github.com/RamazanKara/Rubylight/issues/40)). At the end of a stream the host saved whatever layout the stream's display was left in as the device's own, and that replaced the layout you had picked under Devices. A game's mode switch or Windows moving the primary display was enough, so the next stream came back as "Extended". The host now only fills in a device layout when you have not set one, never replaces one you set (also during a stream or across a reconnect), and still never learns a layout Windows refused. A device that already shows a layout you did not choose: set it back to the global setting once under Devices.
 
 ## New in 3.0.0-alpha.3
 

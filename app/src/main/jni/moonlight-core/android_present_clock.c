@@ -82,6 +82,60 @@ Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockSchedule(JNIEnv* env, jc
     return JNI_TRUE;
 }
 
+// The same onto a vsync grid (present_clock.rs schedule_on_grid; the conversions are those of
+// extras.rs grid_from_ns and grid_schedule_to_ns). Writes release time (ns), vsync (ns), vsync
+// index, flags (1 late, 2 shares the previous frame's vsync), hold (us), host-to-vsync latency (us,
+// -1 without clock sync) and how late the frame was (us) to out[0..6].
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockScheduleOnGrid(JNIEnv* env, jclass clazz, jlong hostUs,
+                                                                     jlong readyNs, jlong anchorNs, jlong intervalNs,
+                                                                     jlong leadNs, jlong slackNs, jlongArray out) {
+    (void)clazz;
+    if (hostUs < 0 || readyNs <= 0 || intervalNs <= 0 || (*env)->GetArrayLength(env, out) < 7) return JNI_FALSE;
+    uint32_t rtp = (uint32_t)(((uint64_t)hostUs * 9 + 99) / 100);
+    RpPresentGrid grid;
+    grid.anchor_us = anchorNs >= 0 ? anchorNs / 1000 : -((-anchorNs + 999) / 1000);
+    grid.interval_us = (intervalNs + 500) / 1000;
+    grid.lead_us = leadNs > 0 ? leadNs / 1000 : 0;
+    grid.slack_us = slackNs > 0 ? slackNs / 1000 : 0;
+    pthread_mutex_lock(&presentClockMutex);
+    if (!presentClock) {
+        pthread_mutex_unlock(&presentClockMutex);
+        return JNI_FALSE;
+    }
+    RpPresentGridSchedule s = rp_present_clock_schedule_on_grid(presentClock, rtp, (uint64_t)readyNs / 1000, &grid);
+    pthread_mutex_unlock(&presentClockMutex);
+    jlong vsyncNs = anchorNs + (jlong)s.vsync_index * intervalNs;
+    jlong releaseNs = vsyncNs - leadNs;
+    if (s.hold_us == 0 || releaseNs < readyNs) releaseNs = readyNs;
+    jlong values[7] = { releaseNs, vsyncNs, (jlong)s.vsync_index, (s.late ? 1 : 0) | (s.shares_vsync ? 2 : 0),
+                        (jlong)s.hold_us, (jlong)s.latency_us, (jlong)s.late_by_us };
+    (*env)->SetLongArrayRegion(env, out, 0, 7, values);
+    return JNI_TRUE;
+}
+
+// A frame's host time (moonlight-common-c's presentationTimeUs) for the content rate.
+JNIEXPORT void JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockObserve(JNIEnv* env, jclass clazz, jlong hostUs) {
+    (void)env; (void)clazz;
+    if (hostUs < 0) return;
+    uint32_t rtp = (uint32_t)(((uint64_t)hostUs * 9 + 99) / 100);
+    pthread_mutex_lock(&presentClockMutex);
+    if (presentClock) rp_present_clock_observe(presentClock, rtp);
+    pthread_mutex_unlock(&presentClockMutex);
+}
+
+// The rate the game presents at, in millihertz, once it held steady for two seconds; else 0.
+JNIEXPORT jint JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockContentRate(JNIEnv* env, jclass clazz) {
+    (void)env; (void)clazz;
+    uint32_t rate = 0;
+    pthread_mutex_lock(&presentClockMutex);
+    if (presentClock) rate = rp_present_clock_content_rate(presentClock);
+    pthread_mutex_unlock(&presentClockMutex);
+    return rate > 0x7fffffffu ? 0x7fffffff : (jint)rate;
+}
+
 // The offset from the host's video clock to CLOCK_MONOTONIC (client = host + offset, us) now, and
 // the round trip (us) of the exchange it comes from, to out[0..1]. False before the first exchange.
 JNIEXPORT jboolean JNICALL

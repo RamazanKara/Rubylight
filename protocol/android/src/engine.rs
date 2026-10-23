@@ -11,7 +11,7 @@ use nightjar_core::rtsp::MicrophoneState;
 use nightjar_core::sdp::{self, StreamConfig};
 use nightjar_core::session::{HostInfo, Interrupt, Session, SessionConfig};
 use rubylight_protocol::control::ClockSyncReply;
-use rubylight_protocol::present_clock::{PresentClock, Schedule, Settings};
+use rubylight_protocol::present_clock::{Grid, GridSchedule, PresentClock, Schedule, Settings};
 
 use crate::bridge::Bridge;
 use crate::extras::{self, PhaseLockReports};
@@ -367,6 +367,28 @@ pub fn present_clock_schedule(rtp: u32, ready_us: u64) -> Option<Schedule> {
         .map(|clock| clock.schedule(rtp, ready_us))
 }
 
+/// As [`present_clock_schedule`], onto a vsync grid.
+pub fn present_clock_schedule_on_grid(rtp: u32, ready_us: u64, grid: Grid) -> Option<GridSchedule> {
+    lock(&ENGINE.present_clock)
+        .as_mut()
+        .map(|clock| clock.schedule_on_grid(rtp, ready_us, grid))
+}
+
+/// Notes a frame for the content rate.
+pub fn present_clock_observe(rtp: u32) {
+    if let Some(clock) = lock(&ENGINE.present_clock).as_mut() {
+        clock.observe(rtp);
+    }
+}
+
+/// The content rate in millihertz, 0 until it held steady for two seconds or without a clock.
+pub fn present_clock_content_rate() -> u32 {
+    lock(&ENGINE.present_clock)
+        .as_ref()
+        .and_then(|clock| clock.content_rate_mhz())
+        .unwrap_or(0)
+}
+
 /// Frames scheduled, frames late, clock sync round trip (-1 without).
 pub fn present_clock_stats() -> Option<(u64, u64, i64)> {
     lock(&ENGINE.present_clock).as_ref().map(|clock| {
@@ -441,6 +463,7 @@ mod tests {
 
     #[test]
     fn present_clock_offset_waits_for_a_clock_sync_exchange() {
+        let _serial = lock(&ENGINE_TESTS);
         assert_eq!(present_clock_offset(1_000), None, "no clock running");
         present_clock_start(0);
         assert_eq!(present_clock_offset(1_000), None, "no exchange yet");
@@ -457,5 +480,25 @@ mod tests {
         assert_eq!(present_clock_offset(1_050), Some((-3_955, 90)));
         present_clock_stop();
         assert_eq!(present_clock_offset(1_050), None);
+    }
+
+    #[test]
+    fn the_engine_clock_schedules_on_a_grid_and_follows_the_content_rate() {
+        let _serial = lock(&ENGINE_TESTS);
+        let grid = Grid { anchor_us: 0, interval_us: 16_667, lead_us: 4_000, slack_us: 0 };
+        assert_eq!(present_clock_schedule_on_grid(0, 1_000, grid), None, "no clock running");
+        assert_eq!(present_clock_content_rate(), 0);
+        present_clock_start(0);
+        let s = present_clock_schedule_on_grid(0, 1_000_000, grid).expect("scheduled");
+        assert!(s.vsync_us >= 1_000_000 && s.release_us >= 1_000_000);
+        for i in 0..400u32 {
+            present_clock_observe(i * 1_500); // 60 fps in 90 kHz ticks
+        }
+        let rate = present_clock_content_rate();
+        assert!(rate.abs_diff(60_000) <= 100, "{rate}");
+        present_clock_reset();
+        assert_eq!(present_clock_content_rate(), 0, "a reset starts the rate over");
+        present_clock_stop();
+        assert_eq!(present_clock_content_rate(), 0);
     }
 }

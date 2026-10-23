@@ -14,7 +14,7 @@ use rubylight_protocol::control::{
     ClockSyncReply, ClockSyncRequest, DisplayCaps, Reconfigure, CLOCK_SYNC_REQUEST_BYTES, DISPLAY_CAPS_BYTES,
     RECONFIGURE_BYTES,
 };
-use rubylight_protocol::present_clock::{PresentClock, Settings};
+use rubylight_protocol::present_clock::{Grid, PresentClock, Settings};
 use rubylight_protocol::phase_lock::{SlackWindow, REPORT_BYTES};
 use rubylight_protocol::pyrowave::{self, Records};
 
@@ -268,6 +268,77 @@ pub unsafe extern "C" fn rp_present_clock_schedule(clock: *mut PresentClock, rtp
         latency_us: s.latency_us.unwrap_or(-1),
         late: s.late,
     }
+}
+
+/// The display's vsync grid; see `present_clock::Grid`.
+#[repr(C)]
+pub struct RpPresentGrid {
+    pub anchor_us: i64,
+    pub interval_us: i64,
+    pub lead_us: i64,
+    pub slack_us: i64,
+}
+
+/// One frame's release onto a vsync grid; see `present_clock::GridSchedule`. `latency_us` is -1
+/// without clock sync.
+#[repr(C)]
+pub struct RpPresentGridSchedule {
+    pub release_us: u64,
+    pub vsync_us: u64,
+    pub vsync_index: i64,
+    pub late_by_us: i64,
+    pub hold_us: i64,
+    pub latency_us: i64,
+    pub late: bool,
+    pub shares_vsync: bool,
+}
+
+/// As `rp_present_clock_schedule`, onto a vsync grid: release the frame at `release_us` for the
+/// vsync at `vsync_us`.
+///
+/// # Safety
+/// `clock` is live and `grid` is readable.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_schedule_on_grid(
+    clock: *mut PresentClock,
+    rtp: u32,
+    ready_us: u64,
+    grid: *const RpPresentGrid,
+) -> RpPresentGridSchedule {
+    let g = &*grid;
+    let s = (*clock).schedule_on_grid(
+        rtp,
+        ready_us,
+        Grid { anchor_us: g.anchor_us, interval_us: g.interval_us, lead_us: g.lead_us, slack_us: g.slack_us },
+    );
+    RpPresentGridSchedule {
+        release_us: s.release_us,
+        vsync_us: s.vsync_us,
+        vsync_index: s.vsync_index,
+        late_by_us: s.late_by_us,
+        hold_us: s.hold_us,
+        latency_us: s.latency_us.unwrap_or(-1),
+        late: s.late,
+        shares_vsync: s.shares_vsync,
+    }
+}
+
+/// Notes a frame with RTP timestamp `rtp` for the content rate; call for every frame in order.
+///
+/// # Safety
+/// `clock` is live.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_observe(clock: *mut PresentClock, rtp: u32) {
+    (*clock).observe(rtp);
+}
+
+/// The content rate in millihertz once it held steady for two seconds, else 0.
+///
+/// # Safety
+/// `clock` is live.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_clock_content_rate(clock: *const PresentClock) -> u32 {
+    (*clock).content_rate_mhz().unwrap_or(0)
 }
 
 /// Forgets the frames seen, for a new stream size or a decoder reset; clock sync stays.

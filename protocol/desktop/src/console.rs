@@ -5,11 +5,14 @@
 use nightjar_core::http::native_api::library::{Game, Library};
 use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
+use crate::config::Recent;
 use crate::hosts::{Host, Reach};
 
 /// One PC as the console sees it.
 pub struct Source<'a> {
     pub id: u64,
+    /// The PC's unique id, empty until it answered once.
+    pub unique_id: &'a str,
     pub name: &'a str,
     pub online: bool,
     pub paired: bool,
@@ -25,6 +28,7 @@ impl<'a> Source<'a> {
         let online = host.reach == Reach::Online;
         Self {
             id: host.id,
+            unique_id: &host.record.unique_id,
             name: host.display_name(),
             online,
             paired: host.paired(),
@@ -185,6 +189,49 @@ pub fn continue_playing(sources: &[Source<'_>]) -> Vec<Continue> {
     out
 }
 
+/// A game streamed before, found in a PC's library now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Recently {
+    pub host: u64,
+    pub host_name: String,
+    pub online: bool,
+    pub app_id: u32,
+    pub title: String,
+}
+
+/// The recent games, latest first, that a paired PC's library still lists (installed), without
+/// the ones already under "Continue playing". The title is the library's, not the saved one.
+pub fn recently_played(sources: &[Source<'_>], recents: &[Recent], playing: &[Continue], limit: usize) -> Vec<Recently> {
+    let mut out: Vec<Recently> = Vec::new();
+    for recent in recents {
+        let Some(source) = sources.iter().find(|s| !s.unique_id.is_empty() && s.unique_id == recent.host) else { continue };
+        let Some(library) = source.library else { continue };
+        let found = library.games.iter().filter(|g| installed(g)).find(|g| {
+            if !recent.install_id.is_empty() && !g.install_id.is_empty() {
+                g.install_id.eq_ignore_ascii_case(&recent.install_id)
+            } else {
+                g.app_id == recent.app_id
+            }
+        });
+        let Some(game) = found else { continue };
+        let listed = out.iter().any(|r| r.host == source.id && r.app_id == game.app_id);
+        if playing.iter().any(|c| c.host == source.id && c.app_id == game.app_id) || listed {
+            continue;
+        }
+        out.push(Recently {
+            host: source.id,
+            host_name: source.name.to_owned(),
+            online: source.online,
+            app_id: game.app_id,
+            title: game.title.clone(),
+        });
+        if out.len() == limit {
+            break;
+        }
+    }
+    out
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameState {
     Idle,
@@ -332,7 +379,7 @@ mod tests {
     }
 
     fn source<'a>(id: u64, name: &'a str, online: bool, library: Option<&'a Library>, session: Option<&'a Session>) -> Source<'a> {
-        Source { id, name, online, paired: true, library, session, host_control: false }
+        Source { id, unique_id: "", name, online, paired: true, library, session, host_control: false }
     }
 
     const DOTA: u32 = 1093052211;
@@ -524,5 +571,52 @@ mod tests {
         assert_eq!(classic_app(&apps, "none", 99), None);
         // An empty uuid never matches an empty install id.
         assert_eq!(classic_app(&apps, "", 99), None);
+    }
+
+    fn recent(host: &str, install: &str, app: u32, title: &str) -> Recent {
+        Recent { host: host.into(), install_id: install.into(), app_id: app, title: title.into(), at: 0 }
+    }
+
+    #[test]
+    fn recently_played_lists_known_games_latest_first() {
+        let lib = library();
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        let recents = [
+            recent("uid-a", "8D4B3F55-0C2E-4F8A-9A61-2F1C6F0E9B17", 0, "old name"),
+            recent("uid-a", "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f", 1093052211, "Dota 2"),
+            // A game the PC no longer lists, a PC that is not here, a repeat.
+            recent("uid-a", "gone", 5, "Gone"),
+            recent("uid-z", "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f", 1093052211, "Dota 2"),
+            recent("uid-a", "", 1093052211, "Dota 2"),
+        ];
+        let sources = [a];
+        let list = recently_played(&sources, &recents, &[], 6);
+        // Matched by install id without case, and titled from the library.
+        assert_eq!(list.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["Desktop", "Dota 2"]);
+        assert_eq!((list[0].host, list[0].host_name.as_str(), list[0].online), (1, "Desk", true));
+        assert_eq!(recently_played(&sources, &recents, &[], 1).len(), 1, "capped");
+    }
+
+    #[test]
+    fn recently_played_skips_what_is_under_continue_playing_and_uninstalled_games() {
+        let mut lib = library();
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        let recents = [recent("uid-a", "", 1093052211, "Dota 2"), recent("uid-a", "", 881448767, "Desktop")];
+        let playing = [Continue { host: 1, host_name: "Desk".into(), app_id: 1093052211, title: "Dota 2".into(), playing: Playing::Running }];
+        let list = recently_played(&[a], &recents, &playing, 6);
+        assert_eq!(list.iter().map(|r| r.app_id).collect::<Vec<_>>(), [881448767]);
+        lib.games[1].installed = Some(false);
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        assert!(recently_played(&[a], &recents[1..], &[], 6).is_empty(), "an uninstalled game is not offered");
+        // A PC that answered no unique id yet matches nothing, and a PC away still lists its games.
+        let away = source(2, "Away", false, Some(&lib), None);
+        assert!(recently_played(&[away], &recents, &[], 6).is_empty());
+        let mut away = source(2, "Away", false, Some(&lib), None);
+        away.unique_id = "uid-a";
+        let list = recently_played(&[away], &recents[..1], &[], 6);
+        assert_eq!((list.len(), list[0].online), (1, false));
     }
 }

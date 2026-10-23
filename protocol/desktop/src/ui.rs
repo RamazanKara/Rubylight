@@ -124,6 +124,8 @@ pub struct Launcher {
     pub controller_mapping: crate::gamepad::Mapping,
     pub controller_test: bool,
     pub shortcuts: crate::shortcuts::Shortcuts,
+    /// Games streamed before, latest first.
+    pub recents: Vec<crate::config::Recent>,
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
@@ -257,6 +259,7 @@ impl Launcher {
             controller_mapping: crate::gamepad::Mapping::default(),
             controller_test: false,
             shortcuts,
+            recents: Vec::new(),
             logo: None,
             focus_screen: true,
             focus_dialog: false,
@@ -795,6 +798,7 @@ impl Launcher {
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         let entries = console::merge_library(&sources);
         let playing = console::continue_playing(&sources);
+        let recent = console::recently_played(&sources, &self.recents, &playing, 6);
         let loading = view.hosts.list.iter().any(|h| {
             h.reach == Reach::Online && h.paired() && h.native_api() && h.native.library.is_none() && h.native.error.is_none()
         });
@@ -817,6 +821,20 @@ impl Launcher {
                         };
                         let response = continue_card(ui, &item.title, &line, running);
                         self.focus_item(&response, &format!("continue:{}:{}", item.host, item.app_id), std::mem::take(&mut first));
+                        if response.clicked() {
+                            self.open(Screen::Game { host: item.host, app: item.app_id });
+                        }
+                    }
+                });
+            }
+            if !recent.is_empty() {
+                section(ui, "Recently played");
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
+                    for item in &recent {
+                        let line = if item.online { format!("On {}", item.host_name) } else { format!("{} is away", item.host_name) };
+                        let response = continue_card(ui, &item.title, &line, false);
+                        self.focus_item(&response, &format!("recent:{}:{}", item.host, item.app_id), std::mem::take(&mut first));
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
                         }

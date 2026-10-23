@@ -244,6 +244,23 @@ pub struct Connecting {
 }
 
 impl Connecting {
+    /// The game this stream plays, for the recent list; None when the PC has no unique id yet
+    /// or the stream is not a game (a remote monitor, input only).
+    pub fn recent_game(&self) -> Option<config::Recent> {
+        let record = &self.plan.record;
+        if record.unique_id.is_empty() || self.plan.app.id < 0 || self.plan.app.control != nightjar_core::http::AppControl::None {
+            return None;
+        }
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        Some(config::Recent {
+            host: record.unique_id.clone(),
+            install_id: self.plan.app.uuid.clone(),
+            app_id: self.plan.app.id as u32,
+            title: self.plan.app.name.clone(),
+            at: now,
+        })
+    }
+
     pub fn start(mut plan: LaunchPlan, waker: Waker) -> Self {
         if let Some(recovery) = &mut plan.recovery { recovery.begin(Instant::now()); }
         // Host-time pacing schedules every picture; the other modes keep only the newest.

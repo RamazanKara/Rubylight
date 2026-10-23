@@ -442,6 +442,40 @@ pub struct Store {
     dir: PathBuf,
 }
 
+/// A game that was streamed, for Home's "Recently played". It names the PC by its unique id and
+/// the game by the install id the PC gives both of its lists (else the app id), so it still
+/// finds the game when the PC has a new address or the library is reordered.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Recent {
+    pub host: String,
+    pub install_id: String,
+    pub app_id: u32,
+    pub title: String,
+    /// Seconds since the Unix epoch.
+    pub at: u64,
+}
+
+/// How many recent games are kept.
+pub const RECENT_LIMIT: usize = 12;
+
+impl Recent {
+    fn same_game(&self, other: &Recent) -> bool {
+        self.host == other.host
+            && if !self.install_id.is_empty() && !other.install_id.is_empty() {
+                self.install_id.eq_ignore_ascii_case(&other.install_id)
+            } else {
+                self.app_id == other.app_id
+            }
+    }
+}
+
+/// Puts `entry` first; the same game earlier in the list is replaced, and the list is capped.
+pub fn remember(list: &mut Vec<Recent>, entry: Recent) {
+    list.retain(|r| !r.same_game(&entry));
+    list.insert(0, entry);
+    list.truncate(RECENT_LIMIT);
+}
+
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     let text = std::fs::read_to_string(path).ok()?;
     match serde_json::from_str(&text) {
@@ -538,6 +572,14 @@ impl Store {
         write_json(&self.dir.join("hosts.json"), &hosts)
     }
 
+    pub fn recents(&self) -> Vec<Recent> {
+        read_json(&self.dir.join("recent.json")).unwrap_or_default()
+    }
+
+    pub fn save_recents(&self, recents: &[Recent]) -> std::io::Result<()> {
+        write_json(&self.dir.join("recent.json"), &recents)
+    }
+
     /// Box art cache: `art/<host>/<app>.img`, or `<app>-<version>.img` for a cover the host
     /// versions (the native API), so a changed cover is fetched again.
     pub fn art_path(&self, host: &str, app_id: i32, version: &str) -> PathBuf {
@@ -611,6 +653,42 @@ mod tests {
         assert_eq!(default_bitrate_kbps(3840, 2160, 60), 80_000);
         assert!(default_bitrate_kbps(1920, 1080, 120) < 40_000);
         assert_eq!(default_bitrate_kbps(640, 360, 30), 2_000);
+    }
+
+    fn recent(host: &str, install: &str, app: u32, at: u64) -> Recent {
+        Recent { host: host.into(), install_id: install.into(), app_id: app, title: format!("Game {app}"), at }
+    }
+
+    #[test]
+    fn recents_put_the_latest_first_without_repeats_and_stay_capped() {
+        let mut list = Vec::new();
+        remember(&mut list, recent("pc", "A", 1, 10));
+        remember(&mut list, recent("pc", "B", 2, 20));
+        remember(&mut list, recent("other", "A", 1, 30));
+        // The same game again (install ids compare without case) moves up instead of repeating.
+        remember(&mut list, recent("pc", "a", 7, 40));
+        assert_eq!(list.iter().map(|r| (r.host.as_str(), r.at)).collect::<Vec<_>>(), [("pc", 40), ("other", 30), ("pc", 20)]);
+        // Without install ids the app id decides.
+        remember(&mut list, recent("pc", "", 2, 50));
+        remember(&mut list, recent("pc", "", 2, 60));
+        assert_eq!(list.len(), 3);
+        for n in 0..30 {
+            remember(&mut list, recent("pc", &format!("G{n}"), 100 + n, 100 + u64::from(n)));
+        }
+        assert_eq!(list.len(), RECENT_LIMIT);
+        assert_eq!(list[0].install_id, "G29");
+    }
+
+    #[test]
+    fn recents_survive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("nightjar-recent-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        assert!(store.recents().is_empty());
+        let mut list = Vec::new();
+        remember(&mut list, recent("pc", "A", 1, 10));
+        store.save_recents(&list).unwrap();
+        assert_eq!(Store::at(dir.clone()).unwrap().recents(), list);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

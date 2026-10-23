@@ -210,6 +210,7 @@ fn run() -> Result<(), String> {
     theme::apply(&gui.ctx);
     let display = display_of(window);
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
+    launcher.recents = store.recents();
     #[cfg(windows)]
     {
         launcher.tearing_supported =
@@ -993,6 +994,7 @@ impl App {
             }
             SDL_SyncWindow(self.window);
         }
+        self.remember_recent(&connecting);
         let mut streaming = Streaming::new(connecting, session, facts, display);
         self.pads.prepare_audio(settings.controllers && settings.controller_audio && streaming.facts.role != nightjar_core::http::AppRole::RemoteMonitor);
         streaming.display_changed(self.renderer);
@@ -1017,6 +1019,15 @@ impl App {
         } else { None };
         streaming.show_toast(warning.unwrap_or("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input"));
         self.streaming = Some((streaming, TimerResolution::begin()));
+    }
+
+    /// Notes the game of a stream that just started, for Home's "Recently played".
+    fn remember_recent(&mut self, connecting: &Connecting) {
+        let Some(entry) = connecting.recent_game() else { return };
+        config::remember(&mut self.launcher.recents, entry);
+        if let Err(e) = self.store.save_recents(&self.launcher.recents) {
+            eprintln!("nightjar: could not save recent games: {e}");
+        }
     }
 
     fn end_stream(&mut self, exit: Exit) {

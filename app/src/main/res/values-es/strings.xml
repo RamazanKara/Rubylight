@@ -214,6 +214,8 @@
     <string name="pyrowave_missing_queue">La GPU no es compatible con PyroWave</string>
     <string name="pyrowave_missing_swapchain">Pantalla Vulkan no disponible</string>
     <string name="pyrowave_missing_hdr">No compatible: HDR no disponible</string>
+    <string name="pyrowave_hdr_needs_android_15">requiere Android 15 para la salida HDR</string>
+    <string name="pyrowave_hdr_display_refused">la pantalla o el controlador rechazó la salida HDR</string>
     <string name="pyrowave_check_failed">No compatible: error al comprobar la GPU</string>
     <string name="title_enable_hdr">HDR</string>
     <string name="summary_enable_hdr">Requiere una pantalla HDR en este dispositivo y HDR activado en la pantalla del PC.</string>

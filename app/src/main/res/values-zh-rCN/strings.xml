@@ -214,6 +214,8 @@
     <string name="pyrowave_missing_queue">GPU 不支持 PyroWave</string>
     <string name="pyrowave_missing_swapchain">Vulkan 显示不可用</string>
     <string name="pyrowave_missing_hdr">不支持：HDR 不可用</string>
+    <string name="pyrowave_hdr_needs_android_15">HDR 输出需要 Android 15</string>
+    <string name="pyrowave_hdr_display_refused">显示器或驱动程序拒绝了 HDR 输出</string>
     <string name="pyrowave_check_failed">不支持：GPU 检查失败</string>
     <string name="title_enable_hdr">HDR</string>
     <string name="summary_enable_hdr">需要此设备具有 HDR 屏幕，并为电脑的显示器开启 HDR。</string>

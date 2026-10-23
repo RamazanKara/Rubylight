@@ -108,7 +108,49 @@ static void rotatedFitAndUpscaling() {
     }
 }
 
+static void swapchainFormatSelection() {
+    // What the Android 13 and 14 loader lists with VK_EXT_swapchain_colorspace enabled: no HDR10_ST2084.
+    const PyroSurfaceFormat android13[] = {
+        {37, 0}, {43, 0}, {37, 1000104013}, {37, 1000104001},
+        {PYRO_FORMAT_A2B10G10R10, 0}, {PYRO_FORMAT_A2B10G10R10, 1000104013}, {PYRO_FORMAT_A2B10G10R10, 1000104001},
+    };
+    const size_t androidCount = sizeof(android13) / sizeof(android13[0]);
+    auto ten = pyroSelectSwapchainFormat(android13, androidCount, true);
+    assert(ten.format == PYRO_FORMAT_A2B10G10R10 && ten.dataspaceOverride);
+    auto eight = pyroSelectSwapchainFormat(android13, androidCount, false);
+    assert(eight.format == PYRO_FORMAT_R8G8B8A8 && !eight.dataspaceOverride);
+
+    // Android 15 and later list HDR10_ST2084 for the same format: the native path stays.
+    const PyroSurfaceFormat android15[] = {
+        {37, 0}, {PYRO_FORMAT_A2B10G10R10, 0}, {PYRO_FORMAT_A2B10G10R10, PYRO_COLORSPACE_HDR10_ST2084},
+    };
+    ten = pyroSelectSwapchainFormat(android15, 3, true);
+    assert(ten.format == PYRO_FORMAT_A2B10G10R10 && !ten.dataspaceOverride);
+
+    // A native pair on the second ten-bit format beats an override on the first.
+    const PyroSurfaceFormat mixed[] = {
+        {PYRO_FORMAT_A2B10G10R10, 0},
+        {PYRO_FORMAT_A2R10G10B10, 0}, {PYRO_FORMAT_A2R10G10B10, PYRO_COLORSPACE_HDR10_ST2084},
+    };
+    ten = pyroSelectSwapchainFormat(mixed, 3, true);
+    assert(ten.format == PYRO_FORMAT_A2R10G10B10 && !ten.dataspaceOverride);
+
+    // HDR10_ST2084 alone, without the SRGB_NONLINEAR pair, is not enough: host HDR-off needs both.
+    const PyroSurfaceFormat hdrOnly[] = {{37, 0}, {PYRO_FORMAT_A2B10G10R10, PYRO_COLORSPACE_HDR10_ST2084}};
+    assert(pyroSelectSwapchainFormat(hdrOnly, 2, true).format == 0);
+
+    // No ten-bit format at all: ten-bit fails, eight-bit still works.
+    const PyroSurfaceFormat eightOnly[] = {{37, 0}, {44, 0}};
+    assert(pyroSelectSwapchainFormat(eightOnly, 2, true).format == 0);
+    assert(pyroSelectSwapchainFormat(eightOnly, 2, false).format == 37);
+    assert(pyroSelectSwapchainFormat(nullptr, 0, false).format == 0);
+
+    assert(pyroWindowDataspace(true) == 163971072);   // ADATASPACE_BT2020_PQ
+    assert(pyroWindowDataspace(false) == 142671872);  // ADATASPACE_SRGB
+}
+
 int main() {
+    swapchainFormatSelection();
     rotationMapping();
     rotatedFitAndUpscaling();
     assert(pyroSurfaceDimension(1920, 1280, 64, 4096) == 1920);

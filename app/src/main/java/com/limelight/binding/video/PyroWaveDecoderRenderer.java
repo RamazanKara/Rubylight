@@ -75,7 +75,18 @@ public final class PyroWaveDecoderRenderer {
      */
     public static int hdrFailureSummary(Context context) {
         int readiness = getReadiness(context, true);
-        return readiness == 0 ? R.string.pyrowave_missing_swapchain : failureSummary(readiness);
+        return readiness == 0 ? surfaceFailureSummary(nativeGetHdrSurfaceFailure(), Build.VERSION.SDK_INT)
+                : failureSummary(readiness);
+    }
+
+    /**
+     * Android 13 and 14 list no HDR10 surface format; HDR is then sent through the window dataspace.
+     * Code 1 is no usable 10-bit format at all, 2 is the display or driver refusing that dataspace.
+     */
+    static int surfaceFailureSummary(int nativeFailure, int sdkInt) {
+        if (nativeFailure == 1 && sdkInt < 35) return R.string.pyrowave_hdr_needs_android_15;
+        if (nativeFailure == 2) return R.string.pyrowave_hdr_display_refused;
+        return R.string.pyrowave_missing_swapchain;
     }
 
     private static int failureSummary(int readiness) {
@@ -311,6 +322,7 @@ public final class PyroWaveDecoderRenderer {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(MAX_CLOCKS_ACTIVE, false).apply();
     }
 
+    private static native int nativeGetHdrSurfaceFailure();
     private static native int nativeGetReadiness(boolean hdr, String hooks, String directory, String name);
     private static native long nativeCreate(Surface surface, int width, int height, int fps, float displayRefreshRate,
                                            int pacingMode, boolean chroma444, boolean tenBit, boolean fullRange, boolean stretch,

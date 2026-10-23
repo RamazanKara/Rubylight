@@ -101,3 +101,61 @@ inline PyroWaveUpscalingReason pyroUpscalingReason(int mode, bool tenBitOrHdr, u
     if (mode == UPSCALE_SGSR && !sgsrReady) return UPSCALING_GPU_ERROR;
     return UPSCALING_ACTIVE;
 }
+
+// Surface format selection. Values match VkFormat and VkColorSpaceKHR, kept independent of
+// Vulkan headers so the host tests can run it.
+constexpr int32_t PYRO_FORMAT_A2R10G10B10 = 58;
+constexpr int32_t PYRO_FORMAT_A2B10G10R10 = 64;
+constexpr int32_t PYRO_FORMAT_R8G8B8A8 = 37;
+constexpr int32_t PYRO_FORMAT_B8G8R8A8 = 44;
+constexpr int32_t PYRO_COLORSPACE_SRGB_NONLINEAR = 0;
+constexpr int32_t PYRO_COLORSPACE_HDR10_ST2084 = 1000104008;
+
+struct PyroSurfaceFormat {
+    int32_t format, colorSpace;
+};
+
+// format is 0 (VK_FORMAT_UNDEFINED) when nothing fits. dataspaceOverride is set for a ten-bit
+// SRGB_NONLINEAR swapchain that carries HDR through the window dataspace instead of its colour space.
+struct PyroSwapchainChoice {
+    int32_t format;
+    bool dataspaceOverride;
+};
+
+// Ten-bit output needs a native HDR10_ST2084 pair next to the SRGB_NONLINEAR one, so host HDR-off
+// transitions keep their precision. The Android loader of releases 13 and 14 never advertises
+// HDR10_ST2084 (only 15 and later list it), so a ten-bit SRGB_NONLINEAR format is the second
+// choice and HDR goes through ANativeWindow_setBuffersDataSpace(BT2020_PQ).
+inline PyroSwapchainChoice pyroSelectSwapchainFormat(const PyroSurfaceFormat *formats, size_t count, bool tenBit) {
+    const int32_t tenBitCandidates[] = {PYRO_FORMAT_A2B10G10R10, PYRO_FORMAT_A2R10G10B10};
+    const int32_t eightBitCandidates[] = {PYRO_FORMAT_R8G8B8A8, PYRO_FORMAT_B8G8R8A8};
+    auto has = [&](int32_t format, int32_t colorSpace) {
+        for (size_t i = 0; i < count; ++i) {
+            if (formats[i].format == format && formats[i].colorSpace == colorSpace) return true;
+        }
+        return false;
+    };
+    if (!tenBit) {
+        for (int32_t candidate : eightBitCandidates) {
+            if (has(candidate, PYRO_COLORSPACE_SRGB_NONLINEAR)) return {candidate, false};
+        }
+        return {0, false};
+    }
+    for (int32_t candidate : tenBitCandidates) {
+        if (has(candidate, PYRO_COLORSPACE_SRGB_NONLINEAR) && has(candidate, PYRO_COLORSPACE_HDR10_ST2084)) {
+            return {candidate, false};
+        }
+    }
+    for (int32_t candidate : tenBitCandidates) {
+        if (has(candidate, PYRO_COLORSPACE_SRGB_NONLINEAR)) return {candidate, true};
+    }
+    return {0, false};
+}
+
+// Values of ADATASPACE_SRGB and ADATASPACE_BT2020_PQ (API 28 headers; the renderer asserts them).
+constexpr int32_t PYRO_DATASPACE_SRGB = 142671872;
+constexpr int32_t PYRO_DATASPACE_BT2020_PQ = 163971072;
+
+inline int32_t pyroWindowDataspace(bool hdr) {
+    return hdr ? PYRO_DATASPACE_BT2020_PQ : PYRO_DATASPACE_SRGB;
+}

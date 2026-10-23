@@ -67,6 +67,8 @@ import javax.microedition.khronos.opengles.GL10;
 
 public class PcView extends NightjarActivity implements AdapterFragmentCallbacks {
     private View noPcFoundLayout;
+    private AbsListView pcList;
+    private boolean listWasEmpty = true;
     private ActionSheet pcMenu;
     private PcGridAdapter pcGridAdapter;
     private ShortcutHelper shortcutHelper;
@@ -298,7 +300,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                         }
                         // Home needs a library to open on; read it once for a host that has the native API.
                         if (binder != null) {
-                            com.limelight.console.ConsoleSeed.seedOnce(PcView.this, binder.getUniqueId(), details);
+                            com.limelight.console.ConsoleSeed.seedOnce(PcView.this, binder.getUniqueId(), details,
+                                    () -> runOnUiThread(PcView.this::onLibrarySeeded));
                         }
                     }
                 }
@@ -388,11 +391,50 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         Dialog.closeDialogs(PcView.this);
     }
 
+    /** The first library was just written: Home joins the shell bar, and with it becomes the root for Back. */
+    void onLibrarySeeded() {
+        if (isFinishing() || isDestroyed()) return;
+        ShellBar.refresh(this);
+    }
+
     private void updateEmptyState() {
         boolean empty = pcGridAdapter.getCount() == 0;
         noPcFoundLayout.setVisibility(empty ? View.VISIBLE : View.GONE);
         findViewById(R.id.pcFragmentContainer).setVisibility(empty ? View.GONE : View.VISIBLE);
         findViewById(R.id.manuallyAddPc).setVisibility(empty ? View.GONE : View.VISIBLE);
+        boolean filled = listWasEmpty && !empty;
+        listWasEmpty = empty;
+        if (filled && pcList != null && !pcList.isInTouchMode()) {
+            // The first PC replaced the empty state, which held focus; give it to the list, not the shell bar.
+            claimListFocus();
+        }
+    }
+
+    private boolean focusIsLoose() {
+        View focus = getCurrentFocus();
+        return focus == null || isInside(focus, R.id.shell_bar) || isInside(focus, R.id.no_pc_found_layout);
+    }
+
+    private void claimListFocus() {
+        if (!focusIsLoose() || pcList.requestFocus()) return;
+        // The list was hidden until now, so it has not been laid out and cannot take focus yet.
+        pcList.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                v.removeOnLayoutChangeListener(this);
+                if (!v.isInTouchMode() && focusIsLoose()) v.requestFocus();
+            }
+        });
+    }
+
+    private boolean isInside(View view, int containerId) {
+        if (view.getId() == containerId) return true;
+        android.view.ViewParent p = view.getParent();
+        while (p != null) {
+            if (p instanceof View && ((View) p).getId() == containerId) return true;
+            p = p.getParent();
+        }
+        return false;
     }
 
     /**
@@ -946,6 +988,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
     @Override
     public void receiveAbsListView(AbsListView listView) {
+        pcList = listView;
         listView.setAdapter(pcGridAdapter);
         listView.setOnItemClickListener((parent, view, position, id) ->
                 onComputerTapped((ComputerObject) pcGridAdapter.getItem(position)));

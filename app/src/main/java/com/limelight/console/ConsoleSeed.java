@@ -23,6 +23,14 @@ public final class ConsoleSeed {
 
     /** Safe to call often and from any thread; reads the library on a worker thread, at most once per host and run. */
     public static void seedOnce(Context context, String uniqueId, ComputerDetails computer) {
+        seedOnce(context, uniqueId, computer, null);
+    }
+
+    /**
+     * As above; {@code onSeeded} runs on the worker thread once a library exists on disk, so a screen can
+     * show Home without waiting for its next resume.
+     */
+    public static void seedOnce(Context context, String uniqueId, ComputerDetails computer, Runnable onSeeded) {
         if (computer.pairState != PairingManager.PairState.PAIRED || computer.state != ComputerDetails.State.ONLINE
                 || !computer.caps.has(HostCapabilities.Feature.NATIVE_API)) {
             return;
@@ -37,6 +45,7 @@ public final class ConsoleSeed {
         Thread thread = new Thread(() -> {
             try {
                 ConsoleRepository.create(app, uniqueId).refresh(Collections.singletonList(snapshot));
+                if (onSeeded != null && ConsoleRepository.hasAnyLibrary(app)) onSeeded.run();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }

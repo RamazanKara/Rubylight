@@ -73,10 +73,17 @@ fn select(
     );
     let base = adapt(base, needed);
     let safe = network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
-    Pace {
-        bps: session.keyframe_loss_rate_bps(base, safe),
-        needed,
-    }
+    // While the link controller holds the bitrate down, pace at what the link
+    // delivered (experimental, `link_rate_pace_limited`); a manual cap wins.
+    let delivered = session
+        .link_pace_bps
+        .load(std::sync::atomic::Ordering::Acquire);
+    let bps = if delivered > 0 && config.integer("pacing_max_bitrate_kbps", 0) <= 0 {
+        butterpollo_core::link_rate::limited_pace_bps(delivered, needed)
+    } else {
+        session.keyframe_loss_rate_bps(base, safe)
+    };
+    Pace { bps, needed }
 }
 
 /// Once per stream, when the client's link hint is below the encoder bitrate

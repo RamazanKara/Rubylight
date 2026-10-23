@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Split-frame encoding through AMD's own sample encoder | [October 22, AMD's own sample encoder](#october-22-amds-own-sample-encoder) |
+| Slice delivery (`video_slice_delivery = 4`) against off: loopback, paced Wi-Fi emulation, 1% loss, SSIM | [October 23, slice delivery (B2 step 2f)](#october-23-slice-delivery-b2-step-2f) |
 | Per-frame stage times from the timing record, and what the record costs | [October 23, timing record baselines](#october-23-per-frame-timing-record-baselines) |
 | 3.0 alpha.2 gate: couch loop, crash restore, cross-versions, soak | [October 22, alpha.2 gate](#october-22-30-alpha2-gate) |
 | Fence ring against keyed-mutex ring under GPU load | [October 22, fence ring under load](#october-22-fence-ring-under-gpu-load) |
@@ -34,6 +35,92 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 23: slice delivery (B2 step 2f)
+
+`video_slice_delivery = 4` against `off` ([docs/b2-slice-delivery.md](../docs/b2-slice-delivery.md), sections 6 and 8), measured on loopback at 3840x2160x60, 80 Mbps, 60 s a run, with the timing record. Verdict: loopback and quality pass; **the paced Wi-Fi emulation misses the 1 ms gate** (0.7 ms typical). Kill criterion 1 needs "less than 1 ms on emulated and real Wi-Fi", and the real-Wi-Fi half is the phone run, still pending, so nothing is killed yet. The feature is not killed by anything measured so far, and it is not passing either.
+
+**Fixture.** RX 7900 XT, release package of main at 36c3c8ac3, isolated host profile on port 48523, `virtual_display_layout` unchanged from `e2e.py` (the physical 5120x1440 monitor, letterboxed into the 4K stream), WGC capture, the independent moonlight-common-c receiver decoding with D3D11VA, `e2e.py --record --noise-height 1024 --mode 3840x2160x60 --bitrate 80000 --seconds 60`. The moving strip carries per-pixel noise so the encoder spends the bitrate (77 to 80 Mbps sent, ~165 KB a frame); that makes the AMF encode 6.2 ms, against 2.6 ms for the 1080p baselines above, and it is the time between the first and the last slice that bounds the gain. `video_slice_delivery` and `pacing_max_bitrate_kbps` went in through `e2e.py --config`, the loss through `BUTTERPOLLO_TEST_SEND_LOSS=<percent>:7` in the environment (the host ignores nothing it inherits), so the harness needed no change. Each condition ran off, 4, 4, off (ABBA) with the same loss seed; every run is 3,590 to 3,601 frames, so each arm has at least 7,000. Host and receiver share the QPC clock (`shared_clock`, bound 0.0 ms). The Nightjar gradle daemons were running on this PC throughout (CPU load only); the ABBA order is there to cancel it.
+
+| Run | Arm | Runs | Frames | end_to_end median / p95 / p99 (ms) | Host frames the receiver never showed | FEC-unrecoverable frames | `slice_delivery_overflows` | Decode errors |
+| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |
+| HEVC, 0% loss | off | 2 | 7189 | 12.27 / 14.76 / 22.07 | 6 (0.08%) | 0 | 0 | 0 |
+| | 4 | 2 | 7193 | 10.82 / 12.01 / 16.64 | 5 (0.07%) | 0 | 0 | 0 |
+| HEVC, 1% loss | off | 2 | 7195 | 12.43 / 14.65 / 21.26 | 5 (0.07%) | 0 | 0 | 0 |
+| | 4 | 2 | 7195 | 10.98 / 12.98 / 20.50 | 8 (0.11%) | 0 | 0 | 0 |
+| H.264, 0% loss | off | 2 | 7172 | 11.42 / 14.16 / 21.05 | 4 (0.06%) | 0 | 0 | 0 |
+| | 4 | 2 | 7184 | 9.94 / 12.62 / 19.89 | 7 (0.10%) | 0 | 0 | 0 |
+| H.264, 1% loss | off | 3 | 10781 | 11.24 / 13.54 / 19.35 | 11 (0.10%) | 0 | 0 | 0 |
+| | 4 | 2 | 7182 | 9.76 / 11.30 / 16.08 | 7 (0.10%) | 0 | 0 | 0 |
+| HEVC, 1% loss dropped in the air | off | 2 | 7200 | 12.22 / 14.07 / 19.00 | 7 (0.10%) | 0 | 0 | 0 |
+| | 4 | 2 | 7195 | 10.84 / 12.16 / 20.00 | 4 (0.06%) | 0 | 0 | 0 |
+| HEVC paced at 160 Mbps, 0% loss | off | 8 | 28711 | 17.69 / 21.01 / 27.35 | 27 (0.09%) | 0 | 0 | 0 |
+| | 4 | 8 | 28719 | 16.72 / 20.00 / 26.52 | 26 (0.09%) | 0 | 0 | 0 |
+| HEVC paced, 1% loss | off | 2 | 7195 | 17.57 / 20.12 / 23.87 | 5 (0.07%) | 0 | 0 | 0 |
+| | 4 | 2 | 7189 | 16.85 / 19.68 / 24.24 | 7 (0.10%) | 0 | 0 | 0 |
+| HEVC paced, 1% loss in the air | off | 2 | 7189 | 17.57 / 20.03 / 24.35 | 7 (0.10%) | 0 | 0 | 0 |
+| | 4 | 2 | 7183 | 17.05 / 19.82 / 26.56 | 6 (0.08%) | 0 | 0 | 0 |
+| HEVC, 5% loss (extra, not a gate) | off | 2 | 7196 | 12.13 / 13.35 / 18.13 | 4 (0.06%) | 0 | 0 | 0 |
+| | 4 | 2 | 7192 | 10.82 / 12.13 / 16.77 | 9 (0.13%) | 8 | 0 | 0 |
+
+Each figure is the mean over the arm's runs of that run's median / p95 / p99. Loss without "in the air" is refused at the socket (the host knows and applies its own send-loss rule); "in the air" counts the datagram sent and drops it, as a lossy link does. The "never showed" column is dominated by the last three to four frames of every stream, which the host sends after the receiver has gone (0% loss shows the same 0.06 to 0.1%); the loss runs add nothing beyond it. One H.264 1% run (on, second) failed the harness's audio-tone check (the tone fixture ran dry once, a known CPU-contention flake); its video stages are normal, it is left out of the table, and a third pair (on, off) replaced it. Its off arm has three runs because of the replacement pair.
+
+**Gain by run (median `end_to_end`, off minus 4):**
+
+| Run | Gain, median of the arm's run medians | Gate |
+| --- | ---: | --- |
+| HEVC loopback, 0% / 1% / 1% in the air / 5% | 1.45 / 1.45 / 1.38 / 1.31 ms | |
+| H.264 loopback, 0% / 1% | 1.48 / 1.50 ms | |
+| HEVC paced, 0% (8 runs an arm) | 0.68 ms (mean 0.97) | miss: gate 1 ms |
+| HEVC paced, 1% / 1% in the air | 0.72 / 0.52 ms | miss: gate 1 ms |
+
+In the eight paced 0% runs the "4" arm sat at 16.90 to 17.18 ms in seven and 14.69 ms in one; the off arm sat at 17.56 to 17.92 in all eight. The mean gain of 0.97 ms comes from that single run.
+
+**Stages (HEVC, mean of per-run median / p95 / p99, ms).** The new `overlap` stage is the time the first block was on the wire before the encoder had finished: 2.07 ms on loopback and 2.15 ms paced, the encoder's slice lead, which bounds the gain (section 7 estimated up to 3.6 ms paced from a 4.1 ms lead; the lead is 2.1 ms with this content).
+
+| Stage | Loopback off | Loopback 4 | Paced off | Paced 4 |
+| --- | --- | --- | --- | --- |
+| encode | 6.32 / 6.65 / 6.91 | 6.20 / 6.37 / 6.50 | 6.21 / 6.58 / 6.84 | 6.12 / 6.35 / 6.61 |
+| packetize_pace (to first packet) | 0.37 / 0.52 / 0.57 | 1.56 / 1.69 / 1.75 | 0.25 / 0.32 / 0.36 | 1.48 / 1.63 / 1.94 |
+| overlap | none | 2.07 / 2.18 / 2.27 | none | 2.15 / 2.29 / 2.49 |
+| send (first to last packet, after the encoder) | 1.01 / 1.30 / 1.58 | 0.05 / 0.07 / 0.09 | 7.53 / 8.68 / 9.09 | 6.00 / 7.06 / 7.59 |
+| host_total | 8.15 / 10.46 / 17.71 | 6.59 / 7.69 / 12.36 | 14.63 / 17.45 / 23.33 | 12.70 / 15.50 / 21.91 |
+| assemble (first packet to assembled) | 0.98 / 1.36 / 1.64 | 2.21 / 2.32 / 2.41 | 6.38 / 7.03 / 8.10 | 8.16 / 9.20 / 9.96 |
+| decode | 4.29 / 4.54 / 4.94 | 4.24 / 4.46 / 4.72 | 4.30 / 4.79 / 6.07 | 4.31 / 4.72 / 6.16 |
+| end_to_end | 12.27 / 14.76 / 22.07 | 10.82 / 12.01 / 16.64 | 17.69 / 21.01 / 27.35 | 16.72 / 20.00 / 26.52 |
+
+The H.264 stages match the HEVC ones (overlap 2.0 ms).
+
+**Quality (SSIM, slices 1 against 4, fixed bitrate).** `amf_quality.exe` (the encoder `amf_sweep.py` drives) on 90 BGRA frames of two game clips (45 each, with a hard cut between them), `--config` with `video_slice_delivery = off` or `4` (which asks AMF for four slices and slice output, as a stream does), then `ffmpeg` `ssim` and `psnr` of the decoded stream against the source converted to BT.601 limited-range 4:2:0. The encoder is deterministic: the second pass of each arm was byte-identical. The four slices were confirmed in the output (each P-frame came back as four units, 357 units for 90 frames).
+
+| Stream | Slices | Actual kbps | SSIM (all) | PSNR avg dB |
+| --- | ---: | ---: | ---: | ---: |
+| HEVC 4K60, 80 Mbps | 1 | 77,057 | 0.994715 | 49.555 |
+| | 4 | 77,085 | 0.994708 | 49.544 |
+| H.264 4K60, 80 Mbps | 1 | 72,156 | 0.993528 | 48.126 |
+| | 4 | 72,945 | 0.993398 | 47.977 |
+| HEVC 1080p60, 20 Mbps | 1 | 21,554 | 0.989360 | 43.931 |
+| | 4 | 21,436 | 0.989271 | 43.887 |
+| H.264 1080p60, 20 Mbps | 1 | 21,174 | 0.988790 | 43.444 |
+| | 4 | 21,117 | 0.988549 | 43.344 |
+
+The largest SSIM loss is 0.00024 (H.264 1080p60), a tenth of the 0.002 kill line; the 4K H.264 arm also spent 1.1% more bits. Two clips and 90 frames: it is a bound for these pictures, not for every game.
+
+**Checks.** Across the 54 runs (about 180,000 frames, plus a 4-run pilot): no run exited with code 3 or showed an encoder hang; every frame the receiver got was decoded with no decode failure; no "different picture type on a later slice" warning (the later-slice IDR check), no byte-cap overflow, no "never finished" frame, no dropped encoded frame, so `slice_delivery_overflows` was 0 (the counter is read from these warnings; the status JSON is not polled by the harness). `overlap` was positive in every "4" run, so the slices did leave early and the host did not fall back to whole frames.
+
+**Findings.**
+
+- **Loopback gain is 1.3 to 1.5 ms, as estimated** (section 7: ~1.5 ms), for both codecs, at 0%, 1% and 5% loss.
+- **Paced gain is 0.5 to 0.7 ms typical**, not 3.6. The wire time shrinks by 1.5 ms (`send` 7.5 to 6.0), but the receiver now starts assembling about 1.8 ms sooner (`assemble` 6.4 to 8.2), so the picture is only complete about when it was. The slice lead is 2.1 ms, not the 4.1 ms the step-1 probe measured on a quieter picture.
+- **1% loss does not stress either arm.** At 20% FEC and 4 blocks of about 36 packets, 1% random loss never exceeds a block's parity: no frame was unrecoverable in any run, and p99 is within run-to-run noise in every pair (paced 1%: 23.87 off against 24.24 on, then 24.35 against 26.56 in the air; the off arm's own 0% p99 runs from 26.1 to 31.7). The 5% extra run shows what smaller blocks cost: 8 FEC-unrecoverable frames (6 and 2) in the "4" arm against none in off. It recovered through the host's send-loss path and a keyframe request, and no frame was shown corrupted.
+- **Moonlight's host latency reading rises.** The frame header's host processing latency (`host_mean_ms` in `result.json`) is 0.55 ms for whole frames and 2.7 ms (p99 3.0 to 3.9) for streamed ones. A stock client's overlay would show about 2.2 ms more host latency while the picture is 1.4 ms younger.
+
+**Not measured.**
+
+- Phones (Nightjar and stock Moonlight on Wi-Fi) are pending: the user runs them. They are the other half of the Wi-Fi kill criterion.
+- The NUC over Ethernet was not run: the brief makes it conditional on runs 1 to 3 all passing, and run 2 missed its gate.
+- AV1 and PyroWave (never streamed), HDR, a game as the picture instead of the noise strip, 1080p streams, the 1% gate on a link with bursty loss, and any bitrate other than 80 Mbps.
+- Raw runs are under `C:\src\butterpollo-release\b2-2f` (`loop`, `paced`, `air`, `paced2`, `stress`, `rerun`, `ssim`; one `*.jsonl` of per-run summaries each).
 
 ## October 23: per-frame timing record baselines
 

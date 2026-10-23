@@ -10,4 +10,5 @@ pub mod input;
 pub mod rtsp;
 pub mod sdp;
 pub mod session;
+pub mod timing_record;
 pub mod video;

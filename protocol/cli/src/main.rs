@@ -10,7 +10,6 @@
 //! motion probe's barcode. PyroWave is not supported.
 
 mod decode;
-mod record;
 mod report;
 
 use std::fs::File;
@@ -25,6 +24,7 @@ use nightjar_core::session::{
     self, AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Location,
     Session, SessionConfig, Stage, VideoDecoder, VideoSetup,
 };
+use nightjar_core::timing_record as record;
 use nightjar_core::video::Frame;
 
 use decode::Received;

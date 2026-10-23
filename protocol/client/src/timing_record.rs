@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use nightjar_core::session;
+use crate::session;
 use rubylight_protocol::control::{HostTiming, HostTimingExtra};
 use rubylight_protocol::present_clock::ClockOffset;
 

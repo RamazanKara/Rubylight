@@ -251,3 +251,5 @@ fn fec_status_wire_format() {
     assert_eq!(&bytes[..6], &[1, 2, 3, 4, 5, 6]);
     assert_eq!(bytes[20], 3);
 }
+
+mod slice_delivery;

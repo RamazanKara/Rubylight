@@ -9,7 +9,6 @@
 use std::time::{Duration, Instant};
 
 const START_LIMIT: Duration = Duration::from_secs(90);
-const MAX_DROPS: u32 = 5;
 
 pub struct Autostream {
     pub address: String,
@@ -22,7 +21,6 @@ pub struct Autostream {
     apps_asked: bool,
     launched: bool,
     streaming: bool,
-    drops: u32,
     started: Instant,
     pub failed: bool,
 }
@@ -72,7 +70,6 @@ impl Autostream {
             apps_asked: false,
             launched: false,
             streaming: false,
-            drops: 0,
             started: Instant::now(),
             failed: false,
         })
@@ -100,22 +97,6 @@ impl Autostream {
 
     pub fn streaming_began(&mut self) {
         self.streaming = true;
-    }
-
-    /// The launch was handed to the launcher and nothing is connecting, waiting or streaming
-    /// any more: the launcher dropped it without a message (for example because the app list was
-    /// being reloaded at that moment). Asks to start over; false after too many drops.
-    pub fn launch_dropped(&mut self) -> bool {
-        if !self.launched || self.streaming { return true; }
-        self.drops += 1;
-        self.launched = false;
-        self.apps_asked = false;
-        self.started = Instant::now();
-        self.drops <= MAX_DROPS
-    }
-
-    pub fn launch_in_flight(&self) -> bool {
-        self.launched && !self.streaming
     }
 
     pub fn length(&self) -> Duration {
@@ -190,7 +171,7 @@ mod tests {
     fn auto() -> Autostream {
         Autostream {
             address: "127.0.0.1".into(), port: Some(48123), app: "Desktop".into(), seconds: 60, pin: "1234".into(),
-            host: None, paired_asked: false, apps_asked: false, launched: false, streaming: false, drops: 0,
+            host: None, paired_asked: false, apps_asked: false, launched: false, streaming: false,
             started: Instant::now(), failed: false,
         }
     }
@@ -217,27 +198,6 @@ mod tests {
         assert_eq!(a.next(&seen(true, AppsSeen::Loading)), Step::Wait);
         let apps = || AppsSeen::Loaded(vec![(1, "Steam".into()), (5, "desktop".into())]);
         assert_eq!(a.next(&seen(true, apps())), Step::Launch(7, 5));
-        assert_eq!(a.next(&seen(true, apps())), Step::Wait);
-    }
-
-    #[test]
-    fn a_launch_the_launcher_dropped_is_started_again_a_few_times() {
-        let mut a = auto();
-        a.host_added(7);
-        let apps = || AppsSeen::Loaded(vec![(5, "Desktop".into())]);
-        for _ in 0..MAX_DROPS {
-            assert_eq!(a.next(&seen(true, apps())), Step::Launch(7, 5));
-            assert!(a.launch_in_flight());
-            assert!(a.launch_dropped());
-        }
-        assert_eq!(a.next(&seen(true, apps())), Step::Launch(7, 5));
-        assert!(!a.launch_dropped());
-        let mut a = auto();
-        a.host_added(7);
-        assert_eq!(a.next(&seen(true, apps())), Step::Launch(7, 5));
-        a.streaming_began();
-        assert!(!a.launch_in_flight());
-        assert!(a.launch_dropped());
         assert_eq!(a.next(&seen(true, apps())), Step::Wait);
     }
 

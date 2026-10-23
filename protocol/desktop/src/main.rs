@@ -919,15 +919,6 @@ impl App {
             self.running = false;
             return;
         }
-        if auto.launch_in_flight() {
-            if auto.launch_dropped() {
-                eprintln!("nightjar: autostream launch was dropped, asking again");
-            } else {
-                auto.fail("the launcher kept dropping the launch");
-                self.running = false;
-                return;
-            }
-        }
         let host = auto.host_seen(&self.hosts);
         let seen = autostream::Seen {
             identity: self.hosts.identity().is_some(),
@@ -948,8 +939,7 @@ impl App {
             autostream::Step::LoadApps(id) => self.hosts.load_apps(id),
             autostream::Step::Launch(host, app) => self.launch(host, app, false),
             autostream::Step::Fail(why) => {
-                auto.fail(&format!("{why} (connecting {}, launch waiting {}, network query running {})",
-                    self.connecting.is_some(), self.network_launch.is_some(), self.network_query.is_some()));
+                auto.fail(&why);
                 self.running = false;
             }
         }

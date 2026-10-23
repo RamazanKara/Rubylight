@@ -599,4 +599,5 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Input released. Click the stream to capture it.", "Eingabe freigegeben. Klicke auf den Stream, um sie zu erfassen."),
     ("Mouse: desktop pointer", "Maus: Desktop-Zeiger"),
     ("Mouse: captured for games", "Maus: für Spiele erfasst"),
+    ("{} early/s, {} whole in the last second, {} fallbacks in all", "{0} früh/s, {1} ganz in der letzten Sekunde, {2} Rückfälle insgesamt"),
 ];

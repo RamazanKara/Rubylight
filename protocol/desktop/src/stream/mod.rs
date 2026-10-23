@@ -400,8 +400,8 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
 /// The overlay's early decode line: frames per second decoded ahead, and the fallbacks of the
 /// last interval and in all (`now` and `last` are the early frame and fallback totals).
 fn early_line(now: (u64, u64), last: (u64, u64), secs: f64) -> String {
-    format!("{:.0} early/s, {} whole in the last second, {} fallbacks in all",
-        now.0.saturating_sub(last.0) as f64 / secs, now.1.saturating_sub(last.1), now.1)
+    trf("{} early/s, {} whole in the last second, {} fallbacks in all",
+        &[&format!("{:.0}", now.0.saturating_sub(last.0) as f64 / secs), &now.1.saturating_sub(last.1), &now.1])
 }
 
 /// The line logged when any session ends: what the decoder was given, and the frames lost
@@ -416,24 +416,6 @@ fn video_summary(submitted: u64, queue_overflows: u64, replaced: u64) -> String 
 fn early_summary(early_frames: u64, fallbacks: u64, chunk_us: u64, chunks_dropped: u64) -> String {
     format!("nightjar: early decode: {early_frames} frames decoded ahead, {fallbacks} fell back to the whole frame, \
         {chunks_dropped} chunks dropped, {:.1} ms of decoding done while frames arrived", chunk_us as f64 / 1000.0)
-}
-
-#[cfg(test)]
-mod early_tests {
-    use super::*;
-
-    #[test]
-    fn the_overlay_line_and_the_session_summary_carry_the_counters() {
-        assert_eq!(early_line((130, 3), (70, 2), 2.0), "30 early/s, 1 whole in the last second, 3 fallbacks in all");
-        let summary = early_summary(1200, 4, 8_500, 7);
-        for part in ["1200 frames decoded ahead", "4 fell back", "7 chunks dropped", "8.5 ms"] {
-            assert!(summary.contains(part), "{summary}");
-        }
-        let video = video_summary(3600, 12, 5);
-        for part in ["3600 frames to the decoder", "12 dropped over the decoder queue", "5 replaced"] {
-            assert!(video.contains(part), "{video}");
-        }
-    }
 }
 
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
@@ -2181,5 +2163,23 @@ mod tests {
     fn terminations_read_well() {
         assert!(termination_text(0).is_none());
         assert!(termination_text(-100).unwrap().contains("UDP"));
+    }
+}
+
+#[cfg(test)]
+mod early_tests {
+    use super::*;
+
+    #[test]
+    fn the_overlay_line_and_the_session_summary_carry_the_counters() {
+        assert_eq!(early_line((130, 3), (70, 2), 2.0), "30 early/s, 1 whole in the last second, 3 fallbacks in all");
+        let summary = early_summary(1200, 4, 8_500, 7);
+        for part in ["1200 frames decoded ahead", "4 fell back", "7 chunks dropped", "8.5 ms"] {
+            assert!(summary.contains(part), "{summary}");
+        }
+        let video = video_summary(3600, 12, 5);
+        for part in ["3600 frames to the decoder", "12 dropped over the decoder queue", "5 replaced"] {
+            assert!(video.contains(part), "{video}");
+        }
     }
 }

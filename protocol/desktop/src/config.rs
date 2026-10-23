@@ -682,8 +682,8 @@ impl Store {
     }
 
     /// Everything kept for a PC that is removed: its library, its covers, and its games in the
-    /// recent list. Returns the recent list as it is now.
-    pub fn forget_host(&self, host: &str, recents: &[Recent]) -> Vec<Recent> {
+    /// recent and favourite lists. Returns both lists as they are now.
+    pub fn forget_host(&self, host: &str, recents: &[Recent], favourites: &[Favourite]) -> (Vec<Recent>, Vec<Favourite>) {
         self.forget_library(host);
         let _ = std::fs::remove_dir_all(self.dir.join("art").join(sanitize(host)));
         let kept: Vec<Recent> = recents.iter().filter(|r| r.host != host).cloned().collect();
@@ -692,7 +692,13 @@ impl Store {
                 eprintln!("nightjar: saving recent games failed: {e}");
             }
         }
-        kept
+        let stars: Vec<Favourite> = favourites.iter().filter(|f| f.host != host).cloned().collect();
+        if stars.len() != favourites.len() {
+            if let Err(e) = self.save_favourites(&stars) {
+                eprintln!("nightjar: saving favourites failed: {e}");
+            }
+        }
+        (kept, stars)
     }
 
     fn library_path(&self, host: &str) -> PathBuf {
@@ -857,7 +863,7 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_pc_clears_its_covers_and_recent_games() {
+    fn removing_a_pc_clears_its_covers_recent_games_and_favourites() {
         let dir = std::env::temp_dir().join(format!("nightjar-forget-{}", std::process::id()));
         let store = Store::at(dir.clone()).unwrap();
         let mut list = Vec::new();
@@ -869,10 +875,16 @@ mod tests {
             std::fs::create_dir_all(cover.parent().unwrap()).unwrap();
             std::fs::write(&cover, b"x").unwrap();
         }
-        let after = store.forget_host("gone", &list);
+        let mut stars = Vec::new();
+        toggle_favourite(&mut stars, star("gone", "A", 1));
+        toggle_favourite(&mut stars, star("kept", "B", 2));
+        store.save_favourites(&stars).unwrap();
+        let (after, starred) = store.forget_host("gone", &list, &stars);
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].host, "kept");
         assert_eq!(store.recents(), after, "the file is filtered too");
+        assert_eq!(starred.iter().map(|f| f.host.as_str()).collect::<Vec<_>>(), ["kept"]);
+        assert_eq!(store.favourites(), starred, "favourites.json is filtered too");
         assert!(!store.art_path("gone", 1, "").exists(), "its covers are deleted");
         assert!(store.art_path("kept", 1, "").exists(), "another PC's are not");
         std::fs::remove_dir_all(dir).ok();

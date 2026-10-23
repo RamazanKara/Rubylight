@@ -831,7 +831,7 @@ impl App {
                     self.launcher.message("Could not unpair", e);
                 }
             }
-            Command::Remove(host) => remove_host(&mut self.hosts, &self.store, &mut self.launcher.recents, host),
+            Command::Remove(host) => remove_host(&mut self.hosts, &self.store, &mut self.launcher.recents, &mut self.launcher.favourites, host),
             Command::Refresh(host) => {
                 self.hosts.poll_one(host);
                 match self.launcher.screen {
@@ -1507,10 +1507,16 @@ fn rename_host(hosts: &mut Hosts, store: &config::Store, id: u64, alias: &str) {
     }
 }
 
-/// Forgets a PC: its saved library, covers and recent games go with it.
-fn remove_host(hosts: &mut Hosts, store: &config::Store, recents: &mut Vec<config::Recent>, id: u64) {
+/// Forgets a PC: its saved library, covers, recent games and favourites go with it.
+fn remove_host(
+    hosts: &mut Hosts,
+    store: &config::Store,
+    recents: &mut Vec<config::Recent>,
+    favourites: &mut Vec<config::Favourite>,
+    id: u64,
+) {
     if let Some(unique_id) = hosts.get(id).map(|h| h.record.unique_id.clone()).filter(|id| !id.is_empty()) {
-        *recents = store.forget_host(&unique_id, recents);
+        (*recents, *favourites) = store.forget_host(&unique_id, recents, favourites);
     }
     hosts.remove(id);
     save_hosts(store, hosts);
@@ -1558,17 +1564,22 @@ mod tests {
         let gone = hosts.list[0].id;
         let recent = |host: &str| config::Recent { host: host.into(), install_id: String::new(), app_id: 1, title: "G".into(), at: 1 };
         let mut recents = vec![recent("gone"), recent("kept")];
+        let star = |host: &str| config::Favourite { host: host.into(), install_id: String::new(), app_id: 1, title: "G".into() };
+        let mut favourites = vec![star("gone"), star("kept")];
+        store.save_favourites(&favourites).unwrap();
         for host in ["gone", "kept"] {
             let cover = store.art_path(host, 1, "");
             std::fs::create_dir_all(cover.parent().unwrap()).unwrap();
             std::fs::write(cover, b"x").unwrap();
         }
         save_hosts(&store, &hosts);
-        remove_host(&mut hosts, &store, &mut recents, gone);
+        remove_host(&mut hosts, &store, &mut recents, &mut favourites, gone);
         assert_eq!(store.hosts().len(), 1);
         assert_eq!(store.hosts()[0].unique_id, "kept");
         assert_eq!(recents.len(), 1);
         assert_eq!(store.recents().len(), 1, "recent.json is filtered");
+        assert_eq!(favourites.len(), 1);
+        assert_eq!(store.favourites()[0].host, "kept", "favourites.json is filtered");
         assert!(!store.art_path("gone", 1, "").exists());
         assert!(store.art_path("kept", 1, "").exists());
         std::fs::remove_dir_all(dir).ok();

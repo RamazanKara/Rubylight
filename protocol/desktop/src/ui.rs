@@ -2533,7 +2533,7 @@ impl Launcher {
                 }
             }
             HostOption::QuitApp => {
-                return Some(Dialog::ConfirmQuit { host: id, start: None, running: running_name(host) });
+                return Some(Dialog::ConfirmQuit { host: id, start: None, running: running_name(host), resume: None, named: host.running_app() });
             }
             HostOption::Pair => commands.push(Command::Pair(id)),
             HostOption::PairOtp => {
@@ -3402,6 +3402,53 @@ mod tests {
         use HostOption::*;
         for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Settings, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
             assert!(seen.contains(&option), "no state reaches {}", option.label());
+        }
+    }
+
+    #[test]
+    fn the_replace_prompt_starts_on_resume_else_cancel_never_on_the_button_that_quits() {
+        for (resume, name) in [(Some(7), "with something to resume"), (None, "with nothing to resume")] {
+            let mut f = Frames::new(record("Paired", true, false), Reach::Online);
+            f.l.dialog = Dialog::ConfirmQuit {
+                host: f.hosts.list[0].id,
+                start: Some((9, "Zelda".into())),
+                running: "Portal".into(),
+                resume,
+                named: Some(7),
+            };
+            f.l.focus_dialog = true;
+            f.settle();
+            let commands = f.press(Key::Enter);
+            assert!(!commands.iter().any(|c| matches!(c, Command::QuitAndLaunch { .. })), "{name}: Enter must not quit");
+            assert_eq!(
+                commands.iter().any(|c| matches!(c, Command::Launch { app: 7, resume: true, .. })),
+                resume.is_some(),
+                "{name}: Enter resumes, or cancels when there is nothing to resume"
+            );
+            assert!(f.no_dialog(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_pc_that_confirms_replacement_starts_without_the_client_prompt() {
+        let info = |extension: &str| {
+            let xml = format!(
+                r#"<?xml version="1.0" encoding="utf-8"?><root status_code="200"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>7</currentgame><state>SUNSHINE_SERVER_BUSY</state><Permission>1</Permission>{extension}</root>"#
+            );
+            nightjar_core::http::ServerInfo::parse(&xml, 47989).expect("the answer parses")
+        };
+        for (extension, confirms) in [("", false), ("<RustHostVersion>3.0.0</RustHostVersion>", true)] {
+            let mut f = Frames::with(record("Paired", true, false), Reach::Online, Some(info(extension)), vec![game(7), game(9)]);
+            assert_eq!(f.hosts.list[0].confirms_replacement(), confirms);
+            let id = f.hosts.list[0].id;
+            f.l.go(Screen::Apps(id));
+            f.settle();
+            // The running game has focus first; the next poster is the other game.
+            f.press(Key::ArrowRight);
+            let commands = f.press(Key::Enter);
+            let launched = commands.iter().any(|c| matches!(c, Command::Launch { app: 9, resume: false, .. }));
+            assert_eq!(launched, confirms, "{extension}");
+            assert_eq!(matches!(f.l.dialog, Dialog::ConfirmQuit { .. }), !confirms, "{extension}");
         }
     }
 

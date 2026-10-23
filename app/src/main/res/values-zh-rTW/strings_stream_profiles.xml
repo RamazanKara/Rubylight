@@ -109,4 +109,14 @@
     <string name="layers_problem_pc_invalid">無法讀取這部電腦自己的串流設定，因此已略過。請開啟這部電腦的設定加以修正。</string>
     <string name="layers_problem_game_invalid">無法讀取這個遊戲的串流設定，因此已略過。請從遊戲選單開啟並加以修正。</string>
     <string name="layers_problem_home_wifi_unknown">沒有位置資訊存取權就無法辨識家用 Wi-Fi，因此這個 Wi-Fi 會視為其他 Wi-Fi。</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">預設組合</string>
+    <string name="game_preset_competitive">競技</string>
+    <string name="game_preset_competitive_summary">延遲最低的影格調步。位元速率跟隨電腦設定。</string>
+    <string name="game_preset_smoothness">流暢</string>
+    <string name="game_preset_smoothness_summary">最流暢的畫面。影格會被延後顯示，因此增加延遲。此遊戲的自動調整更新率會關閉。</string>
+    <string name="game_preset_quality">畫質</string>
+    <string name="game_preset_quality_summary">位元速率比此遊戲原本使用的高出一半。影格調步不變；連線較弱時，較大的影格可能增加延遲。</string>
+    <string name="game_preset_custom">自訂</string>
+    <string name="game_preset_custom_summary">你在下方設定的自訂值。</string>
 </resources>

@@ -109,4 +109,14 @@
     <string name="layers_problem_pc_invalid">Không đọc được cài đặt stream riêng của PC này, nên chúng bị bỏ qua. Hãy mở cài đặt của PC để sửa.</string>
     <string name="layers_problem_game_invalid">Không đọc được cài đặt stream của trò chơi này, nên chúng bị bỏ qua. Hãy mở chúng từ menu của trò chơi để sửa.</string>
     <string name="layers_problem_home_wifi_unknown">Không thể nhận ra Wi-Fi gia đình nếu không có quyền truy cập vị trí, nên Wi-Fi này được tính là Wi-Fi khác.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Cấu hình có sẵn</string>
+    <string name="game_preset_competitive">Thi đấu</string>
+    <string name="game_preset_competitive_summary">Nhịp độ khung hình có độ trễ thấp nhất. Tốc độ bit theo PC.</string>
+    <string name="game_preset_smoothness">Mượt mà</string>
+    <string name="game_preset_smoothness_summary">Video mượt nhất. Các khung hình bị giữ lại nên độ trễ tăng. Tần số quét thích ứng bị tắt cho trò chơi này.</string>
+    <string name="game_preset_quality">Chất lượng</string>
+    <string name="game_preset_quality_summary">Tốc độ bit cao hơn một nửa so với mức trò chơi này dùng thông thường. Nhịp độ khung hình không đổi; khi kết nối yếu, khung hình lớn hơn có thể làm tăng độ trễ.</string>
+    <string name="game_preset_custom">Tùy chỉnh</string>
+    <string name="game_preset_custom_summary">Các giá trị riêng của bạn, đặt bên dưới.</string>
 </resources>

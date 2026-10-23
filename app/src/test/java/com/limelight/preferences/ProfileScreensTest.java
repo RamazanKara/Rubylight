@@ -153,4 +153,36 @@ public class ProfileScreensTest {
             controller.pause().stop().destroy();
         }
     }
+
+    @Test
+    public void onlyAGameHasPresetsAndItNamesTheOneItsValuesMatch() {
+        HostCapabilityCache.save(app, "pc", TestHosts.rubylight());
+        AppStreamSettings.save(app, "pc", "game", 4, HostStreamProfile.deserialize("v2;pacing=smoothness;vrr=false"));
+        Intent game = new Intent(app, HostStreamSettings.class).putExtra(HostStreamSettings.EXTRA_MODE, "GAME")
+                .putExtra("host_uuid", "pc").putExtra("host_name", "Den PC")
+                .putExtra(HostStreamSettings.EXTRA_APP_UUID, "game").putExtra(HostStreamSettings.EXTRA_APP_ID, 4)
+                .putExtra(HostStreamSettings.EXTRA_APP_NAME, "Racer");
+        ActivityController<HostStreamSettings> controller = Robolectric.buildActivity(HostStreamSettings.class, game).setup();
+        try {
+            assertTrue(summary(settings(controller.get()), "preset").startsWith(app.getString(R.string.game_preset_smoothness)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+        AppStreamSettings.save(app, "pc", "game", 4, HostStreamProfile.deserialize("v2;refresh=12000"));
+        controller = Robolectric.buildActivity(HostStreamSettings.class, game).setup();
+        try {
+            assertTrue(summary(settings(controller.get()), "preset").startsWith(app.getString(R.string.game_preset_custom)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+        String id = StreamProfiles.create(app, "Travel", new HostStreamProfile());
+        Intent profile = new Intent(app, HostStreamSettings.class).putExtra(HostStreamSettings.EXTRA_MODE, "PROFILE")
+                .putExtra(HostStreamSettings.EXTRA_PROFILE_ID, id);
+        controller = Robolectric.buildActivity(HostStreamSettings.class, profile).setup();
+        try {
+            assertNull(settings(controller.get()).findPreference("preset"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

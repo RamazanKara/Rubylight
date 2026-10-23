@@ -637,6 +637,9 @@ public class HostStreamSettings extends NightjarActivity {
             PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(activity);
             setPreferenceScreen(screen);
             PreferenceCategory stream = category(screen, R.string.settings_section_video);
+            if (activity.mode == Mode.GAME) {
+                row(stream, "preset", R.string.game_preset_title, this::showPreset);
+            }
             row(stream, "resolution", R.string.title_resolution_list, this::showResolution);
             row(stream, "refresh", R.string.title_fps_list, () -> showNumber("refresh", R.string.host_profile_refresh));
             row(stream, "bitrate", R.string.title_seekbar_bitrate, () -> showNumber("bitrate", R.string.host_profile_bitrate));
@@ -888,6 +891,11 @@ public class HostStreamSettings extends NightjarActivity {
                 scale.setSummary(summary(HostStreamProfile.Field.RENDER_SCALE, own.renderScale != null, config.virtualDisplayScale + "%") +
                         "\n" + getString(R.string.summary_virtual_display_scale));
             }
+            Preference preset = findPreference("preset");
+            if (preset != null) {
+                GameProfilePreset current = GameProfilePreset.of(own, activity.baseConfig().bitrate);
+                preset.setSummary(getString(current.title) + "\n" + getString(current.summary));
+            }
             findPreference("reset").setEnabled(!own.isEmpty());
             boolean pc = activity.mode == Mode.PC;
             findPreference("reset").setSummary(own.isEmpty() ?
@@ -939,6 +947,23 @@ public class HostStreamSettings extends NightjarActivity {
                         updateSummaries();
                         dialog.dismiss();
                     }).setNegativeButton(android.R.string.cancel, null).show();
+        }
+
+        /** Competitive, Smoothness or Quality fill in frame pacing, adaptive refresh and bitrate; Custom keeps them. */
+        private void showPreset() {
+            GameProfilePreset[] presets = GameProfilePreset.values();
+            int base = activity.baseConfig().bitrate;
+            CharSequence[] items = new CharSequence[presets.length];
+            for (int i = 0; i < presets.length; i++) {
+                items[i] = getString(presets[i].title) + "\n" + getString(presets[i].summary);
+            }
+            new NavigationDialogBuilder(activity).setTitle(R.string.game_preset_title)
+                    .setSingleChoiceItems(items, GameProfilePreset.of(activity.overrides, base).ordinal(),
+                            (dialog, which) -> {
+                                presets[which].apply(activity.overrides, base);
+                                updateSummaries();
+                                dialog.dismiss();
+                            }).setNegativeButton(android.R.string.cancel, null).show();
         }
 
         private void showPacing() {

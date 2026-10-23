@@ -115,4 +115,14 @@
     <string name="layers_problem_pc_invalid">Собственные настройки трансляции этого ПК не удаётся прочитать, поэтому они пропущены. Откройте настройки ПК, чтобы исправить их.</string>
     <string name="layers_problem_game_invalid">Настройки трансляции этой игры не удаётся прочитать, поэтому они пропущены. Откройте их из меню игры, чтобы исправить.</string>
     <string name="layers_problem_home_wifi_unknown">Без доступа к геоданным домашнюю сеть Wi-Fi невозможно распознать, поэтому эта сеть Wi-Fi считается другой сетью Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Пресет</string>
+    <string name="game_preset_competitive">Соревновательный</string>
+    <string name="game_preset_competitive_summary">Синхронизация кадров с наименьшей задержкой. Битрейт берётся с ПК.</string>
+    <string name="game_preset_smoothness">Плавность</string>
+    <string name="game_preset_smoothness_summary">Самое плавное видео. Кадры придерживаются, что добавляет задержку. Для этой игры адаптивная частота отключена.</string>
+    <string name="game_preset_quality">Качество</string>
+    <string name="game_preset_quality_summary">Битрейт на половину выше, чем эта игра использовала бы иначе. Синхронизация кадров не меняется; при слабом соединении более крупные кадры могут добавить задержку.</string>
+    <string name="game_preset_custom">Свой</string>
+    <string name="game_preset_custom_summary">Ваши собственные значения, заданные ниже.</string>
 </resources>

@@ -111,4 +111,14 @@
     <string name="layers_problem_pc_invalid">This PC’s own stream settings can’t be read, so they are skipped. Open the PC’s settings to fix them.</string>
     <string name="layers_problem_game_invalid">This game’s stream settings can’t be read, so they are skipped. Open them from the game’s menu to fix them.</string>
     <string name="layers_problem_home_wifi_unknown">Home Wi-Fi can’t be recognized without location access, so this Wi-Fi counts as other Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Preset</string>
+    <string name="game_preset_competitive">Competitive</string>
+    <string name="game_preset_competitive_summary">Lowest-latency frame pacing. Bitrate follows the PC.</string>
+    <string name="game_preset_smoothness">Smoothness</string>
+    <string name="game_preset_smoothness_summary">Smoothest video. Frames are held back, which adds delay. Adaptive refresh is off for this game.</string>
+    <string name="game_preset_quality">Quality</string>
+    <string name="game_preset_quality_summary">Bitrate raised by half over what this game would otherwise use. Frame pacing is unchanged; on a weak connection the larger frames can add delay.</string>
+    <string name="game_preset_custom">Custom</string>
+    <string name="game_preset_custom_summary">Your own values, set below.</string>
 </resources>

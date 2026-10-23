@@ -109,4 +109,14 @@
     <string name="layers_problem_pc_invalid">この PC 独自のストリーミング設定を読み取れないため、スキップします。PC の設定を開いて修正してください。</string>
     <string name="layers_problem_game_invalid">このゲームのストリーミング設定を読み取れないため、スキップします。ゲームのメニューから開いて修正してください。</string>
     <string name="layers_problem_home_wifi_unknown">位置情報へのアクセスがないと自宅の Wi-Fi を認識できないため、この Wi-Fi はその他の Wi-Fi として扱われます。</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">プリセット</string>
+    <string name="game_preset_competitive">対戦向け</string>
+    <string name="game_preset_competitive_summary">最小遅延のフレームペーシング。ビットレートはPCに従います。</string>
+    <string name="game_preset_smoothness">滑らかさ重視</string>
+    <string name="game_preset_smoothness_summary">最も滑らかな映像。フレームを保持するため遅延が増えます。このゲームでは可変リフレッシュレートをオフにします。</string>
+    <string name="game_preset_quality">画質重視</string>
+    <string name="game_preset_quality_summary">このゲームが通常使うビットレートの1.5倍に引き上げます。フレームペーシングは変わりませんが、回線が弱いと大きなフレームにより遅延が増えることがあります。</string>
+    <string name="game_preset_custom">カスタム</string>
+    <string name="game_preset_custom_summary">下で設定した独自の値です。</string>
 </resources>

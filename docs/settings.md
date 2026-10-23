@@ -295,6 +295,17 @@ Nothing falls back silently. When the profile picked no longer exists or has a v
 
 Open a game's menu and choose **Stream settings for this game**. The note under it says how many values the game sets. The screen has the same stream rows as a PC, plus the PC's virtual display rows where the host has them; values not set come from this PC, the profile and the main settings, in that order. Removing a PC removes its game values too.
 
+A game's screen starts with a **Preset** row. A preset only fills in three values the game layer already has: frame pacing, adaptive refresh and bitrate. Nothing new is stored: the row names the preset whose values the game holds and says Custom for any other combination, including a game with no values of its own. Picking a preset replaces those three values; everything else (resolution, refresh rate, codec, HDR) stays as it was.
+
+| Preset | Frame pacing | Adaptive refresh | Bitrate | Trade-off |
+| --- | --- | --- | --- | --- |
+| Competitive | Lowest latency (the app default, set for this game so it holds if the main setting changes) | follows the PC | follows the PC | No extra delay. |
+| Smoothness | Smoothest video | Off for this game, because it replaces frame pacing | follows the PC | Frames are held back, so latency goes up. |
+| Quality | follows the PC | follows the PC | 150% of what the game would otherwise use, up to the host limit | Frame pacing is unchanged, but on a weak connection the larger frames can add delay. The bitrate is stored as a number, so a later change to the PC's bitrate shows the game as Custom. |
+| Custom | any other combination | | | Set each value yourself. |
+
+Radeon settings per game (Anti-Lag, Chill and similar) are not part of the native API yet, so no preset changes them. That part waits for host support.
+
 ### Bitrate on mobile data
 
 **Settings → Video → Bitrate on mobile data** (Off, 3–50 Mbps) caps the bitrate of a stream that starts on mobile data or metered Wi-Fi. It is separate from the profiles, so it protects a data plan whatever profile, PC or game value applies. The cap is decided at stream start; switching networks during a stream doesn't change it.

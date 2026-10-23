@@ -111,4 +111,14 @@
     <string name="layers_problem_pc_invalid">Bu bilgisayarın kendi yayın ayarları okunamıyor, bu yüzden atlandı. Düzeltmek için bilgisayarın ayarlarını açın.</string>
     <string name="layers_problem_game_invalid">Bu oyunun yayın ayarları okunamıyor, bu yüzden atlandı. Düzeltmek için ayarları oyunun menüsünden açın.</string>
     <string name="layers_problem_home_wifi_unknown">Konum erişimi olmadan ev Wi-Fi’ı tanınamaz, bu yüzden bu Wi-Fi diğer Wi-Fi sayılır.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Ön ayar</string>
+    <string name="game_preset_competitive">Rekabetçi</string>
+    <string name="game_preset_competitive_summary">En düşük gecikmeli kare zamanlama. Bit hızı PC’yi izler.</string>
+    <string name="game_preset_smoothness">Akıcılık</string>
+    <string name="game_preset_smoothness_summary">En akıcı video. Kareler bekletilir, bu da gecikme ekler. Bu oyun için uyarlanabilir yenileme kapalıdır.</string>
+    <string name="game_preset_quality">Kalite</string>
+    <string name="game_preset_quality_summary">Bit hızı, bu oyunun normalde kullanacağından yarı oranında yüksek. Kare zamanlama değişmez; zayıf bağlantıda büyük kareler gecikme ekleyebilir.</string>
+    <string name="game_preset_custom">Özel</string>
+    <string name="game_preset_custom_summary">Aşağıda ayarladığınız kendi değerleriniz.</string>
 </resources>

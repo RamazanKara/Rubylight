@@ -111,4 +111,14 @@
     <string name="layers_problem_pc_invalid">Les paramètres de stream propres à ce PC sont illisibles et sont donc ignorés. Ouvrez les paramètres du PC pour les corriger.</string>
     <string name="layers_problem_game_invalid">Les paramètres de stream de ce jeu sont illisibles et sont donc ignorés. Ouvrez-les depuis le menu du jeu pour les corriger.</string>
     <string name="layers_problem_home_wifi_unknown">Sans accès à la position, le Wi-Fi domestique ne peut pas être reconnu : ce Wi-Fi compte donc comme autre Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Préréglage</string>
+    <string name="game_preset_competitive">Compétitif</string>
+    <string name="game_preset_competitive_summary">Frame pacing à la latence la plus basse. Le débit suit celui du PC.</string>
+    <string name="game_preset_smoothness">Fluidité</string>
+    <string name="game_preset_smoothness_summary">Vidéo la plus fluide. Les images sont retenues, ce qui ajoute du délai. Le rafraîchissement adaptatif est désactivé pour ce jeu.</string>
+    <string name="game_preset_quality">Qualité</string>
+    <string name="game_preset_quality_summary">Débit augmenté de moitié par rapport à celui que ce jeu utiliserait sinon. Le frame pacing ne change pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
+    <string name="game_preset_custom">Personnalisé</string>
+    <string name="game_preset_custom_summary">Vos propres valeurs, réglées ci-dessous.</string>
 </resources>

@@ -111,4 +111,14 @@
     <string name="layers_problem_pc_invalid">Die eigenen Stream-Einstellungen dieses PCs können nicht gelesen werden und werden übersprungen. Öffne die Einstellungen des PCs, um sie zu korrigieren.</string>
     <string name="layers_problem_game_invalid">Die Stream-Einstellungen dieses Spiels können nicht gelesen werden und werden übersprungen. Öffne sie über das Menü des Spiels, um sie zu korrigieren.</string>
     <string name="layers_problem_home_wifi_unknown">Ohne Standortzugriff kann das Heim-WLAN nicht erkannt werden, daher zählt dieses WLAN als anderes WLAN.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Voreinstellung</string>
+    <string name="game_preset_competitive">Wettkampf</string>
+    <string name="game_preset_competitive_summary">Frame-Pacing mit der niedrigsten Latenz. Die Bitrate folgt dem PC.</string>
+    <string name="game_preset_smoothness">Flüssigkeit</string>
+    <string name="game_preset_smoothness_summary">Flüssigstes Video. Bilder werden zurückgehalten, das erhöht die Verzögerung. Adaptive Bildwiederholrate ist für dieses Spiel aus.</string>
+    <string name="game_preset_quality">Qualität</string>
+    <string name="game_preset_quality_summary">Bitrate um die Hälfte höher als sonst für dieses Spiel. Das Frame-Pacing bleibt gleich; bei schwacher Verbindung können die größeren Bilder die Verzögerung erhöhen.</string>
+    <string name="game_preset_custom">Benutzerdefiniert</string>
+    <string name="game_preset_custom_summary">Deine eigenen Werte, unten eingestellt.</string>
 </resources>

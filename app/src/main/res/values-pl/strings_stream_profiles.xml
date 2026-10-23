@@ -115,4 +115,14 @@
     <string name="layers_problem_pc_invalid">Nie można odczytać własnych ustawień strumienia tego komputera, więc zostały pominięte. Otwórz ustawienia komputera, aby to naprawić.</string>
     <string name="layers_problem_game_invalid">Nie można odczytać ustawień strumienia tej gry, więc zostały pominięte. Otwórz je z menu gry, aby to naprawić.</string>
     <string name="layers_problem_home_wifi_unknown">Bez dostępu do lokalizacji nie da się rozpoznać domowej sieci Wi-Fi, więc ta sieć Wi-Fi jest traktowana jako inna sieć Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Ustawienie wstępne</string>
+    <string name="game_preset_competitive">Rywalizacja</string>
+    <string name="game_preset_competitive_summary">Tempo klatek o najniższym opóźnieniu. Szybkość transmisji jak na PC.</string>
+    <string name="game_preset_smoothness">Płynność</string>
+    <string name="game_preset_smoothness_summary">Najpłynniejszy obraz. Klatki są wstrzymywane, co zwiększa opóźnienie. Adaptacyjne odświeżanie jest wyłączone dla tej gry.</string>
+    <string name="game_preset_quality">Jakość</string>
+    <string name="game_preset_quality_summary">Szybkość transmisji większa o połowę niż ta, której ta gra użyłaby normalnie. Tempo klatek bez zmian; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
+    <string name="game_preset_custom">Własne</string>
+    <string name="game_preset_custom_summary">Twoje własne wartości, ustawione poniżej.</string>
 </resources>

@@ -111,4 +111,14 @@
     <string name="layers_problem_pc_invalid">No se pueden leer los ajustes de transmisión propios de este PC, así que se omiten. Abre los ajustes del PC para corregirlos.</string>
     <string name="layers_problem_game_invalid">No se pueden leer los ajustes de transmisión de este juego, así que se omiten. Ábrelos desde el menú del juego para corregirlos.</string>
     <string name="layers_problem_home_wifi_unknown">Sin acceso a la ubicación no se puede reconocer la Wi-Fi de casa, así que esta Wi-Fi cuenta como otra Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Ajuste predefinido</string>
+    <string name="game_preset_competitive">Competitivo</string>
+    <string name="game_preset_competitive_summary">Ritmo de fotogramas con la latencia más baja. La tasa de bits sigue la del PC.</string>
+    <string name="game_preset_smoothness">Fluidez</string>
+    <string name="game_preset_smoothness_summary">Vídeo lo más fluido posible. Se retienen fotogramas, lo que añade retardo. La frecuencia adaptativa está desactivada para este juego.</string>
+    <string name="game_preset_quality">Calidad</string>
+    <string name="game_preset_quality_summary">Tasa de bits un 50 % mayor que la que usaría este juego. El ritmo de fotogramas no cambia; con una conexión débil, los fotogramas más grandes pueden añadir retardo.</string>
+    <string name="game_preset_custom">Personalizado</string>
+    <string name="game_preset_custom_summary">Tus propios valores, ajustados abajo.</string>
 </resources>

@@ -242,8 +242,18 @@ decode time per megabyte of blocks, the plane clear and the half conversion of a
 
 ## Next steps (not part of this change)
 
-- Step 3 on the host: send rows with their coarse data first behind a new RTSP hint. With it
-  the chunk stream is in picture order and the decoder can work on row bands.
+- Step 3 on the host: send rows with their coarse data first behind a new RTSP hint
+  (`x-ss-video[0].pyrowaveRowOrder:1`, host side done; the client does not send it yet). With
+  it the chunk stream is in picture order and the decoder can work on row bands. The order
+  rests on one band (64 picture rows) of lookahead: block row r of wavelet level L goes with
+  band `r * 2^L - 1`, level 4 first. `a_band_decodes_exactly_from_the_blocks_a_row_order_sends_before_its_cut`
+  checks it on the CPU decoder: with only the blocks sent before band k's cut, band k comes out
+  bit-identical (maximum error 0.0 in every band) at 1920x1080 4:2:0, 1280x720 4:4:4 and two
+  odd sizes; with no lookahead the error is 0.25 to 1.3 on the random coefficients, which
+  range -0.5 to 0.5. The `--ignored` variant
+  `a_real_frame_decodes_its_bands_exactly_from_the_blocks_before_their_cut` does the same on
+  real 1080p dump frames (`NIGHTJAR_PYROWAVE_FRAMES`): 0.0 with one band, up to 0.18 coefficient
+  units without.
 - A row-banded half conversion and inverse wavelet in the presenter, so the work after the
   last packet shrinks to the last band.
 - A settings toggle, once the settings screen rework lands.

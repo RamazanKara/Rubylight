@@ -523,6 +523,121 @@ mod tests {
         assert!(decode_block(&block[..19], &mut out).is_err());
     }
 
+    /// The wavelet level of every band of the decoder, in `bands` order (the loops of `new`).
+    fn band_levels(decoder: &Decoder) -> Vec<usize> {
+        let mut levels = Vec::new();
+        for level in (0..5).rev() {
+            for component in 0..3 {
+                if level == 0 && component != 0 && !decoder.chroma444 { continue; }
+                for _ in 0..if level == 4 { 4 } else { 3 } { levels.push(level); }
+            }
+        }
+        assert_eq!(levels.len(), decoder.bands.len());
+        levels
+    }
+
+    /// The row order's step for block row `row` of a band at `level`: the picture band (64 rows,
+    /// one block row of level 0) after which the block is sent, with `lookahead` bands of margin.
+    /// Level 4 is sent first of all. This is `row_steps` of the host, with the margin a parameter.
+    fn row_step(level: usize, row: usize, bands: usize, lookahead: usize) -> usize {
+        if level == 4 { 0 } else { ((row << level).saturating_sub(lookahead)).min(bands - 1) }
+    }
+
+    /// For each picture band k: decode only the blocks the row order sends before band k's cut
+    /// (every block whose step is at most k, the planes as they stand being the full frame's
+    /// blocks), and the largest difference to the full decode over band k's rows, in the decoder's
+    /// float units (a code value is 1/255 at 8 bits). A copy of the planes is zeroed where blocks
+    /// are missing, as the decoder leaves a block that did not arrive.
+    fn prefix_errors(decoder: &mut Decoder, lookahead: usize) -> Vec<f32> {
+        let (stride, rows, full) = (decoder.stride, decoder.rows, decoder.chroma444);
+        let bands = rows.div_ceil(64);
+        let whole = decoder.planes.clone();
+        let mut reference = whole.clone();
+        let reconstruct = |planes: &mut [Vec<f32>; 3], decoder: &mut Decoder| {
+            std::mem::swap(&mut decoder.planes, planes);
+            decoder.reconstruct();
+            std::mem::swap(&mut decoder.planes, planes);
+        };
+        reconstruct(&mut reference, decoder);
+        let levels = band_levels(decoder);
+        let mut errors = Vec::new();
+        for k in 0..bands {
+            let mut planes = whole.clone();
+            for (band, &level) in decoder.bands.iter().zip(&levels) {
+                let across = band.width.div_ceil(32);
+                for block in 0..band.count {
+                    let row = block / across;
+                    if row_step(level, row, bands, lookahead) <= k { continue; }
+                    let (bx, by) = (block % across * 32, row * 32);
+                    for y in by..(by + 32).min(band.height) {
+                        let at = (band.y + y) * stride + band.x + bx;
+                        planes[band.component][at..at + (bx + 32).min(band.width) - bx].fill(0.0);
+                    }
+                }
+            }
+            reconstruct(&mut planes, decoder);
+            let mut error = 0.0f32;
+            for (component, (got, want)) in planes.iter().zip(&reference).enumerate() {
+                // A 4:2:0 chroma plane has half the picture's rows.
+                let scale = if component != 0 && !full { 2 } else { 1 };
+                let (first, last) = (64 * k / scale, (64 * (k + 1) / scale).min(rows / scale));
+                for y in first..last {
+                    for x in 0..stride / scale {
+                        error = error.max((got[y * stride + x] - want[y * stride + x]).abs());
+                    }
+                }
+            }
+            errors.push(error);
+        }
+        errors
+    }
+
+    /// Random coefficients in every block of a fresh decoder's planes.
+    fn random_pyramid(width: usize, height: usize, full: bool) -> Decoder {
+        let mut decoder = Decoder::new(width, height, full).unwrap();
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        for plane in &mut decoder.planes {
+            for value in plane.iter_mut() {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                *value = (state >> 40) as f32 / (1u64 << 24) as f32 - 0.5;
+            }
+        }
+        decoder
+    }
+
+    #[test]
+    fn a_band_decodes_exactly_from_the_blocks_a_row_order_sends_before_its_cut() {
+        // The inverse wavelet's four +-1 lifting steps reach under one block row at every level, so
+        // block row r of level L is needed from band r * 2^L - 1 on: one band of lookahead.
+        for (width, height, full) in [(1920, 1080, false), (1280, 720, true), (131, 97, true), (132, 98, false)] {
+            let mut decoder = random_pyramid(width, height, full);
+            let one = prefix_errors(&mut decoder, 1);
+            println!("{width}x{height} 444={full}, one band of lookahead, max error per band: {one:?}");
+            assert!(one.iter().all(|&e| e == 0.0), "{width}x{height}: {one:?}");
+            // The negative control: no lookahead is wrong in every band but the last.
+            let none = prefix_errors(&mut decoder, 0);
+            println!("{width}x{height} 444={full}, no lookahead: {none:?}");
+            if one.len() > 1 { assert!(none[..none.len() - 1].iter().any(|&e| e > 0.0), "{width}x{height}: {none:?}"); }
+        }
+    }
+
+    #[test]
+    #[ignore = "real 1080p frames from NIGHTJAR_PYROWAVE_FRAMES"]
+    fn a_real_frame_decodes_its_bands_exactly_from_the_blocks_before_their_cut() {
+        let dir = std::env::var_os("NIGHTJAR_PYROWAVE_FRAMES").expect("set NIGHTJAR_PYROWAVE_FRAMES to a dump directory");
+        for (width, height, full, data) in dumped_frames(std::path::Path::new(&dir)).into_iter().take(3) {
+            let mut decoder = Decoder::new(width, height, full).unwrap();
+            decoder.coefficients(&data).unwrap();
+            for lookahead in [1, 0] {
+                let errors = prefix_errors(&mut decoder, lookahead);
+                println!("real {width}x{height} 444={full}, lookahead {lookahead}, max error per band: {errors:?}");
+                if lookahead == 1 { assert!(errors.iter().all(|&e| e == 0.0), "{errors:?}"); }
+            }
+        }
+    }
+
     /// The legacy container of a fixture as one bitstream: the sequence header, then blocks.
     fn bitstream(container: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();

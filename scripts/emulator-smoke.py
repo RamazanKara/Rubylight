@@ -154,12 +154,12 @@ def find(label, scroll=False):
 
 
 def find_text(pattern, scroll=False):
-    for _ in range(12 if scroll else 8):
+    for _ in range(24 if scroll else 8):
         root = tree()
         for node in root.iter("node"):
             if re.search(pattern, node.get("text") or ""):
                 return node
-        area = next((n for n in root.iter("node") if n.get("scrollable") == "true"), None) if scroll else None
+        area = next((n for n in root.iter("node") if scroll and n.get("scrollable") == "true"), None)
         if area is not None:
             x1, y1, x2, y2 = bounds(area)
             adb("shell", "input", "swipe", str((x1+x2)//2), str(y1+(y2-y1)*3//4), str((x1+x2)//2), str(y1+(y2-y1)//3), "300")

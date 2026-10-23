@@ -4,8 +4,8 @@ Status: shipped in the stream (brief G2). The `pyrowave_decoder` setting picks `
 decoder in `stream/pyrowave.rs`) or `Gpu` (the SDK, this document). Neither falls back to the other:
 with `Gpu` and a failing probe, PyroWave is not offered and the settings screen says why (the probe's
 error text, "Switch the PyroWave decoder to CPU ..."); with `Cpu` the DLL is never loaded.
-The default is `Gpu` on Windows (every leg of the ABBA below keeps; the Windows laptop leg is
-recorded there too) and `Cpu` elsewhere. A settings file that says `Cpu` keeps it.
+The default is `Gpu` on Windows (every leg of the ABBA below keeps, on this PC and on the 780M
+laptop) and `Cpu` elsewhere. A settings file that says `Cpu` keeps it.
 
 ## Route A: the SDK decodes, D3D11 presents
 
@@ -142,6 +142,19 @@ no new decoder errors). The CPU decoder does not keep up at 1440p60 with 300 Mbp
 clear, entropy and pack stages take about 5, 6 to 10 and 19 ms a frame), which is where the large
 differences come from; the GPU decoder's per-frame cost is 0.2 ms to submit plus 0.2 to 0.3 ms on the GPU, and
 the rest of `decode_to_present_ms` is the wait for the present.
+
+On the laptop (Ryzen 7 8845HS, Radeon 780M, 2880x1800 at 120 Hz, over Wi-Fi to this PC's isolated
+test host on port 48223; the host's capture is the scripted content on this PC), the same build
+with the SDK DLL beside it: the probe passes and the SDK decodes on the 780M. 1080p60 at 133 Mbps,
+ABBA, 60 s per leg, the host sent 137.6 to 137.9 Mbps:
+
+| Decoder | receive_to_present p50 / p95 / p99 | decode_to_present p50 / p95 | shown | dropped | decoder errors |
+| --- | --- | --- | --- | --- | --- |
+| CPU | 23.64 / 29.74 / 31.48 | 9.84 / 16.13 | 60.17 | 0 | 0 |
+| GPU | 15.96 / 21.65 / 23.61 | 8.39 / 14.19 | 60.20 | 0 | 0 |
+
+The 7.5 ms p95 of `receive_to_input_ms` on both is the Wi-Fi hop, so the whole difference sits in
+decode and presentation.
 
 ### The Vulkan to D3D11 handoff
 

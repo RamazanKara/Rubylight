@@ -46,6 +46,11 @@ Stage timers (printed at session end as `PyroWave decode stages` and `PyroWave p
 | upload | presenter | `SDL_UpdateTexture` of the coefficient frame |
 | passes | presenter | CPU time to submit the 11 wavelet passes (not GPU time) |
 
+With the GPU decoder (`pyrowave_decoder = Gpu`, docs/pyrowave-decode.md) the decode line reads
+`clear`, `push` (records into the SDK), `submit` and `gpu` (the SDK's own pass timing) instead, and
+the presenter's `upload` is 0: the planes are already on the GPU. `scripts/pyrowave-loopback.ps1`
+takes `-DecoderA/-DecoderB Cpu|Gpu`, `-Width/-Height/-Fps` and `-Port` for those runs.
+
 `NIGHTJAR_PYROWAVE_DUMP=<dir>` writes the first 120 real envelopes; the ignored test
 `cpu_costs_of_a_pyrowave_frame` reads them back through `NIGHTJAR_PYROWAVE_FRAMES`.
 

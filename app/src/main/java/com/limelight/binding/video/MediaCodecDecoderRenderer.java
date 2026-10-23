@@ -172,6 +172,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile boolean hostFrameTimes;
     // Follow the content rate for Game's frame rate vote (host frame times, scheduled or not).
     private volatile boolean trackContentRate;
+    // With host frame times, frames go onto the panel's vsync grid, late ones give way to newer
+    // ones, and the decoder queue and the compositor's queue are kept short (PresentScheduler,
+    // DecoderQueuePolicy.Residency and InFlight). All of it runs on the renderer thread, except
+    // the in-flight count, which the frame-rendered listener also writes.
+    private final PresentScheduler presentScheduler = new PresentScheduler(hostFrameClock);
+    private final PresentScheduler.Plan presentPlan = new PresentScheduler.Plan();
+    private final DecoderQueuePolicy.Residency residency = new DecoderQueuePolicy.Residency();
+    private final DecoderQueuePolicy.InFlight inFlight = new DecoderQueuePolicy.InFlight();
+    private volatile boolean frameRenderedListenerSet;
+    // Why the catch-up loop wants to drop the output it holds; see wantsCatchUp.
+    private String catchUpReason;
+    // The output the scheduler is holding, which a newer output may replace.
+    private int heldIndex;
+    private long heldPtsUs;
     private HandlerThread latencyThread;
     private Handler latencyHandler;
     private final AtomicBoolean phaseFlushQueued = new AtomicBoolean();
@@ -1631,8 +1645,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 public void onFrameRendered(MediaCodec mediaCodec, long presentationTimeUs, long renderTimeNanos) {
                     // Callbacks may be batched; their timestamp, not delivery time, measures rendering.
                     frameLatencyStats.onFrameRendered(presentationTimeUs, renderTimeNanos, System.nanoTime());
+                    inFlight.onRendered(presentationTimeUs);
                 }
             }, latencyHandler);
+            frameRenderedListenerSet = true;
         }
     }
 
@@ -1773,7 +1789,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 pacingFrameRateMilliHz = 0;
                 outputBufferQueueLimit = 1;
                 frameLatencyStats.discardPending("codec_reset");
-                if (hostFrameTimes) hostFrameClock.reset();
+                if (hostFrameTimes) {
+                    hostFrameClock.reset();
+                    presentScheduler.reset();
+                    residency.reset();
+                    inFlight.reset();
+                }
 
                 // If we just need a flush, do so now with all threads quiesced.
                 if (codecRecoveryType.get() == CR_RECOVERY_TYPE_FLUSH) {
@@ -2048,6 +2069,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private void reportPhaseSlack(long readyNs) {
         // Adaptive refresh has no fixed latch; an upscaled frame is not display-ready yet.
         if (stopping || !outputVsyncAvailable || upscaler != null) return;
+        // The scheduler places frames by the host's frame times; a host that also retimed its
+        // captures from this report would be a second controller on the same signal.
+        if (hostFrameTimes) return;
         long slackNs, intervalNs;
         synchronized (vsyncMonitor) {
             if (outputHasArrSupport) return;
@@ -2180,6 +2204,150 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         });
     }
 
+    private void onOutputFormatChanged() {
+        LimeLog.info("Output format changed");
+        outputFormat = videoDecoder.getOutputFormat();
+        LimeLog.info("New output format: " + outputFormat);
+        checkUpscalingOutputFormat();
+        updateShownSize();
+    }
+
+    /** How often the game presents: the measured content rate once steady, else the stream's. */
+    private long contentIntervalNs() {
+        int milliHz = hostFrameClock.contentRateMilliHz();
+        return milliHz >= 1000 ? 1_000_000_000_000L / milliHz : FramePacingPolicy.frameIntervalNs(streamFrameRateMilliHz);
+    }
+
+    /** Feeds the residency governor with the output at index and logs the queue it saw. */
+    private void noteResidency(int index) {
+        long excessNs = residency.onOutput(frameLatencyStats.getInputToOutputNs(index), System.nanoTime());
+        residency.track(excessNs, contentIntervalNs());
+        frameLatencyStats.onQueueState(index, numFramesIn - numFramesOut, excessNs);
+    }
+
+    /**
+     * Whether the output at index, held while a newer one may be waiting, should be dropped for it,
+     * and why (catchUpReason): older than the age budget, or the decoder holds a surplus.
+     */
+    private boolean wantsCatchUp(int index, int drained, boolean scheduled) {
+        if (FramePacingPolicy.shouldDrainOutput(hostFrameTimes ?
+                        PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS : prefs.framePacing,
+                frameLatencyStats.getEnqueueTimeNsForOutput(index), System.nanoTime(),
+                streamFrameRateMilliHz, drained)) {
+            catchUpReason = "catch_up";
+            return true;
+        }
+        if (scheduled && drained < FramePacingPolicy.MAX_OUTPUT_DRAIN &&
+                residency.shouldDrop(numFramesIn - numFramesOut)) {
+            catchUpReason = "governor";
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Drops the held output for a newer one that is already decoded. The caller has checked that
+     * the held frame may be dropped (the previous one was shown). Returns false, changing nothing,
+     * when there is no newer output.
+     */
+    private boolean replaceHeld(String reason, long basisNs, BufferInfo info) {
+        int newer = videoDecoder.dequeueOutputBuffer(info, 0);
+        if (newer == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+            onOutputFormatChanged();
+            return false;
+        }
+        if (newer < 0) return false;
+        long nowNs = System.nanoTime();
+        presentScheduler.discard(heldPtsUs, basisNs);
+        frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
+        frameLatencyStats.onDropReason(heldIndex, reason);
+        frameLatencyStats.onOutputReleased(heldIndex, nowNs, false,
+                upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+        videoDecoder.releaseOutputBuffer(heldIndex, false);
+        numFramesOut++;
+        heldIndex = newer;
+        heldPtsUs = info.presentationTimeUs;
+        noteResidency(heldIndex);
+        if ("late".equals(reason)) presentScheduler.onLateDropped();
+        else presentScheduler.onCapDropped();
+        return true;
+    }
+
+    /**
+     * Releases the decoded output at index (codec timestamp ptsUs) with host frame times. On a
+     * fixed-refresh panel the frame is planned onto the vsync grid (PresentScheduler); with
+     * adaptive refresh, an upscaler or no vsync sample yet it is released at the clock's time.
+     * A frame behind the game's cadence, or one that would be the third in front of the
+     * compositor, is replaced by a newer output when one is already decoded, unless the frame
+     * before it was dropped (droppedBefore): never two in a row, and never the last frame.
+     * Returns the codec timestamp of the frame that was released.
+     */
+    private long releaseScheduled(int index, long ptsUs, BufferInfo info, boolean droppedBefore) {
+        heldIndex = index;
+        heldPtsUs = ptsUs;
+        boolean dropped = droppedBefore;
+        boolean renderCallbacks = upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
+        boolean capActive = renderCallbacks && frameRenderedListenerSet;
+        long contentIntervalNs = contentIntervalNs();
+        boolean grid, late;
+        long vsyncNs, intervalNs, deadlineNs, readyNs, basisNs;
+        for (;;) {
+            readyNs = System.nanoTime();
+            synchronized (vsyncMonitor) {
+                grid = outputVsyncAvailable && upscaler == null && !outputHasArrSupport &&
+                        vsyncTimeNs != 0 && vsyncIntervalNs > 0;
+                vsyncNs = vsyncTimeNs;
+                intervalNs = vsyncIntervalNs;
+                deadlineNs = vsyncPresentationDeadlineNs;
+            }
+            // The clock learns lateness against this time; it must be the same for every frame.
+            basisNs = grid ? readyNs + Math.max(0, deadlineNs) : readyNs;
+            late = presentScheduler.isLate(heldPtsUs, basisNs, contentIntervalNs);
+            if (PresentScheduler.dropLate(late, true, dropped) &&
+                    replaceHeld("late", basisNs, info)) {
+                dropped = true;
+                continue;
+            }
+            if (capActive && inFlight.full(System.nanoTime())) {
+                presentScheduler.onCapHeld();
+                long limitNs = System.nanoTime() + Math.min(contentIntervalNs,
+                        intervalNs > 0 ? intervalNs : contentIntervalNs);
+                boolean replaced = false;
+                while (!stopping && inFlight.full(System.nanoTime())) {
+                    if (!dropped && replaceHeld("in_flight", basisNs, info)) {
+                        replaced = true;
+                        break;
+                    }
+                    if (System.nanoTime() >= limitNs) break;
+                    java.util.concurrent.locks.LockSupport.parkNanos(200_000);
+                }
+                if (replaced) {
+                    dropped = true;
+                    continue;
+                }
+            }
+            break;
+        }
+
+        long releaseNs, dueNs, holdNs;
+        boolean planned = grid && presentScheduler.plan(heldPtsUs, readyNs, vsyncNs, intervalNs,
+                deadlineNs, presentPlan);
+        if (planned) {
+            releaseNs = presentPlan.releaseNs;
+            dueNs = presentPlan.vsyncNs;
+            holdNs = presentPlan.holdNs;
+        } else {
+            releaseNs = dueNs = hostFrameClock.presentNs(heldPtsUs, readyNs);
+            holdNs = releaseNs - readyNs;
+        }
+        long nowNs = System.nanoTime();
+        frameLatencyStats.onScheduled(heldIndex, planned ? dueNs : 0, holdNs, late, inFlight.count(nowNs));
+        frameLatencyStats.onOutputReleased(heldIndex, nowNs, true, renderCallbacks);
+        inFlight.onReleased(heldPtsUs, dueNs);
+        releaseOutputFrame(heldIndex, releaseNs);
+        return heldPtsUs;
+    }
+
     private void startRendererThread()
     {
         rendererThread = new Thread() {
@@ -2213,47 +2381,61 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     // after a backlog exceeds the age budget, then resume normal order.
                                     // All frames have already been decoded, preserving codec references.
                                     int drained = 0;
+                                    boolean scheduled = hostFrameTimes &&
+                                            prefs.framePacing != PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS &&
+                                            prefs.framePacing != PreferenceConfiguration.FRAME_PACING_CAP_FPS;
+                                    if (scheduled) noteResidency(lastIndex);
                                     while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
                                             FramePacingPolicy.hasOutputDrainTimeRemaining(
                                                     SystemClock.elapsedRealtimeNanos() - outputDrainStartNs,
                                                     streamFrameRateMilliHz) &&
-                                            FramePacingPolicy.shouldDrainOutput(hostFrameTimes ?
-                                                            PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS : prefs.framePacing,
-                                                    frameLatencyStats.getEnqueueTimeNsForOutput(lastIndex),
-                                                    System.nanoTime(), streamFrameRateMilliHz, drained) &&
+                                            wantsCatchUp(lastIndex, drained, scheduled) &&
                                             (outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
                                         frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, System.nanoTime());
+                                        frameLatencyStats.onDropReason(lastIndex, catchUpReason);
                                         frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false,
                                                 upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
                                         videoDecoder.releaseOutputBuffer(lastIndex, false);
+                                        if (scheduled && "governor".equals(catchUpReason)) {
+                                            residency.onDropped();
+                                            presentScheduler.onGovernorDropped();
+                                        }
 
                                         numFramesOut++;
 
                                         lastIndex = outIndex;
                                         lastPtsUs = info.presentationTimeUs;
                                         drained++;
+                                        if (scheduled) noteResidency(lastIndex);
                                     }
 
-                                    frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
-                                            upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
-                                    if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
-                                            prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
-                                        // Retain the ordinary smooth-mode presentation behavior after
-                                        // replacing any stale decoded outputs above.
-                                        releaseOutputFrame(lastIndex, 0);
-                                    }
-                                    else if (hostFrameTimes) {
-                                        // Held until the host's frame time plus the jitter delay; the
-                                        // compositor shows it at that time, or replaces it if a later
-                                        // frame is due first.
-                                        releaseOutputFrame(lastIndex, hostFrameClock.presentNs(lastPtsUs, System.nanoTime()));
+                                    if (scheduled) {
+                                        // Not released as one of the frames dropped above: the scheduler
+                                        // decides when, and whether a newer output replaces it.
+                                        lastPtsUs = releaseScheduled(lastIndex, lastPtsUs, info, drained > 0);
                                     }
                                     else {
-                                        // Use a PTS that will cause this frame to be dropped if another comes in within
-                                        // the same V-sync period. "Now" lets the compositor take it at its very next
-                                        // latch; a computed vsync target that errs late (a conservative deadline, a
-                                        // drifting phase estimate) holds frames back a whole refresh.
-                                        releaseOutputFrame(lastIndex, System.nanoTime());
+                                        frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
+                                                upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                                        if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
+                                                prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
+                                            // Retain the ordinary smooth-mode presentation behavior after
+                                            // replacing any stale decoded outputs above.
+                                            releaseOutputFrame(lastIndex, 0);
+                                        }
+                                        else if (hostFrameTimes) {
+                                            // Held until the host's frame time plus the jitter delay; the
+                                            // compositor shows it at that time, or replaces it if a later
+                                            // frame is due first.
+                                            releaseOutputFrame(lastIndex, hostFrameClock.presentNs(lastPtsUs, System.nanoTime()));
+                                        }
+                                        else {
+                                            // Use a PTS that will cause this frame to be dropped if another comes in within
+                                            // the same V-sync period. "Now" lets the compositor take it at its very next
+                                            // latch; a computed vsync target that errs late (a conservative deadline, a
+                                            // drifting phase estimate) holds frames back a whole refresh.
+                                            releaseOutputFrame(lastIndex, System.nanoTime());
+                                        }
                                     }
                                     // Artemis counts the frame it presents, once it has been released.
                                     frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
@@ -2292,11 +2474,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 }
                             }
                             if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                                LimeLog.info("Output format changed");
-                                outputFormat = videoDecoder.getOutputFormat();
-                                LimeLog.info("New output format: " + outputFormat);
-                                checkUpscalingOutputFormat();
-                                updateShownSize();
+                                onOutputFormatChanged();
                             }
                         } catch (IllegalStateException e) {
                             handleDecoderException(e);
@@ -2401,8 +2579,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // A host that announced clock sync is probed for the timing CSV; frames are scheduled by
         // the clock only with host frame times on.
         trackContentRate = prefs.contentRateFrameRate && hostAnnouncesClockSync();
+        // The content rate also sizes the scheduler's late and residency thresholds.
         hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes,
-                hostAnnouncesClockSync(), trackContentRate);
+                hostAnnouncesClockSync(), trackContentRate || hostFrameTimes);
         startRendererThread();
         startChoreographerThread();
     }
@@ -2747,6 +2926,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             String hostFrameLine = hostFrameTimes && mediaCodec ? hostFrameClock.overlayLine() : null;
             if (hostFrameLine != null) decode.append('\n').append(hostFrameLine);
+            String schedulerLine = hostFrameTimes && mediaCodec ? presentScheduler.overlayLine() : null;
+            if (schedulerLine != null) decode.append('\n').append(schedulerLine);
             decode.append('\n').append(upscalingStats());
             decode.append('\n').append(thermalStats());
             decode.append('\n').append(latencyOverlay);

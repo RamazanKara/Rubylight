@@ -157,13 +157,15 @@ public class CachedAppAssetLoaderTest {
             ImageView image = new ImageView(context);
             TextView name = new TextView(context);
             loader.populateImageView(app, image, name);
-            for (int i = 0; i < 250 && name.getVisibility() != android.view.View.GONE; i++) {
-                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
-                Thread.sleep(20);
+            // Drain the loader's threads instead of sleeping: when they have ended, the result is posted to the main thread.
+            for (String executorName : new String[] {"foregroundExecutor", "networkExecutor"}) {
+                ThreadPoolExecutor executor = ReflectionHelpers.getField(loader, executorName);
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             }
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
             assertEquals("The saved cover replaces the title", android.view.View.GONE, name.getVisibility());
             assertTrue(CachedAppAssetLoader.hasArtwork(image));
-            Thread.sleep(200);
             assertEquals("A saved cover never goes to the network", 0, asked.get());
         } finally {
             close(loader);

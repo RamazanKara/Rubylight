@@ -122,6 +122,25 @@ fn a_lone_spike_is_shown_late_but_a_slower_path_raises_the_delay() {
 }
 
 #[test]
+fn a_late_burst_at_the_start_does_not_hold_the_stream() {
+    // The first pictures wait for the decoder and the GPU: 90 ms late and falling, then an
+    // even 20 ms path with 1 ms of jitter. Measured on a real stream, the delay seeded from the
+    // first picture held every frame for the longest hold for about a minute.
+    let mut clock = PresentClock::default();
+    let mut noise = Lcg(6);
+    let shown = run(&mut clock, 700, |_| 16_667, |i| if i < 8 { 90_000 - i as i64 * 11_000 } else { noise.next(1_000) }, 0);
+    let hold = |i: usize| shown[i].1 - (shown[i].0 + 987_654_321 + 20_000);
+    for i in [30, 100, 300, 699] {
+        assert!((0..=3_000).contains(&hold(i)), "frame {i} held {} us", hold(i));
+    }
+    assert!(clock.delay_us().unwrap() < 987_654_321 + 20_000 + 3_000);
+    assert!(shown[..8].iter().all(|s| !s.2), "the burst itself is shown as it comes");
+    // A restarted video clock warms up again.
+    let late_again = clock.schedule(rtp(1_000), (shown[699].1 + 80_000) as u64);
+    assert_eq!(late_again.hold_us, clock.settings.margin_us);
+}
+
+#[test]
 fn client_clock_drift_is_followed() {
     for drift in [-200, 200] {
         let mut clock = PresentClock::default();

@@ -173,6 +173,8 @@ pub struct PresentClock {
     unwrap: Option<(u32, i64)>,
     delay_us: Option<i64>,
     last_present: Option<i64>,
+    /// Frames still to be shown without a delay, see [`WARMUP_FRAMES`].
+    warmup_left: usize,
     /// Frames shown late since the clock started.
     pub late_frames: u64,
     pub frames: u64,
@@ -186,6 +188,12 @@ impl Default for PresentClock {
 
 /// A jump this large between two frames' timestamps is a restarted video clock.
 const DISCONTINUITY_TICKS: i64 = 10 * 90_000;
+/// Frames after the start (or a restarted clock) that are shown as soon as they are ready and
+/// left out of the lateness window. The first pictures wait for the decoder and the GPU to
+/// warm up and come in a burst, 90 ms late and falling; with the delay seeded from them and
+/// falling at `decay_us` a frame, every picture was held for the longest hold for the first
+/// minute of the stream.
+const WARMUP_FRAMES: usize = 16;
 
 impl PresentClock {
     pub fn new(settings: Settings) -> Self {
@@ -198,6 +206,7 @@ impl PresentClock {
             unwrap: None,
             delay_us: None,
             last_present: None,
+            warmup_left: WARMUP_FRAMES,
             late_frames: 0,
             frames: 0,
         }
@@ -211,6 +220,7 @@ impl PresentClock {
         self.unwrap = None;
         self.delay_us = None;
         self.last_present = None;
+        self.warmup_left = WARMUP_FRAMES;
     }
 
     /// The current delay from host present to client present, beyond the clocks' offset.
@@ -249,22 +259,27 @@ impl PresentClock {
         let ready = ready_us as i64;
         let host = self.host_us(rtp);
         let lateness = ready - host;
-        let window = self.settings.window.clamp(1, MAX_WINDOW);
-        if self.len > window || self.next >= window {
-            // The window was made smaller: keep the newest frames.
-            self.len = 0;
-            self.next = 0;
-        }
-        self.window[self.next] = lateness;
-        self.next = (self.next + 1) % window;
-        self.len = (self.len + 1).min(window);
-        let wanted = self.quantile() + self.settings.margin_us;
-        let delay = match self.delay_us {
-            Some(held) if wanted < held => (held - self.settings.decay_us.max(0)).max(wanted),
-            _ => wanted,
+        let mut present = if self.warmup_left > 0 {
+            self.warmup_left -= 1;
+            ready + self.settings.margin_us
+        } else {
+            let window = self.settings.window.clamp(1, MAX_WINDOW);
+            if self.len > window || self.next >= window {
+                // The window was made smaller: keep the newest frames.
+                self.len = 0;
+                self.next = 0;
+            }
+            self.window[self.next] = lateness;
+            self.next = (self.next + 1) % window;
+            self.len = (self.len + 1).min(window);
+            let wanted = self.quantile() + self.settings.margin_us;
+            let delay = match self.delay_us {
+                Some(held) if wanted < held => (held - self.settings.decay_us.max(0)).max(wanted),
+                _ => wanted,
+            };
+            self.delay_us = Some(delay);
+            host + delay
         };
-        self.delay_us = Some(delay);
-        let mut present = host + delay;
         if let Some(last) = self.last_present {
             present = present.max(last + self.settings.min_interval_us);
         }

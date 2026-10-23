@@ -53,6 +53,8 @@ pub enum Command {
     CloseGame(u64),
     SaveSettings,
     CancelConnect,
+    /// Star the game, or take its star off.
+    ToggleFavourite(crate::config::Favourite),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,7 +94,9 @@ pub enum Dialog {
     NetworkTest { stage: String },
     Otp { host: u64, pin: String, passphrase: String, error: Option<String> },
     Message { title: String, body: String },
-    ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String },
+    /// Quit the running app, then start `start`. `resume` is the running app's id when the
+    /// dialog can offer to carry on with it instead.
+    ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String, resume: Option<i32> },
     ConfirmAction { host: u64, app: i32, name: String },
     ConfirmClose { host: u64, name: String },
     ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
@@ -221,6 +225,8 @@ pub struct Launcher {
     pub shortcuts: crate::shortcuts::Shortcuts,
     /// Games streamed before, latest first.
     pub recents: Vec<crate::config::Recent>,
+    /// Starred games, newest star first.
+    pub favourites: Vec<crate::config::Favourite>,
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
@@ -368,6 +374,7 @@ impl Launcher {
             controller_test: false,
             shortcuts,
             recents: Vec::new(),
+            favourites: Vec::new(),
             logo: None,
             focus_screen: true,
             focus_dialog: false,
@@ -718,6 +725,7 @@ impl Launcher {
                                         host: id,
                                         start: None,
                                         running: running_name(host),
+                                        resume: None,
                                     };
                                     self.focus_dialog = true;
                                 }
@@ -886,6 +894,7 @@ impl Launcher {
                                             host: id,
                                             start: Some((app.id, app.name.clone())),
                                             running: running_name(host),
+                                            resume: running_app_id(host),
                                         };
                                         self.focus_dialog = true;
                                     } else {
@@ -941,6 +950,7 @@ impl Launcher {
         let entries = console::merge_library(&sources);
         let playing = console::continue_playing(&sources);
         let recent = console::recently_played(&sources, &self.recents, &playing, 6);
+        let starred = console::favourite_games(&sources, &self.favourites);
         let loading = view.hosts.list.iter().any(|h| {
             h.reach == Reach::Online && h.paired() && h.native_api() && h.native.library.is_none() && h.native.error.is_none()
         });
@@ -952,6 +962,27 @@ impl Launcher {
                 }
             }
             let mut first = true;
+            if !starred.is_empty() {
+                section(ui, "Favourites");
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
+                    for item in &starred {
+                        let line = if item.online { format!("On {}", item.host_name) } else { format!("{} is away", item.host_name) };
+                        let response = continue_card(ui, &item.title, &line, false);
+                        self.focus_item(&response, &format!("favourite:{}:{}", item.host, item.app_id), std::mem::take(&mut first));
+                        if response.clicked() {
+                            self.open(Screen::Game { host: item.host, app: item.app_id });
+                        }
+                        let star = item.favourite.clone();
+                        response.context_menu(|ui| {
+                            if ui.button("Remove from favourites").clicked() {
+                                commands.push(Command::ToggleFavourite(star));
+                                ui.close();
+                            }
+                        });
+                    }
+                });
+            }
             if !playing.is_empty() {
                 section(ui, "Continue playing");
                 ui.horizontal_wrapped(|ui| {
@@ -966,6 +997,7 @@ impl Launcher {
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
                         }
+                        favourite_menu(&response, &sources, &self.favourites, item.host, item.app_id, commands);
                     }
                 });
             }
@@ -980,6 +1012,7 @@ impl Launcher {
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
                         }
+                        favourite_menu(&response, &sources, &self.favourites, item.host, item.app_id, commands);
                     }
                 });
             }
@@ -1009,6 +1042,7 @@ impl Launcher {
                         let best = entry.best();
                         self.open(Screen::Game { host: best.host, app: best.app_id });
                     }
+                    favourite_menu(&response, &sources, &self.favourites, entry.best().host, entry.best().app_id, commands);
                 }
             });
             section(ui, "Hosts");
@@ -1119,11 +1153,25 @@ impl Launcher {
                                     host: host_id,
                                     start: Some((app.id, game.title.clone())),
                                     running: running.clone(),
+                                    resume: running_app_id(host),
                                 };
                                 self.focus_dialog = true;
                             } else {
                                 commands.push(Command::Launch { host: host_id, app: app.id, resume: false });
                             }
+                        }
+                    }
+                    let star = console::favourite_of(source, game);
+                    let starred = console::is_starred(source, game, &self.favourites);
+                    let r = ui
+                        .add_enabled_ui(star.is_some(), |ui| {
+                            quiet_button(ui, if starred { "Remove from favourites" } else { "Add to favourites" })
+                        })
+                        .inner;
+                    self.focus_item(&r, "favourite", false);
+                    if r.clicked() {
+                        if let Some(star) = star {
+                            commands.push(Command::ToggleFavourite(star));
                         }
                     }
                     if detail.end != EndAction::None {
@@ -1135,7 +1183,7 @@ impl Launcher {
                             self.dialog = if detail.end == EndAction::CloseGame {
                                 Dialog::ConfirmClose { host: host_id, name: game.title.clone() }
                             } else {
-                                Dialog::ConfirmQuit { host: host_id, start: None, running: game.title.clone() }
+                                Dialog::ConfirmQuit { host: host_id, start: None, running: game.title.clone(), resume: None }
                             };
                             self.focus_dialog = true;
                         }
@@ -2369,8 +2417,8 @@ impl Launcher {
                         });
                     });
             }
-            Dialog::ConfirmQuit { host, start, running } => {
-                let (host, start, running) = (*host, start.clone(), running.clone());
+            Dialog::ConfirmQuit { host, start, running, resume } => {
+                let (host, start, running, resume) = (*host, start.clone(), running.clone(), *resume);
                 egui::Modal::new(Id::unique("confirm-quit"))
                     .frame(frame)
                     .backdrop_color(Color32::from_black_alpha(150))
@@ -2395,6 +2443,13 @@ impl Launcher {
                                     None => Command::QuitApp(host),
                                 });
                                 close = true;
+                            }
+                            // Starting another game replaces the running one: carry on with it instead.
+                            if let (Some(app), Some(_)) = (resume, &start) {
+                                if quiet_button(ui, &format!("Resume {running}")).clicked() {
+                                    commands.push(Command::Launch { host, app, resume: true });
+                                    close = true;
+                                }
                             }
                             if quiet_button(ui, "Cancel").clicked() {
                                 close = true;
@@ -2601,6 +2656,15 @@ fn running_name(host: &Host) -> String {
     "the running app".into()
 }
 
+/// The classic app id of the app the PC runs now, once the app list is loaded.
+fn running_app_id(host: &Host) -> Option<i32> {
+    let running = host.running_app()?;
+    match &host.apps {
+        Apps::Loaded(apps) => apps.iter().find(|a| a.matches_running_app(running, None)).map(|a| a.id),
+        _ => None,
+    }
+}
+
 fn section(ui: &mut Ui, title: &str) {
     section_at(ui, title, &mut None);
 }
@@ -2754,6 +2818,25 @@ fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, running: boo
         painter.rect_filled(badge, CornerRadius::same(12), MOON);
         painter.text(badge.center(), Align2::CENTER_CENTER, "Running", semibold(12.5), ON_MOON);
     }
+}
+
+/// The right-click menu of a game card: star the game or take its star off.
+fn favourite_menu(
+    response: &Response,
+    sources: &[Source<'_>],
+    favourites: &[crate::config::Favourite],
+    host: u64,
+    app: u32,
+    commands: &mut Vec<Command>,
+) {
+    let Some(star) = console::favourite_for(sources, host, app) else { return };
+    let starred = favourites.iter().any(|f| f.same_game(&star));
+    response.context_menu(|ui| {
+        if ui.button(if starred { "Remove from favourites" } else { "Add to favourites" }).clicked() {
+            commands.push(Command::ToggleFavourite(star));
+            ui.close();
+        }
+    });
 }
 
 fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response {

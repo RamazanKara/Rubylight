@@ -5,7 +5,7 @@
 use nightjar_core::http::native_api::library::{Game, Library};
 use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
-use crate::config::Recent;
+use crate::config::{Favourite, Recent};
 use crate::hosts::{Host, Reach};
 
 /// One PC as the console sees it.
@@ -233,6 +233,74 @@ pub fn recently_played(sources: &[Source<'_>], recents: &[Recent], playing: &[Co
         if out.len() == limit {
             break;
         }
+    }
+    out
+}
+
+/// A starred game as Home shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Starred {
+    pub host: u64,
+    pub host_name: String,
+    pub online: bool,
+    pub app_id: u32,
+    pub title: String,
+    /// The stored star, to take it off again.
+    pub favourite: Favourite,
+}
+
+/// The favourite a star on `game` stores, or none when the PC has not told its unique id yet
+/// (nothing to key the star by).
+pub fn favourite_of(source: &Source<'_>, game: &Game) -> Option<Favourite> {
+    (!source.unique_id.is_empty()).then(|| Favourite {
+        host: source.unique_id.to_owned(),
+        install_id: game.install_id.clone(),
+        app_id: game.app_id,
+        title: game.title.clone(),
+    })
+}
+
+/// The favourite for game `app_id` on the PC `host`, from that PC's library.
+pub fn favourite_for(sources: &[Source<'_>], host: u64, app_id: u32) -> Option<Favourite> {
+    let source = sources.iter().find(|s| s.id == host)?;
+    let game = source.library?.games.iter().find(|g| g.app_id == app_id)?;
+    favourite_of(source, game)
+}
+
+/// Whether `game` on this PC is starred.
+pub fn is_starred(source: &Source<'_>, game: &Game, favourites: &[Favourite]) -> bool {
+    favourite_of(source, game).is_some_and(|f| favourites.iter().any(|s| s.same_game(&f)))
+}
+
+/// The starred games of the PCs that are paired here, newest star first. A game the PC's library
+/// no longer lists (or lists as not installed) is hidden and its star kept, in case it comes back.
+/// A PC whose library is not known yet (away, nothing saved) shows the star with the saved title.
+pub fn favourite_games(sources: &[Source<'_>], favourites: &[Favourite]) -> Vec<Starred> {
+    let mut out: Vec<Starred> = Vec::new();
+    for star in favourites {
+        let Some(source) = sources.iter().find(|s| !s.unique_id.is_empty() && s.unique_id == star.host) else { continue };
+        let (app_id, title) = match source.library {
+            Some(library) => {
+                let found = library.games.iter().filter(|g| installed(g)).find(|g| {
+                    let probe = Favourite { host: star.host.clone(), install_id: g.install_id.clone(), app_id: g.app_id, title: String::new() };
+                    star.same_game(&probe)
+                });
+                let Some(game) = found else { continue };
+                (game.app_id, game.title.clone())
+            }
+            None => (star.app_id, star.title.clone()),
+        };
+        if out.iter().any(|s| s.host == source.id && s.app_id == app_id) {
+            continue;
+        }
+        out.push(Starred {
+            host: source.id,
+            host_name: source.name.to_owned(),
+            online: source.online,
+            app_id,
+            title,
+            favourite: star.clone(),
+        });
     }
     out
 }
@@ -642,5 +710,55 @@ mod tests {
         away.unique_id = "uid-a";
         let list = recently_played(&[away], &recents[..1], &[], 6);
         assert_eq!((list.len(), list[0].online), (1, false));
+    }
+
+    fn star(host: &str, install: &str, app: u32, title: &str) -> Favourite {
+        Favourite { host: host.into(), install_id: install.into(), app_id: app, title: title.into() }
+    }
+
+    #[test]
+    fn favourites_list_the_starred_games_newest_first_titled_from_the_library() {
+        let lib = library();
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        let mut b = source(2, "Den", false, Some(&lib), None);
+        b.unique_id = "uid-b";
+        let stars = [
+            star("uid-b", "", 881448767, "old name"),
+            star("uid-a", "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f", 0, "Dota 2"),
+            // Not listed any more, a PC that is not here, a repeat.
+            star("uid-a", "gone", 5, "Gone"),
+            star("uid-z", "", 881448767, "Desktop"),
+            star("uid-b", "", 881448767, "again"),
+        ];
+        let sources = [a, b];
+        let list = favourite_games(&sources, &stars);
+        assert_eq!(list.iter().map(|s| (s.host, s.title.as_str(), s.online)).collect::<Vec<_>>(),
+            [(2, "Desktop", false), (1, "Dota 2", true)]);
+        // Two PCs with the same game are two favourites, and each star only marks its own PC.
+        let game = &lib.games[0];
+        assert!(is_starred(&sources[0], game, &stars));
+        assert!(!is_starred(&sources[1], game, &stars));
+    }
+
+    #[test]
+    fn a_hidden_favourite_comes_back_and_a_pc_without_a_library_shows_the_saved_title() {
+        let mut lib = library();
+        let stars = [star("uid-a", "", 881448767, "Desktop")];
+        lib.games[1].installed = Some(false);
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        assert!(favourite_games(&[a], &stars).is_empty(), "an uninstalled game is not offered");
+        lib.games[1].installed = None;
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        assert_eq!(favourite_games(&[a], &stars).len(), 1);
+        let mut unknown = source(1, "Desk", false, None, None);
+        unknown.unique_id = "uid-a";
+        let list = favourite_games(&[unknown], &stars);
+        assert_eq!((list[0].title.as_str(), list[0].app_id), ("Desktop", 881448767));
+        // A PC that told no unique id yet cannot be starred on.
+        let nameless = source(3, "New", true, Some(&lib), None);
+        assert!(favourite_of(&nameless, &lib.games[0]).is_none());
     }
 }

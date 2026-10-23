@@ -487,6 +487,41 @@ pub fn remember(list: &mut Vec<Recent>, entry: Recent) {
     list.truncate(RECENT_LIMIT);
 }
 
+/// A game the player starred, for Home's "Favourites". It is keyed like a [`Recent`]: the PC's
+/// unique id and the game's install id (else its app id), so the same title on two PCs is two
+/// favourites and a new address or a reordered library does not lose it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Favourite {
+    pub host: String,
+    pub install_id: String,
+    pub app_id: u32,
+    /// Shown while the PC's library is not known (it is offline and nothing is saved).
+    pub title: String,
+}
+
+impl Favourite {
+    pub fn same_game(&self, other: &Favourite) -> bool {
+        self.host == other.host
+            && if !self.install_id.is_empty() && !other.install_id.is_empty() {
+                self.install_id.eq_ignore_ascii_case(&other.install_id)
+            } else {
+                self.app_id == other.app_id
+            }
+    }
+}
+
+/// Stars `entry` (first in the list; a game already starred moves up and takes the new title)
+/// or, when it is starred already, removes it. Returns whether the game is starred now.
+pub fn toggle_favourite(list: &mut Vec<Favourite>, entry: Favourite) -> bool {
+    let before = list.len();
+    list.retain(|f| !f.same_game(&entry));
+    if list.len() < before {
+        return false;
+    }
+    list.insert(0, entry);
+    true
+}
+
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     let text = std::fs::read_to_string(path).ok()?;
     match serde_json::from_str(&text) {
@@ -589,6 +624,14 @@ impl Store {
 
     pub fn save_recents(&self, recents: &[Recent]) -> std::io::Result<()> {
         write_json(&self.dir.join("recent.json"), &recents)
+    }
+
+    pub fn favourites(&self) -> Vec<Favourite> {
+        read_json(&self.dir.join("favourites.json")).unwrap_or_default()
+    }
+
+    pub fn save_favourites(&self, favourites: &[Favourite]) -> std::io::Result<()> {
+        write_json(&self.dir.join("favourites.json"), &favourites)
     }
 
     /// Box art cache: `art/<host>/<app>.img`, or `<app>-<version>.img` for a cover the host
@@ -730,6 +773,41 @@ mod tests {
         remember(&mut list, recent("pc", "A", 1, 10));
         store.save_recents(&list).unwrap();
         assert_eq!(Store::at(dir.clone()).unwrap().recents(), list);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn star(host: &str, install: &str, app: u32) -> Favourite {
+        Favourite { host: host.into(), install_id: install.into(), app_id: app, title: format!("Game {app}") }
+    }
+
+    #[test]
+    fn a_star_goes_first_and_the_same_game_on_another_pc_is_its_own_favourite() {
+        let mut list = Vec::new();
+        assert!(toggle_favourite(&mut list, star("pc", "A", 1)));
+        assert!(toggle_favourite(&mut list, star("other", "A", 1)));
+        assert!(toggle_favourite(&mut list, star("pc", "B", 2)));
+        assert_eq!(list.iter().map(|f| (f.host.as_str(), f.app_id)).collect::<Vec<_>>(), [("pc", 2), ("other", 1), ("pc", 1)]);
+        // Starring again removes it (install ids compare without case), and only on that PC.
+        assert!(!toggle_favourite(&mut list, star("pc", "a", 9)));
+        assert_eq!(list.iter().map(|f| (f.host.as_str(), f.app_id)).collect::<Vec<_>>(), [("pc", 2), ("other", 1)]);
+        // Without install ids the app id decides.
+        assert!(toggle_favourite(&mut list, star("pc", "", 5)));
+        assert!(!toggle_favourite(&mut list, star("pc", "", 5)));
+        assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn favourites_survive_a_restart_and_a_broken_file_reads_as_none() {
+        let dir = std::env::temp_dir().join(format!("nightjar-favourites-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        assert!(store.favourites().is_empty());
+        let mut list = Vec::new();
+        toggle_favourite(&mut list, star("pc", "A", 1));
+        toggle_favourite(&mut list, star("pc", "B", 2));
+        store.save_favourites(&list).unwrap();
+        assert_eq!(Store::at(dir.clone()).unwrap().favourites(), list);
+        std::fs::write(dir.join("favourites.json"), "{ not json").unwrap();
+        assert!(store.favourites().is_empty());
         std::fs::remove_dir_all(dir).ok();
     }
 

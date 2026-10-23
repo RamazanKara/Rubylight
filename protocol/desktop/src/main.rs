@@ -212,6 +212,7 @@ fn run() -> Result<(), String> {
     let display = display_of(window);
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.recents = store.recents();
+    launcher.favourites = store.favourites();
     #[cfg(windows)]
     {
         launcher.tearing_supported =
@@ -658,6 +659,12 @@ impl App {
     fn command(&mut self, command: Command) {
         match command {
             Command::Launch { host, app, resume } => self.launch(host, app, resume),
+            Command::ToggleFavourite(entry) => {
+                config::toggle_favourite(&mut self.launcher.favourites, entry);
+                if let Err(e) = self.store.save_favourites(&self.launcher.favourites) {
+                    eprintln!("nightjar: could not save favourites: {e}");
+                }
+            }
             Command::QuitApp(host) => self.hosts.quit_app(host),
             Command::ControlAction { host, app } => self.hosts.control_action(host, app),
             Command::QuitAndLaunch { host, app } => {

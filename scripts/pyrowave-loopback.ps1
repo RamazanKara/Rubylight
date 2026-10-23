@@ -24,6 +24,7 @@ param(
     [string]$Agent = 'nightjar-pyrowave-decode',
     [string]$Metric = 'decode_to_present_ms',
     [switch]$EarlyDecode,
+    [switch]$CaptureVisible,   # leave the client window in the host's capture (a feedback loop)
     [string]$DumpDir,
     [int]$ClientX = 3560,
     [int]$ClientY = 300
@@ -118,6 +119,9 @@ try {
         $env:NIGHTJAR_CONFIG_DIR = $ClientProfile
         $env:NIGHTJAR_TIMING_CSV = "$Out\$Name.csv"
         $env:NIGHTJAR_EARLY_DECODE = if ($Early) { '1' } else { '0' }
+        # One PC, one display: the host captures the display the client window is on, so the window
+        # is kept out of the capture (the client's presents would change the host's capture rate).
+        if ($CaptureVisible) { Remove-Item Env:\NIGHTJAR_EXCLUDE_FROM_CAPTURE -ErrorAction SilentlyContinue } else { $env:NIGHTJAR_EXCLUDE_FROM_CAPTURE = '1' }
         $env:NIGHTJAR_AUTOSTREAM = "127.0.0.1:$Port"
         $env:NIGHTJAR_AUTOSTREAM_APP = 'Desktop'
         $env:NIGHTJAR_AUTOSTREAM_PIN = $Pin

@@ -2,8 +2,11 @@
 <!-- One game on one host: its cover, where it runs, Play or Resume, Close game and the stream profile it will use. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
+    android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
+    android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
     <include android:id="@+id/detail_toolbar" layout="@layout/view_top_app_bar" />
+    <include layout="@layout/view_shell_bar" />
     <ProgressBar android:id="@+id/detail_loading" style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
     <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"

@@ -849,6 +849,9 @@ impl Encoder {
                     if packets * (self.config.packet_size + pyrowave::WIRE_OVERHEAD) <= allowance {
                         framed
                     } else {
+                        if self.config.pyrowave_row_order {
+                            self.warnings.event("pyrowave_row_order", format!("PyroWave row order was dropped for frames that do not fit the wire budget: {} bytes framed ({} unframed, packet size {}) against a budget of {budget} bytes and a wire allowance of {allowance} bytes. Raise the bitrate or turn the client's beam racing off.", framed.len(), raw.len(), self.config.packet_size), butterpollo_core::session::EVENT_PERIOD);
+                        }
                         raw.to_vec()
                     }
                 }

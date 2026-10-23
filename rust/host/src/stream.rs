@@ -1204,7 +1204,7 @@ impl Media {
         let source_refresh_hz = butterpollo_windows::display::mode(&first.gpu.display.display_name)
             .ok()
             .map(|mode| mode.dmDisplayFrequency);
-        tracing::info!(width=s.config.width,height=s.config.height,fps=f64::from(s.config.fps_millihz())/1000.,requested_fps=s.config.fps,bitrate_kbps=s.bitrate.load(Ordering::Relaxed),configured_bitrate_kbps=s.config.configured_bitrate_kbps,codec=s.config.codec,hdr=s.config.hdr,full_range=s.config.full_range(),color_matrix=s.config.color_matrix(),vrr=s.config.vrr_low_latency,requested_capture=%prepared.capture(),requested_encoder=c.get("encoder","auto"),encoder=encoder.as_ref().unwrap().backend(),adapter=%first.gpu.display.adapter,source_width=first.width,source_height=first.height,source_refresh_hz,source_pixel=?first.pixel,"stream configured");
+        tracing::info!(width=s.config.width,height=s.config.height,fps=f64::from(s.config.fps_millihz())/1000.,requested_fps=s.config.fps,bitrate_kbps=s.bitrate.load(Ordering::Relaxed),configured_bitrate_kbps=s.config.configured_bitrate_kbps,codec=s.config.codec,hdr=s.config.hdr,full_range=s.config.full_range(),color_matrix=s.config.color_matrix(),vrr=s.config.vrr_low_latency,pyrowave_records=s.config.pyrowave_records,pyrowave_row_order=s.config.pyrowave_row_order,requested_capture=%prepared.capture(),requested_encoder=c.get("encoder","auto"),encoder=encoder.as_ref().unwrap().backend(),adapter=%first.gpu.display.adapter,source_width=first.width,source_height=first.height,source_refresh_hz,source_pixel=?first.pixel,"stream configured");
         let minimum = butterpollo_core::pyrowave::minimum_kbps(
             s.config.width,
             s.config.height,

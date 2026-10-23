@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Stream presets (`stream_preset`): frame cap applied, keyframe size, end-to-end latency | [October 23, stream presets (B3)](#october-23-stream-presets-b3) |
 | Split-frame encoding through AMD's own sample encoder | [October 22, AMD's own sample encoder](#october-22-amds-own-sample-encoder) |
 | Slice delivery (`video_slice_delivery = 4`) against off: loopback, paced Wi-Fi emulation, real Wi-Fi (laptop), 1% loss, SSIM | [October 23, slice delivery (B2 step 2f)](#october-23-slice-delivery-b2-step-2f) |
 | Per-frame stage times from the timing record, and what the record costs | [October 23, timing record baselines](#october-23-per-frame-timing-record-baselines) |
@@ -35,6 +36,33 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 23: stream presets (B3)
+
+`stream_preset = lowest_latency | balanced | reference` ([docs/configuration.md](../docs/configuration.md#stream-presets)) on loopback with the timing record, to check that each preset reaches the encoder and what it costs or saves. Verdict: **pass**. All 13 runs applied the properties the preset names (read back from the host's "AMF encoder settings" line), and the startup keyframe is 29% (HEVC) and 38 to 40% (H.264) smaller with `lowest_latency`, with no measurable change in median end-to-end latency.
+
+**Fixture.** RX 7900 XT, the release build of main at 10aa9f0be (`butterpollo.exe` from the gate, copied into a package directory of the previous package), isolated profile, WGC capture of the physical 5120x1440 monitor, the independent moonlight-common-c receiver decoding with D3D11VA, `e2e.py --record --noise-height 1024 --seconds 60`, the preset through `--config stream_preset=<name>`. HEVC at 3840x2160x60 requested at 80 Mbps (the encoder target after the host's FEC share is 62.988 Mbps) and H.264 at 1920x1080x60 requested at 20 Mbps (target 14.988 Mbps). Order for each codec: lowest_latency, balanced, reference, reference, balanced, lowest_latency, so each preset has two runs in a mirrored order; one more HEVC `lowest_latency` run with 1% random send loss (`BUTTERPOLLO_TEST_SEND_LOSS=1:7`, the host's own send-loss rule). Host and receiver share the QPC clock (bound 0.0 ms). The previous slice-delivery section's moving strip with per-pixel noise is the picture, so frame sizes sit near the frame budget.
+
+| Codec | Preset | Runs | Frames | end_to_end median / p95 / p99 (ms) | Largest keyframe (bytes) | Largest other frame (bytes) | `MaxAUSize` applied (frame budgets) | Quality / pre-analysis | Pass |
+| --- | --- | ---: | ---: | --- | ---: | ---: | --- | --- | --- |
+| HEVC 4K60 80 Mbps | lowest_latency | 2 | 7,163 | 12.40 / 14.99 / 20.18 | 294,321 | 188,481 | 1,049,800 bits (1.0): yes | speed / off: yes | yes |
+| | balanced | 2 | 7,200 | 12.48 / 14.66 / 22.07 | 413,265 | 192,513 | 2,099,600 bits (2.0): yes | speed / off: yes | yes |
+| | reference | 2 | 7,194 | 12.33 / 14.28 / 21.32 | 413,265 | 188,481 | 0 (no limit): yes | speed / off: yes | yes |
+| | lowest_latency, 1% loss | 1 | 3,597 | 12.36 / 15.81 / 23.15 | 295,329 | 191,505 | 1,049,800 bits (1.0): yes | speed / off: yes | yes |
+| H.264 1080p60 20 Mbps | lowest_latency | 2 | 7,195 | 4.88 / 7.27 / 11.16 | 50,386 | 43,330 | 249,800 bits (1.0): yes | speed / off: yes | yes |
+| | balanced | 2 | 7,197 | 4.95 / 7.57 / 12.31 | 81,634 | 44,338 | 499,600 bits (2.0): yes | speed / off: yes | yes |
+| | reference | 2 | 7,189 | 4.81 / 6.99 / 8.47 | 81,634 | 40,306 | 0 (no limit): yes | speed / off: yes | yes |
+
+Latency figures are the mean over the preset's runs of each run's median / p95 / p99; keyframe columns are the largest over its runs. "Applied" means the driver's read-back in the host log at stream start: `HevcMaxAUSize` or `MaxAUSize` equal to the frame budget (`TargetBitrate` divided by the frame rate) times 1, 2 or 0, `HevcQualityPreset=10` (HEVC speed) or `QualityPreset=1` (H.264 speed), and `HevcEnablePreAnalysis=0` or `EnablePreAnalysis=0`. Balanced matches the host's earlier automatic two-frame cap and `reference` reads back 0, the driver default. "Pass" is the harness verdict (exit 0, `passed`, no decode failure) plus those properties. Every run had one keyframe, the startup one (`frame_type` 1 in the receiver's `frames.csv`), 0 decode failures, no exit code 3 and no encoder-hang line; the log warnings were the harness's own (the probe's launch authorisation, the audio fixture ending early in several runs, and in the loss run the send-loss notice and one UDP send warning with one dropped datagram).
+
+**What it shows.**
+
+- **The startup keyframe is the one that moves.** One-frame cap: 294,321 and 294,321 bytes (1% loss run 295,329) against 413,265 and 413,265 for balanced and 412,257 and 413,265 for reference, so 29% smaller in HEVC. H.264: 50,386 and 49,378 against 81,634 and 81,634 (balanced) and 80,626 and 81,634 (reference), 38 to 40% smaller. Reference (no cap) and balanced (two-frame cap) gave the same keyframe, so the two-frame cap did not bind on this picture at startup; only the one-frame cap did.
+- **Steady frames are unchanged.** The largest non-key frame is 151 to 193 KB (HEVC) and 40 to 44 KB (H.264) in every preset, and the median frame is 130 KB and 31 KB in all of them.
+- **No latency difference we can measure.** The medians sit within 0.15 ms (HEVC 12.33 to 12.48 ms, H.264 4.81 to 4.95 ms), which is below the run-to-run spread; p99 swings more than that inside one preset (HEVC `lowest_latency` 24.7 ms in one run and 15.6 ms in its mirror; H.264 `balanced` 16.8 and 7.9 ms). The claim for `lowest_latency` is smaller keyframes with the same steady stream, not lower latency.
+- **1% loss** with `lowest_latency` (one run, HEVC): median 12.36 ms, p99 23.15 ms, no more than the 0% runs of the same preset; it was not repeated.
+
+**Not measured.** Recovery keyframes under load (the October 7 run covers a one-frame cap for HEVC, 66% smaller largest frame at 4K40), AV1 and PyroWave, other bitrates and resolutions, a game as the picture, and a stream over a real link. Raw runs: `C:\src\butterpollo-release\b3-presets` (`presets.jsonl` with one summary per run, and `runs\e2e-<name>` for the logs, records and `frames.csv`).
 
 ## October 23: slice delivery (B2 step 2f)
 

@@ -8,10 +8,14 @@ writes a summary row to <work>/results.jsonl; step arms change the rate during t
 
   python linkspeed.py list
   python linkspeed.py shapecheck                   iperf3 -u from this PC against each rate
-  python linkspeed.py run ARM [ARM ...] --work DIR [--package DIR] [--content-height PIXELS]
+  python linkspeed.py run ARM [ARM ...] --work DIR [--package DIR] [--content-height PIXELS] [--keep-memory]
   python linkspeed.py report --work DIR            re-analyse the arms already run
+  python linkspeed.py compare A_DIR B_DIR [--repeats N]   PASS/FAIL of candidate B against baseline A
+  python linkspeed.py noise DIR [DIR ...]          run-to-run spread of picture age p50 (A/A) and repeats needed
 
-An arm is `r<rate>-<codec>-<def|hi|4k>`, `step-<a>-<b>-<a>`, `wifi`, or any name given by --extra.
+An arm is `r<rate>-<codec>-<def|hi|4k>`, `step-<a>-<b>-<a>`, `wifi`, or a healthy-link arm
+`hz-r<rate>-hevc-<mbps>`; `ARM@tag` runs the arm again into its own folder (a repeat for compare and noise).
+Loss memory is reset before every arm unless --keep-memory is given.
 The host holds C:\\src\\butterpollo-release\\GPU-LOCK while a batch runs (it waits for other agents).
 """
 import argparse, csv, hashlib, json, os, pathlib, re, shlex, subprocess, sys, threading, time
@@ -21,6 +25,7 @@ import requests, urllib3
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from e2e_host import installed_idle  # noqa: E402
 import timing_report as tr  # noqa: E402
+import linkcompare as lc  # noqa: E402
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 LAN_IP = os.environ.get('LINKSPEED_HOST_IP', '192.168.4.69')
@@ -86,6 +91,11 @@ def arms():
         table[name] = arm_spec(name, a, 'hevc', kbps, seconds=75, steps=[(20, b), (40, a)])
     table['wifi'] = arm_spec('wifi', 150, delay=3, jitter=2, loss=0.5, note='150 Mbit/s, 3 ms +-2 ms, 0.5% loss')
     table['wifi-hi'] = arm_spec('wifi-hi', 150, kbps=60000, delay=3, jitter=2, loss=0.5, note='as wifi at 60 Mbps')
+    # Healthy links: 1080p60 noise content at 20, 40 and 80 Mbps on an unshaped 1 GbE and on 500 and 300 Mbit/s.
+    for rate in lc.HEALTHY_RATES:
+        for mbps in lc.HEALTHY_MBPS:
+            name = lc.hz_arm_name(rate, mbps)
+            table[name] = arm_spec(name, rate, 'hevc', mbps * 1000, note='healthy link, must behave exactly as before')
     for rate in (150, 50):
         for codec in ('hevc',):
             name = f'q5-r{rate}-{codec}-def'
@@ -252,7 +262,7 @@ class Sampler(threading.Thread):
                 for s in sessions:
                     keep = {k: s.get(k) for k in ('encoder_bitrate_kbps', 'adaptive_bitrate', 'packet_pacing', 'fec_percent', 'frames_sent',
                                                   'frames_replaced', 'packets_sent', 'bytes_sent', 'idr_requests', 'reference_invalidations',
-                                                  'send_loss_recoveries', 'slice_delivery_overflows', 'state', 'uptime_seconds',
+                                                  'send_loss_recoveries', 'slice_delivery_overflows', 'link_rate', 'state', 'uptime_seconds',
                                                   'width', 'height', 'fps', 'video_format')}
                     keep['qpc_ms'] = started * 1000
                     out.write(json.dumps(keep) + '\n')
@@ -286,7 +296,7 @@ def primary_display(package):
     return monitor['display_name'], monitor['device_id']
 
 
-def run_arm(spec, host, work, sampler_admin, epoch_hint=None):
+def run_arm(spec, host, work, sampler_admin, keep_memory=False):
     out = work / spec['name']
     if out.exists():
         import shutil; shutil.rmtree(out)
@@ -294,7 +304,8 @@ def run_arm(spec, host, work, sampler_admin, epoch_hint=None):
     record_dir = PROFILE / 'record'
     before = {p.name for p in record_dir.glob('host-*.csv')}
     # The host remembers a lost keyframe for 24 h and paces the next sessions like Wi-Fi; every arm starts from the default.
-    sampler_admin.post(host.web + '/api/clients/reset-network-history', json={'uuid': host.client_uuid}, timeout=10).raise_for_status()
+    if not keep_memory:
+        sampler_admin.post(host.web + '/api/clients/reset-network-history', json={'uuid': host.client_uuid}, timeout=10).raise_for_status()
     shape(spec['rate'], spec['queue'], spec['delay'], spec['jitter'], spec['loss'], fresh=True)
     log_offset = host.log.stat().st_size
     sampler = Sampler(sampler_admin, host.web, out / 'host-samples.jsonl')
@@ -403,9 +414,13 @@ def analyse(out):
             if sv.get(k) is not None:
                 stages[k].append(sv[k] / 1000)
     ages = [float(extra[n]['picture_age_ms']) for n in delivered if n in extra and extra[n].get('picture_age_ms')]
+    sent_at = dict(sent)
     ends = sorted(frames[n]['end'] for n in delivered if frames[n]['end'] is not None)
     gaps = [(b - a) / 1000 for a, b in zip(ends, ends[1:])]
     freezes = [g for g in gaps if g > FREEZE_MS]
+    # Each freeze with the send times (seconds into the stream) of the frames on either side of it.
+    freeze_list = lc.freeze_events([(frames[n]['end'], (sent_at[n] - host_t0) / 1e6) for n in delivered
+                                    if frames[n]['end'] is not None and n in sent_at], FREEZE_MS)
     idr_received = sum(1 for n in delivered if extra.get(n, {}).get('frame_type') == '1')
     summary = lambda v: dict(n=len(v), p50=pct(v, 50), p95=pct(v, 95), p99=pct(v, 99), max=max(v) if v else None)
     result.update(
@@ -414,6 +429,7 @@ def analyse(out):
         delivered_fps=round(len(delivered) / max(1e-9, (window[-1][1] - window[0][1]) / 1e6), 1) if len(window) > 1 else None,
         e2e_ms=summary(e2e), picture_age_client_ms=summary(ages), freezes=dict(
             count=len(freezes), total_ms=round(sum(freezes), 1), longest_ms=round(max(freezes), 1) if freezes else 0),
+        freeze_events=[[round(a, 2), round(b, 2), round(ms, 1)] for a, b, ms in freeze_list],
         network_last_ms=summary(stages['network_last']), host_total_ms=summary(stages['host_total']),
         decode_ms=summary(stages['decode']), idr_frames_received=idr_received)
     # The host's own view: sent Mbps over the steady window and the control counters at the end.
@@ -429,6 +445,14 @@ def analyse(out):
         result['encoder_kbps_seen'] = sorted({s['encoder_bitrate_kbps'] for s in samples if s.get('encoder_bitrate_kbps') is not None})
         pace = [json.dumps(s.get('packet_pacing'), sort_keys=True) for s in samples]
         result['pacing_snapshots'] = [json.loads(p) for p in dict.fromkeys(pace)][:6]
+        # Per-sample series on the stream's own clock (seconds since the first frame was sent).
+        clock = lambda s: round((s['qpc_ms'] - record['epoch_qpc_ms']) / 1000 - host_t0 / 1e6, 2)
+        result['encoder_kbps_series'] = [[clock(s), s['encoder_bitrate_kbps']] for s in samples if s.get('encoder_bitrate_kbps') is not None]
+        result['pacing_kbps_series'] = [[clock(s), (s.get('packet_pacing') or {}).get('current_kbps')] for s in samples]
+        series_kbps = result['encoder_kbps_series']
+        result['encoder_kbps_negotiated'] = series_kbps[0][1] if series_kbps else None
+        mean = lc.mean_last([(t, v) for t, v in series_kbps if t >= 0])
+        result['encoder_kbps_last20_mean'] = None if mean is None else round(mean, 1)
     events = (out / 'host-events.log').read_text(errors='replace') if (out / 'host-events.log').exists() else ''
     timings = read_kv_lines(events, 'stream timings')
     result['host_timing_lines'] = [{k: t.get(k) for k in ('fps', 'bitrate_kbps', 'sent_mbps', 'idr_requests', 'fec_recovered_frames',
@@ -439,6 +463,10 @@ def analyse(out):
                              and 'stream timings' not in l][:10]
     result['started_with_loss_memory'] = 'pacing video like Wi-Fi from the first frame' in events
     result['latch'] = [l[l.find('reason='):][:300] for l in events.splitlines() if 'video frames are not arriving' in l][:2]
+    # Rate changes the host announced: the legacy controller and, in builds that have it, LinkRate.
+    result['adaptive_changes'] = dict(
+        adaptive_bitrate=sum(1 for l in events.splitlines() if 'host adaptive bitrate' in l),
+        link_rate=sum(1 for l in events.splitlines() if re.search(r'link[ _]rate', l, re.I) and 'network pacing' not in l))
     result['recovery_keyframes'] = sum(1 for l in events.splitlines() if 'video recovery frame' in l)
     series = {}
     for n, t in sent:
@@ -460,8 +488,15 @@ def analyse(out):
         steps = []
         for st in result['steps']:
             at = (st['done_qpc_ms'] - epoch_ms) / 1000 - host_t0 / 1e6
-            steps.append(dict(rate=st['rate'], at_s=round(at, 2), **settle(result['series'], at)))
+            entry = dict(rate=st['rate'], at_s=round(at, 2), **settle(result['series'], at))
+            negotiated = result.get('encoder_kbps_negotiated')
+            if st['rate'] >= result['rate'] and negotiated:
+                # The link is back: how long until the encoder is at 90 % of what the client asked for.
+                entry['encoder_recovered_90_s'] = lc.recovery_time(result.get('encoder_kbps_series', []), at,
+                                                                   lc.STEP_RECOVERY_FRACTION * negotiated)
+            steps.append(entry)
         result['step_settle'] = steps
+        result['phase_freeze_ms'] = lc.phase_freezes(freeze_list, [s['at_s'] for s in steps], spec['seconds'])
     write_result(out, result)
     return result
 
@@ -522,8 +557,9 @@ def shapecheck(args):
 def run(args):
     table = arms()
     names = args.arms
-    unknown = [n for n in names if n not in table]
+    unknown = [n for n in names if lc.base_name(n) not in table]
     assert not unknown, f'unknown arms: {unknown}'
+    table = {n: dict(table[lc.base_name(n)], name=n) for n in names}  # ARM@tag is a repeat run in its own folder
     package = pathlib.Path(args.package)
     work = pathlib.Path(args.work); work.mkdir(parents=True, exist_ok=True)
     installed_idle()
@@ -546,7 +582,7 @@ def run(args):
         for name in names:
             spec = table[name]
             print(f'== {name}', flush=True)
-            result = run_arm(spec, host, work, admin)
+            result = run_arm(spec, host, work, admin, args.keep_memory)
             row = {k: result.get(k) for k in ('name', 'rate', 'codec', 'kbps', 'join', 'lost_percent', 'e2e_ms', 'freezes', 'host_sent_mbps',
                                               'decode_failures', 'recovery_keyframes', 'error', 'client_exit')}
             print(json.dumps(row), flush=True)
@@ -570,6 +606,20 @@ def report(args):
         print(d.name, 'reanalysed')
 
 
+def noise(args):
+    stats = lc.noise_stats(lc.load_runs(*args.dirs))
+    print(f'{"arm":<22}{"runs":>5}  picture age p50 per run (ms)       range')
+    for arm, a in stats['arms'].items():
+        print(f'{arm:<22}{len(a["p50"]):>5}  {" ".join("%.3f" % v for v in a["p50"]):<34}{a["range"]:.3f}')
+    if stats['pooled_sigma'] is None:
+        print('no arm has two runs with data')
+        return
+    print(f'pooled sigma {stats["pooled_sigma"]:.3f} ms, worst arm {stats["worst_sigma"]:.3f} ms, largest run-to-run difference '
+          f'{stats["max_range"]:.3f} ms')
+    print(f'runs per side for a {lc.P50_BOUND_MS} ms bound (95 %): {stats["repeats_pooled"]} from the pooled sigma, '
+          f'{stats["repeats_worst"]} from the worst arm')
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -577,8 +627,15 @@ def main():
     r = sub.add_parser('run'); r.add_argument('arms', nargs='+'); r.add_argument('--work', required=True)
     r.add_argument('--package', default=str(DEFAULT_PACKAGE)); r.add_argument('--content-height', type=int, default=0)
     r.add_argument('--wait', type=int, default=60, help='minutes to wait for GPU-LOCK'); r.add_argument('--fresh', action='store_true')
+    r.add_argument('--keep-memory', action='store_true', help='do not reset the host loss memory before each arm')
     r.add_argument('--config', action='append', default=[], metavar='KEY=VALUE')
     s = sub.add_parser('report'); s.add_argument('--work', required=True)
+    c = sub.add_parser('compare', help='PASS/FAIL of candidate B_DIR against baseline A_DIR')
+    c.add_argument('a_dir', metavar='A_DIR', help='baseline work directory'); c.add_argument('b_dir', metavar='B_DIR')
+    c.add_argument('--repeats', type=int, default=lc.DEFAULT_REPEATS, help='runs per side an arm needs (default %(default)s)')
+    c.add_argument('--arm', action='append', help='only this arm (repeatable)')
+    n = sub.add_parser('noise', help='A/A spread of picture age p50 across repeated runs of the same arms')
+    n.add_argument('dirs', nargs='+')
     args = p.parse_args()
     if args.cmd == 'list':
         for name, spec in arms().items():
@@ -587,6 +644,12 @@ def main():
         shapecheck(args)
     elif args.cmd == 'run':
         run(args)
+    elif args.cmd == 'compare':
+        rows = lc.compare([args.a_dir], [args.b_dir], args.repeats, args.arm)
+        print(lc.format_rows(rows))
+        sys.exit(1 if any(r['verdict'] == 'FAIL' for r in rows) else 0)
+    elif args.cmd == 'noise':
+        noise(args)
     else:
         report(args)
 

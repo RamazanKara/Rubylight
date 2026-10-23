@@ -319,6 +319,197 @@ class DisplayDriverPolicy(unittest.TestCase):
         self.assertEqual(self.refusal(), 'NONE')
 
 
+class LinkCompare(unittest.TestCase):
+    """The pure analysis of the link-speed harness (linkcompare.py): series, noise and the B8 verdicts."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import linkcompare
+        cls.lc = linkcompare
+
+    def run_dict(self, p50=13.0, p99=26.0, lost=0.0, kbps=(14988,), rate=1000, **extra):
+        run = dict(rate=rate, e2e_ms=dict(p50=p50, p99=p99), lost_percent=lost, freezes=dict(count=0, total_ms=0, longest_ms=0),
+                   encoder_kbps_seen=list(kbps), encoder_kbps_negotiated=kbps[0], encoder_kbps_last20_mean=float(kbps[-1]),
+                   adaptive_changes=dict(adaptive_bitrate=0, link_rate=0), freeze_events=[], series={},
+                   pacing_selected=['network pacing selected pacing_bps=800000000'], pacing_kbps_series=[[0, 0], [1, 800000], [2, 800000]])
+        run.update(extra)
+        return run
+
+    def failed(self, row):
+        return sorted(c['name'] for c in row['checks'] if not c['ok'])
+
+    def test_healthy_arms_are_the_nine_rate_and_bitrate_pairs(self):
+        names = self.lc.hz_arm_names()
+        self.assertEqual(len(names), 9)
+        self.assertIn('hz-r1000-hevc-20', names)
+        self.assertIn('hz-r300-hevc-80', names)
+        self.assertEqual(self.lc.base_name('hz-r500-hevc-40@2'), 'hz-r500-hevc-40')
+
+    def test_every_hz_arm_is_judged_as_healthy(self):
+        for name in self.lc.hz_arm_names():
+            self.assertEqual(self.lc.group_of(name), 'healthy')
+        self.assertEqual(self.lc.group_of('r1000-av1-def'), 'healthy')
+        self.assertEqual(self.lc.group_of('r150-hevc-hi'), 'above')
+        self.assertEqual(self.lc.group_of('step-80-10-80-40m'), 'steps')
+
+    def test_identical_healthy_runs_pass(self):
+        row = self.lc.judge('hz-r1000-hevc-20', [self.run_dict()] * 2, [self.run_dict(p50=13.2)] * 2)
+        self.assertEqual(row['verdict'], 'PASS', row['checks'])
+        self.assertTrue(row['bitrate_equal'] and row['pacing_equal'])
+
+    def test_healthy_p50_bound_is_two_sided_and_p99_is_one_sided(self):
+        a = [self.run_dict()] * 2
+        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [self.run_dict(p50=13.4)] * 2)), ['p50'])
+        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [self.run_dict(p50=12.6)] * 2)), ['p50'])
+        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [self.run_dict(p99=27.5)] * 2)), ['p99'])
+        self.assertEqual(self.lc.judge('hz-r1000-hevc-20', a, [self.run_dict(p99=20.0)] * 2)['verdict'], 'PASS')
+
+    def test_a_bitrate_change_or_different_pacing_fails_a_healthy_arm(self):
+        a = [self.run_dict()] * 2
+        changed = self.run_dict(kbps=(14988, 9000), adaptive_changes=dict(adaptive_bitrate=0, link_rate=2))
+        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [changed] * 2)), ['bitrate'])
+        slower = self.run_dict(pacing_selected=['network pacing selected pacing_bps=30000000'])
+        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [slower] * 2)), ['pacing'])
+        paced = self.run_dict(pacing_kbps_series=[[0, 0], [1, 30000]])
+        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [paced] * 2)), ['pacing'])
+
+    def test_loss_worse_than_the_baseline_fails(self):
+        row = self.lc.judge('hz-r300-hevc-80', [self.run_dict(lost=0.0)] * 2, [self.run_dict(lost=0.2)] * 2)
+        self.assertEqual(self.failed(row), ['loss'])
+
+    def test_too_few_repeats_do_not_pass(self):
+        row = self.lc.judge('hz-r1000-hevc-20', [self.run_dict()], [self.run_dict()], repeats=2)
+        self.assertEqual((row['verdict'], self.failed(row)), ('FAIL', ['repeats']))
+        self.assertEqual(self.lc.judge('hz-r1000-hevc-20', [self.run_dict()], [self.run_dict()], repeats=1)['verdict'], 'PASS')
+
+    def test_median_over_repeats_absorbs_one_noisy_run(self):
+        a = [self.run_dict(p50=13.0), self.run_dict(p50=13.1), self.run_dict(p50=13.0)]
+        b = [self.run_dict(p50=13.1), self.run_dict(p50=14.5), self.run_dict(p50=13.2)]
+        self.assertEqual(self.lc.judge('hz-r1000-hevc-20', a, b, repeats=3)['verdict'], 'PASS')
+
+    def test_a_run_without_data_fails(self):
+        row = self.lc.judge('hz-r1000-hevc-20', [self.run_dict()] * 2, [dict(error='no frames.csv')] * 2)
+        self.assertEqual(row['verdict'], 'FAIL')
+
+    def test_above_the_link_needs_low_late_loss_short_freezes_and_a_bitrate_near_the_fit(self):
+        fit = self.lc.fit_encoder_kbps(150, 450000)
+        good_series = {str(s): dict(sent=60, delivered=60) for s in range(10)}
+        good = self.run_dict(rate=150, kbps=(450000, fit), series=good_series, lost=3.0, encoder_kbps_last20_mean=0.8 * fit)
+        a = self.run_dict(rate=150, lost=99.0, kbps=(450000,))
+        self.assertEqual(self.lc.judge('r150-hevc-hi', [a], [good], repeats=1)['verdict'], 'PASS')
+        low = dict(good, encoder_kbps_last20_mean=0.5 * fit)
+        self.assertEqual(self.failed(self.lc.judge('r150-hevc-hi', [a], [low], repeats=1)), ['bitrate'])
+        late = {str(s): dict(sent=60, delivered=60 if s < 5 else 50) for s in range(10)}
+        self.assertEqual(self.failed(self.lc.judge('r150-hevc-hi', [a], [dict(good, series=late)], repeats=1)), ['loss after 3 s'])
+        frozen = dict(good, freeze_events=[[4.0, 5.5, 1500.0]])
+        self.assertEqual(self.failed(self.lc.judge('r150-hevc-hi', [a], [frozen], repeats=1)), ['freeze after 3 s'])
+        early = dict(good, freeze_events=[[0.5, 2.0, 1500.0]])
+        self.assertEqual(self.lc.judge('r150-hevc-hi', [a], [early], repeats=1)['verdict'], 'PASS')
+
+    def test_at_the_link_rate_limits_freezes_loss_and_bitrate(self):
+        fit = self.lc.fit_encoder_kbps(20, 14988)
+        ok = self.run_dict(rate=20, lost=1.0, kbps=(14988, fit), encoder_kbps_last20_mean=0.9 * fit,
+                           freezes=dict(count=3, total_ms=900.0, longest_ms=400.0))
+        a = self.run_dict(rate=20, lost=30.0)
+        self.assertEqual(self.lc.judge('r20-hevc-def', [a], [ok], repeats=1)['verdict'], 'PASS')
+        many = dict(ok, freezes=dict(count=4, total_ms=900.0, longest_ms=400.0))
+        self.assertEqual(self.failed(self.lc.judge('r20-hevc-def', [a], [many], repeats=1)), ['freezes'])
+        long = dict(ok, freezes=dict(count=2, total_ms=1200.0, longest_ms=700.0))
+        self.assertEqual(self.failed(self.lc.judge('r20-hevc-def', [a], [long], repeats=1)), ['freezes'])
+        self.assertEqual(self.failed(self.lc.judge('r20-hevc-def', [a], [dict(ok, lost_percent=2.5)], repeats=1)), ['loss'])
+
+    def test_step_arm_needs_short_freezes_and_a_recovery_within_20_seconds(self):
+        settle = lambda back: [dict(rate=10, at_s=20.0), dict(rate=80, at_s=40.0, encoder_recovered_90_s=back)]
+        ok = self.run_dict(rate=80, lost=1.5, phase_freeze_ms=[0.0, 900.0, 0.0], step_settle=settle(12.0))
+        a = self.run_dict(rate=80, lost=29.0)
+        self.assertEqual(self.lc.judge('step-80-10-80', [a], [ok], repeats=1)['verdict'], 'PASS')
+        self.assertEqual(self.failed(self.lc.judge('step-80-10-80', [a], [dict(ok, phase_freeze_ms=[0, 1600.0, 0])], repeats=1)), ['freeze per step'])
+        self.assertEqual(self.failed(self.lc.judge('step-80-10-80', [a], [dict(ok, step_settle=settle(None))], repeats=1)), ['rate back'])
+        self.assertEqual(self.failed(self.lc.judge('step-80-10-80', [a], [dict(ok, step_settle=settle(25.0))], repeats=1)), ['rate back'])
+        self.assertEqual(self.failed(self.lc.judge('step-80-10-80', [a], [dict(ok, lost_percent=3.5)], repeats=1)), ['loss'])
+
+    def test_arms_that_must_not_cut(self):
+        a = self.run_dict(rate=150)
+        self.assertEqual(self.lc.judge('wifi', [a], [self.run_dict(rate=150)], repeats=1)['verdict'], 'PASS')
+        cut = self.run_dict(rate=150, adaptive_changes=dict(adaptive_bitrate=0, link_rate=1))
+        self.assertEqual(self.failed(self.lc.judge('wifi', [a], [cut], repeats=1)), ['no change'])
+
+    def test_unchanged_4k_arm_may_improve_but_not_regress(self):
+        a = self.run_dict(p50=34.6, p99=91.4, lost=13.7)
+        better = self.run_dict(p50=22.0, p99=40.0, lost=0.0)
+        self.assertEqual(self.lc.judge('r1000-hevc-4k', [a], [better], repeats=1)['verdict'], 'PASS')
+        worse = self.run_dict(p50=35.5, p99=91.4, lost=13.7)
+        self.assertEqual(self.failed(self.lc.judge('r1000-hevc-4k', [a], [worse], repeats=1)), ['p50'])
+
+    def test_fit_matches_the_design_numbers(self):
+        # The design quotes a stream cut to about 13 Mbps on a 20 Mbit/s link.
+        self.assertTrue(12500 <= self.lc.fit_encoder_kbps(20, 14988) <= 13500)
+        self.assertEqual(self.lc.fit_encoder_kbps(1000, 14988), 14988)
+        self.assertLess(self.lc.video_wire_bps(self.lc.fit_encoder_kbps(150, 450000)), 150e6 * 0.9)
+        self.assertGreater(self.lc.fit_encoder_kbps(300, 450000), self.lc.fit_encoder_kbps(150, 450000))
+
+    def test_fit_agrees_with_the_host_wire_budget(self):
+        # Host log, 20 Mbps client: 14988 kbps of video is about 20.17 Mbps of wire (wire_budget_bps in "network pacing selected").
+        self.assertAlmostEqual(self.lc.video_wire_bps(14988) / 20173441, 1.0, delta=0.02)
+
+    def test_mean_of_the_last_twenty_seconds(self):
+        series = [[t, 100.0] for t in range(0, 30)] + [[t, 10.0] for t in range(30, 51)]
+        self.assertAlmostEqual(self.lc.mean_last(series), 10.0)
+        self.assertAlmostEqual(self.lc.mean_last([[0, 5.0], [10, 15.0]]), 10.0)
+        self.assertIsNone(self.lc.mean_last([]))
+
+    def test_recovery_time_is_measured_from_the_link_returning(self):
+        series = [[38, 3000], [40, 3400], [41, 4000], [45, 14000], [46, 14500]]
+        self.assertEqual(self.lc.recovery_time(series, 40.0, 13489), 5.0)
+        self.assertIsNone(self.lc.recovery_time(series, 40.0, 15000))
+        self.assertEqual(self.lc.recovery_time(series, 40.0, 3000), 0.0)
+
+    def test_a_freeze_across_a_step_belongs_to_the_phase_after_it(self):
+        # Frames sent at 19.9 s and 40.0 s with 20.1 s between their display times, steps at 20 s and 40 s.
+        events = self.lc.freeze_events([(0, 19.9), (20_100_000, 40.0), (20_116_000, 40.02)], 100.0)
+        self.assertEqual(len(events), 1)
+        longest = self.lc.phase_freezes(events, [20.0, 40.0], 60)
+        self.assertLessEqual(longest[0], 100.5)
+        self.assertGreater(longest[1], 19_900.0)
+        self.assertEqual(longest[2], 0.0)
+
+    def test_short_gaps_are_not_freezes(self):
+        self.assertEqual(self.lc.freeze_events([(0, 0.0), (16_000, 0.016), (40_000, 0.04)], 100.0), [])
+
+    def test_loss_after_a_second_counts_only_later_bins(self):
+        series = {'0': dict(sent=60, delivered=0), '3': dict(sent=60, delivered=59), '4': dict(sent=60, delivered=60)}
+        self.assertEqual(self.lc.loss_after(series, 3), round(100 / 120, 2))
+        self.assertIsNone(self.lc.loss_after(series, 9))
+
+    def test_noise_gives_the_repeats_a_bound_needs(self):
+        runs = {'hz-r1000-hevc-20': [self.run_dict(p50=12.9), self.run_dict(p50=13.1)],
+                'hz-r500-hevc-20': [self.run_dict(p50=13.0), self.run_dict(p50=13.3)], 'lone': [self.run_dict(p50=1.0)]}
+        stats = self.lc.noise_stats(runs)
+        self.assertEqual(sorted(stats['arms']), ['hz-r1000-hevc-20', 'hz-r500-hevc-20'])
+        self.assertAlmostEqual(stats['max_range'], 0.3, places=3)
+        self.assertAlmostEqual(stats['pooled_sigma'], ((0.2 ** 2 / 2 + 0.3 ** 2 / 2) / 2) ** 0.5, places=3)
+        self.assertGreaterEqual(stats['repeats_worst'], stats['repeats_pooled'])
+
+    def test_repeats_needed_grows_with_the_square_of_the_spread(self):
+        self.assertEqual(self.lc.repeats_needed(0.0), 1)
+        self.assertEqual(self.lc.repeats_needed(0.05), 1)
+        self.assertEqual(self.lc.repeats_needed(0.2), 4)
+        self.assertEqual(self.lc.repeats_needed(0.4), 14)
+
+    def test_load_runs_groups_repeats_by_arm(self):
+        with tempfile.TemporaryDirectory() as t:
+            for folder, p50 in (('hz-r1000-hevc-20', 13.0), ('hz-r1000-hevc-20@2', 13.1), ('wifi', 16.0)):
+                d = pathlib.Path(t, folder); d.mkdir()
+                (d / 'result.json').write_text(json.dumps(self.run_dict(p50=p50)))
+            pathlib.Path(t, 'motion.log').write_text('x')
+            runs = self.lc.load_runs(t)
+            self.assertEqual({k: len(v) for k, v in runs.items()}, {'hz-r1000-hevc-20': 2, 'wifi': 1})
+            rows = self.lc.compare([t], [t], repeats=1)
+            self.assertEqual([r['verdict'] for r in rows], ['PASS', 'PASS'])
+            self.assertIn('hz-r1000-hevc-20', self.lc.format_rows(rows))
+
+
 NS = '{http://signpath.io/artifact-configuration/v1}'
 
 

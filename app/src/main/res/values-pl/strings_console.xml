@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">Start</string>
-    <string name="console_menu_hosts">Hosty</string>
+    <string name="console_menu_hosts">Komputery</string>
     <string name="console_section_favourites">Ulubione</string>
     <string name="console_section_continue">Kontynuuj grę</string>
     <string name="console_section_library">Biblioteka</string>
-    <string name="console_section_hosts">Hosty</string>
+    <string name="console_section_hosts">Komputery</string>
     <string name="console_favourite_add">Dodaj do ulubionych</string>
     <string name="console_favourite_remove">Usuń z ulubionych</string>
     <string name="console_favourite_description">Ulubiona</string>
@@ -17,9 +17,9 @@
     <string name="console_host_saved_games">Offline. Zapisane gry: %1$d</string>
     <string name="console_host_offline">Offline</string>
     <string name="console_host_no_library">Gry nie zostały jeszcze wczytane</string>
-    <string name="console_empty_title">Nie ma jeszcze hostów</string>
+    <string name="console_empty_title">Nie ma jeszcze komputerów</string>
     <string name="console_empty_body">Sparuj Nightjar z komputerem, aby zobaczyć tutaj jego gry.</string>
-    <string name="console_empty_open_hosts">Otwórz hosty</string>
+    <string name="console_empty_open_hosts">Otwórz komputery</string>
     <string name="console_detail_host">Host</string>
     <string name="console_detail_profile">Ustawienia strumienia</string>
     <string name="console_detail_status_running">Uruchomiona na: %1$s</string>

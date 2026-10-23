@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">Головна</string>
-    <string name="console_menu_hosts">Хости</string>
+    <string name="console_menu_hosts">ПК</string>
     <string name="console_section_favourites">Обране</string>
     <string name="console_section_continue">Продовжити гру</string>
     <string name="console_section_library">Бібліотека</string>
-    <string name="console_section_hosts">Хости</string>
+    <string name="console_section_hosts">ПК</string>
     <string name="console_favourite_add">Додати до обраного</string>
     <string name="console_favourite_remove">Прибрати з обраного</string>
     <string name="console_favourite_description">В обраному</string>
@@ -17,9 +17,9 @@
     <string name="console_host_saved_games">Не в мережі. Збережених ігор: %1$d</string>
     <string name="console_host_offline">Не в мережі</string>
     <string name="console_host_no_library">Ігри ще не завантажено</string>
-    <string name="console_empty_title">Хостів ще немає</string>
+    <string name="console_empty_title">ПК ще немає</string>
     <string name="console_empty_body">Зв’яжіть Nightjar із ПК, щоб бачити тут його ігри.</string>
-    <string name="console_empty_open_hosts">Відкрити хости</string>
+    <string name="console_empty_open_hosts">Відкрити ПК</string>
     <string name="console_detail_host">Хост</string>
     <string name="console_detail_profile">Налаштування трансляції</string>
     <string name="console_detail_status_running">Запущено на %1$s</string>

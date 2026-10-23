@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">主页</string>
-    <string name="console_menu_hosts">主机</string>
+    <string name="console_menu_hosts">电脑</string>
     <string name="console_section_favourites">收藏</string>
     <string name="console_section_continue">继续游戏</string>
     <string name="console_section_library">游戏库</string>
-    <string name="console_section_hosts">主机</string>
+    <string name="console_section_hosts">电脑</string>
     <string name="console_favourite_add">添加到收藏</string>
     <string name="console_favourite_remove">从收藏中移除</string>
     <string name="console_favourite_description">已收藏</string>
@@ -17,9 +17,9 @@
     <string name="console_host_saved_games">已离线。已保存的游戏：%1$d</string>
     <string name="console_host_offline">已离线</string>
     <string name="console_host_no_library">游戏尚未加载</string>
-    <string name="console_empty_title">还没有主机</string>
+    <string name="console_empty_title">还没有电脑</string>
     <string name="console_empty_body">将 Nightjar 与 PC 配对后，可在此查看其游戏。</string>
-    <string name="console_empty_open_hosts">打开主机</string>
+    <string name="console_empty_open_hosts">打开电脑</string>
     <string name="console_detail_host">主机</string>
     <string name="console_detail_profile">串流设置</string>
     <string name="console_detail_status_running">在 %1$s 上运行中</string>

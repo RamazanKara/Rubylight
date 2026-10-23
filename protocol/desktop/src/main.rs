@@ -148,6 +148,19 @@ fn main() {
     }
 }
 
+/// The renderer's device PyroWave GPU decoding is tied to: the Direct3D 11 device on Windows, the
+/// SDL GPU device (the "gpu" renderer, Vulkan) elsewhere.
+fn renderer_gpu_device(renderer: *mut SDL_Renderer) -> Option<stream::pipeline::GpuDevice> {
+    let (name, property) = if cfg!(windows) {
+        ("direct3d11", SDL_PROP_RENDERER_D3D11_DEVICE_POINTER)
+    } else {
+        ("gpu", SDL_PROP_RENDERER_GPU_DEVICE_POINTER)
+    };
+    if sdl::renderer_name(renderer) != name { return None; }
+    let device = sdl::renderer_pointer(renderer, property);
+    (!device.is_null()).then_some(stream::pipeline::GpuDevice(device))
+}
+
 fn run() -> Result<(), String> {
     sdl::set_hint(SDL_HINT_APP_NAME, c"Nightjar");
     sdl::set_hint(SDL_HINT_APP_ID, c"io.github.ramazankara.nightjar");
@@ -228,10 +241,7 @@ fn run() -> Result<(), String> {
     {
         launcher.tearing_supported = true;
     }
-    if cfg!(windows) && sdl::renderer_name(renderer) == "direct3d11" {
-        let device = sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
-        launcher.gpu_device = (!device.is_null()).then_some(stream::pipeline::GpuDevice(device));
-    }
+    launcher.gpu_device = renderer_gpu_device(renderer);
     eprintln!(
         "nightjar: renderer {}, display {}x{} at {:.2} Hz, tearing {}",
         sdl::renderer_name(renderer),
@@ -895,11 +905,9 @@ impl App {
         }
     }
 
-    /// The renderer's Direct3D 11 device, for PyroWave decoding on the GPU.
+    /// The renderer's device, for PyroWave decoding on the GPU.
     fn gpu_device(&self) -> Option<stream::pipeline::GpuDevice> {
-        if !cfg!(windows) || sdl::renderer_name(self.renderer) != "direct3d11" { return None; }
-        let device = sdl::renderer_pointer(self.renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
-        (!device.is_null()).then_some(stream::pipeline::GpuDevice(device))
+        renderer_gpu_device(self.renderer)
     }
 
     fn hardware(&self, settings: &config::Settings) -> Hardware {
@@ -1015,7 +1023,7 @@ impl App {
                 || stream::pyrowave_gpu::probe(self.renderer, settings.hdr),
                 || match gpu_device {
                     Some(device) => stream::pyrowave_mode::gpu_probe(device.0, settings.hdr),
-                    None => Err("PyroWave GPU decoding needs the Direct3D 11 renderer".to_owned()),
+                    None => Err(if cfg!(windows) { "PyroWave GPU decoding needs the Direct3D 11 renderer" } else { "PyroWave GPU decoding needs the SDL GPU renderer" }.to_owned()),
                 },
             );
             match (probed, settings.pyrowave_decoder) {

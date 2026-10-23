@@ -77,12 +77,19 @@ float4 fragment(float4 position : SV_Position) : SV_Target {
     }
     return float4(linearRgb(original), 1);
 }
-#ifndef VULKAN
 // The GPU decoder's planes: R8 or R16 UNORM textures holding code / maximum, converted to the
-// same linear RGB as the CPU path (the planes are final, so no wavelet passes are left).
+// same linear RGB as the CPU path (the planes are final, so no wavelet passes are left). The
+// Vulkan build is a module of its own (pyrowave-planes.spv, see docs/pyrowave-decode.md): the planes take
+// SDL's sampler slots 0 to 2 and glslang gives each texture its own sampler.
+#ifdef VULKAN
+Texture2D<float> planeY : register(t0, space2);
+Texture2D<float> planeCb : register(t1, space2);
+Texture2D<float> planeCr : register(t2, space2);
+#else
 Texture2D<float> planeY : register(t1);
 Texture2D<float> planeCb : register(t2);
 Texture2D<float> planeCr : register(t3);
+#endif
 float4 planes(float4 position : SV_Position) : SV_Target {
     int3 p = int3(int2(position.xy), 0);
     float3 samples;
@@ -100,4 +107,3 @@ float4 planes(float4 position : SV_Position) : SV_Target {
     }
     return float4(linearRgb(samples - 0.5), 1);
 }
-#endif

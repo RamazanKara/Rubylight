@@ -9,7 +9,6 @@ use rubylight_protocol::pyrowave::{push_container, Records};
 
 use crate::media::Picture;
 use super::stage_times::Stages;
-#[cfg(windows)]
 use super::pyrowave_sdk::{GpuConfig, GpuDecoder};
 
 struct Band {
@@ -464,7 +463,6 @@ pub enum Failure {
 /// The PyroWave decoder of a stream, on the CPU or on the GPU (`Settings::pyrowave_decoder`).
 pub enum Pyrowave {
     Cpu(Box<Decoder>),
-    #[cfg(windows)]
     Gpu(Box<GpuStream>),
 }
 
@@ -477,7 +475,6 @@ impl Pyrowave {
     pub fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
         match self {
             Self::Cpu(decoder) => decoder.chunk(first, flags, payload),
-            #[cfg(windows)]
             Self::Gpu(stream) => stream.chunk(first, flags, payload),
         }
     }
@@ -487,7 +484,6 @@ impl Pyrowave {
     pub fn source(&self) -> Source {
         match self {
             Self::Cpu(decoder) => decoder.source,
-            #[cfg(windows)]
             Self::Gpu(stream) => stream.source,
         }
     }
@@ -501,7 +497,6 @@ impl Pyrowave {
                 let frame = decoder.coefficient_frame().map_err(Failure::Frame)?;
                 Ok(Output { picture: Picture::Frame(frame), loss_percent: decoder.loss_percent, first_block_us: decoder.first_block_us })
             }
-            #[cfg(windows)]
             Self::Gpu(stream) => stream.frame(data, evict),
         }
     }
@@ -509,7 +504,6 @@ impl Pyrowave {
     pub fn stage_summary(&self) -> Option<String> {
         match self {
             Self::Cpu(decoder) => decoder.stage_summary(),
-            #[cfg(windows)]
             Self::Gpu(stream) => stream.stage_summary(),
         }
     }
@@ -518,23 +512,17 @@ impl Pyrowave {
 /// How long the decoder thread waits for the GPU to finish a frame before the stream ends.
 #[cfg(windows)]
 const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-#[cfg(windows)]
 const GPU_STAGE_NAMES: [&str; 4] = ["clear", "push", "submit", "gpu"];
-#[cfg(windows)]
 const GPU_CLEAR: usize = 0;
-#[cfg(windows)]
 const GPU_PUSH: usize = 1;
 #[cfg(windows)]
 const GPU_SUBMIT: usize = 2;
-#[cfg(windows)]
 const GPU_WAIT: usize = 3;
 /// The first word of a record that is the sequence header.
-#[cfg(windows)]
 const HEADER_BIT: u32 = 0x8000_0000;
 
 /// Gives one record to the SDK; false if it is a sequence header for another picture than the
 /// one negotiated (the CPU path's check, `Decoder::coefficients`) or the SDK refuses it.
-#[cfg(windows)]
 fn push_checked(gpu: &mut GpuDecoder, packet: &[u8]) -> bool {
     if word(packet, 0) & HEADER_BIT != 0 {
         let (first, second, config) = (word(packet, 0), word(packet, 4), gpu.config());
@@ -549,7 +537,6 @@ fn push_checked(gpu: &mut GpuDecoder, packet: &[u8]) -> bool {
 /// PyroWave frames decoded by the SDK on the GPU into shared D3D11 planes. The records go to
 /// the SDK as they complete (early decode) or when the frame does; the SDK runs the entropy
 /// decoding and the inverse wavelets, and the presenter converts the planes to RGB.
-#[cfg(windows)]
 pub struct GpuStream {
     gpu: GpuDecoder,
     planes: std::sync::Arc<super::gpu_planes::Planes>,
@@ -565,12 +552,19 @@ pub struct GpuStream {
     stages: Stages<4>,
 }
 
-#[cfg(windows)]
 impl GpuStream {
     /// Creates the SDK decoder on `device` (the renderer's) with `slots` plane sets.
+    #[cfg(windows)]
     pub fn new(device: &windows::Win32::Graphics::Direct3D11::ID3D11Device, width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
         let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots };
         GpuDecoder::new(device, config).map(Self::with_decoder)
+    }
+
+    /// Creates the SDK decoder (on the Vulkan driver's default device) with `slots` plane sets.
+    #[cfg(unix)]
+    pub fn new(width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
+        let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots };
+        GpuDecoder::new(config).map(Self::with_decoder)
     }
 
     pub fn with_decoder(gpu: GpuDecoder) -> Self {
@@ -589,7 +583,7 @@ impl GpuStream {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub fn planes(&self) -> &std::sync::Arc<super::gpu_planes::Planes> {
         &self.planes
     }
@@ -673,14 +667,36 @@ impl GpuStream {
             return Err(Failure::Frame("PyroWave frame holds no picture data".into()));
         }
         let step = Instant::now();
-        let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
-        self.stages.add(GPU_SUBMIT, step);
-        let step = Instant::now();
-        self.gpu.wait(fence_value, GPU_DECODE_TIMEOUT).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
-        self.stages.add(GPU_WAIT, step);
+        #[cfg(windows)]
+        let fence_value = {
+            let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+            self.stages.add(GPU_SUBMIT, step);
+            let step = Instant::now();
+            self.gpu.wait(fence_value, GPU_DECODE_TIMEOUT).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+            self.stages.add(GPU_WAIT, step);
+            fence_value
+        };
+        // The decode into the set's CPU buffers blocks until the GPU is done and the planes are read
+        // back, so the whole of it is the "gpu" stage.
+        #[cfg(unix)]
+        {
+            let _ = after;
+            let gpu = &mut self.gpu;
+            lease.with_buffers(|[y, cb, cr]| gpu.decode([y, cb, cr]))
+                .map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+            self.stages.add(GPU_WAIT, step);
+        }
         self.stages.commit();
         let first_block_us = if source == Source::Early { self.first_block_us } else { 0 };
-        Ok(Output { picture: Picture::GpuPlanes { lease, fence_value }, loss_percent, first_block_us })
+        Ok(Output {
+            picture: Picture::GpuPlanes {
+                lease,
+                #[cfg(windows)]
+                fence_value,
+            },
+            loss_percent,
+            first_block_us,
+        })
     }
 
     pub fn stage_summary(&self) -> Option<String> {
@@ -690,6 +706,9 @@ impl GpuStream {
 
 #[cfg(all(test, windows))]
 mod gpu_tests;
+
+#[cfg(all(test, unix))]
+mod gpu_tests_unix;
 
 #[cfg(test)]
 mod tests {

@@ -446,11 +446,15 @@ impl Drop for Frame {
 }
 
 /// What the decoder hands the presenter: an FFmpeg frame, or (PyroWave decoded on the GPU) a set
-/// of planes in D3D11 textures with the decode fence value that says when they are final.
+/// of planes: D3D11 textures with the decode fence value that says when they are final on
+/// Windows, CPU buffers (already final) on Linux.
 pub enum Picture {
     Frame(Frame),
-    #[cfg(windows)]
-    GpuPlanes { lease: crate::stream::gpu_planes::Lease, fence_value: u64 },
+    GpuPlanes {
+        lease: crate::stream::gpu_planes::Lease,
+        #[cfg(windows)]
+        fence_value: u64,
+    },
 }
 
 impl Picture {
@@ -458,7 +462,6 @@ impl Picture {
     pub fn frame(&self) -> Option<&Frame> {
         match self {
             Self::Frame(frame) => Some(frame),
-            #[cfg(windows)]
             Self::GpuPlanes { .. } => None,
         }
     }
@@ -466,7 +469,6 @@ impl Picture {
     pub fn format_name(&self) -> String {
         match self {
             Self::Frame(frame) => frame.format_name(),
-            #[cfg(windows)]
             Self::GpuPlanes { .. } => "PyroWave GPU planes".into(),
         }
     }

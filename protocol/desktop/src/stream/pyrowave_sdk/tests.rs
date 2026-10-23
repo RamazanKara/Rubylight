@@ -1,8 +1,10 @@
 //! Unit tests (no GPU) and `--ignored` GPU tests for the SDK binding.
 //!
-//! The GPU tests need the built SDK (scripts/build-pyrowave-sdk.ps1): they look in
-//! `%NIGHTJAR_PYROWAVE_SDK%`, else `C:\src\butterpollo-release\nj-pyrowave-sdk`. Run them with
+//! The GPU tests need the built SDK (scripts/build-pyrowave-sdk.ps1, or .sh on Linux): they look in
+//! `%NIGHTJAR_PYROWAVE_SDK%`, else `C:\src\butterpollo-release\nj-pyrowave-sdk` (`$NIGHTJAR_PYROWAVE_SDK`,
+//! else `~/nj-pyrowave-sdk` on Linux). Run them with
 //! `cargo test -p nightjar-desktop --release --bin nightjar -- --ignored --nocapture --test-threads=1 pyrowave_sdk`.
+//! Linux has no D3D11 side: the tests there read the planes the decoder wrote into CPU buffers.
 //! They share one Vulkan device per decoder life, so a hung GPU shows as a failed test and never retries.
 
 use super::*;
@@ -10,7 +12,9 @@ use crate::stream::pyrowave::Decoder as Cpu;
 use rubylight_protocol::pyrowave::{push_container, Records, PACKET_CONTIGUOUS, PACKET_FRAME_END, PACKET_FRAME_START, PACKET_RECORD_START};
 use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+#[cfg(windows)]
+use std::time::Duration;
+use std::time::Instant;
 
 const HEADER_BIT: u32 = 0x8000_0000;
 
@@ -57,20 +61,35 @@ fn results_and_the_abi_rule_have_readable_errors() {
     assert_eq!(check_abi(0, 9, 1), Err("PyroWave SDK ABI 0.9.1 is not supported, this client needs 1.x".to_owned()));
 }
 
+/// The probe on the library at `path`, whichever platform's signature.
+fn probe_at(path: &Path, ten_bit: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    return probe_in(path, None, ten_bit);
+    #[cfg(unix)]
+    return probe_in(path, ten_bit);
+}
+
 #[test]
 fn a_missing_dll_names_the_file_and_where_it_was_expected() {
     let missing = std::env::temp_dir().join("nightjar-no-such-dir").join(DLL_NAME);
-    let error = probe_in(&missing, None, false).unwrap_err();
-    assert!(error.starts_with("libpyrowave-shared-1.dll not found next to the executable ("), "{error}");
+    let error = probe_at(&missing, false).unwrap_err();
+    assert!(error.starts_with(&format!("{DLL_NAME} not found next to the executable (")), "{error}");
     assert!(error.contains("nightjar-no-such-dir"), "{error}");
     assert_eq!(Api::load_from(&missing).err(), Some(error));
 }
 
 #[test]
 fn a_dll_that_is_no_pyrowave_sdk_is_named_as_such() {
-    let kernel32 = Path::new(r"C:\Windows\System32\kernel32.dll");
-    let error = probe_in(kernel32, None, false).unwrap_err();
-    assert!(error.contains("kernel32.dll is not a PyroWave SDK: pyrowave_get_api_version is missing"), "{error}");
+    #[cfg(windows)]
+    let (other, name) = (Path::new(r"C:\Windows\System32\kernel32.dll"), "kernel32.dll");
+    #[cfg(unix)]
+    let (other, name) = (Path::new("/lib/x86_64-linux-gnu/libc.so.6"), "libc.so.6");
+    if !other.exists() {
+        eprintln!("skipped: {} does not exist on this machine", other.display());
+        return;
+    }
+    let error = probe_at(other, false).unwrap_err();
+    assert!(error.contains(&format!("{name} is not a PyroWave SDK: pyrowave_get_api_version is missing")), "{error}");
 }
 
 #[test]
@@ -79,11 +98,15 @@ fn a_dll_with_another_abi_is_refused_with_its_version() {
     let dir = std::env::temp_dir().join(format!("nightjar-abi-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let source = dir.join("fake.c");
-    std::fs::write(&source, "__declspec(dllexport) void pyrowave_get_api_version(unsigned *a, unsigned *b, unsigned *c) { *a = 2; *b = 1; *c = 4; }\n").unwrap();
-    let dll = dir.join("fake.dll");
-    let built = std::process::Command::new("gcc").arg("-shared").arg("-o").arg(&dll).arg(&source).status();
-    assert!(built.is_ok_and(|s| s.success()), "gcc (MSYS2 UCRT64) is needed on PATH to build the stand-in DLL");
-    let error = probe_in(&dll, None, true).unwrap_err();
+    let export = if cfg!(windows) { "__declspec(dllexport)" } else { "__attribute__((visibility(\"default\")))" };
+    std::fs::write(&source, format!("{export} void pyrowave_get_api_version(unsigned *a, unsigned *b, unsigned *c) {{ *a = 2; *b = 1; *c = 4; }}\n")).unwrap();
+    let dll = dir.join(if cfg!(windows) { "fake.dll" } else { "fake.so" });
+    let mut compiler = std::process::Command::new("gcc");
+    compiler.arg("-shared");
+    if cfg!(unix) { compiler.arg("-fPIC"); }
+    let built = compiler.arg("-o").arg(&dll).arg(&source).status();
+    assert!(built.is_ok_and(|s| s.success()), "gcc is needed on PATH to build the stand-in library");
+    let error = probe_at(&dll, true).unwrap_err();
     assert_eq!(error, "PyroWave SDK ABI 2.1.4 is not supported, this client needs 1.x");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -96,6 +119,7 @@ fn plane_sizes_follow_the_chroma_format() {
 }
 
 /// Queues a signal of `fence` on `device`'s immediate context and flushes it.
+#[cfg(windows)]
 fn signal(device: &ID3D11Device, fence: &ID3D11Fence, value: u64) {
     // SAFETY: Plain D3D11 calls on the calling thread.
     unsafe {
@@ -105,6 +129,7 @@ fn signal(device: &ID3D11Device, fence: &ID3D11Fence, value: u64) {
     }
 }
 
+#[cfg(windows)]
 fn device_of(fence: &ID3D11Fence) -> ID3D11Device {
     // SAFETY: Plain D3D11 call.
     unsafe { fence.GetDevice() }.unwrap()
@@ -151,6 +176,7 @@ fn the_decoder_moves_between_threads_but_is_not_shared() {
     <GpuDecoder as AmbiguousIfSync<_>>::check();
 }
 
+#[cfg(windows)]
 #[test]
 fn a_stalled_fence_is_a_loud_error_after_the_deadline_and_a_signalled_one_is_ready() {
     let device = default_device().unwrap().cast::<ID3D11Device5>().unwrap();
@@ -180,12 +206,15 @@ fn gpu_lock() -> MutexGuard<'static, ()> {
 }
 
 fn sdk_dll() -> PathBuf {
-    let dir = std::env::var_os("NIGHTJAR_PYROWAVE_SDK").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\src\butterpollo-release\nj-pyrowave-sdk"));
-    dir.join(DLL_NAME)
+    #[cfg(windows)]
+    let default = PathBuf::from(r"C:\src\butterpollo-release\nj-pyrowave-sdk");
+    #[cfg(unix)]
+    let default = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join("nj-pyrowave-sdk");
+    std::env::var_os("NIGHTJAR_PYROWAVE_SDK").map(PathBuf::from).unwrap_or(default).join(DLL_NAME)
 }
 
 fn sdk() -> Arc<Api> {
-    Api::load_from(&sdk_dll()).unwrap_or_else(|e| panic!("{e}\nbuild it with scripts/build-pyrowave-sdk.ps1"))
+    Api::load_from(&sdk_dll()).unwrap_or_else(|e| panic!("{e}\nbuild it with scripts/build-pyrowave-sdk.{}", if cfg!(windows) { "ps1" } else { "sh" }))
 }
 
 struct Fixture {
@@ -221,6 +250,7 @@ fn fixtures() -> [Fixture; 4] {
 }
 
 /// Copies decoded planes to the CPU for comparison.
+#[cfg(windows)]
 struct Readback {
     context: ID3D11DeviceContext,
     context4: ID3D11DeviceContext4,
@@ -228,6 +258,7 @@ struct Readback {
     config: GpuConfig,
 }
 
+#[cfg(windows)]
 impl Readback {
     fn new(d3d: &ID3D11Device, config: GpuConfig) -> Self {
         // SAFETY: Plain D3D11 call.
@@ -306,11 +337,13 @@ fn code(raw: u16, ten: bool) -> f32 {
     if ten { f32::from(raw) * 1023.0 / 65535.0 } else { f32::from(raw) }
 }
 
+#[cfg(windows)]
 fn push_and_decode(gpu: &mut GpuDecoder, packets: &[Vec<u8>]) -> u64 {
     push_and_decode_to(gpu, packets, 0, 0)
 }
 
 /// Decodes into `slot` once the reuse fence reaches `after`.
+#[cfg(windows)]
 fn push_and_decode_to(gpu: &mut GpuDecoder, packets: &[Vec<u8>], slot: usize, after: u64) -> u64 {
     gpu.clear();
     for packet in packets {
@@ -337,6 +370,7 @@ fn max_error_vs_cpu(planes: &[Vec<u16>; 3], cpu: &Cpu, config: GpuConfig) -> f32
     error
 }
 
+#[cfg(windows)]
 #[test]
 #[ignore = "needs the PyroWave SDK and a GPU"]
 fn fixtures_decode_on_the_gpu_like_the_reference_and_the_cpu_decoder() {
@@ -453,6 +487,7 @@ fn envelope(packets: &[(u32, Vec<u8>)]) -> Vec<u8> {
 /// Frames with lost packets, decoded three ways, must give one picture: the CPU decoder, the SDK fed
 /// by `Records::push_frame` once the frame is complete, and the SDK fed record by record as they
 /// arrive (`feed_packet` and `drain_new`), the way G2 will, with the recovered rest at the end.
+#[cfg(windows)]
 #[test]
 #[ignore = "needs the PyroWave SDK and a GPU"]
 fn lossy_frames_decode_on_the_gpu_like_the_cpu_decoder_whole_and_early() {
@@ -512,6 +547,7 @@ fn lossy_frames_decode_on_the_gpu_like_the_cpu_decoder_whole_and_early() {
     }
 }
 
+#[cfg(windows)]
 #[test]
 #[ignore = "needs the PyroWave SDK and a GPU"]
 fn decoder_lives_leave_a_few_handles_each() {
@@ -617,6 +653,7 @@ fn percentile(values: &mut [f64], p: usize) -> f64 {
 /// CPU time to push the records and submit, and the GPU's own time, per decode at three sizes.
 /// The input is synthetic (fixture records spread over every block of a frame), so the GPU time
 /// is for a realistic data volume and not for a real picture.
+#[cfg(windows)]
 #[test]
 #[ignore = "needs the PyroWave SDK and a GPU"]
 fn decode_timing_at_1080p_1440p_and_4k() {
@@ -705,12 +742,14 @@ fn decode_timing_at_1080p_1440p_and_4k() {
 }
 
 /// An idle-queue probe for the cost of D3D11's side of the fence handoff.
+#[cfg(windows)]
 struct Handoff {
     context: ID3D11DeviceContext,
     context4: ID3D11DeviceContext4,
     query: ID3D11Query,
 }
 
+#[cfg(windows)]
 impl Handoff {
     fn new(d3d: &ID3D11Device) -> Self {
         // SAFETY: Plain D3D11 calls with live locals.
@@ -762,6 +801,7 @@ fn gpu_time_is_read_from_the_pass_lines_only() {
 /// The Vulkan side must not overwrite a plane set while D3D11 may still read the picture in it: the
 /// decode waits on the reuse fence. Deterministic: the "presenter" is the test, which holds the
 /// signal back and checks the decode has not completed, then releases it.
+#[cfg(windows)]
 #[test]
 #[ignore = "needs the PyroWave SDK and a GPU"]
 fn a_decode_into_a_plane_set_waits_for_the_reuse_fence() {
@@ -791,6 +831,7 @@ fn a_decode_into_a_plane_set_waits_for_the_reuse_fence() {
 /// queued behind the decode fence and followed by a signal of the reuse fence, the way the
 /// presenter will run. Two different pictures alternate, so a plane set overwritten early, or read
 /// before its decode, shows as the other picture or as a mix.
+#[cfg(windows)]
 #[test]
 #[ignore = "needs the PyroWave SDK and a GPU"]
 fn a_ring_of_plane_sets_decodes_a_sequence_without_cpu_waits() {
@@ -845,6 +886,7 @@ fn a_ring_of_plane_sets_decodes_a_sequence_without_cpu_waits() {
 
 /// The DLL loads once and a repeated probe answers from memory with the same result, for the
 /// 8-bit R8 planes and for the 10-bit R16 planes.
+#[cfg(windows)]
 #[test]
 #[ignore = "needs the PyroWave SDK and a GPU"]
 fn probing_twice_loads_the_sdk_once_and_gives_the_same_answer() {
@@ -871,4 +913,300 @@ fn probing_twice_loads_the_sdk_once_and_gives_the_same_answer() {
     assert_eq!(Api::shared_loads() - before, 1);
     println!("probe: first {first_ms:.1} ms, second {second_ms:.3} ms, one DLL load");
     assert!(second_ms < first_ms, "the second probe was not answered from memory");
+}
+
+// ---- Linux GPU tests -------------------------------------------------------------------------
+
+/// The three plane buffers of `config`, zeroed.
+#[cfg(unix)]
+fn plane_buffers(config: GpuConfig) -> [Vec<u8>; 3] {
+    [0, 1, 2].map(|plane| vec![0u8; config.plane_bytes(plane)])
+}
+
+/// The raw sample codes of CPU plane buffers, the way the Windows tests read R8 and R16 textures.
+#[cfg(unix)]
+fn codes(buffers: &[Vec<u8>; 3], config: GpuConfig) -> [Vec<u16>; 3] {
+    std::array::from_fn(|plane| {
+        let (width, height) = config.plane_size(plane);
+        assert_eq!(buffers[plane].len(), config.plane_bytes(plane));
+        let samples: Vec<u16> = if config.ten_bit {
+            buffers[plane].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
+        } else {
+            buffers[plane].iter().map(|&b| u16::from(b)).collect()
+        };
+        assert_eq!(samples.len(), (width * height) as usize);
+        samples
+    })
+}
+
+/// Pushes the packets of one frame and decodes it into fresh buffers.
+#[cfg(unix)]
+fn push_and_decode(gpu: &mut GpuDecoder, packets: &[Vec<u8>]) -> [Vec<u16>; 3] {
+    let config = gpu.config();
+    let mut buffers = plane_buffers(config);
+    push_and_decode_into(gpu, packets, &mut buffers);
+    codes(&buffers, config)
+}
+
+#[cfg(unix)]
+fn push_and_decode_into(gpu: &mut GpuDecoder, packets: &[Vec<u8>], buffers: &mut [Vec<u8>; 3]) {
+    gpu.clear();
+    for packet in packets {
+        gpu.push_packet(packet).unwrap();
+    }
+    assert!(gpu.is_ready(false), "the pushed packets did not complete the frame");
+    let [a, b, c] = buffers;
+    gpu.decode([a.as_mut_slice(), b.as_mut_slice(), c.as_mut_slice()]).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the PyroWave SDK and a Vulkan GPU"]
+fn fixtures_decode_on_the_gpu_like_the_reference_and_the_cpu_decoder() {
+    let _gpu = gpu_lock();
+    let api = sdk();
+    let mut failed = Vec::new();
+    for (n, fixture) in fixtures().iter().enumerate() {
+        let config = fixture.config();
+        let mut gpu = GpuDecoder::with_api(api.clone(), config).unwrap();
+        let planes = push_and_decode(&mut gpu, &fixture.packets());
+
+        let mut offset = 0;
+        let (mut golden, mut rounded) = (0.0f32, 0.0f32);
+        for samples in &planes {
+            for raw in samples {
+                let expected = if fixture.ten { let v = u16::from_le_bytes([fixture.yuv[offset], fixture.yuv[offset + 1]]); offset += 2; v } else { let v = u16::from(fixture.yuv[offset]); offset += 1; v };
+                golden = golden.max((code(*raw, fixture.ten) - f32::from(expected)).abs());
+                rounded = rounded.max((code(*raw, fixture.ten).round() - f32::from(expected)).abs());
+            }
+        }
+        assert_eq!(offset, fixture.yuv.len());
+
+        let mut cpu = Cpu::new(fixture.width as usize, fixture.height as usize, fixture.full).unwrap();
+        cpu.decode(fixture.bin).unwrap();
+        let against_cpu = max_error_vs_cpu(&planes, &cpu, config);
+        println!(
+            "fixture {n} ({}x{} 444={} 10-bit={}): max error {golden:.3} code values against the .yuv ({rounded} once rounded to a code), {against_cpu:.3} against the CPU decoder",
+            fixture.width, fixture.height, fixture.full, fixture.ten
+        );
+        // The same bounds as the Windows test: whole codes within 1 of the reference, 1.1 of the CPU decoder.
+        if rounded > 1.0 || against_cpu >= 1.1 {
+            failed.push(format!("fixture {n}: {rounded} codes from the reference once rounded, {against_cpu} from the CPU decoder"));
+        }
+    }
+    assert!(failed.is_empty(), "{failed:?}");
+}
+
+/// Frames with lost packets, decoded three ways, must give one picture: the CPU decoder, the SDK fed
+/// by `Records::push_frame` once the frame is complete, and the SDK fed record by record as they
+/// arrive (`feed_packet` and `drain_new`), with the recovered rest at the end.
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the PyroWave SDK and a Vulkan GPU"]
+fn lossy_frames_decode_on_the_gpu_like_the_cpu_decoder_whole_and_early() {
+    let _gpu = gpu_lock();
+    let api = sdk();
+    let fixtures = fixtures();
+    let (older, newer) = (&fixtures[0], &fixtures[1]);
+    // Both are 132x98 4:2:0; the bit depth is the output's, so both decode to 8-bit planes here.
+    let config = GpuConfig { ten_bit: false, ..older.config() };
+    let first = host_packets(&bitstream(older.bin));
+    let second = host_packets(&bitstream(newer.bin));
+    let count = second.len();
+    let mut gpu = GpuDecoder::with_api(api, config).unwrap();
+    let mut buffers = plane_buffers(config);
+    for lost in [vec![], vec![1], vec![1, count - 2], vec![count - 1], (1..count - 1).step_by(2).collect()] {
+        let frames = [arrived(&first, &[]), arrived(&second, &lost)];
+        let mut cpu = Cpu::new(132, 98, false).unwrap();
+        let mut whole = Records::with_geometry(132, 98, false);
+        let mut early = Records::with_geometry(132, 98, false);
+        for (n, packets) in frames.iter().enumerate() {
+            let data = envelope(packets);
+            cpu.decode(&data).unwrap();
+
+            gpu.clear();
+            assert!(whole.push_frame(&data, |packet| gpu.push_packet(packet).is_ok()));
+            assert!(gpu.is_ready(false));
+            let [a, b, c] = &mut buffers;
+            gpu.decode([a.as_mut_slice(), b.as_mut_slice(), c.as_mut_slice()]).unwrap();
+            let whole_planes = codes(&buffers, config);
+            let whole_error = max_error_vs_cpu(&whole_planes, &cpu, config);
+
+            gpu.clear();
+            let mut pushed = HashSet::new();
+            early.begin_frame();
+            for (flags, payload) in packets {
+                assert!(early.feed_packet(*flags, payload));
+                early.drain_new(|index, record| {
+                    gpu.push_packet(record).unwrap();
+                    assert!(pushed.insert(index), "record {index} twice");
+                });
+            }
+            let early_pushed = pushed.len();
+            assert!(early.finish_frame(|packet| {
+                if word(packet, 0) & HEADER_BIT != 0 || !pushed.contains(&(word(packet, 4) >> 8)) {
+                    gpu.push_packet(packet).unwrap();
+                }
+                true
+            }));
+            assert!(gpu.is_ready(false));
+            let [a, b, c] = &mut buffers;
+            gpu.decode([a.as_mut_slice(), b.as_mut_slice(), c.as_mut_slice()]).unwrap();
+            let early_planes = codes(&buffers, config);
+            let early_error = max_error_vs_cpu(&early_planes, &cpu, config);
+            assert!(early_planes == whole_planes, "lost {lost:?}, frame {n}: the early planes differ from the whole planes");
+            println!("lost {lost:?}, frame {n}: {early_pushed} records pushed early; max error {whole_error:.3} whole, {early_error:.3} early (code values from the CPU decoder)");
+            assert!(whole_error < 1.1 && early_error < 1.1, "lost {lost:?}, frame {n}: {whole_error} whole, {early_error} early");
+        }
+    }
+}
+
+/// Plane sets reused in a ring, each decode into a buffer that held another picture, must give the
+/// picture just decoded and nothing of the one before: two different pictures alternate.
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the PyroWave SDK and a Vulkan GPU"]
+fn a_ring_of_plane_buffers_decodes_a_sequence_without_mixing_pictures() {
+    const FRAMES: usize = 24;
+    const SLOTS: usize = 3;
+    let _gpu = gpu_lock();
+    let api = sdk();
+    let fixtures = fixtures();
+    let config = GpuConfig { ten_bit: false, slots: SLOTS, ..fixtures[0].config() };
+    let packets = [fixtures[0].packets(), fixtures[1].packets()];
+    let cpu: Vec<Cpu> = fixtures[..2]
+        .iter()
+        .map(|f| {
+            let mut cpu = Cpu::new(132, 98, false).unwrap();
+            cpu.decode(f.bin).unwrap();
+            cpu
+        })
+        .collect();
+    let mut gpu = GpuDecoder::with_api(api, config).unwrap();
+    let mut ring: Vec<[Vec<u8>; 3]> = (0..SLOTS).map(|_| plane_buffers(config)).collect();
+    let mut worst = 0.0f32;
+    for k in 0..FRAMES {
+        push_and_decode_into(&mut gpu, &packets[k % 2], &mut ring[k % SLOTS]);
+        let planes = codes(&ring[k % SLOTS], config);
+        let own = max_error_vs_cpu(&planes, &cpu[k % 2], config);
+        let other = max_error_vs_cpu(&planes, &cpu[1 - k % 2], config);
+        assert!(own < 1.1, "frame {k} (picture {}, plane set {}) is {own} code values from its own fixture", k % 2, k % SLOTS);
+        assert!(other > 2.0, "frame {k}: the two fixtures are not told apart by this test ({other})");
+        worst = worst.max(own);
+    }
+    println!("ring of {SLOTS} plane buffers, {FRAMES} frames of two pictures: worst error against each frame's own fixture {worst:.3} code values");
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the PyroWave SDK and a Vulkan GPU"]
+fn a_plane_buffer_that_is_too_small_is_a_loud_error_and_the_decoder_stays_usable() {
+    let _gpu = gpu_lock();
+    let fixture = &fixtures()[0];
+    let config = fixture.config();
+    let mut gpu = GpuDecoder::with_api(sdk(), config).unwrap();
+    gpu.clear();
+    for packet in fixture.packets() {
+        gpu.push_packet(&packet).unwrap();
+    }
+    let mut small = [vec![0u8; 10], vec![0u8; config.plane_bytes(1)], vec![0u8; config.plane_bytes(2)]];
+    let [a, b, c] = &mut small;
+    let error = gpu.decode([a.as_mut_slice(), b.as_mut_slice(), c.as_mut_slice()]).unwrap_err();
+    assert!(error.contains("plane 0 buffer holds 10 bytes"), "{error}");
+    let planes = push_and_decode(&mut gpu, &fixture.packets());
+    let mut cpu = Cpu::new(fixture.width as usize, fixture.height as usize, fixture.full).unwrap();
+    cpu.decode(fixture.bin).unwrap();
+    assert!(max_error_vs_cpu(&planes, &cpu, config) < 1.1);
+}
+
+/// The library loads once and a repeated probe answers from memory with the same result, for the
+/// 8-bit and the 16-bit planes.
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the PyroWave SDK and a Vulkan GPU"]
+fn probing_twice_loads_the_sdk_once_and_gives_the_same_answer() {
+    let _gpu = gpu_lock();
+    // The shared loader looks next to the executable: put the SDK there for this run.
+    let beside = dll_path().unwrap();
+    if !beside.exists() {
+        std::fs::copy(sdk_dll(), &beside).unwrap();
+    }
+    let before = Api::shared_loads();
+    let start = Instant::now();
+    let first = probe(false);
+    let first_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let start = Instant::now();
+    let second = probe(false);
+    let second_ms = start.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(first, Ok(()), "{}", diagnose_vulkan());
+    assert_eq!(first, second);
+    assert_eq!(probe(true), Ok(()), "the 16-bit planes must decode");
+    assert_eq!(Api::shared_loads() - before, 1, "the library was loaded more than once");
+    assert!(Arc::ptr_eq(&Api::shared().unwrap(), &Api::shared().unwrap()));
+    println!("probe: first {first_ms:.1} ms, second {second_ms:.3} ms, one library load; Vulkan: {}", diagnose_vulkan());
+    assert!(second_ms < first_ms, "the second probe was not answered from memory");
+}
+
+/// CPU time to push the records, and push to planes-in-memory (the decode and the readback), per
+/// decode at three sizes. The input is synthetic like the Windows timing test's.
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the PyroWave SDK and a Vulkan GPU"]
+fn decode_timing_at_1080p_1440p_and_4k() {
+    let _gpu = gpu_lock();
+    let api = sdk();
+    let mut pool = Vec::new();
+    for fixture in &fixtures()[..2] {
+        for packet in fixture.packets().into_iter().skip(1) {
+            let mut at = 0;
+            while at < packet.len() {
+                let length = ((word(&packet, at) >> 16) & 0xfff) as usize * 4;
+                pool.push(packet[at..at + length].to_vec());
+                at += length;
+            }
+        }
+    }
+    for (name, width, height) in [("1080p", 1920usize, 1080usize), ("1440p", 2560, 1440), ("4K", 3840, 2160)] {
+        let config = GpuConfig { width: width as u32, height: height as u32, chroma444: false, ten_bit: false, slots: 1 };
+        let mut gpu = GpuDecoder::with_api(api.clone(), config).unwrap();
+        let frames: Vec<Vec<Vec<u8>>> = (0..8).map(|s| synthetic_frame(&pool, width, height, width * height * 3 / 10, s)).collect();
+        let size: usize = frames[0].iter().map(Vec::len).sum();
+        let mut buffers = plane_buffers(config);
+        let (mut push, mut total, mut gpu_ms) = (Vec::new(), Vec::new(), Vec::new());
+        for i in 0..320 {
+            let start = Instant::now();
+            gpu.clear();
+            for packet in &frames[i % 8] {
+                gpu.push_packet(packet).unwrap();
+            }
+            let pushed = start.elapsed();
+            let [a, b, c] = &mut buffers;
+            gpu.decode([a.as_mut_slice(), b.as_mut_slice(), c.as_mut_slice()]).unwrap();
+            let finished = start.elapsed();
+            let stats = gpu.performance_stats(true);
+            if i == 20 {
+                println!("{name}: SDK performance stats after one decode: {stats:?}");
+            }
+            if i >= 20 {
+                push.push(pushed.as_secs_f64() * 1000.0);
+                total.push(finished.as_secs_f64() * 1000.0);
+                let passes: Vec<f64> = stats.iter().filter_map(|line| parse_gpu_ms(line)).collect();
+                if !passes.is_empty() {
+                    gpu_ms.push(passes.iter().sum());
+                }
+            }
+        }
+        let gpu_text = if gpu_ms.is_empty() {
+            "no GPU time parsed".to_owned()
+        } else {
+            format!("GPU p50 {:.3} ms p95 {:.3} ms ({} samples)", percentile(&mut gpu_ms.clone(), 50), percentile(&mut gpu_ms, 95), gpu_ms.len())
+        };
+        println!(
+            "{name}: {size} bytes/frame; CPU push p50 {:.3} ms p95 {:.3} ms; push to planes in memory p50 {:.3} ms p95 {:.3} ms; {gpu_text}",
+            percentile(&mut push.clone(), 50),
+            percentile(&mut push, 95),
+            percentile(&mut total.clone(), 50),
+            percentile(&mut total, 95),
+        );
+    }
 }

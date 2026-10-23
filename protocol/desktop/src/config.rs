@@ -81,8 +81,9 @@ pub enum DecoderPreference {
 /// by the PyroWave library's Vulkan decoder (docs/pyrowave-decode.md). `Gpu` never falls back
 /// to the CPU: when the library or the adapter cannot do it, PyroWave is not offered and the
 /// reason is shown. The default is `Gpu` on Windows (the ABBA in docs/pyrowave-decode.md: lower
-/// `receive_to_present_ms` at p50 and p95 and no lower fps on every leg) and `Cpu` elsewhere,
-/// where the library does not exist.
+/// `receive_to_present_ms` at p50 and p95 and no lower fps on every leg) and `Cpu` elsewhere: on
+/// Linux the library is built and packaged separately (`package-linux.sh -s`), so a client without
+/// it must not start with PyroWave unavailable; the GPU decoder is one setting away there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PyroWaveDecoder {
     Cpu,

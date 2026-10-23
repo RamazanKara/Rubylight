@@ -164,8 +164,10 @@ impl Shared {
     }
 }
 
-/// The renderer's `ID3D11Device`, lent to the decoder thread. The renderer outlives the stream
-/// and D3D11 devices are free-threaded.
+/// The renderer's GPU device, lent to the decoder thread: the `ID3D11Device` on Windows (the SDK
+/// decoder shares textures with it), the `SDL_GPUDevice` on Linux (a marker that the renderer can
+/// draw decoded planes; the SDK decodes on its own Vulkan device). The renderer outlives the
+/// stream and D3D11 devices are free-threaded.
 #[derive(Clone, Copy)]
 pub struct GpuDevice(pub *mut c_void);
 
@@ -181,7 +183,7 @@ pub struct Decoder {
     setup: Option<VideoSetup>,
     pyrowave: Option<super::pyrowave::Pyrowave>,
     early: bool,
-    /// The renderer's D3D11 device when PyroWave is to be decoded on the GPU (`pyrowave_decoder = gpu`).
+    /// The renderer's GPU device when PyroWave is to be decoded on the GPU (`pyrowave_decoder = gpu`).
     gpu: Option<GpuDevice>,
     /// Measurement: where the first `PYROWAVE_DUMP_FRAMES` envelopes go (`NIGHTJAR_PYROWAVE_DUMP`),
     /// and how many were written.
@@ -256,7 +258,7 @@ impl Decoder {
     }
 }
 
-/// The SDK's decoder on the renderer's device, with a plane set per picture that can be waiting.
+/// The SDK's decoder (on the renderer's adapter on Windows), with a plane set per picture that can be waiting.
 fn gpu_pyrowave(device: GpuDevice, setup: &VideoSetup, slots: usize) -> Result<super::pyrowave::Pyrowave, String> {
     #[cfg(windows)]
     {
@@ -269,10 +271,15 @@ fn gpu_pyrowave(device: GpuDevice, setup: &VideoSetup, slots: usize) -> Result<s
         super::pyrowave::GpuStream::new(device, setup.width as usize, setup.height as usize, chroma444, ten_bit, slots)
             .map(|stream| super::pyrowave::Pyrowave::Gpu(Box::new(stream)))
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        let _ = (device, setup, slots);
-        Err("GPU PyroWave decoding needs Windows".into())
+        // The SDK decodes on its own Vulkan device and the planes cross through CPU memory, so
+        // the renderer's device is only the proof that the presenter can draw them.
+        let _ = device;
+        let ten_bit = setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
+        let chroma444 = setup.format & VIDEO_FORMAT_MASK_YUV444 != 0;
+        super::pyrowave::GpuStream::new(setup.width as usize, setup.height as usize, chroma444, ten_bit, slots)
+            .map(|stream| super::pyrowave::Pyrowave::Gpu(Box::new(stream)))
     }
 }
 
@@ -689,11 +696,14 @@ mod tests {
 
     #[test]
     fn gpu_mode_without_a_device_never_builds_a_cpu_decoder() {
-        // No renderer device: the GPU decoder cannot be built, and setup reports that instead of
-        // decoding on the CPU.
+        // No renderer device (Windows) or a picture the SDK cannot take, and no SDK library to take
+        // it (Linux, where the planes cross through the CPU and the device only proves the
+        // renderer): the GPU decoder cannot be built, and setup reports that instead of decoding
+        // on the CPU.
         let (mut decoder, shared) = decoder();
         decoder = decoder.with_gpu_decoder(Some(GpuDevice(std::ptr::null_mut())));
-        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_PYROWAVE, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        let side = if cfg!(windows) { 128 } else { 127 };
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_PYROWAVE, width: side, height: side, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
         assert!(decoder.setup(&setup).is_err());
         assert!(decoder.pyrowave.is_none());
         let notices = notices(&shared);

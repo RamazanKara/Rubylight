@@ -1,7 +1,9 @@
-//! PyroWave decoding on the GPU through the SDK (libpyrowave-shared-1.dll), route A of
-//! docs/pyrowave-decode.md: the SDK decodes the entropy-coded records and runs the inverse
-//! wavelets on its own Vulkan device, into three R8 or R16 planes that are shared D3D11
-//! textures, and a shared `ID3D11Fence` orders the D3D11 side after it.
+//! PyroWave decoding on the GPU through the SDK (libpyrowave-shared-1.dll on Windows,
+//! libpyrowave-shared.so on Linux), route A of docs/pyrowave-decode.md: the SDK decodes the
+//! entropy-coded records and runs the inverse wavelets on its own Vulkan device. On Windows the
+//! three R8 or R16 planes are shared D3D11 textures and a shared `ID3D11Fence` orders the D3D11
+//! side after the decode. On Linux (`unix.rs`) the planes are read back into CPU buffers that
+//! the presenter uploads to its own textures; no Vulkan memory is shared with the renderer.
 //!
 //! Ported from the Rubylight host's decode test harness (rust/windows/src/pyrowave/decode_tests.rs,
 //! `Decoder`) and its `api!` loader (rust/windows/src/pyrowave.rs). The structs are hand-written
@@ -13,26 +15,45 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{c_char, c_void};
+#[cfg(windows)]
+use std::ffi::CStr;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+#[cfg(windows)]
 use std::time::Duration;
 
 use ash::vk;
+#[cfg(windows)]
 use windows::core::{Interface, PCWSTR};
+#[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HMODULE, WAIT_OBJECT_0};
+#[cfg(windows)]
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0};
+#[cfg(windows)]
 use windows::Win32::Graphics::Direct3D11::*;
+#[cfg(windows)]
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_SAMPLE_DESC};
+#[cfg(windows)]
 use windows::Win32::Graphics::Dxgi::{IDXGIDevice, IDXGIResource1, DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE};
+#[cfg(windows)]
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+pub use unix::*;
 
 #[cfg(test)]
 mod tests;
 
+#[cfg(windows)]
 pub const DLL_NAME: &str = "libpyrowave-shared-1.dll";
+#[cfg(unix)]
+pub const DLL_NAME: &str = "libpyrowave-shared.so";
 /// The SDK's API major version this client is written against.
 pub const ABI_MAJOR: u32 = 1;
 
@@ -127,6 +148,26 @@ pub struct GpuSyncOperation {
     pub sync: SyncPoint,
 }
 
+/// `pyrowave_cpu_buffer`: the CPU path of the decoder (`unix.rs`). The formats it takes are
+/// `CPU_FORMAT_*`; the planes are written by the decoder.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct CpuBuffer {
+    pub data: [*mut c_void; 3],
+    pub row_stride_in_bytes: [usize; 3],
+    pub plane_size_in_bytes: [usize; 3],
+    pub width: i32,
+    pub height: i32,
+    pub format: i32,
+}
+
+/// `pyrowave_cpu_buffer_format`: separate planes, 8 bits per sample, or 16 bits holding the
+/// picture as 16-bit UNORM (the SDK's default scaling, the same values as the R16 planes on Windows).
+pub const CPU_FORMAT_YUV420P: i32 = 1;
+pub const CPU_FORMAT_YUV444P: i32 = 2;
+pub const CPU_FORMAT_YUV420P16: i32 = 5;
+pub const CPU_FORMAT_YUV444P16: i32 = 6;
+
 pub type MessageCallback = unsafe extern "C" fn(*mut c_void, *const c_char);
 
 macro_rules! api {
@@ -162,6 +203,8 @@ api! {
     decoder_push_packet: unsafe extern "C" fn(RawDecoder, *const c_void, usize) -> PyroResult,
     decoder_decode_is_ready: unsafe extern "C" fn(RawDecoder, bool) -> bool,
     decoder_decode_gpu_buffer: unsafe extern "C" fn(RawDecoder, *const GpuSyncOperation, *const GpuSyncOperation, *const GpuBuffers) -> PyroResult,
+    decoder_decode_cpu_buffer_async: unsafe extern "C" fn(RawDecoder, *const CpuBuffer, i32) -> PyroResult,
+    decoder_decode_cpu_buffer_complete: unsafe extern "C" fn(RawDecoder, *const CpuBuffer, i32) -> PyroResult,
     sync_object_create: unsafe extern "C" fn(*const SyncObjectCreateInfo, *mut RawSyncObject) -> PyroResult,
     sync_object_get_semaphore: unsafe extern "C" fn(RawSyncObject) -> vk::Semaphore,
     sync_object_cpu_wait: unsafe extern "C" fn(RawSyncObject, u64, u64) -> PyroResult,
@@ -284,6 +327,7 @@ impl GpuConfig {
 }
 
 /// One set of decoder output planes: D3D11 textures and their Vulkan imports.
+#[cfg(windows)]
 pub struct Slot {
     pub textures: [ID3D11Texture2D; 3],
     images: [RawImage; 3],
@@ -298,6 +342,7 @@ pub struct Slot {
 /// COM objects. A presenter that keeps drawing from them on another thread must hold its own
 /// AddRef'd clones (`planes(..).clone()`, `fence().clone()`), because dropping the decoder releases
 /// its references and the SDK's Vulkan side, but the presenter's clones keep the D3D11 objects alive.
+#[cfg(windows)]
 pub struct GpuDecoder {
     api: Arc<Api>,
     config: GpuConfig,
@@ -311,10 +356,12 @@ pub struct GpuDecoder {
     counter: u64,
 }
 
+#[cfg(windows)]
 // SAFETY: Every raw handle is owned by this value, and the SDK may be called from any one thread
 // at a time, which `&mut self` guarantees.
 unsafe impl Send for GpuDecoder {}
 
+#[cfg(windows)]
 fn luid_of(device: &ID3D11Device) -> Result<Luid, String> {
     // SAFETY: Plain DXGI queries on a live device.
     let describe = || -> windows::core::Result<_> { unsafe { device.cast::<IDXGIDevice>()?.GetAdapter()?.GetDesc() } };
@@ -325,6 +372,7 @@ fn luid_of(device: &ID3D11Device) -> Result<Luid, String> {
     Ok(luid)
 }
 
+#[cfg(windows)]
 impl GpuDecoder {
     /// With the SDK next to the executable (loaded once per process, see `Api::shared`).
     pub fn new(d3d: &ID3D11Device, config: GpuConfig) -> Result<Self, String> {
@@ -604,6 +652,7 @@ impl GpuDecoder {
     }
 }
 
+#[cfg(windows)]
 impl Drop for GpuDecoder {
     fn drop(&mut self) {
         // SAFETY: Each non-null handle was made on `self.device`, which goes last; the SDK idles the
@@ -641,6 +690,7 @@ fn decoder_refused(result: PyroResult, why: &str) -> String {
 
 /// Ok once `fence` has reached `value`, an error if it has not within `deadline`. A fence whose
 /// device was removed reads as `u64::MAX`, which is an error too, not "done".
+#[cfg(windows)]
 pub fn fence_ready_within(fence: &ID3D11Fence, value: u64, deadline: Duration) -> Result<(), String> {
     // SAFETY: Plain fence calls; the event is closed on every path.
     unsafe {
@@ -689,6 +739,7 @@ static PROBES: std::sync::LazyLock<ProbeCache> = std::sync::LazyLock::new(ProbeC
 /// The DLL loads once per process and the result is remembered per adapter and plane format, so
 /// asking again (every settings screen, every stream start) costs nothing. A 10-bit stream needs
 /// `probe(.., true)` to succeed; a failure there is as loud as any other probe failure.
+#[cfg(windows)]
 pub fn probe(device: Option<&ID3D11Device>, ten_bit: bool) -> Result<(), String> {
     let api = Api::shared()?;
     let own;
@@ -704,6 +755,7 @@ pub fn probe(device: Option<&ID3D11Device>, ten_bit: bool) -> Result<(), String>
 }
 
 /// `probe` with the DLL at `dll`, neither kept nor remembered.
+#[cfg(windows)]
 pub fn probe_in(dll: &Path, device: Option<&ID3D11Device>, ten_bit: bool) -> Result<(), String> {
     let api = Api::load_from(dll)?;
     let own;
@@ -717,11 +769,13 @@ pub fn probe_in(dll: &Path, device: Option<&ID3D11Device>, ten_bit: bool) -> Res
     probe_once(api, device, ten_bit)
 }
 
+#[cfg(windows)]
 fn probe_once(api: Arc<Api>, device: &ID3D11Device, ten_bit: bool) -> Result<(), String> {
     GpuDecoder::with_api(api, device, GpuConfig { width: 128, height: 128, chroma444: false, ten_bit, slots: 1 }).map(drop)
 }
 
 /// A hardware D3D11 device on the default adapter.
+#[cfg(windows)]
 pub fn default_device() -> Result<ID3D11Device, String> {
     let mut device = None;
     // SAFETY: The out-pointer is a live local.
@@ -734,6 +788,7 @@ pub fn default_device() -> Result<ID3D11Device, String> {
 
 /// Why the SDK may have refused a Vulkan device for this adapter, read from the driver directly:
 /// the first requirement of the decoder that the adapter's Vulkan device does not meet.
+#[cfg(windows)]
 pub fn diagnose_vulkan(luid: &Luid) -> String {
     // SAFETY: Plain Vulkan calls on handles made here; the instance is destroyed before returning.
     unsafe {
@@ -752,6 +807,7 @@ pub fn diagnose_vulkan(luid: &Luid) -> String {
     }
 }
 
+#[cfg(windows)]
 unsafe fn describe_adapter(instance: &ash::Instance, luid: &Luid) -> String {
     let devices = match instance.enumerate_physical_devices() {
         Ok(devices) => devices,

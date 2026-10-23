@@ -3,6 +3,11 @@
 //! arrives after a delay. Like stock Moonlight, the client reports FEC status
 //! only for blocks that lost packets; a frame that lost every packet is never
 //! reported.
+//!
+//! It aims at what the host does: a frame leaves in a burst (`spread`, 5 % of
+//! the frame period), every 120th frame is three times the usual size, and the
+//! RTT the controller sees is the base RTT plus the time the queue takes to
+//! drain, sampled with the 100 ms pings.
 use std::time::{Duration, Instant};
 
 use super::*;
@@ -30,6 +35,10 @@ pub struct Link {
     pub rate: Box<dyn Fn(f64) -> f64>,
     pub queue_ms: f64,
     pub random_loss: f64,
+    /// Gilbert burst loss: chance per packet to enter the bad state, to leave
+    /// it, and to lose a packet in it.
+    pub burst: Option<(f64, f64, f64)>,
+    in_burst: bool,
     pub delay: f64,
     backlog: f64,
     at: f64,
@@ -41,6 +50,8 @@ impl Link {
             rate: Box::new(rate),
             queue_ms: 50.,
             random_loss: 0.,
+            burst: None,
+            in_burst: false,
             delay: 0.002,
             backlog: 0.,
             at: 0.,
@@ -60,6 +71,11 @@ impl Link {
             }
         })
     }
+    /// Seconds the queue takes to drain at `t`.
+    pub fn queue_delay(&self, t: f64) -> f64 {
+        let rate = (self.rate)(t).max(1.);
+        (self.backlog - rate / 8. * (t - self.at).max(0.)).max(0.) * 8. / rate
+    }
     /// Arrival time of a datagram of `bytes` offered at `t`, or `None` if
     /// the queue is full (or the packet is lost at random).
     fn offer(&mut self, t: f64, bytes: f64) -> Option<f64> {
@@ -74,6 +90,17 @@ impl Link {
         self.backlog += bytes;
         if self.random_loss > 0. && self.rng.next() < self.random_loss {
             return None;
+        }
+        if let Some((enter, leave, loss)) = self.burst {
+            let flip = self.rng.next();
+            self.in_burst = if self.in_burst {
+                flip >= leave
+            } else {
+                flip < enter
+            };
+            if self.in_burst && self.rng.next() < loss {
+                return None;
+            }
         }
         Some(t + self.backlog * 8. / rate + self.delay)
     }
@@ -98,7 +125,8 @@ pub struct Sim {
     pub base: Instant,
     /// Delay from the last packet of a frame to the host reading the report.
     pub feedback: f64,
-    /// Share of the frame period the packets of one frame are spread over.
+    /// Share of the frame period the packets of one frame are spread over
+    /// (the host sends a frame in a burst of about 0.05).
     pub spread: f64,
     pub frames: Vec<Frame>,
     pub changes: Vec<(f64, Change)>,
@@ -123,7 +151,7 @@ impl Sim {
             link,
             base,
             feedback: feedback_ms / 1000.,
-            spread: 1.,
+            spread: 0.05,
             frames: Vec::new(),
             changes: Vec::new(),
             kbps_log: Vec::new(),
@@ -145,7 +173,12 @@ impl Sim {
         self.applied.rotate_left(1);
         self.applied[1] = self.encoder_kbps;
         let average = f64::from(kbps) * 125. / 60.;
-        let size = average * (0.9 + 0.2 * self.noise.next()) * if index == 0 { 2. } else { 1. };
+        let scale = match index {
+            0 => 2.,
+            i if i % 120 == 0 => 3.,
+            _ => 1.,
+        };
+        let size = average * (0.9 + 0.2 * self.noise.next()) * scale;
         let packetizer = VideoPacketizer {
             sequence: 0,
             frame: index,
@@ -234,7 +267,8 @@ impl Sim {
     }
 
     pub fn run(&mut self, seconds: f64) {
-        let rtt = Duration::from_secs_f64(2. * (self.link.delay + self.feedback) + 0.001);
+        let base_rtt = 2. * (self.link.delay + self.feedback) + 0.001;
+        let mut rtt = Duration::from_secs_f64(base_rtt);
         let ms = (seconds * 1000.) as u64;
         let mut index = 0u32;
         let mut next_frame = 0.;
@@ -247,6 +281,9 @@ impl Sim {
                 next_frame += PERIOD.as_secs_f64();
             }
             self.deliver(t);
+            if k % 100 == 0 {
+                rtt = Duration::from_secs_f64(base_rtt + self.link.queue_delay(t));
+            }
             if self.client_pings && k % 100 == 0 {
                 self.lr.on_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
             }

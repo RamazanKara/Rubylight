@@ -18,6 +18,33 @@
 //! `enabled = false` while `host_adaptive_bitrate` is on
 //! ([`crate::config::Config::link_rate_adaptation`] folds that in).
 //!
+//! # Calling it (brief 3)
+//!
+//! - One `Mutex<LinkRate>` per session, shared by the video send path, the
+//!   control thread that reads client reports and the stream tick. Every
+//!   method takes `&mut self` and does bounded work with no allocation after
+//!   `new`.
+//! - [`LinkRate::on_sent`] comes before the frame's first packet is sent, with
+//!   the wire frame number the client will report, the packets (data and
+//!   parity) and the wire bytes. A report that arrives before `on_sent` for its
+//!   frame has no bytes to count against.
+//! - Feed [`LinkRate::on_status`] only deduplicated FEC blocks (the same block
+//!   repeated in several reports once); a frame with several blocks is
+//!   counted once for E1, and its packets once for E2.
+//! - From one client report call `on_status` first, then `on_unrecoverable`
+//!   for the same frame, then `on_latch` (a fast-rate latch is a reaction to
+//!   the same loss and starts the fence).
+//! - Call `tick` from the stream tick with the current RTT, the FEC percentage
+//!   in use, the frame period, the encoder bitrate now in effect and whether
+//!   the picture is moving (`busy`: a static desktop sends almost nothing, so a
+//!   probe sent then proves nothing). A returned kbps is applied through the
+//!   encoder bitrate path; `None` means the requested rate. Log the result of
+//!   `take_change` after each call.
+//! - The wire frame counter must not restart under one controller. Use
+//!   [`LinkRate::rebuild`] when the stream is reconfigured (new bitrate, FEC,
+//!   mode or a restarted frame counter): it keeps a client takeover and
+//!   forgets the rest.
+//!
 //! Units: the controller works in total wire bits per second (video with FEC
 //! and framing plus the audio reserve), the unit of
 //! [`WireBudget::total_bps`], and converts to encoder kbps at the current FEC
@@ -79,6 +106,23 @@ pub const HOLD: Duration = Duration::from_secs(2);
 /// since, and only a probe can tell, so the wait stays short; a repeat probe is
 /// cheap because it goes only [`NEAR_STEP_DIVISOR`] past the bad rate.
 pub const MAX_HOLD: Duration = Duration::from_secs(8);
+/// A probe that fails within [`KNEE_PERCENT`] of the previous bad rate means
+/// the link has a fixed knee there. Each such failure doubles a wait, up to
+/// [`KNEE_MAX_HOLD`], during which probes stay under [`KNEE_CAP_PERCENT`] of
+/// the bad rate. Without it a fixed link pays a failed probe every 9 s forever:
+/// on 45 fixed-link runs of 5 minutes (225 on 150, 120 on 80, 40 on 20, 20 on
+/// 20 and 179 on 138 Mbit/s, three feedback delays, three burst/queue models)
+/// 4.7 failed probes a minute and 1.00 % of frames lost fell to 1.4 a minute
+/// and 0.77 % (0.76 % is the periodic 3x frame). 16 s left 2.5 a minute, 60 s
+/// 0.9, but a 60 s wait keeps a recovered link at 90 % of its old rate that
+/// long; 30 s is the middle.
+pub const KNEE_MAX_HOLD: Duration = Duration::from_secs(30);
+pub const KNEE_PERCENT: u64 = 5;
+/// A step down from within this share of the bad rate is a knee failure too.
+pub const KNEE_CUT_PERCENT: u64 = 90;
+/// 95 % left the stream at the link's edge, where each periodic big frame
+/// cost a cut (a window at 62 % of the link); 90 % never fell below 76 %.
+pub const KNEE_CAP_PERCENT: u64 = 90;
 /// Minimum time between probes (also at least the fence).
 pub const PROBE_EVERY: Duration = Duration::from_millis(500);
 /// Probe step as a fraction of the current rate: 1/8. A 25 % step loses more
@@ -287,6 +331,10 @@ pub struct LinkRate {
     pending: [Option<Step>; PENDING_CAP],
     confirmed: Option<Confirmed>,
     hold: Duration,
+    /// Knee wait, doubled by failures at the bad rate, reset past it.
+    knee: Duration,
+    /// Probes stay under [`KNEE_CAP_PERCENT`] of `bad` until then.
+    knee_until: Option<Instant>,
     next_probe: Option<Instant>,
     at_ceiling: Option<Instant>,
     near_bad: Option<Instant>,
@@ -329,6 +377,8 @@ impl LinkRate {
             pending: [None; PENDING_CAP],
             confirmed: None,
             hold: HOLD,
+            knee: HOLD,
+            knee_until: None,
             next_probe: None,
             at_ceiling: None,
             near_bad: None,
@@ -384,6 +434,17 @@ impl LinkRate {
         this.events.requests.reserve_exact(EVENT_CAP);
         this.state = State::Full;
         this.reason = "healthy";
+        this
+    }
+
+    /// A new controller for a reconfigured stream (new bitrate, FEC or
+    /// codec). It keeps what the stream already decided: once the client set
+    /// the bitrate, it stays in charge.
+    pub fn rebuild(&self, enabled: bool, stream: &Negotiated, max_kbps: u32, fec: usize) -> Self {
+        let mut this = Self::new(enabled, stream, max_kbps, fec);
+        if self.client_owned {
+            this.client_takeover();
+        }
         this
     }
 
@@ -585,10 +646,18 @@ impl LinkRate {
         {
             return kbps;
         }
-        let kbps = self
+        let mut kbps = self
             .budget()
             .encoder_kbps(self.current, self.ceiling_kbps, fec, period)
             .clamp(self.floor_kbps, self.ceiling_kbps);
+        // Less FEC frees wire bits for video, but only a probe may spend them.
+        if let Some(((current, was_fec, was_period), cached)) = self.cache
+            && current == self.current
+            && period == was_period
+            && fec < was_fec
+        {
+            kbps = kbps.min(cached);
+        }
         self.cache = Some((key, kbps));
         kbps
     }
@@ -724,11 +793,19 @@ impl LinkRate {
         if let Some((failed, back_to)) = failing {
             self.pending = [None; PENDING_CAP];
             self.confirmed = None;
-            self.bad = Some(failed);
+            let knee = self.bad.is_some_and(|bad| {
+                failed * 100 >= bad * (100 - KNEE_PERCENT)
+                    && failed * 100 <= bad * (100 + KNEE_PERCENT)
+            });
+            self.bad = Some(match self.bad {
+                Some(bad) if knee => bad.min(failed),
+                _ => failed,
+            });
             self.good = back_to;
             self.current = back_to;
             self.hold = (self.hold * 2).min(MAX_HOLD);
             self.next_probe = Some(now + self.hold);
+            self.knee_failed(now, knee);
             self.failed_probes += 1;
             self.at_ceiling = None;
             self.near_bad = None;
@@ -784,12 +861,21 @@ impl LinkRate {
         }
         .clamp(cur * MIN_CUT_PERCENT / 100, cur * MAX_CUT_PERCENT / 100)
         .max(floor);
+        let knee = self
+            .bad
+            .is_some_and(|bad| cur * 100 >= bad * KNEE_CUT_PERCENT);
         self.bad = Some(self.bad.map_or(cur, |bad| bad.min(cur)));
         self.confirmed = None;
         self.current = target;
         self.good = target;
-        self.hold = HOLD;
-        self.next_probe = Some(now + HOLD.max(self.fence_wait()));
+        // A cut from the knee is a failed probe that confirmed first.
+        self.hold = if knee {
+            (self.hold * 2).min(MAX_HOLD)
+        } else {
+            HOLD
+        };
+        self.next_probe = Some(now + self.hold.max(self.fence_wait()));
+        self.knee_failed(now, knee);
         self.at_ceiling = None;
         self.near_bad = None;
         self.steps_down += 1;
@@ -810,28 +896,54 @@ impl LinkRate {
         );
     }
 
+    /// A failure at the bad rate (`knee`) doubles the wait that keeps probes
+    /// under it; any other failure leaves the bad rate somewhere new.
+    fn knee_failed(&mut self, now: Instant, knee: bool) {
+        if knee {
+            self.knee = (self.knee * 2).min(KNEE_MAX_HOLD);
+            self.knee_until = Some(now + self.knee);
+        } else {
+            self.knee = HOLD;
+            self.knee_until = None;
+        }
+    }
+
+    /// The bad rate is gone (passed or forgotten): probe freely again.
+    fn forget_knee(&mut self) {
+        self.knee = HOLD;
+        self.knee_until = None;
+    }
+
     /// No evidence this round: confirm earlier probe steps, then probe or
     /// return to `Full`.
     fn advance(&mut self, now: Instant, busy: bool, fec: usize, period: Duration) {
-        let before = self.good;
+        if !busy {
+            // A static picture proves nothing: a step sent just before it
+            // needs its two seconds of motion.
+            for step in self.pending.iter_mut().flatten() {
+                step.at = now;
+            }
+        }
         for slot in &mut self.pending {
             if let Some(step) = slot
                 && now.saturating_duration_since(step.at) >= CONFIRM_AFTER
             {
-                if step.rate > before {
-                    let c = self.confirmed.get_or_insert(Confirmed {
-                        before,
+                if step.rate > self.good {
+                    // A failure now goes back to the rate before this step,
+                    // not to where the climb began.
+                    self.confirmed = Some(Confirmed {
+                        before: self.good,
                         rate: step.rate,
                         at: now,
                     });
-                    c.rate = c.rate.min(step.rate);
-                    c.at = now;
                 }
                 self.good = self.good.max(step.rate);
-                if self.bad.is_some_and(|bad| step.rate > bad) {
-                    self.bad = None;
-                }
                 self.hold = HOLD;
+                if self.bad.is_none_or(|bad| step.rate > bad) {
+                    self.bad = None;
+                    self.knee = HOLD;
+                    self.knee_until = None;
+                }
                 *slot = None;
             }
         }
@@ -857,6 +969,7 @@ impl LinkRate {
                 } else if now.saturating_duration_since(since) >= FORGET_BAD_AFTER && !unconfirmed {
                     self.bad = None;
                     self.near_bad = None;
+                    self.forget_knee();
                 }
             }
             _ => {}
@@ -878,12 +991,19 @@ impl LinkRate {
         // changes nothing is no probe.
         let step = (self.current / divisor).max(1);
         let level = self.kbps_for(self.current, fec, period);
+        // On a known knee, probes stop just under it until the wait is over.
+        let limit = match (self.bad, self.knee_until) {
+            (Some(bad), Some(until)) if now < until => {
+                ceiling.min((bad * KNEE_CAP_PERCENT).div_ceil(100))
+            }
+            _ => ceiling,
+        };
         let mut next = self.current;
-        while next < ceiling && self.kbps_for(next, fec, period) <= level {
+        while next < limit && self.kbps_for(next, fec, period) <= level {
             next += step;
         }
-        let next = next.min(ceiling);
-        if next <= self.current {
+        let next = next.min(limit);
+        if next <= self.current || (limit < ceiling && self.kbps_for(next, fec, period) <= level) {
             return;
         }
         let from_kbps = self.encoder_kbps(fec, period);
@@ -919,6 +1039,7 @@ impl LinkRate {
         self.reason = "healthy";
         self.bad = None;
         self.hold = HOLD;
+        self.forget_knee();
         self.at_ceiling = None;
         self.near_bad = None;
         self.pending = [None; PENDING_CAP];

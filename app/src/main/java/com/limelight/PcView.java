@@ -69,7 +69,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         @Override public void onWakeSent(ComputerDetails computer) {
             ComputerObject row = findComputer(computer.uuid);
             if (row != null) {
-                // The row says "Waking…" until the PC answers or the wake window passes.
+                // The row says "Wakingâ€¦" until the PC answers or the wake window passes.
                 row.wakeSentAt = SystemClock.elapsedRealtime();
                 pcGridAdapter.notifyDataSetChanged();
             }

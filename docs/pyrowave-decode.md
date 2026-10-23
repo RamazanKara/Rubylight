@@ -246,6 +246,15 @@ pyrowave_sdk::tests`.
   accuracy test also bounds the signed mean (0.25/255) and pins the 10-bit UNORM16 scale (code
   over 1023, not code shifted by six).
 
+### Beam race: slice decodes (B10 step 4)
+
+With `beam_race` on and the host sending row order, the final frame is preceded by up to three
+slice decodes of the rows that have arrived. Loopback, 60 s, 1080p60, 399 Mbps: 4 slices on every
+one of 3589 frames, first slice ready 1.65 ms (p50) after the first packet against 6.48 ms on the
+wire, last 7.20 ms. The final decode is byte-identical to a decode with slicing off on all three
+planes, and each slice matches that reference on its rows (ignored GPU test, 24 frames). See
+[beam-racing.md](beam-racing.md).
+
 ## The wait between decoded and shown (HostTimes pacing)
 
 Measured with the 1080p/4K 300 Mbps PyroWave loopback on the dev PC (display 5120x1440 at 240 Hz,

@@ -9,8 +9,11 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use nightjar_core::http::native_api::capabilities::Capabilities;
+use nightjar_core::http::native_api::library::Library;
+use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
-    App, AppControl, ClientIdentity, HostClient, PairResult, ServerInfo, DEFAULT_HTTP_PORT,
+    App, AppControl, ClientIdentity, Feature, HostClient, PairResult, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
 use crate::config::{HostRecord, Store};
@@ -19,6 +22,8 @@ use crate::config::{HostRecord, Store};
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(4);
+/// The native library and permissions are read this often; the session on every poll.
+const NATIVE_FULL_INTERVAL: Duration = Duration::from_secs(30);
 const MDNS_SERVICE: &str = "_nvstream._tcp.local.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +46,38 @@ pub enum Art {
     Missing,
 }
 
+/// What the Rubylight native API told us about a PC, cached per PC. The library of a PC that
+/// is away is the one saved on disk, so Home still has something to show.
+#[derive(Default)]
+pub struct Native {
+    pub capabilities: Option<Capabilities>,
+    pub library: Option<Library>,
+    /// The library was read from the PC in this run (not loaded from disk).
+    pub library_live: bool,
+    pub session: Option<Session>,
+    /// Why the last read failed; the data above is then the last good one.
+    pub error: Option<String>,
+    /// A session action (Close game) is running.
+    pub acting: bool,
+    loading: bool,
+    full_at: Option<Instant>,
+}
+
+impl Native {
+    /// Whether this device may end games on the PC (the host's `host_control` permission);
+    /// unknown counts as no.
+    pub fn host_control(&self) -> bool {
+        self.capabilities.as_ref().is_some_and(|c| c.permissions.host_control)
+    }
+}
+
+/// One successful native read.
+pub struct NativeRead {
+    capabilities: Option<Capabilities>,
+    library: Option<Library>,
+    session: Result<Session, String>,
+}
+
 pub struct Host {
     pub id: u64,
     pub record: HostRecord,
@@ -48,6 +85,9 @@ pub struct Host {
     pub info: Option<ServerInfo>,
     pub apps: Apps,
     pub art: HashMap<i32, Art>,
+    /// The cover version each `art` entry was asked for (empty for classic box art).
+    art_versions: HashMap<i32, String>,
+    pub native: Native,
     pub error: Option<String>,
     polling: bool,
     last_poll: Option<Instant>,
@@ -57,6 +97,17 @@ impl Host {
     pub fn paired(&self) -> bool {
         self.record.server_certificate.is_some()
             && self.info.as_ref().is_none_or(|i| i.paired)
+    }
+
+    /// The PC speaks the native API now, or did when its library was saved.
+    pub fn native_api(&self) -> bool {
+        self.info.as_ref().is_some_and(|i| i.capabilities.has(Feature::NativeApi))
+            || (self.info.is_none() && self.native.library.is_some())
+    }
+
+    /// Whether the cover of `app` at `version` has not been asked for yet.
+    pub fn art_wanted(&self, app: i32, version: &str) -> bool {
+        self.art_versions.get(&app).is_none_or(|v| v != version) || !self.art.contains_key(&app)
     }
 
     pub fn display_name(&self) -> &str {
@@ -99,7 +150,17 @@ pub enum Event {
     Art {
         id: u64,
         app: i32,
+        version: String,
         image: Option<egui::ColorImage>,
+    },
+    Native {
+        id: u64,
+        result: Result<Box<NativeRead>, String>,
+    },
+    Session {
+        id: u64,
+        action: ActionId,
+        result: Result<Box<Session>, String>,
     },
     Quit {
         id: u64,
@@ -124,6 +185,8 @@ pub struct Hosts {
     next_id: u64,
     pairing: Option<(u64, Arc<HostClient>)>,
     pairing_generation: u64,
+    /// Hosts whose live library changed since the last `take_library_saves`.
+    library_saves: Vec<u64>,
     _mdns: Option<mdns_sd::ServiceDaemon>,
 }
 
@@ -211,6 +274,7 @@ impl Hosts {
             next_id: 1,
             pairing: None,
             pairing_generation: 0,
+            library_saves: Vec::new(),
             _mdns: None,
         };
         for record in records {
@@ -238,6 +302,8 @@ impl Hosts {
             info: None,
             apps: Apps::NotLoaded,
             art: HashMap::new(),
+            art_versions: HashMap::new(),
+            native: Native::default(),
             error: None,
             polling: false,
             last_poll: None,
@@ -457,6 +523,8 @@ impl Hosts {
         host.record.server_certificate = None;
         host.apps = Apps::NotLoaded;
         host.art.clear();
+        host.art_versions.clear();
+        host.native = Native::default();
         self.spawn("unpair", move || {
             if let Ok(client) = client_for(&identity, &record, &record.address) {
                 let _ = client.unpair();
@@ -490,20 +558,114 @@ impl Hosts {
         });
     }
 
-    /// Fetches box art once per app, from the disk cache when present.
-    pub fn request_art(&mut self, id: u64, app: i32, store: &Store) {
+    /// Reads the native API of a paired, online PC that has it: the session every time, the
+    /// permissions and library when they are due (or `force`). Does nothing while a read runs.
+    pub fn refresh_native(&mut self, id: u64, force: bool) {
         let Some(identity) = self.identity.clone() else {
             return;
         };
         let Some(host) = self.get_mut(id) else {
             return;
         };
+        let live = host.reach == Reach::Online
+            && host.paired()
+            && host.info.as_ref().is_some_and(|i| i.capabilities.has(Feature::NativeApi));
+        if !live || host.native.loading {
+            return;
+        }
+        let full = force
+            || host.native.library.is_none()
+            || !host.native.library_live
+            || host.native.full_at.is_none_or(|t| t.elapsed() >= NATIVE_FULL_INTERVAL);
+        host.native.loading = true;
+        if full {
+            host.native.full_at = Some(Instant::now());
+        }
+        let record = host.record.clone();
+        self.spawn("native-api", move || {
+            let result = client_for(&identity, &record, &record.address).and_then(|client| {
+                let (capabilities, library) = if full {
+                    (
+                        Some(client.native_capabilities().map_err(|e| describe(&e))?),
+                        Some(client.library().map_err(|e| describe(&e))?),
+                    )
+                } else {
+                    (None, None)
+                };
+                let session = client.session().map_err(|e| describe(&e));
+                // Without a library in this read, a failed session is the whole failure; with
+                // one, Home still has the games and shows the session error beside them.
+                match (&session, full) {
+                    (Err(e), false) => Err(e.clone()),
+                    _ => Ok(Box::new(NativeRead { capabilities, library, session })),
+                }
+            });
+            Some(Event::Native { id, result })
+        });
+    }
+
+    /// Runs Close game (or End, Disconnect) through the native API.
+    pub fn session_action(&mut self, id: u64, action: ActionId) {
+        let Some(identity) = self.identity.clone() else {
+            return;
+        };
+        let Some(host) = self.get_mut(id) else {
+            return;
+        };
+        if host.native.acting {
+            return;
+        }
+        host.native.acting = true;
+        let record = host.record.clone();
+        self.spawn("session-action", move || {
+            let result = client_for(&identity, &record, &record.address).and_then(|client| {
+                client.session_action(action).map(Box::new).map_err(|e| describe(&e))
+            });
+            Some(Event::Session { id, action, result })
+        });
+    }
+
+    /// Puts back the libraries saved by earlier runs, for PCs not reached yet.
+    pub fn load_cached_libraries(&mut self, store: &Store) {
+        for host in &mut self.list {
+            if host.record.server_certificate.is_some() && !host.record.unique_id.is_empty() {
+                host.native.library = store.library(&host.record.unique_id);
+            }
+        }
+    }
+
+    /// The libraries read since the last call, by the PC's `uniqueid`, to be saved.
+    pub fn take_library_saves(&mut self) -> Vec<(String, Library)> {
+        std::mem::take(&mut self.library_saves)
+            .into_iter()
+            .filter_map(|id| {
+                let host = self.get(id)?;
+                Some((host.record.unique_id.clone(), host.native.library.clone()?))
+            })
+            .filter(|(unique_id, _)| !unique_id.is_empty())
+            .collect()
+    }
+
+    /// Fetches box art once per app, from the disk cache when present. `version` is the cover
+    /// version the native library reports (empty for classic box art); a new one fetches again.
+    pub fn request_art(&mut self, id: u64, app: i32, version: &str, store: &Store) {
+        let Some(identity) = self.identity.clone() else {
+            return;
+        };
+        let Some(host) = self.get_mut(id) else {
+            return;
+        };
+        if host.art_versions.get(&app).is_some_and(|old| old != version) {
+            host.art.remove(&app);
+        }
         if host.art.contains_key(&app) {
             return;
         }
         host.art.insert(app, Art::Loading);
+        host.art_versions.insert(app, version.to_owned());
+        let version = version.to_owned();
         let record = host.record.clone();
-        let cache = store.art_path(&record.unique_id, app);
+        let cache = store.art_path(&record.unique_id, app, &version);
         self.spawn("boxart", move || {
             let bytes = std::fs::read(&cache).ok().or_else(|| {
                 let bytes = match client_for(&identity, &record, &record.address).and_then(|c| {
@@ -525,7 +687,7 @@ impl Hosts {
                 Some(bytes)
             });
             let image = bytes.and_then(|b| decode_image(&b));
-            Some(Event::Art { id, app, image })
+            Some(Event::Art { id, app, version, image })
         });
     }
 
@@ -599,7 +761,10 @@ impl Hosts {
                     id,
                     address,
                     result,
-                } => changed |= self.apply_info(id, address, result),
+                } => {
+                    changed |= self.apply_info(id, address, result);
+                    self.follow_native(id);
+                }
                 Event::Discovered {
                     name,
                     addresses,
@@ -629,8 +794,8 @@ impl Hosts {
                         };
                     }
                 }
-                Event::Art { id, app, image } => {
-                    if let Some(host) = self.get_mut(id) {
+                Event::Art { id, app, version, image } => {
+                    if let Some(host) = self.get_mut(id).filter(|h| h.art_versions.get(&app) == Some(&version)) {
                         let art = match image {
                             Some(image) => Art::Ready(ctx.load_texture(
                                 format!("art-{id}-{app}"),
@@ -641,6 +806,51 @@ impl Hosts {
                         };
                         host.art.insert(app, art);
                     }
+                }
+                Event::Native { id, result } => {
+                    let mut reload_apps = false;
+                    let mut save = false;
+                    if let Some(host) = self.get_mut(id) {
+                        host.native.loading = false;
+                        match result {
+                            Ok(read) => {
+                                let read = *read;
+                                host.native.error = None;
+                                if let Some(capabilities) = read.capabilities {
+                                    host.native.capabilities = Some(capabilities);
+                                }
+                                if let Some(library) = read.library {
+                                    // The classic list a launch goes through follows the library.
+                                    reload_apps = !host.native.library_live
+                                        || host.native.library.as_ref().is_none_or(|old| old.revision != library.revision);
+                                    save = host.native.library.as_ref() != Some(&library);
+                                    host.native.library = Some(library);
+                                    host.native.library_live = true;
+                                }
+                                match read.session {
+                                    Ok(session) => host.native.session = Some(session),
+                                    Err(e) => host.native.error = Some(format!("The session could not be read. {e}")),
+                                }
+                            }
+                            Err(e) => host.native.error = Some(e),
+                        }
+                    }
+                    if save && !self.library_saves.contains(&id) {
+                        self.library_saves.push(id);
+                    }
+                    if reload_apps {
+                        self.load_apps(id);
+                    }
+                }
+                Event::Session { id, action, result } => {
+                    if let Some(host) = self.get_mut(id) {
+                        host.native.acting = false;
+                        if let Ok(session) = &result {
+                            host.native.session = Some((**session).clone());
+                        }
+                    }
+                    self.poll_one(id);
+                    out.push(Event::Session { id, action, result });
                 }
                 Event::Quit { id, result } => {
                     self.poll_one(id);
@@ -658,6 +868,20 @@ impl Hosts {
             }
         }
         (out, changed)
+    }
+
+    /// A PC that was just checked and has the native API: read it, and have the classic app
+    /// list ready, because a launch goes through that list.
+    fn follow_native(&mut self, id: u64) {
+        let Some(host) = self.get(id) else { return };
+        if host.reach != Reach::Online || !host.paired() || !host.native_api() {
+            return;
+        }
+        let apps = matches!(host.apps, Apps::NotLoaded);
+        self.refresh_native(id, false);
+        if apps {
+            self.load_apps(id);
+        }
     }
 
     fn apply_info(&mut self, id: u64, address: String, result: Result<Box<ServerInfo>, String>) -> bool {

@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
 
+use nightjar_core::http::native_api::library::Library;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,6 +168,9 @@ pub struct Settings {
     pub full_range: bool,
     pub upscaling: Upscaling,
     pub upscale_sharpness: u32,
+    /// Open on Home (Continue playing, the library across PCs) when a paired PC has the
+    /// Rubylight native API. Off starts on the list of PCs. Not a per-PC or per-game override.
+    pub console_home: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +249,7 @@ impl Default for Settings {
             full_range: false,
             upscaling: Upscaling::Bilinear,
             upscale_sharpness: 50,
+            console_home: true,
         }
     }
 }
@@ -533,14 +538,38 @@ impl Store {
         write_json(&self.dir.join("hosts.json"), &hosts)
     }
 
-    /// Box art cache: `art/<host>/<app>.img`.
-    pub fn art_path(&self, host: &str, app_id: i32) -> PathBuf {
-        let host: String = host
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-            .collect();
-        self.dir.join("art").join(host).join(format!("{app_id}.img"))
+    /// Box art cache: `art/<host>/<app>.img`, or `<app>-<version>.img` for a cover the host
+    /// versions (the native API), so a changed cover is fetched again.
+    pub fn art_path(&self, host: &str, app_id: i32, version: &str) -> PathBuf {
+        let version: String = version.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        let name = if version.is_empty() { format!("{app_id}.img") } else { format!("{app_id}-{version}.img") };
+        self.dir.join("art").join(sanitize(host)).join(name)
     }
+
+    /// The last native library a PC sent, for Home while the PC is away or not polled yet.
+    pub fn library(&self, host: &str) -> Option<Library> {
+        read_json(&self.library_path(host))
+    }
+
+    pub fn save_library(&self, host: &str, library: &Library) -> std::io::Result<()> {
+        let path = self.library_path(host);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        write_json(&path, library)
+    }
+
+    pub fn forget_library(&self, host: &str) {
+        let _ = std::fs::remove_file(self.library_path(host));
+    }
+
+    fn library_path(&self, host: &str) -> PathBuf {
+        self.dir.join("library").join(format!("{}.json", sanitize(host)))
+    }
+}
+
+fn sanitize(name: &str) -> String {
+    name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect()
 }
 
 /// Splits "host", "host:port", "[v6]:port" or a bare IPv6 address.
@@ -595,6 +624,36 @@ mod tests {
         assert_eq!(parse_address("fe80::1"), Some(("fe80::1".into(), None)));
         assert_eq!(parse_address("pc:notaport"), None);
         assert_eq!(parse_address(""), None);
+    }
+
+    #[test]
+    fn saved_libraries_and_versioned_covers() {
+        let library: Library = serde_json::from_str(include_str!("../../client/tests/fixtures/native-api/library.json")).unwrap();
+        let dir = std::env::temp_dir().join(format!("nightjar-library-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        let host = "5E0F4B1C-7A3D-4C52-9E10-0B6F2D8A4C11";
+        assert!(store.library(host).is_none());
+        store.save_library(host, &library).unwrap();
+        let back = store.library(host).unwrap();
+        assert_eq!((back.revision.as_str(), back.games.len()), ("9f2c41d0", 2));
+        // Another PC does not see it, and a path-like id cannot leave the folder.
+        assert!(store.library("other").is_none());
+        assert!(store.library_path("../../x").starts_with(dir.join("library")));
+        store.forget_library(host);
+        assert!(store.library(host).is_none());
+        // A new cover version is a new file; no version keeps the classic name.
+        assert_ne!(store.art_path(host, 7, "a41c09e2"), store.art_path(host, 7, "0c1d2e3f"));
+        assert!(store.art_path(host, 7, "").ends_with("7.img"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn home_is_on_unless_the_file_says_otherwise() {
+        assert!(Settings::default().console_home);
+        let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
+        assert!(old.console_home, "a settings file from before Home keeps it on");
+        let off: Settings = serde_json::from_str("{\"console_home\": false}").unwrap();
+        assert!(!off.console_home);
     }
 
     #[test]

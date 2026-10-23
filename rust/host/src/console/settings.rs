@@ -82,6 +82,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "rtss_allow_virtual_display_override", "Allow virtual display limiter overrides", Bool;
     ]
     "Video and capture" => [
+        "stream_preset", "Stream preset", Choice(&["lowest_latency","balanced","reference"]);
         "adapter_name", "Encoding graphics adapter", Text;
         "adapter_pnp_id", "Encoding adapter device ID", Text;
         "hevc_mode", "HEVC support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
@@ -302,6 +303,8 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "webcam" => "Webcam",
                             "high_quality" => "High quality",
                             "lowlatency_high_quality" => "Low latency, high quality",
+                            "lowest_latency" if setting.key == "stream_preset" => "Lowest latency",
+                            "reference" if setting.key == "stream_preset" => "Reference quality",
                             "speed" => "Speed",
                             "balanced" => "Balanced",
                             "quality" => "Quality",
@@ -434,6 +437,39 @@ mod tests {
         );
         assert!(html.contains("value=\"enabled\">Four times the stream frame rate</option>"));
         assert!(!html.contains(">vhf_ds5</option>"));
+    }
+    #[test]
+    fn stream_preset_is_a_choice_of_the_core_presets_in_two_languages() {
+        let setting = GLOBAL
+            .iter()
+            .find(|setting| setting.key == "stream_preset")
+            .unwrap();
+        let Choice(choices) = setting.control else {
+            panic!("a choice")
+        };
+        let ids: Vec<_> = butterpollo_core::stream_preset::table()
+            .presets
+            .iter()
+            .map(|preset| preset.id.as_str())
+            .collect();
+        assert_eq!(choices, ids);
+        let values = serde_json::json!({"stream_preset": "reference"});
+        let body = render("cfg_", GLOBAL, &values);
+        let en = i18n::render(&body, "en");
+        assert!(en.contains("value=\"reference\" selected>Reference quality</option>"));
+        assert!(en.contains("value=\"lowest_latency\">Lowest latency</option>"));
+        let de = i18n::render(&body, "de");
+        assert!(
+            de.contains("value=\"reference\" selected>Referenzqualität</option>"),
+            "{de}"
+        );
+        assert!(de.contains("Stream-Voreinstellung"));
+        // Saving writes the chosen name.
+        let mut fields = Fields::new();
+        fields.insert("cfg_stream_preset".into(), "reference".into());
+        let mut saved = serde_json::Map::new();
+        apply("cfg_", GLOBAL, &fields, &mut saved).unwrap();
+        assert_eq!(saved["stream_preset"], "reference");
     }
     #[test]
     fn encoder_settings_save_keys_the_encoders_read() {

@@ -2,7 +2,12 @@
 //! Coefficient ordering and CDF 9/7 lifting follow Themaister/pyrowave a0d2e71 (MIT,
 //! Copyright (c) 2026 Hans-Kristian Arntzen; app/src/main/assets/pyrowave_notices.txt).
 
+use std::cell::RefCell;
+use std::time::Instant;
+
 use rubylight_protocol::pyrowave::{push_container, Records};
+
+use super::stage_times::Stages;
 
 struct Band {
     component: usize,
@@ -63,8 +68,32 @@ pub struct Decoder {
     seen: Vec<bool>,
     records: Records,
     packet: Vec<u8>,
+    /// Where each frame's time went (`STAGE_NAMES`); `coefficient_frame` takes `&self`.
+    stages: RefCell<Stages<5>>,
     #[cfg(test)] scratch: Vec<f32>,
     #[cfg(test)] line: Vec<f32>,
+}
+
+const ASSEMBLE: usize = 0;
+const CLEAR: usize = 1;
+const ENTROPY: usize = 2;
+const PACK: usize = 3;
+const ALLOC: usize = 4;
+const STAGE_NAMES: [&str; 5] = ["assemble", "clear", "entropy", "pack", "alloc"];
+
+/// The file name of dumped envelope `n` (`NIGHTJAR_PYROWAVE_DUMP`).
+pub fn dump_name(width: usize, height: usize, chroma444: bool, n: u32) -> String {
+    format!("frame-{width}x{height}-{}-{n:03}.bin", if chroma444 { 444 } else { 420 })
+}
+
+/// The picture size and chroma format a dumped file name carries.
+#[cfg(test)]
+fn parse_dump_name(name: &str) -> Option<(usize, usize, bool)> {
+    let mut parts = name.strip_prefix("frame-")?.strip_suffix(".bin")?.split('-');
+    let (width, height) = parts.next()?.split_once('x')?;
+    let full = match parts.next()? { "420" => false, "444" => true, _ => return None };
+    parts.next()?.parse::<u32>().ok()?;
+    Some((width.parse().ok()?, height.parse().ok()?, full))
 }
 
 fn word(data: &[u8], offset: usize) -> u32 {
@@ -97,6 +126,7 @@ impl Decoder {
             first_block_us: 0, early: Early::Off, missed_start: false, early_bytes: 0, early_done: 0, stride, rows,
             planes: std::array::from_fn(|_| vec![0.0; stride * rows]), bands, seen: vec![false; count],
             records: Records::with_geometry(width as u32, height as u32, chroma444), packet: Vec::new(),
+            stages: RefCell::new(Stages::new(STAGE_NAMES)),
             #[cfg(test)] scratch: vec![0.0; stride * rows], #[cfg(test)] line: vec![0.0; stride.max(rows)] })
     }
 
@@ -112,6 +142,8 @@ impl Decoder {
     /// that does not parse here is left for `coefficients`, which finds out from the envelope.
     pub fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
         if first {
+            let step = Instant::now();
+            self.stages.get_mut().reset();
             self.records.begin_frame();
             for plane in &mut self.planes { plane.fill(0.0); }
             self.seen.fill(false);
@@ -120,10 +152,17 @@ impl Decoder {
             self.early_done = 0;
             self.first_block_us = 0;
             self.missed_start = false;
+            self.stages.get_mut().add(CLEAR, step);
         } else if self.early == Early::Off {
             self.missed_start = true;
             return;
         }
+        let step = Instant::now();
+        self.take_chunk(flags, payload);
+        self.stages.get_mut().add(ENTROPY, step);
+    }
+
+    fn take_chunk(&mut self, flags: u32, payload: &[u8]) {
         if self.early != Early::Active { return; }
         self.early_bytes += 8 + payload.len();
         if !self.records.feed_packet(flags, payload) { self.early = Early::Failed; return; }
@@ -143,6 +182,7 @@ impl Decoder {
     pub fn coefficients(&mut self, data: &[u8]) -> Result<(), &'static str> {
         let early = std::mem::replace(&mut self.early, Early::Off);
         let missed_start = std::mem::take(&mut self.missed_start);
+        if early == Early::Off { self.stages.get_mut().reset(); }
         self.source = Source::Frame;
         self.early_blocks = 0;
         if data.len() > rubylight_protocol::pyrowave::MAX_FRAME_BYTES { return Err("PyroWave frame exceeds the packet budget"); }
@@ -152,9 +192,11 @@ impl Decoder {
         if early != Early::Off {
             // The chunks are the frame only if they add up to its envelope; the frame decides.
             if early == Early::Active && records && self.early_bytes == data.len() {
+                let step = Instant::now();
                 let packet = &mut self.packet;
                 finished = self.records.finish_frame(|record| { packet.extend_from_slice(record); true });
                 if !finished { self.packet.clear(); }
+                self.stages.get_mut().add(ASSEMBLE, step);
             }
             self.source = if finished { Source::Early } else { Source::Fallback };
             if finished { self.early_blocks = self.early_done; }
@@ -163,13 +205,18 @@ impl Decoder {
         }
         if self.source != Source::Early { self.first_block_us = 0; }
         if !finished {
+            let step = Instant::now();
             let push = |packet: &[u8]| { self.packet.extend_from_slice(packet); true };
             let valid = if records { self.records.push_frame(data, push) } else { push_container(data, push) };
+            self.stages.get_mut().add(ASSEMBLE, step);
             if !valid { return Err("Malformed PyroWave frame container"); }
+            let step = Instant::now();
             for plane in &mut self.planes { plane.fill(0.0); }
             self.seen.fill(false);
+            self.stages.get_mut().add(CLEAR, step);
         }
         self.loss_percent = if records { self.records.loss_percent } else { 0.0 };
+        let step = Instant::now();
         let mut at = 0;
         let mut header = false;
         while at < self.packet.len() {
@@ -189,7 +236,14 @@ impl Decoder {
             at += length;
         }
         if !header { return Err("PyroWave frame is missing its sequence header"); }
+        self.stages.get_mut().add(ENTROPY, step);
         Ok(())
+    }
+
+    /// `(ms p50/p95 over N frames): assemble .., clear .., entropy .., pack .., alloc ..` for the
+    /// frames converted so far. Entropy includes what early chunks decoded as they arrived.
+    pub fn stage_summary(&self) -> Option<String> {
+        self.stages.borrow().summary()
     }
 
     #[cfg(test)]
@@ -203,7 +257,10 @@ impl Decoder {
     }
 
     pub fn coefficient_frame(&self) -> Result<crate::media::Frame, String> {
+        let step = Instant::now();
         let frame = crate::media::Frame::wavelet(self.stride, self.rows)?;
+        self.stages.borrow_mut().add(ALLOC, step);
+        let step = Instant::now();
         let info = frame.info();
         #[cfg(target_arch = "x86_64")]
         let fast_half = std::is_x86_feature_detected!("f16c");
@@ -222,6 +279,9 @@ impl Decoder {
                 }
             }
         }
+        let mut stages = self.stages.borrow_mut();
+        stages.add(PACK, step);
+        stages.commit();
         Ok(frame)
     }
 
@@ -676,6 +736,16 @@ mod tests {
     /// `cargo test -p nightjar-desktop --release --bin nightjar -- --ignored --nocapture
     /// cpu_costs_of_a_pyrowave_frame`: what a 1080p frame costs on the CPU before the GPU
     /// wavelets, in the pieces early decode moves around (docs/early-decode.md).
+    /// The envelopes `NIGHTJAR_PYROWAVE_DUMP` wrote, in frame order, with their geometry.
+    fn dumped_frames(dir: &std::path::Path) -> Vec<(usize, usize, bool, Vec<u8>)> {
+        let mut names: Vec<_> = std::fs::read_dir(dir).unwrap().filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            parse_dump_name(&name).map(|geometry| (name, geometry))
+        }).collect();
+        names.sort();
+        names.into_iter().map(|(name, (w, h, full))| (w, h, full, std::fs::read(dir.join(name)).unwrap())).collect()
+    }
+
     #[test]
     #[ignore = "manual CPU timing"]
     fn cpu_costs_of_a_pyrowave_frame() {
@@ -716,6 +786,43 @@ mod tests {
             start.elapsed().as_secs_f64() * 1e3
         }).collect();
         println!("half conversion plus frame allocation: {:.2} ms", median(convert));
+        // Real frames from `NIGHTJAR_PYROWAVE_DUMP`: the whole CPU side with the stage split.
+        let Some(dir) = std::env::var_os("NIGHTJAR_PYROWAVE_FRAMES") else { return };
+        let frames = dumped_frames(std::path::Path::new(&dir));
+        assert!(!frames.is_empty(), "no frame-*.bin envelopes in {dir:?}");
+        let (width, height, full, _) = frames[0];
+        let mut decoder = Decoder::new(width, height, full).unwrap();
+        let mut total = Vec::new();
+        for round in 0..3 {
+            for &(w, h, f, ref data) in &frames {
+                assert_eq!((w, h, f), (width, height, full), "one geometry per dump");
+                let start = Instant::now();
+                decoder.coefficients(data).unwrap();
+                decoder.coefficient_frame().unwrap();
+                if round > 0 { total.push(start.elapsed().as_secs_f64() * 1e3); }
+            }
+        }
+        let bytes = frames.iter().map(|f| f.3.len()).sum::<usize>() / frames.len();
+        println!("{} real frames of {bytes} bytes, {width}x{height} full={full}: decoder total {:.2} ms median, {:.2} ms p95",
+            frames.len(), median(total.clone()), { total.sort_by(f64::total_cmp); total[total.len() * 95 / 100] });
+        println!("stages {}", decoder.stage_summary().unwrap());
+    }
+
+    #[test]
+    fn dumped_envelopes_are_named_for_their_geometry_and_read_back_in_order() {
+        assert_eq!(dump_name(1920, 1080, false, 7), "frame-1920x1080-420-007.bin");
+        assert_eq!(parse_dump_name("frame-1920x1080-420-007.bin"), Some((1920, 1080, false)));
+        assert_eq!(parse_dump_name("frame-64x32-444-120.bin"), Some((64, 32, true)));
+        assert_eq!(parse_dump_name("frame-64x32-422-001.bin"), None);
+        assert_eq!(parse_dump_name("notes.txt"), None);
+        let dir = std::env::temp_dir().join(format!("nightjar-dump-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in [10u32, 2, 1] { std::fs::write(dir.join(dump_name(132, 98, false, n)), [n as u8]).unwrap(); }
+        std::fs::write(dir.join("other.bin"), [9]).unwrap();
+        let frames = dumped_frames(&dir);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(frames.iter().map(|f| f.3[0]).collect::<Vec<_>>(), [1, 2, 10]);
+        assert!(frames.iter().all(|f| (f.0, f.1, f.2) == (132, 98, false)));
     }
 
     #[test]

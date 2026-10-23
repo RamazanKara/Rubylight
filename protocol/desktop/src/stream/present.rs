@@ -130,6 +130,8 @@ pub struct VideoTexture {
     packed: Option<super::packed444::Reconstruction>,
     pyrowave: Option<super::pyrowave_gpu::Reconstruction>,
     pyrowave_format: Option<[u32; 8]>,
+    /// Measurement: CPU time per PyroWave picture in `pyrowave_gpu`, kept across `destroy`.
+    pub pyrowave_stages: super::stage_times::Stages<2>,
     packed_format: Option<[u32; 12]>,
     white_level: f32,
     hdr_mode: Option<bool>,
@@ -150,6 +152,7 @@ impl Default for VideoTexture {
             packed: None,
             pyrowave: None,
             pyrowave_format: None,
+            pyrowave_stages: super::stage_times::Stages::new(super::pyrowave_gpu::UPLOAD_AND_PASSES),
             packed_format: None,
             white_level: 1.0,
             hdr_mode: None,
@@ -333,7 +336,9 @@ impl VideoTexture {
                 self.pyrowave = super::pyrowave_gpu::Reconstruction::new(renderer, self.texture, parameters);
                 self.pyrowave_format = Some(parameters);
             }
-            return self.pyrowave.as_ref().is_some_and(|gpu| gpu.draw(renderer, self.texture, frame));
+            let drawn = self.pyrowave.as_ref().is_some_and(|gpu| gpu.draw_timed(renderer, self.texture, frame, &mut self.pyrowave_stages));
+            if drawn { self.pyrowave_stages.commit(); } else { self.pyrowave_stages.reset(); }
+            return drawn;
         }
         if decoded.setup.chroma_packing != 0 {
             let setup = decoded.setup;

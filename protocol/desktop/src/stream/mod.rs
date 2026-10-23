@@ -19,6 +19,7 @@ mod upscale;
 mod phase;
 mod pyrowave;
 pub mod pyrowave_gpu;
+mod stage_times;
 #[cfg(windows)]
 mod d3d11;
 #[cfg(windows)]
@@ -2078,6 +2079,9 @@ impl Streaming {
         pads.reset();
         self.upscaler = None;
         self.texture.destroy();
+        if let Some(summary) = self.texture.pyrowave_stages.summary() {
+            eprintln!("nightjar: PyroWave presenter stages {summary} (CPU submit time)");
+        }
         let stats = self.session.stats();
         eprintln!("{}", video_summary(stats.frames_submitted, stats.decode_queue_overflows,
             self.shared.counters.replaced.load(Ordering::Relaxed)));

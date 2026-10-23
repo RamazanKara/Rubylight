@@ -1,6 +1,13 @@
 use std::ptr;
+use std::time::Instant;
 use sdl3_sys::everything::*;
+use super::stage_times::Stages;
 use super::upscale::Pass;
+
+/// The presenter's stages of a PyroWave picture (`Reconstruction::draw_timed`).
+pub const UPLOAD_AND_PASSES: [&str; 2] = ["upload", "passes"];
+pub const UPLOAD: usize = 0;
+pub const PASSES: usize = 1;
 
 pub fn probe(renderer: *mut SDL_Renderer, ten_bit: bool) -> Result<(), String> {
     let data: &[u8] = if ten_bit { include_bytes!("../../tests/fixtures/pyrowave-420-10.bin") }
@@ -50,14 +57,23 @@ impl Reconstruction {
     }
 
     pub fn draw(&self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, frame: &crate::media::Frame) -> bool {
+        self.draw_timed(renderer, target, frame, &mut Stages::new(UPLOAD_AND_PASSES))
+    }
+
+    /// Draws the frame and adds the CPU time of the upload and of submitting the passes to
+    /// `stages` (the GPU runs on after the submit returns).
+    pub fn draw_timed(&self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, frame: &crate::media::Frame, stages: &mut Stages<2>) -> bool {
         let info = frame.info();
         let mut parameters = self.parameters;
         unsafe {
             // Preserve the untouched frequency bands in both targets; each pass writes
             // only its active rectangle instead of copying the whole picture ten times.
+            let step = Instant::now();
             for texture in self.textures {
                 if !SDL_UpdateTexture(texture, ptr::null(), info.data[0].cast(), info.linesize[0]) { return false; }
             }
+            stages.add(UPLOAD, step);
+            let step = Instant::now();
             for level in (0..5).rev() {
                 parameters[4] = level;
                 for pass in 0..2 {
@@ -67,7 +83,9 @@ impl Reconstruction {
                 }
             }
             parameters[5] = 2;
-            self.passes[2].draw(renderer, self.textures[0], target, &parameters, None)
+            let ok = self.passes[2].draw(renderer, self.textures[0], target, &parameters, None);
+            stages.add(PASSES, step);
+            ok
         }
     }
 }

@@ -143,7 +143,13 @@ pub struct Decoder {
     setup: Option<VideoSetup>,
     pyrowave: Option<super::pyrowave::Decoder>,
     early: bool,
+    /// Measurement: where the first `PYROWAVE_DUMP_FRAMES` envelopes go (`NIGHTJAR_PYROWAVE_DUMP`),
+    /// and how many were written.
+    dump: Option<(std::path::PathBuf, u32)>,
 }
+
+/// How many real PyroWave envelopes `NIGHTJAR_PYROWAVE_DUMP` keeps.
+const PYROWAVE_DUMP_FRAMES: u32 = 120;
 
 impl Decoder {
     pub fn new(shared: Arc<Shared>, hardware: Hardware) -> Self {
@@ -156,7 +162,22 @@ impl Decoder {
             setup: None,
             pyrowave: None,
             early: false,
+            dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
         }
+    }
+
+    /// Writes a PyroWave envelope as `frame-<w>x<h>-<420|444>-<n>.bin`, which
+    /// `cpu_costs_of_a_pyrowave_frame` reads back through `NIGHTJAR_PYROWAVE_FRAMES`.
+    fn dump_envelope(&mut self, setup: &VideoSetup, data: &[u8]) {
+        let Some((dir, written)) = &mut self.dump else { return };
+        if *written >= PYROWAVE_DUMP_FRAMES { return; }
+        let path = dir.join(super::pyrowave::dump_name(setup.width as usize, setup.height as usize, setup.format & VIDEO_FORMAT_MASK_YUV444 != 0, *written));
+        let result = std::fs::create_dir_all(&*dir).and_then(|_| std::fs::write(&path, data));
+        match result {
+            Ok(()) => *written += 1,
+            Err(e) => { eprintln!("nightjar: PyroWave dump to {} failed: {e}", path.display()); *written = PYROWAVE_DUMP_FRAMES; }
+        }
+        if *written == PYROWAVE_DUMP_FRAMES { eprintln!("nightjar: PyroWave dump: {PYROWAVE_DUMP_FRAMES} envelopes in {}", dir.display()); }
     }
 
     /// PyroWave decodes the blocks of a frame while they arrive (`Settings::early_decode`).
@@ -233,9 +254,11 @@ impl VideoDecoder for Decoder {
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
-        if let Some(decoder) = &mut self.pyrowave {
+        if self.pyrowave.is_some() {
             let start = session::now_us();
             let setup = self.setup.expect("decoder setup precedes frames");
+            if self.dump.is_some() { self.dump_envelope(&setup, frame.data()); }
+            let Some(decoder) = self.pyrowave.as_mut() else { return DecodeStatus::Ok };
             let result = decoder.coefficients(frame.data()).map_err(str::to_owned).and_then(|_| decoder.coefficient_frame());
             let early = match decoder.source {
                 super::pyrowave::Source::Frame => 0,
@@ -337,6 +360,9 @@ impl VideoDecoder for Decoder {
     fn cleanup(&mut self) {
         lock(&self.shared.frames).clear();
         self.decoder = None;
+        if let Some(summary) = self.pyrowave.as_ref().and_then(|decoder| decoder.stage_summary()) {
+            eprintln!("nightjar: PyroWave decode stages {summary}");
+        }
         self.pyrowave = None;
     }
 }

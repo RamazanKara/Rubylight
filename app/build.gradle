@@ -140,7 +140,8 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix ".debug"
+            // -PdebugIdSuffix=.n5 installs a side-by-side debug copy; the default stays ".debug".
+            applicationIdSuffix project.findProperty("debugIdSuffix") ?: ".debug"
             resValue "string", "app_label", "${brandName} (Debug)"
             resValue "string", "app_label_root", "${brandName} (Root Debug)"
         }

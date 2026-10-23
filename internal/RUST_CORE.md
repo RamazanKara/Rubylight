@@ -119,7 +119,7 @@ The setting Settings > Advanced > Diagnostics > "New streaming engine (beta)"
 | Start, stop, interrupt, stages, termination codes, host termination reasons | yes | Same stage numbers and `ML_ERROR_*` codes; stage names and port flags still come from the C helpers. |
 | Network grace (`setNetworkGracePeriodMs`) | yes | `SessionConfig::network_grace`. |
 | Input-only sessions | yes | `SessionConfig::input_only`. |
-| Remote monitor sessions | yes | `SessionConfig::remote_monitor`: the input queue is disabled (nothing is sent, not even the haptics enable) and the start wiggle is skipped, as the C skips `startInputStream`. Loopback test `a_remote_monitor_connection_sends_no_input_at_all`. |
+| Remote monitor sessions | yes | `SessionConfig::remote_monitor`: the input queue is disabled (nothing is sent, not even the haptics enable) and the start wiggle is skipped, as the C skips `startInputStream`. Server commands and controller audio messages are still sent on the control stream, as in C, which only skips the input stream. Loopback test `a_remote_monitor_connection_sends_no_input_at_all`. |
 | H.264, HEVC, AV1, 10-bit, 4:4:4, RFI capabilities | yes | Parameter sets submitted separately, picture data in one buffer, timestamps mapped to CLOCK_MONOTONIC as `callbacks.c` does. |
 | PyroWave | yes, not yet tried on a device | The fallback is gone. Records, SDP/RTSP and the queue are difftested against the patched C (`protocol/difftest/tests/video.rs`) and negotiated in `host_interop.rs`; the Java renderer receives the same `bridgeDrSubmitDecodeUnit` units. Needs a Rubylight PyroWave stream on a phone before the default flips. |
 | HDR mode and metadata | yes | `SS_HDR_METADATA` layout. |
@@ -134,7 +134,7 @@ The setting Settings > Advanced > Diagnostics > "New streaming engine (beta)"
 | Display caps (0x5531), reconfigure (0x5532), cursor shapes (0x5540/0x5541), server commands (0x3000) | yes | Cursor shapes re-encoded to the wire form for Java. |
 | Microphone (Opus 32 kb/s VoIP, in-band FEC, 200 ms reset gap) | yes | Encrypted stream only, as in C. |
 | GFE before 3.22, hosts without codec support | falls back | Not ported. |
-| Socket QoS (`SO_PRIORITY` 6 audio, 5 video, always) and "Prioritize stream traffic" (6 on the control and microphone sockets, nice -4 on VideoRecv, VideoDec, AudioRecv, AudioDec, ControlRecv) | yes | `nightjar_core::priority`. Linux and Android only; a refused nice value is logged. Test: `media_sockets_are_bound_with_their_priority` (Linux). |
+| Socket QoS (always: `SO_PRIORITY` 6 audio and microphone, 5 video, 6 plus DSCP EF/ECT(1) on the control socket, dropped after three unanswered connects as ENet does) and "Prioritize stream traffic" (6 on the RTSP socket, nice -4 on VideoRecv, AudioRecv, AudioDec and the control thread; VideoDec is not raised, as in C) | yes | `nightjar_core::priority`, passed in `SessionConfig::network_priority` (no global state). Linux and Android only; a refused option is logged at warn through `Listener::warn`. Tests: `media_sockets_are_bound_with_their_priority`, `the_marking_comes_off_after_three_unanswered_connects` (Linux). |
 | "Unbatched input" (no 1 ms mouse and pen batching) | yes | `SessionConfig::unbatched_input`, `InputQueue::set_unbatched`. |
 
 Emulator test on 2026-10-20 (AVD nj-demo2, x86_64, Android 15, `c2.goldfish` decoders,

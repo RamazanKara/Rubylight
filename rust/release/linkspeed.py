@@ -100,6 +100,8 @@ def arms():
         for codec in ('hevc',):
             name = f'q5-r{rate}-{codec}-def'
             table[name] = arm_spec(name, rate, codec, 20000, queue=5, note='5 ms queue')
+            name = f'q5-r{rate}-{codec}-4k'
+            table[name] = arm_spec(name, rate, codec, 80000, 3840, 2160, queue=5, note='5 ms queue, 4K: the keyframe overflows it')
     return table
 
 

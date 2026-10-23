@@ -223,6 +223,7 @@ public class GameLifecycleTest {
         connection.fail = false;
         connection.details.encoderBitrateSupported = true;
         ReflectionHelpers.setField(activity, "adaptiveBitrate", waiting);
+        ReflectionHelpers.setField(activity, "prefConfig", new PreferenceConfiguration());
         ReflectionHelpers.setField(activity, "streamFps", 60);
         ReflectionHelpers.setField(activity, "conn", connection);
         ReflectionHelpers.setField(activity, "connected", true);

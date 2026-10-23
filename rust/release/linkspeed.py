@@ -29,11 +29,11 @@ import linkcompare as lc  # noqa: E402
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 LAN_IP = os.environ.get('LINKSPEED_HOST_IP', '192.168.4.69')
-PORT = 48323
+PORT = int(os.environ.get('LINKSPEED_PORT', '48323'))
 NUC_IP = os.environ.get('LINKSPEED_NUC_IP', '192.168.4.10')
 LOCK = pathlib.Path(r'C:\src\butterpollo-release\GPU-LOCK')
-LOCK_NAME = 'link-speed'
-PROFILE = pathlib.Path(r'C:\tests\linkspeed')
+LOCK_NAME = os.environ.get('LINKSPEED_LOCK_NAME', 'link-speed')
+PROFILE = pathlib.Path(os.environ.get('LINKSPEED_PROFILE', r'C:\tests\linkspeed'))
 DEFAULT_PACKAGE = pathlib.Path(r'C:\src\butterpollo-release\3.0.0-beta.1\release\butterpollo-rust-release')
 MOTION_PROBE = pathlib.Path(r'C:\src\rl-target\release\examples\motion_probe.exe')
 IPERF3 = pathlib.Path(r'C:\src\rl-link-tools\iperf3\iperf3.exe')

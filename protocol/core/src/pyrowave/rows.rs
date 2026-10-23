@@ -59,13 +59,16 @@ pub struct RowReport {
     /// sends the row order has none, or the odd one from packing; a host that does not (or a
     /// frame it sent in index order) has many.
     pub violations: u32,
+    /// Packets missing before a packet of the frame (the receiver saw a break in the sequence).
+    pub gaps: u32,
 }
 
 impl RowReport {
     /// The frame arrived in row order: at most one record out of place, as one reordered packet
-    /// can cause (the host's first-fit packing delays a record that does not fit by one packet).
+    /// can cause (the host's first-fit packing delays a record that does not fit by one packet),
+    /// and no packet missing.
     pub fn ordered(&self) -> bool {
-        self.records > 0 && self.violations < 2
+        self.records > 0 && self.violations < 2 && self.gaps == 0
     }
 }
 
@@ -138,6 +141,12 @@ impl RowTracker {
             }
             self.highest = Some(step);
         }
+    }
+
+    /// Packets of the frame were lost before the packet that follows: the order says nothing about
+    /// what the missing records were, so the frame is not sliced from here on.
+    pub fn gap(&mut self) {
+        self.report.gaps += 1;
     }
 
     /// A record of block `index` completed in the current packet. An index outside the picture

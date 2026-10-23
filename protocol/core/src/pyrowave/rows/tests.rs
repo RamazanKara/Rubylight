@@ -25,7 +25,9 @@ fn counts(steps: &[u16]) -> Vec<usize> {
 /// endian) and the number of blocks at each step.
 #[test]
 fn the_steps_match_the_hosts_for_1080p_and_4k_in_420_and_444() {
-    let cases: [(u32, u32, bool, usize, u64, &[usize]); 6] = [
+    // Width, height, 4:4:4, step count, FNV-1a of the steps, blocks per step.
+    type Case = (u32, u32, bool, usize, u64, &'static [usize]);
+    let cases: [Case; 6] = [
         (1920, 1080, false, 3261, 0x7f17_27e1_99d6_d3cd,
          &[471, 225, 90, 297, 90, 225, 90, 333, 90, 225, 90, 297, 90, 225, 90, 333]),
         (1920, 1080, true, 6321, 0x8e1e_9992_fe5f_d76d,
@@ -56,7 +58,7 @@ fn a_few_steps_are_spot_checked_by_hand() {
     assert_eq!(*steps.iter().max().unwrap(), 15, "the last band needs no block of its own");
     // The first block of every band of a level and component: row 0 is step 0, row r of level L is
     // step r * 2^L - 1.
-    let level0_luma = steps.len() - 3 * 30 * 17 - 6 * 0; // level 0 luma is the tail: 3 bands of 30x17 blocks
+    let level0_luma = steps.len() - 3 * 30 * 17; // level 0 luma is the tail: 3 bands of 30x17 blocks
     let tail = &steps[level0_luma..];
     assert_eq!(tail.len(), 3 * 30 * 17);
     for band in 0..3 {
@@ -207,4 +209,21 @@ fn records_pulled_far_forward_to_fill_packets_do_not_make_a_frame_unordered() {
     let report = tracker.report();
     assert_eq!((report.records as usize, report.violations), (steps.len(), 0), "{report:?}");
     assert!(report.ordered());
+}
+
+#[test]
+fn a_gap_in_the_packets_makes_the_frame_unordered() {
+    let steps = row_steps(1920, 1080, false);
+    let order = row_ordered(&steps);
+    let mut tracker = RowTracker::new(1920, 1080, false);
+    feed(&mut tracker, &order, 12);
+    assert!(tracker.report().ordered());
+    tracker.begin_frame();
+    tracker.packet();
+    tracker.gap();
+    tracker.record(order[0]);
+    assert_eq!(tracker.report().gaps, 1);
+    assert!(!tracker.report().ordered(), "a lost packet is not row order");
+    tracker.begin_frame();
+    assert_eq!(tracker.report(), RowReport::default());
 }

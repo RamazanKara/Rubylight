@@ -14,11 +14,42 @@ struct Band {
     count: usize,
 }
 
+/// Where early decoding of the frame in flight stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Early {
+    /// No chunk of this frame was taken: the whole-frame path decodes it.
+    Off,
+    /// Chunks since the first one are decoded into the planes as their records complete.
+    Active,
+    /// Something did not parse or decode: the frame decodes whole, from its envelope.
+    Failed,
+}
+
+/// How the last `coefficients` call got its blocks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Source {
+    /// All in the call, from the finished frame.
+    #[default]
+    Frame,
+    /// The blocks that arrived before the frame were already decoded; the call did the rest.
+    Early,
+    /// Early chunks were taken but did not match the frame, so the call decoded all of it.
+    Fallback,
+}
+
 pub struct Decoder {
     pub width: usize,
     pub height: usize,
     pub chroma444: bool,
     pub loss_percent: f32,
+    /// How the last frame was decoded, and how many of its blocks were decoded before it
+    /// completed.
+    pub source: Source,
+    pub early_blocks: usize,
+    early: Early,
+    /// Envelope bytes the chunks add up to, to check against the frame.
+    early_bytes: usize,
+    early_done: usize,
     stride: usize,
     rows: usize,
     planes: [Vec<f32>; 3],
@@ -56,7 +87,8 @@ impl Decoder {
                 }
             }
         }
-        Ok(Self { width, height, chroma444, loss_percent: 0.0, stride, rows,
+        Ok(Self { width, height, chroma444, loss_percent: 0.0, source: Source::Frame, early_blocks: 0,
+            early: Early::Off, early_bytes: 0, early_done: 0, stride, rows,
             planes: std::array::from_fn(|_| vec![0.0; stride * rows]), bands, seen: vec![false; count],
             records: Records::with_geometry(width as u32, height as u32, chroma444), packet: Vec::new(),
             #[cfg(test)] scratch: vec![0.0; stride * rows], #[cfg(test)] line: vec![0.0; stride.max(rows)] })
@@ -69,16 +101,59 @@ impl Decoder {
         Ok(())
     }
 
+    /// Takes one packet of the records envelope of the frame that `coefficients` will get next,
+    /// as it arrives (`first` starts the frame), and decodes the blocks it completes. A frame
+    /// that does not parse here is left for `coefficients`, which finds out from the envelope.
+    pub fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
+        if first {
+            self.records.begin_frame();
+            for plane in &mut self.planes { plane.fill(0.0); }
+            self.seen.fill(false);
+            self.early = Early::Active;
+            self.early_bytes = 4;
+            self.early_done = 0;
+        }
+        if self.early != Early::Active { return; }
+        self.early_bytes += 8 + payload.len();
+        if !self.records.feed_packet(flags, payload) { self.early = Early::Failed; return; }
+        let Self { records, bands, planes, seen, stride, early_done, .. } = self;
+        let mut failed = false;
+        records.drain_new(|_, record| {
+            if failed { return; }
+            match record_index(record).and_then(|(index, record)| place_block(bands, *stride, planes, seen, index, record)) {
+                Ok(placed) => *early_done += usize::from(placed),
+                Err(_) => failed = true,
+            }
+        });
+        if failed { self.early = Early::Failed; }
+    }
+
     pub fn coefficients(&mut self, data: &[u8]) -> Result<(), &'static str> {
         if data.len() > rubylight_protocol::pyrowave::MAX_FRAME_BYTES { return Err("PyroWave frame exceeds the packet budget"); }
+        let early = std::mem::replace(&mut self.early, Early::Off);
+        let records = data.starts_with(&[0, 0, 0, 0]);
         self.packet.clear();
-        let push = |packet: &[u8]| { self.packet.extend_from_slice(packet); true };
-        let valid = if data.starts_with(&[0, 0, 0, 0]) { self.records.push_frame(data, push) }
-            else { push_container(data, push) };
-        if !valid { return Err("Malformed PyroWave frame container"); }
-        self.loss_percent = if data.starts_with(&[0, 0, 0, 0]) { self.records.loss_percent } else { 0.0 };
-        for plane in &mut self.planes { plane.fill(0.0); }
-        self.seen.fill(false);
+        self.source = Source::Frame;
+        self.early_blocks = 0;
+        let mut finished = false;
+        if early != Early::Off {
+            // The chunks are the frame only if they add up to its envelope; the frame decides.
+            if early == Early::Active && records && self.early_bytes == data.len() {
+                let packet = &mut self.packet;
+                finished = self.records.finish_frame(|record| { packet.extend_from_slice(record); true });
+                if !finished { self.packet.clear(); }
+            }
+            self.source = if finished { Source::Early } else { Source::Fallback };
+            if finished { self.early_blocks = self.early_done; }
+        }
+        if !finished {
+            let push = |packet: &[u8]| { self.packet.extend_from_slice(packet); true };
+            let valid = if records { self.records.push_frame(data, push) } else { push_container(data, push) };
+            if !valid { return Err("Malformed PyroWave frame container"); }
+            for plane in &mut self.planes { plane.fill(0.0); }
+            self.seen.fill(false);
+        }
+        self.loss_percent = if records { self.records.loss_percent } else { 0.0 };
         let mut at = 0;
         let mut header = false;
         while at < self.packet.len() {
@@ -94,21 +169,7 @@ impl Decoder {
                 continue;
             }
             let length = ((first >> 16) & 0xfff) as usize * 4;
-            let index = (second >> 8) as usize;
-            if index >= self.seen.len() { return Err("PyroWave block index exceeds the picture"); }
-            if !self.seen[index] {
-                self.seen[index] = true;
-                let band = self.bands.iter().find(|band| index >= band.first && index < band.first + band.count).unwrap();
-                let mut values = [0.0; 1024];
-                decode_block(&self.packet[at..at + length], &mut values)?;
-                let block = index - band.first;
-                let (bx, by) = (block % band.width.div_ceil(32) * 32, block / band.width.div_ceil(32) * 32);
-                for y in 0..(band.height - by).min(32) {
-                    let w = (band.width - bx).min(32);
-                    let offset = (band.y + by + y) * self.stride + band.x + bx;
-                    self.planes[band.component][offset..offset + w].copy_from_slice(&values[y * 32..y * 32 + w]);
-                }
-            }
+            place_block(&self.bands, self.stride, &mut self.planes, &mut self.seen, (second >> 8) as usize, &self.packet[at..at + length])?;
             at += length;
         }
         if !header { return Err("PyroWave frame is missing its sequence header"); }
@@ -154,6 +215,32 @@ impl Decoder {
         (self.planes[plane][(y >> scale) * self.stride + (x >> scale)] + 0.5).clamp(0.0, 1.0)
     }
 
+}
+
+/// The block index and the record's own bytes, cut to the length it declares.
+fn record_index(record: &[u8]) -> Result<(usize, &[u8]), &'static str> {
+    if record.len() < 8 { return Err("Truncated PyroWave record"); }
+    let length = ((word(record, 0) >> 16) & 0xfff) as usize * 4;
+    if length > record.len() { return Err("Truncated PyroWave record"); }
+    Ok(((word(record, 4) >> 8) as usize, &record[..length]))
+}
+
+/// Decodes block `index` into the planes unless an earlier record already did; whether it did.
+fn place_block(bands: &[Band], stride: usize, planes: &mut [Vec<f32>; 3], seen: &mut [bool], index: usize, record: &[u8]) -> Result<bool, &'static str> {
+    if index >= seen.len() { return Err("PyroWave block index exceeds the picture"); }
+    if seen[index] { return Ok(false); }
+    seen[index] = true;
+    let band = bands.iter().find(|band| index >= band.first && index < band.first + band.count).unwrap();
+    let mut values = [0.0; 1024];
+    decode_block(record, &mut values)?;
+    let block = index - band.first;
+    let (bx, by) = (block % band.width.div_ceil(32) * 32, block / band.width.div_ceil(32) * 32);
+    for y in 0..(band.height - by).min(32) {
+        let w = (band.width - bx).min(32);
+        let offset = (band.y + by + y) * stride + band.x + bx;
+        planes[band.component][offset..offset + w].copy_from_slice(&values[y * 32..y * 32 + w]);
+    }
+    Ok(true)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -358,5 +445,225 @@ mod tests {
         assert!(out[0] > 0.0 && out[64] < 0.0 && out[128] > 0.0 && out[192] < 0.0);
         assert_eq!(out.iter().filter(|v| **v != 0.0).count(), 8);
         assert!(decode_block(&block[..19], &mut out).is_err());
+    }
+
+    /// The legacy container of a fixture as one bitstream: the sequence header, then blocks.
+    fn bitstream(container: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        assert!(push_container(container, |packet| { out.extend_from_slice(packet); true }));
+        out
+    }
+
+    /// The fixture's blocks packed whole into 1400-byte host packets, as (flags, payload).
+    fn host_packets(bitstream: &[u8]) -> Vec<(u32, Vec<u8>)> {
+        use rubylight_protocol::pyrowave::{PACKET_FRAME_END, PACKET_FRAME_START, PACKET_RECORD_START};
+        let mut payloads: Vec<Vec<u8>> = vec![Vec::new()];
+        let mut at = 8;
+        while at < bitstream.len() {
+            let length = ((word(bitstream, at) >> 16) & 0xfff) as usize * 4;
+            let limit = if payloads.len() == 1 { 1400 - 16 } else { 1400 };
+            assert!(length <= limit, "the fixture has a record larger than a packet");
+            if payloads.last().unwrap().len() + length > limit { payloads.push(Vec::new()); }
+            payloads.last_mut().unwrap().extend_from_slice(&bitstream[at..at + length]);
+            at += length;
+        }
+        let last = payloads.last().unwrap().len() + if payloads.len() == 1 { 16 } else { 0 };
+        let mut first = vec![1, 0, 0, 0, last as u8, (last >> 8) as u8, 0, 0];
+        first.extend_from_slice(&bitstream[..8]);
+        first.extend_from_slice(&payloads[0]);
+        payloads[0] = first;
+        let count = payloads.len();
+        payloads.into_iter().enumerate().map(|(i, payload)| {
+            let mut flags = PACKET_RECORD_START;
+            if i == 0 { flags |= PACKET_FRAME_START; }
+            if i == count - 1 { flags |= PACKET_FRAME_END; }
+            (flags, payload)
+        }).collect()
+    }
+
+    /// The packets that arrived, in order, the one after a gap not contiguous.
+    fn arrived(packets: &[(u32, Vec<u8>)], lost: &[usize]) -> Vec<(u32, Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut previous = None;
+        for (i, (flags, payload)) in packets.iter().enumerate() {
+            if lost.contains(&i) { continue; }
+            let contiguous = if previous == Some(i.wrapping_sub(1)) { rubylight_protocol::pyrowave::PACKET_CONTIGUOUS } else { 0 };
+            out.push((flags | contiguous, payload.clone()));
+            previous = Some(i);
+        }
+        out
+    }
+
+    /// The client's frame data for those packets.
+    fn envelope(packets: &[(u32, Vec<u8>)]) -> Vec<u8> {
+        let mut out = vec![0; 4];
+        for (flags, payload) in packets {
+            out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            out.extend_from_slice(&flags.to_le_bytes());
+            out.extend_from_slice(payload);
+        }
+        out
+    }
+
+    /// Decodes each frame whole and chunk by chunk: the same planes and loss, frame after frame.
+    fn decode_both(width: usize, height: usize, full: bool, frames: &[Vec<(u32, Vec<u8>)>]) -> (Decoder, Decoder) {
+        let mut whole = Decoder::new(width, height, full).unwrap();
+        let mut early = Decoder::new(width, height, full).unwrap();
+        for packets in frames {
+            let data = envelope(packets);
+            whole.coefficients(&data).unwrap();
+            for (i, (flags, payload)) in packets.iter().enumerate() { early.chunk(i == 0, *flags, payload); }
+            early.coefficients(&data).unwrap();
+            assert_eq!(early.source, Source::Early);
+            assert_eq!(whole.source, Source::Frame);
+            assert!(early.planes == whole.planes, "the planes differ");
+            assert_eq!(early.loss_percent, whole.loss_percent);
+        }
+        (whole, early)
+    }
+
+    fn fixture(which: usize) -> (&'static [u8], usize, usize, bool) {
+        match which {
+            0 => (include_bytes!("../../tests/fixtures/pyrowave-420-8.bin"), 132, 98, false),
+            1 => (include_bytes!("../../tests/fixtures/pyrowave-420-10.bin"), 132, 98, false),
+            2 => (include_bytes!("../../tests/fixtures/pyrowave-444-8.bin"), 131, 97, true),
+            _ => (include_bytes!("../../tests/fixtures/pyrowave-444-10.bin"), 131, 97, true),
+        }
+    }
+
+    #[test]
+    fn early_chunks_decode_exactly_like_the_whole_frame() {
+        for which in 0..4 {
+            let (container, width, height, full) = fixture(which);
+            let bits = bitstream(container);
+            let packets = host_packets(&bits);
+            assert!(packets.len() >= 2, "the fixture spans packets");
+            let records = (word(&bits, 4) & 0xff_ffff) as usize;
+            let (whole, early) = decode_both(width, height, full, &[arrived(&packets, &[])]);
+            assert_eq!(early.early_blocks, records, "every block was decoded before the frame completed");
+            // The envelope path agrees with the legacy container of the same blocks.
+            let mut legacy = Decoder::new(width, height, full).unwrap();
+            legacy.coefficients(container).unwrap();
+            assert!(legacy.planes == whole.planes, "the envelope and the legacy container differ");
+            early.coefficient_frame().unwrap();
+        }
+    }
+
+    #[test]
+    fn early_chunks_with_lost_packets_give_the_whole_frames_picture() {
+        let (older, width, height, full) = fixture(0);
+        let (newer, ..) = fixture(1);
+        let first = host_packets(&bitstream(older));
+        let second = host_packets(&bitstream(newer));
+        let count = second.len();
+        for lost in [vec![1], vec![1, count - 2], vec![count - 1], (1..count - 1).step_by(2).collect()] {
+            // The second frame lacks packets; its missing records come from the first.
+            let frames = [arrived(&first, &[]), arrived(&second, &lost)];
+            let (whole, early) = decode_both(width, height, full, &frames);
+            assert!(whole.loss_percent != 0.0, "the loss was seen ({lost:?})");
+            early.coefficient_frame().unwrap();
+        }
+    }
+
+    #[test]
+    fn chunks_that_do_not_match_the_frame_decode_it_whole() {
+        let (container, width, height, full) = fixture(0);
+        let packets = arrived(&host_packets(&bitstream(container)), &[]);
+        let data = envelope(&packets);
+        let mut whole = Decoder::new(width, height, full).unwrap();
+        whole.coefficients(&data).unwrap();
+
+        // A chunk the queue dropped.
+        let mut early = Decoder::new(width, height, full).unwrap();
+        for (i, (flags, payload)) in packets.iter().enumerate() {
+            if i != 1 { early.chunk(i == 0, *flags, payload); }
+        }
+        early.coefficients(&data).unwrap();
+        assert_eq!((early.source, early.early_blocks), (Source::Fallback, 0));
+        assert!(early.planes == whole.planes);
+
+        // Chunks of a frame whose start the decoder never saw are ignored.
+        let mut early = Decoder::new(width, height, full).unwrap();
+        for (flags, payload) in &packets[1..] { early.chunk(false, *flags, payload); }
+        early.coefficients(&data).unwrap();
+        assert_eq!(early.source, Source::Frame);
+        assert!(early.planes == whole.planes);
+
+        // A chunk the decoder cannot parse.
+        let mut early = Decoder::new(width, height, full).unwrap();
+        for (i, (flags, payload)) in packets.iter().enumerate() {
+            early.chunk(i == 0, if i == 1 { 0xf0 } else { *flags }, payload);
+        }
+        early.coefficients(&data).unwrap();
+        assert_eq!(early.source, Source::Fallback);
+        assert!(early.planes == whole.planes);
+
+        // Chunks of an abandoned frame do not leak into the next one.
+        let mut early = Decoder::new(width, height, full).unwrap();
+        for (i, (flags, payload)) in packets.iter().enumerate().take(3) { early.chunk(i == 0, *flags, payload); }
+        for (i, (flags, payload)) in packets.iter().enumerate() { early.chunk(i == 0, *flags, payload); }
+        early.coefficients(&data).unwrap();
+        assert_eq!(early.source, Source::Early);
+        assert!(early.planes == whole.planes);
+    }
+
+    /// `cargo test -p nightjar-desktop --release --bin nightjar -- --ignored --nocapture
+    /// cpu_costs_of_a_pyrowave_frame`: what a 1080p frame costs on the CPU before the GPU
+    /// wavelets, in the pieces early decode moves around (docs/early-decode.md).
+    #[test]
+    #[ignore = "manual CPU timing"]
+    fn cpu_costs_of_a_pyrowave_frame() {
+        use std::time::Instant;
+        let median = |mut v: Vec<f64>| { v.sort_by(f64::total_cmp); v[v.len() / 2] };
+        // Entropy decoding, per megabyte of blocks, from the fixtures' own records.
+        let mut bytes = 0usize;
+        let mut blocks = Vec::new();
+        for which in 0..4 {
+            let bits = bitstream(fixture(which).0);
+            let mut at = 8;
+            while at < bits.len() {
+                let length = ((word(&bits, at) >> 16) & 0xfff) as usize * 4;
+                blocks.push(bits[at..at + length].to_vec());
+                bytes += length;
+                at += length;
+            }
+        }
+        let mut out = [0.0; 1024];
+        let rounds: Vec<f64> = (0..200).map(|_| {
+            let start = Instant::now();
+            for block in &blocks { decode_block(block, &mut out).unwrap(); }
+            start.elapsed().as_secs_f64() * 1e3
+        }).collect();
+        println!("entropy decode: {:.2} ms per MB of blocks ({} blocks, {} bytes)", median(rounds) * 1e6 / bytes as f64, blocks.len(), bytes);
+        // The plane clear and the half conversion of a whole 1080p 4:2:0 frame.
+        let mut decoder = Decoder::new(1920, 1080, false).unwrap();
+        let clear: Vec<f64> = (0..50).map(|_| {
+            let start = Instant::now();
+            for plane in &mut decoder.planes { plane.fill(0.0); }
+            decoder.seen.fill(false);
+            start.elapsed().as_secs_f64() * 1e3
+        }).collect();
+        println!("plane clear: {:.2} ms", median(clear));
+        let convert: Vec<f64> = (0..50).map(|_| {
+            let start = Instant::now();
+            decoder.coefficient_frame().unwrap();
+            start.elapsed().as_secs_f64() * 1e3
+        }).collect();
+        println!("half conversion plus frame allocation: {:.2} ms", median(convert));
+    }
+
+    #[test]
+    fn a_frame_that_fails_to_decode_fails_the_same_way_early() {
+        let (container, width, height, full) = fixture(0);
+        let mut packets = arrived(&host_packets(&bitstream(container)), &[]);
+        // The sequence header names another picture size.
+        packets[0].1[8] ^= 1;
+        let data = envelope(&packets);
+        let mut whole = Decoder::new(width, height, full).unwrap();
+        let expected = whole.coefficients(&data);
+        assert!(expected.is_err());
+        let mut early = Decoder::new(width, height, full).unwrap();
+        for (i, (flags, payload)) in packets.iter().enumerate() { early.chunk(i == 0, *flags, payload); }
+        assert_eq!(early.coefficients(&data), expected);
     }
 }

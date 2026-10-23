@@ -394,6 +394,15 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
     }
 }
 
+/// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
+fn early_decode(setting: bool) -> bool {
+    match std::env::var("NIGHTJAR_EARLY_DECODE").as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => setting,
+    }
+}
+
 fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
     let settings = &plan.settings;
     let role = plan.app.role(false);
@@ -529,7 +538,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             input_only: role == AppRole::InputOnly,
             ..Default::default()
         },
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware)),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early_decode(settings.early_decode))),
         Box::new(pipeline::Audio::new(shared.clone())),
         Arc::new(pipeline::Events { shared }),
         interrupt,

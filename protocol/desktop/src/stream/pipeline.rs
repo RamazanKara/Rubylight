@@ -63,6 +63,11 @@ pub struct Counters {
     /// Pictures dropped because a newer one was ready before they were shown.
     pub replaced: AtomicU64,
     pub decode_us_total: AtomicU64,
+    /// PyroWave early decode: frames whose blocks were decoded while they arrived, frames
+    /// whose chunks did not match and decoded whole, and the time spent decoding chunks.
+    pub early_frames: AtomicU64,
+    pub early_fallbacks: AtomicU64,
+    pub early_us_total: AtomicU64,
     pub audio_dropped: AtomicU64,
     /// Audio waiting in SDL's stream at the last packet, in microseconds.
     pub audio_queued_us: AtomicU64,
@@ -131,6 +136,7 @@ pub struct Decoder {
     pub software_threads: i32,
     setup: Option<VideoSetup>,
     pyrowave: Option<super::pyrowave::Decoder>,
+    early: bool,
 }
 
 impl Decoder {
@@ -143,7 +149,14 @@ impl Decoder {
             software_threads: threads,
             setup: None,
             pyrowave: None,
+            early: false,
         }
+    }
+
+    /// PyroWave decodes the blocks of a frame while they arrive (`Settings::early_decode`).
+    pub fn with_early_decode(mut self, early: bool) -> Self {
+        self.early = early;
+        self
     }
 }
 
@@ -201,11 +214,32 @@ impl VideoDecoder for Decoder {
         }
     }
 
+    fn wants_early_chunks(&self) -> bool {
+        self.early
+    }
+
+    fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
+        if let Some(decoder) = &mut self.pyrowave {
+            let start = session::now_us();
+            decoder.chunk(first, flags, payload);
+            self.shared.counters.early_us_total.fetch_add(session::now_us() - start, Ordering::Relaxed);
+        }
+    }
+
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
         if let Some(decoder) = &mut self.pyrowave {
             let start = session::now_us();
             let setup = self.setup.expect("decoder setup precedes frames");
             let result = decoder.coefficients(frame.data()).map_err(str::to_owned).and_then(|_| decoder.coefficient_frame());
+            match decoder.source {
+                super::pyrowave::Source::Frame => {}
+                super::pyrowave::Source::Early => { self.shared.counters.early_frames.fetch_add(1, Ordering::Relaxed); }
+                super::pyrowave::Source::Fallback => {
+                    if self.shared.counters.early_fallbacks.fetch_add(1, Ordering::Relaxed) == 0 {
+                        eprintln!("nightjar: PyroWave: early chunks did not match the frame, decoding it whole (counted, not repeated)");
+                    }
+                }
+            }
             let picture = match result {
                 Ok(picture) => picture,
                 Err(error) => { eprintln!("nightjar: PyroWave: {error}"); self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed); return DecodeStatus::NeedIdr; }

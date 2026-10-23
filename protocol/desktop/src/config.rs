@@ -160,6 +160,10 @@ pub struct Settings {
     /// Keep sending controller input while the window is in the background.
     pub background_controllers: bool,
     pub decoder: DecoderPreference,
+    /// PyroWave: decode the records of a frame while the rest of it is still on the wire,
+    /// instead of when the frame is complete. Off by default until measured on the wired
+    /// client (docs/early-decode.md). `NIGHTJAR_EARLY_DECODE=1` or `0` overrides it.
+    pub early_decode: bool,
     pub microphone: bool,
     pub cursor_shapes: bool,
     pub network_grace_ms: u32,
@@ -285,6 +289,7 @@ impl Default for Settings {
             disable_rumble: false,
             background_controllers: false,
             decoder: DecoderPreference::Auto,
+            early_decode: false,
             microphone: false,
             cursor_shapes: true,
             network_grace_ms: 3000,
@@ -1033,6 +1038,15 @@ mod tests {
         assert_eq!(nearest_zoom(9999), 150);
         assert_eq!(nearest_zoom(120), 115);
         assert_eq!(step_zoom(120, 1), 130);
+    }
+
+    #[test]
+    fn early_decode_is_off_unless_the_file_says_otherwise() {
+        assert!(!Settings::default().early_decode);
+        let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
+        assert!(!old.early_decode, "a settings file from before early decode keeps it off");
+        let on: Settings = serde_json::from_str("{\"early_decode\": true}").unwrap();
+        assert!(on.early_decode);
     }
 
     #[test]

@@ -40,8 +40,9 @@ fn packages() -> Result<Vec<Installed>> {
     // of the other kind still activates, so a failure here is not the end of the scan.
     let _com = crate::capture::ComGuard::new();
     let manager = PackageManager::new().context("Windows could not open the package manager")?;
-    // For SYSTEM the user is named; for the user themself no name is needed and no elevation.
-    let sid = crate::process::user_sid().unwrap_or_default();
+    // For SYSTEM the user is named; without a name the call would list another account's
+    // packages (or none), which would look like an empty library.
+    let sid = package_user(crate::process::user_sid())?;
     let found = manager
         .FindPackagesByUserSecurityId(&HSTRING::from(sid))
         .context("Windows could not list the user's packages")?;
@@ -60,6 +61,15 @@ fn packages() -> Result<Vec<Installed>> {
     }
     Ok(installed)
 }
+
+/// The account whose packages are listed. No signed-in user is an error the console shows, not
+/// an empty list.
+fn package_user(sid: Option<String>) -> Result<String> {
+    sid.filter(|sid| !sid.is_empty()).context(
+        "no user is signed in on this PC, so its Microsoft Store packages cannot be listed",
+    )
+}
+
 fn installed_of(package: &Package) -> Option<Installed> {
     let family = package.Id().ok()?.FamilyName().ok()?.to_string();
     let root = PathBuf::from(package.InstalledPath().ok()?.to_string());
@@ -266,6 +276,20 @@ mod tests {
             "{:?}",
             scan.errors
         );
+    }
+
+    #[test]
+    fn no_signed_in_user_is_an_error_not_an_empty_list() {
+        let error = package_user(None).unwrap_err();
+        assert!(format!("{error:#}").contains("signed in"), "{error:#}");
+        assert!(package_user(Some(String::new())).is_err());
+        assert_eq!(
+            package_user(Some("S-1-5-21-1".into())).unwrap(),
+            "S-1-5-21-1"
+        );
+        // It reaches the scan's errors, which the console shows.
+        let scan = discover_from(package_user(None).map(|_| vec![]), &[]);
+        assert_eq!(scan.errors.len(), 1, "{:?}", scan.errors);
     }
 
     /// Reads this PC's real package list. Run by hand: `cargo test -p butterpollo-windows

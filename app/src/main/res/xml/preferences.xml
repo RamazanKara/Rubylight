@@ -134,6 +134,11 @@
             android:max="100"
             seekbar:step="1"
             android:text="%" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_gl_render"
+            android:title="@string/title_gl_render"
+            android:dialogMessage="@string/summary_gl_render"
+            android:defaultValue="false" />
         <Preference android:key="checkbox_stretch_video"
             android:title="@string/video_scaling_title" android:persistent="false" />
         <com.limelight.preferences.MaterialListPreference

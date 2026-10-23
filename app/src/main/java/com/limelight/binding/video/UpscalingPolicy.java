@@ -47,12 +47,22 @@ public final class UpscalingPolicy {
     public static Reason unavailableReason(Mode mode, int width, int height, int outputWidth,
                                            int outputHeight, boolean hdrOrTenBit,
                                            boolean pyroWave, boolean glesSupported) {
-        if (mode == Mode.OFF) return Reason.DISABLED;
+        return unavailableReason(mode, width, height, outputWidth, outputHeight, hdrOrTenBit, pyroWave,
+                glesSupported, false);
+    }
+
+    // presentOnly is "Render through OpenGL": frames go through the GL path even when nothing is
+    // scaled, so the usual limits apply but a stream at the screen's size is not "no upscale".
+    public static Reason unavailableReason(Mode mode, int width, int height, int outputWidth,
+                                           int outputHeight, boolean hdrOrTenBit,
+                                           boolean pyroWave, boolean glesSupported, boolean presentOnly) {
+        if (mode == Mode.OFF && !presentOnly) return Reason.DISABLED;
         if (hdrOrTenBit) return Reason.HDR;
         if (pyroWave) return Reason.PYROWAVE;
         if (!glesSupported) return Reason.UNSUPPORTED;
-        if (width <= 0 || height <= 0 || outputWidth < width || outputHeight < height ||
-                (outputWidth == width && outputHeight == height)) return Reason.NO_UPSCALE;
+        if (width <= 0 || height <= 0) return Reason.NO_UPSCALE;
+        if (!presentOnly && (outputWidth < width || outputHeight < height ||
+                (outputWidth == width && outputHeight == height))) return Reason.NO_UPSCALE;
         return Reason.NONE;
     }
 

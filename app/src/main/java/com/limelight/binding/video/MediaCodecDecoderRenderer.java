@@ -92,6 +92,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int renderWidth, renderHeight;
     private volatile GlesUpscaler upscaler;
     private volatile UpscalingPolicy upscalingPolicy;
+    // "Render through OpenGL" is routing the frames, with nothing to scale
+    private volatile boolean glPresentOnly;
     private volatile boolean stopping;
     private CrashListener crashListener;
     private boolean reportedCrash;
@@ -765,7 +767,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (currentHdrMode != null) upscaler.setHdrMode(currentHdrMode, currentHdrMetadata);
             return;
         }
-        if (prefs.upscalingMode == UpscalingPolicy.Mode.OFF) {
+        glPresentOnly = false;
+        if (prefs.upscalingMode == UpscalingPolicy.Mode.OFF && !prefs.glRender) {
             upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
             return;
         }
@@ -775,14 +778,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return;
         }
         int[] viewport = UpscalingPolicy.viewport(initialWidth, initialHeight, renderWidth, renderHeight, prefs.stretchVideo);
+        boolean hdrOrTenBit = Boolean.TRUE.equals(currentHdrMode) ||
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
         UpscalingPolicy.Reason reason = UpscalingPolicy.unavailableReason(prefs.upscalingMode,
-                initialWidth, initialHeight, viewport[2], viewport[3],
-                Boolean.TRUE.equals(currentHdrMode) || (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
-                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0, true);
+                initialWidth, initialHeight, viewport[2], viewport[3], hdrOrTenBit, false, true);
+        if (prefs.glRender && (reason == UpscalingPolicy.Reason.DISABLED || reason == UpscalingPolicy.Reason.NO_UPSCALE)) {
+            // Nothing to scale, but the frames still go through OpenGL.
+            glPresentOnly = true;
+            reason = UpscalingPolicy.unavailableReason(UpscalingPolicy.Mode.BILINEAR,
+                    initialWidth, initialHeight, viewport[2], viewport[3], hdrOrTenBit, false, true, true);
+        }
         upscalingPolicy.fail(reason);
         if (reason == UpscalingPolicy.Reason.NONE) {
-            upscaler = new GlesUpscaler(context, renderTarget, prefs.upscalingMode, initialWidth, initialHeight,
-                    prefs.stretchVideo, prefs.upscalingSharpness, upscalingPolicy);
+            upscaler = glPresentOnly ?
+                    new GlesUpscaler(context, renderTarget, initialWidth, initialHeight, prefs.stretchVideo, upscalingPolicy) :
+                    new GlesUpscaler(context, renderTarget, prefs.upscalingMode, initialWidth, initialHeight,
+                            prefs.stretchVideo, prefs.upscalingSharpness, upscalingPolicy);
             if (upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) closeUpscaler();
         } else {
             notifyUpscalingFallback();
@@ -801,7 +812,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         UpscalingPolicy.Reason reason = upscalingPolicy.getReason();
         if (reason != UpscalingPolicy.Reason.NONE && reason != UpscalingPolicy.Reason.DISABLED &&
                 reason != UpscalingPolicy.Reason.NO_UPSCALE) {
-            String message = context.getString(R.string.upscaling_fallback, upscalingReason(reason));
+            String message = context.getString(glPresentOnly ? R.string.gl_render_fallback : R.string.upscaling_fallback,
+                    upscalingReason(reason));
             LimeLog.info(message);
             activity.runOnUiThread(() -> {
                 if (!stopping) Toast.makeText(context, message, Toast.LENGTH_LONG).show();
@@ -836,7 +848,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return explanation.isEmpty() ? text : text + '\n' + explanation;
         }
         boolean active = upscaler != null;
-        String mode = active ? context.getResources().getStringArray(R.array.upscaling_names)[prefs.upscalingMode.ordinal()] :
+        String mode = active ? (glPresentOnly ? context.getString(R.string.upscaling_gl_only) :
+                context.getResources().getStringArray(R.array.upscaling_names)[prefs.upscalingMode.ordinal()]) :
                 context.getString(R.string.upscaling_direct);
         float addedMs = upscalingPolicy == null ? -1 : upscalingPolicy.getAddedMs();
         String text = context.getString(R.string.perf_overlay_upscaling, mode, metric(active ? addedMs : 0, " ms"));

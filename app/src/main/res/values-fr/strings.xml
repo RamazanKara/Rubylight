@@ -375,6 +375,10 @@
     <string name="summary_upscaling_sharpness" formatted="false">Accentuation FSR/SGSR (0 % = désactivée, 100 % = maximale) ; s’applique au prochain stream, la reconstruction SGSR restant toujours active.</string>
     <string name="upscaling_sharpness_value">%1$d %%</string>
     <string name="upscaling_direct">Désactivée (sortie directe)</string>
+    <string name="title_gl_render">Rendu via OpenGL</string>
+    <string name="summary_gl_render">Affiche la vidéo via OpenGL afin qu’une surcouche de génération d’images puisse s’y brancher. Peut ajouter un peu de latence. Non utilisé avec HDR ou PyroWave.</string>
+    <string name="upscaling_gl_only">OpenGL (sans mise à l’échelle)</string>
+    <string name="gl_render_fallback">Rendu OpenGL : sortie directe. %1$s</string>
     <string name="upscaling_fallback">Mise à l’échelle : sortie directe. %1$s</string>
     <string name="upscaling_hdr">Le HDR/10 bits conserve la sortie directe pour préserver les couleurs et la précision.</string>
     <string name="upscaling_pyrowave">Les streams PyroWave utilisent SGSR sur le GPU pour FSR comme pour SGSR.</string>

@@ -375,6 +375,10 @@
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR 선명도: 0%는 끄기, 100%는 최대이며 다음 스트림부터 적용됩니다. SGSR 재구성은 항상 활성화되어 있습니다.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">사용 안함(직접 출력)</string>
+    <string name="title_gl_render">OpenGL로 렌더링</string>
+    <string name="summary_gl_render">프레임 생성 오버레이가 연결될 수 있도록 영상을 OpenGL로 표시합니다. 지연이 조금 늘어날 수 있습니다. HDR 및 PyroWave에서는 사용되지 않습니다.</string>
+    <string name="upscaling_gl_only">OpenGL(확대 없음)</string>
+    <string name="gl_render_fallback">OpenGL 렌더링: 직접 출력. %1$s</string>
     <string name="upscaling_fallback">업스케일링: 직접 출력. %1$s</string>
     <string name="upscaling_hdr">HDR/10비트는 색상과 정밀도를 유지하기 위해 직접 출력을 사용합니다.</string>
     <string name="upscaling_pyrowave">PyroWave 스트림은 FSR과 SGSR 모두 GPU에서 SGSR을 사용합니다.</string>

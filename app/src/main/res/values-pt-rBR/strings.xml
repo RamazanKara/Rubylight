@@ -375,6 +375,10 @@
     <string name="summary_upscaling_sharpness" formatted="false">Nitidez do FSR/SGSR: 0% desativada, 100% máxima; vale na próxima transmissão, com a reconstrução SGSR sempre ativa.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Desativado (saída direta)</string>
+    <string name="title_gl_render">Renderizar via OpenGL</string>
+    <string name="summary_gl_render">Exibe o vídeo via OpenGL para que uma sobreposição de geração de quadros possa se conectar a ele. Pode adicionar um pouco de latência. Não é usado com HDR ou PyroWave.</string>
+    <string name="upscaling_gl_only">OpenGL (sem escala)</string>
+    <string name="gl_render_fallback">Renderização OpenGL: saída direta. %1$s</string>
     <string name="upscaling_fallback">Upscaling: saída direta. %1$s</string>
     <string name="upscaling_hdr">HDR/10 bits mantém a saída direta para preservar cor e precisão.</string>
     <string name="upscaling_pyrowave">Transmissões PyroWave usam SGSR na GPU tanto para FSR quanto para SGSR.</string>

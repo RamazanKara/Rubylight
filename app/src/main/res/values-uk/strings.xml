@@ -375,6 +375,10 @@
     <string name="summary_upscaling_sharpness" formatted="false">Підвищення різкості FSR/SGSR: 0% — вимкнено, 100% — максимум; діє з наступної трансляції, відновлення SGSR завжди активне.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Вимкнено (прямий вивід)</string>
+    <string name="title_gl_render">Рендеринг через OpenGL</string>
+    <string name="summary_gl_render">Показує відео через OpenGL, щоб оверлей генерації кадрів міг до нього підключитися. Може трохи збільшити затримку. Не використовується з HDR і PyroWave.</string>
+    <string name="upscaling_gl_only">OpenGL (без масштабування)</string>
+    <string name="gl_render_fallback">Рендеринг OpenGL: пряме виведення. %1$s</string>
     <string name="upscaling_fallback">Масштабування: прямий вивід. %1$s</string>
     <string name="upscaling_hdr">HDR/10-біт використовує прямий вивід, щоб зберегти колір і точність.</string>
     <string name="upscaling_pyrowave">Трансляції PyroWave використовують SGSR на GPU і для FSR, і для SGSR.</string>

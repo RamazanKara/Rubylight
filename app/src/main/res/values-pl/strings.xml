@@ -375,6 +375,10 @@
     <string name="summary_upscaling_sharpness" formatted="false">Wyostrzanie FSR/SGSR: 0% wyłączone, 100% maksymalne; obowiązuje od następnego strumienia, rekonstrukcja SGSR jest zawsze aktywna.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Wyłączone (wyjście bezpośrednie)</string>
+    <string name="title_gl_render">Renderuj przez OpenGL</string>
+    <string name="summary_gl_render">Wyświetla obraz przez OpenGL, aby nakładka generowania klatek mogła się do niego podpiąć. Może dodać niewielkie opóźnienie. Nieużywane z HDR ani PyroWave.</string>
+    <string name="upscaling_gl_only">OpenGL (bez skalowania)</string>
+    <string name="gl_render_fallback">Renderowanie OpenGL: wyjście bezpośrednie. %1$s</string>
     <string name="upscaling_fallback">Skalowanie: wyjście bezpośrednie. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit używa wyjścia bezpośredniego, aby zachować kolory i precyzję.</string>
     <string name="upscaling_pyrowave">Strumienie PyroWave używają SGSR na GPU zarówno dla FSR, jak i SGSR.</string>

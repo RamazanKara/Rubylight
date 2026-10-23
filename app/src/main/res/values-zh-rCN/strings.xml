@@ -375,6 +375,10 @@
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR 锐化：0% 为关闭，100% 为最大；从下次串流开始生效，SGSR 重建始终启用。</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">关闭（直接输出）</string>
+    <string name="title_gl_render">通过 OpenGL 渲染</string>
+    <string name="summary_gl_render">通过 OpenGL 显示视频，以便帧生成叠加层可以挂接。可能会略微增加延迟。HDR 和 PyroWave 不使用此选项。</string>
+    <string name="upscaling_gl_only">OpenGL（不缩放）</string>
+    <string name="gl_render_fallback">OpenGL 渲染：直接输出。%1$s</string>
     <string name="upscaling_fallback">放大：直接输出。%1$s</string>
     <string name="upscaling_hdr">HDR/10 位视频保持直接输出，以保留色彩和精度。</string>
     <string name="upscaling_pyrowave">选择 FSR 或 SGSR 时，PyroWave 串流均在 GPU 上使用 SGSR。</string>

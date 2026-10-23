@@ -375,6 +375,10 @@
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR keskinleştirme: %0 kapalı, %100 en yüksek; sonraki yayında geçerli olur, SGSR yeniden oluşturma her zaman etkindir.</string>
     <string name="upscaling_sharpness_value">%%%1$d</string>
     <string name="upscaling_direct">Kapalı (doğrudan çıkış)</string>
+    <string name="title_gl_render">OpenGL ile işle</string>
+    <string name="summary_gl_render">Kare üretimi kaplamasının bağlanabilmesi için videoyu OpenGL üzerinden gösterir. Biraz gecikme ekleyebilir. HDR veya PyroWave ile kullanılmaz.</string>
+    <string name="upscaling_gl_only">OpenGL (ölçekleme yok)</string>
+    <string name="gl_render_fallback">OpenGL işleme: doğrudan çıkış. %1$s</string>
     <string name="upscaling_fallback">Ölçeklendirme: doğrudan çıkış. %1$s</string>
     <string name="upscaling_hdr">HDR/10 bit, rengi ve hassasiyeti korumak için doğrudan çıkışı kullanır.</string>
     <string name="upscaling_pyrowave">PyroWave yayınları hem FSR hem SGSR için GPU’da SGSR kullanır.</string>

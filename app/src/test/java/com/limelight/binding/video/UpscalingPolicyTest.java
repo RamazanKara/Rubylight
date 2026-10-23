@@ -32,6 +32,27 @@ public class UpscalingPolicyTest {
         return UpscalingPolicy.unavailableReason(mode, width, height, outputWidth, outputHeight, hdr, pyroWave, supported);
     }
 
+    private UpscalingPolicy.Reason present(int width, int height, int outputWidth, int outputHeight,
+                                           boolean hdr, boolean pyroWave, boolean supported) {
+        return UpscalingPolicy.unavailableReason(BILINEAR, width, height, outputWidth, outputHeight, hdr, pyroWave,
+                supported, true);
+    }
+
+    @Test
+    public void renderingThroughOpenGlNeedsNoUpscaleButKeepsTheOtherLimits() {
+        // A stream at the screen's size, or larger than it, is presented, not skipped as "no upscale"
+        assertEquals(NONE, present(1920, 1080, 1920, 1080, false, false, true));
+        assertEquals(NONE, present(2560, 1440, 1920, 1080, false, false, true));
+        assertEquals(NONE, present(1280, 720, 1920, 1080, false, false, true));
+        // Off mode is only "disabled" when OpenGL rendering was not asked for
+        assertEquals(DISABLED, UpscalingPolicy.unavailableReason(OFF, 1280, 720, 1920, 1080, false, false, true, false));
+        assertEquals(NONE, UpscalingPolicy.unavailableReason(OFF, 1280, 720, 1920, 1080, false, false, true, true));
+        assertEquals(HDR, present(1920, 1080, 1920, 1080, true, false, true));
+        assertEquals(PYROWAVE, present(1920, 1080, 1920, 1080, false, true, true));
+        assertEquals(UNSUPPORTED, present(1920, 1080, 1920, 1080, false, false, false));
+        assertEquals(NO_UPSCALE, present(0, 0, 1920, 1080, false, false, true));
+    }
+
     @Test
     public void scalingUsesTheLetterboxedViewportAndSupportsPortraitAndStretch() {
         assertArrayEquals(new int[] {240, 0, 1920, 1080}, UpscalingPolicy.viewport(1280, 720, 2400, 1080, false));

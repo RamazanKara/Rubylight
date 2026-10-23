@@ -375,6 +375,10 @@
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR のシャープ化: 0% でオフ、100% で最大。次回のストリームから適用され、SGSR の再構成は常に有効です。</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">オフ（直接出力）</string>
+    <string name="title_gl_render">OpenGL で描画</string>
+    <string name="summary_gl_render">フレーム生成オーバーレイがフックできるよう、映像を OpenGL 経由で表示します。わずかに遅延が増える場合があります。HDR と PyroWave では使用されません。</string>
+    <string name="upscaling_gl_only">OpenGL（拡大なし）</string>
+    <string name="gl_render_fallback">OpenGL 描画: 直接出力になりました。%1$s</string>
     <string name="upscaling_fallback">アップスケーリング: 直接出力。%1$s</string>
     <string name="upscaling_hdr">HDR/10 ビットでは、色と精度を保つため直接出力のままにします。</string>
     <string name="upscaling_pyrowave">PyroWave のストリームでは、FSR と SGSR のどちらでも GPU で SGSR を使用します。</string>

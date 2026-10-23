@@ -27,10 +27,14 @@ pub struct Decoded {
     pub frame: media::Frame,
     pub setup: VideoSetup,
     pub rtp: u32,
+    /// The host's frame number.
+    pub number: u32,
     /// The frame's first packet arrived (session clock, µs).
     pub receive_us: u64,
     /// The frame was complete and queued for decoding.
     pub enqueue_us: u64,
+    /// The frame went to the decoder.
+    pub input_us: u64,
     /// Decoding finished; the picture can be shown from here on.
     pub ready_us: u64,
     /// Host processing latency in 1/10 ms (0 when the host does not report it).
@@ -218,8 +222,8 @@ impl VideoDecoder for Decoder {
                 timing.record_samples += 1;
             }
             drop(timing);
-            let decoded = Decoded { frame: picture, setup, rtp: frame.rtp_timestamp, receive_us: frame.receive_time_us,
-                enqueue_us: frame.enqueue_time_us, ready_us, host_latency: frame.host_processing_latency };
+            let decoded = Decoded { frame: picture, setup, rtp: frame.rtp_timestamp, number: frame.number, receive_us: frame.receive_time_us,
+                enqueue_us: frame.enqueue_time_us, input_us: start, ready_us, host_latency: frame.host_processing_latency };
             let mut frames = lock(&self.shared.frames);
             frames.push_back(decoded);
             while frames.len() > self.shared.queue_limit { frames.pop_front(); counters.replaced.fetch_add(1, Ordering::Relaxed); }
@@ -259,8 +263,10 @@ impl VideoDecoder for Decoder {
                         frame: picture,
                         setup: self.setup.expect("decoder setup precedes frames"),
                         rtp: pts as u32,
+                        number: frame.number,
                         receive_us: frame.receive_time_us,
                         enqueue_us: frame.enqueue_time_us,
+                        input_us: started,
                         ready_us: ready,
                         host_latency: frame.host_processing_latency,
                     };

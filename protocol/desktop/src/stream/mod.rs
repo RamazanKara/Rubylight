@@ -119,6 +119,21 @@ pub fn codec_name(format: u32) -> &'static str {
     }
 }
 
+/// The timing CSV when `NIGHTJAR_TIMING_CSV` names a file or folder.
+fn open_timing_csv() -> Option<crate::timing_csv::TimingCsv> {
+    let path = crate::timing_csv::path_from_env()?;
+    match crate::timing_csv::TimingCsv::create(&path) {
+        Ok(csv) => {
+            eprintln!("nightjar: writing the timing CSV to {}", path.display());
+            Some(csv)
+        }
+        Err(error) => {
+            eprintln!("nightjar: cannot write the timing CSV {}: {error}", path.display());
+            None
+        }
+    }
+}
+
 fn random_bytes<const N: usize>() -> [u8; N] {
     use std::hash::{BuildHasher, Hasher};
     let mut out = [0u8; N];
@@ -658,6 +673,8 @@ pub struct Streaming {
     absolute: bool,
     relative_remainder: (f32, f32),
     offset: ClockOffset,
+    /// The client timing CSV (`NIGHTJAR_TIMING_CSV`), off by default.
+    timing_csv: Option<crate::timing_csv::TimingCsv>,
     rtp_clock: RtpClock,
     last_probe: Instant,
     window: Window,
@@ -760,6 +777,7 @@ impl Streaming {
             captured: false,
             relative_remainder: (0.0, 0.0),
             offset: ClockOffset::default(),
+            timing_csv: open_timing_csv(),
             rtp_clock: RtpClock::default(),
             last_probe: Instant::now(),
             window: Window::default(),
@@ -1113,6 +1131,9 @@ impl Streaming {
                 report_rate_hz,
             } => pads.set_motion(controller, motion_type, report_rate_hz),
             ControlEvent::HostTiming(records) => {
+                if let Some(csv) = &self.timing_csv {
+                    csv.reports(&records);
+                }
                 for (r, _) in records {
                     self.window.timing_host_us += u64::from(r.host_us);
                     self.window.timing_encode_us += u64::from(r.encode_us);
@@ -1468,6 +1489,21 @@ impl Streaming {
             }
             w.network_us += p.decoded.enqueue_us.saturating_sub(p.decoded.receive_us);
             w.network_n += 1;
+            if let Some(csv) = &self.timing_csv {
+                let d = &p.decoded;
+                csv.row(crate::timing_csv::Row {
+                    number: d.number,
+                    rtp: d.rtp,
+                    receive_us: d.receive_us,
+                    enqueue_us: d.enqueue_us,
+                    input_us: d.input_us,
+                    output_us: d.ready_us,
+                    render_us: presented,
+                    host_latency: d.host_latency,
+                    drops: self.shared.counters.replaced.load(Ordering::Relaxed),
+                    clock: self.offset.offset_at(d.enqueue_us as i64).zip(self.offset.rtt_us()),
+                });
+            }
             let host_us = self.rtp_clock.host_us(p.decoded.rtp);
             if let Some(offset) = self.offset.offset_at(presented as i64) {
                 let latency = presented as i64 - (host_us + offset);

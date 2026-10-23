@@ -114,6 +114,7 @@ Why this combination:
 | `src/stream/mod.rs` | launch, session start, input, statistics |
 | `src/stream/pipeline.rs` | the session's decoder, audio renderer and listener |
 | `src/stream/present.rs` | video texture, pacing |
+| `src/timing_csv.rs` | the client timing CSV (below) |
 | `src/gamepad.rs` | controllers |
 | `src/keymap.rs` | SDL scancodes to Windows virtual keys |
 | `src/media.rs`, `src/media_shim.c` | FFmpeg and Opus |
@@ -121,6 +122,13 @@ Why this combination:
 Config lives in `%APPDATA%\Nightjar\config` or `~/.config/nightjar` (`NIGHTJAR_CONFIG_DIR`
 overrides it). F12 saves a screenshot of the window to the config directory's
 `screenshots/` (or `NIGHTJAR_SCREENSHOT_DIR`).
+
+`NIGHTJAR_TIMING_CSV=<file or folder>` writes one row per picture shown, in the format of the
+Android app's `nightjar-latency.csv` (a folder gets that file name): times in nanoseconds on the
+session clock, the host's stamps from the extended 0x5536 report and the 0x5537 clock offset in
+the last nine columns. Rubylight's `rust/release/timing_report.py` joins it with the host's
+record (`BUTTERPOLLO_TIMING_RECORD`). It is off unless the variable is set, and a writer thread
+does the file work.
 
 ## What works
 

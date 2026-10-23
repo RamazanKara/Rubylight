@@ -26,6 +26,7 @@ mod session_ui;
 mod shortcuts;
 mod stream;
 mod theme;
+mod timing_csv;
 mod ui;
 mod wol;
 

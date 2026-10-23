@@ -578,8 +578,10 @@ mod tests {
                         color_range: 1,
                     },
                     rtp: 0,
+                    number: 0,
                     receive_us: 0,
                     enqueue_us: 0,
+                    input_us: 0,
                     ready_us: 0,
                     host_latency: 0,
                 };

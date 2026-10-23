@@ -643,8 +643,10 @@ mod tests {
                 color_range: 1,
             },
             rtp: ready_us as u32,
+            number: 0,
             receive_us: 0,
             enqueue_us: 0,
+            input_us: 0,
             ready_us,
             host_latency: 0,
         }

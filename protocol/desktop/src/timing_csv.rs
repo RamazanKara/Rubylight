@@ -1,0 +1,389 @@
+//! The client timing CSV (3.0 A8, measure only): one row per picture shown, in the format of
+//! Nightjar Android's `nightjar-latency.csv` (`FrameLatencyStats.CSV_HEADER`), so Rubylight's
+//! `rust/release/timing_report.py` joins it with the host record through the 0x5537 clock
+//! offset (docs/timing-record.md, section 2).
+//!
+//! Off unless `NIGHTJAR_TIMING_CSV` names a file, or a folder that gets `nightjar-latency.csv`.
+//! The UI thread hands each row to a bounded channel with `try_send` and never waits: a writer
+//! thread formats and writes, holding every row for a short while so the host's report for the
+//! frame (it follows the frame's last packet) can be joined. A full channel drops the row and
+//! counts it in `csv_rows_lost`.
+//!
+//! Times are nanoseconds on the session clock (`session::now_us`, the clock 0x5537 offsets are
+//! measured against, `client = host + offset`). Columns that exist only for MediaCodec (release,
+//! callback, frame rates, the host stage milliseconds) are empty; the nine host columns come
+//! from the extended 0x5536 report.
+
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::Duration;
+
+use nightjar_core::session;
+use nightjar_core::timing_record::{self as record, PendingRow, Record};
+use rubylight_protocol::control::{HostTiming, HostTimingExtra};
+
+/// The receiver's own columns, in `FrameLatencyStats.CSV_HEADER` order; the nine host columns
+/// (`record::HEADER`) follow.
+pub const OWN_COLUMNS: [&str; 32] = [
+    "frame_number", "pts_us", "receive_ns", "decoder_input_ns", "decoder_output_ns",
+    "render_ns", "release_ns", "status", "receive_to_input_ms", "input_to_output_ms", "output_to_render_ms",
+    "receive_to_render_ms", "csv_rows_lost", "host_processing_ms",
+    "decode_to_present_ms", "receive_to_present_ms",
+    "decode_to_release_ms", "decode_interval_ms", "release_interval_ms",
+    "fps_sample_ns", "received_fps", "released_fps", "shown_fps", "present_drops", "enqueue_ns", "queue_wait_ms",
+    "host_present_to_sent_ms", "host_queue_ms", "host_encode_ms", "host_send_ms",
+    "callback_received_ns", "callback_delay_ms",
+];
+
+pub fn header() -> String {
+    format!("{},{}\n", OWN_COLUMNS.join(","), record::HEADER)
+}
+
+/// Rows waiting for the writer.
+const QUEUE: usize = 4096;
+
+/// What the UI thread knows when a picture has been presented. Times are µs on the session
+/// clock, 0 when unknown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Row {
+    pub number: u32,
+    pub rtp: u32,
+    /// The frame's first packet arrived.
+    pub receive_us: u64,
+    /// The frame was complete and queued for decoding.
+    pub enqueue_us: u64,
+    pub input_us: u64,
+    /// Decoding finished.
+    pub output_us: u64,
+    /// The picture was handed to the display.
+    pub render_us: u64,
+    /// The host's processing latency in 1/10 ms (0 when not reported).
+    pub host_latency: u16,
+    /// Pictures replaced before they were shown, since the stream began.
+    pub drops: u64,
+    /// The clock offset (`client = host + offset`) and round trip, µs, when known.
+    pub clock: Option<(i64, i64)>,
+}
+
+enum Message {
+    Row(Row),
+    Reports(Vec<(HostTiming, Option<HostTimingExtra>)>),
+}
+
+/// The open file. Dropping it writes what is waiting and closes the file.
+pub struct TimingCsv {
+    sender: Option<SyncSender<Message>>,
+    lost: Arc<AtomicU64>,
+    writer: Option<JoinHandle<()>>,
+}
+
+/// The file named by `NIGHTJAR_TIMING_CSV`, if it is set.
+pub fn path_from_env() -> Option<PathBuf> {
+    let value = std::env::var_os("NIGHTJAR_TIMING_CSV").filter(|v| !v.is_empty())?;
+    Some(resolve(Path::new(&value)))
+}
+
+/// A folder gets `nightjar-latency.csv` (Android's file name); anything else is the file.
+pub fn resolve(path: &Path) -> PathBuf {
+    if path.is_dir() { path.join("nightjar-latency.csv") } else { path.to_owned() }
+}
+
+impl TimingCsv {
+    pub fn create(path: &Path) -> std::io::Result<Self> {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)?;
+        }
+        let mut file = BufWriter::new(File::create(path)?);
+        file.write_all(header().as_bytes())?;
+        file.flush()?;
+        let (sender, inbox) = sync_channel(QUEUE);
+        let lost = Arc::new(AtomicU64::new(0));
+        let counter = lost.clone();
+        let writer = std::thread::Builder::new()
+            .name("timing-csv".into())
+            .spawn(move || run(file, inbox, &counter))?;
+        Ok(Self { sender: Some(sender), lost, writer: Some(writer) })
+    }
+
+    /// Queues one row. Never blocks; a full queue counts the row as lost.
+    pub fn row(&self, row: Row) {
+        self.send(Message::Row(row));
+    }
+
+    /// Hands over the records of a 0x5536 report.
+    pub fn reports(&self, records: &[(HostTiming, Option<HostTimingExtra>)]) {
+        self.send(Message::Reports(records.to_vec()));
+    }
+
+    fn send(&self, message: Message) {
+        let Some(sender) = &self.sender else { return };
+        match sender.try_send(message) {
+            Ok(()) => {}
+            Err(TrySendError::Full(Message::Row(_))) => {
+                self.lost.fetch_add(1, Ordering::Relaxed);
+            }
+            // A lost report leaves empty host columns; the row is still written.
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+        }
+    }
+
+    /// Rows lost because the writer fell behind.
+    pub fn lost(&self) -> u64 {
+        self.lost.load(Ordering::Relaxed)
+    }
+}
+
+impl Drop for TimingCsv {
+    fn drop(&mut self) {
+        self.sender = None;
+        if let Some(writer) = self.writer.take() {
+            let _ = writer.join();
+        }
+        if self.lost() > 0 {
+            eprintln!("nightjar: the timing CSV lost {} rows (the writer fell behind)", self.lost());
+        }
+    }
+}
+
+fn run(mut file: BufWriter<File>, inbox: std::sync::mpsc::Receiver<Message>, lost: &AtomicU64) {
+    let mut record = Record::default();
+    let mut previous_output = 0u64;
+    loop {
+        let done = match inbox.recv_timeout(Duration::from_millis(100)) {
+            Ok(Message::Row(row)) => {
+                let line = own_fields(&row, lost.load(Ordering::Relaxed), previous_output);
+                previous_output = row.output_us;
+                record.push(PendingRow {
+                    number: row.number,
+                    line,
+                    rtp_timestamp: row.rtp,
+                    clock: row.clock,
+                    due_us: session::now_us() + record::ROW_DELAY_US,
+                });
+                false
+            }
+            Ok(Message::Reports(reports)) => {
+                record.add_reports(reports);
+                false
+            }
+            Err(RecvTimeoutError::Timeout) => false,
+            Err(RecvTimeoutError::Disconnected) => true,
+        };
+        let now = if done { u64::MAX } else { session::now_us() };
+        let rows = record.take_due(now);
+        for line in &rows {
+            let _ = writeln!(file, "{line}");
+        }
+        if !rows.is_empty() || done {
+            let _ = file.flush();
+        }
+        if done {
+            return;
+        }
+    }
+}
+
+fn timestamp(us: u64) -> String {
+    if us == 0 { String::new() } else { (us * 1000).to_string() }
+}
+
+/// Milliseconds with six decimals between two times, empty when either is missing or the end
+/// is before the start (as the Android file does).
+fn duration(start_us: u64, end_us: u64) -> String {
+    if start_us == 0 || end_us == 0 || end_us < start_us {
+        return String::new();
+    }
+    milliseconds((end_us - start_us) * 1000)
+}
+
+fn milliseconds(ns: u64) -> String {
+    format!("{}.{:06}", ns / 1_000_000, ns % 1_000_000)
+}
+
+/// The receiver's own 32 columns of one row, comma separated.
+pub fn own_fields(row: &Row, lost: u64, previous_output_us: u64) -> String {
+    let mut fields = vec![String::new(); OWN_COLUMNS.len()];
+    let mut set = |name: &str, value: String| {
+        let at = OWN_COLUMNS.iter().position(|c| *c == name).expect("a known column");
+        fields[at] = value;
+    };
+    let output_to_render = duration(row.output_us, row.render_us);
+    let receive_to_render = duration(row.receive_us, row.render_us);
+    set("frame_number", row.number.to_string());
+    set("pts_us", record::rtp_host_us(row.rtp).to_string());
+    set("receive_ns", timestamp(row.receive_us));
+    set("decoder_input_ns", timestamp(row.input_us));
+    set("decoder_output_ns", timestamp(row.output_us));
+    set("render_ns", timestamp(row.render_us));
+    set("status", "rendered".into());
+    set("receive_to_input_ms", duration(row.receive_us, row.input_us));
+    set("input_to_output_ms", duration(row.input_us, row.output_us));
+    set("output_to_render_ms", output_to_render.clone());
+    set("receive_to_render_ms", receive_to_render.clone());
+    set("csv_rows_lost", lost.to_string());
+    if row.host_latency != 0 {
+        set("host_processing_ms", milliseconds(u64::from(row.host_latency) * 100_000));
+    }
+    set("decode_to_present_ms", output_to_render);
+    set("receive_to_present_ms", receive_to_render);
+    set("decode_interval_ms", duration(previous_output_us, row.output_us));
+    set("fps_sample_ns", timestamp(row.render_us));
+    set("present_drops", row.drops.to_string());
+    set("enqueue_ns", timestamp(row.enqueue_us));
+    set("queue_wait_ms", duration(row.enqueue_us, row.input_us));
+    fields.join(",")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The header the Android app writes, read from its source so the two cannot drift apart.
+    fn android_header() -> Option<String> {
+        let source = include_str!("../../../app/src/main/java/com/limelight/binding/video/FrameLatencyStats.java");
+        let start = source.find("CSV_HEADER =")?;
+        let end = start + source[start..].find(';')?;
+        let mut header = String::new();
+        for line in source[start..end].lines() {
+            let line = line.trim();
+            if line.starts_with("//") {
+                continue;
+            }
+            let mut quoted = line.split('"');
+            quoted.next();
+            while let Some(text) = quoted.next() {
+                header.push_str(text);
+                quoted.next();
+            }
+        }
+        // The source spells the line end as a backslash and an n.
+        Some(header.trim_end_matches("\\n").to_owned())
+    }
+
+    fn row() -> Row {
+        Row {
+            number: 7,
+            rtp: 90_000,
+            receive_us: 1_000_000,
+            enqueue_us: 1_001_000,
+            input_us: 1_001_500,
+            output_us: 1_004_500,
+            render_us: 1_010_000,
+            host_latency: 25,
+            drops: 3,
+            clock: Some((-5_000, 800)),
+        }
+    }
+
+    #[test]
+    fn the_header_is_the_androids_byte_for_byte() {
+        let android = android_header().expect("Android's CSV_HEADER");
+        assert_eq!(header().trim_end(), android.trim_end());
+        assert_eq!(OWN_COLUMNS.len() + 9, android.split(',').count());
+    }
+
+    #[test]
+    fn a_row_fills_the_columns_the_report_reads() {
+        let fields = own_fields(&row(), 2, 1_000_000 + 1_000);
+        let fields: Vec<&str> = fields.split(',').collect();
+        assert_eq!(fields.len(), OWN_COLUMNS.len());
+        let at = |name: &str| fields[OWN_COLUMNS.iter().position(|c| *c == name).unwrap()];
+        assert_eq!(at("frame_number"), "7");
+        assert_eq!(at("pts_us"), "1000000", "90000 ticks of 90 kHz is one second");
+        assert_eq!(at("receive_ns"), "1000000000");
+        assert_eq!(at("decoder_input_ns"), "1001500000");
+        assert_eq!(at("decoder_output_ns"), "1004500000");
+        assert_eq!(at("render_ns"), "1010000000");
+        assert_eq!(at("status"), "rendered");
+        assert_eq!(at("input_to_output_ms"), "3.000000");
+        assert_eq!(at("receive_to_present_ms"), "10.000000");
+        assert_eq!(at("host_processing_ms"), "2.500000");
+        assert_eq!(at("decode_interval_ms"), "3.500000");
+        assert_eq!(at("csv_rows_lost"), "2");
+        assert_eq!(at("present_drops"), "3");
+        assert_eq!(at("release_ns"), "", "MediaCodec's release time has no counterpart");
+    }
+
+    #[test]
+    fn the_file_has_the_host_columns_from_the_report_and_the_offset() {
+        let dir = std::env::temp_dir().join(format!("nightjar-timing-{}", std::process::id()));
+        let path = resolve(&dir);
+        assert_eq!(path, dir, "a path that is not a folder yet is the file itself");
+        let csv = TimingCsv::create(&path).unwrap();
+        let timing = HostTiming { frame: 7, host_us: 900, queue_us: 300, encode_us: 200, send_us: 100 };
+        let extra = HostTimingExtra { presented_at_us: 2_000_000, capture_us: 100, convert_us: 150 };
+        csv.reports(&[(timing, Some(extra))]);
+        csv.row(row());
+        // A frame without a report is still written, with empty host stamps.
+        csv.row(Row { number: 8, ..row() });
+        drop(csv);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(format!("{}\n", lines[0]), header());
+        let tail = |line: &str| line.split(',').skip(OWN_COLUMNS.len()).collect::<Vec<_>>().join(",");
+        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800");
+        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800");
+    }
+
+    #[test]
+    fn a_stalled_writer_never_blocks_the_caller() {
+        let dir = std::env::temp_dir().join(format!("nightjar-timing-stall-{}", std::process::id()));
+        let csv = TimingCsv::create(&dir).unwrap();
+        // The channel holds 4096; the writer drains it, but nothing may ever wait on it.
+        let started = std::time::Instant::now();
+        for number in 0..20_000 {
+            csv.row(Row { number, ..row() });
+        }
+        assert!(started.elapsed() < Duration::from_secs(5), "queuing 20000 rows took {:?}", started.elapsed());
+        let lost = csv.lost();
+        drop(csv);
+        let rows = std::fs::read_to_string(&dir).unwrap().lines().count() - 1;
+        let _ = std::fs::remove_file(&dir);
+        assert_eq!(rows as u64 + lost, 20_000, "every row is written or counted as lost");
+    }
+
+    /// Manual: `RUBYLIGHT_TIMING_REPORT=<path to rust/release/timing_report.py> cargo test -p
+    /// nightjar-desktop timing_report -- --ignored`: Rubylight's report reads what is written.
+    #[test]
+    #[ignore = "needs Rubylight's timing_report.py; see the doc comment"]
+    fn timing_report_accepts_a_file_the_desktop_wrote() {
+        let script = std::env::var("RUBYLIGHT_TIMING_REPORT").expect("RUBYLIGHT_TIMING_REPORT");
+        let path = std::env::temp_dir().join(format!("nightjar-timing-report-{}.csv", std::process::id()));
+        let csv = TimingCsv::create(&path).unwrap();
+        for number in 0..40u32 {
+            let base = 5_000_000 + u64::from(number) * 16_667;
+            let present = 100_000 + u64::from(number) * 16_667;
+            let timing = HostTiming { frame: number, host_us: 3_000, queue_us: 1_000, encode_us: 1_500, send_us: 200 };
+            let extra = HostTimingExtra { presented_at_us: present, capture_us: 200, convert_us: 300 };
+            csv.reports(&[(timing, Some(extra))]);
+            csv.row(Row {
+                number,
+                rtp: (u64::from(number) * 1_500) as u32,
+                receive_us: base,
+                enqueue_us: base + 300,
+                input_us: base + 400,
+                output_us: base + 2_400,
+                render_us: base + 5_000,
+                host_latency: 0,
+                drops: 0,
+                // client = host + 4.9 s
+                clock: Some((4_900_000, 600)),
+            });
+        }
+        drop(csv);
+        let output = std::process::Command::new("python").args([&script]).arg(&path).output().expect("python");
+        let _ = std::fs::remove_file(&path);
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "timing_report.py failed: {}{}", text, String::from_utf8_lossy(&output.stderr));
+        println!("{text}");
+        assert!(text.contains("clock_sync"), "joined with the clock offset: {text}");
+        assert!(text.contains("end_to_end") && text.contains("decode"), "{text}");
+    }
+}

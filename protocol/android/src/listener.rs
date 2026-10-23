@@ -86,6 +86,10 @@ impl Listener for Events {
         );
     }
 
+    fn host_control_messages(&self, messages: &[u16]) {
+        engine::set_host_messages(messages);
+    }
+
     fn connection_started(&self) {
         self.started.store(true, Ordering::SeqCst);
     }

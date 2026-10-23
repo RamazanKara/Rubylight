@@ -215,6 +215,10 @@ pub trait Listener: Send + Sync {
     fn stage_complete(&self, _stage: Stage) {}
     fn stage_failed(&self, _stage: Stage, _error: i32) {}
     fn connection_started(&self) {}
+    /// The control message types the host announced, as soon as the handshake has them: before
+    /// the decoder and audio renderer start, so their `start` can already ask what the host
+    /// supports (the session is not returned until every stage has run).
+    fn host_control_messages(&self, _messages: &[u16]) {}
     /// The stream ended without [`Session::stop`]: the host's reason, a control stream
     /// failure, a video timeout or a socket error. Called once, on its own thread, so it may
     /// stop the session.
@@ -722,6 +726,7 @@ fn start(
         }
     }
     let outcome = handshake.finish().map_err(rtsp_fail)?;
+    listener.host_control_messages(&outcome.host_control_messages);
     listener.stage_complete(Stage::RtspHandshake);
     check_interrupt(Stage::RtspHandshake)?;
 

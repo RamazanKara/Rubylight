@@ -297,6 +297,8 @@ struct Record {
     terminated: Option<i32>,
     events: Vec<ControlEvent>,
     lifecycle: Vec<&'static str>,
+    /// What the listener and the renderers saw, in order, up to the first frame.
+    startup: Vec<String>,
 }
 
 struct Recorder {
@@ -308,6 +310,10 @@ impl VideoDecoder for Recorder {
     fn setup(&mut self, setup: &VideoSetup) -> Result<(), i32> {
         self.record.lock().unwrap().setup = Some(*setup);
         Ok(())
+    }
+
+    fn start(&mut self) {
+        self.record.lock().unwrap().startup.push("video start".into());
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
@@ -354,6 +360,14 @@ impl AudioRenderer for Recorder {
 impl Listener for Recorder {
     fn stage_complete(&self, stage: Stage) {
         self.record.lock().unwrap().stages.push(stage);
+    }
+
+    fn host_control_messages(&self, messages: &[u16]) {
+        self.record
+            .lock()
+            .unwrap()
+            .startup
+            .push(format!("control messages {messages:x?}"));
     }
 
     fn connection_started(&self) {
@@ -526,6 +540,15 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
         ]
     );
     assert!(r.audio.iter().all(Option::is_some));
+    // The renderers' start can already ask what the host announced (the Android engine runs the
+    // clock sync for the timing CSV only for a host that announced it, and decides in `start`).
+    assert_eq!(
+        r.startup.first().map(String::as_str),
+        Some("control messages [5530, 5531, 5532, 5533, 5534, 5535, 5536, 5537]"),
+        "{:?}",
+        r.startup
+    );
+    assert_eq!(r.startup.get(1).map(String::as_str), Some("video start"));
     assert_eq!(r.audio[0].as_deref(), Some(&audio_stream(200)[150][12..]));
     assert_eq!(r.terminated, Some(0));
     assert_eq!(

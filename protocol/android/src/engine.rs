@@ -42,6 +42,10 @@ struct Engine {
     microphone: Mutex<Option<Microphone>>,
     microphone_state: AtomicI32,
     present_clock: Mutex<Option<PresentClock>>,
+    /// The control message types the host announced, set by the handshake before the video
+    /// renderer starts. The session is stored only after every stage ran, and the renderer's
+    /// `start` already asks what the host supports (to run the clock sync for the timing CSV).
+    host_messages: Mutex<Vec<u16>>,
 }
 
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
@@ -52,6 +56,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
     microphone: Mutex::new(None),
     microphone_state: AtomicI32::new(MIC_STATE_OFF),
     present_clock: Mutex::new(None),
+    host_messages: Mutex::new(Vec::new()),
 });
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -137,6 +142,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
         .store(MIC_STATE_OFF, Ordering::SeqCst);
     let interrupt = Interrupt::default();
     *lock(&ENGINE.interrupt) = interrupt.clone();
+    set_host_messages(&[]);
 
     let microphone_requested = params.config.stream.microphone;
     let events = Arc::new(Events::new(bridge));
@@ -159,6 +165,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
         Ok(session) => session,
         Err(error) => {
             platform::error(&format!("Stream start failed: {error}"));
+            set_host_messages(&[]);
             bridge.with_env(|env| {
                 let message = env.new_string(format!("Stream start failed: {error}"))?;
                 bridge.void(
@@ -220,6 +227,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
 /// `LiStopConnection`.
 pub fn stop() {
     let session = lock(&ENGINE.session).take();
+    set_host_messages(&[]);
     if let Some(microphone) = lock(&ENGINE.microphone).take() {
         platform::info(&format!(
             "Microphone: stopped after {} packets sent ({} errors)",
@@ -240,10 +248,15 @@ pub fn interrupt() {
     lock(&ENGINE.interrupt).interrupt();
 }
 
+/// Records the control messages the host announced (`Listener::host_control_messages`).
+pub fn set_host_messages(messages: &[u16]) {
+    *lock(&ENGINE.host_messages) = messages.to_vec();
+}
+
+/// Whether the host announced `message_type`, from the end of the RTSP handshake until the
+/// stream stops, so also while the renderers start.
 pub fn host_supports(message_type: u16) -> bool {
-    with_session(false, |s| {
-        s.outcome().host_control_messages.contains(&message_type)
-    })
+    lock(&ENGINE.host_messages).contains(&message_type)
 }
 
 pub fn report_frame_slack(slack_ns: i64, period_ns: i64) -> bool {
@@ -376,6 +389,21 @@ pub fn clock_sync(reply: &ClockSyncReply, received_us: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_host_messages_are_known_before_a_session_is_stored() {
+        // The video renderer starts inside Session::start, before the engine holds the session;
+        // its start asks whether the host announced clock sync to decide on the probes.
+        const CLOCK_SYNC: u16 = 0x5537;
+        set_host_messages(&[]);
+        assert!(!host_supports(CLOCK_SYNC));
+        assert!(!with_session(false, |_| true), "no session stored");
+        set_host_messages(&[0x5530, CLOCK_SYNC]);
+        assert!(host_supports(CLOCK_SYNC));
+        assert!(!host_supports(0x5531));
+        set_host_messages(&[]);
+        assert!(!host_supports(CLOCK_SYNC));
+    }
 
     #[test]
     fn present_clock_offset_waits_for_a_clock_sync_exchange() {

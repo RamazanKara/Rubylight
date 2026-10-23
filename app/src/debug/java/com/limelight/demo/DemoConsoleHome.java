@@ -23,9 +23,15 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
         return DemoConsole.repository(this);
     }
 
+    private boolean optionsOpened;
+
     @Override protected void onResume() {
         super.onResume();
-        if ("options".equals(getIntent().getStringExtra("state"))) openOptions(0);
+        // Once: coming back from the PC settings the sheet is not wanted again.
+        if (!optionsOpened && "options".equals(getIntent().getStringExtra("state"))) {
+            optionsOpened = true;
+            openOptions(0);
+        }
     }
 
     /** Presses the three dots on the Living-room PC's card once Home has painted it. */

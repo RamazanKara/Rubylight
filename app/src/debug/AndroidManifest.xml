@@ -30,7 +30,7 @@
         <!-- Disabled until a capture script enables it with pm enable; see DemoHomeActivity. -->
         <activity android:name="com.limelight.demo.DemoHomeActivity" android:exported="true" android:enabled="false"
             android:launchMode="singleTask" android:excludeFromRecents="true" android:stateNotNeeded="true"
-            android:taskAffinity="com.butterpollo.client.demohome" android:theme="@style/StreamTheme">
+            android:taskAffinity="${applicationId}.demohome" android:theme="@style/StreamTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />

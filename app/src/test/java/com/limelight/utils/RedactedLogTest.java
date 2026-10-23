@@ -14,6 +14,15 @@ public class RedactedLogTest {
         assertEquals("INFO Audio output: AAudio low latency\nINFO Audio track configuration: 1920 false", log.snapshot());
     }
 
+    @Test public void streamingEngineSelectionSurvivesReportFiltering() {
+        RedactedLog log = new RedactedLog();
+        log.add("INFO", "Streaming engine: Rust (nightjar-core)");
+        for (int i = 0; i < 500; i++) log.add("INFO", "frame 12345 queued");
+        assertEquals("INFO Streaming engine: Rust (nightjar-core)", log.snapshot());
+        log.add("WARNING", "Streaming engine: C (moonlight-common-c), Rust engine requested but unavailable: the host reports no codec support");
+        assertTrue(log.snapshot().contains("Rust engine requested but unavailable: the host reports no codec support"));
+    }
+
     @Test
     public void displayRefreshDiagnosticsRemainInTheSharedReport() {
         RedactedLog log = new RedactedLog();

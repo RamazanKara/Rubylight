@@ -33,6 +33,15 @@ public class NativeCrashTraceTest {
     }
 
     @Test
+    public void rustEngineFramesAreKeptLikeTheCEngineOnes() throws Exception {
+        byte[] frame = concat(number(1, 0x77), string(6, "/data/app/~~x/lib/arm64/libnightjar_core.so"));
+        byte[] trace = field(16, field(2, field(4, frame)));
+        String text = RedactedLog.nativeTrace(new ByteArrayInputStream(trace));
+        assertTrue(text.contains("pc 77 libnightjar_core.so"));
+        assertFalse(text.contains("~~x"));
+    }
+
+    @Test
     public void truncatedProtobufKeepsTheSafePrefixAndNeverReturnsRawBytes() throws Exception {
         byte[] trace = concat(field(10, number(1, 11)), string(14, "secret-host"));
         String text = RedactedLog.nativeTrace(new ByteArrayInputStream(Arrays.copyOf(trace, trace.length - 3)));

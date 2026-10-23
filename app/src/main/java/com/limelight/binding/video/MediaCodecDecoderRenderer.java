@@ -26,6 +26,7 @@ import com.limelight.R;
 import com.limelight.nvstream.av.video.HostTimingReport;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.nvstream.jni.StreamEngine;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.ProblemReport;
 
@@ -2648,7 +2649,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ? "HEVC" : "H.264";
             String color = Boolean.TRUE.equals(currentHdrMode) ? "HDR" :
                     currentHdrMode == null && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 ? "10-bit" : "SDR";
-            String stream = streamWidth + "×" + streamHeight + " · " + codec + " · " + color;
+            String stream = streamWidth + "×" + streamHeight + " · " + codec + " · " + color
+                    + " · " + StreamEngine.label();
             StringBuilder video = new StringBuilder();
             video.append(stream).append('\n');
             video.append(context.getString(R.string.perf_overlay_resolution_source, context.getString(
@@ -2680,6 +2682,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             PerformanceOverlay.measurement(locale, networkMs, "%.0f"),
                             PerformanceOverlay.measurement(locale, varianceMs, "%.0f"));
             StringBuilder decode = new StringBuilder(decoderDiagnostics);
+            decode.append("\nStreaming engine: ").append(StreamEngine.summary());
             // The timing block below already lists decode time; show it here only without that block.
             if (mediaCodec && latencyOverlay.isEmpty()) {
                 decode.append('\n').append(shownDecodeTimeMs >= 0 ? context.getString(R.string.perf_overlay_dectime, shownDecodeTimeMs) :

@@ -13,6 +13,7 @@ import androidx.core.content.FileProvider;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.R;
+import com.limelight.nvstream.jni.StreamEngine;
 import com.limelight.ui.NavigationDialogBuilder;
 
 import java.io.File;
@@ -31,6 +32,11 @@ public final class ProblemReport {
 
     public static void setAudioDiagnostics(String diagnostics) {
         audioDiagnostics = diagnostics;
+    }
+
+    /** The engine of the last stream, and why the C engine ran if the Rust engine was requested. */
+    static String engineSection() {
+        return "Streaming engine for the last stream:\n" + StreamEngine.summary() + "\n\n";
     }
 
     public static void show(Activity activity) {
@@ -52,6 +58,7 @@ public final class ProblemReport {
             String text = BuildConfig.BRAND_NAME + " " + BuildConfig.VERSION_NAME + " / Android API " + Build.VERSION.SDK_INT
                     + "\nRedacted event log for this app process, oldest first (up to 200 entries)."
                     + "\nAddresses, user-assigned device/host names, PINs, credentials and free-text diagnostic details are omitted.\n\n"
+                    + engineSection()
                     + "Last decoder configuration:\n" + decoderDiagnostics + "\n\n"
                     + "Last audio configuration:\n" + audioDiagnostics + "\n\n"
                     + LimeLog.getRedactedLog() + "\n\nLast crash record:\n" + CrashCapture.lastReport(activity);

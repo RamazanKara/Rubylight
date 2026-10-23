@@ -16,7 +16,7 @@ public final class RedactedLog {
     static final int MAX_TRACE_BYTES = 64 * 1024;
     static final int MAX_TRACE_CHARS = 4096;
     private static final Set<String> NATIVE_LIBRARIES = Set.of("libc.so", "libart.so", "libandroid_runtime.so",
-            "libmoonlight-core.so", "libpyrowave-renderer.so", "libpyrowave-shared.so", "libbinder.so", "libutils.so", "libhwui.so",
+            "libmoonlight-core.so", "libnightjar_core.so", "libpyrowave-renderer.so", "libpyrowave-shared.so", "libbinder.so", "libutils.so", "libhwui.so",
             "liblog.so", "libc++.so", "libc++_shared.so", "libbase.so", "libunwindstack.so", "base.apk");
     private static final Set<String> EVENTS = Set.of(
             "Stream starting", "Stream connected", "Stream stopping", "Stream failed",
@@ -45,7 +45,7 @@ public final class RedactedLog {
     private static final String[] INFO_PREFIXES = {
             "Stream request", "Connection terminated", "Selected ", "Decoder", "Reconfigure", "Stream now",
             "Display luminance", "Display modes changed", "Display refresh policy:", "Microphone", "PC stream profiles", "Present mode",
-            "PyroWave", "Phase lock", "Low latency", "Automatic codec",
+            "PyroWave", "Phase lock", "Low latency", "Automatic codec", "Streaming engine",
             "DualSense USB ", "USB controller announcement ", "Audio output:", "Audio track configuration:"};
 
     /** A PC name or address to keep out of problem reports. */

@@ -424,6 +424,19 @@ const video: Setting[] = [
     default: true,
     advanced: true,
   },
+  {
+    key: 'link_rate_adaptation',
+    label: 'Lower the bitrate when the link cannot carry it',
+    description:
+      'Cuts the picture bitrate when the network loses more than error correction can repair, then probes back up. Does nothing on a healthy link.',
+    details:
+      'Acts on three unrecoverable frames in two seconds, 5% of packets reported missing for two half-second windows, three frames lost on send, or three network keyframe requests from a client that sends no error-correction status. Each cut aims at 85% of what the link delivered, then the host probes back up in small steps and returns to the requested bitrate after ten clean seconds. Reports for frames sent before a cut took effect are ignored. Off for PyroWave, while Host adaptive bitrate is on, and once the client sets the bitrate itself. Takes effect with the host wiring in a later build.',
+    category: 'video',
+    group: 'Bitrate and network',
+    control: { kind: 'toggle' },
+    default: true,
+    advanced: true,
+  },
 ];
 
 const encoders: Setting[] = [

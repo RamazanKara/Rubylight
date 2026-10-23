@@ -170,6 +170,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Releases MediaCodec frames at the host's frame times when that setting is on.
     private final HostFrameClock hostFrameClock = new HostFrameClock();
     private volatile boolean hostFrameTimes;
+    // Follow the content rate for Game's frame rate vote (host frame times, scheduled or not).
+    private volatile boolean trackContentRate;
     private HandlerThread latencyThread;
     private Handler latencyHandler;
     private final AtomicBoolean phaseFlushQueued = new AtomicBoolean();
@@ -697,6 +699,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     public int getStreamFrameRateMilliHz() {
         return streamFrameRateMilliHz;
+    }
+
+    /** The rate the game presents at in millihertz once steady (see HostFrameClock); else 0. */
+    public int getContentRateMilliHz() {
+        return hostFrameClock.contentRateMilliHz();
     }
 
     public com.limelight.nvstream.DecodeTiming takeDecodeTiming(int fps) {
@@ -2393,8 +2400,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         hostFrameTimes = prefs.hostFrameTimes;
         // A host that announced clock sync is probed for the timing CSV; frames are scheduled by
         // the clock only with host frame times on.
+        trackContentRate = prefs.contentRateFrameRate && hostAnnouncesClockSync();
         hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes,
-                hostAnnouncesClockSync());
+                hostAnnouncesClockSync(), trackContentRate);
         startRendererThread();
         startChoreographerThread();
     }
@@ -3161,7 +3169,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         nextInputBuffer.put(decodeUnitData, 0, decodeUnitLength);
 
         // Before queuing: the decoder may hand the frame back before queueInputBuffer returns.
-        if (hostFrameTimes) hostFrameClock.onQueued(timestampUs, presentationTimeUs);
+        if (hostFrameTimes || trackContentRate) hostFrameClock.onQueued(timestampUs, presentationTimeUs);
         if (!queueNextInputBuffer(timestampUs, codecFlags, frameNumber, receiveTimeNs, enqueueTimeNs, frameHostProcessingLatency,
                 presentationTimeUs)) {
             return MoonBridge.DR_NEED_IDR;

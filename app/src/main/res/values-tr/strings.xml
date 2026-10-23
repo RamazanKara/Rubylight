@@ -273,6 +273,8 @@
     <string name="summary_vrr">Uyarlanabilir yenileme destekleyen Android 16 ekranlarında Android, yenileme hızını yayına uydurur; diğer ekranlar en yüksek hızlarında çalışır. VRR destekleyen ana bilgisayarlardan da ayarlarına bağlı olarak onu kullanmaları istenir. Bu açıkken kare zamanlama ve daha düşük yenileme hızı uygulanmaz.</string>
     <string name="title_host_frame_times">Kareleri bilgisayarın zamanlamasıyla göster</string>
     <string name="summary_host_frame_times">Her kareyi birkaç milisaniye tutar; böylece kare ağın ulaştırdığı anda değil, oyunun çizdiği anda görünür. Özellikle uyarlanabilir yenileme hızında dalgalanmayı azaltır. Kare zamanlamasının yerini alır. PyroWave ile kullanılmaz.</string>
+    <string name="title_content_rate_frame_rate">Ekranı oyunun kare hızına uydur</string>
+    <string name="summary_content_rate_frame_rate">Android’e oyunun gerçekte hangi kare hızında çalıştığını bildirir; böylece uygun moda sahip bir ekran, kararmadan o moda geçebilir. Kare zamanlarını gönderen bir bilgisayar ve «Daha düşük yenileme hızına izin ver» gerekir; en fazla 2 saniyede bir değişir. PyroWave ve uyarlanabilir yenileme ile kullanılmaz.</string>
     <string name="title_virtual_display_scale">Ana bilgisayar işleme ölçeği</string>
     <string name="summary_virtual_display_scale">Aktarılan video boyutunu değil, bilgisayarın işleme çözünürlüğünü değiştirir. Daha az piksel gönderip bu cihazda ölçeklendirmek için yayın çözünürlüğünü düşürün.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

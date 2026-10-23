@@ -116,6 +116,13 @@
             android:title="@string/title_host_frame_times"
             android:dialogMessage="@string/summary_host_frame_times"
             android:defaultValue="false" />
+        <!-- Needs a host that sends frame times; a vote never changes the mode with a blank screen. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_content_rate_frame_rate"
+            android:dependency="checkbox_vrr"
+            android:title="@string/title_content_rate_frame_rate"
+            android:dialogMessage="@string/summary_content_rate_frame_rate"
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialListPreference
             android:key="frame_pacing"
             android:dependency="checkbox_vrr"

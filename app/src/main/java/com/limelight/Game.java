@@ -486,6 +486,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final DisplayRefreshDiagnostics displayRefreshDiagnostics = new DisplayRefreshDiagnostics();
     // The last successful vote made by this activity, not a measurement of the display's rate.
     private Float appSurfaceFrameRateVote;
+    // Follows the content rate measured from the host's frame times (checkbox_content_rate_frame_rate).
+    private final com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote contentRateVote =
+            new com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote();
+    private final Runnable pollContentRateVote = new Runnable() {
+        @Override public void run() {
+            if (!connected || isFinishing()) return;
+            voteContentRate();
+            bitrateHandler.postDelayed(this, 1000);
+        }
+    };
     private PendingIntent pipDisconnectIntent;
     private final BroadcastReceiver pipReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -5619,6 +5629,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         adaptiveBitrate = null;
         qualityAutoBitrate = false;
         bitrateHandler.removeCallbacks(sampleStreamHealth);
+        bitrateHandler.removeCallbacks(pollContentRateVote);
         if (wifiDiagnostics != null) wifiDiagnostics.stop();
         pyroWaveBitrate = null;
         displayCapsReporter = null;
@@ -5913,6 +5924,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 getIntent().removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
                 bitrateHandler.removeCallbacks(sampleStreamHealth);
                 bitrateHandler.postDelayed(sampleStreamHealth, 1000);
+                bitrateHandler.removeCallbacks(pollContentRateVote);
+                bitrateHandler.postDelayed(pollContentRateVote, 1000);
                 if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
                 wifiDiagnostics.start();
                 connectedAt = SystemClock.elapsedRealtime();
@@ -6218,6 +6231,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
 
+        applySurfaceFrameRate(surface, baseSurfaceFrameRate(), Surface.CHANGE_FRAME_RATE_ALWAYS);
+        // The base vote replaced any content rate vote; make it again.
+        contentRateVote.invalidate();
+        logDisplayRefreshPolicy(getVideoDisplay());
+    }
+
+    // The vote for the stream before the content rate is known, or when it is not followed.
+    private float baseSurfaceFrameRate() {
         float desiredFrameRate;
 
         // Android will pick the lowest matching refresh rate for a given frame rate value, so we want
@@ -6238,22 +6259,48 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // frame rate evenly divides into, which ensures the lowest possible display latency.
             desiredFrameRate = desiredRefreshRate;
         }
+        return desiredFrameRate;
+    }
 
+    private void applySurfaceFrameRate(Surface surface, float frameRate, int changeStrategy) {
         // Tell the OS about our frame rate to allow it to adapt the display refresh rate appropriately
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // We want to change frame rate even if it's not seamless, since prepareDisplayForRendering()
-            // will not set the display mode on S+ if it only differs by the refresh rate. It depends
-            // on us to trigger the frame rate switch here.
-            surface.setFrameRate(desiredFrameRate,
+            // The stream's own vote changes the rate even if it's not seamless, since
+            // prepareDisplayForRendering() will not set the display mode on S+ if it only differs
+            // by the refresh rate. It depends on us to trigger the frame rate switch here.
+            surface.setFrameRate(frameRate,
                     Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                    Surface.CHANGE_FRAME_RATE_ALWAYS);
-            appSurfaceFrameRateVote = desiredFrameRate;
+                    changeStrategy);
+            appSurfaceFrameRateVote = frameRate;
         }
         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            surface.setFrameRate(desiredFrameRate,
+            // No strategy on API 30: the two-argument vote only ever switches seamlessly.
+            surface.setFrameRate(frameRate,
                     Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
-            appSurfaceFrameRateVote = desiredFrameRate;
+            appSurfaceFrameRateVote = frameRate;
         }
+    }
+
+    private boolean followsContentRate() {
+        return com.limelight.binding.video.DisplayFrameRatePolicy.followsContentRate(Build.VERSION.SDK_INT,
+                prefConfig.contentRateFrameRate,
+                MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_CLOCK_SYNC),
+                useArr, prefConfig.vrr, prefConfig.useTextureView);
+    }
+
+    // Moves the surface's frame rate vote to the rate the game presents at once that held steady,
+    // seamless modes only, so a vote never blanks the screen during the stream.
+    private void voteContentRate() {
+        if (!surfaceCreated || videoSurface == null || !videoSurface.isValid() || decoderRenderer == null ||
+                !followsContentRate()) {
+            return;
+        }
+        float contentHz = contentRateVote.next(SystemClock.uptimeMillis(), decoderRenderer.getContentRateMilliHz());
+        if (contentHz <= 0) return;
+        float vote = com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
+                baseSurfaceFrameRate(), mayReduceRefreshRate(), panelMaxRefreshRate);
+        applySurfaceFrameRate(videoSurface, vote, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+        LimeLog.info("Content frame rate vote: " + vote + " Hz (game at " + contentHz + " Hz)");
         logDisplayRefreshPolicy(getVideoDisplay());
     }
 

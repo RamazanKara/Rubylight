@@ -5925,7 +5925,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 bitrateHandler.removeCallbacks(sampleStreamHealth);
                 bitrateHandler.postDelayed(sampleStreamHealth, 1000);
                 bitrateHandler.removeCallbacks(pollContentRateVote);
-                bitrateHandler.postDelayed(pollContentRateVote, 1000);
+                if (prefConfig.contentRateFrameRate) bitrateHandler.postDelayed(pollContentRateVote, 1000);
                 if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
                 wifiDiagnostics.start();
                 connectedAt = SystemClock.elapsedRealtime();
@@ -6295,7 +6295,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 !followsContentRate()) {
             return;
         }
-        float contentHz = contentRateVote.next(SystemClock.uptimeMillis(), decoderRenderer.getContentRateMilliHz());
+        long now = SystemClock.uptimeMillis();
+        int contentMilliHz = decoderRenderer.getContentRateMilliHz();
+        if (contentRateVote.withdraw(now, contentMilliHz)) {
+            // The game no longer holds a rate: back to the vote the stream would make.
+            applySurfaceFrameRate(videoSurface, baseSurfaceFrameRate(), Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+            LimeLog.info("Content frame rate vote withdrawn");
+            logDisplayRefreshPolicy(getVideoDisplay());
+            return;
+        }
+        float contentHz = contentRateVote.next(now, contentMilliHz);
         if (contentHz <= 0) return;
         float vote = com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
                 baseSurfaceFrameRate(), mayReduceRefreshRate(), panelMaxRefreshRate);

@@ -96,4 +96,20 @@ public class DisplayFrameRatePolicyTest {
         assertEquals(0f, vote.next(3_999, 90_000), 0f);
         assertEquals(90f, vote.next(4_000, 90_000), 0f);
     }
+
+    @Test
+    public void contentRateVoteIsWithdrawnWhenTheGameStopsHoldingARate() {
+        DisplayFrameRatePolicy.ContentRateVote vote = new DisplayFrameRatePolicy.ContentRateVote();
+        // Nothing voted: nothing to withdraw.
+        assertFalse(vote.withdraw(0, 0));
+        assertEquals(90f, vote.next(0, 90_000), 0f);
+        // A rate still reported is not withdrawn; an unreported one only 2 s after the vote.
+        assertFalse(vote.withdraw(5_000, 90_000));
+        assertFalse(vote.withdraw(1_999, 0));
+        assertTrue(vote.withdraw(2_000, 0));
+        // Once withdrawn it is not withdrawn again, and the next steady rate votes again.
+        assertFalse(vote.withdraw(3_000, 0));
+        assertEquals(0f, vote.next(3_000, 60_000), 0f);
+        assertEquals(60f, vote.next(4_000, 60_000), 0f);
+    }
 }

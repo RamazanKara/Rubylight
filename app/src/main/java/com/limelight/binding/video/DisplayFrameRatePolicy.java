@@ -57,6 +57,18 @@ public final class DisplayFrameRatePolicy {
             return hz;
         }
 
+        /**
+         * Whether a content vote should be withdrawn now: the tracker no longer reports a rate
+         * (the game stopped holding one) and the last vote is at least 2 s old. The caller then
+         * votes the stream's base rate again. Ready to vote the next steady rate afterwards.
+         */
+        public boolean withdraw(long nowMs, int contentMilliHz) {
+            if (contentMilliHz > 0 || voted <= 0 || nowMs - votedAtMs < MIN_INTERVAL_MS) return false;
+            voted = 0;
+            votedAtMs = nowMs;
+            return true;
+        }
+
         /** Something else replaced the vote (a new surface, another stream rate): vote again. */
         public void invalidate() {
             voted = 0;

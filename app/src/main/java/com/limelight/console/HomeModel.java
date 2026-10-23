@@ -107,7 +107,9 @@ public final class HomeModel {
             if (entry.source != null && Boolean.FALSE.equals(entry.source.installed)) {
                 continue;
             }
-            favourites.add(new GameCard("favourite:" + entry.hostUuid + ":" + entry.appId, entry.title,
+            String id = entry.source != null && !entry.source.stableId().isEmpty() ? entry.source.stableId()
+                    : String.valueOf(entry.appId);
+            favourites.add(new GameCard("favourite:" + entry.hostUuid + ":" + id, entry.title,
                     entry.hostUuid, entry.hostName, entry.appId,
                     entry.source == null ? Badge.NONE : badgeOf(snapshot, entry.source), entry.source, 1, true));
         }

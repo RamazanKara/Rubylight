@@ -53,6 +53,17 @@ public final class ConsoleSnapshot {
             this.appUuid = appUuid;
             this.hdrSupported = hdrSupported;
         }
+
+        /**
+         * The host's id of the game that survives a renumbering of its apps: the native install id, else the
+         * classic app's UUID, else empty.
+         */
+        public String stableId() {
+            if (installId != null && !installId.isEmpty()) {
+                return installId;
+            }
+            return appUuid != null ? appUuid : "";
+        }
     }
 
     /** A title, with every host that has it (hosts agree through the native API's game id). */

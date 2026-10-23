@@ -166,14 +166,27 @@ public final class ConsoleRepository {
         favourites.forgetHost(hostUuid);
     }
 
-    /** True when the game is starred on that host. */
+    /**
+     * True when the game is starred on that host. {@code key} is {@link ConsoleSnapshot.Source#stableId()} when
+     * the library lists the game, else empty.
+     */
+    public boolean isFavourite(String hostUuid, String key, int appId) {
+        return favourites.isFavourite(hostUuid, key, appId);
+    }
+
+    /** {@link #isFavourite(String, String, int)} without a stable id: by app id. */
     public boolean isFavourite(String hostUuid, int appId) {
-        return favourites.isFavourite(hostUuid, appId);
+        return favourites.isFavourite(hostUuid, "", appId);
     }
 
     /** Stars or unstars a game; the names are kept for when the host's library is not at hand. */
+    public void setFavourite(String hostUuid, String hostName, String key, int appId, String title, boolean starred) {
+        favourites.set(new FavouritesStore.Favourite(hostUuid, hostName, key, appId, title), starred);
+    }
+
+    /** {@link #setFavourite(String, String, String, int, String, boolean)} without a stable id: by app id. */
     public void setFavourite(String hostUuid, String hostName, int appId, String title, boolean starred) {
-        favourites.set(new FavouritesStore.Favourite(hostUuid, hostName, appId, title), starred);
+        setFavourite(hostUuid, hostName, "", appId, title, starred);
     }
 
     private ConsoleSnapshot.Host hostOf(ComputerDetails computer, boolean network) {
@@ -260,13 +273,19 @@ public final class ConsoleRepository {
             if (host == null) {
                 continue;
             }
-            ConsoleSnapshot.Source source = find(host, null, favourite.appId);
+            ConsoleSnapshot.Source source = findStarred(host, favourite);
             // Same rule as recents: a known library without the game means it is gone from the host. The star
             // stays stored, so the game comes back with a reinstall.
             if (source == null && host.status != ConsoleSnapshot.Status.UNAVAILABLE) {
                 continue;
             }
-            starred.add(new ConsoleSnapshot.Starred(host.uuid, host.name, favourite.appId,
+            int appId = source != null ? source.appId : favourite.appId;
+            if (source != null && (source.appId != favourite.appId || !source.stableId().equals(favourite.key))) {
+                // The host renumbered its apps or only now gave an id: follow the game and keep the star on it.
+                favourites.set(new FavouritesStore.Favourite(host.uuid, host.name, source.stableId(), source.appId,
+                        source.title), true);
+            }
+            starred.add(new ConsoleSnapshot.Starred(host.uuid, host.name, appId,
                     source != null ? source.title : favourite.title, source));
         }
         return starred;
@@ -361,6 +380,17 @@ public final class ConsoleRepository {
         for (ConsoleSnapshot.Host host : hosts) {
             if (host.uuid.equals(uuid)) {
                 return host;
+            }
+        }
+        return null;
+    }
+
+    /** By the stored stable id first; the app id only for a star or a game that has no id. */
+    private static ConsoleSnapshot.Source findStarred(ConsoleSnapshot.Host host, FavouritesStore.Favourite favourite) {
+        for (ConsoleSnapshot.Source source : host.sources) {
+            String id = source.stableId();
+            if (favourite.key.isEmpty() || id.isEmpty() ? source.appId == favourite.appId : id.equals(favourite.key)) {
+                return source;
             }
         }
         return null;

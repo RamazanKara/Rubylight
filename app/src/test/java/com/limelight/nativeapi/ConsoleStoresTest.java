@@ -121,13 +121,13 @@ public class ConsoleStoresTest {
         assertEquals("a", favourites.get(0).hostUuid);
         assertEquals(2, favourites.get(0).appId);
         assertEquals("Renamed game", favourites.get(2).title);
-        assertTrue(store.isFavourite("b", 1));
-        assertFalse(store.isFavourite("b", 2));
+        assertTrue(store.isFavourite("b", "", 1));
+        assertFalse(store.isFavourite("b", "", 2));
 
         store.set(star("b", 1), false);
         store.set(star("never", 7), false);
-        assertFalse(store.isFavourite("b", 1));
-        assertTrue(store.isFavourite("a", 1));
+        assertFalse(store.isFavourite("b", "", 1));
+        assertTrue(store.isFavourite("a", "", 1));
         assertEquals(2, store.load().size());
     }
 
@@ -146,5 +146,89 @@ public class ConsoleStoresTest {
         assertTrue(store.load().isEmpty());
         store.set(star("c", 3), true);
         assertEquals(1, store.load().size());
+        // The unreadable list is kept aside, not silently lost.
+        assertEquals("{not json", context.getSharedPreferences(PreferencesFavouritesStore.PREFS, Context.MODE_PRIVATE)
+                .getString(PreferencesFavouritesStore.BACKUP_KEY, null));
+    }
+
+    @Test
+    public void aBadEntryIsSkippedWithoutDroppingTheRestAndTheListIsKeptAside() {
+        Context context = RuntimeEnvironment.getApplication();
+        String raw = "[{\"host\":\"a\",\"host_name\":\"A\",\"app\":1,\"title\":\"One\"},"
+                + "{\"host\":\"a\"},"
+                + "{\"host\":\"b\",\"host_name\":\"B\",\"key\":\"inst-2\",\"app\":2,\"title\":\"Two\"}]";
+        context.getSharedPreferences(PreferencesFavouritesStore.PREFS, Context.MODE_PRIVATE).edit()
+                .putString(PreferencesFavouritesStore.KEY, raw).commit();
+        PreferencesFavouritesStore store = new PreferencesFavouritesStore(context);
+        List<FavouritesStore.Favourite> favourites = store.load();
+        assertEquals(2, favourites.size());
+        assertEquals("One", favourites.get(0).title);
+        assertEquals("", favourites.get(0).key);
+        assertEquals("inst-2", favourites.get(1).key);
+        assertEquals(raw, context.getSharedPreferences(PreferencesFavouritesStore.PREFS, Context.MODE_PRIVATE)
+                .getString(PreferencesFavouritesStore.BACKUP_KEY, null));
+    }
+
+    @Test
+    public void aStableIdMatchesBeforeTheAppIdAndTheAppIdIsTheFallback() {
+        Context context = RuntimeEnvironment.getApplication();
+        PreferencesFavouritesStore store = new PreferencesFavouritesStore(context);
+        store.set(new FavouritesStore.Favourite("a", "A PC", "inst-1", 5, "Zelda"), true);
+        // The host renumbered: same install id under another app id is the same game, and the old id is another.
+        assertTrue(store.isFavourite("a", "inst-1", 40));
+        assertFalse(store.isFavourite("a", "inst-9", 5));
+        // Without an id on either side the app id decides.
+        assertTrue(store.isFavourite("a", "", 5));
+        store.set(new FavouritesStore.Favourite("a", "A PC", "inst-1", 40, "Zelda"), true);
+        assertEquals(1, store.load().size());
+        assertEquals(40, store.load().get(0).appId);
+        store.set(new FavouritesStore.Favourite("a", "A PC", "inst-1", 99, "Zelda"), false);
+        assertTrue(store.load().isEmpty());
+    }
+
+    @Test
+    public void togglesAndForgetHostFromDifferentStoresDoNotLoseEachOthersWrites() throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        int each = 40;
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        List<Thread> threads = new java.util.ArrayList<>();
+        for (String host : new String[]{"a", "b"}) {
+            Thread thread = new Thread(() -> {
+                PreferencesFavouritesStore own = new PreferencesFavouritesStore(context);
+                try {
+                    go.await();
+                } catch (InterruptedException e) {
+                    return;
+                }
+                for (int i = 0; i < each; i++) {
+                    own.set(star(host, i), true);
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+        Thread forget = new Thread(() -> {
+            PreferencesFavouritesStore own = new PreferencesFavouritesStore(context);
+            try {
+                go.await();
+            } catch (InterruptedException e) {
+                return;
+            }
+            for (int i = 0; i < each; i++) {
+                own.set(star("gone", i), true);
+                own.forgetHost("gone");
+            }
+        });
+        threads.add(forget);
+        forget.start();
+        go.countDown();
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        List<FavouritesStore.Favourite> favourites = new PreferencesFavouritesStore(context).load();
+        assertEquals(2 * each, favourites.size());
+        for (FavouritesStore.Favourite favourite : favourites) {
+            assertFalse(favourite.hostUuid.equals("gone"));
+        }
     }
 }

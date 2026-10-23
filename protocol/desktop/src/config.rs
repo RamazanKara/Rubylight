@@ -198,20 +198,25 @@ pub fn step_zoom(percent: u32, direction: i32) -> u32 {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReduceMotion {
-    /// Reduce when the operating system asks for it (Windows: animations off).
-    #[default]
-    System,
     Reduce,
     Full,
+    /// Reduce when the operating system asks for it (Windows: animations off). A value written
+    /// by a newer Nightjar reads as this too, instead of dropping every setting. Keep it last:
+    /// serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    System,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
-    /// The system's language when Nightjar has it, else English.
-    #[default]
-    System,
     English,
     German,
+    /// The system's language when Nightjar has it, else English; also what an unknown value
+    /// from a newer Nightjar reads as. Keep it last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    System,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1009,6 +1014,13 @@ mod tests {
         let set: Settings =
             serde_json::from_str("{\"ui_zoom\":150,\"high_contrast\":true,\"reduce_motion\":\"Reduce\",\"language\":\"German\"}").unwrap();
         assert_eq!((set.ui_zoom, set.high_contrast, set.reduce_motion, set.language), (150, true, ReduceMotion::Reduce, Language::German));
+    }
+
+    #[test]
+    fn a_value_from_a_newer_version_does_not_reset_the_other_settings() {
+        let set: Settings = serde_json::from_str("{\"fps\":90,\"reduce_motion\":\"Sometimes\",\"language\":\"French\",\"ui_zoom\":130}").unwrap();
+        assert_eq!((set.fps, set.ui_zoom), (90, 130));
+        assert_eq!((set.reduce_motion, set.language), (ReduceMotion::System, Language::System));
     }
 
     #[test]

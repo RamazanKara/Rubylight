@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Ajusta a intensidade da vibração deste dispositivo.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Zona morta do analógico</string>
-    <string name="summary_seekbar_deadzone">Alguns jogos usam uma zona morta maior. Valores negativos amplificam pequenos movimentos para superar a zona morta embutida do controle ou do jogo.</string>
+    <string name="summary_seekbar_deadzone">Alguns jogos usam uma zona morta maior. Valores negativos amplificam pequenos movimentos para superar a zona morta embutida do controle ou do jogo. Valores negativos também amplificam o desvio do analógico em repouso.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Driver de controle USB</string>
     <string name="summary_checkbox_xb1_driver">Driver integrado para controles Xbox via USB. Não requer root.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Desativado (saída direta)</string>
     <string name="title_gl_render">Renderizar via OpenGL</string>
-    <string name="summary_gl_render">Exibe o vídeo via OpenGL para que uma sobreposição de geração de quadros possa se conectar a ele. Pode adicionar um pouco de latência. Não é usado com HDR ou PyroWave.</string>
+    <string name="summary_gl_render">Envia o vídeo via OpenGL para que sobreposições de geração de quadros possam se conectar. Altera o ritmo dos quadros, adiciona latência e a sobreposição de latência mostra menos valores. Use só para essas sobreposições.</string>
     <string name="upscaling_gl_only">OpenGL (sem escala)</string>
     <string name="gl_render_fallback">Renderização OpenGL: saída direta. %1$s</string>
     <string name="upscaling_fallback">Upscaling: saída direta. %1$s</string>

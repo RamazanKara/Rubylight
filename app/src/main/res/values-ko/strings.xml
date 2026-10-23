@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">이 기기의 진동 세기를 조정합니다.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">아날로그 스틱 데드존</string>
-    <string name="summary_seekbar_deadzone">일부 게임은 더 큰 데드존을 사용합니다. 음수 값은 컨트롤러나 게임에 내장된 데드존을 넘도록 작은 입력을 바깥쪽으로 밀어 줍니다.</string>
+    <string name="summary_seekbar_deadzone">일부 게임은 더 큰 데드존을 사용합니다. 음수 값은 컨트롤러나 게임에 내장된 데드존을 넘도록 작은 입력을 바깥쪽으로 밀어 줍니다. 음수 값은 스틱을 놓았을 때의 드리프트도 증폭합니다.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB 컨트롤러 드라이버</string>
     <string name="summary_checkbox_xb1_driver">USB로 연결된 Xbox 컨트롤러용 내장 드라이버입니다. root가 필요하지 않습니다.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">사용 안함(직접 출력)</string>
     <string name="title_gl_render">OpenGL로 렌더링</string>
-    <string name="summary_gl_render">프레임 생성 오버레이가 연결될 수 있도록 영상을 OpenGL로 표시합니다. 지연이 조금 늘어날 수 있습니다. HDR 및 PyroWave에서는 사용되지 않습니다.</string>
+    <string name="summary_gl_render">프레임 생성 오버레이가 연결될 수 있도록 영상을 OpenGL로 보냅니다. 프레임 페이싱이 바뀌고 지연이 늘며 지연 오버레이에 표시되는 값이 줄어듭니다. 이러한 오버레이에만 사용하세요.</string>
     <string name="upscaling_gl_only">OpenGL(확대 없음)</string>
     <string name="gl_render_fallback">OpenGL 렌더링: 직접 출력. %1$s</string>
     <string name="upscaling_fallback">업스케일링: 직접 출력. %1$s</string>

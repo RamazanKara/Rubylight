@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Dostosuj siłę wibracji tego urządzenia.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Martwa strefa gałki analogowej</string>
-    <string name="summary_seekbar_deadzone">Niektóre gry używają większej martwej strefy. Wartości ujemne wzmacniają małe ruchy, aby pokonać wbudowaną martwą strefę kontrolera lub gry.</string>
+    <string name="summary_seekbar_deadzone">Niektóre gry używają większej martwej strefy. Wartości ujemne wzmacniają małe ruchy, aby pokonać wbudowaną martwą strefę kontrolera lub gry. Wartości ujemne wzmacniają też dryf nieruchomej gałki.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Sterownik kontrolera USB</string>
     <string name="summary_checkbox_xb1_driver">Wbudowany sterownik kontrolerów Xbox przez USB. Root nie jest wymagany.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Wyłączone (wyjście bezpośrednie)</string>
     <string name="title_gl_render">Renderuj przez OpenGL</string>
-    <string name="summary_gl_render">Wyświetla obraz przez OpenGL, aby nakładka generowania klatek mogła się do niego podpiąć. Może dodać niewielkie opóźnienie. Nieużywane z HDR ani PyroWave.</string>
+    <string name="summary_gl_render">Przesyła obraz przez OpenGL, aby nakładki generowania klatek mogły się do niego podpiąć. Zmienia tempo klatek, zwiększa opóźnienie, a nakładka opóźnień pokazuje mniej wartości. Używaj tylko do takich nakładek.</string>
     <string name="upscaling_gl_only">OpenGL (bez skalowania)</string>
     <string name="gl_render_fallback">Renderowanie OpenGL: wyjście bezpośrednie. %1$s</string>
     <string name="upscaling_fallback">Skalowanie: wyjście bezpośrednie. %1$s</string>

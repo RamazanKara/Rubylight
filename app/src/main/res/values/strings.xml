@@ -167,7 +167,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Adjust this device’s vibration strength.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Analog stick deadzone</string>
-    <string name="summary_seekbar_deadzone">Some games use a larger deadzone. Negative values push small movements outwards to overcome the built-in deadzone of a controller or game.</string>
+    <string name="summary_seekbar_deadzone">Some games use a larger deadzone. Negative values push small movements outwards to overcome the built-in deadzone of a controller or game. Negative values also amplify resting-stick drift.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB controller driver</string>
     <string name="summary_checkbox_xb1_driver">Built-in driver for Xbox controllers over USB. No root needed.</string>
@@ -420,7 +420,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Off (direct output)</string>
     <string name="title_gl_render">Render through OpenGL</string>
-    <string name="summary_gl_render">Show video through OpenGL so a frame-generation overlay can hook it. May add a little latency. Not used with HDR or PyroWave.</string>
+    <string name="summary_gl_render">Sends video through OpenGL so frame-generation overlays can hook it. Changes frame pacing, adds latency, and the latency overlay shows fewer numbers. Use only for such overlays.</string>
     <string name="upscaling_gl_only">OpenGL (no scaling)</string>
     <string name="gl_render_fallback">OpenGL rendering: direct output. %1$s</string>
     <string name="upscaling_fallback">Upscaling: direct output. %1$s</string>

@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Điều chỉnh cường độ rung của thiết bị này.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Vùng chết của cần analog</string>
-    <string name="summary_seekbar_deadzone">Một số trò chơi dùng vùng chết lớn hơn. Giá trị âm khuếch đại các chuyển động nhỏ để vượt qua vùng chết có sẵn của tay cầm hoặc trò chơi.</string>
+    <string name="summary_seekbar_deadzone">Một số trò chơi dùng vùng chết lớn hơn. Giá trị âm khuếch đại các chuyển động nhỏ để vượt qua vùng chết có sẵn của tay cầm hoặc trò chơi. Giá trị âm cũng khuếch đại hiện tượng trôi của cần analog khi đứng yên.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Driver tay cầm điều khiển USB</string>
     <string name="summary_checkbox_xb1_driver">Driver tích hợp cho tay cầm Xbox qua USB. Không cần root.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Tắt (xuất trực tiếp)</string>
     <string name="title_gl_render">Kết xuất qua OpenGL</string>
-    <string name="summary_gl_render">Hiển thị video qua OpenGL để lớp phủ tạo khung hình có thể móc vào. Có thể tăng thêm một chút độ trễ. Không dùng với HDR hoặc PyroWave.</string>
+    <string name="summary_gl_render">Gửi video qua OpenGL để lớp phủ tạo khung hình có thể móc vào. Thay đổi nhịp khung hình, tăng độ trễ và lớp phủ độ trễ hiển thị ít số liệu hơn. Chỉ dùng cho các lớp phủ đó.</string>
     <string name="upscaling_gl_only">OpenGL (không phóng đại)</string>
     <string name="gl_render_fallback">Kết xuất OpenGL: xuất trực tiếp. %1$s</string>
     <string name="upscaling_fallback">Nâng cấp độ phân giải: xuất trực tiếp. %1$s</string>

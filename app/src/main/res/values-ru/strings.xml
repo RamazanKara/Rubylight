@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Настройте силу вибрации этого устройства.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Мёртвая зона стика</string>
-    <string name="summary_seekbar_deadzone">В некоторых играх используется более широкая мёртвая зона. Отрицательные значения усиливают малые отклонения, чтобы преодолеть встроенную мёртвую зону геймпада или игры.</string>
+    <string name="summary_seekbar_deadzone">В некоторых играх используется более широкая мёртвая зона. Отрицательные значения усиливают малые отклонения, чтобы преодолеть встроенную мёртвую зону геймпада или игры. Отрицательные значения также усиливают дрейф неподвижного стика.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Драйвер USB-контроллеров</string>
     <string name="summary_checkbox_xb1_driver">Встроенный драйвер для контроллеров Xbox по USB. Root не нужен.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Выкл. (прямой вывод)</string>
     <string name="title_gl_render">Рендеринг через OpenGL</string>
-    <string name="summary_gl_render">Показывает видео через OpenGL, чтобы оверлей генерации кадров мог к нему подключиться. Может немного увеличить задержку. Не используется с HDR и PyroWave.</string>
+    <string name="summary_gl_render">Отправляет видео через OpenGL, чтобы оверлеи генерации кадров могли к нему подключиться. Меняет темп кадров, увеличивает задержку, а оверлей задержки показывает меньше значений. Используйте только для таких оверлеев.</string>
     <string name="upscaling_gl_only">OpenGL (без масштабирования)</string>
     <string name="gl_render_fallback">Рендеринг OpenGL: прямой вывод. %1$s</string>
     <string name="upscaling_fallback">Масштабирование: прямой вывод. %1$s</string>

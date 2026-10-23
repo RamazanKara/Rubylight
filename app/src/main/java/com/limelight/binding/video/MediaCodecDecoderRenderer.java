@@ -775,6 +775,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             // The Vulkan renderer runs SGSR itself; the GLES upscaler only serves MediaCodec.
             upscalingPolicy.fail(UpscalingPolicy.Reason.PYROWAVE);
+            if (prefs.upscalingMode == UpscalingPolicy.Mode.OFF) {
+                // Only the OpenGL setting asked for the GL path; PyroWave keeps its own renderer.
+                glPresentOnly = true;
+                notifyUpscalingFallback();
+            }
             return;
         }
         int[] viewport = UpscalingPolicy.viewport(initialWidth, initialHeight, renderWidth, renderHeight, prefs.stretchVideo);
@@ -2378,7 +2383,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     public void prepareForStop() {
         // Let the decoding code know to ignore codec exceptions now
         stopping = true;
-        if (prefs.upscalingMode != UpscalingPolicy.Mode.OFF && Looper.myLooper() == Looper.getMainLooper()) {
+        if (UpscalingPolicy.mayUseGles(prefs.upscalingMode, prefs.glRender) && Looper.myLooper() == Looper.getMainLooper()) {
             // stop() repeats this on the shutdown worker, away from EGL startup/recovery on the UI.
             return;
         }

@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Ajusta la intensidad de vibración de este dispositivo.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Zona muerta del joystick</string>
-    <string name="summary_seekbar_deadzone">Algunos juegos usan una zona muerta mayor. Los valores negativos amplifican los movimientos pequeños para superar la zona muerta integrada del mando o del juego.</string>
+    <string name="summary_seekbar_deadzone">Algunos juegos usan una zona muerta mayor. Los valores negativos amplifican los movimientos pequeños para superar la zona muerta integrada del mando o del juego. Los valores negativos también amplifican la deriva del joystick en reposo.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Controlador de mandos USB</string>
     <string name="summary_checkbox_xb1_driver">Controlador integrado para mandos de Xbox por USB. No requiere root.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d %%</string>
     <string name="upscaling_direct">Desactivado (salida directa)</string>
     <string name="title_gl_render">Renderizar con OpenGL</string>
-    <string name="summary_gl_render">Muestra el vídeo mediante OpenGL para que una superposición de generación de fotogramas pueda engancharse. Puede añadir algo de latencia. No se usa con HDR ni PyroWave.</string>
+    <string name="summary_gl_render">Envía el vídeo por OpenGL para que las superposiciones de generación de fotogramas puedan engancharse. Cambia el ritmo de fotogramas, añade latencia y la superposición de latencia muestra menos valores. Úsalo solo para ese fin.</string>
     <string name="upscaling_gl_only">OpenGL (sin escalado)</string>
     <string name="gl_render_fallback">Renderizado con OpenGL: salida directa. %1$s</string>
     <string name="upscaling_fallback">Escalado: salida directa. %1$s</string>

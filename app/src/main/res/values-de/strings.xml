@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Passe die Vibration deines Geräts an.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Stick-Deadzone</string>
-    <string name="summary_seekbar_deadzone">Manche Spiele nutzen eine größere Deadzone. Negative Werte verstärken kleine Bewegungen, um die eingebaute Deadzone eines Controllers oder Spiels zu überwinden.</string>
+    <string name="summary_seekbar_deadzone">Manche Spiele nutzen eine größere Deadzone. Negative Werte verstärken kleine Bewegungen, um die eingebaute Deadzone eines Controllers oder Spiels zu überwinden. Negative Werte verstärken auch das Driften eines ruhenden Sticks.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB-Controller-Treiber</string>
     <string name="summary_checkbox_xb1_driver">Integrierter Treiber für Xbox-Controller per USB, ohne Root.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Aus (direkte Ausgabe)</string>
     <string name="title_gl_render">Über OpenGL rendern</string>
-    <string name="summary_gl_render">Zeigt das Video über OpenGL an, damit ein Frame-Generation-Overlay es abgreifen kann. Kann etwas Latenz hinzufügen. Nicht bei HDR oder PyroWave.</string>
+    <string name="summary_gl_render">Leitet das Video über OpenGL, damit Frame-Generation-Overlays es abgreifen können. Ändert das Frame-Pacing, erhöht die Latenz, und das Latenz-Overlay zeigt weniger Werte. Nur für solche Overlays verwenden.</string>
     <string name="upscaling_gl_only">OpenGL (ohne Skalierung)</string>
     <string name="gl_render_fallback">OpenGL-Rendering: direkte Ausgabe. %1$s</string>
     <string name="upscaling_fallback">Hochskalierung: direkte Ausgabe. %1$s</string>

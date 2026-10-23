@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Bu cihazın titreşim gücünü ayarlayın.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Analog çubuk ölü bölgesi</string>
-    <string name="summary_seekbar_deadzone">Bazı oyunlar daha büyük bir ölü bölge kullanır. Negatif değerler, kontrolcünün veya oyunun yerleşik ölü bölgesini aşmak için küçük hareketleri güçlendirir.</string>
+    <string name="summary_seekbar_deadzone">Bazı oyunlar daha büyük bir ölü bölge kullanır. Negatif değerler, kontrolcünün veya oyunun yerleşik ölü bölgesini aşmak için küçük hareketleri güçlendirir. Negatif değerler, boştaki çubuğun kaymasını da güçlendirir.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB kumanda sürücüsü</string>
     <string name="summary_checkbox_xb1_driver">USB üzerinden Xbox kumandaları için yerleşik sürücü. Root gerekmez.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%%%1$d</string>
     <string name="upscaling_direct">Kapalı (doğrudan çıkış)</string>
     <string name="title_gl_render">OpenGL ile işle</string>
-    <string name="summary_gl_render">Kare üretimi kaplamasının bağlanabilmesi için videoyu OpenGL üzerinden gösterir. Biraz gecikme ekleyebilir. HDR veya PyroWave ile kullanılmaz.</string>
+    <string name="summary_gl_render">Kare üretimi kaplamalarının bağlanabilmesi için videoyu OpenGL üzerinden gönderir. Kare temposunu değiştirir, gecikme ekler ve gecikme kaplaması daha az değer gösterir. Yalnızca bu tür kaplamalar için kullanın.</string>
     <string name="upscaling_gl_only">OpenGL (ölçekleme yok)</string>
     <string name="gl_render_fallback">OpenGL işleme: doğrudan çıkış. %1$s</string>
     <string name="upscaling_fallback">Ölçeklendirme: doğrudan çıkış. %1$s</string>

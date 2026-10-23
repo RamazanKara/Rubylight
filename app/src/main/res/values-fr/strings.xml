@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Réglez l’intensité de vibration de cet appareil.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Zone morte des sticks analogiques</string>
-    <string name="summary_seekbar_deadzone">Certains jeux utilisent une zone morte plus grande. Les valeurs négatives amplifient les petits mouvements pour dépasser la zone morte intégrée de la manette ou du jeu.</string>
+    <string name="summary_seekbar_deadzone">Certains jeux utilisent une zone morte plus grande. Les valeurs négatives amplifient les petits mouvements pour dépasser la zone morte intégrée de la manette ou du jeu. Les valeurs négatives amplifient aussi la dérive d’un stick au repos.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Pilote de manette USB</string>
     <string name="summary_checkbox_xb1_driver">Pilote intégré pour les manettes Xbox en USB. Root non requis.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d %%</string>
     <string name="upscaling_direct">Désactivée (sortie directe)</string>
     <string name="title_gl_render">Rendu via OpenGL</string>
-    <string name="summary_gl_render">Affiche la vidéo via OpenGL afin qu’une surcouche de génération d’images puisse s’y brancher. Peut ajouter un peu de latence. Non utilisé avec HDR ou PyroWave.</string>
+    <string name="summary_gl_render">Envoie la vidéo via OpenGL pour que les surcouches de génération d’images puissent s’y brancher. Modifie le rythme des images, ajoute de la latence, et la surcouche de latence affiche moins de valeurs. À réserver à ces surcouches.</string>
     <string name="upscaling_gl_only">OpenGL (sans mise à l’échelle)</string>
     <string name="gl_render_fallback">Rendu OpenGL : sortie directe. %1$s</string>
     <string name="upscaling_fallback">Mise à l’échelle : sortie directe. %1$s</string>

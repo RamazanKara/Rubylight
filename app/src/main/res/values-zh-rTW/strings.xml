@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">調整這部裝置的震動強度。</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">類比搖桿死區</string>
-    <string name="summary_seekbar_deadzone">部分遊戲使用較大的死區。負值會放大小幅度的搖桿移動，以克服手把或遊戲內建的死區。</string>
+    <string name="summary_seekbar_deadzone">部分遊戲使用較大的死區。負值會放大小幅度的搖桿移動，以克服手把或遊戲內建的死區。負值也會放大搖桿靜止時的漂移。</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB 控制器驅動程式</string>
     <string name="summary_checkbox_xb1_driver">適用於透過 USB 連接之 Xbox 控制器的內建驅動程式。不需要 root。</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">關閉 (直接輸出)</string>
     <string name="title_gl_render">透過 OpenGL 繪製</string>
-    <string name="summary_gl_render">透過 OpenGL 顯示影片，讓幀生成覆蓋層可以掛接。可能會略微增加延遲。HDR 與 PyroWave 不使用此選項。</string>
+    <string name="summary_gl_render">透過 OpenGL 傳送影片，讓幀生成覆蓋層可以掛接。會改變幀節奏、增加延遲，延遲覆蓋層顯示的數值也會減少。僅用於此類覆蓋層。</string>
     <string name="upscaling_gl_only">OpenGL（不縮放）</string>
     <string name="gl_render_fallback">OpenGL 繪製：直接輸出。%1$s</string>
     <string name="upscaling_fallback">升頻：直接輸出。%1$s</string>

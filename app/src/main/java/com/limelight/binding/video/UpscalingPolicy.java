@@ -44,6 +44,11 @@ public final class UpscalingPolicy {
         }
     }
 
+    // A GLES presenter, with its EGL startup, can exist for upscaling or for "Render through OpenGL".
+    public static boolean mayUseGles(Mode mode, boolean glRender) {
+        return mode != Mode.OFF || glRender;
+    }
+
     public static Reason unavailableReason(Mode mode, int width, int height, int outputWidth,
                                            int outputHeight, boolean hdrOrTenBit,
                                            boolean pyroWave, boolean glesSupported) {

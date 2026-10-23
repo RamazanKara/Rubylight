@@ -32,6 +32,14 @@ public class UpscalingPolicyTest {
         return UpscalingPolicy.unavailableReason(mode, width, height, outputWidth, outputHeight, hdr, pyroWave, supported);
     }
 
+    @Test
+    public void openGlRenderingCountsAsUsingTheGlesPresenterEvenWithUpscalingOff() {
+        assertFalse(UpscalingPolicy.mayUseGles(OFF, false));
+        assertTrue(UpscalingPolicy.mayUseGles(OFF, true));
+        assertTrue(UpscalingPolicy.mayUseGles(FSR1, false));
+        assertTrue(UpscalingPolicy.mayUseGles(BILINEAR, true));
+    }
+
     private UpscalingPolicy.Reason present(int width, int height, int outputWidth, int outputHeight,
                                            boolean hdr, boolean pyroWave, boolean supported) {
         return UpscalingPolicy.unavailableReason(BILINEAR, width, height, outputWidth, outputHeight, hdr, pyroWave,

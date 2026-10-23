@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Regola l’intensità della vibrazione di questo dispositivo.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Zona morta delle levette</string>
-    <string name="summary_seekbar_deadzone">Alcuni giochi usano una zona morta più ampia. I valori negativi amplificano i piccoli movimenti per superare la zona morta integrata del controller o del gioco.</string>
+    <string name="summary_seekbar_deadzone">Alcuni giochi usano una zona morta più ampia. I valori negativi amplificano i piccoli movimenti per superare la zona morta integrata del controller o del gioco. I valori negativi amplificano anche la deriva di una levetta a riposo.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Driver controller USB</string>
     <string name="summary_checkbox_xb1_driver">Driver integrato per controller Xbox via USB. Root non necessario.</string>
@@ -376,7 +376,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Disattivato (output diretto)</string>
     <string name="title_gl_render">Rendering tramite OpenGL</string>
-    <string name="summary_gl_render">Mostra il video tramite OpenGL così che un overlay di frame generation possa agganciarsi. Può aggiungere un po’ di latenza. Non usato con HDR o PyroWave.</string>
+    <string name="summary_gl_render">Invia il video tramite OpenGL così che gli overlay di frame generation possano agganciarsi. Cambia il frame pacing, aggiunge latenza e l’overlay della latenza mostra meno valori. Usalo solo per tali overlay.</string>
     <string name="upscaling_gl_only">OpenGL (senza scalatura)</string>
     <string name="gl_render_fallback">Rendering OpenGL: uscita diretta. %1$s</string>
     <string name="upscaling_fallback">Upscaling: output diretto. %1$s</string>

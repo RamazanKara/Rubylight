@@ -19,7 +19,10 @@ mod keymap;
 mod media;
 mod network;
 mod network_test;
+mod radeon;
 mod sdl;
+mod session_page;
+mod session_ui;
 mod shortcuts;
 mod stream;
 mod theme;
@@ -1103,6 +1106,10 @@ impl App {
             return;
         };
         streaming.pump();
+        if streaming.session_page_requested {
+            let link = self.launcher.network.description(&self.launcher.profiles.home_wifi);
+            streaming.open_session_page(self.waker.clone(), link);
+        }
         if streaming.update_overlay() && streaming.overlay_visible {
             streaming.needs_redraw = true;
         }
@@ -1144,6 +1151,10 @@ impl App {
         // SAFETY: reading the event type.
         let kind = SDL_EventType(unsafe { event.r#type });
         if kind.0 == self.wake_event {
+            // The Session page's worker published something new.
+            if let Some((s, _)) = self.streaming.as_mut() {
+                if s.session_page.is_some() { s.needs_redraw = true; }
+            }
             return;
         }
         if kind == SDL_EVENT_KEY_DOWN && unsafe { event.key.scancode } == SDL_SCANCODE_F12 {
@@ -1182,7 +1193,12 @@ impl App {
                 event.gbutton.button == back_button.0 as u8 || event.gbutton.button == SDL_GAMEPAD_BUTTON_BACK.0 as u8
             });
             if close_menu {
-                streaming.toggle_menu(self.window, &mut self.pads);
+                // Escape or B on the Session page goes back to the controls first.
+                if streaming.session_page.is_some() {
+                    streaming.close_session_page();
+                } else {
+                    streaming.toggle_menu(self.window, &mut self.pads);
+                }
                 return;
             }
             if matches!(kind, SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION) {
@@ -1224,7 +1240,26 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     ui.label("Keyboard, mouse and controllers control the PC. Ctrl+Alt+Shift+Q disconnects.");
                 });
         }
-        if s.menu_visible {
+        if s.menu_visible && s.session_page.is_some() {
+            let lines = s.connection_lines();
+            let hints = s.session_hints();
+            let mut outcome = session_ui::Outcome::Stay;
+            if let Some(page) = s.session_page.as_mut() {
+                egui::Window::new("Session and graphics")
+                    .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                    .collapsible(false).resizable(false).vscroll(true).default_width(440.0)
+                    .show(&ctx, |ui| {
+                        outcome = session_ui::show(ui, page, &title, &lines, hints);
+                    });
+            }
+            match outcome {
+                session_ui::Outcome::Stay => {}
+                session_ui::Outcome::Resume => s.toggle_menu(window, pads),
+                session_ui::Outcome::Back => s.close_session_page(),
+                session_ui::Outcome::Disconnect | session_ui::Outcome::Leave => s.exit = Some(Exit::User),
+            }
+        }
+        if s.menu_visible && s.session_page.is_none() {
             egui::Window::new("Stream controls")
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .collapsible(false).resizable(false).vscroll(true)
@@ -1368,6 +1403,9 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         }
                     }
                     ui.separator();
+                    if s.session_page_available() && ui.button("Session and graphics").clicked() {
+                        s.session_page_requested = true;
+                    }
                     if ui.button("Reconnect").clicked() { s.exit = Some(Exit::Reconnect); }
                     if ui.button("Disconnect").clicked() { s.exit = Some(Exit::User); }
                     ui.label("Ctrl+Alt+Shift+Tab or Start+Select opens this menu.");

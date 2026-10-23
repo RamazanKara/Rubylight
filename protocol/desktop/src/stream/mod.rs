@@ -629,6 +629,11 @@ pub struct Streaming {
     pub export_statistics: bool,
     statistics: VecDeque<String>,
     pub menu_visible: bool,
+    /// The open "Session and graphics" page; its worker runs only while this is Some.
+    pub session_page: Option<crate::session_page::Page>,
+    session_link: String,
+    /// The menu asked for the page; the main loop opens it (it owns the waker and the network).
+    pub session_page_requested: bool,
     keys_down: HashSet<u16>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
@@ -729,6 +734,9 @@ impl Streaming {
             export_statistics: false,
             statistics: VecDeque::new(),
             menu_visible: false,
+            session_page: None,
+            session_link: String::new(),
+            session_page_requested: false,
             keys_down: HashSet::new(),
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
@@ -1224,10 +1232,56 @@ impl Streaming {
 
     pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
         self.menu_visible = !self.menu_visible;
+        if !self.menu_visible {
+            self.session_page = None;
+        }
         self.raise_all_keys();
         self.session.input(|q| pads.release(q));
         self.set_capture(window, !self.menu_visible);
         self.needs_redraw = true;
+    }
+
+    /// Whether the PC speaks the Rubylight native API, so the Session page has something to show.
+    pub fn session_page_available(&self) -> bool {
+        self.facts.role == AppRole::Stream && self.plan.info.capabilities.has(Feature::NativeApi)
+    }
+
+    /// Opens the Session page and starts its worker. `link` is the network description.
+    pub fn open_session_page(&mut self, waker: Waker, link: String) {
+        let identity = self.plan.identity.clone();
+        let record = self.plan.record.clone();
+        let address = record.address.clone();
+        self.session_link = link;
+        self.session_page_requested = false;
+        self.session_page = Some(crate::session_page::Page::open(
+            move || crate::hosts::client_for(&identity, &record, &address),
+            waker,
+        ));
+        self.needs_redraw = true;
+    }
+
+    /// Closes the Session page; its worker ends and nothing polls.
+    pub fn close_session_page(&mut self) {
+        self.session_page = None;
+        self.needs_redraw = true;
+    }
+
+    /// What is known about this device's permissions before the page has read them.
+    pub fn session_hints(&self) -> crate::session_page::Hints {
+        crate::session_page::Hints { launch: true, host_control: false }
+    }
+
+    /// The connection facts under the Session page's actions.
+    pub fn connection_lines(&self) -> Vec<(&'static str, String)> {
+        let network = self.overlay.lines.iter().find(|(k, _)| k == "Network").map(|(_, v)| v.as_str());
+        crate::session_page::connection_lines(
+            &self.facts.host_name,
+            codec_name(self.facts.format),
+            (self.facts.width, self.facts.height, self.facts.fps),
+            self.facts.bitrate_kbps,
+            &self.session_link,
+            network,
+        )
     }
 
     pub fn send_shortcut(&mut self, shortcut: &crate::shortcuts::Shortcut) {

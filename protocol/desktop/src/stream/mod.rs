@@ -21,6 +21,8 @@ mod pyrowave;
 pub mod pyrowave_gpu;
 #[cfg(windows)]
 mod d3d11;
+#[cfg(windows)]
+mod pyrowave_sdk;
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::Ordering;

@@ -97,6 +97,8 @@ export interface Draft {
   background_stream: boolean;
   virtual_display_mode: string;
   virtual_display_layout: string;
+  /** The layout field was picked in the editor, so the host never learns over it. */
+  virtual_display_layout_set_by_user: boolean;
   prefer_10bit_sdr: '' | 'on' | 'off';
   hdr_profile: string;
   allow_client_commands: boolean;
@@ -162,6 +164,7 @@ export function toDraft(client: Client): Draft {
     background_stream: flag(client.background_stream) === true,
     virtual_display_mode: choice(client.virtual_display_mode, VIRTUAL_DISPLAY_MODES),
     virtual_display_layout: choice(client.virtual_display_layout, VIRTUAL_DISPLAY_LAYOUTS),
+    virtual_display_layout_set_by_user: flag(client.virtual_display_layout_set_by_user) === true,
     prefer_10bit_sdr: sdr === null ? '' : sdr ? 'on' : 'off',
     hdr_profile: text(client.hdr_profile),
     allow_client_commands: flag(client.allow_client_commands) !== false,
@@ -194,6 +197,8 @@ function serialise(draft: Draft): Changes {
     background_stream: draft.background_stream,
     virtual_display_mode: draft.virtual_display_mode || null,
     virtual_display_layout: draft.virtual_display_layout || null,
+    // Only a layout the user picked is theirs; one the host learned from a stream is not.
+    virtual_display_layout_set_by_user: draft.virtual_display_layout && draft.virtual_display_layout_set_by_user ? true : null,
     prefer_10bit_sdr: draft.prefer_10bit_sdr === '' ? null : draft.prefer_10bit_sdr === 'on',
     hdr_profile: draft.hdr_profile || null,
     allow_client_commands: draft.allow_client_commands,

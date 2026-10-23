@@ -115,8 +115,22 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     }
                 }
             }
-            // A layout the user picks is theirs, not one learned from a stream.
-            if c.extra.get("virtual_display_layout") != previous_layout.as_ref() {
+            // A layout the user picks is theirs, not one learned from a stream: the
+            // editor says so when the field was touched (even if it ends on the same
+            // value), and any other change of the layout through here is a user's too.
+            // A device with no layout of its own has nothing to protect.
+            let set_by_user = crate::display_session::SET_BY_USER;
+            let touched = data.get(set_by_user).and_then(Value::as_bool) == Some(true);
+            let layout = c.extra.get("virtual_display_layout");
+            let changed = layout != previous_layout.as_ref();
+            let has_layout = layout
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty() && s != "global");
+            if has_layout && (touched || changed) {
+                c.extra.insert(set_by_user.into(), Value::Bool(true));
+                c.extra.remove(crate::display_session::LEARNED_OVER);
+            } else if !has_layout {
+                c.extra.remove(set_by_user);
                 c.extra.remove(crate::display_session::LEARNED_OVER);
             }
             let revoked = data.get("enabled").and_then(Value::as_bool) == Some(false)
@@ -246,6 +260,72 @@ mod tests {
         )
         .unwrap();
         assert!(!f.host.radeon.holds(&client.uuid));
+    }
+
+    fn layout_settings(f: &Fixture) -> (Option<serde_json::Value>, bool, bool) {
+        let paired = f.host.paired.read().unwrap();
+        let extra = &paired.clients[0].extra;
+        (
+            extra.get("virtual_display_layout").cloned(),
+            extra.contains_key(crate::display_session::SET_BY_USER),
+            extra.contains_key(crate::display_session::LEARNED_OVER),
+        )
+    }
+    fn update(f: &Fixture, data: serde_json::Value) {
+        handle(&f.host, "POST", "/api/clients/update", &data).unwrap();
+    }
+
+    #[test]
+    fn only_touching_the_layout_field_makes_a_learned_layout_the_users() {
+        // Issue #40: a layout learned from a stream is not the user's until they
+        // pick it, and a rename or another setting does not make it so.
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let uuid = client.uuid;
+        {
+            let mut paired = f.host.paired.write().unwrap();
+            let extra = &mut paired.clients[0].extra;
+            extra.insert("virtual_display_layout".into(), "extended".into());
+            extra.insert(
+                crate::display_session::LEARNED_OVER.into(),
+                "extended_primary".into(),
+            );
+        }
+        update(
+            &f,
+            json!({"uuid": uuid, "name": "Renamed", "background_stream": true}),
+        );
+        assert_eq!(
+            layout_settings(&f),
+            (Some(json!("extended")), false, true),
+            "a save that leaves the layout alone keeps it learned"
+        );
+        // The editor picked the value that was already there.
+        update(
+            &f,
+            json!({"uuid": uuid, crate::display_session::SET_BY_USER: true}),
+        );
+        assert_eq!(layout_settings(&f), (Some(json!("extended")), true, false));
+        // A rename does not take it back.
+        update(&f, json!({"uuid": uuid, "name": "Again"}));
+        assert_eq!(layout_settings(&f), (Some(json!("extended")), true, false));
+        // Back to the host setting: nothing is left to protect or to yield.
+        update(
+            &f,
+            json!({"uuid": uuid, "virtual_display_layout": null, crate::display_session::SET_BY_USER: null}),
+        );
+        assert_eq!(layout_settings(&f), (None, false, false));
+    }
+
+    #[test]
+    fn a_layout_changed_through_the_console_api_is_the_users() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        update(
+            &f,
+            json!({"uuid": client.uuid, "virtual_display_layout": "exclusive"}),
+        );
+        assert_eq!(layout_settings(&f), (Some(json!("exclusive")), true, false));
     }
 
     #[test]

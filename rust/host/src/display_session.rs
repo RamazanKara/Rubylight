@@ -114,16 +114,23 @@ pub(crate) fn virtual_display_layout<'a>(
 
 /// The device setting naming the app or host layout a learned device layout replaced.
 pub(crate) const LEARNED_OVER: &str = "virtual_display_layout_learned_over";
-/// Whether the device's own virtual display layout was set by the user (in the
-/// device editor) rather than learned from a stream: it names a layout and
-/// carries no [`LEARNED_OVER`] marker.
+/// Set in the device settings when the user picked the device's layout in the
+/// console. Only it protects a layout from being learned over: a layout saved
+/// before it existed, or by a stream, stays learnable.
+pub(crate) const SET_BY_USER: &str = "virtual_display_layout_set_by_user";
+/// Whether the device's own virtual display layout is one the user set rather
+/// than one learned from a stream.
 fn has_user_layout(client: &butterpollo_core::state::Client) -> bool {
     client
         .extra
         .get("virtual_display_layout")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|s| !s.is_empty() && s != "global")
-        && !client.extra.contains_key(LEARNED_OVER)
+        && client
+            .extra
+            .get(SET_BY_USER)
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
 }
 /// The resolution a device with `remember_display_mode` keeps for its virtual
 /// display, `WIDTHxHEIGHT`, from the last stream it was changed in Windows.
@@ -1390,6 +1397,7 @@ impl Prepared {
         client
             .extra
             .insert("virtual_display_layout".into(), serde_json::json!(chosen));
+        client.extra.remove(SET_BY_USER);
         if let Some(inherited) = &self.inherited_layout {
             client
                 .extra
@@ -2445,7 +2453,7 @@ pub(crate) mod tests {
         let config = Config::parse("dd_config_revert_delay=0").unwrap();
         *fixture.host.config.write().unwrap() = config.clone();
         let mut prepared = test_prepared(&fixture.host);
-        prepared.output = r"\.\DISPLAY9".into();
+        prepared.output = r"\\.\DISPLAY9".into();
         prepared.virtual_layout = Some("extended_primary".into());
         prepared.inherited_layout = Some("extended_primary".into());
         prepared.layout_owner = owner.then(|| client.uuid.clone());
@@ -2465,8 +2473,8 @@ pub(crate) mod tests {
     /// The stream's display is on beside the PC's, and no longer the primary.
     fn windows_moved_the_primary() -> Vec<(String, bool)> {
         vec![
-            (r"\.\DISPLAY9".into(), false),
-            (r"\.\DISPLAY1".into(), true),
+            (r"\\.\DISPLAY9".into(), false),
+            (r"\\.\DISPLAY1".into(), true),
         ]
     }
     fn set_device_layout(fixture: &crate::state::test_support::Fixture, layout: &str) {
@@ -2474,13 +2482,16 @@ pub(crate) mod tests {
         paired.clients[0]
             .extra
             .insert("virtual_display_layout".into(), layout.into());
+        paired.clients[0]
+            .extra
+            .insert(SET_BY_USER.into(), serde_json::Value::Bool(true));
         paired.clients[0].extra.remove(LEARNED_OVER);
     }
     #[test]
     fn a_device_layout_the_user_set_survives_every_stream() {
         // Issue #40: the layout set under Devices was replaced by "extended" when
         // a later stream ended with Windows' primary elsewhere.
-        for layout in ["exclusive", "extended_primary", "isolated"] {
+        for layout in ["exclusive", "extended_primary", "extended_isolated"] {
             let fixture = crate::state::test_support::Fixture::new();
             let client = fixture.client(u32::MAX);
             set_device_layout(&fixture, layout);
@@ -2516,7 +2527,7 @@ pub(crate) mod tests {
         let config = Config::parse("dd_config_revert_delay=0").unwrap();
         *fixture.host.config.write().unwrap() = config.clone();
         let mut prepared = test_prepared(&fixture.host);
-        prepared.output = r"\.\DISPLAY9".into();
+        prepared.output = r"\\.\DISPLAY9".into();
         prepared.virtual_layout = Some("extended_primary".into());
         prepared.layout_owner = Some(client.uuid.clone());
         prepared.layout_snapshot = Some(windows_moved_the_primary());
@@ -2566,8 +2577,27 @@ pub(crate) mod tests {
             stream_then_disconnect(&fixture, &client, true, windows_moved_the_primary(), || {});
         assert_eq!(kept, Some(serde_json::json!("extended")));
         // A learned layout follows what the user leaves the next stream in.
-        let only = vec![(r"\.\DISPLAY9".to_string(), true)];
+        let only = vec![(r"\\.\DISPLAY9".to_string(), true)];
         let (kept, over) = stream_then_disconnect(&fixture, &client, true, only, || {});
+        assert_eq!(kept, Some(serde_json::json!("exclusive")));
+        assert_eq!(over, Some(serde_json::json!("extended_primary")));
+    }
+    #[test]
+    fn a_layout_saved_before_the_user_marker_existed_stays_learnable() {
+        // Learning shipped before the marker: such a layout has neither marker
+        // and must not be taken for the user's.
+        let fixture = crate::state::test_support::Fixture::new();
+        let client = fixture.client(u32::MAX);
+        fixture.host.paired.write().unwrap().clients[0]
+            .extra
+            .insert("virtual_display_layout".into(), "extended".into());
+        let (kept, over) = stream_then_disconnect(
+            &fixture,
+            &client,
+            true,
+            vec![(r"\\.\DISPLAY9".into(), true)],
+            || {},
+        );
         assert_eq!(kept, Some(serde_json::json!("exclusive")));
         assert_eq!(over, Some(serde_json::json!("extended_primary")));
     }

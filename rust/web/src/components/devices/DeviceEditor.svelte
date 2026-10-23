@@ -251,7 +251,12 @@
         </select>
       </Field>
       <Field label="Virtual display layout" id="{uid}-layout" hint={layoutHint}>
-        <select id="{uid}-layout" class="select" bind:value={draft.virtual_display_layout}>
+        <select
+          id="{uid}-layout"
+          class="select"
+          bind:value={draft.virtual_display_layout}
+          onchange={() => (draft.virtual_display_layout_set_by_user = true)}
+        >
           <option value="">Use the host setting</option>
           {#each VIRTUAL_DISPLAY_LAYOUTS as layout (layout.value)}
             <option value={layout.value}>{layout.label}</option>

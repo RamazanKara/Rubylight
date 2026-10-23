@@ -107,6 +107,8 @@ pub enum Dialog {
     ConfirmUnpair { host: u64, name: String },
     /// Pairing did not work: what to do about it, and a way to try again.
     PairError { host: u64, body: String, one_time: bool },
+    /// How to pair, for a PC that is not paired yet.
+    PairingHelp,
 }
 
 /// The header's top-level destinations, left to right.
@@ -115,10 +117,18 @@ pub const DESTINATIONS: [(&str, Screen); 3] = [("Home", Screen::Home), ("PCs", S
 /// The settings sections in the order Android lists them (App only on the main settings).
 const SETTINGS_SECTIONS: [&str; 7] = ["Video", "Display & image", "Controls", "Audio", "Streaming", "App", "Advanced"];
 
+/// What the pairing help says, in the order of Nightjar Android's guide.
+const PAIRING_STEPS: [&str; 3] = [
+    "1. Start a Moonlight-compatible host on the PC, such as Apollo, Rubylight, Sunshine or Vibepollo.",
+    "2. Here, choose the PC on the same network and select Pair.",
+    "3. Enter the PIN shown here in your host's settings or web UI, usually on its PIN or pairing page.",
+];
+
 /// What a PC's options list can hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HostOption {
     OpenLibrary,
+    Resume,
     QuitApp,
     Pair,
     PairOtp,
@@ -126,6 +136,7 @@ pub enum HostOption {
     Settings,
     Rename,
     Unpair,
+    PairingHelp,
     CheckAgain,
     Remove,
 }
@@ -134,6 +145,7 @@ impl HostOption {
     pub fn label(self) -> &'static str {
         match self {
             Self::OpenLibrary => "Open library",
+            Self::Resume => "Resume",
             Self::QuitApp => "Quit running app",
             Self::Pair => "Pair",
             Self::PairOtp => "Pair with one-time PIN",
@@ -141,6 +153,7 @@ impl HostOption {
             Self::Settings => "PC settings",
             Self::Rename => "Rename",
             Self::Unpair => "Unpair",
+            Self::PairingHelp => "Pairing help",
             Self::CheckAgain => "Check again",
             Self::Remove => "Remove PC",
         }
@@ -152,6 +165,9 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     let mut options = Vec::new();
     if host.paired() {
         options.push(HostOption::OpenLibrary);
+        if running_entry(host).is_some() {
+            options.push(HostOption::Resume);
+        }
         if host.running_app().is_some() {
             options.push(HostOption::QuitApp);
         }
@@ -161,7 +177,8 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
             options.push(HostOption::PairOtp);
         }
     }
-    if host.reach == Reach::Offline && host.record.mac.is_some() {
+    // Not reached yet counts too: a PC that is asleep has not answered since this started.
+    if host.reach != Reach::Online && host.record.mac.is_some() {
         options.push(HostOption::Wake);
     }
     options.push(HostOption::Settings);
@@ -169,6 +186,9 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     // Unpairing asks the PC to forget this device, so it needs the PC to be reachable.
     if host.paired() && host.reach == Reach::Online {
         options.push(HostOption::Unpair);
+    }
+    if !host.paired() {
+        options.push(HostOption::PairingHelp);
     }
     options.push(HostOption::CheckAgain);
     options.push(HostOption::Remove);
@@ -1972,6 +1992,27 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::PairingHelp => {
+                egui::Modal::new(Id::unique("pairing-help"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new("Connect to your PC").font(semibold(22.0)));
+                        for step in PAIRING_STEPS {
+                            ui.label(RichText::new(step).color(ON_SURFACE_VARIANT));
+                        }
+                        ui.add_space(12.0);
+                        let done = primary_button(ui, "Got it");
+                        if focus_first {
+                            done.request_focus();
+                            focused = true;
+                        }
+                        if done.clicked() {
+                            close = true;
+                        }
+                    });
+            }
             Dialog::PairError { host, body, one_time } => {
                 let (id, one_time) = (*host, *one_time);
                 let name = view.hosts.get(id).map_or("the PC", |h| h.display_name()).to_owned();
@@ -2385,6 +2426,7 @@ impl Launcher {
                 | Dialog::ConfirmRemove { .. }
                 | Dialog::ConfirmUnpair { .. }
                 | Dialog::PairError { .. }
+                | Dialog::PairingHelp
         );
         self.dialog = Dialog::None;
         match self.focused_key.clone().filter(|_| from_card) {
@@ -2399,6 +2441,11 @@ impl Launcher {
         let name = host.display_name().to_owned();
         match option {
             HostOption::OpenLibrary => commands.push(Command::OpenApps(id)),
+            HostOption::Resume => {
+                if let Some(app) = running_entry(host) {
+                    commands.push(Command::Launch { host: id, app: app.id, resume: true });
+                }
+            }
             HostOption::QuitApp => {
                 return Some(Dialog::ConfirmQuit { host: id, start: None, running: running_name(host) });
             }
@@ -2410,6 +2457,7 @@ impl Launcher {
             HostOption::Settings => commands.push(Command::HostSettings(id)),
             HostOption::Rename => return Some(Dialog::Rename { host: id, text: host.rename_prefill().to_owned() }),
             HostOption::Unpair => return Some(Dialog::ConfirmUnpair { host: id, name }),
+            HostOption::PairingHelp => return Some(Dialog::PairingHelp),
             HostOption::CheckAgain => commands.push(Command::Refresh(id)),
             HostOption::Remove => return Some(Dialog::ConfirmRemove { host: id, name }),
         }
@@ -2506,6 +2554,15 @@ fn host_clicked(host: &Host, commands: &mut Vec<Command>) {
         commands.push(Command::Refresh(host.id));
     } else {
         commands.push(Command::Pair(host.id));
+    }
+}
+
+/// The library entry of the app the PC is running, when its library is known.
+fn running_entry(host: &Host) -> Option<&nightjar_core::http::App> {
+    let running = host.running_app()?;
+    match &host.apps {
+        Apps::Loaded(apps) => apps.iter().find(|a| a.matches_running_app(running, None) && !a.is_control_action()),
+        _ => None,
     }
 }
 
@@ -2848,12 +2905,21 @@ mod tests {
 
     impl Frames {
         fn new(record: HostRecord, reach: Reach) -> Self {
+            Self::with(record, reach, None, Vec::new())
+        }
+
+        /// A PC as the app sees it after the PC answered (`info`) and its classic list loaded.
+        fn with(record: HostRecord, reach: Reach, info: Option<nightjar_core::http::ServerInfo>, apps: Vec<nightjar_core::http::App>) -> Self {
             let ctx = egui::Context::default();
             crate::theme::apply(&ctx);
             let mut l = launcher(false, false);
             l.go(Screen::Hosts);
             let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
             hosts.list[0].reach = reach;
+            hosts.list[0].info = info;
+            if !apps.is_empty() {
+                hosts.list[0].apps = Apps::Loaded(apps);
+            }
             let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0 };
             frames.settle();
             frames
@@ -2925,11 +2991,54 @@ mod tests {
         }
     }
 
-    fn every_state() -> Vec<(&'static str, HostRecord, Reach)> {
+    /// What the PC said last, as the host sends it.
+    fn answer(paired: bool, running: i32) -> nightjar_core::http::ServerInfo {
+        let xml = format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid>             <HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>{}</PairStatus>             <currentgame>{running}</currentgame><state>SUNSHINE_SERVER_{}</state><Permission>1</Permission></root>",
+            u8::from(paired),
+            if running == 0 { "FREE" } else { "BUSY" },
+        );
+        nightjar_core::http::ServerInfo::parse(&xml, 47989).expect("the answer parses")
+    }
+
+    fn game(id: i32) -> nightjar_core::http::App {
+        nightjar_core::http::App {
+            name: "Game".into(),
+            id,
+            hdr_supported: false,
+            uuid: String::new(),
+            host_index: None,
+            art_version: String::new(),
+            control: nightjar_core::http::AppControl::None,
+            monitor_resume: false,
+        }
+    }
+
+    /// One PC in one state, enough to reach every entry of the options list.
+    struct State {
+        name: &'static str,
+        record: HostRecord,
+        reach: Reach,
+        info: Option<nightjar_core::http::ServerInfo>,
+        apps: Vec<nightjar_core::http::App>,
+    }
+
+    impl State {
+        fn frames(&self) -> Frames {
+            Frames::with(self.record.clone(), self.reach, self.info.clone(), self.apps.clone())
+        }
+    }
+
+    fn every_state() -> Vec<State> {
+        let state = |name, record, reach, info, apps| State { name, record, reach, info, apps };
         vec![
-            ("unpaired", record("Unpaired", false, false), Reach::Online),
-            ("offline, can wake", record("Offline", true, true), Reach::Offline),
-            ("paired", record("Paired", true, false), Reach::Online),
+            // Has the one-time PIN and the pairing help.
+            state("unpaired", record("Unpaired", false, false), Reach::Online, Some(answer(false, 0)), Vec::new()),
+            state("offline, can wake", record("Offline", true, true), Reach::Offline, None, Vec::new()),
+            state("not reached yet, can wake", record("Asleep", true, true), Reach::Unknown, None, Vec::new()),
+            state("paired", record("Paired", true, false), Reach::Online, Some(answer(true, 0)), Vec::new()),
+            // Has Resume and Quit.
+            state("running a game", record("Busy", true, false), Reach::Online, Some(answer(true, 7)), vec![game(7)]),
         ]
     }
 
@@ -3000,7 +3109,7 @@ mod tests {
         let mut host = Frames::new(record("PC", false, false), Reach::Online).hosts.list.remove(0);
         assert_eq!(
             host_options(&host),
-            [HostOption::Pair, HostOption::Settings, HostOption::Rename, HostOption::CheckAgain, HostOption::Remove]
+            [HostOption::Pair, HostOption::Settings, HostOption::Rename, HostOption::PairingHelp, HostOption::CheckAgain, HostOption::Remove]
         );
         host.record.server_certificate = Some("pem".into());
         host.reach = Reach::Offline;
@@ -3021,12 +3130,35 @@ mod tests {
         assert!(!host_options(&host).contains(&HostOption::Unpair), "an offline PC cannot be asked to unpair");
         host.reach = Reach::Online;
         assert!(host_options(&host).contains(&HostOption::Unpair));
+        assert!(!host_options(&host).contains(&HostOption::PairingHelp), "the help is for a PC that is not paired");
+    }
+
+    #[test]
+    fn wake_is_offered_until_the_pc_answers_and_resume_while_it_runs_a_game() {
+        let states = every_state();
+        let by = |name: &str| states.iter().find(|s| s.name == name).unwrap().frames().hosts.list.remove(0);
+        let asleep = host_options(&by("not reached yet, can wake"));
+        assert!(asleep.contains(&HostOption::Wake), "a PC not reached yet with a MAC");
+        let mut no_mac = by("not reached yet, can wake");
+        no_mac.record.mac = None;
+        assert!(!host_options(&no_mac).contains(&HostOption::Wake));
+        assert!(!host_options(&by("paired")).contains(&HostOption::Wake), "a PC that answers is awake");
+
+        let busy = host_options(&by("running a game"));
+        let at = |option| busy.iter().position(|o| *o == option).unwrap();
+        assert!(at(HostOption::OpenLibrary) < at(HostOption::Resume) && at(HostOption::Resume) < at(HostOption::QuitApp));
+        assert!(!host_options(&by("paired")).contains(&HostOption::Resume));
+        // Without its library the running game cannot be named, so there is nothing to resume.
+        let mut unlisted = by("running a game");
+        unlisted.apps = Apps::NotLoaded;
+        let options = host_options(&unlisted);
+        assert!(!options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp));
     }
 
     #[test]
     fn f2_opens_the_options_for_the_focused_pc() {
-        for (state, record, reach) in every_state() {
-            let mut f = Frames::new(record, reach);
+        for State { name: state, .. } in every_state() {
+            let mut f = every_state().into_iter().find(|s| s.name == state).unwrap().frames();
             assert!(!f.options_open(), "{state}");
             f.press(Key::F2);
             assert!(f.options_open(), "{state}: F2, which the controller's West button sends, opens the options");
@@ -3055,10 +3187,13 @@ mod tests {
 
     #[test]
     fn every_option_is_reachable_with_the_keyboard() {
-        for (state, record, reach) in every_state() {
-            let options = host_options(&Frames::new(record.clone(), reach).hosts.list[0]);
+        let mut seen: Vec<HostOption> = Vec::new();
+        for scenario in every_state() {
+            let state = scenario.name;
+            let options = host_options(&scenario.frames().hosts.list[0]);
             for (n, option) in options.iter().enumerate() {
-                let mut f = Frames::new(record.clone(), reach);
+                seen.push(*option);
+                let mut f = scenario.frames();
                 f.press(Key::F2);
                 assert!(f.options_open(), "{state}");
                 for _ in 0..n {
@@ -3068,6 +3203,8 @@ mod tests {
                 let said = |what: fn(&Command) -> bool| commands.iter().any(what);
                 let ok = match option {
                     HostOption::OpenLibrary => said(|c| matches!(c, Command::OpenApps(_))),
+                    HostOption::Resume => said(|c| matches!(c, Command::Launch { app: 7, resume: true, .. })),
+                    HostOption::PairingHelp => matches!(f.l.dialog, Dialog::PairingHelp),
                     HostOption::Pair => said(|c| matches!(c, Command::Pair(_))),
                     HostOption::Wake => said(|c| matches!(c, Command::Wake(_))),
                     HostOption::Settings => said(|c| matches!(c, Command::HostSettings(_))),
@@ -3080,6 +3217,10 @@ mod tests {
                 };
                 assert!(ok, "{state}: {} by keys (entry {n})", option.label());
             }
+        }
+        use HostOption::*;
+        for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Settings, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
+            assert!(seen.contains(&option), "no state reaches {}", option.label());
         }
     }
 

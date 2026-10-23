@@ -332,24 +332,28 @@ def stage_values(frame, record_present):
     return values
 
 
-def cadence(points):
+def cadence(points, pictures=False):
     """Interval and cadence-error samples (microseconds) from (frame, observed_us, source) points, where `source` is
     (value_us, wraps) for the stamp the observation should follow: the game's present time, or the RTP time (wraps).
     Points are paired with the previous point of the same series after sorting by frame number, so a frame that never
     showed (lost, or dropped by the client) is skipped and the pair spans it. The interval is reported only for
-    adjacent frame numbers (a spanning pair would be two periods long); the error, |observed gap - source gap|, is
-    reported for every pair, because the shown gap should still follow the content's own gap across a skipped frame."""
+    adjacent frame numbers (a spanning pair would be two periods long) unless `pictures` says every point is a new
+    picture (the host record: static repeats use up frame numbers but have no row, so consecutive rows are the
+    pictures and a gap between them is a real, long interval). The error, |observed gap - source gap|, is reported
+    for every pair, because the shown gap should still follow the content's own gap across a skipped frame; a pair
+    whose two stamps are on different clocks (present vs RTP) has no meaningful error and is skipped."""
     intervals, errors = [], []
     previous = None
     for frame, seen, (source, wraps) in sorted((p for p in points if p[1] is not None and p[2][0] is not None),
                                                key=lambda p: p[0]):
         if previous is not None and frame != previous[0]:
             gap = seen - previous[1]
-            wanted = wrapped_delta(source, previous[2]) if wraps else source - previous[2]
-            if frame == previous[0] + 1:
+            if pictures or frame == previous[0] + 1:
                 intervals.append(gap)
-            errors.append(abs(gap - wanted))
-        previous = (frame, seen, source)
+            if wraps == previous[3]:
+                wanted = wrapped_delta(source, previous[2]) if wraps else source - previous[2]
+                errors.append(abs(gap - wanted))
+        previous = (frame, seen, source, wraps)
     return intervals, errors
 
 
@@ -366,8 +370,9 @@ def cadence_columns(frames, record):
     """The cadence stages. The host's pair series is the record's rows (all frames the host sent, shown or not), or the
     host columns of the client file without a record; the client's are over the frames it assembled and shown."""
     rows = [(n, row) for n, row in record['rows'].items()] if record is not None else         [(f['frame_number'], f['host']) for f in frames if has_host(f)]
-    host_errors = cadence([(n, h['last_sent'], source_stamp(h, 'present')) for n, h in rows])[1]
-    present_gaps = cadence([(n, h['present'], (0, False)) for n, h in rows])[0]
+    pictures = record is not None
+    host_errors = cadence([(n, h['last_sent'], source_stamp(h, 'present')) for n, h in rows], pictures)[1]
+    present_gaps = cadence([(n, h['present'], (0, False)) for n, h in rows], pictures)[0]
     client_stamp = lambda f: source_stamp(f['host'], 'rtp')
     arrival_gaps, arrival_errors = cadence([(f['frame_number'], f['assembled'], client_stamp(f)) for f in frames])
     shown_gaps, shown_errors = cadence([(f['frame_number'], f['present'], client_stamp(f)) for f in frames])
@@ -383,15 +388,18 @@ def summarize(values):
 
 
 def drop_warmup(client, record, seconds):
-    """Keep the frames from `seconds` after the stream's first frame on: the first frame number whose host time (the
-    record's present, else the client's own first packet) is that late is the cutoff for both sides."""
+    """Keep the frames from `seconds` after the stream's first frame on: the first frame number whose time is that
+    late is the cutoff for both sides. One clock column is used for the whole file, since present and acquire (or
+    first packet) times are not on one scale: the host's present only if every row has it, else the record's acquire
+    time or the client's own first packet."""
     if not seconds:
         return
     if record is not None:
-        times = [(n, r['present'] if r['present'] is not None else r['acquired']) for n, r in record['rows'].items()]
+        rows = [(n, r['present'], r['acquired']) for n, r in record['rows'].items()]
     else:
-        times = [(f['frame_number'], f['host']['present'] if f['host']['present'] is not None else f['first_packet'])
-                 for f in client['frames']]
+        rows = [(f['frame_number'], f['host']['present'], f['first_packet']) for f in client['frames']]
+    column = 1 if all(row[1] is not None for row in rows) else 2
+    times = [(row[0], row[column]) for row in rows]
     times = sorted((n, t) for n, t in times if t is not None)
     if not times:
         return

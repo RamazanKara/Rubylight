@@ -1,8 +1,8 @@
 import contextlib, io, json, pathlib, shutil, tempfile, unittest
 import timing_report
 from soak_result import percentile
-from timing_report import (WRAP_US, build_report, cadence, case_report, check_bound, main, read_host_record, summarize,
-                           unwrap_rtp)
+from timing_report import (WRAP_US, build_report, cadence, case_report, check_bound, drop_warmup, main, read_host_record,
+                           summarize, unwrap_rtp)
 
 FIXTURES = pathlib.Path(__file__).parent / 'fixtures' / 'timing'
 SHARED = FIXTURES / 'frames-shared.csv'
@@ -327,17 +327,25 @@ class Cadence(Temporary):
         error = stages['host_cadence_error']
         self.assertEqual((error['n'], error['median_ms'], error['p99_ms']), (4, .4, 2.0))
 
-    def test_a_lost_frame_spans_its_neighbours_in_the_error_but_not_in_the_interval(self):
-        # Frames 0, 1, 3, 4 sent; frame 3 goes out 700 us later than the others, so the 1 -> 3 pair (two periods in both
-        # the present and the send gap) is 700 us off and the 3 -> 4 pair 700 us off the other way.
+    def test_a_repeat_gap_in_the_host_record_is_a_long_interval(self):
+        # Rows exist only for new pictures; frame 2 was a static repeat that used up its number. Frames 0, 1, 3, 4 are
+        # 8000 us apart except the 1 -> 3 pair, which is a real 16000 us interval. Frame 3 goes out 700 us later than
+        # the others, so its two pairs are 700 us off in the error.
         rows = [(i, 1_000_000 + i * 8000, 1_000_000 + i * 8000 + 2000 + (700 if i == 3 else 0)) for i in (0, 1, 3, 4)]
         stages = self.stages(self.client_csv([(i, 0, 0, None) for i in (0, 1, 3, 4)]), self.host_record(rows))
-        self.assertEqual(stages['present_interval']['n'], 2)
-        self.assertEqual(stages['present_interval']['p99_ms'], 8.0)
+        self.assertEqual(stages['present_interval']['n'], 3)
+        self.assertEqual(stages['present_interval']['median_ms'], 8.0)
         error = stages['host_cadence_error']
         self.assertEqual((error['n'], error['median_ms'], error['p99_ms']), (3, .7, .7))
         points = [(i, p, (p, False)) for i, p in ((0, 0), (1, 8000), (3, 24000), (4, 32000))]
+        self.assertEqual(cadence(points, True), ([8000, 16000, 8000], [0, 0, 0]))
+        # A series that is not all pictures (the client's) pairs only adjacent frame numbers for the interval.
         self.assertEqual(cadence(points), ([8000, 8000], [0, 0, 0]))
+
+    def test_a_pair_on_two_clocks_has_no_error(self):
+        # Frame 1 has only an RTP stamp, the others a present time: the pairs that meet it are skipped.
+        points = [(0, 0, (0, False)), (1, 8000, (8000, True)), (2, 16000, (16000, False)), (3, 24500, (24000, False))]
+        self.assertEqual(cadence(points), ([8000, 8000, 8500], [500]))
 
     def test_the_client_error_follows_the_rtp_gaps_of_the_frames_it_showed(self):
         # Host stamps 8333 us apart. Frame 3 is dropped by the client; frame 4 is shown 16000 us after frame 2, for a
@@ -389,6 +397,22 @@ class Cadence(Temporary):
         self.assertEqual(later['rows'], 125)
         with self.assertRaisesRegex(ValueError, 'shorter'):
             build_report(client, record, skip_first=5)
+
+    def test_skip_first_uses_one_clock_for_the_whole_file(self):
+        # Present and acquire times are on different scales. Row 100 has no present time, so the whole file is cut by
+        # acquire time (row 100 is 1 s in); a per-row choice would mix scales and cut at row 101.
+        rows = {i: dict(present=None if i == 100 else 1_000_000 + i * 10_000, acquired=5000 + i * 10_000)
+                for i in range(200)}
+        record = dict(rows=dict(rows))
+        client = dict(frames=[dict(frame_number=i, host=dict(present=None), first_packet=0) for i in range(200)])
+        drop_warmup(client, record, 1)
+        self.assertEqual(min(record['rows']), 100)
+        self.assertEqual(min(f['frame_number'] for f in client['frames']), 100)
+        # With a present time on every row that column is used.
+        rows[100]['present'] = 1_000_000 + 100 * 10_000
+        record = dict(rows=dict(rows))
+        drop_warmup(dict(frames=[]), record, 1)
+        self.assertEqual(min(record['rows']), 100)
 
     def test_a_file_without_pairs_reports_none_and_prints_no_rows(self):
         path = self.client_csv([(7, 5, 1000, 2000)])

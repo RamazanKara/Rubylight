@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Passe die Vibration deines Geräts an.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Stick-Deadzone</string>
-    <string name="summary_seekbar_deadzone">Manche Spiele nutzen eine größere Deadzone.</string>
+    <string name="summary_seekbar_deadzone">Manche Spiele nutzen eine größere Deadzone. Negative Werte verstärken kleine Bewegungen, um die eingebaute Deadzone eines Controllers oder Spiels zu überwinden.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB-Controller-Treiber</string>
     <string name="summary_checkbox_xb1_driver">Integrierter Treiber für Xbox-Controller per USB, ohne Root.</string>

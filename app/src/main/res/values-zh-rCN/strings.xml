@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">调整此设备的振动强度。</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">摇杆死区</string>
-    <string name="summary_seekbar_deadzone">某些游戏使用更大的死区。</string>
+    <string name="summary_seekbar_deadzone">某些游戏使用更大的死区。负值会放大小幅度的摇杆移动，以克服手柄或游戏内置的死区。</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB 手柄驱动</string>
     <string name="summary_checkbox_xb1_driver">通过 USB 连接 Xbox 手柄的内置驱动。无需 root。</string>

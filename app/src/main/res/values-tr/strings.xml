@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Bu cihazın titreşim gücünü ayarlayın.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Analog çubuk ölü bölgesi</string>
-    <string name="summary_seekbar_deadzone">Bazı oyunlar daha büyük bir ölü bölge kullanır.</string>
+    <string name="summary_seekbar_deadzone">Bazı oyunlar daha büyük bir ölü bölge kullanır. Negatif değerler, kontrolcünün veya oyunun yerleşik ölü bölgesini aşmak için küçük hareketleri güçlendirir.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB kumanda sürücüsü</string>
     <string name="summary_checkbox_xb1_driver">USB üzerinden Xbox kumandaları için yerleşik sürücü. Root gerekmez.</string>

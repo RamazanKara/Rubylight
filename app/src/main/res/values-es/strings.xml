@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Ajusta la intensidad de vibración de este dispositivo.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Zona muerta del joystick</string>
-    <string name="summary_seekbar_deadzone">Algunos juegos usan una zona muerta mayor.</string>
+    <string name="summary_seekbar_deadzone">Algunos juegos usan una zona muerta mayor. Los valores negativos amplifican los movimientos pequeños para superar la zona muerta integrada del mando o del juego.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Controlador de mandos USB</string>
     <string name="summary_checkbox_xb1_driver">Controlador integrado para mandos de Xbox por USB. No requiere root.</string>

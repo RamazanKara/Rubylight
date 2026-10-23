@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Dostosuj siłę wibracji tego urządzenia.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Martwa strefa gałki analogowej</string>
-    <string name="summary_seekbar_deadzone">Niektóre gry używają większej martwej strefy.</string>
+    <string name="summary_seekbar_deadzone">Niektóre gry używają większej martwej strefy. Wartości ujemne wzmacniają małe ruchy, aby pokonać wbudowaną martwą strefę kontrolera lub gry.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Sterownik kontrolera USB</string>
     <string name="summary_checkbox_xb1_driver">Wbudowany sterownik kontrolerów Xbox przez USB. Root nie jest wymagany.</string>

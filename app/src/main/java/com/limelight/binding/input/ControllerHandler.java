@@ -202,11 +202,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
         }
 
-        // 1% is the lowest possible deadzone we support
-        if (deadzonePercentage <= 0) {
-            deadzonePercentage = 1;
-        }
-
+        // Negative values are an anti-deadzone, see applyStickDeadzone()
         this.stickDeadzone = (double)deadzonePercentage / 100.0;
 
         // Initialize the default context for events with no device
@@ -1809,15 +1805,37 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return inputVector;
     }
 
-    private void handleDeadZone(Vector2d stickVector, float deadzoneRadius) {
-        if (stickVector.getMagnitude() <= deadzoneRadius) {
-            // Deadzone
-            stickVector.initialize(0, 0);
-        }
+    // A fixed 1% centre zone always remains so a resting stick reads as neutral and packet
+    // batching keeps working.
+    static final double MIN_STICK_DEADZONE = 0.01;
 
-        // We're not normalizing here because we let the computer handle the deadzones.
-        // Normalizing can make the deadzones larger than they should be after the computer also
-        // evaluates the deadzone.
+    private void handleDeadZone(Vector2d stickVector, float deadzoneRadius) {
+        applyStickDeadzone(stickVector, deadzoneRadius);
+    }
+
+    // Positive radius: inputs inside it are dropped. We're not normalizing here because we let the
+    // computer handle the deadzones. Normalizing can make the deadzones larger than they should
+    // be after the computer also evaluates the deadzone.
+    // Zero or negative radius (anti-deadzone, as in Artemis): the magnitude is remapped from
+    // [0.01, 1] to [|radius|, 1], so small movements jump past a controller's or game's own deadzone.
+    static void applyStickDeadzone(Vector2d stickVector, float deadzoneRadius) {
+        double magnitude = stickVector.getMagnitude();
+        if (deadzoneRadius > 0) {
+            if (magnitude <= deadzoneRadius) {
+                stickVector.initialize(0, 0);
+            }
+            return;
+        }
+        if (magnitude <= MIN_STICK_DEADZONE) {
+            stickVector.initialize(0, 0);
+            return;
+        }
+        double anti = -deadzoneRadius;
+        double remapped = anti + magnitude * (1 - anti);
+        if (remapped >= 1 || magnitude >= 1) {
+            return;
+        }
+        stickVector.scalarMultiply(remapped / magnitude);
     }
 
     private void handleAxisSet(InputDeviceContext context, float lsX, float lsY, float rsX,

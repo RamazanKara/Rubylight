@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Điều chỉnh cường độ rung của thiết bị này.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Vùng chết của cần analog</string>
-    <string name="summary_seekbar_deadzone">Một số trò chơi dùng vùng chết lớn hơn.</string>
+    <string name="summary_seekbar_deadzone">Một số trò chơi dùng vùng chết lớn hơn. Giá trị âm khuếch đại các chuyển động nhỏ để vượt qua vùng chết có sẵn của tay cầm hoặc trò chơi.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Driver tay cầm điều khiển USB</string>
     <string name="summary_checkbox_xb1_driver">Driver tích hợp cho tay cầm Xbox qua USB. Không cần root.</string>

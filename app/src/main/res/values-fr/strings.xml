@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Réglez l’intensité de vibration de cet appareil.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Zone morte des sticks analogiques</string>
-    <string name="summary_seekbar_deadzone">Certains jeux utilisent une zone morte plus grande.</string>
+    <string name="summary_seekbar_deadzone">Certains jeux utilisent une zone morte plus grande. Les valeurs négatives amplifient les petits mouvements pour dépasser la zone morte intégrée de la manette ou du jeu.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Pilote de manette USB</string>
     <string name="summary_checkbox_xb1_driver">Pilote intégré pour les manettes Xbox en USB. Root non requis.</string>

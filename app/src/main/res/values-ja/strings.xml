@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">このデバイスの振動の強さを調整します。</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">アナログスティックのデッドゾーン</string>
-    <string name="summary_seekbar_deadzone">ゲームによってはより大きなデッドゾーンを使用します。</string>
+    <string name="summary_seekbar_deadzone">ゲームによってはより大きなデッドゾーンを使用します。負の値は、コントローラーやゲーム内蔵のデッドゾーンを超えるため、小さな入力を外側へ押し出します。</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB コントローラ ドライバ</string>
     <string name="summary_checkbox_xb1_driver">USB 接続の Xbox コントローラ用の内蔵ドライバです。root は不要です。</string>

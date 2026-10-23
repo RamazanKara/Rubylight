@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Regola l’intensità della vibrazione di questo dispositivo.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Zona morta delle levette</string>
-    <string name="summary_seekbar_deadzone">Alcuni giochi usano una zona morta più ampia.</string>
+    <string name="summary_seekbar_deadzone">Alcuni giochi usano una zona morta più ampia. I valori negativi amplificano i piccoli movimenti per superare la zona morta integrata del controller o del gioco.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Driver controller USB</string>
     <string name="summary_checkbox_xb1_driver">Driver integrato per controller Xbox via USB. Root non necessario.</string>

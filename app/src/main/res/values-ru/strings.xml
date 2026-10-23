@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">Настройте силу вибрации этого устройства.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Мёртвая зона стика</string>
-    <string name="summary_seekbar_deadzone">В некоторых играх используется более широкая мёртвая зона.</string>
+    <string name="summary_seekbar_deadzone">В некоторых играх используется более широкая мёртвая зона. Отрицательные значения усиливают малые отклонения, чтобы преодолеть встроенную мёртвую зону геймпада или игры.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">Драйвер USB-контроллеров</string>
     <string name="summary_checkbox_xb1_driver">Встроенный драйвер для контроллеров Xbox по USB. Root не нужен.</string>

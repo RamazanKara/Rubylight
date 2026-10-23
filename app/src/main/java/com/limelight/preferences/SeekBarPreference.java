@@ -117,20 +117,30 @@ public class SeekBarPreference extends DialogPreference
 
     static int nudge(int value, boolean up, boolean logScale, int stepSize, int min, int max) {
         int step = logScale ? logStep(up ? value : value - 1) : stepSize;
-        int next = up ? (value / step + 1) * step : ((value - 1) / step) * step;
+        // floorDiv keeps negative values stepping the right way
+        int next = up ? (Math.floorDiv(value, step) + 1) * step : Math.floorDiv(value - 1, step) * step;
         return clamp(next, min, max);
+    }
+
+    // The slider runs from 0, so a linear range that starts below zero is shifted by its minimum
+    static int linearPositionToValue(int position, int min, int max, int step) {
+        int raw = position + min;
+        return clamp(Math.floorDiv(raw + (step - 1), step) * step, min, max);
+    }
+
+    static int linearValueToPosition(int value, int min, int max) {
+        return clamp(value, min, max) - min;
     }
 
     private int positionToValue(int position) {
         if (logScale) {
             return positionToLogValue(position, minValue, maxValue);
         }
-        int rounded = ((position + (stepSize - 1)) / stepSize) * stepSize;
-        return clamp(rounded, minValue, maxValue);
+        return linearPositionToValue(position, minValue, maxValue, stepSize);
     }
 
     private int valueToPosition(int value) {
-        return logScale ? logValueToPosition(value, minValue, maxValue) : clamp(value, minValue, maxValue);
+        return logScale ? logValueToPosition(value, minValue, maxValue) : linearValueToPosition(value, minValue, maxValue);
     }
 
     private void showDialogValue(int value) {
@@ -236,7 +246,7 @@ public class SeekBarPreference extends DialogPreference
             currentValue = getPersistedInt(defaultValue);
         }
 
-        seekBar.setMax(logScale ? LOG_POSITIONS : maxValue);
+        seekBar.setMax(logScale ? LOG_POSITIONS : maxValue - minValue);
         if (logScale) {
             seekBar.setKeyProgressIncrement(LOG_POSITIONS / 100);
         }

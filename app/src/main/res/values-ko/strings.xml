@@ -140,7 +140,7 @@
     <string name="summary_seekbar_vibrate_fallback_strength">이 기기의 진동 세기를 조정합니다.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">아날로그 스틱 데드존</string>
-    <string name="summary_seekbar_deadzone">일부 게임은 더 큰 데드존을 사용합니다.</string>
+    <string name="summary_seekbar_deadzone">일부 게임은 더 큰 데드존을 사용합니다. 음수 값은 컨트롤러나 게임에 내장된 데드존을 넘도록 작은 입력을 바깥쪽으로 밀어 줍니다.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB 컨트롤러 드라이버</string>
     <string name="summary_checkbox_xb1_driver">USB로 연결된 Xbox 컨트롤러용 내장 드라이버입니다. root가 필요하지 않습니다.</string>

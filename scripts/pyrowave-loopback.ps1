@@ -33,6 +33,7 @@ param(
     [hashtable]$ExtraA = @{},   # more settings.json keys for the A legs (for example @{ present_at_host_times = $false })
     [hashtable]$ExtraB = @{},   # and for the B legs
     [switch]$EarlyDecode,
+    [switch]$KeepLock,   # the lock is already this agent's ("<Agent> ..."): use it and leave it for the next run
     [switch]$CaptureVisible,   # leave the client window in the host's capture (a feedback loop)
     [string]$DumpDir,
     [int]$ClientX = 3560,
@@ -64,6 +65,7 @@ try {
 # The lock is created, not checked then written, so two agents cannot both get it.
 $deadline = (Get-Date).AddMinutes(60)
 while ($true) {
+    if ($KeepLock -and (Test-Path $Lock) -and ((Get-Content $Lock -Raw) -like "$Agent *")) { break }
     try {
         $stream = [IO.File]::Open($Lock, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
         $writer = [IO.StreamWriter]::new($stream)
@@ -218,5 +220,5 @@ try {
 } finally {
     if ($anim -and -not $anim.HasExited) { Stop-Process -Id $anim.Id -Force }
     if ($hostProcess -and -not $hostProcess.HasExited) { Stop-Process -Id $hostProcess.Id -Force }
-    if ((Test-Path $Lock) -and ((Get-Content $Lock -Raw) -like "$Agent *")) { Remove-Item $Lock -Force }
+    if (-not $KeepLock -and (Test-Path $Lock) -and ((Get-Content $Lock -Raw) -like "$Agent *")) { Remove-Item $Lock -Force }
 }

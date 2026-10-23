@@ -2,9 +2,13 @@
 <resources>
     <string name="console_title">Trang chủ</string>
     <string name="console_menu_hosts">Máy chủ</string>
+    <string name="console_section_favourites">Yêu thích</string>
     <string name="console_section_continue">Chơi tiếp</string>
     <string name="console_section_library">Thư viện</string>
     <string name="console_section_hosts">Máy chủ</string>
+    <string name="console_favourite_add">Thêm vào yêu thích</string>
+    <string name="console_favourite_remove">Xóa khỏi yêu thích</string>
+    <string name="console_favourite_description">Yêu thích</string>
     <string name="console_badge_running">Đang chạy</string>
     <string name="console_badge_suspended">Đã tạm dừng</string>
     <string name="console_card_on_host">Trên %1$s</string>

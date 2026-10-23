@@ -130,21 +130,43 @@ public final class ConsoleSnapshot {
         }
     }
 
+    /** A game the player starred. */
+    public static final class Starred {
+        public final String hostUuid;
+        public final String hostName;
+        public final int appId;
+        public final String title;
+        /** The title's source on the host when its library lists it; otherwise null. */
+        public final Source source;
+
+        Starred(String hostUuid, String hostName, int appId, String title, Source source) {
+            this.hostUuid = hostUuid;
+            this.hostName = hostName;
+            this.appId = appId;
+            this.title = title;
+            this.source = source;
+        }
+    }
+
     /** Titles by name. */
     public final List<Title> titles;
     public final List<Host> hosts;
     /** Running first, then suspended, then recents, newest first. */
     public final List<Continue> continuePlaying;
+    /** The starred games of the paired hosts, newest star first; a game the host's library dropped is left out. */
+    public final List<Starred> favourites;
 
-    ConsoleSnapshot(List<Title> titles, List<Host> hosts, List<Continue> continuePlaying) {
+    ConsoleSnapshot(List<Title> titles, List<Host> hosts, List<Continue> continuePlaying, List<Starred> favourites) {
         this.titles = Collections.unmodifiableList(titles);
         this.hosts = Collections.unmodifiableList(hosts);
         this.continuePlaying = Collections.unmodifiableList(continuePlaying);
+        this.favourites = Collections.unmodifiableList(favourites);
     }
 
     /** Nothing known: no hosts, no titles. */
     public static ConsoleSnapshot empty() {
-        return new ConsoleSnapshot(new java.util.ArrayList<>(), new java.util.ArrayList<>(), new java.util.ArrayList<>());
+        return new ConsoleSnapshot(new java.util.ArrayList<>(), new java.util.ArrayList<>(), new java.util.ArrayList<>(),
+                new java.util.ArrayList<>());
     }
 
     public Host host(String uuid) {

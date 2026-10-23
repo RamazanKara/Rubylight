@@ -39,6 +39,9 @@ public final class DemoLauncherActivity extends Activity {
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
         DemoFixtures.nativeApiHost = "native".equals(getIntent().getStringExtra("host"));
         DemoConsole.hostControl = getIntent().getBooleanExtra("control", true);
+        String stars = getIntent().getStringExtra("stars");
+        DemoConsole.starred = stars == null || stars.isEmpty() ? new int[0]
+                : java.util.Arrays.stream(stars.split(",")).mapToInt(Integer::parseInt).toArray();
         DemoRadeon.reset(getIntent().getStringExtra("radeon"));
         DemoConsole.racingRuns = !"idle".equals(getIntent().getStringExtra("session"));
         try {

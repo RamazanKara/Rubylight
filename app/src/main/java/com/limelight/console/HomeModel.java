@@ -5,6 +5,7 @@ import com.limelight.nativeapi.NativeSession;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -40,9 +41,11 @@ public final class HomeModel {
         public final ConsoleSnapshot.Source source;
         /** In the library: how many hosts have the game. */
         public final int hostCount;
+        /** True when the player starred this game on this host. */
+        public final boolean favourite;
 
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
-                 ConsoleSnapshot.Source source, int hostCount) {
+                 ConsoleSnapshot.Source source, int hostCount, boolean favourite) {
             this.key = key;
             this.title = title;
             this.hostUuid = hostUuid;
@@ -51,6 +54,7 @@ public final class HomeModel {
             this.badge = badge;
             this.source = source;
             this.hostCount = hostCount;
+            this.favourite = favourite;
         }
     }
 
@@ -71,32 +75,49 @@ public final class HomeModel {
         }
     }
 
+    /** The starred games, newest star first: the first row of Home. */
+    public final List<GameCard> favourites;
     public final List<GameCard> continuePlaying;
     public final List<GameCard> library;
     public final List<HostCard> hosts;
 
-    private HomeModel(List<GameCard> continuePlaying, List<GameCard> library, List<HostCard> hosts) {
+    private HomeModel(List<GameCard> favourites, List<GameCard> continuePlaying, List<GameCard> library,
+                      List<HostCard> hosts) {
+        this.favourites = Collections.unmodifiableList(favourites);
         this.continuePlaying = Collections.unmodifiableList(continuePlaying);
         this.library = Collections.unmodifiableList(library);
         this.hosts = Collections.unmodifiableList(hosts);
     }
 
     public static HomeModel empty() {
-        return new HomeModel(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        return new HomeModel(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
     }
 
     public boolean isEmpty() {
-        return continuePlaying.isEmpty() && library.isEmpty() && hosts.isEmpty();
+        return favourites.isEmpty() && continuePlaying.isEmpty() && library.isEmpty() && hosts.isEmpty();
     }
 
     /** {@code onlineHosts} are the UUIDs of the hosts that answer now. */
     public static HomeModel of(ConsoleSnapshot snapshot, Set<String> onlineHosts) {
+        Set<String> starred = new HashSet<>();
+        List<GameCard> favourites = new ArrayList<>();
+        for (ConsoleSnapshot.Starred entry : snapshot.favourites) {
+            starred.add(entry.hostUuid + ":" + entry.appId);
+            // A title the host lists as not installed cannot be started from here, as in the library.
+            if (entry.source != null && Boolean.FALSE.equals(entry.source.installed)) {
+                continue;
+            }
+            favourites.add(new GameCard("favourite:" + entry.hostUuid + ":" + entry.appId, entry.title,
+                    entry.hostUuid, entry.hostName, entry.appId,
+                    entry.source == null ? Badge.NONE : badgeOf(snapshot, entry.source), entry.source, 1, true));
+        }
         List<GameCard> continuePlaying = new ArrayList<>();
         for (ConsoleSnapshot.Continue entry : snapshot.continuePlaying) {
             Badge badge = entry.kind == ConsoleSnapshot.ContinueKind.RUNNING ? Badge.RUNNING
                     : entry.kind == ConsoleSnapshot.ContinueKind.SUSPENDED ? Badge.SUSPENDED : Badge.NONE;
             continuePlaying.add(new GameCard("continue:" + entry.hostUuid + ":" + entry.appId, entry.title,
-                    entry.hostUuid, entry.hostName, entry.appId, badge, entry.source, 1));
+                    entry.hostUuid, entry.hostName, entry.appId, badge, entry.source, 1,
+                    starred.contains(entry.hostUuid + ":" + entry.appId)));
         }
         List<GameCard> library = new ArrayList<>();
         for (ConsoleSnapshot.Title title : snapshot.titles) {
@@ -116,7 +137,7 @@ public final class HomeModel {
                 continue;
             }
             library.add(new GameCard("game:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                    badgeOf(snapshot, best), best, hosts));
+                    badgeOf(snapshot, best), best, hosts, starred.contains(best.hostUuid + ":" + best.appId)));
         }
         List<HostCard> hosts = new ArrayList<>();
         for (ConsoleSnapshot.Host host : snapshot.hosts) {
@@ -139,7 +160,7 @@ public final class HomeModel {
             }
             hosts.add(new HostCard(host.uuid, host.name, line, count, online));
         }
-        return new HomeModel(continuePlaying, library, hosts);
+        return new HomeModel(favourites, continuePlaying, library, hosts);
     }
 
     private static Badge badgeOf(ConsoleSnapshot snapshot, ConsoleSnapshot.Source source) {

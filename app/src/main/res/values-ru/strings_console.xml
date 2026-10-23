@@ -2,9 +2,13 @@
 <resources>
     <string name="console_title">Главная</string>
     <string name="console_menu_hosts">Хосты</string>
+    <string name="console_section_favourites">Избранное</string>
     <string name="console_section_continue">Продолжить игру</string>
     <string name="console_section_library">Библиотека</string>
     <string name="console_section_hosts">Хосты</string>
+    <string name="console_favourite_add">Добавить в избранное</string>
+    <string name="console_favourite_remove">Убрать из избранного</string>
+    <string name="console_favourite_description">В избранном</string>
     <string name="console_badge_running">Запущена</string>
     <string name="console_badge_suspended">Приостановлена</string>
     <string name="console_card_on_host">На %1$s</string>

@@ -2,9 +2,13 @@
 <resources>
     <string name="console_title">ホーム</string>
     <string name="console_menu_hosts">ホスト</string>
+    <string name="console_section_favourites">お気に入り</string>
     <string name="console_section_continue">続きをプレイ</string>
     <string name="console_section_library">ライブラリ</string>
     <string name="console_section_hosts">ホスト</string>
+    <string name="console_favourite_add">お気に入りに追加</string>
+    <string name="console_favourite_remove">お気に入りから削除</string>
+    <string name="console_favourite_description">お気に入り</string>
     <string name="console_badge_running">実行中</string>
     <string name="console_badge_suspended">一時停止中</string>
     <string name="console_card_on_host">%1$s 上</string>

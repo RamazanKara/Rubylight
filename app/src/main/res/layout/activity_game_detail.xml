@@ -56,12 +56,17 @@
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_l" android:minHeight="@dimen/touch_target"
                     android:text="@string/library_play" app:icon="@drawable/ic_play"
-                    android:nextFocusDown="@+id/detail_end" />
+                    android:nextFocusDown="@+id/detail_favourite" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/detail_favourite"
+                    style="@style/Widget.Nightjar.Button.Tonal" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_s" android:minHeight="@dimen/touch_target"
+                    android:text="@string/console_favourite_add" app:icon="@drawable/ic_star"
+                    android:nextFocusUp="@id/detail_play" android:nextFocusDown="@+id/detail_end" />
                 <com.google.android.material.button.MaterialButton android:id="@+id/detail_end"
                     style="@style/Widget.Nightjar.Button.Tonal" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_s" android:minHeight="@dimen/touch_target"
                     android:text="@string/stream_close_game" app:icon="@drawable/ic_stop" android:visibility="gone"
-                    android:nextFocusUp="@id/detail_play" />
+                    android:nextFocusUp="@id/detail_favourite" />
                 <com.google.android.material.card.MaterialCardView style="@style/LibraryCard"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_xl">

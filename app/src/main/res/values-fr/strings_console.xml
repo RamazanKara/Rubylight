@@ -2,9 +2,13 @@
 <resources>
     <string name="console_title">Accueil</string>
     <string name="console_menu_hosts">Hôtes</string>
+    <string name="console_section_favourites">Favoris</string>
     <string name="console_section_continue">Reprendre</string>
     <string name="console_section_library">Bibliothèque</string>
     <string name="console_section_hosts">Hôtes</string>
+    <string name="console_favourite_add">Ajouter aux favoris</string>
+    <string name="console_favourite_remove">Retirer des favoris</string>
+    <string name="console_favourite_description">Favori</string>
     <string name="console_badge_running">En cours</string>
     <string name="console_badge_suspended">Suspendu</string>
     <string name="console_card_on_host">Sur %1$s</string>

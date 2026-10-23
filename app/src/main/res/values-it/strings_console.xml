@@ -2,9 +2,13 @@
 <resources>
     <string name="console_title">Home</string>
     <string name="console_menu_hosts">Host</string>
+    <string name="console_section_favourites">Preferiti</string>
     <string name="console_section_continue">Continua a giocare</string>
     <string name="console_section_library">Libreria</string>
     <string name="console_section_hosts">Host</string>
+    <string name="console_favourite_add">Aggiungi ai preferiti</string>
+    <string name="console_favourite_remove">Rimuovi dai preferiti</string>
+    <string name="console_favourite_description">Preferito</string>
     <string name="console_badge_running">In esecuzione</string>
     <string name="console_badge_suspended">Sospeso</string>
     <string name="console_card_on_host">Su %1$s</string>

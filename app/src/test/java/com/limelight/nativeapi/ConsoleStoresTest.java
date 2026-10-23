@@ -1,6 +1,7 @@
 package com.limelight.nativeapi;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -98,5 +99,52 @@ public class ConsoleStoresTest {
         List<RecentsStore.Recent> recents = store.load();
         assertEquals(1, recents.size());
         assertEquals("b", recents.get(0).hostUuid);
+    }
+
+    private static FavouritesStore.Favourite star(String host, int appId) {
+        return new FavouritesStore.Favourite(host, host + " PC", appId, "Game " + appId);
+    }
+
+    @Test
+    public void favouritesAreNewestStarFirstPerHostAndGameAndSurviveAReopen() {
+        Context context = RuntimeEnvironment.getApplication();
+        PreferencesFavouritesStore store = new PreferencesFavouritesStore(context);
+        assertTrue(store.load().isEmpty());
+        store.set(star("a", 1), true);
+        store.set(star("b", 1), true);
+        store.set(star("a", 2), true);
+        // Starring again changes nothing but the stored names.
+        store.set(new FavouritesStore.Favourite("a", "Renamed", 1, "Renamed game"), true);
+
+        List<FavouritesStore.Favourite> favourites = new PreferencesFavouritesStore(context).load();
+        assertEquals(3, favourites.size());
+        assertEquals("a", favourites.get(0).hostUuid);
+        assertEquals(2, favourites.get(0).appId);
+        assertEquals("Renamed game", favourites.get(2).title);
+        assertTrue(store.isFavourite("b", 1));
+        assertFalse(store.isFavourite("b", 2));
+
+        store.set(star("b", 1), false);
+        store.set(star("never", 7), false);
+        assertFalse(store.isFavourite("b", 1));
+        assertTrue(store.isFavourite("a", 1));
+        assertEquals(2, store.load().size());
+    }
+
+    @Test
+    public void forgettingAHostDropsOnlyItsFavouritesAndABrokenFileReadsAsNone() {
+        Context context = RuntimeEnvironment.getApplication();
+        PreferencesFavouritesStore store = new PreferencesFavouritesStore(context);
+        store.set(star("a", 1), true);
+        store.set(star("b", 1), true);
+        store.forgetHost("a");
+        assertEquals(1, store.load().size());
+        assertEquals("b", store.load().get(0).hostUuid);
+
+        context.getSharedPreferences(PreferencesFavouritesStore.PREFS, Context.MODE_PRIVATE).edit()
+                .putString(PreferencesFavouritesStore.KEY, "{not json").commit();
+        assertTrue(store.load().isEmpty());
+        store.set(star("c", 3), true);
+        assertEquals(1, store.load().size());
     }
 }

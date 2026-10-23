@@ -26,6 +26,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import java.util.ArrayList;
@@ -76,6 +77,7 @@ public class ConsoleRepositoryTest {
         cache = new FileLibraryCache(temporary.newFolder());
         repository = new ConsoleRepository(transport,
                 computer -> HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto()), cache, recentsStore,
+                new PreferencesFavouritesStore(RuntimeEnvironment.getApplication()),
                 computer -> classicApps.get(computer.uuid), executor, () -> now);
     }
 

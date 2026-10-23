@@ -31,6 +31,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
     interface Listener {
         void onGame(HomeModel.GameCard card);
 
+        /** A long press (or the D-pad centre held) on a game card. */
+        void onGameMenu(HomeModel.GameCard card);
+
         void onHost(HomeModel.HostCard card);
     }
 
@@ -87,6 +90,12 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
 
     void submit(HomeModel model) {
         rows.clear();
+        if (!model.favourites.isEmpty()) {
+            rows.add(new Row(HEADER, "header:favourites", R.string.console_section_favourites, null, null));
+            for (HomeModel.GameCard card : model.favourites) {
+                rows.add(new Row(COVER_GAME, card.key, 0, card, null));
+            }
+        }
         if (!model.continuePlaying.isEmpty()) {
             rows.add(new Row(HEADER, "header:continue", R.string.console_section_continue, null, null));
             for (HomeModel.GameCard card : model.continuePlaying) {
@@ -217,8 +226,14 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             }
             badge.setText(state);
             badge.setVisibility(state == null ? View.GONE : View.VISIBLE);
-            itemView.setContentDescription(state == null ? card.title + ", " + where : card.title + ", " + state + ", " + where);
+            String description = state == null ? card.title + ", " + where : card.title + ", " + state + ", " + where;
+            itemView.setContentDescription(card.favourite
+                    ? description + ", " + context.getString(R.string.console_favourite_description) : description);
             itemView.setOnClickListener(v -> listener.onGame(card));
+            itemView.setOnLongClickListener(v -> {
+                listener.onGameMenu(card);
+                return true;
+            });
         }
 
         void bindHost(HomeModel.HostCard card) {
@@ -234,6 +249,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             badge.setVisibility(View.GONE);
             itemView.setContentDescription(card.name + ", " + line);
             itemView.setOnClickListener(v -> listener.onHost(card));
+            itemView.setOnLongClickListener(null);
+            itemView.setLongClickable(false);
         }
 
         private String hostLine(HomeModel.HostCard card) {

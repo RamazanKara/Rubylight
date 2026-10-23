@@ -49,17 +49,19 @@ public final class ConsoleRepository {
     private final EndpointFactory endpoints;
     private final LibraryCache cache;
     private final RecentsStore recents;
+    private final FavouritesStore favourites;
     private final ClassicAppSource classic;
     private final ExecutorService executor;
     private final Clock clock;
 
     public ConsoleRepository(NativeApiTransport transport, EndpointFactory endpoints, LibraryCache cache,
-                             RecentsStore recents, ClassicAppSource classic, ExecutorService executor,
+                             RecentsStore recents, FavouritesStore favourites, ClassicAppSource classic, ExecutorService executor,
                              Clock clock) {
         this.transport = transport;
         this.endpoints = endpoints;
         this.cache = cache;
         this.recents = recents;
+        this.favourites = favourites;
         this.classic = classic;
         this.executor = executor;
         this.clock = clock;
@@ -71,7 +73,7 @@ public final class ConsoleRepository {
         return new ConsoleRepository(new JniNativeApiTransport(),
                 computer -> HostEndpoint.of(computer, uniqueId, PlatformBinding.getCryptoProvider(app)),
                 new FileLibraryCache(libraryDirectory(app)),
-                new PreferencesRecentsStore(app), new CachedAppListSource(app.getCacheDir()),
+                new PreferencesRecentsStore(app), new PreferencesFavouritesStore(app), new CachedAppListSource(app.getCacheDir()),
                 Executors.newCachedThreadPool(), System::currentTimeMillis);
     }
 
@@ -95,6 +97,7 @@ public final class ConsoleRepository {
         Context app = context.getApplicationContext();
         new FileLibraryCache(libraryDirectory(app)).forget(hostUuid);
         new PreferencesRecentsStore(app).forgetHost(hostUuid);
+        new PreferencesFavouritesStore(app).forgetHost(hostUuid);
     }
 
     /** The snapshot from what is stored: no network. Hosts with a native library show CACHED. */
@@ -160,6 +163,17 @@ public final class ConsoleRepository {
     public void forgetHost(String hostUuid) {
         cache.forget(hostUuid);
         recents.forgetHost(hostUuid);
+        favourites.forgetHost(hostUuid);
+    }
+
+    /** True when the game is starred on that host. */
+    public boolean isFavourite(String hostUuid, int appId) {
+        return favourites.isFavourite(hostUuid, appId);
+    }
+
+    /** Stars or unstars a game; the names are kept for when the host's library is not at hand. */
+    public void setFavourite(String hostUuid, String hostName, int appId, String title, boolean starred) {
+        favourites.set(new FavouritesStore.Favourite(hostUuid, hostName, appId, title), starred);
     }
 
     private ConsoleSnapshot.Host hostOf(ComputerDetails computer, boolean network) {
@@ -236,7 +250,26 @@ public final class ConsoleRepository {
     }
 
     private ConsoleSnapshot assemble(List<ConsoleSnapshot.Host> hosts) {
-        return new ConsoleSnapshot(titles(hosts), hosts, continuePlaying(hosts));
+        return new ConsoleSnapshot(titles(hosts), hosts, continuePlaying(hosts), starred(hosts));
+    }
+
+    private List<ConsoleSnapshot.Starred> starred(List<ConsoleSnapshot.Host> hosts) {
+        List<ConsoleSnapshot.Starred> starred = new ArrayList<>();
+        for (FavouritesStore.Favourite favourite : favourites.load()) {
+            ConsoleSnapshot.Host host = hostOrNull(hosts, favourite.hostUuid);
+            if (host == null) {
+                continue;
+            }
+            ConsoleSnapshot.Source source = find(host, null, favourite.appId);
+            // Same rule as recents: a known library without the game means it is gone from the host. The star
+            // stays stored, so the game comes back with a reinstall.
+            if (source == null && host.status != ConsoleSnapshot.Status.UNAVAILABLE) {
+                continue;
+            }
+            starred.add(new ConsoleSnapshot.Starred(host.uuid, host.name, favourite.appId,
+                    source != null ? source.title : favourite.title, source));
+        }
+        return starred;
     }
 
     /** Merges the titles of all hosts: a native game id joins copies on different hosts, nothing else does. */

@@ -9,6 +9,7 @@ import static com.limelight.nativeapi.NativeApiFixtures.session;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -111,6 +112,62 @@ public class HomeModelTest {
                 assertEquals(1, card.hostCount);
             }
         }
+    }
+
+    @Test
+    public void favouritesAreTheFirstRowKeyedByHostAndGameSoTheSameTitleOnTwoPcsIsTwoEntries() throws Exception {
+        tower();
+        laptop();
+        rig.repository.setFavourite("laptop", "Laptop", 5, "portal", true);
+        rig.repository.setFavourite("tower", "Tower", 11, "Portal", true);
+        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
+        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", false);
+        List<ComputerDetails> hosts = Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true));
+        HomeModel model = HomeModel.of(rig.repository.refresh(hosts), online("tower", "laptop"));
+        // Newest star first; each entry names its host.
+        assertEquals(Arrays.asList("Portal", "portal"), titles(model.favourites));
+        assertEquals("Tower", model.favourites.get(0).hostName);
+        assertEquals("Laptop", model.favourites.get(1).hostName);
+        assertTrue(model.favourites.get(0).favourite);
+        assertFalse(model.favourites.get(0).key.equals(model.favourites.get(1).key));
+        // The merged library card is starred for the host it opens (the first one).
+        for (HomeModel.GameCard card : model.library) {
+            assertEquals(card.title.equalsIgnoreCase("portal"), card.favourite);
+        }
+    }
+
+    @Test
+    public void aFavouriteTheHostNoLongerListsIsHiddenButKeptAndAnOfflineHostKeepsItsFavourites() throws Exception {
+        tower();
+        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
+        rig.repository.setFavourite("tower", "Tower", 99, "Uninstalled", true);
+        ComputerDetails live = nativeHost("tower", "Tower", true);
+        HomeModel model = HomeModel.of(rig.repository.refresh(Collections.singletonList(live)), online("tower"));
+        assertEquals(Collections.singletonList("Zelda"), titles(model.favourites));
+        assertTrue(rig.repository.isFavourite("tower", 99));
+
+        // Offline: the saved library is all there is, and the favourites come from it.
+        HomeModel saved = HomeModel.of(rig.repository.cached(
+                Collections.singletonList(nativeHost("tower", "Tower", false))), online());
+        assertEquals(Collections.singletonList("Zelda"), titles(saved.favourites));
+    }
+
+    @Test
+    public void aFavouriteOfAHostWithoutALibraryYetIsListedByItsStoredName() throws Exception {
+        rig.transport.unreachable("tower");
+        rig.repository.setFavourite("tower", "Tower", 11, "Portal", true);
+        HomeModel model = HomeModel.of(rig.repository.refresh(
+                Collections.singletonList(nativeHost("tower", "Tower", true))), online("tower"));
+        assertEquals(Collections.singletonList("Portal"), titles(model.favourites));
+        assertNull(model.favourites.get(0).source);
+    }
+
+    @Test
+    public void aFavouriteOfAHostThatWasForgottenIsGone() throws Exception {
+        tower();
+        rig.repository.setFavourite("tower", "Tower", 11, "Portal", true);
+        rig.repository.forgetHost("tower");
+        assertFalse(rig.repository.isFavourite("tower", 11));
     }
 
     @Test

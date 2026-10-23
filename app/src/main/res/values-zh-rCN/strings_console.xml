@@ -2,9 +2,13 @@
 <resources>
     <string name="console_title">主页</string>
     <string name="console_menu_hosts">主机</string>
+    <string name="console_section_favourites">收藏</string>
     <string name="console_section_continue">继续游戏</string>
     <string name="console_section_library">游戏库</string>
     <string name="console_section_hosts">主机</string>
+    <string name="console_favourite_add">添加到收藏</string>
+    <string name="console_favourite_remove">从收藏中移除</string>
+    <string name="console_favourite_description">已收藏</string>
     <string name="console_badge_running">运行中</string>
     <string name="console_badge_suspended">已暂停</string>
     <string name="console_card_on_host">位于 %1$s</string>

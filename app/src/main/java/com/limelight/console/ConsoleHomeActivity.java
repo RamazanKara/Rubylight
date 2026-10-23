@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.AppView;
 import com.limelight.R;
 import com.limelight.nativeapi.ConsoleRepository;
@@ -112,6 +113,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             @Override
             public void onGame(HomeModel.GameCard card) {
                 openGame(card);
+            }
+
+            @Override
+            public void onGameMenu(HomeModel.GameCard card) {
+                askFavourite(card);
             }
 
             @Override
@@ -312,6 +318,23 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 .putExtra(GameDetailActivity.EXTRA_APP_ID, card.appId)
                 .putExtra(GameDetailActivity.EXTRA_TITLE, card.title)
                 .putExtra(GameDetailActivity.EXTRA_HOST_NAME, card.hostName));
+    }
+
+    /** The long-press menu of a game card: star or unstar it. */
+    private void askFavourite(HomeModel.GameCard card) {
+        final ConsoleRepository repo = repository;
+        if (repo == null) {
+            return;
+        }
+        boolean remove = card.favourite;
+        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+                .setTitle(card.title)
+                .setItems(new CharSequence[]{getString(remove ? R.string.console_favourite_remove
+                        : R.string.console_favourite_add)}, (dialog, which) -> worker.execute(() -> {
+                    repo.setFavourite(card.hostUuid, card.hostName, card.appId, card.title, !remove);
+                    runOnUiThread(this::scheduleReload);
+                }))
+                .setNegativeButton(android.R.string.cancel, null).create());
     }
 
     /** The screen a game opens; the debug demo returns its own. */

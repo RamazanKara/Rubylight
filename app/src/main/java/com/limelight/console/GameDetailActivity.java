@@ -67,6 +67,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private TextView note;
     private MaterialButton play;
     private MaterialButton end;
+    private MaterialButton favourite;
     private TextView profileValues;
     private TextView profileLayers;
 
@@ -112,10 +113,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         note = findViewById(R.id.detail_note);
         play = findViewById(R.id.detail_play);
         end = findViewById(R.id.detail_end);
+        favourite = findViewById(R.id.detail_favourite);
         profileValues = findViewById(R.id.detail_profile_values);
         profileLayers = findViewById(R.id.detail_profile_layers);
         play.setOnClickListener(v -> onPlay());
         end.setOnClickListener(v -> onEnd());
+        favourite.setOnClickListener(v -> onFavourite());
         title.setText(titleExtra);
         host.setText(hostNameExtra);
         play.setEnabled(false);
@@ -193,6 +196,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         }
         worker.execute(() -> {
             try {
+                favouriteCache = repo.isFavourite(hostUuid, appId);
                 ConsoleSnapshot snapshot = repo.cached(Collections.singletonList(computer));
                 boolean control = false;
                 if (refresh) {
@@ -213,6 +217,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             }
         });
     }
+
+    /** Whether the game is starred, as last read; the toggle flips it and re-renders without a reload. */
+    private volatile boolean favouriteCache;
 
     /** Host control as last read; a host that did not answer counts as without. */
     private volatile boolean controlCache;
@@ -274,6 +281,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 break;
         }
 
+        renderFavourite();
+
         StreamProfileSummary profile = StreamProfileSummary.of(this, computer,
                 m.source != null ? m.source.appUuid : null, m.appId);
         profileValues.setText(profile.values);
@@ -283,6 +292,24 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             focusPending = false;
             play.requestFocus();
         }
+    }
+
+    private void renderFavourite() {
+        favourite.setText(favouriteCache ? R.string.console_favourite_remove : R.string.console_favourite_add);
+        favourite.setIconResource(favouriteCache ? R.drawable.ic_star_filled : R.drawable.ic_star);
+    }
+
+    private void onFavourite() {
+        ConsoleRepository repo = repository;
+        if (model == null || repo == null) {
+            return;
+        }
+        boolean starred = !favouriteCache;
+        favouriteCache = starred;
+        renderFavourite();
+        String starTitle = model.title;
+        String starHost = model.hostName;
+        worker.execute(() -> repo.setFavourite(hostUuid, starHost, appId, starTitle, starred));
     }
 
     private NvApp app() {

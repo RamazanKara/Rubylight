@@ -4,11 +4,13 @@ import android.content.Context;
 
 import com.limelight.nativeapi.CachedAppListSource;
 import com.limelight.nativeapi.ConsoleRepository;
+import com.limelight.nativeapi.FavouritesStore;
 import com.limelight.nativeapi.FileLibraryCache;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeApiTransport;
+import com.limelight.nativeapi.PreferencesFavouritesStore;
 import com.limelight.nativeapi.PreferencesRecentsStore;
 import com.limelight.nativeapi.RecentsStore;
 
@@ -26,6 +28,9 @@ final class DemoConsole {
     /** Racing Game runs on the host; "--es session idle" shows every game as ready to play. */
     static boolean racingRuns = true;
 
+    /** App ids starred on start: "--es stars 3,4" shows the Favourites row. */
+    static int[] starred = new int[0];
+
     private DemoConsole() {
     }
 
@@ -34,10 +39,15 @@ final class DemoConsole {
         // Open World and Space Sim were played before; Racing Game is the running one.
         recents.record(new RecentsStore.Recent(DemoFixtures.PC_UUID, "Living-room PC", 3, "Open World", 1_000L));
         recents.record(new RecentsStore.Recent(DemoFixtures.PC_UUID, "Living-room PC", 4, "Space Sim", 2_000L));
+        PreferencesFavouritesStore favourites = new PreferencesFavouritesStore(context);
+        for (int app : starred) {
+            favourites.set(new FavouritesStore.Favourite(DemoFixtures.PC_UUID, "Living-room PC", app,
+                    DemoFixtures.TITLES[app - 1]), true);
+        }
         return new ConsoleRepository(new Transport(),
                 computer -> new HostEndpoint(computer.uuid, DemoComputerManagerService.SETTINGS_ADDRESS, 47989, 47984,
                         "", "nightjar-demo", new byte[0], new byte[0]),
-                new FileLibraryCache(new File(context.getFilesDir(), "console-library")), recents,
+                new FileLibraryCache(new File(context.getFilesDir(), "console-library")), recents, favourites,
                 new CachedAppListSource(context.getCacheDir()), Executors.newCachedThreadPool(), System::currentTimeMillis);
     }
 

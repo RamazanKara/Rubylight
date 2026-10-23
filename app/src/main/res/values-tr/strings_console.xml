@@ -2,9 +2,13 @@
 <resources>
     <string name="console_title">Ana sayfa</string>
     <string name="console_menu_hosts">Ana bilgisayarlar</string>
+    <string name="console_section_favourites">Favoriler</string>
     <string name="console_section_continue">Oynamaya devam et</string>
     <string name="console_section_library">Kitaplık</string>
     <string name="console_section_hosts">Ana bilgisayarlar</string>
+    <string name="console_favourite_add">Favorilere ekle</string>
+    <string name="console_favourite_remove">Favorilerden kaldır</string>
+    <string name="console_favourite_description">Favori</string>
     <string name="console_badge_running">Çalışıyor</string>
     <string name="console_badge_suspended">Duraklatıldı</string>
     <string name="console_card_on_host">%1$s üzerinde</string>

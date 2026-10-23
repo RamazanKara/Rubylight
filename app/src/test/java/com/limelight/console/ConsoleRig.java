@@ -4,8 +4,11 @@ import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.FileLibraryCache;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.NativeApiFixtures;
+import com.limelight.nativeapi.PreferencesFavouritesStore;
 import com.limelight.nativeapi.RecentsStore;
 import com.limelight.nvstream.http.NvApp;
+
+import org.robolectric.RuntimeEnvironment;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -15,7 +18,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** A repository over scripted hosts for the screen model tests: in-memory recents, a library cache in a folder. */
+/** A repository over scripted hosts for the screen model tests: in-memory recents, favourites in the app's preferences, a library cache in a folder. */
 final class ConsoleRig {
     final NativeApiFixtures.FakeTransport transport = new NativeApiFixtures.FakeTransport();
     final Map<String, List<NvApp>> classicApps = new HashMap<>();
@@ -39,8 +42,9 @@ final class ConsoleRig {
         };
         repository = new ConsoleRepository(transport,
                 computer -> HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto()),
-                new FileLibraryCache(cacheDirectory), store, computer -> classicApps.get(computer.uuid), executor,
-                () -> 5000L);
+                new FileLibraryCache(cacheDirectory), store,
+                new PreferencesFavouritesStore(RuntimeEnvironment.getApplication()),
+                computer -> classicApps.get(computer.uuid), executor, () -> 5000L);
     }
 
     void close() {

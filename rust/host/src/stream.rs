@@ -1415,6 +1415,7 @@ impl Media {
                     } else { requested_fec.clamp(0, 100) as usize };
                     s.configure_fec(c.boolean("adaptive_fec", true), fec_ceiling);
                     s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, if s.config.codec == 3 { 2_000_000 } else { 500_000 }) as u32);
+                    s.configure_link_rate(c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                     // Packet adaptation is opt-in. Explicit pacing and host
                     // bitrate adaptation keep their own policies.
                     let automatic_pacing = c.adaptive_packet_pacing(s.config.codec);
@@ -1797,6 +1798,7 @@ impl Media {
                                 // The last unit is out: account for the frame as for a whole one.
                                 let slices::Streaming { frame: streamed, wire_frame, timestamp, claim, claimed, age, started, packetize_started, first_polled, last_polled, payload_bytes, processing, bps, sent, .. } = st;
                                 let unrecoverable = sent.lost.unrecoverable();
+                                s.record_link_sent(wire_frame, sent.packets, ((sent.packets * (packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 })) + sent.packets * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64);
                                 if unrecoverable {
                                     s.keyframe_abandoned(wire_frame);
                                     tracing::debug!(frame = wire_frame, finished = streamed.is_done(), "video frame lost on send; the rest of it was not sent");
@@ -1992,6 +1994,7 @@ impl Media {
                                 }
                             }
                             drop(next_block);
+                            s.record_link_sent(wire_frame, packet_count, frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64));
                             if lost.unrecoverable() {
                                 s.keyframe_abandoned(wire_frame);
                                 tracing::debug!(frame = packetizer.frame.wrapping_sub(1), idr = frame.idr, abandoned, "video frame lost on send; the rest of it was not sent");
@@ -2079,6 +2082,7 @@ impl Media {
                                         // Sorted after the lock the sender records into is released.
                                         let window = s.stats.performance.lock().unwrap().window(Instant::now());
                                         let timing = window.snapshot();
+                                        let link = s.link_rate_snapshot();
                                         let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
                                         let split = |pick: fn(&(u64, u64)) -> u64| {
                                             let mut values: Vec<u64> = claim_ages.iter().map(pick).collect();
@@ -2149,6 +2153,13 @@ impl Media {
                                             fec_missing_packets=timing["fec_missing_packets"].as_u64().unwrap_or(0),
                                             bitrate_kbps=s.bitrate.load(Ordering::Relaxed),
                                             sent_mbps=ms("bitrate_mbps"),
+                                            link_state=%link["state"].as_str().unwrap_or(""),
+                                            link_ceiling_kbps=link["ceiling_kbps"].as_u64().unwrap_or(0),
+                                            link_current_kbps=link["current_kbps"].as_u64().unwrap_or(0),
+                                            link_delivered_kbps=link["delivered_kbps"].as_u64().unwrap_or(0),
+                                            link_steps_down=link["steps_down"].as_u64().unwrap_or(0),
+                                            link_probes=link["probes"].as_u64().unwrap_or(0),
+                                            link_failed_probes=link["failed_probes"].as_u64().unwrap_or(0),
                                             "stream timings"
                                         );
                                     }
@@ -2173,6 +2184,7 @@ impl Media {
                                     None => {
                                         tracing::info!(client = %s.launch.client.name, from = %from, to = %to, "reconfigure requested");
                                         to.apply_to(&mut stream);
+                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                                         switching.get_or_insert((from, Instant::now()));
                                         rebuild_encoder = true;
                                     }
@@ -2641,6 +2653,7 @@ impl Media {
                                     if let Some((from, _)) = switching.take() {
                                         let to = butterpollo_core::reconfigure::Mode::of(&stream);
                                         from.apply_to(&mut stream);
+                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                                         s.reconfigure.lock().unwrap().refused(from);
                                         tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder failed at this mode; keeping the previous one");
                                         rebuild_encoder = true;
@@ -3321,7 +3334,7 @@ impl Media {
                                 );
                             }
                             0x0301 => s.request_invalidation(0, 0),
-                            0x0302 => s.request_recovery_keyframe(),
+                            0x0302 => s.request_client_keyframe(),
                             // This dispatch receives only client-to-host packets;
                             // 0x5502 in the other direction is controller feedback.
                             0x5502 => s.record_fec_status(&payload),
@@ -3574,6 +3587,9 @@ impl Media {
                         )
                     {
                         tracing::info!(client = %s.launch.client.name, old_kbps = old, new_kbps = new, "host adaptive bitrate");
+                    }
+                    if poll_feedback {
+                        s.tick_link_rate(Instant::now(), host.peer(*peer_id).round_trip_time());
                     }
                     // Made before input comes; after a failure, again when it
                     // does. Making it with the first input held that input up.

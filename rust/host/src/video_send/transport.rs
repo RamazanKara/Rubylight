@@ -324,6 +324,7 @@ impl Transport<'_> {
             abandoned,
             ..
         } = cur;
+        s.record_link_sent(frame.wire_frame, packet_count, wire_bytes as u64);
         if lost.unrecoverable() {
             s.keyframe_abandoned(frame.wire_frame);
             tracing::debug!(

@@ -263,7 +263,9 @@ mod tests {
             let at = end - Duration::from_millis(17 * u64::from(frames - frame));
             s.record_link_sent_at(frame, 100, 112_600, at);
         }
-        s.stats.video_frame.store(u64::from(frames) + 10, Ordering::Release);
+        s.stats
+            .video_frame
+            .store(u64::from(frames) + 10, Ordering::Release);
         (s, end)
     }
     fn lose_frames(s: &Session, frames: std::ops::RangeInclusive<u32>) {
@@ -280,7 +282,7 @@ mod tests {
             .tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10))
             .expect("the controller lowers the bitrate");
         assert_eq!(from, 20_000);
-        assert!(to < 20_000 * 85 / 100 && to >= 20_000 * 40 / 100, "{to}");
+        assert!((20_000 * 40 / 100..20_000 * 85 / 100).contains(&to), "{to}");
         assert_eq!(s.bitrate.load(Ordering::Acquire), to);
         let info = s.info();
         assert_eq!(info["link_rate"]["state"], "limited");
@@ -291,7 +293,10 @@ mod tests {
             .find(|w| w["code"] == LINK_WARNING)
             .expect("the console gets a warning")
             .clone();
-        assert!(warning["message"].as_str().unwrap().contains("Mbps"), "{warning}");
+        assert!(
+            warning["message"].as_str().unwrap().contains("Mbps"),
+            "{warning}"
+        );
         // Later ticks do not change the warning or the bitrate while it holds.
         assert_eq!(
             s.tick_link_rate(end + Duration::from_millis(300), Duration::from_millis(10)),
@@ -326,7 +331,10 @@ mod tests {
     fn the_controller_is_off_when_disabled_or_for_pyrowave() {
         let (s, end) = link_session(60, false);
         lose_frames(&s, 50..=54);
-        assert_eq!(s.tick_link_rate(end + Duration::from_millis(200), Duration::ZERO), None);
+        assert_eq!(
+            s.tick_link_rate(end + Duration::from_millis(200), Duration::ZERO),
+            None
+        );
         assert_eq!(s.bitrate.load(Ordering::Acquire), 20_000);
         assert_eq!(s.info()["link_rate"]["state"], "off");
 
@@ -349,10 +357,22 @@ mod tests {
         lose_frames(&s, 50..=54);
         s.tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10))
             .unwrap();
-        assert!(s.launch.warnings.snapshot().iter().any(|w| w.code == LINK_WARNING));
+        assert!(
+            s.launch
+                .warnings
+                .snapshot()
+                .iter()
+                .any(|w| w.code == LINK_WARNING)
+        );
         s.set_client_bitrate(12_000);
         assert_eq!(s.bitrate.load(Ordering::Acquire), 12_000);
-        assert!(s.launch.warnings.snapshot().iter().all(|w| w.code != LINK_WARNING));
+        assert!(
+            s.launch
+                .warnings
+                .snapshot()
+                .iter()
+                .all(|w| w.code != LINK_WARNING)
+        );
         assert_eq!(s.info()["link_rate"]["reason"], "client_controlled");
         lose_frames(&s, 55..=59);
         assert_eq!(
@@ -2197,11 +2217,7 @@ impl<P, A> Session<P, A> {
     }
     /// The link-rate state for the session API and the `stream timings` line.
     pub fn link_rate_snapshot(&self) -> serde_json::Value {
-        self.link_rate
-            .lock()
-            .unwrap()
-            .rate
-            .snapshot(Instant::now())
+        self.link_rate.lock().unwrap().rate.snapshot(Instant::now())
     }
     /// Call from the feedback tick. Applies the controller's bitrate and says
     /// so, loudly: a WARN on leaving the requested rate, a session warning for

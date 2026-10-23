@@ -64,7 +64,10 @@ impl SentLog {
         let n = self.head.load(Ordering::Relaxed);
         let slot = &self.slots[n as usize % LOG];
         let ms = now.saturating_duration_since(self.started).as_millis() as u32;
-        slot[0].store(u64::from(frame) << 32 | u64::from(packets), Ordering::Relaxed);
+        slot[0].store(
+            u64::from(frame) << 32 | u64::from(packets),
+            Ordering::Relaxed,
+        );
         slot[1].store(
             u64::from(wire_bytes.min(u64::from(u32::MAX)) as u32) << 32 | u64::from(ms),
             Ordering::Relaxed,
@@ -169,7 +172,8 @@ impl LinkControl {
         let seconds = elapsed.as_secs_f64();
         self.busy = elapsed <= Duration::from_secs(2)
             && frames.saturating_sub(before_frames) as f64 >= seconds / period.as_secs_f64() * 0.6
-            && bytes.saturating_sub(before_bytes) as f64 * 8. >= f64::from(kbps) * 1000. * seconds * 0.6;
+            && bytes.saturating_sub(before_bytes) as f64 * 8.
+                >= f64::from(kbps) * 1000. * seconds * 0.6;
         self.busy
     }
 
@@ -191,7 +195,11 @@ mod tests {
         let started = Instant::now();
         let log = SentLog::new(started);
         log.record(1, 10, 1000, started);
-        assert_eq!(log.head(), 0, "nothing is recorded while no controller reads");
+        assert_eq!(
+            log.head(),
+            0,
+            "nothing is recorded while no controller reads"
+        );
         log.set_live(true);
         let mut cursor = 0;
         let mut seen = Vec::new();
@@ -241,8 +249,17 @@ mod tests {
         let t1 = t0 + Duration::from_secs(1);
         assert!(link.busy(t1, 60, 1_250_000, period, 10_000));
         let t2 = t1 + Duration::from_secs(1);
-        assert!(!link.busy(t2, 62, 1_250_100, period, 10_000), "a static picture");
+        assert!(
+            !link.busy(t2, 62, 1_250_100, period, 10_000),
+            "a static picture"
+        );
         // Between samples the last verdict stands.
-        assert!(!link.busy(t2 + Duration::from_millis(100), 90, 9_000_000, period, 10_000));
+        assert!(!link.busy(
+            t2 + Duration::from_millis(100),
+            90,
+            9_000_000,
+            period,
+            10_000
+        ));
     }
 }

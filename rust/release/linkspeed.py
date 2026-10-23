@@ -466,7 +466,7 @@ def analyse(out):
     # Rate changes the host announced: the legacy controller and, in builds that have it, LinkRate.
     result['adaptive_changes'] = dict(
         adaptive_bitrate=sum(1 for l in events.splitlines() if 'host adaptive bitrate' in l),
-        link_rate=sum(1 for l in events.splitlines() if re.search(r'link[ _]rate', l, re.I) and 'network pacing' not in l))
+        link_rate=sum(1 for l in events.splitlines() if re.search(r'link[ _]rate', l, re.I) and 'network pacing' not in l and 'stream timings' not in l))
     result['recovery_keyframes'] = sum(1 for l in events.splitlines() if 'video recovery frame' in l)
     series = {}
     for n, t in sent:

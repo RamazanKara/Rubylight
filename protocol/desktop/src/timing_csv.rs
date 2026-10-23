@@ -17,6 +17,9 @@
 //! fell back to the whole frame) and `first_block_ns` (when the first block of an early frame
 //! was decoded; empty otherwise), for the early-decode comparison in docs/early-decode.md.
 //!
+//! The seven present-scheduler columns Android appends to the host's (`sched_vsync_ns` to
+//! `drop_reason`) are empty here, so a reader that goes by name sees the same header.
+//!
 //! Seven more desktop columns break the wait between decoding and showing a picture down
 //! (docs/pyrowave-decode.md, "Where the time between decoded and shown goes"): `due_ns` (when the
 //! pacer meant to present it), `present_begin_ns` (the presenter began drawing it), and, on
@@ -52,14 +55,20 @@ pub const OWN_COLUMNS: [&str; 32] = [
     "callback_received_ns", "callback_delay_ms",
 ];
 
-/// The desktop's own columns after the host's.
+/// The Android present scheduler's columns after the host's, in `FrameLatencyStats.CSV_HEADER`
+/// order: the desktop has no such scheduler, so they are always empty.
+pub const SCHEDULER_COLUMNS: [&str; 7] = [
+    "sched_vsync_ns", "sched_hold_ms", "sched_late", "queue_depth", "residency_excess_ms", "in_flight", "drop_reason",
+];
+
+/// The desktop's own columns after those.
 pub const EXTRA_COLUMNS: [&str; 9] = [
     "early", "first_block_ns", "due_ns", "present_begin_ns", "present_count", "stat_present_count", "stat_present_refresh",
     "stat_sync_refresh", "stat_sync_ns",
 ];
 
 pub fn header() -> String {
-    format!("{},{},{}\n", OWN_COLUMNS.join(","), record::HEADER, EXTRA_COLUMNS.join(","))
+    format!("{},{},{},{}\n", OWN_COLUMNS.join(","), record::HEADER, SCHEDULER_COLUMNS.join(","), EXTRA_COLUMNS.join(","))
 }
 
 /// Rows waiting for the writer.
@@ -200,7 +209,7 @@ fn run(mut file: BufWriter<File>, inbox: std::sync::mpsc::Receiver<Message>, los
                 let fps = shown.push(row.render_us);
                 let line = own_fields(&row, lost.load(Ordering::Relaxed), previous_output, fps);
                 previous_output = row.output_us;
-                extras.push_back(extra_fields(&row));
+                extras.push_back(format!("{},{}", scheduler_fields(), extra_fields(&row)));
                 record.push(PendingRow {
                     number: row.number,
                     line,
@@ -304,6 +313,11 @@ pub fn own_fields(row: &Row, lost: u64, previous_output_us: u64, shown_fps: Opti
     fields.join(",")
 }
 
+/// The scheduler columns of one row: all empty.
+pub fn scheduler_fields() -> String {
+    vec![""; SCHEDULER_COLUMNS.len()].join(",")
+}
+
 /// The desktop columns of one row, comma separated.
 pub fn extra_fields(row: &Row) -> String {
     let count = |n: u32| if n == 0 { String::new() } else { n.to_string() };
@@ -368,7 +382,7 @@ mod tests {
         let ours = ours.trim_end();
         assert!(ours.starts_with(android.trim_end()), "Android's columns come first, unchanged");
         assert_eq!(&ours[android.trim_end().len()..], format!(",{}", EXTRA_COLUMNS.join(",")));
-        assert_eq!(OWN_COLUMNS.len() + 9, android.split(',').count());
+        assert_eq!(OWN_COLUMNS.len() + 9 + SCHEDULER_COLUMNS.len(), android.split(',').count());
         assert_eq!(ours.split(',').count(), android.split(',').count() + EXTRA_COLUMNS.len());
     }
 
@@ -427,8 +441,8 @@ mod tests {
         assert_eq!(lines.len(), 3, "{text}");
         assert_eq!(format!("{}\n", lines[0]), header());
         let tail = |line: &str| line.split(',').skip(OWN_COLUMNS.len()).collect::<Vec<_>>().join(",");
-        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,1,1000900000,,,,,,,");
-        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,1,1000900000,,,,,,,");
+        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,,,,,,,,1,1000900000,,,,,,,");
+        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,,,,,,,,1,1000900000,,,,,,,");
         for line in &lines {
             assert_eq!(line.split(',').count(), header().trim_end().split(',').count());
         }

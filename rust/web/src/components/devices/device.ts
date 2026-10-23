@@ -105,6 +105,8 @@ export interface Draft {
   allow_client_commands: boolean;
   /** The device's own stream preset id; empty follows the host's. An unknown saved name is kept as it is. */
   stream_preset: string;
+  /** The preset exactly as stored (any spelling, any type), sent back while the choice is untouched. */
+  stored_preset?: unknown;
   /** The device's other config overrides, kept and sent back untouched. */
   other_overrides: Record<string, unknown>;
   /** Lets the device change Radeon settings and close games; off unless granted here. */
@@ -184,6 +186,7 @@ export function toDraft(client: Client): Draft {
     hdr_profile: text(client.hdr_profile),
     allow_client_commands: flag(client.allow_client_commands) !== false,
     stream_preset: savedPreset(preset),
+    stored_preset: preset,
     other_overrides: other,
     // As the host reads it: only true and "true" are on, so 1 and "yes" stay off.
     host_control: client.host_control === true || client.host_control === 'true',
@@ -202,9 +205,15 @@ function commands(rows: CommandRow[]): Command[] {
   return rows.filter((row) => row.cmd.trim()).map((row) => ({ cmd: row.cmd.trim(), elevated: row.elevated }));
 }
 
-/** The device's overrides: its other overrides plus its preset; null when there are none. */
+/**
+ * The device's overrides: its other overrides plus its preset; null when there are none. A preset
+ * the user did not touch goes back as it was stored, so a name this console cannot show (another
+ * type, an unknown name) is not rewritten or lost by saving something else.
+ */
 function overrides(draft: Draft): Record<string, unknown> | null {
-  const next = { ...draft.other_overrides, ...(draft.stream_preset ? { [STREAM_PRESET]: draft.stream_preset } : {}) };
+  const untouched = draft.stored_preset !== undefined && savedPreset(draft.stored_preset) === draft.stream_preset;
+  const preset = untouched ? { [STREAM_PRESET]: draft.stored_preset } : draft.stream_preset ? { [STREAM_PRESET]: draft.stream_preset } : {};
+  const next = { ...draft.other_overrides, ...preset };
   return Object.keys(next).length > 0 ? next : null;
 }
 

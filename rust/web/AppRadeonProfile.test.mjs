@@ -86,6 +86,19 @@ test('values read back the way they were typed', () => {
   assert.equal(radeon.formatValue(null), '');
 });
 
+test('a number that is not a whole number is an error, not a text value', () => {
+  const row = value => radeon.settingRow('a.b', value);
+  for (const bad of ['1.5', '-0.25', '1e3', '.5', '99999999999999999999']) {
+    assert.match(radeon.rowError(row(bad), []), /whole number/, bad);
+  }
+  for (const good of ['3', '-3', 'true', 'false', 'enhance_app_settings', 'v2']) {
+    assert.equal(radeon.rowError(row(good), []), '', good);
+  }
+  // It blocks saving a custom profile.
+  const rows = [row('1.5')];
+  assert.match(radeon.profileError('custom', rows), /whole number/);
+});
+
 test('an unknown stored profile is kept as written', () => {
   const draft = new AppDraft(app({ 'radeon-profile': 'fastest' }));
   assert.equal(draft.changed, false);

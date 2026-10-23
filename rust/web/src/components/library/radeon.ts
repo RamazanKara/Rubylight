@@ -51,7 +51,8 @@ export function rowsOf(settings: unknown): SettingRow[] {
   return Object.entries(settings as Record<string, unknown>).map(([id, value]) => settingRow(id, formatValue(value)));
 }
 
-const ID = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
+const NUMBER_LIKE = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i;
+const ID =/^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
 
 /** What is wrong with a row, or ''. A blank row is dropped when saving and is not an error. */
 export function rowError(row: SettingRow, rows: SettingRow[]): string {
@@ -63,6 +64,9 @@ export function rowError(row: SettingRow, rows: SettingRow[]): string {
   const value = row.value.trim();
   if (!value) return 'Give the setting a value.';
   if (value.length > 64) return 'The value is too long.';
+  // Settings are switches, whole numbers or named choices: a number with a fraction, an
+  // exponent or too many digits is none of them, and would be saved as text the driver refuses.
+  if (NUMBER_LIKE.test(value) && typeof parseValue(value) !== 'number') return 'Use a whole number.';
   return '';
 }
 

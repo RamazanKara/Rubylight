@@ -36,6 +36,19 @@ test('going back to the host preset removes the key, and the last override clear
   assert.deepEqual(changes(only, { ...only, stream_preset: '' }), { config_overrides: null });
 });
 
+test('a stored preset the console cannot show goes back as stored until the user picks one', () => {
+  for (const stored of [7, true, ' "Fast" ', ' "Reference" ', ['x']]) {
+    const before = toDraft(client({ config_overrides: { stream_preset: stored, max_bitrate: 5 } }));
+    assert.deepEqual(changes(before, { ...before, name: 'Tablet' }), { name: 'Tablet' }, String(stored));
+    // The user picks one and puts the choice back: nothing changes, nothing is lost.
+    const picked = { ...before, stream_preset: 'balanced' };
+    assert.deepEqual(changes(before, picked), { config_overrides: { max_bitrate: 5, stream_preset: 'balanced' } });
+    assert.deepEqual(changes(picked, { ...picked, stream_preset: before.stream_preset }), {
+      config_overrides: { max_bitrate: 5, stream_preset: stored },
+    });
+  }
+});
+
 test('an unknown saved name is kept until the user picks a preset', () => {
   const before = toDraft(client({ config_overrides: { stream_preset: 'fastest' } }));
   assert.equal(before.stream_preset, 'fastest');

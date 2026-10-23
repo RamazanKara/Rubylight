@@ -306,16 +306,15 @@ public class UiNavigationTest {
     }
 
     @Test
-    public void dpadReachesTheHomeToolbarActionsOnATouchscreenPhone() {
-        // AppCompat's toolbar blocks focus on touchscreen devices; the shared bar must not.
+    public void dpadReachesTheShellBarOnATouchscreenPhone() {
+        // AppCompat's toolbar blocks focus on touchscreen devices; the shell bar must not.
         org.robolectric.Shadows.shadowOf(org.robolectric.RuntimeEnvironment.getApplication().getPackageManager())
                 .setSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN, true);
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
         try {
             Screen screen = controller.get();
             screen.setContentView(R.layout.activity_pc_view);
-            com.google.android.material.appbar.MaterialToolbar toolbar =
-                    TopAppBar.configure(screen, R.id.home_toolbar, "Computers", R.menu.home);
+            ShellBar.install(screen, ShellBar.Destination.PCS);
             screen.findViewById(R.id.no_pc_found_layout).setVisibility(View.GONE);
             AdaptiveGridView grid = computerGrid(screen, new AtomicInteger());
             layout(screen);
@@ -323,8 +322,8 @@ public class UiNavigationTest {
             grid.setSelection(0);
             View up = grid.focusSearch(View.FOCUS_UP);
             assertNotNull("UP from the PC list found nothing", up);
-            assertSame(toolbar, up.getParent().getParent());
-            View settings = screen.findViewById(R.id.settingsButton);
+            assertSame(screen.findViewById(R.id.shell_bar_items), up.getParent());
+            View settings = screen.findViewById(R.id.shell_settings);
             assertTrue(settings.isFocusable());
             assertSame(grid, settings.focusSearch(View.FOCUS_DOWN));
         } finally {

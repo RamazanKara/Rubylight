@@ -14,6 +14,8 @@ import androidx.core.graphics.ColorUtils;
 import androidx.core.internal.view.SupportMenuItem;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.color.MaterialColors;
 import com.limelight.R;
 import com.limelight.preferences.HostStreamSettings;
 
@@ -65,8 +67,16 @@ public class ToolbarIconTintTest {
         try {
             Screen screen = controller.get();
             screen.setContentView(R.layout.activity_pc_view);
-            MaterialToolbar toolbar = TopAppBar.configure(screen, R.id.home_toolbar, "Computers", R.menu.home);
-            assertIconsFollowTheTheme(screen, toolbar.getMenu(), R.id.settingsButton, R.id.helpButton);
+            ShellBar.install(screen, ShellBar.Destination.PCS);
+            int surface = MaterialColors.getColor(screen, com.google.android.material.R.attr.colorSurface, 0);
+            for (int id : new int[] {R.id.shell_home, R.id.shell_pcs, R.id.shell_settings}) {
+                MaterialButton button = screen.findViewById(id);
+                assertNotNull("shell button " + id + " must tint its white vector icon", button.getIconTint());
+                // Unselected buttons sit on the surface; the selected one on its container, checked by the style.
+                int tint = button.getIconTint().getColorForState(new int[0], 0);
+                assertTrue("shell icon " + id + " is readable on the surface",
+                        ColorUtils.calculateContrast(tint, surface) >= MINIMUM_ICON_CONTRAST);
+            }
         } finally {
             controller.pause().stop().destroy();
         }

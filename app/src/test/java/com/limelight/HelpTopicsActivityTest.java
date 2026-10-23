@@ -50,7 +50,7 @@ public class HelpTopicsActivityTest {
     }
 
     @Test
-    public void homeHelpOpensTheBundledPage() {
+    public void helpLeftThePcsToolbarAndStillOpensTheBundledPage() {
         Application application = RuntimeEnvironment.getApplication();
         GlPreferences gl = GlPreferences.readPreferences(application);
         gl.savedFingerprint = Build.FINGERPRINT;
@@ -59,8 +59,10 @@ public class HelpTopicsActivityTest {
         application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
         ActivityController<PcViewLifecycleTest.Library> home = Robolectric.buildActivity(PcViewLifecycleTest.Library.class).setup();
         try {
+            // Help left the toolbar for Settings > App > Help and F1 (UiNavigationTest); the shell bar has no Help.
             MaterialToolbar toolbar = home.get().findViewById(R.id.home_toolbar);
-            assertTrue(toolbar.getMenu().performIdentifierAction(R.id.helpButton, 0));
+            assertEquals(0, toolbar.getMenu().size());
+            com.limelight.utils.HelpLauncher.showHelp(home.get());
             assertEquals(HelpTopicsActivity.class.getName(),
                     shadowOf(home.get()).getNextStartedActivity().getComponent().getClassName());
         } finally {

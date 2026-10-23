@@ -401,13 +401,18 @@ impl Transport<'_> {
             frame_bytes as u64,
         );
         let stamps = frame.claim.filter(|_| !lost.unrecoverable()).map(|claim| {
+            // A streamed frame is encoded when its last unit is in hand, which can be
+            // after its first block was sent; its first unit and early blocks go with it.
             let mut stamps = claim.sent(
-                frame.polled,
+                frame.last_polled,
                 frame.packetized,
                 first_sent.unwrap_or(sent),
                 sent,
             );
             stamps.prepared = prepared;
+            if frame.stream.is_some() {
+                stamps = stamps.with_streamed(frame.polled, frame.early_blocks);
+            }
             stamps
         });
         if let Some(stamps) = &stamps {

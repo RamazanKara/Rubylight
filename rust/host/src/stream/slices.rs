@@ -127,23 +127,27 @@ pub fn refuse_frame(packetizer: &mut VideoPacketizer) -> u32 {
     packetizer.frame
 }
 
-/// The points of a streamed frame. `encoded` is when its first unit was in
-/// hand: the units that follow arrive while the frame is already leaving, so
-/// the time to its last unit falls in `send`, after `first_sent`, instead of
-/// swallowing the stages before it.
+/// The points of a streamed frame. `encoded` is when its last unit was in
+/// hand, as for any frame, so `encode` is the encoder's whole time. The first
+/// blocks left earlier: `first_sent` precedes `encoded` by the overlap, and the
+/// stages that would run backwards count as reached with it. The first unit
+/// and the blocks sent before the last go into the record.
 pub fn stamps(
     claim: &Claim,
-    first_polled: Instant,
+    (first_polled, last_polled): (Instant, Instant),
+    early_blocks: usize,
     packetize_started: Instant,
     first_sent: Option<Instant>,
     finished: Instant,
 ) -> Stamps {
-    claim.sent(
-        first_polled,
-        packetize_started,
-        first_sent.unwrap_or(finished),
-        finished,
-    )
+    claim
+        .sent(
+            last_polled,
+            packetize_started,
+            first_sent.unwrap_or(finished),
+            finished,
+        )
+        .with_streamed(first_polled, early_blocks)
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -572,17 +576,25 @@ mod tests {
             claimed: at(200),
             submitted: at(700),
         };
-        // The first unit came in at 1.0 ms and the last, much later, at 7.9 ms.
-        let stamps = stamps(&claim, at(1000), at(1100), Some(at(1500)), at(8000));
+        // The first unit came in at 1.0 ms and the last, much later, at 7.9 ms; the
+        // first block left at 1.5 ms and the last packet at 8.0 ms.
+        let stamps = stamps(
+            &claim,
+            (at(1000), at(7900)),
+            2,
+            at(1100),
+            Some(at(1500)),
+            at(8000),
+        );
         assert_eq!(
             stamps.stages(),
-            [100, 50, 50, 500, 300, 100, 400, 0, 6500],
-            "encode ends at the first unit; the wait for the last falls in send"
+            [100, 50, 50, 500, 7200, 0, 0, 0, 100],
+            "encode ends at the last unit; what left earlier is not counted again"
         );
         assert_eq!(stamps.total(), 8000);
-        // The last unit's time as the encode end would absorb everything.
-        let wrong = claim.sent(at(7900), at(1100), at(1500), at(8000));
-        assert!(wrong.stages()[4] > 7000);
+        assert_eq!(stamps.overlap(), Some(6400));
+        let streamed = stamps.streamed.unwrap();
+        assert_eq!((streamed.first_unit, streamed.early_blocks), (at(1000), 2));
     }
 
     #[test]

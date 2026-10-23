@@ -1710,8 +1710,18 @@ fn a_streamed_frame_goes_out_in_order_and_is_timed_once() {
     assert!(rows.try_recv().is_err());
     assert_eq!(row.wire_frame, 1);
     let points = row.points;
-    assert!(points[5] <= points[6] && points[6] <= points[7] && points[7] <= points[8]);
-    assert!(points[8] <= points[9]);
+    // Packetizing began on the first unit and the first block went out; the last
+    // unit was in hand only after that, and the record says how many blocks left
+    // before it.
+    assert!(points[6] <= points[7] && points[7] <= points[8]);
+    assert!(
+        points[8] < points[5],
+        "the first block left before the last unit"
+    );
+    assert!(points[5] <= points[9]);
+    let first_unit = row.first_unit_us.unwrap();
+    assert!(first_unit <= points[6] && first_unit < points[5]);
+    assert_eq!(row.early_blocks, Some(1));
     assert_eq!(session.info()["performance"]["stages"]["frames"], 1);
 }
 

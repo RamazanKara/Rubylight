@@ -50,20 +50,21 @@ Set `BUTTERPOLLO_TIMING_RECORD=<dir>` on the host process. It is unset by defaul
 # rubylight timing record 1
 # media_epoch_qpc_ms=<QPC ms at media_epoch, as clock_ms() in moonlight_client.c>
 # codec=<h264|hevc|av1|pyrowave> capture=<wgc|dda> present_source=<etw|capture>
-wire_frame,rtp_us,present_us,acquired_us,published_us,claimed_us,submitted_us,encoded_us,packetized_us,prepared_us,first_sent_us,last_sent_us
+wire_frame,rtp_us,present_us,acquired_us,published_us,claimed_us,submitted_us,encoded_us,packetized_us,prepared_us,first_sent_us,last_sent_us,first_unit_us,early_blocks
 ...
 # dropped=<rows dropped because the writer fell behind>
 ```
 
-All values are integer µs on the media clock. The send thread does a non-blocking `try_send` into a bounded channel (4096 rows) at the point where `host_timings.record` is called today. A writer thread does the file IO. A full channel drops rows and counts them, and never blocks the send thread.
+All values are integer µs on the media clock. `first_unit_us` and `early_blocks` are empty unless the frame was streamed (below); records written before they existed end at `last_sent_us`, and the report reads both. The send thread does a non-blocking `try_send` into a bounded channel (4096 rows) at the point where `host_timings.record` is called today. A writer thread does the file IO. A full channel drops rows and counts them, and never blocks the send thread.
 
 #### Streamed frames (`video_slice_delivery`)
 
-A P-frame the host sends block by block while the encoder still produces it has its first blocks on the wire before its last slice exists. Its points keep the order above, so no stage is negative:
+A P-frame the host sends block by block while the encoder still produces it has its first blocks on the wire before its last slice exists. Its points are the same as for any frame, but `first_sent_us` can precede `encoded_us`:
 
-- `encoded_us` is when the encoder's **first** slice was in the host's hands, and `packetized_us` when packetizing began on it. `encode` therefore ends at the first slice, not at the end of the encoder's work.
-- `prepared_us` equals `first_sent_us`, as for any inline frame, and `last_sent_us` is the last packet of the **last** block.
-- The wait for the remaining slices falls in `send` (`first_sent_us` to `last_sent_us`), together with pacing. For a streamed frame `send` is not network time alone. The time from the first slice to the last slice is logged at trace level (`target: "pacing"`, `streamed picture`, field `encode_span_us`, with `units` and `early_blocks`) until 2e adds `first_unit_us` and `early_blocks` columns to the record.
+- `encoded_us` is when the encoder's **last** slice was in the host's hands, as for a whole frame, so `encode` is the encoder's whole time. `first_unit_us` is when its **first** slice was, and `early_blocks` is how many FEC blocks were built before the last slice arrived.
+- `packetized_us` is when packetizing began on the first slice, `prepared_us` equals `first_sent_us` (the first packet of block 0), and `last_sent_us` is the last packet of the **last** block.
+- The host's own stages (`Stamps::stages`, the 0x5536 `encode_us` and `send_us`, the `stages` figures in the status JSON) count a point that falls before the one preceding it as reached with it, so no stage is negative and they still add up to present to last packet. For a streamed frame the encoder's time ends at `encoded_us`, `packetize`, `send_queue` and the start of `send` are zero, and `send` is the tail after the encoder: `last_sent_us` minus `encoded_us`. `Stamps::overlap()` is `encoded_us - first_sent_us`, the time the first block was on the wire before the encoder finished.
+- `timing_report.py` reports, for a frame with `first_unit_us`: `encode` as above, `packetize_pace` from `first_unit_us` to `first_sent_us` (the first block's packetizing and pacing, inside `encode`), `overlap` = `encoded_us - first_sent_us` (floored at zero; zero when nothing left early), and `send` from the later of `first_sent_us` and `encoded_us` to `last_sent_us`. `packetize_pace` and `overlap` lie inside `encode`, so a streamed frame's stages are not a partition of `host_total`. The overlap row appears only when a streamed frame is in the record.
 - Frames the host does not stream (keyframes, recovery frames, frames the plan cannot split) are joined and stamped as before.
 
 ### Client record

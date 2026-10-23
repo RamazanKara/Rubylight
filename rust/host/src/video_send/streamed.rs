@@ -39,8 +39,6 @@ struct Open {
     wire: VideoPacketizer,
     wire_frame: u32,
     payload_bytes: usize,
-    first_polled: Instant,
-    last_polled: Instant,
     /// A unit overflowed the plan or the frame failed to build: the rest of
     /// its units are dropped.
     failed: bool,
@@ -119,8 +117,6 @@ impl Streams {
                     wire_frame: wire.frame,
                     wire,
                     payload_bytes: 0,
-                    first_polled: start.polled,
-                    last_polled: start.polled,
                     failed: false,
                     start,
                 });
@@ -161,10 +157,11 @@ impl Streams {
             return Ok(());
         };
         open.payload_bytes += bytes.len();
-        open.last_polled = polled;
         if !open.failed {
             let payload_bytes = open.payload_bytes;
             let (start, wire, wire_frame) = (&open.start, &open.wire, open.wire_frame);
+            // The blocks built before this unit are the ones that left before the last.
+            let early_blocks = open.frame.blocks_built();
             let mut fatal = None;
             let pushed = open.frame.push(
                 packetizer,
@@ -203,6 +200,8 @@ impl Streams {
                         peer: start.peer,
                         claimed: start.claimed,
                         polled: start.polled,
+                        last_polled: polled,
+                        early_blocks,
                         packetized: start.packetized,
                         prepared: Instant::now(),
                         latency: micros(latency),
@@ -248,10 +247,6 @@ impl Streams {
                 *fec_reported = Some(Instant::now());
                 s.launch.warnings.event("network_fec", "FEC was reduced or omitted for large video frames because they exceed Moonlight's four-block limit. Packet loss in those frames is harder to recover; lower bitrate or resolution to keep full FEC protection.", butterpollo_core::session::EVENT_PERIOD);
             }
-            tracing::trace!(target: "pacing", stream_id = %s.launch.id, frame = open.wire_frame,
-                units = open.frame.units(), early_blocks = open.frame.early_blocks(),
-                encode_span_us = micros(open.last_polled.saturating_duration_since(open.first_polled)),
-                "streamed picture");
         }
         self.spare = open.frame.into_buffer();
         Ok(())

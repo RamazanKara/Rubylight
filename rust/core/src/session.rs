@@ -1392,6 +1392,7 @@ mod tests {
             prepared: us(2_700),
             first_sent: us(2_700),
             last_sent: us(2_900),
+            streamed: None,
         };
         // Neither a client report nor a sink: nothing is kept.
         session.record_sent(1, 9_000, &stamps, epoch);

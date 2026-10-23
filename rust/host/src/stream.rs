@@ -1821,12 +1821,11 @@ impl Media {
                                     let mut performance = s.stats.performance.lock().unwrap();
                                     performance.record_timing(finished,butterpollo_core::performance::Timing{period:stream_period.get(),encode:latency,host:processing,age,sent:micros(finished.saturating_duration_since(claimed))},frame_bytes);
                                     if let Some(claim) = claim.filter(|_| !unrecoverable) {
-                                        let stamps = slices::stamps(&claim, first_polled, packetize_started, sent.first_sent, finished);
+                                        let stamps = slices::stamps(&claim, (first_polled, last_polled), streamed.early_blocks(), packetize_started, sent.first_sent, finished);
                                         performance.record_stages(&stamps, processing);
                                         s.record_sent(wire_frame, timestamp, &stamps, start);
                                     }
                                 }
-                                tracing::trace!(target: "pacing", frame = wire_frame, units = streamed.units(), early_blocks = streamed.early_blocks(), encode_span_us = micros(last_polled.saturating_duration_since(first_polled)), "streamed picture");
                                 slice_spare = streamed.into_buffer();
                                 if Instant::now() >= link_due {
                                     link = Some(butterpollo_windows::net::routed_link(peer));

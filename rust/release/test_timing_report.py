@@ -409,6 +409,38 @@ class Formats(Temporary):
         self.assertEqual(result['join'], 'shared_clock')
         self.assertEqual(result['stages']['encode']['n'], 11)
 
+    def test_a_streamed_frame_reports_its_overlap_and_the_tail_after_the_encoder(self):
+        # Frames 100 and 101 left their first block 700 us after submit, long before the last unit; 102 is streamed but
+        # nothing left early (its first packet followed its last unit); 103 is a whole frame.
+        record = read_host_record(FIXTURES / 'host-streamed.csv')
+        self.assertEqual((record['rows'][100]['first_unit'], record['rows'][100]['early_blocks']), (47721861190, 1))
+        self.assertEqual((record['rows'][103]['first_unit'], record['rows'][103]['early_blocks']), (None, None))
+        frames = timing_report.read_client(SHARED)['frames']
+        timing_report.attach_host(frames, record)
+        by_frame = {f['frame_number']: timing_report.stage_values(f, True) for f in frames}
+        got = lambda n: {k: by_frame[n][k] for k in ('encode', 'packetize_pace', 'overlap', 'send')}
+        self.assertEqual(got(100), dict(encode=1800, packetize_pace=400, overlap=1100, send=1300))
+        self.assertEqual(got(101), dict(encode=2000, packetize_pace=400, overlap=1300, send=1600))
+        # Nothing left early: no overlap, and the whole wait for the first packet is packetize_pace.
+        self.assertEqual(got(102), dict(encode=2200, packetize_pace=2300, overlap=0, send=900))
+        # A whole frame is as before, with no overlap.
+        self.assertEqual(got(103), dict(encode=1800, packetize_pace=400, overlap=None, send=1200))
+        self.assertEqual(by_frame[100]['host_total'], 4490)
+
+    def test_the_overlap_stage_is_in_the_report_only_for_streamed_frames(self):
+        streamed = report('frames-shared.csv', 'host-streamed.csv')
+        self.assertEqual(streamed['join'], 'shared_clock')
+        self.assertEqual(streamed['stages']['overlap']['n'], 3)
+        self.assertEqual(streamed['stages']['overlap']['median_ms'], 1.1)
+        self.assertEqual(streamed['stages']['overlap']['negative'], 0)
+        self.assertEqual(streamed['stages']['encode']['n'], 11)
+        self.assertIn('overlap', timing_report.format_table(streamed))
+        # A record from before the columns reports none, and the table leaves the row out.
+        whole = report('frames-shared.csv', 'host-shared.csv')
+        self.assertEqual(whole['stages']['overlap']['n'], 0)
+        self.assertNotIn('overlap', timing_report.format_table(whole))
+        self.assertEqual(whole['stages']['packetize_pace']['median_ms'], .4)
+
     def test_fixtures_keep_lf_endings(self):
         for path in FIXTURES.glob('*.csv'):
             self.assertNotIn(b'\r', path.read_bytes(), path.name)

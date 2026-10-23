@@ -225,7 +225,7 @@ Stop and revert to `off`-only (remove the code) if any of these hold after 2f:
   threaded path (`transport.rs`) takes it in 2d.
 - Review fixes after 2c: a streamed frame takes its index when block 0 is built, so `abandon` (or `skip_frame` for a frame
   refused at the start) consumes it when no block left, and the client sees the gap. The timing stamps of a streamed frame
-  use its first unit's poll time. The header's last-length field is a full shard for a frame that sent early blocks.
+  used its first unit's poll time (2e below changes that). The header's last-length field is a full shard for a frame that sent early blocks.
   `rust/core/src/packet/streamed_tests.rs` has wire fixtures and Nightjar's `video::slice_delivery` test reassembles them.
 - 2d: the threaded path sends one `Prepared` per FEC block (`Prepared.stream: Option<Part { first, last }>`, `last` from
   the new `StreamedBlock::is_last`, since the block count is fixed by the plan but a small frame can end up with fewer).
@@ -240,3 +240,10 @@ Stop and revert to `off`-only (remove the code) if any of these hold after 2f:
   it counts in `claim_backlog` only (the stream thread does not claim the next picture behind a frame the encoder is
   still finishing), not in `backlog`, so recreating the encoder does not wait for it. A frame whose last unit never
   comes keeps the flag until the next frame begins.
+- 2e: this reverses the 2c/2d choice that a streamed frame's `encoded` is its first unit. `encoded` is the last unit's poll
+  time, as section 3 says, and `first_unit_us` carries the first. `Stamps` got `streamed: Option<Streamed { first_unit,
+  early_blocks }>` and `overlap()`; `Prepared` got `last_polled` and `early_blocks` (the blocks built before the last unit,
+  read from the frame before its last `push`), and the final part's accounting uses them. The `overlap` stage lives in
+  `timing_report.py` and `Stamps::overlap()`, not in `STAGES` (the status JSON's stage list is unchanged). The
+  trace-only `streamed picture` log is gone. For a streamed frame the stage clamping makes `send` the tail after the
+  encoder in the status JSON and in 0x5536, and the 0x5536 `send_us` therefore no longer includes the wait for the slices.

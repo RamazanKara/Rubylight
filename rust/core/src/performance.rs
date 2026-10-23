@@ -83,6 +83,18 @@ pub struct Stamps {
     pub first_sent: Instant,
     /// The last packet was handed to the socket.
     pub last_sent: Instant,
+    /// Set for a frame sent while the encoder still produced it
+    /// (`video_slice_delivery`). Its `first_sent` can precede `encoded`.
+    pub streamed: Option<Streamed>,
+}
+/// What a streamed frame adds to its [`Stamps`]: the frame's first blocks left
+/// before its last unit was in hand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Streamed {
+    /// The first unit was in the host's hands. `Stamps::encoded` is the last.
+    pub first_unit: Instant,
+    /// Blocks sent before the last unit arrived.
+    pub early_blocks: u32,
 }
 /// The stages between consecutive `Stamps`, in their order.
 pub const STAGES: [&str; 9] = [
@@ -126,6 +138,23 @@ impl Stamps {
     pub fn total(&self) -> u64 {
         self.stages().iter().sum()
     }
+    /// For a streamed frame, how long its first block was on the wire before
+    /// its encoder finished (`encoded - first_sent`), in microseconds. Zero
+    /// when nothing left early; `None` for a frame that is not streamed.
+    pub fn overlap(&self) -> Option<u64> {
+        self.streamed?;
+        Some(micros(
+            self.encoded.saturating_duration_since(self.first_sent),
+        ))
+    }
+    /// These points for a streamed frame; `encoded` is the last unit.
+    pub fn with_streamed(mut self, first_unit: Instant, early_blocks: usize) -> Self {
+        self.streamed = Some(Streamed {
+            first_unit,
+            early_blocks: u32::try_from(early_blocks).unwrap_or(u32::MAX),
+        });
+        self
+    }
 }
 fn micros(duration: Duration) -> u64 {
     duration.as_micros().min(u128::from(u64::MAX)) as u64
@@ -163,6 +192,7 @@ impl Claim {
             prepared: first_sent,
             first_sent,
             last_sent,
+            streamed: None,
         }
     }
 }
@@ -790,6 +820,7 @@ mod tests {
             prepared: at(7),
             first_sent: at(7),
             last_sent: at(8),
+            streamed: None,
         }
     }
     #[test]

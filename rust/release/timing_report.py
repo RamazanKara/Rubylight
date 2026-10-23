@@ -33,6 +33,12 @@ Assumptions where that document leaves room:
 - --check-bound compares each row's `clock_offset_us` with the shared offset and fails when more than 1% of the rows
   with an offset and an RTT differ by more than `clock_rtt_us / 2`. The shared offset is rebased like shared_clock's
   when the file has `arrival_ms`, and is media_epoch_qpc_ms * 1000 (an absolute receiver clock) when it has none.
+- A frame sent while the encoder still produced it (`video_slice_delivery`) has `first_unit_us` and `early_blocks` in the
+  host record (empty for any other frame, and absent from records before them); its `encoded_us` is the last unit's.
+  Its first block leaves before that, so for such a frame `encode` is the encoder's whole time, `packetize_pace` runs
+  from the first unit to the first packet, `overlap` is `encoded - first_sent` (floored at zero) and `send` runs from
+  the later of `first_sent` and `encoded` to the last packet: the tail after the encoder. `packetize_pace` and `overlap`
+  lie inside `encode`, so a streamed frame's stages are not a partition of `host_total`.
 - A host record without its `# dropped=` footer (the host was stopped before the stream wrote it) has an unknown
   dropped count, shown as such, never 0.
 - Negative durations are kept in the percentiles (across clocks they are inside the bound) and counted per stage.
@@ -43,6 +49,7 @@ from soak_result import percentile
 RECORD_MAGIC = 'rubylight timing record 1'
 HOST_COLUMNS = ('wire_frame', 'rtp_us', 'present_us', 'acquired_us', 'published_us', 'claimed_us', 'submitted_us',
                 'encoded_us', 'packetized_us', 'prepared_us', 'first_sent_us', 'last_sent_us')
+STREAM_COLUMNS = dict(first_unit='first_unit_us', early_blocks='early_blocks')
 HOST_FIELDS = ('rtp', 'present', 'acquired', 'published', 'claimed', 'submitted', 'encoded', 'packetized', 'prepared',
                'first_sent', 'last_sent')
 NIGHTJAR_HOST_COLUMNS = dict(rtp='rtp_host_us', present='host_present_us', acquired='host_acquired_us',
@@ -59,7 +66,7 @@ SHARED_WINDOW_US = (-5_000, 1_000_000)
 BOUND_FAIL_FRACTION = .01
 STAGES = (
     ('game_to_present', 'host'), ('capture', 'host'), ('hold_claim', 'host'), ('convert', 'host'),
-    ('hold_claim_convert', 'host'), ('encode', 'host'), ('packetize_pace', 'host'), ('send', 'host'),
+    ('hold_claim_convert', 'host'), ('encode', 'host'), ('packetize_pace', 'host'), ('overlap', 'host'), ('send', 'host'),
     ('host_total', 'host'),
     ('network_first', 'cross'), ('network_last', 'cross'), ('end_to_end', 'cross'),
     ('assemble', 'client'), ('client_queue', 'client'), ('decode', 'client'), ('display', 'client'),
@@ -118,6 +125,8 @@ def read_host_record(path):
     rows, duplicates = {}, 0
     for row in reader:
         values = {field: number(row[f'{field}_us'], f'{field}_us') for field in HOST_FIELDS}
+        # Only a record of a build with video_slice_delivery has these, and only streamed frames fill them.
+        values.update({field: number(row.get(column), column) for field, column in STREAM_COLUMNS.items()})
         frame = int(row['wire_frame'])
         if frame in rows:
             duplicates += 1
@@ -154,7 +163,7 @@ def read_client(path):
 
 
 def client_frame(kind, row):
-    host = dict.fromkeys(HOST_FIELDS)
+    host = dict.fromkeys((*HOST_FIELDS, *STREAM_COLUMNS))
     host.update({field: number(row.get(column), column) for field, column in NIGHTJAR_HOST_COLUMNS.items()})
     frame = dict(host=host, off=number(row.get('clock_offset_us'), 'clock_offset_us'),
                  rtt=number(row.get('clock_rtt_us'), 'clock_rtt_us'))
@@ -286,6 +295,7 @@ def stage_values(frame, record_present):
         hold_claim_convert=None if split else difference(h['submitted'], h['acquired']),
         encode=difference(h['encoded'], h['submitted']),
         packetize_pace=difference(h['first_sent'], h['encoded']),
+        overlap=None,
         send=difference(h['last_sent'], h['first_sent']),
         host_total=difference(h['last_sent'], h['present']),
         assemble=difference(frame['assembled'], frame['first_packet']),
@@ -296,6 +306,11 @@ def stage_values(frame, record_present):
         values['client_total'] = difference(frame['end'], frame['first_packet'])
     else:
         values['client_total'] = difference(frame['present'], frame['first_packet'])
+    if h['first_unit'] is not None and h['encoded'] is not None and h['first_sent'] is not None:
+        # Streamed: the first block left while the encoder still ran.
+        values['packetize_pace'] = difference(h['first_sent'], h['first_unit'])
+        values['overlap'] = max(difference(h['encoded'], h['first_sent']), 0)
+        values['send'] = difference(h['last_sent'], max(h['first_sent'], h['encoded']))
     off = frame.get('clock')
     cross = dict(network_first=None, network_last=None, end_to_end=None)
     if off is not None:
@@ -428,7 +443,7 @@ def format_table(report):
              '',
              f'{"stage":<20}{"n":>6}{"median":>10}{"p95":>10}{"p99":>10}  bound (ms)']
     for name, stage in report['stages'].items():
-        if not stage['n'] and name == 'hold_claim_convert':
+        if not stage['n'] and name in ('hold_claim_convert', 'overlap'):
             continue
         cells = ('-', '-', '-') if not stage['n'] else tuple(f'{stage[k]:.3f}' for k in ('median_ms', 'p95_ms', 'p99_ms'))
         mark = ''

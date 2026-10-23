@@ -50,7 +50,13 @@ struct Prepared {
     payload_bytes: usize,
     peer: SocketAddr,
     claimed: Instant,
+    /// The encoder's first unit of the frame was in hand. A whole frame has one.
     polled: Instant,
+    /// The frame's last unit was in hand: the same as `polled` for a whole frame, and for
+    /// a streamed one the part that completes it.
+    last_polled: Instant,
+    /// Blocks of a streamed frame that were built before its last unit arrived.
+    early_blocks: usize,
     packetized: Instant,
     prepared: Instant,
     latency: u64,
@@ -357,7 +363,8 @@ impl Sender {
                 shared.enqueue(Prepared {
                     blocks, counts, layout, packetizer: wire, wire_frame, idr: frame.idr,
                     after_invalidation: frame.after_invalidation, frame_cap_bytes: frame.frame_cap_bytes,
-                    payload_bytes: frame.bytes.len(), peer, claimed, polled, packetized,
+                    payload_bytes: frame.bytes.len(), peer, claimed, polled, last_polled: polled,
+                    early_blocks: 0, packetized,
                     prepared: Instant::now(), latency: micros(encode), processing,
                     age: micros(claimed.saturating_duration_since(captured)), claim, timestamp,
                     stream: None,

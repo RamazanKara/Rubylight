@@ -129,6 +129,7 @@ mod tests {
             prepared: ms(33),
             first_sent: ms(33),
             last_sent: ms(35),
+            streamed: None,
         }
     }
 

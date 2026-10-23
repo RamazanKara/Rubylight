@@ -19,7 +19,7 @@ pub const ENV: &str = "BUTTERPOLLO_TIMING_RECORD";
 /// Rows the writer may fall behind by before new ones are dropped.
 pub const QUEUE_ROWS: usize = 4096;
 /// The column names, in row order.
-pub const COLUMNS: &str = "wire_frame,rtp_us,present_us,acquired_us,published_us,claimed_us,submitted_us,encoded_us,packetized_us,prepared_us,first_sent_us,last_sent_us";
+pub const COLUMNS: &str = "wire_frame,rtp_us,present_us,acquired_us,published_us,claimed_us,submitted_us,encoded_us,packetized_us,prepared_us,first_sent_us,last_sent_us,first_unit_us,early_blocks";
 
 /// What the header comments say about the stream.
 #[derive(Clone, Debug, PartialEq)]
@@ -72,6 +72,10 @@ pub struct Row {
     /// `Stamps`, in order: presented, acquired, published, claimed, submitted, encoded,
     /// packetized, prepared, first sent, last sent.
     pub points: [i64; 10],
+    /// A streamed frame: when its first unit was in hand (the `encoded` point is its last),
+    /// and the blocks sent before the last unit. Empty columns for any other frame.
+    pub first_unit_us: Option<i64>,
+    pub early_blocks: Option<u32>,
 }
 
 impl Row {
@@ -81,6 +85,8 @@ impl Row {
             None => -i64::try_from(epoch.duration_since(point).as_micros()).unwrap_or(i64::MAX),
         };
         Self {
+            first_unit_us: stamps.streamed.map(|streamed| at(streamed.first_unit)),
+            early_blocks: stamps.streamed.map(|streamed| streamed.early_blocks),
             wire_frame,
             rtp_us: u64::from(rtp_timestamp) * 1000 / 90,
             points: [
@@ -104,6 +110,15 @@ impl Row {
         for point in self.points {
             line.push(',');
             line.push_str(&point.to_string());
+        }
+        // Empty unless the frame was streamed.
+        line.push(',');
+        if let Some(first_unit) = self.first_unit_us {
+            line.push_str(&first_unit.to_string());
+        }
+        line.push(',');
+        if let Some(early) = self.early_blocks {
+            line.push_str(&early.to_string());
         }
         line.push('\n');
         line
@@ -176,6 +191,7 @@ mod tests {
             prepared: us(3_400),
             first_sent: us(3_450),
             last_sent: us(3_650),
+            streamed: None,
         }
     }
 
@@ -191,13 +207,41 @@ mod tests {
         );
         assert_eq!(
             row.line(),
-            "41,1500011,100,300,400,500,700,3200,3300,3400,3450,3650\n"
+            "41,1500011,100,300,400,500,700,3200,3300,3400,3450,3650,,\n"
         );
+        assert_eq!((row.first_unit_us, row.early_blocks), (None, None));
         // A point before the epoch is negative, not clamped.
         let later = epoch + Duration::from_micros(250);
         let row = Row::new(1, 0, &stamps(epoch), later);
         assert_eq!(row.points[0], -150);
         assert_eq!(row.points[9], 3_400);
+    }
+
+    #[test]
+    fn a_streamed_frame_adds_its_first_unit_and_early_blocks() {
+        let epoch = Instant::now();
+        // The last unit was in hand at 3200 us; the first block left at 1450, so the
+        // encoder was still running for 1750 us of the frame's time on the wire.
+        let mut streamed = stamps(epoch);
+        streamed.first_sent = epoch + Duration::from_micros(1_450);
+        streamed.prepared = streamed.first_sent;
+        let streamed = streamed.with_streamed(epoch + Duration::from_micros(900), 3);
+        assert_eq!(streamed.overlap(), Some(1_750));
+        let row = Row::new(42, 0, &streamed, epoch);
+        assert_eq!((row.first_unit_us, row.early_blocks), (Some(900), Some(3)));
+        assert_eq!(
+            row.line(),
+            "42,0,100,300,400,500,700,3200,3300,1450,1450,3650,900,3\n"
+        );
+        assert_eq!(
+            row.line().matches(',').count(),
+            COLUMNS.matches(',').count()
+        );
+        // Before the epoch the first unit is negative like any point.
+        let row = Row::new(42, 0, &streamed, epoch + Duration::from_micros(1_000));
+        assert_eq!(row.first_unit_us, Some(-100));
+        // A frame that is not streamed has no overlap.
+        assert_eq!(stamps(epoch).overlap(), None);
     }
 
     #[test]
@@ -214,7 +258,7 @@ mod tests {
                 "# rubylight timing record 1\n# media_epoch_qpc_ms=123456.789\n# codec=pyrowave capture=wgc present_source=etw\n{COLUMNS}\n"
             )
         );
-        assert_eq!(COLUMNS.split(',').count(), 12);
+        assert_eq!(COLUMNS.split(',').count(), 14);
         assert_eq!(footer(7), "# dropped=7\n");
         assert_eq!(
             [0, 1, 2, 3, 9].map(codec_name),

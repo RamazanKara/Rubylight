@@ -82,6 +82,17 @@ def rendered_fps(rows):
     return len(gaps) / sum(gaps) if gaps and sum(gaps) > 0 else float("nan")
 
 
+def pooled(legs):
+    """Summary of all legs together; the shown fps is the mean of the legs' own, since each leg
+    has its own clock."""
+    result = summarize([row for rows in legs for row in rows])
+    rates = [summarize(rows)["shown_fps"] for rows in legs]
+    rates = [r for r in rates if r == r]
+    if rates and not any(column(rows, "shown_fps") for rows in legs):
+        result["shown_fps"] = sum(rates) / len(rates)
+    return result
+
+
 def keep_rule(a_legs, b_legs, metric="input_to_output_ms"):
     """(keep, reasons) for one group; each argument is a list of per-leg row lists."""
     reasons = []
@@ -89,9 +100,7 @@ def keep_rule(a_legs, b_legs, metric="input_to_output_ms"):
     b_p50 = [summarize(rows)[metric][50] for rows in b_legs]
     if not (a_p50 and b_p50 and max(b_p50) < min(a_p50)):
         reasons.append(f"{metric} p50: B legs {fmt(b_p50)} do not both beat A legs {fmt(a_p50)}")
-    a_all = [row for rows in a_legs for row in rows]
-    b_all = [row for rows in b_legs for row in rows]
-    a, b = summarize(a_all), summarize(b_all)
+    a, b = pooled(a_legs), pooled(b_legs)
     if not b[metric][95] <= a[metric][95]:
         reasons.append(f"{metric} pooled p95 worse: B {b[metric][95]:.2f} vs A {a[metric][95]:.2f}")
     drift = b["receive_to_present_ms"][95] - a["receive_to_present_ms"][95]
@@ -147,8 +156,7 @@ def main(argv=None):
     for group, variants in groups.items():
         print()
         for variant, legs in sorted(variants.items()):
-            pooled = [row for rows in legs for row in rows]
-            print("\n".join(describe(f"{variant} @ {group} pooled over {len(legs)} legs", summarize(pooled))))
+            print("\n".join(describe(f"{variant} @ {group} pooled over {len(legs)} legs", pooled(legs))))
         if args.keep and "A" in variants and "B" in variants:
             keep, reasons = keep_rule(variants["A"], variants["B"], args.metric)
             ok = ok and keep

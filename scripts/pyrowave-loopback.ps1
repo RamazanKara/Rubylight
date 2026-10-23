@@ -20,6 +20,7 @@ param(
     [string]$HostProfile = 'C:\tests\njdecode',
     [string]$ClientProfile = 'C:\tests\njdecode-client',
     [string]$Agent = 'nightjar-pyrowave-decode',
+    [string]$Metric = 'decode_to_present_ms',
     [switch]$EarlyDecode,
     [string]$DumpDir,
     [int]$ClientX = 3560,
@@ -166,8 +167,8 @@ try {
         Start-Sleep -Seconds 5
     }
 
-    $keep = if ($ClientB) { '--keep' } else { $null }
-    $summaryArgs = @("$PSScriptRoot\timing_summary.py") + @($keep | Where-Object { $_ }) + $summaryLegs
+    $keep = if ($ClientB) { @('--keep', '--metric', $Metric) } else { @() }
+    $summaryArgs = @("$PSScriptRoot\timing_summary.py") + $keep + $summaryLegs
     python @summaryArgs *> "$Out\summary.txt"
     Get-Content "$Out\summary.txt"
     Write-Host "results in $Out"

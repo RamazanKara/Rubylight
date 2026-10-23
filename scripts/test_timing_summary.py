@@ -28,6 +28,8 @@ class LegTests(unittest.TestCase):
         second = [{"render_ns": str(int(500e9 + i * 1e9 / 50))} for i in range(51)]
         self.assertAlmostEqual(ts.summarize(first)["shown_fps"], 60.0, places=1)
         self.assertAlmostEqual(ts.summarize(first + second)["shown_fps"], 55.0, delta=0.6)
+        # Legs from separate processes have separate clocks: pooled rates average, not add.
+        self.assertAlmostEqual(ts.pooled([first, first])["shown_fps"], 60.0, places=1)
         self.assertEqual(ts.summarize([{"shown_fps": "59"}, {"shown_fps": "61"}, {"shown_fps": "60"}])["shown_fps"], 60)
 
     def setUp(self):

@@ -48,7 +48,13 @@ class FrameLatencyStats {
             // Nine columns for joining the row with the host's record (Rubylight's
             // docs/timing-record.md): host microseconds, empty where unknown.
             "rtp_host_us,host_present_us,host_acquired_us,host_submitted_us,host_encoded_us," +
-            "host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us\n";
+            "host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us," +
+            // The present scheduler and the decoder queue (empty where the frame was not planned):
+            // the vsync it was planned for, the wait before its release, whether it was behind the
+            // game's cadence, frames behind it in the decoder, its input-to-output time above the
+            // ten second minimum, frames in front of the compositor, and why it was dropped.
+            "sched_vsync_ns,sched_hold_ms,sched_late,queue_depth,residency_excess_ms,in_flight," +
+            "drop_reason\n";
 
     /** Reads the host-to-client clock offset and round trip (microseconds) into out[0..1]; false before an exchange. */
     interface ClockOffsetSource {
@@ -121,6 +127,13 @@ class FrameLatencyStats {
         long previousReleaseNs;
         boolean awaitingRender;
         String status;
+        long schedVsyncNs;
+        long schedHoldNs = -1;
+        boolean schedLate;
+        int queueDepth = -1;
+        long residencyExcessNs = -1;
+        int inFlight = -1;
+        String dropReason;
     }
 
     final LatencyProbe latencyProbe = new LatencyProbe();
@@ -287,6 +300,39 @@ class FrameLatencyStats {
                 finish(frame, "render_unavailable");
             }
         }
+    }
+
+    /** Input to output time of a still-owned output buffer, or zero when untracked. */
+    synchronized long getInputToOutputNs(int outputIndex) {
+        Frame frame = outputs.get(outputIndex);
+        return frame == null || frame.inputNs <= 0 || frame.outputNs < frame.inputNs ? 0 :
+                frame.outputNs - frame.inputNs;
+    }
+
+    /** Notes where the scheduler planned a still-owned output; call before it is released. */
+    synchronized void onScheduled(int outputIndex, long vsyncNs, long holdNs, boolean late, int inFlight) {
+        Frame frame = outputs.get(outputIndex);
+        if (frame != null) {
+            frame.schedVsyncNs = vsyncNs;
+            frame.schedHoldNs = Math.max(0, holdNs);
+            frame.schedLate = late;
+            frame.inFlight = inFlight;
+        }
+    }
+
+    /** Notes the decoder queue seen by a still-owned output: frames behind it, and its residency excess. */
+    synchronized void onQueueState(int outputIndex, int depth, long excessNs) {
+        Frame frame = outputs.get(outputIndex);
+        if (frame != null) {
+            frame.queueDepth = Math.max(0, depth);
+            frame.residencyExcessNs = Math.max(0, excessNs);
+        }
+    }
+
+    /** Notes why a still-owned output is about to be dropped; call before the release. */
+    synchronized void onDropReason(int outputIndex, String reason) {
+        Frame frame = outputs.get(outputIndex);
+        if (frame != null) frame.dropReason = reason;
     }
 
     /** The local queue timestamp for a still-owned output buffer, or zero when untracked. */
@@ -566,8 +612,18 @@ class FrameLatencyStats {
                     hostTimingColumns(frame.hostTiming) + "," + timestamp(frame.callbackReceivedNs) + "," +
                     duration(frame.renderNs, frame.callbackReceivedNs) +
                     "," + (frame.hostRtpUs < 0 ? "" : Long.toString(frame.hostRtpUs)) +
-                    hostStampColumns(frame.hostTiming) + "," + clockColumns + "\n");
+                    hostStampColumns(frame.hostTiming) + "," + clockColumns + schedulerColumns(frame) + "\n");
         }
+    }
+
+    private static String schedulerColumns(Frame frame) {
+        return "," + timestamp(frame.schedVsyncNs) +
+                "," + (frame.schedHoldNs < 0 ? "" : milliseconds(frame.schedHoldNs)) +
+                "," + (frame.schedHoldNs < 0 ? "" : frame.schedLate ? "1" : "0") +
+                "," + (frame.queueDepth < 0 ? "" : Integer.toString(frame.queueDepth)) +
+                "," + (frame.residencyExcessNs < 0 ? "" : milliseconds(frame.residencyExcessNs)) +
+                "," + (frame.inFlight < 0 ? "" : Integer.toString(frame.inFlight)) +
+                "," + (frame.dropReason == null ? "" : frame.dropReason);
     }
 
     private static String hostTimingColumns(HostTimingReport.Record record) {

@@ -754,8 +754,8 @@ public class FrameLatencyStatsTest {
                 "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms," +
                 "callback_received_ns,callback_delay_ms," +
                 "rtp_host_us,host_present_us,host_acquired_us,host_submitted_us,host_encoded_us," +
-                "host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us\n",
-                FrameLatencyStats.CSV_HEADER);
+                "host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us",
+                FrameLatencyStats.CSV_HEADER.substring(0, FrameLatencyStats.CSV_HEADER.indexOf(",sched_vsync_ns")));
         FrameLatencyStats stats = new FrameLatencyStats();
         stats.onDecoderInput(42, 123, 1000000, 1000000, 2000000, (char) 123);
         stats.onDecoderQueued(123, 2000000);
@@ -766,7 +766,7 @@ public class FrameLatencyStatsTest {
         stats.writeCsv(csv);
         assertTrue(csv.toString().startsWith("42,123,1000000,2000000,5000000,9000000,6000000,rendered," +
                 "1.000000,3.000000,4.000000,8.000000,0,12.300000,4.000000,8.000000,,,,"));
-        assertEquals(41, csv.toString().trim().split(",", -1).length);
+        assertEquals(41 + SCHEDULER_COLUMNS, csv.toString().trim().split(",", -1).length);
     }
 
     @Test
@@ -834,7 +834,7 @@ public class FrameLatencyStatsTest {
         assertEquals(3, rows.length);
         for (String row : rows) {
             String[] fields = row.split(",", -1);
-            assertEquals(41, fields.length);
+            assertEquals(41 + SCHEDULER_COLUMNS, fields.length);
             for (int column : new int[] {5, 10, 11, 14, 15}) assertEquals("", fields[column]);
         }
         assertEquals(0, stats.summarize()[2][0], 0);
@@ -981,7 +981,7 @@ public class FrameLatencyStatsTest {
         int unobserved = 0;
         for (String row : csv.toString().split("\n")) {
             String[] fields = row.split(",", -1);
-            assertEquals(41, fields.length);
+            assertEquals(41 + SCHEDULER_COLUMNS, fields.length);
             assertTrue(Long.parseLong(fields[19]) > 0);
             assertEquals("120", fields[23]);
             if (fields[7].equals("render_unobserved")) unobserved++;
@@ -1035,6 +1035,7 @@ public class FrameLatencyStatsTest {
             "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms," +
             "callback_received_ns,callback_delay_ms";
     private static final int HOST_RECORD_FIRST_COLUMN = 32;
+    private static final int SCHEDULER_COLUMNS = 7;
 
     // An extended report: {frame, host, queue, encode, send, presentedAt, capture, convert}.
     private static HostTimingReport extendedReport(long[] r) {
@@ -1056,9 +1057,9 @@ public class FrameLatencyStatsTest {
         String header = FrameLatencyStats.CSV_HEADER;
         assertTrue(header.startsWith(HEADER_BEFORE_THE_HOST_RECORD + ","));
         assertEquals(HEADER_BEFORE_THE_HOST_RECORD.split(",").length, HOST_RECORD_FIRST_COLUMN);
-        assertTrue(header.endsWith(",rtp_host_us,host_present_us,host_acquired_us,host_submitted_us," +
-                "host_encoded_us,host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us\n"));
-        assertEquals(HOST_RECORD_FIRST_COLUMN + 9, header.trim().split(",").length);
+        assertTrue(header.contains(",rtp_host_us,host_present_us,host_acquired_us,host_submitted_us," +
+                "host_encoded_us,host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us,sched_vsync_ns"));
+        assertEquals(HOST_RECORD_FIRST_COLUMN + 9 + SCHEDULER_COLUMNS, header.trim().split(",").length);
     }
 
     @Test
@@ -1086,7 +1087,7 @@ public class FrameLatencyStatsTest {
         // The receiver's own host timing columns are unchanged by the extension.
         assertEquals("0.900000", fields[26]);
         assertEquals("0.300000", fields[27]);
-        String[] host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, fields.length);
+        String[] host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, HOST_RECORD_FIRST_COLUMN + 9);
         assertArrayEquals(new String[] {"100000", "1000000", "1000100", "1000300", "1000500", "1000800",
                 "1000900", "-3955", "90"}, host);
         assertEquals(1, offsetCalls[0]);
@@ -1108,7 +1109,7 @@ public class FrameLatencyStatsTest {
         String[] fields = csv.toString().trim().split(",", -1);
         assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
         assertEquals("0.900000", fields[26]);
-        String[] host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, fields.length);
+        String[] host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, HOST_RECORD_FIRST_COLUMN + 9);
         assertArrayEquals(new String[] {"100000", "", "", "", "", "", "", "", ""}, host);
 
         // A frame without an RTP time (the six-argument call) leaves that column empty too, and
@@ -1122,8 +1123,69 @@ public class FrameLatencyStatsTest {
         stats.writeCsv(csv);
         fields = csv.toString().trim().split(",", -1);
         assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
-        host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, fields.length);
+        host = java.util.Arrays.copyOfRange(fields, HOST_RECORD_FIRST_COLUMN, HOST_RECORD_FIRST_COLUMN + 9);
         assertArrayEquals(new String[] {"", "", "", "", "", "", "", "", ""}, host);
+    }
+
+    @Test
+    public void theSchedulerColumnsAreTheLastOnesAndNamedInOrder() {
+        String header = FrameLatencyStats.CSV_HEADER.trim();
+        assertTrue(header.endsWith(",clock_offset_us,clock_rtt_us,sched_vsync_ns,sched_hold_ms,sched_late," +
+                "queue_depth,residency_excess_ms,in_flight,drop_reason"));
+        assertEquals(HOST_RECORD_FIRST_COLUMN + 9 + SCHEDULER_COLUMNS, header.split(",").length);
+    }
+
+    @Test
+    public void theSchedulerColumnsAreEmptyForAFrameThatWasNeverScheduled() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 1000000, 1000000, 2000000, (char) 0, 1);
+        stats.onDecoderQueued(1, 2000000);
+        stats.onDecoderOutput(0, 1, 5000000);
+        stats.onOutputReleased(0, 6000000, true, true);
+        stats.onFrameRendered(1, 7000000);
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        String[] fields = csv.toString().trim().split(",", -1);
+        assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
+        assertArrayEquals(new String[] {"", "", "", "", "", "", ""},
+                java.util.Arrays.copyOfRange(fields, fields.length - SCHEDULER_COLUMNS, fields.length));
+    }
+
+    @Test
+    public void theSchedulerColumnsCarryThePlanTheQueueAndTheDropReason() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        for (int i = 0; i < 2; i++) {
+            stats.onDecoderInput(i + 1, i + 1, 1000000, 1000000, 2000000, (char) 0, i + 1);
+            stats.onDecoderQueued(i + 1, 2000000);
+            stats.onDecoderOutput(i, i + 1, 5000000);
+        }
+        assertEquals("input to output of the owned buffer", 3000000, stats.getInputToOutputNs(0));
+        assertEquals(0, stats.getInputToOutputNs(7));
+        stats.onQueueState(0, 3, 6500000);
+        stats.onDropReason(0, "late");
+        stats.onOutputReleased(0, 6000000, false, true);
+        stats.onScheduled(1, 123456789L, 2500000L, true, 2);
+        stats.onQueueState(1, 0, 0);
+        stats.onOutputReleased(1, 6100000, true, true);
+        stats.onFrameRendered(2, 7000000);
+        // Calls for a buffer that is not owned are ignored.
+        stats.onScheduled(9, 1, 1, true, 1);
+        stats.onQueueState(9, 1, 1);
+        stats.onDropReason(9, "x");
+
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        String[] rows = csv.toString().trim().split("\n");
+        assertEquals(2, rows.length);
+        java.util.Map<Long, String[]> byPts = new java.util.HashMap<>();
+        for (String row : rows) {
+            String[] fields = row.split(",", -1);
+            assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
+            byPts.put(Long.parseLong(fields[1]), java.util.Arrays.copyOfRange(fields,
+                    fields.length - SCHEDULER_COLUMNS, fields.length));
+        }
+        assertArrayEquals(new String[] {"", "", "", "3", "6.500000", "", "late"}, byPts.get(1L));
+        assertArrayEquals(new String[] {"123456789", "2.500000", "1", "0", "0.000000", "2", ""}, byPts.get(2L));
     }
 
     @Test

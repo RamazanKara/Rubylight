@@ -521,7 +521,9 @@ impl GpuDecoder {
 impl Drop for GpuDecoder {
     fn drop(&mut self) {
         // SAFETY: Each non-null handle was made on `self.device`, which goes last; the SDK idles the
-        // GPU before destroying the decoder.
+        // GPU before destroying the decoder. The D3D11 textures and fence go with the fields after
+        // this; D3D11 frees them at its next flush, which the owner of the immediate context does
+        // (a Flush here would race that thread).
         unsafe {
             if !self.decoder.is_null() {
                 (self.api.decoder_destroy)(self.decoder);

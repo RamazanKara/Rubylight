@@ -153,7 +153,8 @@ pub struct StreamConfig {
     /// The `rikey` sent at launch; also the encrypted RTSP key.
     pub remote_input_aes_key: [u8; 16],
     pub remote_input_aes_iv: [u8; 16],
-    /// The client's wired link speed toward the host (PyroWave pacing); 0 when unknown.
+    /// The client's wired link speed toward the host (host pacing, any codec); 0 when unknown or
+    /// on Wi-Fi or cellular.
     pub pyrowave_link_mbps: i32,
     /// A loss-free pace found by calibration; 0 when none.
     pub pyrowave_pace_mbps: i32,
@@ -432,10 +433,7 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
             if p.pyrowave_records_enabled {
                 a.add("x-ss-video[0].pyrowaveFeatures", "1");
             }
-            // Nonary's pacing hints, each only when known.
-            if c.pyrowave_link_mbps > 0 {
-                a.add("x-ss-video[0].pyrowaveLinkMbps", c.pyrowave_link_mbps);
-            }
+            // The calibrated pace is a PyroWave frame pace, only when known.
             if c.pyrowave_pace_mbps > 0 {
                 a.add("x-ss-video[0].pyrowavePaceMbps", c.pyrowave_pace_mbps);
             }
@@ -451,6 +449,11 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         } else {
             a.add("x-nv-clientSupportHevc", "0");
             a.add("x-nv-vqos[0].bitStreamFormat", "0");
+        }
+        // This client's own wired-link speed, for every codec so a host can cap its pacing; only
+        // when known (0 on Wi-Fi, cellular or an unreadable port).
+        if c.pyrowave_link_mbps > 0 {
+            a.add("x-ss-video[0].pyrowaveLinkMbps", c.pyrowave_link_mbps);
         }
         if quad[0] >= 7 {
             a.add(

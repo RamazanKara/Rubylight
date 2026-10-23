@@ -1042,7 +1042,7 @@ impl App {
             vrr,
             gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
             prepared_controllers: if settings.controllers { self.pads.prepare(settings.controller_motion) } else { String::new() },
-            pyrowave_link_mbps: if self.launcher.network.wifi || self.launcher.network.cellular { 0 } else { self.launcher.network.link_mbps.min(9999) },
+            pyrowave_link_mbps: self.launcher.network.wired_link_mbps(),
             pyrowave_pace_mbps: host.record.pace.as_ref().map_or(0, |pace| pace.for_network(&self.launcher.network, host.info.as_ref().map_or(0, |info| info.pyrowave_host_link_mbps))),
             bitrate_limit_kbps: self.launcher.profiles.bitrate_limit(self.launcher.network.kind(&self.launcher.profiles.home_wifi)),
             microphone_muted: false,

@@ -276,8 +276,8 @@ fn sunshine_pyrowave_with_records_and_pacing_hints() {
                 "x-nv-video[0].videoEncoderSlicesPerFrame:1",
                 "x-nv-vqos[0].bitStreamFormat:3",
                 "x-ss-video[0].pyrowaveFeatures:1",
-                "x-ss-video[0].pyrowaveLinkMbps:2500",
                 "x-ss-video[0].pyrowavePaceMbps:2100",
+                "x-ss-video[0].pyrowaveLinkMbps:2500",
                 "x-nv-video[0].dynamicRangeMode:1",
                 "x-nv-video[0].maxNumReferenceFrames:1",
                 "x-nv-video[0].clientRefreshRateX100:24000",
@@ -291,6 +291,38 @@ fn sunshine_pyrowave_with_records_and_pacing_hints() {
             47998
         )
     );
+}
+
+/// The `a=` line of an attribute, or None when the description lacks it.
+fn attribute<'a>(sdp: &'a str, name: &str) -> Option<&'a str> {
+    let prefix = format!("a={name}:");
+    sdp.lines().find(|l| l.starts_with(&prefix)).map(|l| l.trim_end())
+}
+
+#[test]
+fn link_speed_hint_is_sent_for_every_codec_and_only_pyrowave_gets_the_pace() {
+    const LINK: &str = "x-ss-video[0].pyrowaveLinkMbps";
+    const PACE: &str = "x-ss-video[0].pyrowavePaceMbps";
+    let formats = [
+        (VIDEO_FORMAT_H264, false),
+        (VIDEO_FORMAT_H265, false),
+        (VIDEO_FORMAT_AV1_MAIN8, false),
+        (VIDEO_FORMAT_PYROWAVE, true),
+    ];
+    for (format, pyrowave) in formats {
+        // Wired with a known speed and a calibrated pace.
+        let config =
+            StreamConfig { pyrowave_link_mbps: 2500, pyrowave_pace_mbps: 2100, ..Default::default() };
+        let sdp = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
+        assert_eq!(attribute(&sdp, LINK), Some("a=x-ss-video[0].pyrowaveLinkMbps:2500"), "{format:#x}");
+        assert_eq!(attribute(&sdp, PACE).is_some(), pyrowave, "{format:#x}");
+
+        // Wi-Fi, cellular or an unreadable port reports 0: no hint, as before.
+        let config = StreamConfig { pyrowave_link_mbps: 0, pyrowave_pace_mbps: 0, ..Default::default() };
+        let sdp = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
+        assert_eq!(attribute(&sdp, LINK), None, "{format:#x}");
+        assert_eq!(attribute(&sdp, PACE), None, "{format:#x}");
+    }
 }
 
 #[test]

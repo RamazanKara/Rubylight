@@ -3,10 +3,13 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 
 use crate::config::HostRecord;
 
+/// Why a PC without a usable MAC cannot be woken.
+pub const NO_MAC: &str = "The PC has no valid Wake-on-LAN MAC address.";
+
 fn magic_packet(mac: &str) -> Result<[u8; 102], String> {
     let bytes = mac.as_bytes();
     if bytes.len() != 17 || !matches!(bytes[2], b':' | b'-') {
-        return Err("The PC has no valid Wake-on-LAN MAC address.".into());
+        return Err(NO_MAC.into());
     }
     let mut address = [0; 6];
     for (i, octet) in address.iter_mut().enumerate() {
@@ -14,7 +17,7 @@ fn magic_packet(mac: &str) -> Result<[u8; 102], String> {
         if !bytes[offset..offset + 2].iter().all(u8::is_ascii_hexdigit)
             || (i < 5 && bytes[offset + 2] != bytes[2])
         {
-            return Err("The PC has no valid Wake-on-LAN MAC address.".into());
+            return Err(NO_MAC.into());
         }
         *octet = u8::from_str_radix(&mac[offset..offset + 2], 16).unwrap();
     }

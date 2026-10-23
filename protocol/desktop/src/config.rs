@@ -282,6 +282,8 @@ pub struct HostRecord {
     /// The host's `uniqueid`; empty until the host answered once.
     pub unique_id: String,
     pub name: String,
+    /// A name chosen on this device. The PC's own `name` keeps following what it reports.
+    pub alias: Option<String>,
     /// Last address that answered, then the others it was known by.
     pub address: String,
     pub http_port: u16,
@@ -314,7 +316,16 @@ impl PaceCalibration {
     }
 }
 
+/// The longest name a PC can be given on this device.
+pub const ALIAS_MAX_CHARS: usize = 40;
+
 impl HostRecord {
+    /// Keeps `text` as this device's name for the PC. Empty (or blank) restores the PC's own name.
+    pub fn set_alias(&mut self, text: &str) {
+        let text: String = text.trim().chars().take(ALIAS_MAX_CHARS).collect();
+        self.alias = (!text.is_empty()).then_some(text);
+    }
+
     pub fn settings(&self, global: &Settings) -> Settings {
         self.settings.as_ref().map_or_else(|| global.clone(), |own| own.apply(global))
     }
@@ -830,6 +841,22 @@ mod tests {
         assert!(saved.settings(&global).microphone);
         host.settings = None;
         assert_eq!(host.settings(&global).fps, 144);
+    }
+
+    #[test]
+    fn a_pc_alias_round_trips_and_an_old_file_has_none() {
+        let old: HostRecord = serde_json::from_str(r#"{"address":"pc.local","name":"DESKTOP-1"}"#).unwrap();
+        assert_eq!(old.alias, None);
+        let mut host = old;
+        host.set_alias("  Living room  ");
+        assert_eq!(host.alias.as_deref(), Some("Living room"));
+        let saved: HostRecord = serde_json::from_str(&serde_json::to_string(&host).unwrap()).unwrap();
+        assert_eq!(saved.alias.as_deref(), Some("Living room"));
+        assert_eq!(saved.name, "DESKTOP-1", "the PC's own name is untouched");
+        host.set_alias(&"x".repeat(60));
+        assert_eq!(host.alias.as_ref().map(|a| a.chars().count()), Some(ALIAS_MAX_CHARS));
+        host.set_alias("   ");
+        assert_eq!(host.alias, None, "an empty name restores the PC's own");
     }
 
     #[test]

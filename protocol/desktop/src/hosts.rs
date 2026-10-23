@@ -116,11 +116,25 @@ impl Host {
         self.art_versions.get(&app).is_none_or(|v| v != version) || !self.art.contains_key(&app)
     }
 
+    /// The name this device shows: the one chosen here, else the PC's own, else its address.
     pub fn display_name(&self) -> &str {
-        if !self.record.name.is_empty() {
+        if let Some(alias) = self.record.alias.as_deref().filter(|a| !a.is_empty()) {
+            alias
+        } else if !self.record.name.is_empty() {
             &self.record.name
         } else {
             &self.record.address
+        }
+    }
+
+    /// Why pairing cannot start now, as text for the user.
+    pub fn pairing_blocked(&self) -> Option<&'static str> {
+        if self.reach == Reach::Offline {
+            Some(PAIR_OFFLINE)
+        } else if self.running_app().is_some() {
+            Some(PAIR_IN_GAME)
+        } else {
+            None
         }
     }
 
@@ -132,6 +146,19 @@ impl Host {
             .map(|i| i.current_game)
     }
 }
+
+// The pairing and unpairing errors, worded like Nightjar Android's.
+pub const PAIR_OFFLINE: &str = "Wake the PC and start the host app. Use the same network, then retry.";
+pub const PAIR_IN_GAME: &str = "Stop the host's stream, then pair again.";
+pub const PAIR_PIN_WRONG: &str =
+    "PIN rejected. Try pairing again and enter the new PIN shown on this device in your host's settings or web UI.";
+pub const PAIR_OTP_PIN_WRONG: &str =
+    "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.";
+pub const PAIR_IN_PROGRESS: &str = "Finish or cancel the pending request on the host.";
+pub const PAIR_DECLINED: &str = "Cancel the old request in your host's settings or web UI, then retry.";
+pub const PAIR_NETWORK: &str = "Use the same network and start the host. Check its firewall, then retry.";
+pub const UNPAIR_FAILED: &str = "Failed to unpair. The PC may still list this device.";
+pub const UNPAIR_NOT_PAIRED: &str = "Device was not paired.";
 
 pub enum Event {
     Info {
@@ -175,6 +202,11 @@ pub enum Event {
         result: Result<(), String>,
     },
     Wake {
+        id: u64,
+        result: Result<(), String>,
+    },
+    /// The PC answered (or not) to being asked to drop this device. The pin is gone either way.
+    Unpaired {
         id: u64,
         result: Result<(), String>,
     },
@@ -248,6 +280,33 @@ pub fn random_pin() -> String {
     format!("{:04}", hasher.finish() % 10_000)
 }
 
+/// What a pairing attempt that reached the host says to the user.
+fn pair_outcome(result: PairResult, one_time: bool) -> Result<String, String> {
+    match result {
+        PairResult::Paired { server_certificate_pem } => Ok(server_certificate_pem),
+        PairResult::PinWrong if one_time => Err(PAIR_OTP_PIN_WRONG.into()),
+        PairResult::PinWrong => Err(PAIR_PIN_WRONG.into()),
+        PairResult::AlreadyInProgress => Err(PAIR_IN_PROGRESS.into()),
+        PairResult::Failed(_) => Err(PAIR_DECLINED.into()),
+    }
+}
+
+fn unpair_error(error: &nightjar_core::http::Error) -> String {
+    use nightjar_core::http::Error;
+    match error {
+        Error::Status { code: 401, .. } | Error::NotPaired => UNPAIR_NOT_PAIRED.into(),
+        _ => UNPAIR_FAILED.into(),
+    }
+}
+
+/// A pairing request that failed on the way: a network problem, or whatever the client says.
+fn pair_error(error: &nightjar_core::http::Error) -> String {
+    match error {
+        nightjar_core::http::Error::Io(_) => PAIR_NETWORK.into(),
+        other => describe(other),
+    }
+}
+
 fn describe(error: &nightjar_core::http::Error) -> String {
     use nightjar_core::http::Error;
     match error {
@@ -277,7 +336,7 @@ impl Hosts {
         hosts
     }
 
-    fn without_discovery(records: Vec<HostRecord>, waker: Waker) -> Self {
+    pub(crate) fn without_discovery(records: Vec<HostRecord>, waker: Waker) -> Self {
         let (sender, events) = channel();
         let mut hosts = Self {
             list: Vec::new(),
@@ -419,6 +478,16 @@ impl Hosts {
         id
     }
 
+    /// Names a PC on this device only. The PC's own name (or nothing) brings its name back.
+    pub fn rename(&mut self, id: u64, alias: &str) -> bool {
+        let Some(host) = self.get_mut(id) else {
+            return false;
+        };
+        let own = alias.trim() == host.record.name;
+        host.record.set_alias(if own { "" } else { alias });
+        true
+    }
+
     pub fn remove(&mut self, id: u64) {
         self.list.retain(|h| h.id != id);
     }
@@ -493,6 +562,7 @@ impl Hosts {
             }
         };
         self.pairing = Some((id, client.clone()));
+        let one_time = passphrase.is_some();
         self.spawn("pair", move || {
             let result = client
                 .server_info_http(true)
@@ -500,17 +570,8 @@ impl Hosts {
                     Some(passphrase) => client.pair_with_passphrase(&info, &pin, passphrase),
                     None => client.pair(&info, &pin),
                 })
-                .map_err(|e| describe(&e))
-                .and_then(|result| match result {
-                    PairResult::Paired {
-                        server_certificate_pem,
-                    } => Ok(server_certificate_pem),
-                    PairResult::PinWrong => Err("The PIN entered on the PC was wrong.".into()),
-                    PairResult::AlreadyInProgress => {
-                        Err("Another device is pairing with this PC right now.".into())
-                    }
-                    PairResult::Failed(f) => Err(format!("The PC declined pairing ({f:?}).")),
-                });
+                .map_err(|e| pair_error(&e))
+                .and_then(|result| pair_outcome(result, one_time));
             Some(Event::Paired { id, request, result })
         });
     }
@@ -544,10 +605,9 @@ impl Hosts {
             return;
         };
         self.spawn("unpair", move || {
-            if let Ok(client) = client_for(&identity, &record, &record.address) {
-                let _ = client.unpair();
-            }
-            None
+            let result = client_for(&identity, &record, &record.address)
+                .and_then(|client| client.unpair().map_err(|e| unpair_error(&e)));
+            Some(Event::Unpaired { id, result })
         });
     }
 
@@ -895,6 +955,12 @@ impl Hosts {
                     self.load_apps(id);
                     out.push(Event::Action { id, result });
                 }
+                Event::Unpaired { id, result } => {
+                    // The PC may be gone by now (removed right after): nothing to tell then.
+                    if self.get(id).is_some() {
+                        out.push(Event::Unpaired { id, result });
+                    }
+                }
             }
         }
         (out, changed)
@@ -1055,6 +1121,7 @@ mod tests {
             pace: None,
             unique_id: unique_id.into(),
             name: "PC".into(),
+            alias: None,
             address: "192.0.2.1".into(),
             http_port: 0,
             https_port: 0,
@@ -1121,6 +1188,46 @@ mod tests {
         let seq = hosts.list[0].native_seq + 1;
         send(&mut hosts, Event::Native { id, epoch: 0, seq, result: Ok(full_read(session("suspended"))) });
         assert_eq!(hosts.list[0].native.session.as_ref().map(|s| s.state), Some(session("suspended").state));
+    }
+
+    const INFO: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\">        <hostname>Renamed on the PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort>        <ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame>        <state>SUNSHINE_SERVER_FREE</state></root>";
+
+    #[test]
+    fn a_name_chosen_here_survives_the_pc_reporting_another() {
+        let mut record = paired_record("uid");
+        record.set_alias("Living room");
+        let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        let info = ServerInfo::parse(INFO, 47989).unwrap();
+        assert!(hosts.apply_info(id, "192.0.2.1".into(), Ok(Box::new(info))));
+        let host = &hosts.list[0];
+        assert_eq!(host.record.name, "Renamed on the PC", "the PC's own name keeps following the PC");
+        assert_eq!(host.display_name(), "Living room");
+        assert_eq!(hosts.records()[0].alias.as_deref(), Some("Living room"), "and the alias is saved");
+        hosts.list[0].record.set_alias("");
+        assert_eq!(hosts.list[0].display_name(), "Renamed on the PC");
+    }
+
+    #[test]
+    fn pairing_texts_follow_the_android_wording() {
+        let one_time = pair_outcome(PairResult::PinWrong, true).unwrap_err();
+        let plain = pair_outcome(PairResult::PinWrong, false).unwrap_err();
+        assert_eq!(one_time, PAIR_OTP_PIN_WRONG);
+        assert_eq!(plain, PAIR_PIN_WRONG);
+        assert_eq!(pair_outcome(PairResult::AlreadyInProgress, false).unwrap_err(), PAIR_IN_PROGRESS);
+        let io = nightjar_core::http::Error::Io(std::io::ErrorKind::TimedOut.into());
+        assert_eq!(pair_error(&io), PAIR_NETWORK);
+        assert_eq!(unpair_error(&nightjar_core::http::Error::NotPaired), UNPAIR_NOT_PAIRED);
+        assert_eq!(unpair_error(&io), UNPAIR_FAILED);
+
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        assert_eq!(hosts.list[0].pairing_blocked(), None);
+        hosts.list[0].reach = Reach::Offline;
+        assert_eq!(hosts.list[0].pairing_blocked(), Some(PAIR_OFFLINE));
+        hosts.list[0].reach = Reach::Online;
+        let busy = INFO.replace("<currentgame>0", "<currentgame>7").replace("SERVER_FREE", "SERVER_BUSY");
+        hosts.list[0].info = Some(ServerInfo::parse(&busy, 47989).unwrap());
+        assert_eq!(hosts.list[0].pairing_blocked(), Some(PAIR_IN_GAME));
     }
 
     #[test]

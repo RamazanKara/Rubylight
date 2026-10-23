@@ -500,6 +500,17 @@ fn hint_override(name: &str, value: u32) -> u32 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(value)
 }
 
+/// `Auto` (moonlight-common-c's choice from the address), unless `NIGHTJAR_STREAM_LOCATION` is
+/// `local` or `remote`: loopback counts as remote there and gets 1024 byte packets, which is not
+/// the packet size of a wired LAN stream, so measurement runs on loopback say `local`.
+fn location_override() -> Location {
+    match std::env::var("NIGHTJAR_STREAM_LOCATION").as_deref() {
+        Ok("local") => Location::Local,
+        Ok("remote") => Location::Remote,
+        _ => Location::Auto,
+    }
+}
+
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
 fn early_decode(setting: bool) -> bool {
     match std::env::var("NIGHTJAR_EARLY_DECODE").as_deref() {
@@ -649,7 +660,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         &host,
         SessionConfig {
             stream,
-            location: Location::Auto,
+            location: location_override(),
             network_grace: Duration::from_millis(u64::from(settings.network_grace_ms)),
             input_only: role == AppRole::InputOnly,
             ..Default::default()

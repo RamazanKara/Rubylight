@@ -1,5 +1,6 @@
 // Paired-device permissions and the editable form of a device's settings.
 import { PERM, PERM_ALL, type Client } from '../../lib/api';
+import { SETTING as STREAM_PRESET, presets } from '../../lib/stream-presets';
 
 export const VIEW_ONLY = PERM.LIST_APPS | PERM.VIEW_STREAMS;
 
@@ -102,6 +103,10 @@ export interface Draft {
   prefer_10bit_sdr: '' | 'on' | 'off';
   hdr_profile: string;
   allow_client_commands: boolean;
+  /** The device's own stream preset id; empty follows the host's. An unknown saved name is kept as it is. */
+  stream_preset: string;
+  /** The device's other config overrides, kept and sent back untouched. */
+  other_overrides: Record<string, unknown>;
   /** Lets the device change Radeon settings and close games; off unless granted here. */
   host_control: boolean;
   do: CommandRow[];
@@ -149,8 +154,18 @@ function commandRows(value: unknown): CommandRow[] {
   });
 }
 
+/** A saved preset name as an id the select offers; a name that is not a preset stays as written. */
+function savedPreset(value: unknown): string {
+  const name = text(value);
+  const id = name.replace(/^"+|"+$/g, '').trim().toLowerCase().replace(/[- ]/g, '_');
+  return presets.some((preset) => preset.id === id) ? id : name;
+}
+
 export function toDraft(client: Client): Draft {
   const sdr = flag(client.prefer_10bit_sdr);
+  const stored = client.config_overrides;
+  const { [STREAM_PRESET]: preset, ...other } =
+    stored && typeof stored === 'object' && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
   return {
     name: client.name,
     enabled: flag(client.enabled) !== false,
@@ -168,6 +183,8 @@ export function toDraft(client: Client): Draft {
     prefer_10bit_sdr: sdr === null ? '' : sdr ? 'on' : 'off',
     hdr_profile: text(client.hdr_profile),
     allow_client_commands: flag(client.allow_client_commands) !== false,
+    stream_preset: savedPreset(preset),
+    other_overrides: other,
     // As the host reads it: only true and "true" are on, so 1 and "yes" stay off.
     host_control: client.host_control === true || client.host_control === 'true',
     do: commandRows(client.do),
@@ -176,10 +193,19 @@ export function toDraft(client: Client): Draft {
 }
 
 type Command = { cmd: string; elevated: boolean };
-export type Changes = Record<string, string | number | boolean | null | Command[]>;
+export type Changes = Record<
+  string,
+  string | number | boolean | null | Command[] | Record<string, unknown>
+>;
 
 function commands(rows: CommandRow[]): Command[] {
   return rows.filter((row) => row.cmd.trim()).map((row) => ({ cmd: row.cmd.trim(), elevated: row.elevated }));
+}
+
+/** The device's overrides: its other overrides plus its preset; null when there are none. */
+function overrides(draft: Draft): Record<string, unknown> | null {
+  const next = { ...draft.other_overrides, ...(draft.stream_preset ? { [STREAM_PRESET]: draft.stream_preset } : {}) };
+  return Object.keys(next).length > 0 ? next : null;
 }
 
 /** The draft as the host stores it: null clears a per-device setting. */
@@ -202,6 +228,7 @@ function serialise(draft: Draft): Changes {
     prefer_10bit_sdr: draft.prefer_10bit_sdr === '' ? null : draft.prefer_10bit_sdr === 'on',
     hdr_profile: draft.hdr_profile || null,
     allow_client_commands: draft.allow_client_commands,
+    config_overrides: overrides(draft),
     // The host takes only a boolean or null here; null removes the grant.
     host_control: draft.host_control ? true : null,
     // The host rejects a null command list, so an empty list is sent instead.

@@ -18,6 +18,7 @@
     validDisplayMode,
     type Draft,
   } from './device';
+  import { presets } from '../../lib/stream-presets';
 
   let {
     client,
@@ -116,6 +117,12 @@
     VIRTUAL_DISPLAY_LAYOUTS.find((layout) => layout.value === draft.virtual_display_layout)?.hint ??
       'How the virtual display sits beside the monitors.',
   );
+
+  const presetHint = $derived(
+    presets.find((preset) => preset.id === draft.stream_preset)?.description ??
+      'Fills the encoder settings you have not set. Follows the preset in Settings unless this device names its own.',
+  );
+  const presetUnknown = $derived(draft.stream_preset !== '' && !presets.some((preset) => preset.id === draft.stream_preset));
 
   function setPermission(bit: number, granted: boolean) {
     draft.perm = granted ? draft.perm | bit : draft.perm & ~bit;
@@ -274,6 +281,33 @@
       hint={`When you change the resolution or the scale of this device's own virtual display in Windows during a stream, such as 1440p at 200% under a 4K stream, the next streams start at them. The stream keeps the resolution the device asks for, and the refresh rate and VRR follow the stream as usual. A display mode above comes first, and a Virtual display scale set in the host settings comes before the kept scale.${draft.remember_display_mode && draft.remembered_resolution ? ` Kept now: ${draft.remembered_resolution}${draft.remembered_scale ? ` at ${draft.remembered_scale}%` : ''}.` : draft.remember_display_mode && draft.remembered_scale ? ` Kept now: ${draft.remembered_scale}% scale.` : ''}`}
       bind:checked={draft.remember_display_mode}
     />
+  </section>
+  </details>
+
+  <details class="override" open={presetUnknown}><summary>Stream preset</summary>
+  <section>
+    <div class="form-grid">
+      <Field
+        label="Stream preset"
+        id="{uid}-preset"
+        hint={presetHint}
+        error={presetUnknown ? `“${draft.stream_preset}” is not a stream preset, so the host ignores it. Choose one.` : undefined}
+      >
+        <select id="{uid}-preset" class="select" bind:value={draft.stream_preset}>
+          <option value="">Use the host setting</option>
+          {#if presetUnknown}
+            <option value={draft.stream_preset}>{draft.stream_preset} (not a preset)</option>
+          {/if}
+          {#each presets as preset (preset.id)}
+            <option value={preset.id}>{preset.label}</option>
+          {/each}
+        </select>
+      </Field>
+    </div>
+    <p class="note">
+      Settings you set for this device or for an app still win over the preset. An app can name its own preset, which
+      comes before this one.
+    </p>
   </section>
   </details>
 

@@ -668,7 +668,10 @@ renderer and common-c integration remain GPL-3.0.
 - HDR requires an A2B10G10R10 or A2R10G10B10 UNORM + `HDR10_ST2084_EXT` surface pair,
   `VK_EXT_swapchain_colorspace`, and `VK_EXT_hdr_metadata`. The same ten-bit format must also support
   SDR presentation, preserving ten-bit SDR when the host turns HDR off. Mode changes recreate the
-  swapchain. Mastering primaries/white point, luminance and MaxCLL/MaxFALL are passed with Vulkan units;
+  swapchain. The Android 13 and 14 loaders never list `HDR10_ST2084_EXT`; there a ten-bit
+  `SRGB_NONLINEAR` swapchain is used and HDR is signalled with `ANativeWindow_setBuffersDataSpace`
+  (`ADATASPACE_BT2020_PQ`, `ADATASPACE_SRGB` when off), re-applied after every swapchain creation
+  because the loader resets the dataspace there. The shader's PQ output keys off the HDR flag. Mastering primaries/white point, luminance and MaxCLL/MaxFALL are passed with Vulkan units;
   absent/short metadata clears old values to unknown. The unsupported trailing full-frame field is
   omitted. [Vulkan metadata units](https://docs.vulkan.org/refpages/latest/refpages/source/VkHdrMetadataEXT.html)
   and [colour-space definitions](https://docs.vulkan.org/refpages/latest/refpages/source/VkColorSpaceKHR.html)

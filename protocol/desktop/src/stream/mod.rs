@@ -57,6 +57,8 @@ pub struct Display {
 pub struct LaunchPlan {
     pub host_id: u64,
     pub record: HostRecord,
+    /// What this device calls the PC: the name chosen here, else the PC's own.
+    pub host_name: String,
     pub info: ServerInfo,
     pub app: App,
     pub resume: bool,
@@ -284,7 +286,7 @@ impl Connecting {
         let interrupt = Interrupt::default();
         let (sender, result) = channel();
         let app_name = plan.app.name.clone();
-        let host_name = plan.record.name.clone();
+        let host_name = plan.host_name.clone();
         let (host_id, pacing, settings) = (plan.host_id, plan.pacing, plan.settings.clone());
         let worker_shared = shared.clone();
         let worker_interrupt = interrupt.clone();
@@ -555,7 +557,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             && role != AppRole::RemoteMonitor,
         phase_lock: outcome.host_control_messages.contains(&rubylight_protocol::phase_lock::REPORT_MESSAGE_TYPE),
         app_name: plan.app.name.clone(),
-        host_name: plan.record.name.clone(),
+        host_name: plan.host_name.clone(),
     };
     Ok((session, facts))
 }

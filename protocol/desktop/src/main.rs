@@ -945,6 +945,7 @@ impl App {
         let plan = LaunchPlan {
             host_id,
             record: host.record.clone(),
+            host_name: host.display_name().to_owned(),
             info,
             app,
             resume,

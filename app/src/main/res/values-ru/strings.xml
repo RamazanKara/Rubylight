@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">Выполнить сопряжение</string>
     <string name="pcview_menu_unpair_pc">Отменить сопряжение</string>
     <string name="pcview_menu_send_wol">Разбудить ПК</string>
-    <string name="pcview_menu_delete_pc">Удалить ПК</string>
+    <string name="pcview_menu_delete_pc">Убрать ПК</string>
     <string name="pcview_menu_details">Подробности</string>
     <string name="pcview_menu_eol">GameStream больше не поддерживается</string>
     <string name="nettest_text_blocked">Трансляция через интернет может быть заблокирована.\nДля локальной трансляции проверьте брандмауэр ПК.</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">Потеряно соединение с ПК</string>
     <string name="title_details">Подробности</string>
     <string name="help">Справка</string>
-    <string name="delete_pc_msg">Удалить этот хост? Чтобы снова использовать его, потребуется повторное сопряжение.</string>
+    <string name="delete_pc_msg">Убрать этот ПК из Nightjar? Здесь будут забыты его название и сохранённая библиотека. ПК продолжит показывать это устройство, пока вы не отмените сопряжение.</string>
     <string name="slow_connection_msg">Медленное подключение к ПК\nСнизьте битрейт</string>
     <string name="poor_connection_msg">Слабое соединение с ПК</string>
     <string name="perf_overlay_streamdetails">Видеопоток: %1$s %2$.2f FPS</string>

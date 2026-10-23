@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">Основные разделы</string>
     <string name="shell_current_page">Текущая страница</string>
+    <string name="host_menu_rename">Переименовать</string>
+    <string name="host_options_hint">X или ⋮ для параметров</string>
+    <string name="host_rename_field">Название</string>
+    <string name="host_rename_help">Показывается только на этом устройстве. Оставьте пустым, чтобы использовать собственное имя ПК.</string>
+    <string name="host_rename_save">Сохранить</string>
+    <string name="host_rename_title">Переименовать ПК</string>
+    <string name="host_unpair_title">Отменить сопряжение с %1$s?</string>
+    <string name="host_unpair_message">ПК забудет это устройство, а сохранённая библиотека будет удалена здесь. Для трансляции потребуется повторное сопряжение. ПК останется в списке.</string>
+    <string name="host_wake_needs_pairing">Выполните сопряжение один раз, пока ПК включён, чтобы его можно было разбудить</string>
 </resources>

@@ -33,7 +33,7 @@ public class TranslationResourcesTest {
     static final Set<String> TIGHT_LABELS = Set.of(
             "addpc_button", "applist_menu_cancel", "crash_report_not_now",
             "keyboard_shortcuts_save", "keyboard_shortcuts_delete", "keyboard_shortcuts_replace_button",
-            "host_profile_save", "latency_benchmark_start", "latency_benchmark_share", "library_retry",
+            "host_profile_save", "host_menu_rename", "host_rename_save", "latency_benchmark_start", "latency_benchmark_share", "library_retry",
             "remote_next", "remote_previous", "remote_test", "report_problem_share",
             "help", "settings", "library_search", "library_options",
             "help_connect_link", "help_pairing_link", "help_controls_link", "help_profiles_link",

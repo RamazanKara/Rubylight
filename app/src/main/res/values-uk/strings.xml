@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">Сполучити</string>
     <string name="pcview_menu_unpair_pc">Скасувати сполучення</string>
     <string name="pcview_menu_send_wol">Пробудити ПК</string>
-    <string name="pcview_menu_delete_pc">Видалити ПК</string>
+    <string name="pcview_menu_delete_pc">Прибрати ПК</string>
     <string name="pcview_menu_details">Переглянути деталі</string>
     <string name="pcview_menu_eol">GameStream припинено</string>
     <string name="nettest_text_blocked">Трансляцію через інтернет може бути заблоковано.\nДля локальної трансляції перевірте брандмауер ПК.</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">З’єднання з ПК втрачено</string>
     <string name="title_details">Деталі</string>
     <string name="help">Довідка</string>
-    <string name="delete_pc_msg">Видалити цей хост? Щоб знову ним користуватися, доведеться повторно сполучити.</string>
+    <string name="delete_pc_msg">Прибрати цей ПК з Nightjar? Тут буде забуто його назву та збережену бібліотеку. ПК й надалі показує цей пристрій, доки ви не скасуєте сполучення.</string>
     <string name="slow_connection_msg">Повільне з’єднання з ПК\nЗменште бітрейт</string>
     <string name="poor_connection_msg">Погане з’єднання з ПК</string>
     <string name="perf_overlay_streamdetails">Відеопотік: %1$s %2$.2f FPS</string>

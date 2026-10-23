@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">Ana bölümler</string>
     <string name="shell_current_page">Geçerli sayfa</string>
+    <string name="host_menu_rename">Yeniden adlandır</string>
+    <string name="host_options_hint">Seçenekler için X veya ⋮</string>
+    <string name="host_rename_field">Ad</string>
+    <string name="host_rename_help">Yalnızca bu cihazda gösterilir. Bilgisayarın kendi adını kullanmak için boş bırakın.</string>
+    <string name="host_rename_save">Kaydet</string>
+    <string name="host_rename_title">Bilgisayarı yeniden adlandır</string>
+    <string name="host_unpair_title">%1$s eşleştirmesi kaldırılsın mı?</string>
+    <string name="host_unpair_message">Bilgisayar bu cihazı unutur ve kayıtlı kitaplık burada temizlenir. Yayın için yeniden eşleştirmeniz gerekir. Bilgisayar listede kalır.</string>
+    <string name="host_wake_needs_pairing">Uyandırabilmek için bilgisayar açıkken bir kez eşleştirin</string>
 </resources>

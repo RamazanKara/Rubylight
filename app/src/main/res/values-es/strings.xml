@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">Vincular</string>
     <string name="pcview_menu_unpair_pc">Desvincular</string>
     <string name="pcview_menu_send_wol">Activar PC</string>
-    <string name="pcview_menu_delete_pc">Eliminar PC</string>
+    <string name="pcview_menu_delete_pc">Quitar PC</string>
     <string name="pcview_menu_details">Ver detalles</string>
     <string name="pcview_menu_eol">GameStream descontinuado</string>
     <string name="nettest_text_blocked">Puede que la transmisión por Internet esté bloqueada.\nPara transmitir en local, comprueba el cortafuegos del PC.</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">Se ha perdido la conexión con el PC</string>
     <string name="title_details">Detalles</string>
     <string name="help">Ayuda</string>
-    <string name="delete_pc_msg">¿Eliminar este servidor? Tendrás que volver a vincularlo para usarlo.</string>
+    <string name="delete_pc_msg">¿Quitar este PC de Nightjar? Aquí se olvidan su nombre y su biblioteca guardada. El PC sigue mostrando este dispositivo hasta que lo desvincules.</string>
     <string name="slow_connection_msg">Conexión lenta con el PC\nReduce la tasa de bits</string>
     <string name="poor_connection_msg">Conexión deficiente con el PC</string>
     <string name="perf_overlay_streamdetails">Transmisión de vídeo: %1$s %2$.2f FPS</string>

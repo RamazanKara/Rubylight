@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">配對</string>
     <string name="pcview_menu_unpair_pc">取消配對</string>
     <string name="pcview_menu_send_wol">喚醒電腦</string>
-    <string name="pcview_menu_delete_pc">刪除電腦</string>
+    <string name="pcview_menu_delete_pc">移除電腦</string>
     <string name="pcview_menu_details">查看詳細資料</string>
     <string name="pcview_menu_eol">GameStream 已停止服務</string>
     <string name="nettest_text_blocked">透過網際網路串流可能遭到封鎖。\n如要在本機網路串流，請檢查電腦的防火牆。</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">與電腦的連線中斷</string>
     <string name="title_details">詳細資料</string>
     <string name="help">說明</string>
-    <string name="delete_pc_msg">要刪除這個主機嗎？你必須重新配對才能使用。</string>
+    <string name="delete_pc_msg">要從 Nightjar 移除這台電腦嗎？它的名稱和已儲存的遊戲庫會在此清除。在你取消配對之前，電腦上仍會列出這台裝置。</string>
     <string name="slow_connection_msg">與電腦的連線速度緩慢\n請降低位元速率</string>
     <string name="poor_connection_msg">與電腦的連線品質不佳</string>
     <string name="perf_overlay_streamdetails">視訊串流：%1$s %2$.2f FPS</string>

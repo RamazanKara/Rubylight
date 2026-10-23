@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">Ghép đôi</string>
     <string name="pcview_menu_unpair_pc">Hủy ghép đôi</string>
     <string name="pcview_menu_send_wol">Đánh thức PC</string>
-    <string name="pcview_menu_delete_pc">Xóa PC</string>
+    <string name="pcview_menu_delete_pc">Gỡ PC</string>
     <string name="pcview_menu_details">Xem chi tiết</string>
     <string name="pcview_menu_eol">GameStream đã ngừng hoạt động</string>
     <string name="nettest_text_blocked">Stream qua Internet có thể bị chặn.\nĐể stream trong mạng cục bộ, hãy kiểm tra tường lửa của PC.</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">Mất kết nối với PC</string>
     <string name="title_details">Chi tiết</string>
     <string name="help">Trợ giúp</string>
-    <string name="delete_pc_msg">Xóa máy chủ này? Bạn sẽ cần ghép đôi lại để sử dụng.</string>
+    <string name="delete_pc_msg">Gỡ PC này khỏi Nightjar? Tên và thư viện đã lưu sẽ bị quên ở đây. PC vẫn liệt kê thiết bị này cho đến khi bạn hủy ghép đôi.</string>
     <string name="slow_connection_msg">Kết nối chậm với PC\nHãy giảm tốc độ bit</string>
     <string name="poor_connection_msg">Kết nối kém với PC</string>
     <string name="perf_overlay_streamdetails">Luồng video: %1$s %2$.2f FPS</string>

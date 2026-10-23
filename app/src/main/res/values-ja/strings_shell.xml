@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">メインセクション</string>
     <string name="shell_current_page">現在のページ</string>
+    <string name="host_menu_rename">名前を変更</string>
+    <string name="host_options_hint">オプションは X または ⋮</string>
+    <string name="host_rename_field">名前</string>
+    <string name="host_rename_help">この端末にだけ表示されます。空にすると PC 本来の名前を使います。</string>
+    <string name="host_rename_save">保存</string>
+    <string name="host_rename_title">PC の名前を変更</string>
+    <string name="host_unpair_title">%1$s のペアリングを解除しますか？</string>
+    <string name="host_unpair_message">PC はこの端末を忘れ、保存済みのライブラリもここで消去されます。ストリーミングするには再度ペアリングが必要です。PC は一覧に残ります。</string>
+    <string name="host_wake_needs_pairing">PC の電源が入っているときに一度ペアリングすると、起動できるようになります</string>
 </resources>

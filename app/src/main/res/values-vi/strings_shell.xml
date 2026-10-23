@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">Các mục chính</string>
     <string name="shell_current_page">Trang hiện tại</string>
+    <string name="host_menu_rename">Đổi tên</string>
+    <string name="host_options_hint">X hoặc ⋮ để xem tùy chọn</string>
+    <string name="host_rename_field">Tên</string>
+    <string name="host_rename_help">Chỉ hiển thị trên thiết bị này. Để trống để dùng tên gốc của PC.</string>
+    <string name="host_rename_save">Lưu</string>
+    <string name="host_rename_title">Đổi tên PC</string>
+    <string name="host_unpair_title">Hủy ghép đôi với %1$s?</string>
+    <string name="host_unpair_message">PC sẽ quên thiết bị này và thư viện đã lưu sẽ bị xóa ở đây. Bạn cần ghép đôi lại để phát trực tiếp. PC vẫn ở trong danh sách.</string>
+    <string name="host_wake_needs_pairing">Hãy ghép đôi PC một lần khi PC đang bật để có thể đánh thức</string>
 </resources>

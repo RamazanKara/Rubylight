@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">Accoppia</string>
     <string name="pcview_menu_unpair_pc">Disaccoppia</string>
     <string name="pcview_menu_send_wol">Riattiva PC</string>
-    <string name="pcview_menu_delete_pc">Elimina PC</string>
+    <string name="pcview_menu_delete_pc">Rimuovi PC</string>
     <string name="pcview_menu_details">Visualizza dettagli</string>
     <string name="pcview_menu_eol">GameStream non più supportato</string>
     <string name="nettest_text_blocked">Lo streaming via Internet potrebbe essere bloccato.\nPer lo streaming locale, controlla il firewall del PC.</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">Connessione al PC persa</string>
     <string name="title_details">Dettagli</string>
     <string name="help">Aiuto</string>
-    <string name="delete_pc_msg">Eliminare questo host? Dovrai accoppiarlo di nuovo per usarlo.</string>
+    <string name="delete_pc_msg">Rimuovere questo PC da Nightjar? Qui vengono dimenticati il nome e la libreria salvata. Il PC elenca ancora questo dispositivo finché non lo disaccoppi.</string>
     <string name="slow_connection_msg">Connessione lenta al PC\nRiduci il bitrate</string>
     <string name="poor_connection_msg">Connessione al PC scarsa</string>
     <string name="perf_overlay_streamdetails">Stream video: %1$s %2$.2f FPS</string>

@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">Sections principales</string>
     <string name="shell_current_page">Page actuelle</string>
+    <string name="host_menu_rename">Renommer</string>
+    <string name="host_options_hint">X ou ⋮ pour les options</string>
+    <string name="host_rename_field">Nom</string>
+    <string name="host_rename_help">Affiché uniquement sur cet appareil. Laissez vide pour utiliser le nom d’origine du PC.</string>
+    <string name="host_rename_save">Enregistrer</string>
+    <string name="host_rename_title">Renommer le PC</string>
+    <string name="host_unpair_title">Dissocier %1$s ?</string>
+    <string name="host_unpair_message">Le PC oublie cet appareil et sa bibliothèque enregistrée est effacée ici. Vous devrez l’associer de nouveau pour diffuser. Le PC reste dans la liste.</string>
+    <string name="host_wake_needs_pairing">Associez le PC une fois, allumé, pour pouvoir le réveiller</string>
 </resources>

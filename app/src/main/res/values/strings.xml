@@ -20,7 +20,7 @@
     <string name="pcview_menu_pair_pc">Pair</string>
     <string name="pcview_menu_unpair_pc">Unpair</string>
     <string name="pcview_menu_send_wol">Wake PC</string>
-    <string name="pcview_menu_delete_pc">Delete PC</string>
+    <string name="pcview_menu_delete_pc">Remove PC</string>
     <string name="pcview_menu_details">View details</string>
     <string name="pcview_menu_eol">GameStream discontinued</string>
 
@@ -90,7 +90,7 @@
     <string name="lost_connection">Lost connection to PC</string>
     <string name="title_details">Details</string>
     <string name="help">Help</string>
-    <string name="delete_pc_msg">Delete this host? You will need to pair again to use it.</string>
+    <string name="delete_pc_msg">Remove this PC from Nightjar? Its name and saved library are forgotten here. The PC still lists this device until you unpair it.</string>
     <string name="slow_connection_msg">Slow connection to PC\nReduce your bitrate</string>
     <string name="poor_connection_msg">Poor connection to PC</string>
     <string name="perf_overlay_streamdetails">Video stream: %1$s %2$.2f FPS</string>

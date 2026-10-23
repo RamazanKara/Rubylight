@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">Główne sekcje</string>
     <string name="shell_current_page">Bieżąca strona</string>
+    <string name="host_menu_rename">Zmień nazwę</string>
+    <string name="host_options_hint">X lub ⋮ – opcje</string>
+    <string name="host_rename_field">Nazwa</string>
+    <string name="host_rename_help">Widoczna tylko na tym urządzeniu. Zostaw puste, aby użyć własnej nazwy komputera.</string>
+    <string name="host_rename_save">Zapisz</string>
+    <string name="host_rename_title">Zmień nazwę komputera</string>
+    <string name="host_unpair_title">Usunąć parowanie z %1$s?</string>
+    <string name="host_unpair_message">Komputer zapomni to urządzenie, a zapisana biblioteka zostanie tu wyczyszczona. Aby strumieniować, trzeba będzie sparować ponownie. Komputer zostaje na liście.</string>
+    <string name="host_wake_needs_pairing">Sparuj komputer raz, gdy jest włączony, aby móc go wybudzać</string>
 </resources>

@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">主要區段</string>
     <string name="shell_current_page">目前頁面</string>
+    <string name="host_menu_rename">重新命名</string>
+    <string name="host_options_hint">按 X 或 ⋮ 查看選項</string>
+    <string name="host_rename_field">名稱</string>
+    <string name="host_rename_help">只會顯示在這台裝置上。留空則使用電腦本身的名稱。</string>
+    <string name="host_rename_save">儲存</string>
+    <string name="host_rename_title">重新命名電腦</string>
+    <string name="host_unpair_title">要取消與 %1$s 的配對嗎？</string>
+    <string name="host_unpair_message">電腦會忘記這台裝置，已儲存的遊戲庫也會在此清除。之後必須重新配對才能串流。電腦仍保留在清單中。</string>
+    <string name="host_wake_needs_pairing">請在電腦開機時配對一次，以啟用喚醒</string>
 </resources>

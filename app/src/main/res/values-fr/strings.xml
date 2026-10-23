@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">Associer</string>
     <string name="pcview_menu_unpair_pc">Dissocier</string>
     <string name="pcview_menu_send_wol">Réveiller le PC</string>
-    <string name="pcview_menu_delete_pc">Supprimer le PC</string>
+    <string name="pcview_menu_delete_pc">Retirer le PC</string>
     <string name="pcview_menu_details">Voir les détails</string>
     <string name="pcview_menu_eol">GameStream abandonné</string>
     <string name="nettest_text_blocked">Le streaming via Internet est peut-être bloqué.\nPour le streaming local, vérifiez le pare-feu du PC.</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">Connexion perdue avec le PC</string>
     <string name="title_details">Détails</string>
     <string name="help">Aide</string>
-    <string name="delete_pc_msg">Supprimer cet hôte ? Vous devrez l’associer de nouveau pour l’utiliser.</string>
+    <string name="delete_pc_msg">Retirer ce PC de Nightjar ? Son nom et sa bibliothèque enregistrée sont oubliés ici. Le PC liste encore cet appareil tant que vous ne l’avez pas dissocié.</string>
     <string name="slow_connection_msg">Connexion lente au PC\nRéduisez votre débit</string>
     <string name="poor_connection_msg">Mauvaise connexion au PC</string>
     <string name="perf_overlay_streamdetails">Stream vidéo : %1$s %2$.2f FPS</string>

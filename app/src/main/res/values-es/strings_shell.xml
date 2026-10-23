@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">Secciones principales</string>
     <string name="shell_current_page">Página actual</string>
+    <string name="host_menu_rename">Renombrar</string>
+    <string name="host_options_hint">X o ⋮ para opciones</string>
+    <string name="host_rename_field">Nombre</string>
+    <string name="host_rename_help">Solo se muestra en este dispositivo. Déjalo vacío para usar el nombre propio del PC.</string>
+    <string name="host_rename_save">Guardar</string>
+    <string name="host_rename_title">Renombrar PC</string>
+    <string name="host_unpair_title">¿Desvincular %1$s?</string>
+    <string name="host_unpair_message">El PC olvida este dispositivo y aquí se borra su biblioteca guardada. Tendrás que volver a vincularlo para transmitir. El PC sigue en la lista.</string>
+    <string name="host_wake_needs_pairing">Vincula el PC una vez mientras esté encendido para poder activarlo</string>
 </resources>

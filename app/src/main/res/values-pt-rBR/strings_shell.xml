@@ -2,4 +2,13 @@
 <resources>
     <string name="shell_destinations">Seções principais</string>
     <string name="shell_current_page">Página atual</string>
+    <string name="host_menu_rename">Renomear</string>
+    <string name="host_options_hint">X ou ⋮ para opções</string>
+    <string name="host_rename_field">Nome</string>
+    <string name="host_rename_help">Aparece apenas neste dispositivo. Deixe vazio para usar o nome original do PC.</string>
+    <string name="host_rename_save">Salvar</string>
+    <string name="host_rename_title">Renomear PC</string>
+    <string name="host_unpair_title">Desparear %1$s?</string>
+    <string name="host_unpair_message">O PC esquece este dispositivo e a biblioteca salva é apagada aqui. Você precisará parear novamente para transmitir. O PC continua na lista.</string>
+    <string name="host_wake_needs_pairing">Pareie o PC uma vez com ele ligado para poder ligá-lo à distância</string>
 </resources>

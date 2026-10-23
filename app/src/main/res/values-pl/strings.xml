@@ -71,7 +71,7 @@
     <string name="lost_connection">Utracono połączenie z komputerem</string>
     <string name="title_details">Szczegóły</string>
     <string name="help">Pomoc</string>
-    <string name="delete_pc_msg">Usunąć ten host? Aby go używać, trzeba będzie sparować go ponownie.</string>
+    <string name="delete_pc_msg">Usunąć ten komputer z Nightjar? Jego nazwa i zapisana biblioteka zostaną tu zapomniane. Komputer nadal wyświetla to urządzenie, dopóki nie usuniesz parowania.</string>
     <string name="slow_connection_msg">Wolne połączenie z komputerem\nZmniejsz szybkość transmisji</string>
     <string name="poor_connection_msg">Słabe połączenie z komputerem</string>
     <string name="perf_overlay_streamdetails">Strumień wideo: %1$s %2$.2f FPS</string>

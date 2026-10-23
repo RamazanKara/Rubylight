@@ -71,7 +71,7 @@
     <string name="lost_connection">PC との接続が切断されました</string>
     <string name="title_details">詳細</string>
     <string name="help">ヘルプ</string>
-    <string name="delete_pc_msg">このホストを削除しますか？使用するには再度ペアリングが必要です。</string>
+    <string name="delete_pc_msg">この PC を Nightjar から削除しますか？名前と保存済みのライブラリはここで消去されます。ペアリングを解除するまで、PC にはこの端末が残ります。</string>
     <string name="slow_connection_msg">PC への接続が低速です\nビットレートを下げてください</string>
     <string name="poor_connection_msg">PC との接続が不安定です</string>
     <string name="perf_overlay_streamdetails">映像ストリーム: %1$s %2$.2f FPS</string>

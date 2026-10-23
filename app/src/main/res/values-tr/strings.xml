@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">Eşleştir</string>
     <string name="pcview_menu_unpair_pc">Eşleştirmeyi kaldır</string>
     <string name="pcview_menu_send_wol">Bilgisayarı uyandır</string>
-    <string name="pcview_menu_delete_pc">Bilgisayarı sil</string>
+    <string name="pcview_menu_delete_pc">Bilgisayarı kaldır</string>
     <string name="pcview_menu_details">Ayrıntıları göster</string>
     <string name="pcview_menu_eol">GameStream’in desteği sona erdi</string>
     <string name="nettest_text_blocked">İnternet üzerinden yayın engellenmiş olabilir.\nYerel yayın için bilgisayarın güvenlik duvarını kontrol edin.</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">Bilgisayarla bağlantı kesildi</string>
     <string name="title_details">Ayrıntılar</string>
     <string name="help">Yardım</string>
-    <string name="delete_pc_msg">Bu ana bilgisayar silinsin mi? Kullanmak için yeniden eşleştirmeniz gerekir.</string>
+    <string name="delete_pc_msg">Bu bilgisayar Nightjar’dan kaldırılsın mı? Adı ve kayıtlı kitaplığı burada unutulur. Eşleştirmeyi kaldırana kadar bilgisayar bu cihazı listelemeye devam eder.</string>
     <string name="slow_connection_msg">Bilgisayara bağlantı yavaş\nBit hızınızı düşürün</string>
     <string name="poor_connection_msg">Bilgisayarla bağlantı zayıf</string>
     <string name="perf_overlay_streamdetails">Video yayını: %1$s %2$.2f FPS</string>

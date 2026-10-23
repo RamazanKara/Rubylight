@@ -3,4 +3,13 @@
     <!-- The shell bar: Home, PCs and Settings under the top app bar. -->
     <string name="shell_destinations">Main sections</string>
     <string name="shell_current_page">Current page</string>
+    <string name="host_menu_rename">Rename</string>
+    <string name="host_options_hint">X or ⋮ for options</string>
+    <string name="host_rename_field">Name</string>
+    <string name="host_rename_help">Shown only on this device. Leave it empty to use the PC’s own name.</string>
+    <string name="host_rename_save">Save</string>
+    <string name="host_rename_title">Rename PC</string>
+    <string name="host_unpair_title">Unpair %1$s?</string>
+    <string name="host_unpair_message">The PC forgets this device and its saved library is cleared here. You will need to pair again to stream. The PC stays in the list.</string>
+    <string name="host_wake_needs_pairing">Pair once while the PC is on to enable Wake</string>
 </resources>

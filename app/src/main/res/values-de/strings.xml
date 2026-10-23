@@ -15,7 +15,7 @@
     <string name="pcview_menu_pair_pc">Koppeln</string>
     <string name="pcview_menu_unpair_pc">Kopplung aufheben</string>
     <string name="pcview_menu_send_wol">PC aufwecken</string>
-    <string name="pcview_menu_delete_pc">PC löschen</string>
+    <string name="pcview_menu_delete_pc">PC entfernen</string>
     <string name="pcview_menu_details">Details anzeigen</string>
     <string name="pcview_menu_eol">GameStream eingestellt</string>
     <string name="nettest_text_blocked">Internet-Streaming eventuell gesperrt.\nIm Heimnetz: Prüfe die PC-Firewall.</string>
@@ -71,7 +71,7 @@
     <string name="lost_connection">Verbindung zum PC verloren</string>
     <string name="title_details">Details</string>
     <string name="help">Hilfe</string>
-    <string name="delete_pc_msg">PC löschen? Danach musst du ihn erneut koppeln.</string>
+    <string name="delete_pc_msg">Diesen PC aus Nightjar entfernen? Name und gespeicherte Bibliothek werden hier vergessen. Der PC führt dieses Gerät weiter, bis du die Kopplung aufhebst.</string>
     <string name="slow_connection_msg">Langsame Verbindung\nSenke die Bitrate</string>
     <string name="poor_connection_msg">Schlechte Verbindung zum PC</string>
     <string name="perf_overlay_streamdetails">Video: %1$s %2$.2f FPS</string>

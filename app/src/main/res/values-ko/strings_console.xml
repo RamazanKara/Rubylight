@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">홈</string>
-    <string name="console_menu_hosts">PC</string>
     <string name="console_section_favourites">즐겨찾기</string>
     <string name="console_section_continue">이어서 플레이</string>
     <string name="console_section_library">라이브러리</string>

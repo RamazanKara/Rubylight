@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">ホーム</string>
-    <string name="console_menu_hosts">PC</string>
     <string name="console_section_favourites">お気に入り</string>
     <string name="console_section_continue">続きをプレイ</string>
     <string name="console_section_library">ライブラリ</string>

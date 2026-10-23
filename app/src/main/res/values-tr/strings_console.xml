@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">Ana sayfa</string>
-    <string name="console_menu_hosts">Bilgisayarlar</string>
     <string name="console_section_favourites">Favoriler</string>
     <string name="console_section_continue">Oynamaya devam et</string>
     <string name="console_section_library">Kitaplık</string>

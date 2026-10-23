@@ -2,7 +2,6 @@
 <resources>
     <!-- Home (the console screens): games to continue, the library across hosts and the hosts; the game detail. -->
     <string name="console_title">Home</string>
-    <string name="console_menu_hosts">PCs</string>
     <string name="console_section_favourites">Favourites</string>
     <string name="console_section_continue">Continue playing</string>
     <string name="console_section_library">Library</string>

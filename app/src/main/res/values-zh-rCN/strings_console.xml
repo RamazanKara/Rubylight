@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">主页</string>
-    <string name="console_menu_hosts">电脑</string>
     <string name="console_section_favourites">收藏</string>
     <string name="console_section_continue">继续游戏</string>
     <string name="console_section_library">游戏库</string>

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">Start</string>
-    <string name="console_menu_hosts">Komputery</string>
     <string name="console_section_favourites">Ulubione</string>
     <string name="console_section_continue">Kontynuuj grę</string>
     <string name="console_section_library">Biblioteka</string>

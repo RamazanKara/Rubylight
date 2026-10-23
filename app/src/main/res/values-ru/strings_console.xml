@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">Главная</string>
-    <string name="console_menu_hosts">ПК</string>
     <string name="console_section_favourites">Избранное</string>
     <string name="console_section_continue">Продолжить игру</string>
     <string name="console_section_library">Библиотека</string>

@@ -2,6 +2,7 @@ package com.limelight.console;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -33,6 +34,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
 
         /** A long press (or the D-pad centre held) on a game card. */
         void onGameMenu(HomeModel.GameCard card);
+
+        /** The Menu key on a game card: star or unstar it at once. */
+        void onGameToggleFavourite(HomeModel.GameCard card);
 
         void onHost(HomeModel.HostCard card);
     }
@@ -124,6 +128,59 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
     /** Position of the first card, or -1 when there is none. */
     int firstCard() {
         for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).type != HEADER) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Where focus starts: the game that runs now (in Continue playing, else anywhere), otherwise the first card.
+     * The Favourites row stays first on screen either way.
+     */
+    int initialFocus() {
+        int anywhere = -1;
+        for (int i = 0; i < rows.size(); i++) {
+            HomeModel.GameCard game = rows.get(i).game;
+            if (game != null && game.badge == HomeModel.Badge.RUNNING) {
+                if (rows.get(i).type == WIDE_GAME) {
+                    return i;
+                }
+                if (anywhere < 0) {
+                    anywhere = i;
+                }
+            }
+        }
+        return anywhere >= 0 ? anywhere : firstCard();
+    }
+
+    /** The stable id of the card at the position, or null for a header or out of range. */
+    String keyAt(int position) {
+        if (position < 0 || position >= rows.size() || rows.get(position).type == HEADER) {
+            return null;
+        }
+        return rows.get(position).key;
+    }
+
+    /** Position of the card with this stable id, or -1. */
+    int positionOfKey(String key) {
+        for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).type != HEADER && rows.get(i).key.equals(key)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** The nearest card at or before the position, else after it; -1 when there is none. */
+    int nearestCard(int position) {
+        for (int i = Math.min(position, rows.size() - 1); i >= 0; i--) {
+            if (rows.get(i).type != HEADER) {
+                return i;
+            }
+        }
+        for (int i = Math.max(position, 0); i < rows.size(); i++) {
             if (rows.get(i).type != HEADER) {
                 return i;
             }
@@ -234,6 +291,15 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 listener.onGameMenu(card);
                 return true;
             });
+            itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (keyCode != KeyEvent.KEYCODE_MENU) {
+                    return false;
+                }
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    listener.onGameToggleFavourite(card);
+                }
+                return true;
+            });
         }
 
         void bindHost(HomeModel.HostCard card) {
@@ -251,6 +317,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             itemView.setOnClickListener(v -> listener.onHost(card));
             itemView.setOnLongClickListener(null);
             itemView.setLongClickable(false);
+            itemView.setOnKeyListener(null);
         }
 
         private String hostLine(HomeModel.HostCard card) {

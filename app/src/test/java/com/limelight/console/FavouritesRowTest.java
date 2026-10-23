@@ -6,6 +6,8 @@ import static com.limelight.nativeapi.NativeApiFixtures.nativeHost;
 import static com.limelight.nativeapi.NativeApiFixtures.ok;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -117,7 +119,7 @@ public class FavouritesRowTest {
         }
     }
 
-    private static ConsoleHomeAdapter.Listener recorder(List<RecordedMenu> menus) {
+    private ConsoleHomeAdapter.Listener recorder(List<RecordedMenu> menus) {
         return new ConsoleHomeAdapter.Listener() {
             @Override public void onGame(HomeModel.GameCard card) {
             }
@@ -126,8 +128,111 @@ public class FavouritesRowTest {
                 menus.add(new RecordedMenu(card.title, card.favourite));
             }
 
+            @Override public void onGameToggleFavourite(HomeModel.GameCard card) {
+                toggles.add(card.title);
+            }
+
             @Override public void onHost(HomeModel.HostCard card) {
             }
         };
+    }
+
+    private final List<String> toggles = new ArrayList<>();
+
+    /** A view group hands key events to its own listener only while it has focus, so give the card its focus. */
+    private static void focus(FrameLayout parent, android.view.View card) {
+        parent.addView(card);
+        parent.measure(android.view.View.MeasureSpec.makeMeasureSpec(600, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(600, android.view.View.MeasureSpec.EXACTLY));
+        parent.layout(0, 0, 600, 600);
+        card.setFocusable(true);
+        assertTrue(card.requestFocus());
+    }
+
+    @Test
+    public void theMenuKeyOnAGameCardTogglesItsFavouriteOnceAndAHostCardIgnoresIt() throws Exception {
+        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
+        adapter.submit(model());
+        FrameLayout parent = new FrameLayout(context);
+        RecyclerView.ViewHolder card = adapter.onCreateViewHolder(parent, ConsoleHomeAdapter.COVER_GAME);
+        adapter.onBindViewHolder(card, 1);
+        focus(parent, card.itemView);
+
+        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_MENU));
+        assertTrue(toggles.isEmpty());
+        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
+                android.view.KeyEvent.KEYCODE_MENU));
+        assertEquals(java.util.Collections.singletonList("Zelda"), toggles);
+
+        RecyclerView.ViewHolder host = adapter.onCreateViewHolder(parent, ConsoleHomeAdapter.HOST);
+        adapter.onBindViewHolder(host, adapter.getItemCount() - 1);
+        parent.removeAllViews();
+        focus(parent, host.itemView);
+        host.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
+                android.view.KeyEvent.KEYCODE_MENU));
+        assertEquals(1, toggles.size());
+    }
+
+    @Test
+    public void initialFocusGoesToTheRunningGameWhileFavouritesStayFirst() throws Exception {
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.session("streaming", "you",
+                "{\"install_id\":\"t-portal\",\"app_id\":11,\"title\":\"Portal\"}", "[]")));
+        rig.transport.reply("tower", "library", ok(library("t1",
+                game("t-portal", 11, "Portal", "steam:400", true), game("t-zelda", 12, "Zelda", null, false))));
+        rig.repository.setFavourite("tower", "Tower", "t-zelda", 12, "Zelda", true);
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
+        adapter.submit(model());
+
+        // Favourites row first, then Continue playing with the running Portal.
+        assertEquals(ConsoleHomeAdapter.HEADER, adapter.viewTypeAt(0));
+        assertEquals(1, adapter.firstCard());
+        assertEquals("favourite:tower:t-zelda", adapter.keyAt(1));
+        int focus = adapter.initialFocus();
+        assertEquals(ConsoleHomeAdapter.WIDE_GAME, adapter.viewTypeAt(focus));
+        assertTrue(adapter.keyAt(focus).startsWith("continue:tower:11"));
+    }
+
+    @Test
+    public void aCardIsFoundAgainByItsStableIdAndAMissingOneHasANeighbour() throws Exception {
+        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
+        adapter.submit(model());
+        int library = adapter.positionOfKey("game:host:tower:12");
+        assertTrue(library > 1);
+        assertEquals("game:host:tower:12", adapter.keyAt(library));
+        assertEquals(-1, adapter.positionOfKey("favourite:tower:gone"));
+        assertNull(adapter.keyAt(0));
+        // Where a header or a removed card was, the nearest card takes over.
+        assertEquals(1, adapter.nearestCard(0));
+        assertNotNull(adapter.keyAt(adapter.nearestCard(2)));
+    }
+
+    @Test
+    public void aHostThatRenumbersItsAppsKeepsTheStarOnTheSameGame() throws Exception {
+        rig.repository.setFavourite("tower", "Tower", "t-zelda", 12, "Zelda", true);
+        assertEquals(java.util.Collections.singletonList("Zelda"), titles(model().favourites));
+
+        // The host now numbers Zelda 40, and another title took the id 12.
+        rig.transport.reply("tower", "library", ok(library("t2",
+                game("t-portal", 11, "Portal", "steam:400", false), game("t-zelda", 40, "Zelda", null, false),
+                game("t-other", 12, "Other", null, false))));
+        HomeModel renumbered = model();
+        assertEquals(java.util.Collections.singletonList("Zelda"), titles(renumbered.favourites));
+        assertEquals(40, renumbered.favourites.get(0).appId);
+        for (HomeModel.GameCard card : renumbered.library) {
+            assertEquals(card.title, "Zelda".equals(card.title), card.favourite);
+        }
+        assertTrue(rig.repository.isFavourite("tower", "t-zelda", 40));
+        assertFalse(rig.repository.isFavourite("tower", "t-other", 12));
+    }
+
+    private static List<String> titles(List<HomeModel.GameCard> cards) {
+        List<String> titles = new ArrayList<>();
+        for (HomeModel.GameCard card : cards) {
+            titles.add(card.title);
+        }
+        return titles;
     }
 }

@@ -45,6 +45,12 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         thread.setDaemon(true);
         return thread;
     });
+    /** Stars have their own thread, so a toggle does not wait behind a refresh from the hosts. */
+    private final ExecutorService starWorker = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "console-home-star");
+        thread.setDaemon(true);
+        return thread;
+    });
     private HostFeed feed;
     private ConsoleHomeAdapter adapter;
     private CoverLoaders covers;
@@ -121,6 +127,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             }
 
             @Override
+            public void onGameToggleFavourite(HomeModel.GameCard card) {
+                setFavourite(card, !card.favourite);
+            }
+
+            @Override
             public void onHost(HomeModel.HostCard card) {
                 openHost(card);
             }
@@ -191,6 +202,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         handler.removeCallbacksAndMessages(null);
         feed.unbind();
         worker.shutdownNow();
+        starWorker.shutdownNow();
         if (covers != null) {
             covers.release();
         }
@@ -244,12 +256,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         final boolean refresh = !signature.equals(refreshedSignature);
         refreshedSignature = signature;
         final int mine = ++generation;
-        final Set<String> online = new HashSet<>();
-        for (ComputerDetails host : hosts) {
-            if (host.state == ComputerDetails.State.ONLINE) {
-                online.add(host.uuid);
-            }
-        }
+        final Set<String> online = onlineOf(hosts);
         if (refresh) {
             loading.setVisibility(View.VISIBLE);
         }
@@ -269,12 +276,22 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         });
     }
 
+    private static Set<String> onlineOf(List<ComputerDetails> hosts) {
+        Set<String> online = new HashSet<>();
+        for (ComputerDetails host : hosts) {
+            if (host.state == ComputerDetails.State.ONLINE) {
+                online.add(host.uuid);
+            }
+        }
+        return online;
+    }
+
     private void show(int mine, HomeModel model, boolean noHosts, boolean done) {
         runOnUiThread(() -> {
             if (mine != generation || isFinishing() || isDestroyed()) {
                 return;
             }
-            adapter.submit(model);
+            submitKeepingFocus(model);
             if (done) {
                 loading.setVisibility(View.GONE);
             }
@@ -296,7 +313,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             findViewById(R.id.console_empty_hosts).requestFocus();
             return;
         }
-        int first = adapter.firstCard();
+        int first = adapter.initialFocus();
         if (first < 0 || list.isInTouchMode()) {
             return;
         }
@@ -320,21 +337,82 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 .putExtra(GameDetailActivity.EXTRA_HOST_NAME, card.hostName));
     }
 
+    /** Submits the model; when a card had focus, the same card (by its stable id) has it afterwards. */
+    private void submitKeepingFocus(HomeModel model) {
+        View focused = list.getFocusedChild();
+        int at = focused == null ? -1 : list.getChildAdapterPosition(focused);
+        String key = at < 0 ? null : adapter.keyAt(at);
+        adapter.submit(model);
+        if (key == null) {
+            return;
+        }
+        // A card that left (an unstarred favourite) hands focus to its neighbour instead of dropping it.
+        int target = adapter.positionOfKey(key);
+        if (target < 0) {
+            target = adapter.nearestCard(at);
+        }
+        if (target < 0) {
+            return;
+        }
+        final int position = target;
+        list.post(() -> {
+            RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(position);
+            if (holder != null) {
+                if (!holder.itemView.hasFocus()) {
+                    holder.itemView.requestFocus();
+                }
+            } else {
+                grid.scrollToPosition(position);
+                list.post(() -> {
+                    RecyclerView.ViewHolder later = list.findViewHolderForAdapterPosition(position);
+                    if (later != null) {
+                        later.itemView.requestFocus();
+                    }
+                });
+            }
+        });
+    }
+
     /** The long-press menu of a game card: star or unstar it. */
     private void askFavourite(HomeModel.GameCard card) {
-        final ConsoleRepository repo = repository;
-        if (repo == null) {
+        if (repository == null) {
             return;
         }
         boolean remove = card.favourite;
         UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
                 .setTitle(card.title)
                 .setItems(new CharSequence[]{getString(remove ? R.string.console_favourite_remove
-                        : R.string.console_favourite_add)}, (dialog, which) -> worker.execute(() -> {
-                    repo.setFavourite(card.hostUuid, card.hostName, card.appId, card.title, !remove);
-                    runOnUiThread(this::scheduleReload);
-                }))
+                        : R.string.console_favourite_add)}, (dialog, which) -> setFavourite(card, !remove))
                 .setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    /**
+     * Stars or unstars on the star thread and paints the saved result right away, from the stored library;
+     * the normal reload follows and takes over.
+     */
+    private void setFavourite(HomeModel.GameCard card, boolean starred) {
+        final ConsoleRepository repo = repository;
+        if (repo == null) {
+            return;
+        }
+        final List<ComputerDetails> hosts = feed.hosts();
+        final Set<String> online = onlineOf(hosts);
+        final String key = card.source != null ? card.source.stableId() : "";
+        starWorker.execute(() -> {
+            try {
+                repo.setFavourite(card.hostUuid, card.hostName, key, card.appId, card.title, starred);
+                HomeModel model = HomeModel.of(repo.cached(hosts), online);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    submitKeepingFocus(model);
+                    scheduleReload();
+                });
+            } catch (RuntimeException e) {
+                com.limelight.LimeLog.warning("Home could not update a favourite: " + e);
+            }
+        });
     }
 
     /** The screen a game opens; the debug demo returns its own. */

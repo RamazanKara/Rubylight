@@ -10,10 +10,11 @@ const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
 const { default: SettingControl } = await server.ssrLoadModule('/src/components/settings/SettingControl.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
 const presets = await server.ssrLoadModule('/src/lib/stream-presets.ts');
-const { computeChanges, currentValues, describeDefault, differsFromDefault, normalise, toText } =
+const { computeChanges, currentValues, describeDefault, differsFromDefault, isSet, normalise, toText } =
   await server.ssrLoadModule('/src/components/settings/values.ts');
 const settings = new Map(schema.settings.map((setting) => [setting.key, setting]));
 const table = JSON.parse(readFileSync(new URL('../core/src/stream_presets.json', import.meta.url), 'utf8'));
+const explicit = new Set(presets.covered);
 
 /** The settings as Settings.svelte shows them under the preset the stored and edited values name. */
 function shown(stored = {}, edits = {}) {
@@ -97,19 +98,67 @@ test('a value set by hand is kept and shows as differing from the preset', () =>
 test('saving a preset sends its name only, and a hand-set value stays in the file', () => {
   const stored = {};
   const edits = { stream_preset: 'reference' };
-  assert.deepEqual(computeChanges(shown(stored, edits).byKey, edits, stored), { stream_preset: 'reference' });
+  assert.deepEqual(computeChanges(shown(stored, edits).byKey, edits, stored, explicit), { stream_preset: 'reference' });
   // Choosing Automatic frame sizes under Reference differs from the preset, so it is saved.
   const both = { stream_preset: 'reference', amd_max_frame_size: 'auto' };
-  assert.deepEqual(computeChanges(shown(stored, both).byKey, both, stored), both);
-  // Choosing the preset's own value is not a change.
+  assert.deepEqual(computeChanges(shown(stored, both).byKey, both, stored, explicit), both);
+  // A covered setting the user edits is stored even when it equals the preset's value, so
+  // choosing another preset later cannot take it over.
   const same = { stream_preset: 'reference', amd_max_frame_size: '0' };
-  assert.deepEqual(computeChanges(shown(stored, same).byKey, same, stored), { stream_preset: 'reference' });
+  assert.deepEqual(computeChanges(shown(stored, same).byKey, same, stored, explicit), same);
+  // Unless it is already stored with that value.
+  const kept = { stream_preset: 'reference', amd_max_frame_size: '0' };
+  assert.deepEqual(computeChanges(shown(kept, same).byKey, same, kept, explicit), {});
   // The rate control is not covered: choosing a mode is an ordinary change.
   const rate = { stream_preset: 'reference', amd_rc: 'cbr' };
-  assert.deepEqual(computeChanges(shown(stored, rate).byKey, rate, stored), rate);
+  assert.deepEqual(computeChanges(shown(stored, rate).byKey, rate, stored, explicit), rate);
   assert.equal(presets.covered.includes('amd_rc'), false);
   // Clearing the preset removes the name; the hand-set value is untouched.
   const saved = { stream_preset: 'reference', amd_max_frame_size: '4' };
   const cleared = { stream_preset: null };
-  assert.deepEqual(computeChanges(shown(saved, cleared).byKey, cleared, saved), { stream_preset: null });
+  assert.deepEqual(computeChanges(shown(saved, cleared).byKey, cleared, saved, explicit), { stream_preset: null });
+});
+
+test('a stored value that equals the preset still counts as set by hand', () => {
+  const stored = { stream_preset: 'reference', amd_max_frame_size: '0' };
+  const { byKey } = shown(stored);
+  const frame = byKey.get('amd_max_frame_size');
+  assert.equal(differsFromDefault(frame, {}, stored), false);
+  assert.equal(isSet(frame, {}, stored), true);
+  assert.equal(isSet(byKey.get('amd_quality'), {}, stored), false);
+  // An edit that resets it, or one that has not been saved yet, is judged by what the host will have.
+  assert.equal(isSet(frame, { amd_max_frame_size: null }, stored), false);
+  assert.equal(isSet(frame, { amd_max_frame_size: '0' }, { stream_preset: 'reference' }), true);
+});
+
+test('the console reads preset names as the host does, quotes included', () => {
+  for (const [text, id] of [
+    ['reference', 'reference'],
+    ['"Reference"', 'reference'],
+    ['  "Reference"  ', 'reference'],
+    ['""reference""', 'reference'],
+    ['"reference', 'reference'],
+    ['" lowest latency "', 'lowest_latency'],
+    ['Lowest-Latency', 'lowest_latency'],
+    ['"BALANCED"', 'balanced'],
+    ['fastest', 'balanced'],
+    ['"fastest"', 'balanced'],
+    ['', 'balanced'],
+  ]) {
+    assert.equal(presets.presetId(text), id, text);
+  }
+  assert.equal(presets.presetId(undefined), 'balanced');
+  assert.equal(presets.presetId(3), 'balanced');
+  for (const text of ['"Reference"', '""reference""', '" lowest latency "', 'balanced']) {
+    assert.equal(presets.presetNotice(text), null, text);
+  }
+});
+
+test('a stored name the host cannot read is shown as an error, not as Balanced', () => {
+  for (const [value, shownAs] of [['fastest', 'fastest'], ['"fastest"', '"fastest"'], [3, '3'], [true, 'true']]) {
+    const notice = presets.presetNotice(value);
+    assert.match(notice, new RegExp(`^Saved stream preset ${shownAs} is not one of Lowest latency, Balanced, Reference quality`), String(value));
+    assert.match(notice, /uses Balanced/);
+  }
+  for (const value of [undefined, null, '', '   ', '""']) assert.equal(presets.presetNotice(value), null, String(value));
 });

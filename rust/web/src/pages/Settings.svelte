@@ -14,6 +14,7 @@
     computeChanges,
     currentValues,
     differsFromDefault,
+    isSet,
     effective,
     has,
     normalise,
@@ -27,7 +28,7 @@
   import { guardNavigation, match, navigate } from '../lib/router.svelte';
   import { refreshMetadata } from '../lib/session.svelte';
   import { schema, settingGroups, settingsGroup } from '../lib/settings-schema';
-  import { SETTING as PRESET, covered, presetById, presetId, withPreset } from '../lib/stream-presets';
+  import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
   import type { Category, CategoryId, Setting } from '../lib/settings-types';
 
   const categories = settingGroups;
@@ -86,12 +87,13 @@
   const described = $derived(withPreset(schema.settings, preset.id));
   const defaults: ReadonlyMap<string, Setting> = $derived(new Map(described.map((setting) => [setting.key, setting])));
   const values = $derived(currentValues(described, edits, config));
-  const changes = $derived(stored ? computeChanges(defaults, edits, stored) : {});
-  /** Settings the preset covers that are set by hand to something else. */
+  const changes = $derived(stored ? computeChanges(defaults, edits, stored, new Set(covered)) : {});
+  const presetProblem = $derived(presetNotice(has(edits, PRESET) ? edits[PRESET] : config[PRESET]));
+  /** Settings the preset covers that have a value of their own, even one equal to the preset's. */
   const handSet = $derived(
     preset.id === 'balanced'
       ? []
-      : described.filter((setting) => covered.includes(setting.key) && differsFromDefault(setting, edits, config)),
+      : described.filter((setting) => covered.includes(setting.key) && isSet(setting, edits, config)),
   );
   const pending = $derived(new Set([...Object.keys(changes), ...Object.keys(invalid)]));
   const invalidCount = $derived(Object.keys(invalid).length);
@@ -347,6 +349,9 @@
     oninvalid={(text) => setInvalid(setting.key, text)}
   />
   {#if setting.key === PRESET}
+    {#if presetProblem}
+      <p class="preset-note preset-error" role="alert" data-preset-error><strong>Not a preset.</strong> {presetProblem}</p>
+    {/if}
     <p class="preset-note" data-preset-note>
       {preset.description}
       {#if handSet.length > 0}
@@ -585,6 +590,7 @@
     font-size: var(--text-sm);
   }
   .preset-note strong { color: var(--ink); }
+  .preset-error, .preset-error strong { color: var(--danger); }
   .custom-config { border-top: 1px solid var(--line); }
   .custom-config > summary { padding: 16px 24px; }
   .frame {

@@ -1,9 +1,10 @@
 // The streaming presets: Lowest latency, Balanced and Reference quality. The
-// table is the host's own (rust/core/src/stream_presets.json), so the console
-// and the host cannot disagree about what a preset sets.
+// table is the host's own (rust/core/src/stream_presets.json). build.ps1 builds
+// a copy of rust/web, so the console keeps a byte-identical copy next to this
+// file, and a host test fails if they differ.
 import type { ConfigValue } from './api';
 import type { Setting } from './settings-types';
-import table from '../../../core/src/stream_presets.json';
+import table from './stream_presets.json';
 
 export interface Preset {
   id: string;
@@ -18,11 +19,30 @@ export const defaultPreset: string = table.default;
 /** The settings a preset may set. */
 export const covered: readonly string[] = table.covered.map((entry) => entry.key);
 
+/** The name as the host's `find` reads it: trimmed, quotes dropped, lower case, `-` and space as `_`. */
+function nameOf(value: ConfigValue | undefined): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/^"+|"+$/g, '').trim().toLowerCase().replace(/[- ]/g, '_');
+}
+
 /** The id a stored or edited value means, as the host reads it; Balanced when unset or unknown. */
 export function presetId(value: ConfigValue | undefined): string {
-  if (typeof value !== 'string') return defaultPreset;
-  const id = value.trim().replace(/^"(.*)"$/, '$1').trim().toLowerCase().replace(/[- ]/g, '_');
+  const id = nameOf(value);
   return presets.some((preset) => preset.id === id) ? id : defaultPreset;
+}
+
+/**
+ * What to tell the user when a stored or edited value is set but is not a
+ * preset: the host loads it anyway and uses Balanced, so the console must not
+ * quietly show Balanced as if that were what was saved. null when it is unset
+ * or readable.
+ */
+export function presetNotice(value: ConfigValue | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && nameOf(value) === '') return null;
+  if (presets.some((preset) => preset.id === nameOf(value))) return null;
+  const shown = typeof value === 'string' ? value.trim() : JSON.stringify(value);
+  return `Saved stream preset ${shown} is not one of ${presets.map((preset) => preset.label).join(', ')}. The host uses ${presetById(defaultPreset).label} until you choose one.`;
 }
 
 export const presetById = (id: string): Preset =>

@@ -363,7 +363,12 @@ export function sameValue(a: unknown, b: unknown): boolean {
  * to remove. An edit equal to what the host already uses is not a change,
  * so a stored alias is rewritten only when the edit means something else.
  */
-export function computeChanges(settings: ReadonlyMap<string, Setting>, edits: Edits, stored: Config): Config {
+export function computeChanges(
+  settings: ReadonlyMap<string, Setting>,
+  edits: Edits,
+  stored: Config,
+  explicit: ReadonlySet<string> = new Set(),
+): Config {
   const changes: Config = {};
   for (const [key, edit] of Object.entries(edits)) {
     if (NOT_SETTINGS.has(key)) continue;
@@ -374,7 +379,13 @@ export function computeChanges(settings: ReadonlyMap<string, Setting>, edits: Ed
       if (isStored) changes[key] = null;
       continue;
     }
-    const current = isStored ? patchValue(setting, stored[key]) : setting ? patchValue(setting, setting.default) : null;
+    // A key in `explicit` is stored even when it equals the default shown, so
+    // a later change of that default (another preset) cannot take it over.
+    const current = isStored
+      ? patchValue(setting, stored[key])
+      : setting && !explicit.has(key)
+        ? patchValue(setting, setting.default)
+        : null;
     if (!sameValue(meaning(setting, next), meaning(setting, current))) changes[key] = next;
   }
   return changes;
@@ -388,6 +399,11 @@ export function differsFromDefault(setting: Setting, edits: Edits, stored: Confi
   const value = has(edits, setting.key) ? edits[setting.key] : stored[setting.key];
   const next = patchValue(setting, value);
   return next !== null && !sameValue(meaning(setting, next), meaning(setting, patchValue(setting, setting.default)));
+}
+
+/** Whether the key has a value of its own once the edits are saved, whatever that value is. */
+export function isSet(setting: Setting, edits: Edits, stored: Config): boolean {
+  return patchValue(setting, has(edits, setting.key) ? edits[setting.key] : stored[setting.key]) !== null;
 }
 
 /** The stored values after the host accepted `changes`. */

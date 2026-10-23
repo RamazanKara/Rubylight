@@ -2,7 +2,11 @@ package com.limelight.nvstream;
 
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class AdaptiveBitrateControllerTest {
     @Test
@@ -366,5 +370,229 @@ public class AdaptiveBitrateControllerTest {
         for (long now = 1000; now <= 60000; now += 1000) {
             assertEquals("no repeated request at " + now, 0, controller.sample(now, true, false, 0, 2, 0, 0));
         }
+    }
+
+    // What the network does at a given moment and rate: {loss percent, jitter ms, queue ms}.
+    private interface Network {
+        float[] at(long nowMs, int kbps);
+    }
+
+    private static final float[] CALM = {0, 1, 0};
+    private static final Network CALM_NETWORK = (now, kbps) -> CALM;
+    private static final Network LOSS = (now, kbps) -> new float[] {10, 1, 0};
+
+    // Drives a controller once a second like Game does, applying every request at once like the host.
+    private static final class Run {
+        final AdaptiveBitrateController controller;
+        int kbps;
+        long now;
+        int lowest;
+
+        Run(AdaptiveBitrateController controller, int startKbps) {
+            this.controller = controller;
+            kbps = lowest = startKbps;
+        }
+
+        void seconds(int count, Network network) {
+            for (int i = 0; i < count; i++) {
+                now += 1000;
+                float[] n = network.at(now, kbps);
+                int target = controller.sample(now, true, false, n[0], 2, n[1], n[2]);
+                if (target != 0) {
+                    controller.applied(target, target, now);
+                    kbps = target;
+                    lowest = Math.min(lowest, kbps);
+                }
+            }
+        }
+
+        // Seconds until the rate first reaches the goal, or -1.
+        int secondsUntil(int goalKbps, int limit, Network network) {
+            for (int i = 1; i <= limit; i++) {
+                seconds(1, network);
+                if (kbps >= goalKbps) return i;
+            }
+            return -1;
+        }
+    }
+
+    @Test
+    public void jitterThatTheBitrateDoesNotCauseStopsCuttingAboveTheFloor() {
+        Run run = new Run(new AdaptiveBitrateController(50000, 50000, 120, 0), 50000);
+        run.seconds(30, CALM_NETWORK);
+        run.seconds(600, (now, kbps) -> new float[] {0, 8, 0});
+        assertTrue("held at " + run.kbps, run.kbps >= 50000 * 80 / 100 * 80 / 100);
+        int held = run.kbps;
+        run.seconds(300, (now, kbps) -> new float[] {0, 8, 0});
+        assertEquals(held, run.kbps);
+    }
+
+    @Test
+    public void queueingTheBitrateDoesNotCauseStopsCuttingToo() {
+        Run run = new Run(new AdaptiveBitrateController(50000, 50000, 60, 0), 50000);
+        run.seconds(600, (now, kbps) -> new float[] {0, 1, 25});
+        assertTrue("held at " + run.kbps, run.kbps >= 50000 * 80 / 100 * 80 / 100);
+    }
+
+    @Test
+    public void jitterThatFollowsTheBitrateKeepsCuttingUntilItIsGone() {
+        Run run = new Run(new AdaptiveBitrateController(50000, 50000, 120, 0), 50000);
+        // Jitter grows with the square of the rate: 12 ms at 50 Mbps, under the 6.25 ms limit below 36 Mbps.
+        Network network = (now, kbps) -> new float[] {0, 12f * kbps / 50000 * kbps / 50000, 0};
+        run.seconds(300, network);
+        assertTrue("cut to " + run.kbps, run.kbps < 36000);
+        assertTrue(run.kbps > 20000);
+    }
+
+    @Test
+    public void lossTheBitrateCausesStillCutsAfterJitterHeldTheRate() {
+        Run run = new Run(new AdaptiveBitrateController(50000, 50000, 120, 0), 50000);
+        run.seconds(30, CALM_NETWORK);
+        run.seconds(120, (now, kbps) -> new float[] {0, 8, 0});
+        assertTrue(run.kbps > 20000);
+        // The link is now too small for the stream: loss above 20 Mbps, on top of the jitter.
+        run.seconds(300, (now, kbps) -> new float[] {kbps > 20000 ? 6 : 0, 8, 0});
+        assertTrue("cut to " + run.kbps, run.kbps <= 20000);
+        assertTrue(run.kbps > AdaptiveBitrateController.DEFAULT_FLOOR_KBPS);
+    }
+
+    @Test
+    public void sustainedLossReachesTheFloorEvenWithJitterAndQueueing() {
+        Run run = new Run(new AdaptiveBitrateController(50000, 50000, 120, 0), 50000);
+        run.seconds(600, (now, kbps) -> new float[] {10, 8, 30});
+        assertEquals(AdaptiveBitrateController.DEFAULT_FLOOR_KBPS, run.kbps);
+    }
+
+    @Test
+    public void jitterHoldEndsWhenTheSignalIsHealthyAndRecoveryStepsBack() {
+        Run run = new Run(new AdaptiveBitrateController(50000, 50000, 120, 0), 50000);
+        run.seconds(30, CALM_NETWORK);
+        run.seconds(120, (now, kbps) -> new float[] {0, 8, 0});
+        assertTrue(run.kbps < 50000);
+        int seconds = run.secondsUntil(50000, 60, CALM_NETWORK);
+        assertTrue("took " + seconds + " s", seconds > 0);
+        // A new bout of jitter is judged afresh: it holds after two cuts again, not at the floor.
+        run.seconds(600, (now, kbps) -> new float[] {0, 8, 0});
+        assertTrue("held at " + run.kbps, run.kbps >= 50000 * 60 / 100);
+    }
+
+    @Test
+    public void recoveryFromTheFloorToTheStableRateTakesUnderHalfAMinute() {
+        Run run = new Run(new AdaptiveBitrateController(50000, 50000, 60, 0), 50000);
+        run.seconds(20, CALM_NETWORK);
+        run.seconds(120, LOSS);
+        assertEquals(AdaptiveBitrateController.DEFAULT_FLOOR_KBPS, run.kbps);
+        int seconds = run.secondsUntil(50000, 120, CALM_NETWORK);
+        assertTrue("took " + seconds + " s", seconds > 0 && seconds < 35);
+    }
+
+    @Test
+    public void probingAboveTheStableRateStaysSlow() {
+        Run run = new Run(new AdaptiveBitrateController(80000, 50000, 60, 0), 50000);
+        run.seconds(20, CALM_NETWORK);
+        run.seconds(30, LOSS);
+        run.secondsUntil(50000, 120, CALM_NETWORK);
+        int atStable = run.kbps;
+        assertEquals(50000, atStable);
+        run.seconds(14, CALM_NETWORK);
+        assertEquals(atStable, run.kbps);
+        run.seconds(60, CALM_NETWORK);
+        assertTrue(run.kbps > atStable && run.kbps <= atStable * 130 / 100);
+    }
+
+    @Test
+    public void troubleBeforeAnyStableRateRecoversSlowlyAsBefore() {
+        Run run = new Run(new AdaptiveBitrateController(10000, 10000, 60, 0), 10000);
+        run.seconds(30, LOSS);
+        assertEquals(AdaptiveBitrateController.DEFAULT_FLOOR_KBPS, run.kbps);
+        run.seconds(30, CALM_NETWORK);
+        // Only the old 5% (at least 250 kbps) every 15 seconds.
+        assertTrue("recovered to " + run.kbps, run.kbps <= AdaptiveBitrateController.DEFAULT_FLOOR_KBPS + 2 * 250);
+    }
+
+    @Test
+    public void failedStepBackReturnsToTheWorkingRateAndLowersTheStableRate() {
+        Run run = new Run(new AdaptiveBitrateController(40000, 40000, 60, 0), 40000);
+        run.seconds(20, CALM_NETWORK);
+        run.seconds(18, LOSS);
+        int working = run.kbps;
+        assertTrue("cut to " + working, working < 15000);
+        // The link now carries only a little more than the working rate.
+        int capacity = working * 130 / 100;
+        Network network = (now, kbps) -> new float[] {kbps > capacity ? 6 : 0, 1, 0};
+        List<Integer> rates = new ArrayList<>();
+        int lowestAfterSettling = Integer.MAX_VALUE;
+        for (int i = 0; i < 400; i++) {
+            int before = run.kbps;
+            run.seconds(1, network);
+            if (run.kbps != before) rates.add(run.kbps);
+            if (i >= 100) lowestAfterSettling = Math.min(lowestAfterSettling, run.kbps);
+        }
+        // The first step back half-way to the stable rate failed and is undone by going back to the
+        // working rate, not by a 20% cut; the next try is a smaller step.
+        assertTrue("rates " + rates, rates.get(0) > capacity && rates.get(1) == working);
+        assertTrue("rates " + rates, rates.get(2) > working && rates.get(2) - working < rates.get(0) - working);
+        // It then finds the link's rate instead of staying at the working one; an occasional probe
+        // above the link is cut by 20% only and walked back up.
+        assertTrue("lowest " + lowestAfterSettling, lowestAfterSettling >= working * 105 / 100);
+    }
+
+    @Test
+    public void floorScalesWithResolutionFrameRateAndCodec() {
+        AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
+        int hevc1080p60 = AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 60, hevc);
+        assertTrue("1080p60 HEVC " + hevc1080p60, hevc1080p60 >= 8000 && hevc1080p60 <= 10000);
+        assertEquals(2000, AdaptiveBitrateController.builtInFloorKbps(1280, 720, 30, hevc));
+        assertTrue(AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 120, hevc) > hevc1080p60);
+        assertTrue(AdaptiveBitrateController.builtInFloorKbps(3840, 2160, 60, hevc) > hevc1080p60);
+        assertTrue(AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 60, AdaptiveBitrateController.Codec.H264) > hevc1080p60);
+        assertTrue(AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 60, AdaptiveBitrateController.Codec.AV1) <= hevc1080p60);
+        assertEquals(AdaptiveBitrateController.DEFAULT_FLOOR_KBPS, AdaptiveBitrateController.builtInFloorKbps(0, 0, 60, hevc));
+    }
+
+    private static int lowestUnderLoss(AdaptiveBitrateController controller, int startKbps) {
+        Run run = new Run(controller, startKbps);
+        run.seconds(600, LOSS);
+        return run.lowest;
+    }
+
+    @Test
+    public void sustainedLossStopsAtTheResolutionAwareFloor() {
+        AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
+        assertEquals(AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 60, hevc),
+                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 60, 0, 0, 0, 1920, 1080, hevc), 60000));
+        assertEquals(2000,
+                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 30, 0, 0, 0, 1280, 720, hevc), 60000));
+    }
+
+    @Test
+    public void builtInFloorStaysUnderHalfTheStartingRateSoCongestionCanStillCut() {
+        AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
+        assertEquals(10000,
+                lowestUnderLoss(new AdaptiveBitrateController(20000, 20000, 120, 0, 0, 0, 3840, 2160, hevc), 20000));
+        assertEquals(1000,
+                lowestUnderLoss(new AdaptiveBitrateController(1000, 1000, 60, 0, 0, 0, 3840, 2160, hevc), 1000));
+    }
+
+    @Test
+    public void minimumOverridesTheResolutionAwareFloor() {
+        AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
+        assertEquals(3000,
+                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 60, 0, 3000, 0, 1920, 1080, hevc), 60000));
+        assertEquals(30000,
+                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 60, 0, 30000, 0, 1920, 1080, hevc), 60000));
+    }
+
+    @Test
+    public void floorFollowsAResolutionAndFrameRateChange() {
+        AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
+        AdaptiveBitrateController down = new AdaptiveBitrateController(80000, 80000, 60, 0, 0, 0, 3840, 2160, hevc);
+        down.setStreamSize(1280, 720);
+        down.setFrameRate(30);
+        assertEquals(2000, lowestUnderLoss(down, 80000));
+        AdaptiveBitrateController up = new AdaptiveBitrateController(80000, 80000, 30, 0, 0, 0, 1280, 720, hevc);
+        up.setStreamSize(1920, 1080);
+        up.setFrameRate(60);
+        assertEquals(AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 60, hevc), lowestUnderLoss(up, 80000));
     }
 }

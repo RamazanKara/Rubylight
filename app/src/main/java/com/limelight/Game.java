@@ -2187,6 +2187,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LimeLog.info("Stream now " + width + "x" + height + " (was " + prefConfig.width + "x" + prefConfig.height + ")");
         prefConfig.width = width;
         prefConfig.height = height;
+        if (adaptiveBitrate != null) adaptiveBitrate.setStreamSize(width, height);
         configureStreamWindow();
         if (prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF) {
             if (prefConfig.useTextureView) {
@@ -3930,13 +3931,23 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 pyroWaveBitrate = new PyroWaveBitrateController(0, 0, streamFps,
                         SystemClock.uptimeMillis());
             } else {
-                adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis());
+                adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis(), 0, 0,
+                        prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
             }
             // The preference includes FEC/audio, while runtime changes use encoder Kbps.
             // Read the actual encoder budget, then claim ownership at that same bitrate.
             applyAdaptiveBitrate(0);
             bitrateHandler.postDelayed(updateBitrate, 1000);
         }
+    }
+
+    // The codec sets how many bits a picture of this size needs, which the built-in floor follows.
+    private AdaptiveBitrateController.Codec adaptiveBitrateCodec() {
+        if (decoderRenderer == null) return null;
+        int format = decoderRenderer.getActiveVideoFormat();
+        if ((format & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) return AdaptiveBitrateController.Codec.AV1;
+        if ((format & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) return AdaptiveBitrateController.Codec.HEVC;
+        return AdaptiveBitrateController.Codec.H264;
     }
 
     private void applyAdaptiveBitrate(int target) {
@@ -3964,7 +3975,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             if (details != null) {
                                 int ceiling = Math.max(details.initialEncoderBitrateKbps, applied);
                                 if (controller != null) adaptiveBitrate = new AdaptiveBitrateController(ceiling, applied, streamFps, now,
-                                        prefConfig.autoBitrateMinKbps, prefConfig.autoBitrateMaxKbps);
+                                        prefConfig.autoBitrateMinKbps, prefConfig.autoBitrateMaxKbps,
+                                        prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
                                 if (pyroController != null) pyroWaveBitrate = new PyroWaveBitrateController(ceiling, applied, streamFps, now);
                             } else {
                                 if (controller != null) controller.applied(target, applied, now);

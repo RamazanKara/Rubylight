@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0-alpha.3 installer is named `rubylight-setup-3.0.0-alpha.3.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **A device keeps the Windows display scale you pick, not only the resolution** ([#36](https://github.com/RamazanKara/Rubylight/issues/36)). With **Remember the resolution I pick** on, setting 200% (or any scale) on the stream's virtual display in Windows now comes back with the next stream, applied after the display is at the kept resolution. A **Virtual display scale** set in the host settings still wins, and nothing is kept then. A scale Windows refuses is logged as a warning and the stream goes on. The refresh rate is not kept: the stream's rate (and VRR) always decides it.
+
 ## New in 3.0.0-alpha.3
 
 - **Per-frame timing record.** Set `BUTTERPOLLO_TIMING_RECORD=<folder>` on the host and each video stream writes `host-<stream>.csv` with every frame's capture, convert, encode, packetize and send times on one clock ([docs/timing-record.md](../docs/timing-record.md)). While it is unset nothing runs and nothing is written. The host timing report (control message 0x5536) now also carries capture and convert times and PyroWave's stamps, and stays within what Nightjar 0.8.0 accepts. `rust/release/timing_report.py` joins the host record with a client's frame log into a per-stage table. With the next Nightjar, the client's latency log gains the host columns and a clock offset from 0x5537.

@@ -92,6 +92,8 @@ export interface Draft {
   remember_display_mode: boolean;
   /** The resolution kept that way, WIDTHxHEIGHT; shown, not edited. */
   remembered_resolution: string;
+  /** The Windows scale kept the same way, in percent; shown, not edited. */
+  remembered_scale: string;
   background_stream: boolean;
   virtual_display_mode: string;
   virtual_display_layout: string;
@@ -156,6 +158,7 @@ export function toDraft(client: Client): Draft {
     always_use_virtual_display: flag(client.always_use_virtual_display) === true,
     remember_display_mode: flag(client.remember_display_mode) === true,
     remembered_resolution: text(client.remembered_resolution),
+    remembered_scale: typeof client.remembered_scale === 'number' ? String(client.remembered_scale) : '',
     background_stream: flag(client.background_stream) === true,
     virtual_display_mode: choice(client.virtual_display_mode, VIRTUAL_DISPLAY_MODES),
     virtual_display_layout: choice(client.virtual_display_layout, VIRTUAL_DISPLAY_LAYOUTS),
@@ -186,8 +189,8 @@ function serialise(draft: Draft): Changes {
     display_mode: draft.display_mode.trim() || null,
     always_use_virtual_display: draft.always_use_virtual_display,
     remember_display_mode: draft.remember_display_mode,
-    // Turning it off forgets the kept resolution.
-    ...(draft.remember_display_mode ? {} : { remembered_resolution: null }),
+    // Turning it off forgets the kept resolution and scale.
+    ...(draft.remember_display_mode ? {} : { remembered_resolution: null, remembered_scale: null }),
     background_stream: draft.background_stream,
     virtual_display_mode: draft.virtual_display_mode || null,
     virtual_display_layout: draft.virtual_display_layout || null,

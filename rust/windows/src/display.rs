@@ -23,7 +23,9 @@ mod topology;
 mod virtual_display;
 
 pub use hdr::set_hdr;
-pub use modes::{dpi_scale, highest_refresh, mode, set_dpi_scale, set_mode, virtual_scale};
+pub use modes::{
+    dpi_scale, highest_refresh, mode, output_scale, set_dpi_scale, set_mode, virtual_scale,
+};
 pub use recovery::{
     Guard, Retained, Snapshot, apply_layout, baseline_nodes, leased_displays, restore_positions,
 };

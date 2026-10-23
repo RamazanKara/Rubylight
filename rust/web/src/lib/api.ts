@@ -283,6 +283,7 @@ export interface Client {
   always_use_virtual_display?: boolean | string | null;
   remember_display_mode?: boolean | string | null;
   remembered_resolution?: string | null;
+  remembered_scale?: number | string | null;
   background_stream?: boolean | string | null;
   virtual_display_mode?: string | null;
   virtual_display_layout?: string | null;

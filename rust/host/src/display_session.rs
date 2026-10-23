@@ -117,6 +117,9 @@ pub(crate) const LEARNED_OVER: &str = "virtual_display_layout_learned_over";
 /// The resolution a device with `remember_display_mode` keeps for its virtual
 /// display, `WIDTHxHEIGHT`, from the last stream it was changed in Windows.
 pub(crate) const REMEMBERED_RESOLUTION: &str = "remembered_resolution";
+/// The Windows scale, in percent, a device with `remember_display_mode` keeps
+/// for its virtual display, from the last stream it was changed in Windows.
+pub(crate) const REMEMBERED_SCALE: &str = "remembered_scale";
 
 /// The virtual display layout without the device's own: the app's, then the host's.
 fn inherited_layout<'a>(
@@ -318,6 +321,7 @@ impl Drop for StreamPreparation {
             if self.display.active.fetch_sub(1, Ordering::AcqRel) == 1 {
                 prepared.keep_chosen_layout();
                 prepared.keep_chosen_resolution();
+                prepared.keep_chosen_scale();
             }
         }
         if let Some(retained) = &self.display.retained {
@@ -529,12 +533,18 @@ pub struct Prepared {
     /// (`remember_display_mode`): a stream on its own virtual display without
     /// a display mode of its own.
     resolution_owner: Option<String>,
+    /// The scale the display showed once the stream set up, when the device keeps the scale
+    /// the user picks (`remember_display_mode` and no configured scale).
+    scale_baseline: Option<u32>,
     /// A topology fixture keeps lifecycle tests independent of the real desktop.
     #[cfg(test)]
     layout_snapshot: Option<Vec<(String, bool)>>,
     /// The resolution the stream set and the one shown, for lifecycle tests.
     #[cfg(test)]
     size_snapshot: Option<SizeChange>,
+    /// The scale the display shows, for lifecycle tests.
+    #[cfg(test)]
+    scale_snapshot: Option<u32>,
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
@@ -662,6 +672,49 @@ fn scale_display(
     set: impl FnOnce(&str, i64, u32, u32) -> Result<()>,
 ) -> Result<()> {
     set(output, configured, width, height)
+}
+
+/// The scale a device kept from Windows, in percent, when it keeps one (`remember`).
+fn kept_scale(
+    remember: bool,
+    extra: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Option<u32> {
+    if !remember {
+        return None;
+    }
+    extra
+        .get(REMEMBERED_SCALE)
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|percent| u32::try_from(percent).ok())
+        .filter(|percent| *percent > 0)
+}
+
+/// Puts the scale on a stream's virtual display: the configured one when there is one, else
+/// the one the device kept from Windows (`remember_display_mode`). A configured scale always
+/// wins. The kept one is applied after the display's mode is set, so it sits on the mode the
+/// device keeps, and Windows refusing it is a warning: the stream goes on at the scale Windows
+/// shows. Returns the scale the display is in force at, for recovery to put back.
+fn apply_virtual_scale(
+    output: &str,
+    configured: i64,
+    remembered: Option<u32>,
+    (width, height): (u32, u32),
+    set: impl FnOnce(&str, i64, u32, u32) -> Result<()>,
+) -> Result<i64> {
+    match (configured, remembered) {
+        (0, Some(percent)) => match set(output, i64::from(percent), width, height) {
+            Ok(()) => Ok(i64::from(percent)),
+            Err(error) => {
+                tracing::warn!(
+                    scale = percent,
+                    error = %format!("{error:#}"),
+                    "Windows did not take the display scale this device kept; the display keeps the scale Windows shows"
+                );
+                Ok(0)
+            }
+        },
+        _ => scale_display(output, configured, (width, height), set).map(|()| configured),
+    }
 }
 
 impl Prepared {
@@ -1038,16 +1091,28 @@ impl Prepared {
         // display layout.
         let virtual_layout = virtual_mode || retained.is_some();
         // A remote monitor's retained display too: the lease never sets the scale.
-        let scale = virtual_display_scale(
-            virtual_layout,
-            config.integer("dd_virtual_display_scale", 0),
-        );
-        scale_display(
+        let configured_scale = config.integer("dd_virtual_display_scale", 0);
+        let scale = virtual_display_scale(virtual_layout, configured_scale);
+        // Without a configured scale, the one the device kept from Windows.
+        let remembered = kept_scale(remember, &launch.client.extra);
+        let scale = apply_virtual_scale(
             &output,
             scale,
+            remembered,
             (width, height),
             butterpollo_windows::display::virtual_scale,
         )?;
+        // What Windows shows now is the baseline a scale picked during the stream is compared
+        // with. A configured scale is the user's setting, so nothing is learned then.
+        let scale_baseline = if remember && display.is_some() && configured_scale == 0 {
+            butterpollo_windows::display::output_scale(&output)
+                .inspect_err(|error| {
+                    tracing::warn!(error = %format!("{error:#}"), "the display scale could not be read; a scale picked in Windows is not kept")
+                })
+                .ok()
+        } else {
+            None
+        };
         // The client's choice for this stream comes before the device, app
         // and host layouts.
         let selection = if virtual_layout {
@@ -1222,10 +1287,13 @@ impl Prepared {
                 inherited_layout: virtual_layout
                     .then(|| inherited_layout(config, app.as_ref()).to_owned()),
                 resolution_owner: (remember && owns_display).then(|| launch.client.uuid.clone()),
+                scale_baseline,
                 #[cfg(test)]
                 layout_snapshot: None,
                 #[cfg(test)]
                 size_snapshot: None,
+                #[cfg(test)]
+                scale_snapshot: None,
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
@@ -1339,6 +1407,50 @@ impl Prepared {
             .insert(REMEMBERED_RESOLUTION.into(), serde_json::json!(chosen));
         if let Err(error) = paired.save(&h.paired_path) {
             tracing::warn!(%error, "the device's display resolution could not be saved");
+        }
+    }
+    /// The scale the stream's display shows.
+    fn scale_now(&self) -> Result<u32> {
+        #[cfg(test)]
+        if let Some(snapshot) = self.scale_snapshot {
+            return Ok(snapshot);
+        }
+        butterpollo_windows::display::output_scale(&self.output)
+    }
+    /// Keep the scale the user chose for the stream's display in Windows for the
+    /// device when its last stream disconnects, and put it back on recovery from
+    /// now on. Only a scale Windows shows is kept, so one it refused never is.
+    /// The refresh is not kept: the stream's rate always wins over a kept one.
+    fn keep_chosen_scale(&mut self) {
+        let (Some(uuid), Some(baseline)) = (self.resolution_owner.clone(), self.scale_baseline)
+        else {
+            return;
+        };
+        let Some(h) = self.host.upgrade() else {
+            return;
+        };
+        let chosen = match self.scale_now() {
+            Ok(chosen) => chosen,
+            Err(error) => {
+                tracing::debug!(%error, "the display scale at the end of the stream could not be read");
+                return;
+            }
+        };
+        if chosen == baseline || chosen == 0 {
+            return;
+        }
+        self.scale_baseline = Some(chosen);
+        self.recovery_scale = i64::from(chosen);
+        let mut paired = h.paired.write().unwrap();
+        let Some(client) = paired.clients.iter_mut().find(|c| c.uuid == uuid) else {
+            return;
+        };
+        tracing::info!(client = %client.name, scale = chosen, "keeping the display scale chosen during the stream for this device");
+        client
+            .extra
+            .insert(REMEMBERED_SCALE.into(), serde_json::json!(chosen));
+        if let Err(error) = paired.save(&h.paired_path) {
+            tracing::warn!(%error, "the device's display scale could not be saved");
         }
     }
 }
@@ -1671,8 +1783,10 @@ pub(crate) mod tests {
             layout_owner: None,
             inherited_layout: Some("extended".into()),
             resolution_owner: None,
+            scale_baseline: None,
             layout_snapshot: None,
             size_snapshot: None,
+            scale_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
@@ -1778,6 +1892,133 @@ pub(crate) mod tests {
             assert_eq!(kept(), expected);
             let dimensions = display._state.lock().unwrap().recovery_dimensions;
             assert_eq!(dimensions, if expected.is_some() { qhd } else { uhd });
+        }
+    }
+
+    #[test]
+    fn a_scale_chosen_during_the_stream_is_kept_for_the_device_at_disconnect() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let client = fixture.client(u32::MAX);
+        let config = Config::parse("dd_config_revert_delay=0").unwrap();
+        *fixture.host.config.write().unwrap() = config.clone();
+        let kept = || {
+            let paired = fixture.host.paired.read().unwrap();
+            let extra = &paired.clients[0].extra;
+            assert_eq!(
+                extra.get("display_mode"),
+                None,
+                "the refresh is never pinned"
+            );
+            extra.get(REMEMBERED_SCALE).cloned()
+        };
+        for (owner, baseline, shown, expected) in [
+            // Not opted in: nothing is stored.
+            (false, Some(100), 200, None),
+            // Untouched.
+            (true, Some(100), 100, None),
+            // No baseline: a configured scale, or one Windows did not let us read.
+            (true, None, 200, None),
+            // Issue #36: 200% picked in Windows.
+            (true, Some(100), 200, Some(serde_json::json!(200))),
+        ] {
+            let mut prepared = test_prepared(&fixture.host);
+            prepared.resolution_owner = owner.then(|| client.uuid.clone());
+            prepared.scale_baseline = baseline;
+            prepared.scale_snapshot = Some(shown);
+            let limiter =
+                limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen)
+                    .unwrap();
+            let stream = Ready::prepare((prepared, limiter)).unwrap();
+            let display = stream.display.clone();
+            drop(stream);
+            assert_eq!(kept(), expected);
+            let recovery = display._state.lock().unwrap().recovery_scale;
+            assert_eq!(recovery, if expected.is_some() { 200 } else { 0 });
+        }
+    }
+
+    #[test]
+    fn a_scale_windows_did_not_apply_is_not_kept() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let client = fixture.client(u32::MAX);
+        let config = Config::parse("dd_config_revert_delay=0").unwrap();
+        *fixture.host.config.write().unwrap() = config.clone();
+        fixture.host.paired.write().unwrap().clients[0]
+            .extra
+            .insert(REMEMBERED_SCALE.into(), serde_json::json!(150));
+        // Windows refused the kept 150% and the display stayed at 100%, which is
+        // the baseline the stream read after the refusal.
+        let mut applied = Vec::new();
+        let in_force = apply_virtual_scale(
+            "out",
+            0,
+            Some(150),
+            (2560, 1440),
+            |output, percent, width, height| {
+                applied.push((output.to_owned(), percent, width, height));
+                anyhow::bail!("requested DPI scale is outside this display's range")
+            },
+        )
+        .unwrap();
+        assert_eq!(applied, [("out".to_owned(), 150, 2560, 1440)]);
+        assert_eq!(in_force, 0, "recovery does not retry a refused scale");
+        let mut prepared = test_prepared(&fixture.host);
+        prepared.resolution_owner = Some(client.uuid.clone());
+        prepared.scale_baseline = Some(100);
+        prepared.scale_snapshot = Some(100);
+        let limiter =
+            limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
+        drop(Ready::prepare((prepared, limiter)).unwrap());
+        assert_eq!(
+            fixture.host.paired.read().unwrap().clients[0]
+                .extra
+                .get(REMEMBERED_SCALE),
+            Some(&serde_json::json!(150)),
+            "what Windows shows is not saved over the kept scale"
+        );
+    }
+
+    #[test]
+    fn a_kept_scale_is_applied_unless_a_scale_is_configured() {
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert(REMEMBERED_SCALE.to_owned(), serde_json::json!(200));
+        let applied = |configured: i64, remembered: Option<u32>| {
+            let mut calls = Vec::new();
+            let in_force = apply_virtual_scale(
+                r"\\.\DISPLAY9",
+                configured,
+                remembered,
+                (2560, 1440),
+                |output, percent, width, height| {
+                    calls.push((output.to_owned(), percent, width, height));
+                    Ok(())
+                },
+            )
+            .unwrap();
+            (calls, in_force)
+        };
+        let call = |percent| vec![(r"\\.\DISPLAY9".to_owned(), percent, 2560, 1440)];
+        // The kept scale is applied at the display's mode, which is the kept resolution.
+        assert_eq!(applied(0, kept_scale(true, &extra)), (call(200), 200));
+        // A configured scale, a percentage or recommended, wins and nothing is learned over it.
+        assert_eq!(applied(150, kept_scale(true, &extra)), (call(150), 150));
+        assert_eq!(applied(-1, kept_scale(true, &extra)), (call(-1), -1));
+        // Nothing kept: the unconfigured scale 0 leaves Windows' own.
+        assert_eq!(
+            applied(0, kept_scale(true, &Default::default())),
+            (call(0), 0)
+        );
+        // The option off: a scale left over is not applied.
+        assert_eq!(kept_scale(false, &extra), None);
+        assert_eq!(applied(0, kept_scale(false, &extra)), (call(0), 0));
+        // Anything but a positive percentage is not a scale.
+        for bad in [
+            serde_json::json!("200"),
+            serde_json::json!(0),
+            serde_json::json!(-5),
+        ] {
+            extra.insert(REMEMBERED_SCALE.to_owned(), bad);
+            assert_eq!(kept_scale(true, &extra), None);
         }
     }
 
@@ -2300,8 +2541,10 @@ pub(crate) mod tests {
             layout_owner: None,
             inherited_layout: None,
             resolution_owner: None,
+            scale_baseline: None,
             layout_snapshot: None,
             size_snapshot: None,
+            scale_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),

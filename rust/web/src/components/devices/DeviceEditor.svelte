@@ -265,8 +265,8 @@
       bind:checked={draft.always_use_virtual_display}
     />
     <Toggle
-      label="Remember the resolution I pick"
-      hint={`When you change the resolution of this device's own virtual display in Windows during a stream, such as 1440p under a 4K stream, the next streams start at it. The stream keeps the resolution the device asks for, and the refresh rate and VRR follow the stream as usual. A display mode above comes first.${draft.remember_display_mode && draft.remembered_resolution ? ` Kept now: ${draft.remembered_resolution}.` : ''}`}
+      label="Remember the resolution and scale I pick"
+      hint={`When you change the resolution or the scale of this device's own virtual display in Windows during a stream, such as 1440p at 200% under a 4K stream, the next streams start at them. The stream keeps the resolution the device asks for, and the refresh rate and VRR follow the stream as usual. A display mode above comes first, and a Virtual display scale set in the host settings comes before the kept scale.${draft.remember_display_mode && draft.remembered_resolution ? ` Kept now: ${draft.remembered_resolution}${draft.remembered_scale ? ` at ${draft.remembered_scale}%` : ''}.` : draft.remember_display_mode && draft.remembered_scale ? ` Kept now: ${draft.remembered_scale}% scale.` : ''}`}
       bind:checked={draft.remember_display_mode}
     />
   </section>

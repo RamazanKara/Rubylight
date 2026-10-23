@@ -66,6 +66,15 @@ pub fn set_dpi_scale(monitor: &Monitor, percent: u32) -> Result<()> {
     // SAFETY: DpiSet has the expected C layout and its header carries the matching type and size.
     unsafe { check(DisplayConfigSetDeviceInfo(&set.header)) }
 }
+/// The Windows scale, in percent, a display shows now.
+pub fn output_scale(output: &str) -> Result<u32> {
+    let monitors = monitors()?;
+    let monitor = monitors
+        .iter()
+        .find(|m| m.display_name == output)
+        .context("display is unavailable for reading its scale")?;
+    dpi_scale(monitor)
+}
 pub fn virtual_scale(output: &str, configured: i64, width: u32, height: u32) -> Result<()> {
     if configured == 0 {
         return Ok(());

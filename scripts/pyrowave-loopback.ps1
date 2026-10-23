@@ -5,6 +5,7 @@
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <parent nightjar.exe> -ClientB <candidate nightjar.exe>
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe>            # baseline stage split only
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <a.exe> -ClientB <b.exe> -Codec Hevc -Bitrates 0
+#   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe> -ClientB <nightjar.exe> -DecoderA Cpu -DecoderB Gpu -Width 2560 -Height 1440
 #
 # Needs release builds (the MSYS2 UCRT64 runtime DLLs are put on PATH). Takes
 # C:\src\butterpollo-release\GPU-LOCK (waits while another agent holds it) and refuses to start
@@ -16,6 +17,12 @@ param(
     [int[]]$Bitrates = @(133000, 300000),   # 0 is the client's default for the resolution
     [ValidateSet('PyroWave', 'Hevc', 'H264', 'Av1')][string]$Codec = 'PyroWave',
     [int]$Seconds = 60,
+    [int]$Width = 1920,
+    [int]$Height = 1080,
+    [int]$Fps = 60,
+    [ValidateSet('Cpu', 'Gpu')][string]$DecoderA = 'Cpu',   # the pyrowave_decoder setting of the A and B legs
+    [ValidateSet('Cpu', 'Gpu')][string]$DecoderB = 'Cpu',
+    [int]$Port = 48123,
     [string]$Order,
     [string]$Out = ("C:\src\nj-pwd-out\" + (Get-Date -Format 'yyyyMMdd-HHmmss')),
     [string]$HostExe = 'C:\Program Files\Rubylight\butterpollo.exe',
@@ -32,7 +39,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $Lock = 'C:\src\butterpollo-release\GPU-LOCK'
 $Pin = '1234'
-$Port = 48123
 if (-not $Order) { $Order = if ($ClientB) { 'ABBA' } else { 'A' } }
 if ($Order -match 'B' -and -not $ClientB) { throw 'Order names B but -ClientB is missing' }
 New-Item -ItemType Directory -Force $Out | Out-Null
@@ -80,7 +86,7 @@ $hostProcess = $null; $anim = $null
 try {
     # --- Host profile, kept between runs so the pairing stays -------------------------------
     New-Item -ItemType Directory -Force "$HostProfile\record" | Out-Null
-    @('port = 48123', 'encoder = amf', 'capture = wgc',
+    @("port = $Port", 'encoder = amf', 'capture = wgc',
       'virtual_display_layout = extended', 'virtual_display_mode = disabled',
       'dd_configuration_option = disabled', 'dd_resolution_option = disabled',
       'dd_refresh_rate_option = disabled', 'dd_hdr_option = disabled', 'dd_always_restore_from_golden = false',
@@ -110,8 +116,8 @@ try {
     # --- Client side ------------------------------------------------------------------------
     New-Item -ItemType Directory -Force $ClientProfile | Out-Null
     $env:PATH = 'C:\msys64\ucrt64\bin;' + $env:PATH
-    function Set-ClientSettings([int]$Kbps) {
-        (@{ width = 1920; height = 1080; fps = 60; bitrate_kbps = $Kbps; adaptive_bitrate = $false; codec = $Codec;
+    function Set-ClientSettings([int]$Kbps, [string]$Decoder = 'Cpu') {
+        (@{ width = $Width; height = $Height; fps = $Fps; bitrate_kbps = $Kbps; pyrowave_decoder = $Decoder; adaptive_bitrate = $false; codec = $Codec;
             window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false } | ConvertTo-Json -Compress) |
             Set-Content "$ClientProfile\settings.json"
     }
@@ -179,9 +185,9 @@ try {
         $n++; $variant = [string]$leg[0]; $kbps = [int]$leg[1]; $group = if ($kbps -eq 0) { 'default' } else { [string][math]::Round($kbps / 1000) }
         $name = '{0:00}-{1}-{2}' -f $n, $variant, $group
         $exe = if ($variant -eq 'B') { $ClientB } else { $ClientA }
-        Set-ClientSettings $kbps
+        Set-ClientSettings $kbps $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA })
         $hostLines = (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
-        Write-Host "leg $name ($Seconds s at $kbps kbps)"
+        Write-Host "leg $name ($Seconds s at $kbps kbps, ${Width}x${Height}@$Fps, decoder $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }))"
         $p = Start-Client $exe $name $Seconds $EarlyDecode.IsPresent
         Move-ClientWindow $p
         $ended = $p.WaitForExit(($Seconds + 120) * 1000)

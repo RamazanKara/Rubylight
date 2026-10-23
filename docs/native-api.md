@@ -35,12 +35,12 @@ GET /api/native/v1/capabilities
 {
   "api_version": 1,
   "host": { "name": "GAMING-PC", "version": "3.0.0-alpha.2", "unique_id": "5E0F4B1C-..." },
-  "features": ["library", "session", "session.close_game", "radeon.read", "radeon.write"],
+  "features": ["library", "session", "session.close_game", "session.launcher", "radeon.read", "radeon.write", "radeon.profile"],
   "permissions": { "list": true, "view": true, "launch": true, "host_control": false }
 }
 ```
 
-- `features` says what the host implements and has turned on, the same for every client. `radeon.read` and `radeon.write` appear only in builds that ship A5. Clients ignore feature strings they don't know.
+- `features` says what the host implements and has turned on, the same for every client. `radeon.read`, `radeon.write` and `radeon.profile` appear only where the host started its Radeon worker. Clients ignore feature strings they don't know.
 - `permissions` belongs to the calling device. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
 
 ## Endpoints
@@ -109,7 +109,7 @@ The entries are the host's configured apps (`h.apps`), in console order. The syn
 | `game_id` | hosts | `<source>:<store id>` from `launcher-source`/`launcher-id` (or `steam-id`), `null` for manual apps | Merges one title across paired hosts (A6 "library across paired hosts"), and keys favourites and profiles later (B5) |
 | `app_id` | nothing (it is CRC32 of the name unless pinned) | `App::id()` | Only for `/appasset` and old GameStream calls |
 
-- `store.source` is a string, not a closed enum, so stores added later (B5: Microsoft Store, Xbox) don't break v1 clients. Today it is one of `steam`, `epic`, `battlenet`, `ea`, `ubisoft`, `gog` (`library::Source::key`), and `name` is `Source::name()`.
+- `store.source` is a string, not a closed enum, so stores added later don't break v1 clients. Today it is one of `steam`, `epic`, `battlenet`, `ea`, `ubisoft`, `gog`, `microsoft` (`library::Source::key`; `microsoft` covers Microsoft Store and Xbox PC games), and `name` is `Source::name()`.
 - `installed`: `true` or `false` from the host's last launcher scan (`butterpollo_windows::library::discover`), `null` for manual apps or when no scan has run. The host caches the scan and refreshes it in the background at most every 5 minutes and after console imports. A library request never waits for a scan.
 - `running`: the app is the host's current game (`remote_game`), whoever owns it.
 - `artwork.cover` is a path on the same HTTPS origin and is fetched with the same certificate. `artwork.version` changes when the image file changes (a hash of its path, size and mtime), so clients can cache covers offline. v1 has covers only.
@@ -186,6 +186,16 @@ The host writes `session.json` in the profile directory while a session is not `
 When the grace period of a suspended session runs out, the host behaves as for `end`. A disconnect never ends the game (decision 6). `close_game` also works with no session, when `game_running` is true, for a caller with Launch and host control. That closes a game left behind by End session. Stock Moonlight's `/cancel` keeps its current behaviour (it stops every stream and closes the game with Launch permission alone), because decision 2 freezes it.
 
 Clients poll `/session` about every 2 s while a home or detail screen is visible, and not at all while streaming. The overlay knows the stream is up.
+
+**Launcher prompt (`session.launcher`).** When a launched game does not show up and a Steam, Epic Games, EA app or Ubisoft Connect window is up instead, the owner's Session carries a `launcher` note:
+
+```json
+"launcher": { "launcher": "steam", "kind": "update", "window_title": "Updating Dota 2", "since_unix_ms": 1792303212000 }
+```
+
+`kind` is `update` (an update, install or download is in the way), `sign_in` (a sign in, a verification code or Steam Guard) or `prompt` (a launcher window in front for more than 20 s with a title that names nothing; a client shows `window_title`). An unknown kind reads as `prompt`. The host reads the visible windows every 2 s while the game has not shown up (`rust/host/src/launcher_watch.rs`, classifier in `rust/core/src/launcher_prompt.rs`). A note needs two looks in a row, goes when two looks in a row find no launcher window, and goes at once when the game's process or window appears. It is a note, not a state: the session state does not change, and the host never clicks or types into a launcher. Only the owner sees it, and an app that starts no program of its own (a desktop tile) is not watched. A windowed game that the host cannot tell from the launcher can leave a note up until the launcher window closes. The fixture is `rust/core/native-api/tests/fixtures/session_launcher.json`.
+
+**Radeon profile (`radeon.profile`).** An app with `radeon-profile` set (see [Radeon settings per game](configuration.md#radeon-settings-per-game)) puts `radeon_profile` in the owner's Session: `profile` (`competitive`, `smoothness`, `quality` or `custom`), `state` (`applying`, `applied` or `failed`), `settings` (the ids written, which go back when the session ends) and, when something was left out or failed, `message`. A failed profile does not stop the launch: the game runs without it, the host log names the setting with `ERROR`, and the session shows `failed` with the reason. The profile goes through the same journaled path as `POST /radeon/settings` and is restored by the same session-end hooks.
 
 ## Radeon state and writes
 

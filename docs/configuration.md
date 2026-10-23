@@ -411,7 +411,20 @@ If controls do nothing, check the paired device's **Controllers** permission und
 
 The console shows the selector under **Streaming** and, below it, which covered settings have a value of their own ("Custom"), including one equal to the preset's. Settings the preset covers show its values as their defaults, and Reset returns to them. A name the host does not know still loads, and the host uses Balanced; the console shows the stored name with an error instead of showing Balanced.
 
-A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). The most specific name wins (app, then device, then host), and it fills only the three settings that none of the three layers set: an explicit value of the host, the device or the app is never replaced by a preset. The host refuses to save a device or app preset name it does not know, or one that is not text. The device editor has no control for this yet.
+A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). The most specific name wins (app, then device, then host), and it fills only the three settings that none of the three layers set: an explicit value of the host, the device or the app is never replaced by a preset. The host refuses to save a device or app preset name it does not know, or one that is not text. The device editor has a **Stream preset** control for the device's own name; the app editor sets it through the app's overrides.
+
+## Radeon settings per game
+
+An app can ask for Radeon driver settings while it runs. In **Games & apps**, the **Radeon** panel of the app editor picks a profile:
+
+| Profile | Writes |
+|---|---|
+| Competitive | Radeon Anti-Lag on |
+| Smoothness | Frame Rate Target Control on, at the stream's frame rate |
+| Quality | Anisotropic filtering on and the driver's "enhance application settings" anti-aliasing |
+| Custom | Up to 24 settings you list (ids as in `GET /api/native/v1/radeon`; a feature's `.enabled` toggle goes first) |
+
+The table is `rust/core/src/radeon_profiles.json`. The app stores the choice as two top-level keys of the app, `radeon-profile` and, for Custom only, `radeon-settings` (an object of setting ids and values, such as `{ "anti_lag.enabled": true }`). The host refuses to save an unknown profile, `radeon-settings` with any profile but Custom (or Custom with none), an id that is not lower-case words joined by dots, a value that is not a boolean, a whole number or a short text, or more than 24 custom settings. At launch the host applies the settings through the Radeon control path of the Session API (validated, journaled, read back, undone on failure), and restores them with the other Radeon changes when the session ends or the host restarts after a crash. A setting the GPU or driver does not offer is reported in the session's `radeon_profile.message` and in the host log; the game still starts.
 
 ## Settings for one app or device
 

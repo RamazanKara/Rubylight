@@ -5,9 +5,7 @@ decoder in `stream/pyrowave.rs`) or `Gpu` (the SDK, this document). Neither fall
 with `Gpu` and a failing probe, PyroWave is not offered and the settings screen says why (the probe's
 error text, "Switch the PyroWave decoder to CPU ..."); with `Cpu` the DLL is never loaded.
 The default is `Gpu` on Windows (every leg of the ABBA below keeps, on this PC and on the 780M
-laptop) and `Cpu` elsewhere. A settings file that says `Cpu` keeps it. Linux has the GPU decoder
-too (brief G3, [below](#linux-brief-g3)); there the user opts in, because the library ships beside
-the executable and is built separately.
+laptop, and on the NUC under Linux, [below](#linux-brief-g3)). A settings file that says `Cpu` keeps it.
 
 ## Route A: the SDK decodes, D3D11 presents
 
@@ -286,11 +284,20 @@ decode:
   as `pyrowave-sdk-build-info.txt`, `licenses-pyrowave/` and `system-libraries.txt` (what `ldd`
   finds). Like the Windows script it refuses a library that is not the pinned one, or whose SHA-256
   is not the recorded one, before the long build.
-- **Default.** The Linux default stays `Cpu`: the library is built and packaged separately, and a
-  source build without it would otherwise lose PyroWave.
-- **Caveat.** `decoder_decode_cpu_buffer_async_complete` waits on its fence with no timeout, so a
-  Vulkan device that hangs blocks the decoder thread. The Windows path's 2 s deadline
-  (`GPU_DECODE_TIMEOUT`) has no counterpart here.
+- **Default.** `Gpu`, as on Windows. `package-linux.sh -s` puts the library in the package. A
+  source build without it, or a box that fails the probe, behaves as a Windows one without the DLL:
+  PyroWave is not offered in the settings, with the reason and the hint to switch the decoder to
+  CPU, and asking for it anyway (`NIGHTJAR_*` autostream) is the exit-2 refusal above. No other
+  codec is affected, so a GPU default does not make a library-less build unusable; only PyroWave
+  needs the setting changed there.
+- **Deadline.** `pyrowave_decoder_decode_cpu_buffer_complete` waits on its fence with no timeout,
+  so it runs on a wait thread (`pyrowave_sdk/watchdog.rs`) and `decode` gives up after the same
+  `GPU_DECODE_TIMEOUT` (2 s) as Windows, with `Failure::Device("PyroWave GPU decode failed: the
+  PyroWave decode did not finish within 2s: the Vulkan device may be hung or lost")`. A stalled
+  decoder is never called, destroyed (that would idle the hung device and block) or reused again,
+  and the plane set of that decode is leaked, because the stuck call may still copy into it. The
+  deadline logic is unit-tested everywhere (`watchdog::tests`); an ignored GPU test forces a miss
+  with a zero deadline.
 
 ### Linux measurements
 

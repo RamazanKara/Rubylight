@@ -64,8 +64,9 @@ library with `scripts/build-pyrowave-sdk.sh` (git, cmake 3.27 or newer, ninja, a
 it needs the Rubylight host's checkout for its patches, see the script's header) and set `NIGHTJAR_PYROWAVE_SDK` to that folder
 to run from `cargo`, or use `package-linux.sh -s <folder>`, which checks the library against
 `pyrowave-sdk.pin` and packs a tar.gz with it, its `build-info.txt`, its licences and the list of
-system libraries the executable needs. Without the library the client says so when the GPU
-decoder is asked for; it never switches to the CPU one by itself.
+system libraries the executable needs. `Gpu` is the default; without the library (a source build)
+PyroWave is not offered and the settings say why, until the decoder is switched to CPU. The client
+never switches to the CPU decoder by itself.
 
 ## Design
 

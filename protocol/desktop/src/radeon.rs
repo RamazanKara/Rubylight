@@ -130,8 +130,8 @@ impl Row {
             (Kind::Toggle, Value::Bool(on)) => Some(Value::Bool(!on)),
             (Kind::Integer, Value::Integer(n)) => {
                 let range = self.range.as_ref()?;
-                let moved = n.saturating_add(direction.signum().saturating_mul(self.unit_step()));
-                Some(Value::Integer(snap(range, moved)))
+                let moved = n.checked_add(direction.signum().checked_mul(self.unit_step()?)?)?;
+                Some(Value::Integer(snap(range, moved)?))
             }
             (Kind::Choice, Value::Choice(c)) => {
                 if self.options.is_empty() {
@@ -147,13 +147,13 @@ impl Row {
     }
 
     /// How far one press of + or - moves an integer: the host's step, but never more than
-    /// 20 presses across the whole range.
-    pub fn unit_step(&self) -> i64 {
-        let Some(range) = &self.range else { return 1 };
+    /// 20 presses across the whole range. None when the range does not fit the arithmetic.
+    pub fn unit_step(&self) -> Option<i64> {
+        let Some(range) = &self.range else { return Some(1) };
         let step = range.step.max(1);
-        let span = (range.max - range.min).max(0);
+        let span = range.max.checked_sub(range.min)?.max(0);
         let coarse = (span / 20 / step) * step;
-        coarse.max(step)
+        Some(coarse.max(step))
     }
 }
 
@@ -210,11 +210,15 @@ pub fn with_unit(value: &str, unit: Option<&str>) -> String {
     }
 }
 
-/// The value moved into the range and onto its step grid.
-fn snap(range: &Range, value: i64) -> i64 {
+/// The value moved into the range and onto its step grid (halves round up). None when the
+/// range or value is so large that the arithmetic overflows.
+fn snap(range: &Range, value: i64) -> Option<i64> {
     let step = range.step.max(1);
-    let snapped = range.min + ((value - range.min) as f64 / step as f64).round() as i64 * step;
-    snapped.clamp(range.min, range.max.max(range.min))
+    let offset = value.checked_sub(range.min)?;
+    let (whole, rest) = (offset.div_euclid(step), offset.rem_euclid(step));
+    let cells = if rest >= step - rest { whole.checked_add(1)? } else { whole };
+    let snapped = range.min.checked_add(cells.checked_mul(step)?)?;
+    Some(snapped.clamp(range.min, range.max.max(range.min)))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -314,7 +318,10 @@ fn row(gpu: i32, setting: &Setting, editable: bool) -> Row {
 fn controllable(setting: &Setting) -> bool {
     match (setting.kind, setting.value.as_ref()) {
         (_, None) | (Kind::Unknown, _) => false,
-        (Kind::Integer, Some(Value::Integer(_))) => setting.range.is_some_and(|r| r.max > r.min),
+        (Kind::Integer, Some(Value::Integer(_))) => {
+            // The span must fit i64, or the stepper's arithmetic could overflow.
+            setting.range.is_some_and(|r| r.max > r.min && r.max.checked_sub(r.min).is_some())
+        }
         (Kind::Choice, Some(Value::Choice(_))) => !setting.options.is_empty(),
         (Kind::Toggle, Some(Value::Bool(_))) => true,
         _ => false,
@@ -537,7 +544,7 @@ mod tests {
         let panel = Panel::of(&fixture(true, true));
         let fps = panel.find("chill.max_fps").unwrap();
         // 30..300 has 270 values: 20 presses cross it, so one press is 13.
-        assert_eq!(fps.unit_step(), 13);
+        assert_eq!(fps.unit_step(), Some(13));
         assert_eq!(fps.step(1), Some(Value::Integer(157)));
         assert_eq!(fps.step(-1), Some(Value::Integer(131)));
         let mut low = fps.clone();
@@ -553,6 +560,26 @@ mod tests {
         assert_eq!(last.value_text(), "Always on");
         // A row with no value has no step.
         assert_eq!(panel.find("rsr.enabled").unwrap().step(1), None);
+    }
+
+    #[test]
+    fn a_range_that_overflows_is_not_editable_and_never_panics() {
+        let mut data = fixture(true, true);
+        data.gpus[0].settings[1].range = Some(Range { min: i64::MIN, max: i64::MAX, step: 1 });
+        let panel = Panel::of(&data);
+        let row = panel.find("chill.max_fps").unwrap();
+        assert_eq!(row.mode, Mode::Value, "a span that does not fit i64 is shown, not edited");
+        assert_eq!(row.unit_step(), None);
+        assert_eq!(row.step(1), None);
+        // Arithmetic at the edges of a range that is allowed gives a value or None, never a wrap.
+        let mut edge = Panel::of(&fixture(true, true)).find("chill.max_fps").unwrap().clone();
+        edge.range = Some(Range { min: i64::MAX - 100, max: i64::MAX, step: 7 });
+        edge.value = Some(Value::Integer(i64::MAX));
+        assert_eq!(edge.step(1), None, "one step past i64::MAX overflows");
+        assert_eq!(edge.step(-1), Some(Value::Integer(i64::MAX - 100 + 13 * 7)));
+        edge.value = Some(Value::Integer(i64::MIN));
+        edge.range = Some(Range { min: 0, max: 100, step: 1 });
+        assert_eq!(edge.step(-1), None);
     }
 
     #[test]

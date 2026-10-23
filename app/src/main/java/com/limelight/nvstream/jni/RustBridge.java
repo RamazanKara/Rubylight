@@ -37,14 +37,7 @@ final class RustBridge {
      * Why this stream cannot use the Rust engine, or null when it can. The library is checked
      * separately (isAvailable), so this stays testable without it.
      */
-    static String fallbackReason(String appVersion, int serverCodecModeSupport, int supportedVideoFormats,
-                                 boolean inputOnly, boolean remoteMonitor) {
-        if ((supportedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-            return "PyroWave is not supported yet";
-        }
-        if (remoteMonitor) {
-            return "remote monitor sessions are not supported yet";
-        }
+    static String fallbackReason(String appVersion, int serverCodecModeSupport, boolean inputOnly) {
         if (!appVersionAtLeast(appVersion, MIN_APP_VERSION)) {
             return "the host is older than GFE 3.22 (app version " + appVersion + ")";
         }
@@ -83,7 +76,9 @@ final class RustBridge {
                                       int videoCapabilities, int colorSpace, int colorRange,
                                       int hostFeatures, boolean inputOnly, boolean enableMic,
                                       boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps,
-                                      int networkGracePeriodMs, boolean packed444, int packed444Modes);
+                                      int networkGracePeriodMs, boolean packed444, int packed444Modes,
+                                      boolean remoteMonitor, boolean unbatchedInput,
+                                      boolean networkPriority);
     static native void stopConnection();
     static native void interruptConnection();
     static native void sendMouseMove(short deltaX, short deltaY);

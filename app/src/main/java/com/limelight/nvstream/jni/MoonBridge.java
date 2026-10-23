@@ -430,6 +430,7 @@ public class MoonBridge {
         packed444Requested = requested;
     }
 
+
     public static int startConnection(String address, String appVersion, String gfeVersion,
                                       String rtspSessionUrl, int serverCodecModeSupport,
                                       int width, int height, int fps,
@@ -446,25 +447,30 @@ public class MoonBridge {
         boolean rust = false;
         int packedModes = 0;
         if (packed444Requested && !rustEngineRequested) {
+            StreamEngine.record(false, false, null);
             bridgeClDisplayMessage("Experimental full chroma requires the New streaming engine setting.");
             return -1;
         }
+        String reason = null;
         if (rustEngineRequested) {
-            String reason = RustBridge.fallbackReason(appVersion, serverCodecModeSupport, supportedVideoFormats,
-                    inputOnly, remoteMonitor);
+            reason = RustBridge.fallbackReason(appVersion, serverCodecModeSupport, inputOnly);
             if (reason == null && !RustBridge.isAvailable()) {
                 reason = "libnightjar_core.so did not load";
             }
-            if (reason == null) {
-                rust = true;
-                LimeLog.info("Streaming engine: Rust (nightjar-core)");
-            } else {
-                if (packed444Requested) {
-                    bridgeClDisplayMessage("Experimental full chroma is unavailable: " + reason);
-                    return -1;
-                }
-                LimeLog.warning("Streaming engine: C, the Rust engine was requested but " + reason);
-            }
+            rust = reason == null;
+        }
+        StreamEngine.record(rustEngineRequested, rust, reason);
+        if (rustEngineRequested && !rust && packed444Requested) {
+            LimeLog.warning("Streaming engine: " + StreamEngine.summary());
+            bridgeClDisplayMessage("Experimental full chroma is unavailable: " + reason);
+            return -1;
+        }
+        // Warnings stay in the redacted problem report whatever its level filter; a fallback
+        // must be visible there, not only in logcat.
+        if (rustEngineRequested && !rust) {
+            LimeLog.warning("Streaming engine: " + StreamEngine.summary());
+        } else {
+            LimeLog.info("Streaming engine: " + StreamEngine.summary());
         }
         rustStream = rust;
         if (rust) {
@@ -480,7 +486,8 @@ public class MoonBridge {
                     width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,
                     supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
-                    pyrowaveLinkMbps, pyrowavePaceMbps, networkGracePeriodMs, packed444Requested, packedModes);
+                    pyrowaveLinkMbps, pyrowavePaceMbps, networkGracePeriodMs, packed444Requested, packedModes,
+                    remoteMonitor, unbatchedInput, networkPriority);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,

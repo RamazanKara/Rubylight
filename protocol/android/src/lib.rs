@@ -106,6 +106,9 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     network_grace_ms: jint,
     packed444: jboolean,
     packed444_modes: jint,
+    remote_monitor: jboolean,
+    unbatched_input: jboolean,
+    network_priority: jboolean,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -149,6 +152,9 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
         location: extras::location(streaming_remotely),
         network_grace: Duration::from_millis(network_grace_ms.max(0) as u64),
         input_only,
+        remote_monitor: remote_monitor == JNI_TRUE,
+        unbatched_input: unbatched_input == JNI_TRUE,
+        network_priority: network_priority == JNI_TRUE,
     };
     engine::start(bridge, engine::StartParams { host, config })
 }

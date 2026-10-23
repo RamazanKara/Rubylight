@@ -60,7 +60,7 @@ fn results_and_the_abi_rule_have_readable_errors() {
 #[test]
 fn a_missing_dll_names_the_file_and_where_it_was_expected() {
     let missing = std::env::temp_dir().join("nightjar-no-such-dir").join(DLL_NAME);
-    let error = probe_in(&missing, None).unwrap_err();
+    let error = probe_in(&missing, None, false).unwrap_err();
     assert!(error.starts_with("libpyrowave-shared-1.dll not found next to the executable ("), "{error}");
     assert!(error.contains("nightjar-no-such-dir"), "{error}");
     assert_eq!(Api::load_from(&missing).err(), Some(error));
@@ -69,7 +69,7 @@ fn a_missing_dll_names_the_file_and_where_it_was_expected() {
 #[test]
 fn a_dll_that_is_no_pyrowave_sdk_is_named_as_such() {
     let kernel32 = Path::new(r"C:\Windows\System32\kernel32.dll");
-    let error = probe_in(kernel32, None).unwrap_err();
+    let error = probe_in(kernel32, None, false).unwrap_err();
     assert!(error.contains("kernel32.dll is not a PyroWave SDK: pyrowave_get_api_version is missing"), "{error}");
 }
 
@@ -83,7 +83,7 @@ fn a_dll_with_another_abi_is_refused_with_its_version() {
     let dll = dir.join("fake.dll");
     let built = std::process::Command::new("gcc").arg("-shared").arg("-o").arg(&dll).arg(&source).status();
     assert!(built.is_ok_and(|s| s.success()), "gcc (MSYS2 UCRT64) is needed on PATH to build the stand-in DLL");
-    let error = probe_in(&dll, None).unwrap_err();
+    let error = probe_in(&dll, None, true).unwrap_err();
     assert_eq!(error, "PyroWave SDK ABI 2.1.4 is not supported, this client needs 1.x");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -93,6 +93,81 @@ fn plane_sizes_follow_the_chroma_format() {
     let config = |chroma444| GpuConfig { width: 132, height: 98, chroma444, ten_bit: false, slots: 1 };
     assert_eq!([0, 1, 2].map(|p| config(false).plane_size(p)), [(132, 98), (66, 49), (66, 49)]);
     assert_eq!([0, 1, 2].map(|p| config(true).plane_size(p)), [(132, 98); 3]);
+}
+
+/// Queues a signal of `fence` on `device`'s immediate context and flushes it.
+fn signal(device: &ID3D11Device, fence: &ID3D11Fence, value: u64) {
+    // SAFETY: Plain D3D11 calls on the calling thread.
+    unsafe {
+        let context = device.GetImmediateContext().unwrap();
+        context.cast::<ID3D11DeviceContext4>().unwrap().Signal(fence, value).unwrap();
+        context.Flush();
+    }
+}
+
+fn device_of(fence: &ID3D11Fence) -> ID3D11Device {
+    // SAFETY: Plain D3D11 call.
+    unsafe { fence.GetDevice() }.unwrap()
+}
+
+#[test]
+fn a_probe_result_is_kept_per_adapter_and_plane_format() {
+    let cache = ProbeCache::default();
+    let (first, second) = (Luid { luid: [1; 8] }, Luid { luid: [2; 8] });
+    let calls = std::cell::Cell::new(0);
+    let ask = |luid, ten_bit, result: Result<(), String>| {
+        cache.get_or_probe(luid, ten_bit, || {
+            calls.set(calls.get() + 1);
+            result
+        })
+    };
+    assert_eq!(ask(first, false, Err("no subgroup size control".into())), Err("no subgroup size control".into()));
+    // Remembered, errors included: the second ask neither probes nor changes the answer.
+    assert_eq!(ask(first, false, Ok(())), Err("no subgroup size control".into()));
+    assert_eq!(calls.get(), 1);
+    assert_eq!(ask(first, true, Ok(())), Ok(()));
+    assert_eq!(ask(second, false, Ok(())), Ok(()));
+    assert_eq!(calls.get(), 3);
+}
+
+#[test]
+fn a_refused_decoder_names_the_requirement_the_adapter_misses() {
+    assert_eq!(
+        decoder_refused(-1, "Radeon lacks subgroup size control"),
+        "creating the PyroWave decoder: PyroWave error -1 (generic error); it needs Vulkan 1.3 with subgroup size control and the subgroup operations: Radeon lacks subgroup size control"
+    );
+}
+
+#[test]
+fn the_decoder_moves_between_threads_but_is_not_shared() {
+    fn send<T: Send>() {}
+    send::<GpuDecoder>();
+    // Compiles only while GpuDecoder is not Sync (a Sync type would make the call ambiguous).
+    trait AmbiguousIfSync<A> {
+        fn check() {}
+    }
+    impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+    impl<T: ?Sized + Sync> AmbiguousIfSync<u8> for T {}
+    <GpuDecoder as AmbiguousIfSync<_>>::check();
+}
+
+#[test]
+fn a_stalled_fence_is_a_loud_error_after_the_deadline_and_a_signalled_one_is_ready() {
+    let device = default_device().unwrap().cast::<ID3D11Device5>().unwrap();
+    let mut fence = None;
+    // SAFETY: A plain D3D11 call with a live out-pointer.
+    unsafe { device.CreateFence(0, D3D11_FENCE_FLAG_NONE, &mut fence) }.unwrap();
+    let fence: ID3D11Fence = fence.unwrap();
+    assert_eq!(fence_ready_within(&fence, 0, Duration::ZERO), Ok(()));
+    let start = Instant::now();
+    let error = fence_ready_within(&fence, 1, Duration::from_millis(80)).unwrap_err();
+    assert!(start.elapsed() >= Duration::from_millis(70), "gave up after {:?}", start.elapsed());
+    assert!(error.contains("fence value 1") && error.contains("stands at 0") && error.contains("hung or lost"), "{error}");
+    // The GPU side signals (queued, then flushed): the wait ends at the signal, long before the deadline.
+    signal(&device_of(&fence), &fence, 1);
+    let start = Instant::now();
+    assert_eq!(fence_ready_within(&fence, 1, Duration::from_secs(5)), Ok(()));
+    assert!(start.elapsed() < Duration::from_secs(1), "woke after {:?}", start.elapsed());
 }
 
 // ---- GPU tests -------------------------------------------------------------------------------
@@ -155,13 +230,19 @@ struct Readback {
 
 impl Readback {
     fn new(d3d: &ID3D11Device, config: GpuConfig) -> Self {
-        // SAFETY: Plain D3D11 calls with live locals.
-        let (context, staging) = unsafe {
-            let context = d3d.GetImmediateContext().unwrap();
-            let staging: Vec<ID3D11Texture2D> = (0..3)
-                .map(|plane| {
-                    let (width, height) = config.plane_size(plane);
-                    let mut texture = None;
+        // SAFETY: Plain D3D11 call.
+        let context = unsafe { d3d.GetImmediateContext().unwrap() };
+        Self { context4: context.cast().expect("ID3D11DeviceContext4"), context, staging: Self::staging(d3d, config), config }
+    }
+
+    /// Three CPU-readable textures the size of the picture's planes.
+    fn staging(d3d: &ID3D11Device, config: GpuConfig) -> Vec<ID3D11Texture2D> {
+        (0..3)
+            .map(|plane| {
+                let (width, height) = config.plane_size(plane);
+                let mut texture = None;
+                // SAFETY: A plain D3D11 call with live locals.
+                unsafe {
                     d3d.CreateTexture2D(
                         &D3D11_TEXTURE2D_DESC {
                             Width: width,
@@ -178,34 +259,42 @@ impl Readback {
                         Some(&mut texture),
                     )
                     .unwrap();
-                    texture.unwrap()
-                })
-                .collect();
-            (context, staging)
-        };
-        Self { context4: context.cast().expect("ID3D11DeviceContext4"), context, staging, config }
+                }
+                texture.unwrap()
+            })
+            .collect()
     }
 
     /// Waits for fence `value` on the CPU and then on the D3D11 queue (the way the presenter will),
     /// and returns the raw sample codes of `slot`'s planes.
     fn planes(&self, gpu: &GpuDecoder, slot: usize, value: u64) -> [Vec<u16>; 3] {
         gpu.wait(value, Duration::from_secs(10)).unwrap();
-        // SAFETY: Plain D3D11 calls; the mapped rows are read before Unmap.
+        // SAFETY: Plain D3D11 calls.
         unsafe {
             self.context4.Wait(gpu.fence(), value).unwrap();
+            for plane in 0..3 {
+                self.context.CopyResource(&self.staging[plane], &gpu.planes(slot)[plane]);
+            }
+        }
+        self.read(&self.staging)
+    }
+
+    /// The raw sample codes of staging planes already copied to (blocks until the copy is done).
+    fn read(&self, staging: &[ID3D11Texture2D]) -> [Vec<u16>; 3] {
+        // SAFETY: Plain D3D11 calls; the mapped rows are read before Unmap.
+        unsafe {
             let bytes = if self.config.ten_bit { 2 } else { 1 };
             std::array::from_fn(|plane| {
                 let (width, height) = self.config.plane_size(plane);
                 let (width, height) = (width as usize, height as usize);
-                self.context.CopyResource(&self.staging[plane], &gpu.planes(slot)[plane]);
                 let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-                self.context.Map(&self.staging[plane], 0, D3D11_MAP_READ, 0, Some(&mut mapped)).unwrap();
+                self.context.Map(&staging[plane], 0, D3D11_MAP_READ, 0, Some(&mut mapped)).unwrap();
                 let mut out = Vec::with_capacity(width * height);
                 for y in 0..height {
                     let row = std::slice::from_raw_parts(mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize), width * bytes);
                     out.extend(row.chunks(bytes).map(|c| if bytes == 2 { u16::from_le_bytes([c[0], c[1]]) } else { u16::from(c[0]) }));
                 }
-                self.context.Unmap(&self.staging[plane], 0);
+                self.context.Unmap(&staging[plane], 0);
                 out
             })
         }
@@ -218,12 +307,17 @@ fn code(raw: u16, ten: bool) -> f32 {
 }
 
 fn push_and_decode(gpu: &mut GpuDecoder, packets: &[Vec<u8>]) -> u64 {
+    push_and_decode_to(gpu, packets, 0, 0)
+}
+
+/// Decodes into `slot` once the reuse fence reaches `after`.
+fn push_and_decode_to(gpu: &mut GpuDecoder, packets: &[Vec<u8>], slot: usize, after: u64) -> u64 {
     gpu.clear();
     for packet in packets {
         gpu.push_packet(packet).unwrap();
     }
     assert!(gpu.is_ready(false), "the pushed packets did not complete the frame");
-    gpu.decode(0).unwrap()
+    gpu.decode(slot, after).unwrap()
 }
 
 /// The largest difference, in code values, between the GPU planes and the CPU decoder's picture.
@@ -386,8 +480,9 @@ fn lossy_frames_decode_on_the_gpu_like_the_cpu_decoder_whole_and_early() {
             gpu.clear();
             assert!(whole.push_frame(&data, |packet| gpu.push_packet(packet).is_ok()));
             assert!(gpu.is_ready(false));
-            let value = gpu.decode(0).unwrap();
-            let whole_error = max_error_vs_cpu(&readback.planes(&gpu, 0, value), &cpu, config);
+            let value = gpu.decode(0, 0).unwrap();
+            let whole_planes = readback.planes(&gpu, 0, value);
+            let whole_error = max_error_vs_cpu(&whole_planes, &cpu, config);
 
             gpu.clear();
             let mut pushed = HashSet::new();
@@ -407,8 +502,10 @@ fn lossy_frames_decode_on_the_gpu_like_the_cpu_decoder_whole_and_early() {
                 true
             }));
             assert!(gpu.is_ready(false));
-            let value = gpu.decode(0).unwrap();
-            let early_error = max_error_vs_cpu(&readback.planes(&gpu, 0, value), &cpu, config);
+            let value = gpu.decode(0, 0).unwrap();
+            let early_planes = readback.planes(&gpu, 0, value);
+            let early_error = max_error_vs_cpu(&early_planes, &cpu, config);
+            assert!(early_planes == whole_planes, "lost {lost:?}, frame {n}: the early planes differ from the whole planes");
             println!("lost {lost:?}, frame {n}: {early_pushed} records pushed early; max error {whole_error:.3} whole, {early_error:.3} early (code values from the CPU decoder)");
             assert!(whole_error < 1.1 && early_error < 1.1, "lost {lost:?}, frame {n}: {whole_error} whole, {early_error} early");
         }
@@ -464,11 +561,11 @@ fn decoder_lives_leave_a_few_handles_each() {
         let after = settled();
         let growth = i64::from(after) - i64::from(before);
         println!("{name}: 10 decoder lives, {before} -> {after} handles ({growth:+})");
-        if growth > 4 * 10 + 4 {
+        if growth > 10 {
             failed.push(format!("{name}: {growth}"));
         }
     }
-    assert!(failed.is_empty(), "10 lives left more than 4 handles each: {failed:?}");
+    assert!(failed.is_empty(), "10 lives left more than 10 handles in all: {failed:?}");
 }
 
 /// The blocks in a frame (the CPU decoder's band geometry): the indices a record can carry.
@@ -660,4 +757,118 @@ fn gpu_time_is_read_from_the_pass_lines_only() {
     assert_eq!(parse_gpu_ms("iDWT: 0.051 ms per frame"), Some(0.051));
     assert_eq!(parse_gpu_ms("Memory Heap 0 (HOST): MaxSize 16346.938 MiB, BudgetSize 15578.938 MiB"), None);
     assert_eq!(parse_gpu_ms("nothing here"), None);
+}
+
+/// The Vulkan side must not overwrite a plane set while D3D11 may still read the picture in it: the
+/// decode waits on the reuse fence. Deterministic: the "presenter" is the test, which holds the
+/// signal back and checks the decode has not completed, then releases it.
+#[test]
+#[ignore = "needs the PyroWave SDK and a GPU"]
+fn a_decode_into_a_plane_set_waits_for_the_reuse_fence() {
+    let _gpu = gpu_lock();
+    let api = sdk();
+    let d3d = default_device().unwrap();
+    let fixture = &fixtures()[0];
+    let config = GpuConfig { slots: 2, ..fixture.config() };
+    let packets = fixture.packets();
+    let mut gpu = GpuDecoder::with_api(api, &d3d, config).unwrap();
+    let first = push_and_decode_to(&mut gpu, &packets, 0, 0);
+    gpu.wait(first, Duration::from_secs(10)).unwrap();
+    // "D3D11 is still drawing slot 0": the reuse fence has not reached 1.
+    let second = push_and_decode_to(&mut gpu, &packets, 0, 1);
+    let held = gpu.wait(second, Duration::from_millis(400));
+    // SAFETY: A plain fence query.
+    let early = unsafe { gpu.reuse_fence().GetCompletedValue() };
+    // Release before asserting: a failed assert must not leave the GPU waiting in Drop.
+    signal(&d3d, gpu.reuse_fence(), 1);
+    assert_eq!(early, 0);
+    assert!(held.as_ref().is_err_and(|e| e.contains("did not finish")), "the decode ran before the reuse fence reached its value: {held:?}");
+    gpu.wait(second, Duration::from_secs(10)).unwrap();
+    gpu.ready_within(second, Duration::from_secs(1)).unwrap();
+}
+
+/// A ring of plane sets decoded back to back with no CPU wait, each picture read by a D3D11 pass
+/// queued behind the decode fence and followed by a signal of the reuse fence, the way the
+/// presenter will run. Two different pictures alternate, so a plane set overwritten early, or read
+/// before its decode, shows as the other picture or as a mix.
+#[test]
+#[ignore = "needs the PyroWave SDK and a GPU"]
+fn a_ring_of_plane_sets_decodes_a_sequence_without_cpu_waits() {
+    const FRAMES: usize = 24;
+    const SLOTS: usize = 3;
+    let _gpu = gpu_lock();
+    let api = sdk();
+    let d3d = default_device().unwrap();
+    let fixtures = fixtures();
+    // Both are 132x98 4:2:0, decoded to 8-bit planes.
+    let config = GpuConfig { ten_bit: false, slots: SLOTS, ..fixtures[0].config() };
+    let packets = [fixtures[0].packets(), fixtures[1].packets()];
+    let cpu: Vec<Cpu> = fixtures[..2]
+        .iter()
+        .map(|f| {
+            let mut cpu = Cpu::new(132, 98, false).unwrap();
+            cpu.decode(f.bin).unwrap();
+            cpu
+        })
+        .collect();
+    let mut gpu = GpuDecoder::with_api(api, &d3d, config).unwrap();
+    let readback = Readback::new(&d3d, config);
+    let staging: Vec<Vec<ID3D11Texture2D>> = (0..FRAMES).map(|_| Readback::staging(&d3d, config)).collect();
+    let mut reuse_after = [0u64; SLOTS];
+    let mut signalled = 0u64;
+    for k in 0..FRAMES {
+        let slot = k % SLOTS;
+        let value = push_and_decode_to(&mut gpu, &packets[k % 2], slot, reuse_after[slot]);
+        // SAFETY: Plain D3D11 calls; the planes and fences are the decoder's.
+        unsafe {
+            readback.context4.Wait(gpu.fence(), value).unwrap();
+            for (target, source) in staging[k].iter().zip(gpu.planes(slot)) {
+                readback.context.CopyResource(target, source);
+            }
+            signalled += 1;
+            readback.context4.Signal(gpu.reuse_fence(), signalled).unwrap();
+            readback.context.Flush();
+        }
+        reuse_after[slot] = signalled;
+    }
+    let mut worst = 0.0f32;
+    for (k, staging) in staging.iter().enumerate() {
+        let planes = readback.read(staging);
+        let own = max_error_vs_cpu(&planes, &cpu[k % 2], config);
+        let other = max_error_vs_cpu(&planes, &cpu[1 - k % 2], config);
+        assert!(own < 1.1, "frame {k} (picture {}, plane set {}) is {own} code values from its own fixture", k % 2, k % SLOTS);
+        assert!(other > 2.0, "frame {k}: the two fixtures are not told apart by this test ({other})");
+        worst = worst.max(own);
+    }
+    println!("ring of {SLOTS} plane sets, {FRAMES} frames of two pictures with no CPU waits: worst error against each frame's own fixture {worst:.3} code values");
+}
+
+/// The DLL loads once and a repeated probe answers from memory with the same result, for the
+/// 8-bit R8 planes and for the 10-bit R16 planes.
+#[test]
+#[ignore = "needs the PyroWave SDK and a GPU"]
+fn probing_twice_loads_the_sdk_once_and_gives_the_same_answer() {
+    let _gpu = gpu_lock();
+    // The shared loader looks next to the executable: put the SDK there for this run.
+    let beside = dll_path().unwrap();
+    if !beside.exists() {
+        std::fs::copy(sdk_dll(), &beside).unwrap();
+    }
+    let d3d = default_device().unwrap();
+    let before = Api::shared_loads();
+    let start = Instant::now();
+    let first = probe(Some(&d3d), false);
+    let first_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let start = Instant::now();
+    let second = probe(Some(&d3d), false);
+    let second_ms = start.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(first, Ok(()));
+    assert_eq!(first, second);
+    assert_eq!(probe(Some(&d3d), true), Ok(()), "the 10-bit R16 planes must import");
+    assert_eq!(probe(None, true), Ok(()));
+    assert_eq!(Api::shared_loads() - before, 1, "the DLL was loaded more than once");
+    assert!(Arc::ptr_eq(&Api::shared().unwrap(), &Api::shared().unwrap()));
+    assert_eq!(Api::shared_loads() - before, 1);
+    println!("probe: first {first_ms:.1} ms, second {second_ms:.3} ms, one DLL load");
+    assert!(second_ms < first_ms, "the second probe was not answered from memory");
 }

@@ -12,18 +12,22 @@
 //! Nothing in the stream uses this yet (brief G2 wires it in).
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use ash::vk;
 use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HMODULE};
+use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HMODULE, WAIT_OBJECT_0};
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0};
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{IDXGIDevice, IDXGIResource1, DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE};
+use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
 #[cfg(test)]
 mod tests;
@@ -48,7 +52,7 @@ const QUEUE_FAMILY_IGNORED: u32 = u32::MAX;
 const QUEUE_FAMILY_EXTERNAL: u32 = u32::MAX - 1;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Luid {
     pub luid: [u8; 8],
 }
@@ -206,7 +210,30 @@ pub fn check_abi(major: u32, minor: u32, patch: u32) -> Result<(), String> {
     }
 }
 
+/// The DLL once loaded by `Api::shared`. It is never unloaded: the SDK starts threads and Vulkan
+/// state that outlive any one decoder, and reloading it per probe or per stream is slow.
+static SHARED: Mutex<Option<Arc<Api>>> = Mutex::new(None);
+static SHARED_LOADS: AtomicUsize = AtomicUsize::new(0);
+
 impl Api {
+    /// The DLL next to the executable, loaded on the first call and kept for the life of the
+    /// process. A failure is not remembered: the next call looks again.
+    pub fn shared() -> Result<Arc<Self>, String> {
+        let mut shared = SHARED.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(api) = shared.as_ref() {
+            return Ok(api.clone());
+        }
+        let api = Self::load()?;
+        SHARED_LOADS.fetch_add(1, Ordering::Relaxed);
+        *shared = Some(api.clone());
+        Ok(api)
+    }
+
+    /// How many times `shared` has loaded the DLL (at most once per process).
+    pub fn shared_loads() -> usize {
+        SHARED_LOADS.load(Ordering::Relaxed)
+    }
+
     /// The DLL next to the executable.
     pub fn load() -> Result<Arc<Self>, String> {
         let exe = std::env::current_exe().map_err(|e| format!("cannot locate the executable: {e}"))?;
@@ -263,8 +290,14 @@ pub struct Slot {
     buffers: GpuBuffers,
 }
 
-/// The SDK's Vulkan decoder bound to a D3D11 device through shared textures and one shared fence.
-/// Not thread safe (the SDK's entry points are not); move it between threads, never share it.
+/// The SDK's Vulkan decoder bound to a D3D11 device through shared textures and two shared fences:
+/// the decode fence (Vulkan signals, D3D11 waits) and the reuse fence (D3D11 signals, Vulkan waits).
+///
+/// `Send` but not `Sync` (the SDK's entry points are not thread safe, and the raw handles make it
+/// `!Sync`): move it between threads, never share it. The textures and fences it hands out are
+/// COM objects. A presenter that keeps drawing from them on another thread must hold its own
+/// AddRef'd clones (`planes(..).clone()`, `fence().clone()`), because dropping the decoder releases
+/// its references and the SDK's Vulkan side, but the presenter's clones keep the D3D11 objects alive.
 pub struct GpuDecoder {
     api: Arc<Api>,
     config: GpuConfig,
@@ -272,6 +305,8 @@ pub struct GpuDecoder {
     decoder: RawDecoder,
     sync: RawSyncObject,
     fence: Option<ID3D11Fence>,
+    reuse_sync: RawSyncObject,
+    reuse_fence: Option<ID3D11Fence>,
     slots: Vec<Slot>,
     counter: u64,
 }
@@ -291,13 +326,13 @@ fn luid_of(device: &ID3D11Device) -> Result<Luid, String> {
 }
 
 impl GpuDecoder {
-    /// With the SDK next to the executable.
+    /// With the SDK next to the executable (loaded once per process, see `Api::shared`).
     pub fn new(d3d: &ID3D11Device, config: GpuConfig) -> Result<Self, String> {
-        Self::with_api(Api::load()?, d3d, config)
+        Self::with_api(Api::shared()?, d3d, config)
     }
 
     /// Creates the SDK device on the D3D11 adapter's LUID, the decoder (compute path), `config.slots`
-    /// plane sets and the shared fence. Errors name the step that failed.
+    /// plane sets and the two shared fences. Errors name the step that failed.
     pub fn with_api(api: Arc<Api>, d3d: &ID3D11Device, config: GpuConfig) -> Result<Self, String> {
         if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (config.width % 2 != 0 || config.height % 2 != 0)) {
             return Err(format!("PyroWave GPU decoding: bad picture {}x{} with {} plane sets", config.width, config.height, config.slots));
@@ -305,7 +340,18 @@ impl GpuDecoder {
         // The D3D11 side first: its failures are the cheap ones to name.
         let device5 = d3d.cast::<ID3D11Device5>().map_err(|e| format!("the D3D11 device lacks ID3D11Device5 (shared fences need Windows 10 1703 or newer): {e}"))?;
         let luid = luid_of(d3d)?;
-        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), sync: ptr::null_mut(), fence: None, slots: Vec::new(), counter: 0 };
+        let mut s = Self {
+            api,
+            config,
+            device: ptr::null_mut(),
+            decoder: ptr::null_mut(),
+            sync: ptr::null_mut(),
+            fence: None,
+            reuse_sync: ptr::null_mut(),
+            reuse_fence: None,
+            slots: Vec::new(),
+            counter: 0,
+        };
         // SAFETY: `luid` and the out-pointers outlive each call, and `s` owns every handle made so
         // Drop releases them on any early return.
         unsafe {
@@ -317,39 +363,53 @@ impl GpuDecoder {
             if !(s.api.device_confirm_interop_support)(s.device) {
                 return Err("the Vulkan driver cannot share D3D11 textures and fences with the PyroWave device (external memory and semaphore interop are missing)".into());
             }
-            check(
-                (s.api.decoder_create)(
-                    &DecoderCreateInfo { device: s.device, width: config.width as i32, height: config.height as i32, chroma: i32::from(config.chroma444), fragment_path: false },
-                    &mut s.decoder,
-                ),
-                "creating the PyroWave decoder (needs Vulkan 1.3 with subgroup size control and the subgroup operations)",
-            )?;
+            let result = (s.api.decoder_create)(
+                &DecoderCreateInfo { device: s.device, width: config.width as i32, height: config.height as i32, chroma: i32::from(config.chroma444), fragment_path: false },
+                &mut s.decoder,
+            );
+            if result != SUCCESS {
+                return Err(decoder_refused(result, &diagnose_vulkan(&luid)));
+            }
             for _ in 0..config.slots {
                 let slot = s.create_slot(d3d)?;
                 s.slots.push(slot);
             }
-            let mut fence: Option<ID3D11Fence> = None;
-            device5.CreateFence(0, D3D11_FENCE_FLAG_SHARED, &mut fence).map_err(|e| format!("creating the shared D3D11 fence: {e}"))?;
-            let fence = fence.ok_or("creating the shared D3D11 fence: no fence returned")?;
-            let handle = fence.CreateSharedHandle(None, GENERIC_ALL.0, PCWSTR::null()).map_err(|e| format!("sharing the D3D11 fence: {e}"))?;
-            let result = (s.api.sync_object_create)(
-                &SyncObjectCreateInfo {
-                    device: s.device,
-                    external_handle: handle.0 as usize,
-                    handle_type: vk::ExternalSemaphoreHandleTypeFlags::D3D12_FENCE,
-                    semaphore_type: vk::SemaphoreType::TIMELINE,
-                    import_flags: vk::SemaphoreImportFlags::empty(),
-                },
-                &mut s.sync,
-            );
-            if result != SUCCESS {
-                // The SDK takes the handle only when the import succeeds.
-                let _ = CloseHandle(handle);
-                return check(result, "importing the D3D11 fence as a Vulkan timeline semaphore").map(|()| unreachable!());
-            }
+            let (fence, sync) = s.shared_fence(&device5, "decode")?;
             s.fence = Some(fence);
+            s.sync = sync;
+            let (fence, sync) = s.shared_fence(&device5, "reuse")?;
+            s.reuse_fence = Some(fence);
+            s.reuse_sync = sync;
         }
         Ok(s)
+    }
+
+    /// A shared D3D11 fence and the SDK's timeline semaphore imported from it.
+    ///
+    /// # Safety
+    /// `self.device` must be a live SDK device.
+    unsafe fn shared_fence(&self, device5: &ID3D11Device5, name: &str) -> Result<(ID3D11Fence, RawSyncObject), String> {
+        let mut fence: Option<ID3D11Fence> = None;
+        device5.CreateFence(0, D3D11_FENCE_FLAG_SHARED, &mut fence).map_err(|e| format!("creating the shared D3D11 {name} fence: {e}"))?;
+        let fence = fence.ok_or_else(|| format!("creating the shared D3D11 {name} fence: no fence returned"))?;
+        let handle = fence.CreateSharedHandle(None, GENERIC_ALL.0, PCWSTR::null()).map_err(|e| format!("sharing the D3D11 {name} fence: {e}"))?;
+        let mut sync = ptr::null_mut();
+        let result = (self.api.sync_object_create)(
+            &SyncObjectCreateInfo {
+                device: self.device,
+                external_handle: handle.0 as usize,
+                handle_type: vk::ExternalSemaphoreHandleTypeFlags::D3D12_FENCE,
+                semaphore_type: vk::SemaphoreType::TIMELINE,
+                import_flags: vk::SemaphoreImportFlags::empty(),
+            },
+            &mut sync,
+        );
+        if result != SUCCESS {
+            // The SDK takes the handle only when the import succeeds.
+            let _ = CloseHandle(handle);
+            return Err(check(result, &format!("importing the D3D11 {name} fence as a Vulkan timeline semaphore")).unwrap_err());
+        }
+        Ok((fence, sync))
     }
 
     /// One plane set: three shared textures, imported and bound for storage writes.
@@ -359,6 +419,7 @@ impl GpuDecoder {
     unsafe fn create_slot(&self, d3d: &ID3D11Device) -> Result<Slot, String> {
         let config = self.config;
         let (format, vk_format) = if config.ten_bit { (DXGI_FORMAT_R16_UNORM, vk::Format::R16_UNORM) } else { (DXGI_FORMAT_R8_UNORM, vk::Format::R8_UNORM) };
+        let plane_format = if config.ten_bit { "R16 (10-bit)" } else { "R8" };
         let mut textures: Vec<ID3D11Texture2D> = Vec::with_capacity(3);
         let mut images: Vec<RawImage> = Vec::with_capacity(3);
         let mut views = [std::mem::zeroed::<ImageView>(); 3];
@@ -382,12 +443,12 @@ impl GpuDecoder {
                     None,
                     Some(&mut texture),
                 )
-                .map_err(|e| format!("creating a {width}x{height} shared plane texture: {e}"))?;
+                .map_err(|e| format!("creating a {width}x{height} shared {plane_format} plane texture: {e}"))?;
                 let texture = texture.ok_or("creating a plane texture: none returned")?;
                 let handle = texture
                     .cast::<IDXGIResource1>()
                     .and_then(|resource| resource.CreateSharedHandle(None, DXGI_SHARED_RESOURCE_READ.0 | DXGI_SHARED_RESOURCE_WRITE.0, PCWSTR::null()))
-                    .map_err(|e| format!("sharing a plane texture: {e}"))?;
+                    .map_err(|e| format!("sharing a {plane_format} plane texture: {e}"))?;
                 let info = vk::ImageCreateInfo::default()
                     .image_type(vk::ImageType::TYPE_2D)
                     .format(vk_format)
@@ -410,7 +471,7 @@ impl GpuDecoder {
                 );
                 if result != SUCCESS {
                     let _ = CloseHandle(handle);
-                    return check(result, &format!("importing a {width}x{height} D3D11 plane texture into Vulkan"));
+                    return check(result, &format!("importing a {width}x{height} {plane_format} D3D11 plane texture into Vulkan"));
                 }
                 images.push(image);
                 textures.push(texture);
@@ -444,9 +505,28 @@ impl GpuDecoder {
         &self.slots[slot].textures
     }
 
-    /// The shared fence; wait for a value `decode` returned with `ID3D11DeviceContext4::Wait`.
+    /// The decode fence: Vulkan signals the value `decode` returned when the planes are final, and
+    /// the presenter makes its queue wait for it with `ID3D11DeviceContext4::Wait`.
+    ///
+    /// `Wait` has no timeout: if the Vulkan device hangs or is lost the fence never reaches the
+    /// value, the D3D11 queue stalls behind it and the display driver ends in a TDR. So the
+    /// presenter must call `ready_within` for the value first, and queue the `Wait` only when it
+    /// returns `Ok`; its `Err` is the loud failure to report instead.
     pub fn fence(&self) -> &ID3D11Fence {
         self.fence.as_ref().expect("a constructed decoder has its fence")
+    }
+
+    /// The reuse fence: the presenter `Signal`s it (`ID3D11DeviceContext4::Signal`) after the draw
+    /// that last read a plane set, with a value that only grows, and passes that value as `after` to
+    /// the next `decode` into the set.
+    pub fn reuse_fence(&self) -> &ID3D11Fence {
+        self.reuse_fence.as_ref().expect("a constructed decoder has its reuse fence")
+    }
+
+    /// Ok once the decode fence has reached `value` (the GPU work is done and `Wait` will not
+    /// block); an error naming the stall if it has not within `deadline`, or if the device is gone.
+    pub fn ready_within(&self, value: u64, deadline: Duration) -> Result<(), String> {
+        fence_ready_within(self.fence(), value, deadline)
     }
 
     /// Throws away the packets queued for the frame in progress.
@@ -468,18 +548,24 @@ impl GpuDecoder {
     }
 
     /// Submits the decode of the pushed records into `slot` and returns the fence value that the
-    /// GPU signals when the planes are final. Blocks, if at all, only for staging uploads. The caller
-    /// guarantees that D3D11 has finished reading `slot`'s previous picture: the decode overwrites it.
+    /// GPU signals when the planes are final. Blocks, if at all, only for staging uploads.
+    ///
+    /// The decode overwrites the set, so the GPU waits, before it writes, until the reuse fence
+    /// reaches `after`: the value the presenter signals after the last draw that read `slot`'s
+    /// previous picture (0 when nothing read it). The D3D11 queue can run frames behind the CPU,
+    /// so this wait is what keeps a late draw from sampling a half-written picture. The `Signal`
+    /// must already be queued (and flushed) on the D3D11 side, or the decode waits for ever.
     /// Missing blocks decode as zero, so a partial frame blurs and never corrupts.
-    pub fn decode(&mut self, slot: usize) -> Result<u64, String> {
+    pub fn decode(&mut self, slot: usize, after: u64) -> Result<u64, String> {
         let slot = self.slots.get(slot).ok_or_else(|| format!("plane set {slot} does not exist"))?;
         let acquire_images = slot.images.map(|image| GpuExternalReference { image, queue_family_index: QUEUE_FAMILY_IGNORED });
         let release_images = slot.images.map(|image| GpuExternalReference { image, queue_family_index: QUEUE_FAMILY_EXTERNAL });
-        // SAFETY: Both operations and the buffers are live locals for the call; the semaphore is
-        // the imported fence's.
+        // SAFETY: Both operations and the buffers are live locals for the call; the semaphores are
+        // the imported fences'. A null semaphore means no wait.
         let value = self.counter + 1;
         let result = unsafe {
-            let acquire = GpuSyncOperation { images: acquire_images.as_ptr(), num_images: 3, sync: std::mem::zeroed() };
+            let wait = if after == 0 { std::mem::zeroed() } else { SyncPoint { semaphore: (self.api.sync_object_get_semaphore)(self.reuse_sync), value: after } };
+            let acquire = GpuSyncOperation { images: acquire_images.as_ptr(), num_images: 3, sync: wait };
             let release = GpuSyncOperation {
                 images: release_images.as_ptr(),
                 num_images: 3,
@@ -533,8 +619,10 @@ impl Drop for GpuDecoder {
                     (self.api.image_destroy)(image);
                 }
             }
-            if !self.sync.is_null() {
-                (self.api.sync_object_destroy)(self.sync);
+            for sync in [self.sync, self.reuse_sync] {
+                if !sync.is_null() {
+                    (self.api.sync_object_destroy)(sync);
+                }
             }
             if !self.device.is_null() {
                 (self.api.device_destroy)(self.device);
@@ -543,23 +631,66 @@ impl Drop for GpuDecoder {
     }
 }
 
+/// The error for a decoder the SDK would not create, with the Vulkan requirement the adapter misses.
+fn decoder_refused(result: PyroResult, why: &str) -> String {
+    format!(
+        "creating the PyroWave decoder: PyroWave error {result} ({}); it needs Vulkan 1.3 with subgroup size control and the subgroup operations: {why}",
+        result_name(result)
+    )
+}
+
+/// Ok once `fence` has reached `value`, an error if it has not within `deadline`. A fence whose
+/// device was removed reads as `u64::MAX`, which is an error too, not "done".
+pub fn fence_ready_within(fence: &ID3D11Fence, value: u64, deadline: Duration) -> Result<(), String> {
+    // SAFETY: Plain fence calls; the event is closed on every path.
+    unsafe {
+        let mut completed = fence.GetCompletedValue();
+        if completed < value {
+            let event = CreateEventW(None, false, false, PCWSTR::null()).map_err(|e| format!("cannot wait for the PyroWave decode: {e}"))?;
+            let armed = fence.SetEventOnCompletion(value, event);
+            let waited = armed.is_ok().then(|| WaitForSingleObject(event, deadline.as_millis().min(u128::from(u32::MAX - 1)) as u32));
+            let _ = CloseHandle(event);
+            armed.map_err(|e| format!("cannot wait for the PyroWave decode: {e}"))?;
+            completed = fence.GetCompletedValue();
+            if waited != Some(WAIT_OBJECT_0) && completed < value {
+                return Err(format!(
+                    "the PyroWave decode (fence value {value}) was not done within {deadline:?} and the fence stands at {completed}: the Vulkan device may be hung or lost, so the D3D11 queue must not wait on it"
+                ));
+            }
+        }
+        if completed == u64::MAX {
+            return Err(format!("the D3D11 device holding the PyroWave fence was removed while waiting for value {value}"));
+        }
+    }
+    Ok(())
+}
+
+/// What a probe found, kept per adapter and plane format: the driver does not change under a
+/// running process, and a probe builds a Vulkan device.
+#[derive(Default)]
+struct ProbeCache(Mutex<HashMap<(Luid, bool), Result<(), String>>>);
+
+impl ProbeCache {
+    fn get_or_probe(&self, luid: Luid, ten_bit: bool, probe: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+        let mut found = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        found.entry((luid, ten_bit)).or_insert_with(probe).clone()
+    }
+}
+
+static PROBES: std::sync::LazyLock<ProbeCache> = std::sync::LazyLock::new(ProbeCache::default);
+
 /// The decoder is offered only if this succeeds, with the DLL next to the executable and the
 /// D3D11 device the stream renders with (`None`: the default hardware adapter, for settings screens
 /// that have no device yet). It builds a minimal decoder, so every requirement is exercised for
 /// real: the DLL and its ABI, `ID3D11Device5`, a Vulkan device for the adapter's LUID with the
-/// subgroup features, D3D11 interop, plane import and the shared fence. The error names the first
-/// piece that is missing.
-pub fn probe(device: Option<&ID3D11Device>) -> Result<(), String> {
-    probe_with(Api::load(), device)
-}
-
-/// `probe` with the DLL at `dll`.
-pub fn probe_in(dll: &Path, device: Option<&ID3D11Device>) -> Result<(), String> {
-    probe_with(Api::load_from(dll), device)
-}
-
-fn probe_with(api: Result<Arc<Api>, String>, device: Option<&ID3D11Device>) -> Result<(), String> {
-    let api = api?;
+/// subgroup features, D3D11 interop, plane import (R16 planes with `ten_bit`, R8 without) and both
+/// shared fences. The error names the first piece that is missing.
+///
+/// The DLL loads once per process and the result is remembered per adapter and plane format, so
+/// asking again (every settings screen, every stream start) costs nothing. A 10-bit stream needs
+/// `probe(.., true)` to succeed; a failure there is as loud as any other probe failure.
+pub fn probe(device: Option<&ID3D11Device>, ten_bit: bool) -> Result<(), String> {
+    let api = Api::shared()?;
     let own;
     let device = match device {
         Some(device) => device,
@@ -568,7 +699,26 @@ fn probe_with(api: Result<Arc<Api>, String>, device: Option<&ID3D11Device>) -> R
             &own
         }
     };
-    GpuDecoder::with_api(api, device, GpuConfig { width: 128, height: 128, chroma444: false, ten_bit: false, slots: 1 }).map(drop)
+    let luid = luid_of(device)?;
+    PROBES.get_or_probe(luid, ten_bit, || probe_once(api, device, ten_bit))
+}
+
+/// `probe` with the DLL at `dll`, neither kept nor remembered.
+pub fn probe_in(dll: &Path, device: Option<&ID3D11Device>, ten_bit: bool) -> Result<(), String> {
+    let api = Api::load_from(dll)?;
+    let own;
+    let device = match device {
+        Some(device) => device,
+        None => {
+            own = default_device()?;
+            &own
+        }
+    };
+    probe_once(api, device, ten_bit)
+}
+
+fn probe_once(api: Arc<Api>, device: &ID3D11Device, ten_bit: bool) -> Result<(), String> {
+    GpuDecoder::with_api(api, device, GpuConfig { width: 128, height: 128, chroma444: false, ten_bit, slots: 1 }).map(drop)
 }
 
 /// A hardware D3D11 device on the default adapter.

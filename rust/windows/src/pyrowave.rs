@@ -16,7 +16,7 @@ use std::{
     ffi::c_void,
     ptr,
     sync::{Arc, Mutex, OnceLock},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use windows::{
     Win32::{
@@ -394,6 +394,29 @@ fn interval(config: &Negotiated) -> pyrowave::Interval {
         true,
     )
 }
+/// Lets one line through per period, for the numbers of a warning whose text must stay fixed so
+/// `Warnings` keeps it to one log line (a text that changes with every frame never dedups).
+#[derive(Default)]
+struct Notice {
+    last: Option<Instant>,
+}
+impl Notice {
+    fn due(&mut self, now: Instant, period: Duration) -> bool {
+        if self.last.is_some_and(|at| now.duration_since(at) < period) {
+            return false;
+        }
+        self.last = Some(now);
+        true
+    }
+}
+/// The text of the warning for a frame sent in index order though row order was asked for.
+fn row_order_dropped_message(packet_size: usize) -> String {
+    format!("PyroWave row order was dropped for frames that do not fit the wire budget at a packet size of {packet_size}. Raise the bitrate or turn the client's beam racing off.")
+}
+/// The text of the warning for a frame over the transport limit.
+fn frame_size_message(limit: usize) -> String {
+    format!("PyroWave frames were dropped: over the transport limit of {limit} bytes. Lower bitrate or resolution.")
+}
 pub struct Encoder {
     warnings: Arc<butterpollo_core::session::Warnings>,
     api: Arc<Api>,
@@ -422,6 +445,8 @@ pub struct Encoder {
     pub(crate) luminance: [f32; 2],
     bitstream: Vec<u8>,
     packets: Vec<p::pyrowave_packet>,
+    row_order_notice: Notice,
+    size_notice: Notice,
     #[cfg(test)]
     pub(crate) hooks: TestHooks,
 }
@@ -485,6 +510,8 @@ impl Encoder {
             luminance: [100., 1.],
             bitstream: vec![],
             packets: vec![],
+            row_order_notice: Notice::default(),
+            size_notice: Notice::default(),
             #[cfg(test)]
             hooks: Default::default(),
         };
@@ -850,7 +877,10 @@ impl Encoder {
                         framed
                     } else {
                         if self.config.pyrowave_row_order {
-                            self.warnings.event("pyrowave_row_order", format!("PyroWave row order was dropped for frames that do not fit the wire budget: {} bytes framed ({} unframed, packet size {}) against a budget of {budget} bytes and a wire allowance of {allowance} bytes. Raise the bitrate or turn the client's beam racing off.", framed.len(), raw.len(), self.config.packet_size), butterpollo_core::session::EVENT_PERIOD);
+                            self.warnings.event("pyrowave_row_order", row_order_dropped_message(self.config.packet_size), butterpollo_core::session::EVENT_PERIOD);
+                            if self.row_order_notice.due(Instant::now(), butterpollo_core::session::EVENT_PERIOD) {
+                                tracing::warn!("PyroWave row order dropped: {} bytes framed ({} unframed) against a budget of {budget} bytes and a wire allowance of {allowance} bytes", framed.len(), raw.len());
+                            }
                         }
                         raw.to_vec()
                     }
@@ -865,7 +895,10 @@ impl Encoder {
                 )?
             };
             if bytes.len() > limit {
-                self.warnings.event("pyrowave_frame_size", format!("PyroWave frame was dropped: {} bytes exceeds the transport limit of {limit}. Lower bitrate or resolution.", bytes.len()), butterpollo_core::session::EVENT_PERIOD);
+                self.warnings.event("pyrowave_frame_size", frame_size_message(limit), butterpollo_core::session::EVENT_PERIOD);
+                if self.size_notice.due(Instant::now(), butterpollo_core::session::EVENT_PERIOD) {
+                    tracing::warn!("PyroWave frame of {} bytes dropped over the transport limit of {limit}", bytes.len());
+                }
                 return Ok(vec![]);
             }
             Ok(vec![Encoded {
@@ -919,13 +952,33 @@ impl Drop for Encoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{cell::Cell, rc::Rc, time::Duration};
+    use std::{cell::Cell, rc::Rc};
 
     struct Resource(Rc<Cell<usize>>);
     impl Drop for Resource {
         fn drop(&mut self) {
             self.0.set(self.0.get() + 1);
         }
+    }
+
+    #[test]
+    fn repeated_fallbacks_give_one_line_per_period() {
+        let period = Duration::from_secs(30);
+        let start = Instant::now();
+        let mut notice = Notice::default();
+        let lines = (0..3000u64)
+            .filter(|n| notice.due(start + Duration::from_millis(n * 17), period))
+            .count();
+        // 3000 frames at 17 ms is 51 s: the first, and one more after 30 s.
+        assert_eq!(lines, 2);
+        // The warning text does not carry frame sizes, so Warnings dedups every frame to it.
+        assert_eq!(row_order_dropped_message(1024), row_order_dropped_message(1024));
+        assert_eq!(frame_size_message(1_000_000), frame_size_message(1_000_000));
+        let warnings = butterpollo_core::session::Warnings::default();
+        for _ in 0..100 {
+            warnings.event("pyrowave_row_order", row_order_dropped_message(1024), period);
+        }
+        assert_eq!(warnings.snapshot().len(), 1);
     }
 
     #[test]

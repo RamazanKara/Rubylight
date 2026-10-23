@@ -1,6 +1,6 @@
 # Scripted content for pyrowave-loopback.ps1: a detailed texture scrolling across the primary display.
 param([int]$Seconds = 80)
-Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
+Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing, System.Drawing.Common, System.ComponentModel.Primitives, System.Drawing.Primitives, System.Windows.Forms.Primitives, System.Runtime, System.Collections, System.Console -TypeDefinition @'
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;

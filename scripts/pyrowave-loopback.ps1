@@ -171,6 +171,7 @@ try {
     $animSeconds = $legs.Count * ($Seconds + 45) + 120
     $anim = Start-Process pwsh -PassThru -WindowStyle Minimized -ArgumentList '-NoProfile', '-File', "$PSScriptRoot\pyrowave-anim.ps1", '-Seconds', $animSeconds
     Start-Sleep -Seconds 8
+    if ($anim.HasExited) { throw "the scripted content (pyrowave-anim.ps1) did not start (exit $($anim.ExitCode)); without it the host captures a still desktop" }
 
     # --- Legs -------------------------------------------------------------------------------
     $summaryLegs = @(); $n = 0

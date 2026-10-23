@@ -43,6 +43,17 @@ Home, PCs and Settings sit in one bar under the top app bar of each of those thr
 - Home appears in the bar as soon as the first library is read, without a resume.
 - Open issue (N5): Home's menu opens the list of PCs as a new PcView on top of Home, so Back from there steps through a duplicate instead of returning to Home.
 
+## PCs on Android
+
+Every PC card has three dots at its end. They open the PC's options, as does a long press, a mouse's right button, Menu or Shift+F10, and a controller's X. With a D-pad, press Right on a card with nothing further to its right to mark the three dots, then Center. When a key or controller was the last input, the PCs screen says "X or ⋮ for options".
+
+The options are one list: **Open library** or **Pair**, **Resume** and **Quit** (a game is running), **Pair with one-time PIN** (hosts that offer it), **Wake PC** (offline, with a known MAC address), **PC settings**, **Rename**, **Unpair** (paired and online) or **Pairing help** (not paired), and **Remove PC**. An offline PC without a MAC address says "Pair once while the PC is on to enable Wake".
+
+- **Rename** keeps a name on this device only (`HostNames`, keyed by the PC's id), and the library, game and settings screens show it. The PC's own name keeps updating underneath. An empty field, or the PC's own name, brings the PC's name back. The name is at most 40 characters. Removing the PC forgets it.
+- **Unpair** asks first, then asks the PC to forget this device and clears the library saved from it. The PC stays in the list as not paired.
+- **Remove PC** asks first, then deletes the PC, its settings, saved library, covers, hidden games and name from this device. The PC still lists this device until you unpair it.
+- A failed pairing, unpair or wake says why in a dialog. **Try again** is offered where a retry can help (a wrong PIN, the network, a failed unpair) and left out where it cannot (the PC is offline, or no MAC address is known). A pairing you cancelled never shows a result afterwards.
+
 ## A game's page
 
 Pick a card to see the PC the game runs on and the stream settings it will use (resolution, frame rate, bitrate, and which profile layer set them), then **Play** or **Resume**. If another game is running on that PC, the page says that playing this game closes it. **Close game** appears when the PC has granted this device Host control. Without it you get the classic Quit.

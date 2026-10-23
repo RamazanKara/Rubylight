@@ -9,7 +9,9 @@ present (the probe's QPC against the record's present_us).
   python cadence_matrix.py run CASE [CASE ...] --work DIR --package DIR --client EXE [--seconds 25] [--port 48823]
   python cadence_matrix.py report --work DIR [--markdown] [--restamp]
 
-CASE is a name from `list`, `all`, or a group (`core`, `codecs`). The run holds C:\\src\\butterpollo-release\\GPU-LOCK
+CASE is a name from `list`, `all`, or a group: `core` (HEVC, four game cadences, 90/120/144 fps
+streams, VRR hint off/on), `codecs` (H.264 and PyroWave on the 90 fps game), `sixty` (a 60 fps game on a 60 fps
+stream) and `surplus` (a 120 or 240 Hz game on a 60 fps stream). The run holds C:\\src\\butterpollo-release\\GPU-LOCK
 while it streams and waits for another holder; exit code 3 from e2e.py is an AMD encoder hang and stops the batch.
 """
 import argparse, json, os, pathlib, subprocess, sys, time

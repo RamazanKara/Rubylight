@@ -519,7 +519,8 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                 }
                 let mut sample = serde_json::json!({"frame":frame,"qpc":ticks});
                 if let Some(interval) = planned {
-                    // The wait that followed the previous present.
+                    // The gap planned from this present to the next one: it is
+                    // added to `next_frame` after this frame's own wait.
                     sample["planned_us"] = serde_json::json!(interval.as_micros());
                 }
                 if presentation_stats {

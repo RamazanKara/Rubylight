@@ -8,6 +8,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.robolectric.Shadows.shadowOf;
 
@@ -405,5 +406,56 @@ public class HomeShellTest {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) find(group.getChildAt(i), text, found);
         }
+    }
+
+    /** Lays the whole screen out as a 1920x1080 television would and asks where a D-pad press moves focus. */
+    static View focusAfter(android.app.Activity screen, View from, int direction) {
+        ViewGroup root = (ViewGroup) screen.getWindow().getDecorView();
+        root.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, 1920, 1080);
+        return from.focusSearch(direction);
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionTheDpadWalksTheShellBarInOrderAndStepsBetweenBarAndCards() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            View card = hostCard(home, "tower");
+            View homeButton = home.findViewById(R.id.shell_home);
+            View pcs = home.findViewById(R.id.shell_pcs);
+            View settings = home.findViewById(R.id.shell_settings);
+            assertSame("Home, then PCs", pcs, focusAfter(home, homeButton, View.FOCUS_RIGHT));
+            assertSame("then Settings", settings, focusAfter(home, pcs, View.FOCUS_RIGHT));
+            assertSame("and back", pcs, focusAfter(home, settings, View.FOCUS_LEFT));
+            View below = focusAfter(home, homeButton, View.FOCUS_DOWN);
+            assertNotNull("down from the bar reaches a card", below);
+            assertTrue("a card of the list", isInside(list(home), below));
+            // The library's game is first on the page; the PC's card sits under it.
+            ConsoleHomeAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+            View first = list(home).findViewHolderForAdapterPosition(adapter.initialFocus()).itemView;
+            assertNotNull(first);
+            assertSame("up from the PC's card reaches the game above it", first, focusAfter(home, card, View.FOCUS_UP));
+            View above = focusAfter(home, first, View.FOCUS_UP);
+            assertNotNull("up from the first card reaches the bar", above);
+            assertTrue("a button of the bar", isInside(home.findViewById(R.id.shell_bar), above));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static RecyclerView list(Home home) {
+        return home.findViewById(R.id.console_list);
+    }
+
+    private static boolean isInside(View parent, View child) {
+        if (child == parent) return true;
+        for (android.view.ViewParent p = child.getParent(); p != null; p = p.getParent()) {
+            if (p == parent) return true;
+        }
+        return false;
     }
 }

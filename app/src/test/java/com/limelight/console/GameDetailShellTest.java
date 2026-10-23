@@ -3,6 +3,7 @@ package com.limelight.console;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.robolectric.Shadows.shadowOf;
 
@@ -107,6 +108,29 @@ public class GameDetailShellTest {
             Intent settings = shadowOf(page).getNextStartedActivity();
             assertEquals(StreamSettings.class.getName(), settings.getComponent().getClassName());
             assertTrue(settings.getBooleanExtra(com.limelight.ui.ShellBar.EXTRA_FROM_SHELL, false));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionTheDpadWalksTheBarThenPlayThenTheStar() {
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = controller.get();
+            View play = page.findViewById(R.id.detail_play);
+            play.setEnabled(true);
+            View home = page.findViewById(R.id.shell_home);
+            View pcs = page.findViewById(R.id.shell_pcs);
+            View settings = page.findViewById(R.id.shell_settings);
+            assertSame(pcs, HomeShellTest.focusAfter(page, home, View.FOCUS_RIGHT));
+            assertSame(settings, HomeShellTest.focusAfter(page, pcs, View.FOCUS_RIGHT));
+            View below = HomeShellTest.focusAfter(page, home, View.FOCUS_DOWN);
+            assertSame("down from the bar reaches Play first", play, below);
+            assertSame("then the star", page.findViewById(R.id.detail_favourite),
+                    HomeShellTest.focusAfter(page, play, View.FOCUS_DOWN));
+            assertSame("and back up", play, HomeShellTest.focusAfter(page, page.findViewById(R.id.detail_favourite), View.FOCUS_UP));
         } finally {
             controller.pause().stop().destroy();
         }

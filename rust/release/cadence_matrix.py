@@ -7,7 +7,7 @@ present (the probe's QPC against the record's present_us).
 
   python cadence_matrix.py list
   python cadence_matrix.py run CASE [CASE ...] --work DIR --package DIR --client EXE [--seconds 25] [--port 48823]
-  python cadence_matrix.py report --work DIR [--markdown]
+  python cadence_matrix.py report --work DIR [--markdown] [--restamp]
 
 CASE is a name from `list`, `all`, or a group (`core`, `codecs`). The run holds C:\\src\\butterpollo-release\\GPU-LOCK
 while it streams and waits for another holder; exit code 3 from e2e.py is an AMD encoder hang and stops the batch.
@@ -51,23 +51,29 @@ def cases():
 
 # ---- stamp check --------------------------------------------------------------------------------
 
-def stamp_check(probe_us, host_us, window_us=STAMP_WINDOW_US):
+def stamp_check(probe_us, host_us, window_us=STAMP_WINDOW_US, sent_us=None):
     """Match each host present stamp to the probe's latest present before it (within the window) and report the lag
-    and how well the host's gaps follow the probe's gaps. Both lists are QPC microseconds."""
+    and how well the host's gaps follow the probe's gaps. Both lists are QPC microseconds. With sent_us (the last
+    packet's time per stamp, None where unknown) the same gap error is taken for the wire against the game."""
     probe = sorted(probe_us)
+    sent_us = list(sent_us) if sent_us is not None else [None] * len(host_us)
     pairs, index, used = [], 0, set()
-    for stamp in sorted(host_us):
+    for stamp, sent in sorted(zip(host_us, sent_us), key=lambda pair: pair[0]):
         while index + 1 < len(probe) and probe[index + 1] <= stamp:
             index += 1
         if index < len(probe) and 0 <= stamp - probe[index] <= window_us and index not in used:
             used.add(index)
-            pairs.append((index, stamp - probe[index], stamp))
-    lags = [lag for _, lag, _ in pairs]
-    gap_errors = [abs((b[2] - a[2]) - (probe[b[0]] - probe[a[0]])) for a, b in zip(pairs, pairs[1:]) if b[0] == a[0] + 1]
+            pairs.append((index, stamp - probe[index], stamp, sent))
+    lags = [pair[1] for pair in pairs]
+    adjacent = [(a, b) for a, b in zip(pairs, pairs[1:]) if b[0] == a[0] + 1]
+    gap_errors = [abs((b[2] - a[2]) - (probe[b[0]] - probe[a[0]])) for a, b in adjacent]
+    wire_errors = [abs((b[3] - a[3]) - (probe[b[0]] - probe[a[0]])) for a, b in adjacent if a[3] is not None and b[3] is not None]
+    wire_lags = [pair[3] - probe[pair[0]] for pair in pairs if pair[3] is not None]
     ms = lambda values, p: None if not values else percentile(values, p) / 1000
     return dict(host_stamps=len(host_us), probe_presents=len(probe), matched=len(pairs), lag_p50_ms=ms(lags, 50),
                 lag_p99_ms=ms(lags, 99), gap_error_p50_ms=ms(gap_errors, 50), gap_error_p99_ms=ms(gap_errors, 99),
-                gap_pairs=len(gap_errors))
+                gap_pairs=len(gap_errors), wire_error_p50_ms=ms(wire_errors, 50), wire_error_p99_ms=ms(wire_errors, 99),
+                wire_lag_p50_ms=ms(wire_lags, 50), wire_lag_p99_ms=ms(wire_lags, 99))
 
 
 def case_stamp_check(case):
@@ -81,11 +87,13 @@ def case_stamp_check(case):
         raise ValueError('the host record has no media_epoch_qpc_ms')
     base = record['epoch_qpc_ms'] * 1000
     first = min(probe)
-    host = [r['present'] + base for r in record['rows'].values() if r['present'] is not None]
+    rows = [r for r in record['rows'].values() if r['present'] is not None]
+    host = [r['present'] + base for r in rows]
+    sent = [None if r['last_sent'] is None else r['last_sent'] + base for r in rows]
     # Only the stream's own span: the probe also ran before and after it.
     last = max(host, default=first)
     probe = [t for t in probe if min(host, default=first) - STAMP_WINDOW_US <= t <= last]
-    return stamp_check(probe, host)
+    return stamp_check(probe, host, sent_us=sent)
 
 
 # ---- a batch ------------------------------------------------------------------------------------
@@ -185,15 +193,16 @@ def cell(row, stage, keys=('median_ms', 'p99_ms')):
 
 def table_lines(rows, markdown=True):
     head = ['case', 'game ms p50/p99', 'host error ms p50/p99', 'arrival error ms p50/p99', 'pairs', 'stamp lag ms p50/p99',
-            'stamp gap error ms p50/p99']
+            'stamp gap error ms p50/p99', 'wire vs game error ms p50/p99']
     lines = []
     for row in rows:
         stamp = row.get('stamp') or {}
         lag = '-' if stamp.get('lag_p50_ms') is None else f'{stamp["lag_p50_ms"]:.2f} / {stamp["lag_p99_ms"]:.2f}'
         gap = '-' if stamp.get('gap_error_p50_ms') is None else f'{stamp["gap_error_p50_ms"]:.2f} / {stamp["gap_error_p99_ms"]:.2f}'
+        wire = '-' if stamp.get('wire_error_p50_ms') is None else f'{stamp["wire_error_p50_ms"]:.2f} / {stamp["wire_error_p99_ms"]:.2f}'
         pairs = (row.get('host_cadence_error') or {}).get('n', 0)
         lines.append([row['name'], cell(row, 'present_interval'), cell(row, 'host_cadence_error'),
-                      cell(row, 'arrival_cadence_error'), str(pairs), lag, gap])
+                      cell(row, 'arrival_cadence_error'), str(pairs), lag, gap, wire])
     if markdown:
         out = ['| ' + ' | '.join(head) + ' |', '|' + ' --- |' * len(head)]
         return out + ['| ' + ' | '.join(r) + ' |' for r in lines]
@@ -211,8 +220,19 @@ def read_rows(work):
     return list(latest.values())
 
 
+def restamp(rows, work):
+    """The stamp check again from each case's files, for rows written by an older check."""
+    for row in rows:
+        try:
+            row['stamp'] = case_stamp_check(pathlib.Path(work) / f'e2e-{row["name"]}')
+        except (OSError, ValueError, KeyError) as error:
+            row['stamp'] = dict(error=str(error))
+    return rows
+
+
 def report(args):
-    print('\n'.join(table_lines(read_rows(args.work), args.markdown)))
+    rows = read_rows(args.work)
+    print('\n'.join(table_lines(restamp(rows, args.work) if args.restamp else rows, args.markdown)))
     return 0
 
 
@@ -235,6 +255,7 @@ def main(argv=None):
     p = sub.add_parser('report')
     p.add_argument('--work', required=True)
     p.add_argument('--markdown', action='store_true')
+    p.add_argument('--restamp', action='store_true', help='redo the stamp check from the case folders')
     args = parser.parse_args(argv)
     if args.command == 'list':
         for spec in cases().values():

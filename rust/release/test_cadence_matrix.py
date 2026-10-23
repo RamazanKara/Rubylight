@@ -37,6 +37,16 @@ class StampCheck(unittest.TestCase):
         result = cm.stamp_check(probe, host)
         self.assertEqual(result['gap_error_p50_ms'], 2.0)
 
+    def test_the_wire_is_judged_against_the_game_not_the_stamp(self):
+        probe = [i * 11_111 for i in range(100)]
+        # The stamp is quantized to a 4 ms grid; the last packet follows the game's cadence 6 ms later.
+        host = [t // 4000 * 4000 + 4000 for t in probe]
+        sent = [t + 6000 + (500 if i % 2 else 0) for i, t in enumerate(probe)]
+        result = cm.stamp_check(probe, host, sent_us=sent)
+        self.assertGreater(result['gap_error_p99_ms'], 3.0)
+        self.assertEqual((result['wire_error_p50_ms'], result['wire_lag_p50_ms']), (.5, 6.0))
+        self.assertIsNone(cm.stamp_check(probe, host)['wire_error_p50_ms'])
+
     def test_stamps_far_from_any_present_do_not_match(self):
         result = cm.stamp_check([0, 11_111], [500_000])
         self.assertEqual(result['matched'], 0)
@@ -57,12 +67,13 @@ class StampCheck(unittest.TestCase):
         header = ('# rubylight timing record 1\n# media_epoch_qpc_ms=%s\n# codec=hevc capture=wgc present_source=etw\n'
                   'wire_frame,rtp_us,present_us,acquired_us,published_us,claimed_us,submitted_us,encoded_us,packetized_us,'
                   'prepared_us,first_sent_us,last_sent_us\n' % epoch_ms)
-        rows = ''.join(f'{i},0,{100_000 + i * 11_111 + 2500},,,,,,,,,\n' for i in range(20))
+        rows = ''.join(f'{i},0,{100_000 + i * 11_111 + 2500},,,,,,,,,{100_000 + i * 11_111 + 7000}\n' for i in range(20))
         (directory / 'record' / 'host-1.csv').write_text(header + rows + '# dropped=0\n')
         result = cm.case_stamp_check(directory)
         self.assertEqual(result['matched'], 20)
         self.assertAlmostEqual(result['lag_p50_ms'], 2.5, places=2)
         self.assertLess(result['gap_error_p99_ms'], .01)
+        self.assertAlmostEqual(result['wire_lag_p50_ms'], 7.0, places=2)
 
 
 class Report(unittest.TestCase):

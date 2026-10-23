@@ -362,6 +362,11 @@ impl Page {
         self.requests.send(Request::Write { gpu: row.gpu, id: row.id.clone(), value }).is_ok()
     }
 
+    /// An exit is running: the page must stay until the host has answered, so a failure shows.
+    pub fn busy(&self) -> bool {
+        matches!(lock(&self.shared).exit, ExitState::Running(_))
+    }
+
     /// Runs End session, Close game or Quit game. Returns false when one is already running.
     pub fn exit(&self, exit: HostExit) -> bool {
         let mut state = lock(&self.shared);
@@ -458,6 +463,9 @@ impl Worker {
         let write = SettingsWrite { gpu, changes: vec![Change { id: id.clone(), value }] };
         let result = api.write_radeon(&write);
         let failed = result.is_err();
+        if result.as_ref().is_err_and(is_missing) {
+            self.gate.radeon_missing();
+        }
         if failed {
             // The value on the host may differ from what the panel shows: read it back now.
             self.gate.radeon_now();
@@ -537,6 +545,19 @@ mod tests {
     }
 
     #[test]
+    fn nothing_is_offered_until_the_permissions_are_read() {
+        let unknown = Hints { launch: false, host_control: false };
+        let mut state = State::new();
+        assert!(state.actions(unknown).is_empty(), "no Launch permission known: no exits");
+        state.launch = Some(true);
+        assert_eq!(exits(&state.actions(unknown)), [HostExit::End, HostExit::QuitApp]);
+        state.host_control = Some(true);
+        assert_eq!(exits(&state.actions(unknown)), [HostExit::End, HostExit::CloseGame]);
+        state.launch = Some(false);
+        assert!(state.actions(unknown).is_empty());
+    }
+
+    #[test]
     fn the_host_can_block_an_action_with_a_reason() {
         let busy = session(
             SessionState::Launching,
@@ -606,17 +627,20 @@ mod tests {
     // A host that counts what it is asked, with the doc's Radeon answer.
     struct Fake {
         reads: Arc<AtomicUsize>,
+        read_times: Arc<Mutex<Vec<Instant>>>,
         sessions: Arc<AtomicUsize>,
         writes: Arc<Mutex<Vec<SettingsWrite>>>,
         actions: Arc<Mutex<Vec<ActionId>>>,
         quits: Arc<AtomicUsize>,
         radeon: Arc<Mutex<Option<Radeon>>>,
         write_error: Option<ErrorCode>,
+        write_missing: bool,
         quit: Result<bool, u16>,
     }
 
     struct Counters {
         reads: Arc<AtomicUsize>,
+        read_times: Arc<Mutex<Vec<Instant>>>,
         sessions: Arc<AtomicUsize>,
         writes: Arc<Mutex<Vec<SettingsWrite>>>,
         actions: Arc<Mutex<Vec<ActionId>>>,
@@ -637,6 +661,7 @@ mod tests {
     fn fake(writable: bool) -> (Fake, Counters) {
         let counters = Counters {
             reads: Arc::default(),
+            read_times: Arc::default(),
             sessions: Arc::default(),
             writes: Arc::default(),
             actions: Arc::default(),
@@ -644,12 +669,14 @@ mod tests {
         };
         let fake = Fake {
             reads: counters.reads.clone(),
+            read_times: counters.read_times.clone(),
             sessions: counters.sessions.clone(),
             writes: counters.writes.clone(),
             actions: counters.actions.clone(),
             quits: counters.quits.clone(),
             radeon: Arc::new(Mutex::new(Some(radeon_json(writable)))),
             write_error: None,
+            write_missing: false,
             quit: Ok(true),
         };
         (fake, counters)
@@ -684,10 +711,14 @@ mod tests {
         }
         fn radeon(&self) -> Result<Radeon, Error> {
             self.reads.fetch_add(1, Ordering::SeqCst);
+            self.read_times.lock().unwrap().push(Instant::now());
             self.radeon.lock().unwrap().clone().ok_or_else(|| Error::NotFound("radeon".into()))
         }
         fn write_radeon(&self, write: &SettingsWrite) -> Result<Radeon, Error> {
             self.writes.lock().unwrap().push(write.clone());
+            if self.write_missing {
+                return Err(Error::NotFound("radeon".into()));
+            }
             match self.write_error {
                 Some(code) => Err(api_error(409, code, Some("chill.max_fps"))),
                 None => Ok(radeon_json(true)),
@@ -732,12 +763,16 @@ mod tests {
     #[test]
     fn radeon_is_read_at_most_once_per_interval() {
         let (fake, counters) = fake(true);
-        let page = open(fake, 10_000, 200);
-        std::thread::sleep(Duration::from_millis(450));
-        let reads = counters.reads.load(Ordering::SeqCst);
-        // Reads start at 0, ~200 and ~400 ms; an interval counts from the end of the last read.
-        assert!((2..=3).contains(&reads), "{reads} reads in 450 ms at a 200 ms interval");
+        let page = open(fake, 10_000, 100);
+        // Wait for reads rather than for time: the check is on the gaps the host saw, which
+        // can only be longer than the interval on a slow machine, never shorter.
+        until("four reads", || counters.reads.load(Ordering::SeqCst) >= 4);
         drop(page);
+        let times = counters.read_times.lock().unwrap().clone();
+        for pair in times.windows(2) {
+            let gap = pair[1].duration_since(pair[0]);
+            assert!(gap >= Duration::from_millis(100), "two Radeon reads {gap:?} apart at a 100 ms interval");
+        }
     }
 
     #[test]
@@ -848,6 +883,35 @@ mod tests {
         until("failed", || matches!(page.state().exit, ExitState::Failed(..)));
         let ExitState::Failed(_, failure) = page.state().exit else { unreachable!() };
         assert_eq!(exit_failure_text(&failure), "The running game belongs to another device.");
+    }
+
+    #[test]
+    fn the_page_is_busy_until_an_exit_has_been_answered() {
+        let (fake, _counters) = fake(true);
+        let page = open(fake, 1000, 1000);
+        assert!(!page.busy());
+        // The state an exit leaves behind until the host answers.
+        lock(&page.shared).exit = ExitState::Running(HostExit::End);
+        assert!(page.busy(), "closing the page now would hide the host's answer");
+        assert!(!page.exit(HostExit::CloseGame), "a second exit is refused too");
+        lock(&page.shared).exit = ExitState::Failed(HostExit::End, Failure::of(&Error::NotFound("x".into()), None));
+        assert!(!page.busy(), "a failed exit leaves the page free to close");
+    }
+
+    #[test]
+    fn a_write_that_gets_404_hides_the_panel_and_stops_the_reads() {
+        let (mut fake, counters) = fake(true);
+        fake.write_missing = true;
+        let page = open(fake, 1000, 40);
+        until("the panel", || page.state().radeon.panel.is_some());
+        let row = editable_row(&page, "chill.max_fps");
+        assert!(page.write(&row, Value::Integer(110)));
+        until("hidden", || page.state().radeon.hidden);
+        std::thread::sleep(Duration::from_millis(30));
+        let reads = counters.reads.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(counters.reads.load(Ordering::SeqCst), reads, "no more reads once a write got 404");
+        assert!(page.state().radeon.hidden, "and the panel does not come back");
     }
 
     /// Manual: the page's worker against a real paired host, without a stream.

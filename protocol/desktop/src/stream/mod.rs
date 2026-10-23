@@ -1248,6 +1248,10 @@ impl Streaming {
     }
 
     pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+        // While End or Close game runs, the Session page stays so its answer (or failure) shows.
+        if self.menu_visible && self.session_page.as_ref().is_some_and(|p| p.busy()) {
+            return;
+        }
         self.menu_visible = !self.menu_visible;
         if !self.menu_visible {
             self.session_page = None;
@@ -1279,13 +1283,17 @@ impl Streaming {
 
     /// Closes the Session page; its worker ends and nothing polls.
     pub fn close_session_page(&mut self) {
+        if self.session_page.as_ref().is_some_and(|p| p.busy()) {
+            return;
+        }
         self.session_page = None;
         self.needs_redraw = true;
     }
 
-    /// What is known about this device's permissions before the page has read them.
+    /// What is known about this device's permissions before the page has read them: nothing,
+    /// so nothing is offered until `/capabilities` has answered.
     pub fn session_hints(&self) -> crate::session_page::Hints {
-        crate::session_page::Hints { launch: true, host_control: false }
+        crate::session_page::Hints { launch: false, host_control: false }
     }
 
     /// The connection facts under the Session page's actions.

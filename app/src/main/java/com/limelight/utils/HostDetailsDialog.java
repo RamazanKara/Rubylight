@@ -69,7 +69,7 @@ public final class HostDetailsDialog {
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(dialog.content);
         new NavigationDialogBuilder(activity)
-                .setTitle(details.name)
+                .setTitle(details.displayName())
                 .setView(scroll)
                 .setPositiveButton(R.string.host_details_close, null)
                 .setNeutralButton(R.string.host_details_copy, (d, which) -> {

@@ -253,7 +253,7 @@ public class UiHelper {
 
         AlertDialog.Builder builder = new NavigationDialogBuilder(parent);
         AlertDialog dialog = builder.setMessage(parent.getResources().getString(R.string.delete_pc_msg))
-                .setTitle(computer.name)
+                .setTitle(computer.displayName())
                 .setPositiveButton(parent.getResources().getString(R.string.pcview_menu_delete_pc), dialogClickListener)
                 .setNegativeButton(android.R.string.cancel, dialogClickListener)
                 .setOnCancelListener(ignored -> { if (onNo != null) onNo.run(); })

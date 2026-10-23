@@ -63,6 +63,8 @@ public class PcViewLifecycleTest {
     }
 
     private final ComputerManagerListener[] polling = new ComputerManagerListener[1];
+    private final java.util.Map<String, String> renamed = new java.util.LinkedHashMap<>();
+    private final java.util.List<ComputerDetails> removed = new java.util.ArrayList<>();
 
     private ActivityController<Library> pairingScreen(CountDownLatch pollingStopped, int port) {
         Application application = RuntimeEnvironment.getApplication();
@@ -77,6 +79,8 @@ public class PcViewLifecycleTest {
             @Override public boolean isPersistent() { return false; }
             @Override public void startPolling(ComputerManagerListener listener) { polling[0] = listener; }
             @Override public void stopPolling() { }
+            @Override public void renameComputer(String uuid, String alias) { renamed.put(uuid, alias); }
+            @Override public void removeComputer(ComputerDetails computer) { removed.add(computer); }
             @Override public String getUniqueId() { return "client"; }
             @Override public void waitForPollingStopped() {
                 try {
@@ -169,16 +173,22 @@ public class PcViewLifecycleTest {
             report(asleep);
 
             assertEquals(labels(screen, R.string.library_open, R.string.applist_menu_resume, R.string.applist_menu_quit,
-                    R.string.pc_menu_settings, R.string.pcview_menu_delete_pc), sheetFor(screen, "Den"));
-            assertEquals(labels(screen, R.string.library_open, R.string.pc_menu_settings, R.string.pcview_menu_delete_pc),
-                    sheetFor(screen, "Office"));
+                    R.string.pc_menu_settings, R.string.host_menu_rename, R.string.pcview_menu_unpair_pc,
+                    R.string.pcview_menu_delete_pc), sheetFor(screen, "Den"));
+            assertEquals(labels(screen, R.string.library_open, R.string.pc_menu_settings, R.string.host_menu_rename,
+                    R.string.pcview_menu_unpair_pc, R.string.pcview_menu_delete_pc), sheetFor(screen, "Office"));
             assertEquals(labels(screen, R.string.pcview_menu_pair_pc, R.string.pair_otp_title, R.string.pc_menu_settings,
-                    R.string.discovery_help, R.string.pcview_menu_delete_pc), sheetFor(screen, "Apollo"));
+                    R.string.host_menu_rename, R.string.discovery_help, R.string.pcview_menu_delete_pc),
+                    sheetFor(screen, "Apollo"));
             // A PC this device has never read offers no one-time PIN.
-            assertEquals(labels(screen, R.string.pcview_menu_pair_pc, R.string.pc_menu_settings,
+            assertEquals(labels(screen, R.string.pcview_menu_pair_pc, R.string.pc_menu_settings, R.string.host_menu_rename,
                     R.string.discovery_help, R.string.pcview_menu_delete_pc), sheetFor(screen, "PC"));
-            assertEquals(labels(screen, R.string.pcview_menu_send_wol, R.string.pc_menu_settings,
+            assertEquals(labels(screen, R.string.pcview_menu_send_wol, R.string.pc_menu_settings, R.string.host_menu_rename,
                     R.string.pcview_menu_delete_pc), sheetFor(screen, "Attic"));
+            // Without a MAC address Wake is hidden and the sheet says how to get one.
+            report(pc("lost", "Loft", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED));
+            assertEquals(labels(screen, R.string.pc_menu_settings, R.string.host_menu_rename,
+                    R.string.pcview_menu_delete_pc), sheetFor(screen, "Loft"));
         } finally {
             controller.pause().stop().destroy();
         }
@@ -269,8 +279,8 @@ public class PcViewLifecycleTest {
             Library screen = controller.get();
             GridView grid = screen.findViewById(R.id.fragmentView);
             grid.performItemClick(null, 0, 0);
-            worker = ReflectionHelpers.getField(screen, "pairingThread");
-            AlertDialog dialog = ReflectionHelpers.getField(screen, "pairingDialog");
+            worker = ReflectionHelpers.getField(screen.hostActions(), "pairingThread");
+            AlertDialog dialog = ReflectionHelpers.getField(screen.hostActions(), "pairingDialog");
             assertNotNull(dialog);
             assertTrue(dialog.isShowing());
             TextView message = dialog.findViewById(android.R.id.message);
@@ -285,8 +295,8 @@ public class PcViewLifecycleTest {
             worker.join(5000);
             assertFalse(worker.isAlive());
             assertFalse(dialog.isShowing());
-            assertNull(ReflectionHelpers.getField(screen, "pairingDialog"));
-            assertNull(ReflectionHelpers.getField(screen, "pairingRequest"));
+            assertNull(ReflectionHelpers.getField(screen.hostActions(), "pairingDialog"));
+            assertNull(ReflectionHelpers.getField(screen.hostActions(), "pairingRequest"));
             assertTrue(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
         } finally {
             controller.pause().stop().destroy();
@@ -304,11 +314,11 @@ public class PcViewLifecycleTest {
                 Library screen = controller.get();
                 GridView grid = screen.findViewById(R.id.fragmentView);
                 grid.performItemClick(null, 0, 0);
-                worker = ReflectionHelpers.getField(screen, "pairingThread");
+                worker = ReflectionHelpers.getField(screen.hostActions(), "pairingThread");
                 AlertDialog pinDialog;
                 try (Socket connection = host.accept()) {
                     Shadows.shadowOf(Looper.getMainLooper()).idle();
-                    pinDialog = ReflectionHelpers.getField(screen, "pairingDialog");
+                    pinDialog = ReflectionHelpers.getField(screen.hostActions(), "pairingDialog");
                     assertNotNull(pinDialog);
                     assertTrue(pinDialog.isShowing());
                     connection.getOutputStream().write(("HTTP/1.1 503 Service Unavailable\r\n" +
@@ -326,16 +336,16 @@ public class PcViewLifecycleTest {
 
                 failure.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
                 Shadows.shadowOf(Looper.getMainLooper()).idle();
-                worker = ReflectionHelpers.getField(screen, "pairingThread");
+                worker = ReflectionHelpers.getField(screen.hostActions(), "pairingThread");
                 try (Socket connection = host.accept()) {
-                    AlertDialog retry = ReflectionHelpers.getField(screen, "pairingDialog");
+                    AlertDialog retry = ReflectionHelpers.getField(screen.hostActions(), "pairingDialog");
                     assertNotNull(retry);
                     assertTrue(retry.isShowing());
                     // Leaving to type the PIN into the host's web page on this phone keeps pairing going.
                     controller.pause();
                     assertTrue(worker.isAlive());
-                    assertSame(retry, ReflectionHelpers.getField(screen, "pairingDialog"));
-                    assertNotNull(ReflectionHelpers.getField(screen, "pairingRequest"));
+                    assertSame(retry, ReflectionHelpers.getField(screen.hostActions(), "pairingDialog"));
+                    assertNotNull(ReflectionHelpers.getField(screen.hostActions(), "pairingRequest"));
                     connection.getOutputStream().write(("HTTP/1.1 503 Service Unavailable\r\n" +
                             "Content-Length: 0\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
                     worker.join(5000);
@@ -343,7 +353,7 @@ public class PcViewLifecycleTest {
                 }
                 // The result waits for the return to the PC list.
                 Shadows.shadowOf(Looper.getMainLooper()).idle();
-                AlertDialog retry = ReflectionHelpers.getField(screen, "pairingDialog");
+                AlertDialog retry = ReflectionHelpers.getField(screen.hostActions(), "pairingDialog");
                 assertTrue(retry.isShowing());
                 assertFalse(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
                 controller.resume();
@@ -354,12 +364,231 @@ public class PcViewLifecycleTest {
                 assertTrue(again.isShowing());
                 assertEquals(screen.getString(R.string.pair_connection_fix),
                         ((TextView) again.findViewById(android.R.id.message)).getText().toString());
-                assertNull(ReflectionHelpers.getField(screen, "pairingRequest"));
+                assertNull(ReflectionHelpers.getField(screen.hostActions(), "pairingRequest"));
                 assertTrue(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
             } finally {
                 if (controller != null) controller.pause().stop().destroy();
                 if (worker != null) worker.join(5000);
             }
+        }
+    }
+
+    private enum Input { TOUCH_MORE, LONG_PRESS, MOUSE_RIGHT_CLICK, DPAD_RIGHT_THEN_CENTER, MENU_KEY, SHIFT_F10, BUTTON_X }
+
+    private static void press(android.view.View view, int code, int meta) {
+        long now = android.os.SystemClock.uptimeMillis();
+        view.dispatchKeyEvent(new android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, code, 0, meta));
+        view.dispatchKeyEvent(new android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_UP, code, 0, meta));
+    }
+
+    /** Opens the options of {@code row} the way {@code input} does and returns the sheet, or null when nothing opened. */
+    private static com.limelight.ui.ActionSheet openOptionsWith(Library screen, int row, Input input) {
+        GridView grid = screen.findViewById(R.id.fragmentView);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        android.view.View card = grid.getChildAt(row - grid.getFirstVisiblePosition());
+        assertNotNull("Row " + row + " is on screen", card);
+        switch (input) {
+            case TOUCH_MORE:
+                assertTrue(card.findViewById(R.id.grid_more).performClick());
+                break;
+            case LONG_PRESS:
+                assertTrue(grid.getOnItemLongClickListener().onItemLongClick(grid, card, row, grid.getItemIdAtPosition(row)));
+                break;
+            case MOUSE_RIGHT_CLICK:
+                assertTrue(card.performContextClick());
+                break;
+            default:
+                grid.requestFocus();
+                grid.setSelection(row);
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                assertEquals(row, grid.getSelectedItemPosition());
+                if (input == Input.DPAD_RIGHT_THEN_CENTER) {
+                    // Every row here is the last in its line, so Right marks the three dots and Center presses them.
+                    press(grid, android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 0);
+                    press(grid, android.view.KeyEvent.KEYCODE_DPAD_CENTER, 0);
+                } else if (input == Input.MENU_KEY) {
+                    press(grid, android.view.KeyEvent.KEYCODE_MENU, 0);
+                } else if (input == Input.SHIFT_F10) {
+                    press(grid, android.view.KeyEvent.KEYCODE_F10, android.view.KeyEvent.META_SHIFT_ON);
+                } else {
+                    press(grid, android.view.KeyEvent.KEYCODE_BUTTON_X, 0);
+                }
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        android.app.Dialog dialog = ShadowDialog.getLatestDialog();
+        return dialog instanceof com.limelight.ui.ActionSheet && dialog.isShowing() ? (com.limelight.ui.ActionSheet) dialog : null;
+    }
+
+    @Test
+    public void everyInputOpensTheOptionsOfEveryPcState() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            ComputerDetails running = pc("running", "Den", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            running.runningGameId = 7;
+            report(running);
+            report(pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            ComputerDetails asleep = pc("asleep", "Attic", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED);
+            asleep.macAddress = "02:00:00:00:00:01";
+            report(asleep);
+            report(pc("lost", "Loft", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            assertEquals(5, grid.getCount());
+            for (int row = 0; row < grid.getCount(); row++) {
+                for (Input input : Input.values()) {
+                    String where = ((PcView.ComputerObject) grid.getItemAtPosition(row)).details.name + " by " + input;
+                    com.limelight.ui.ActionSheet sheet = openOptionsWith(screen, row, input);
+                    assertNotNull(where, sheet);
+                    java.util.List<String> actions = new java.util.ArrayList<>();
+                    collectActions(sheet.findViewById(android.R.id.content), actions);
+                    assertTrue(where + ": " + actions, actions.contains(screen.getString(R.string.host_menu_rename)));
+                    assertTrue(where + ": " + actions, actions.contains(screen.getString(R.string.pcview_menu_delete_pc)));
+                    sheet.dismiss();
+                    Shadows.shadowOf(Looper.getMainLooper()).idle();
+                }
+            }
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static void saveName(Library screen, ComputerDetails computer, String typed) {
+        ReflectionHelpers.callInstanceMethod(screen.hostActions(), "saveName",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer),
+                ReflectionHelpers.ClassParameter.from(String.class, typed));
+    }
+
+    private static void showResult(com.limelight.computers.HostActions actions, int generation, boolean paired,
+                                   String failure, ComputerDetails computer) {
+        ReflectionHelpers.callInstanceMethod(actions, "showPairingResult",
+                ReflectionHelpers.ClassParameter.from(int.class, generation),
+                ReflectionHelpers.ClassParameter.from(boolean.class, paired),
+                ReflectionHelpers.ClassParameter.from(String.class, failure),
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer),
+                ReflectionHelpers.ClassParameter.from(String.class, null));
+    }
+
+    private static void findByText(android.view.View view, String text, java.util.List<android.view.View> found) {
+        if (view instanceof TextView && text.contentEquals(((TextView) view).getText())) {
+            found.add(view);
+        } else if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) findByText(group.getChildAt(i), text, found);
+        }
+    }
+
+    @Test
+    public void renamingShowsTheNameEverywhereAndEmptyBringsBackThePcsOwn() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            PcView.ComputerObject computer = (PcView.ComputerObject) grid.getItemAtPosition(0);
+            assertEquals("Office", computer.details.name);
+
+            com.limelight.ui.ActionSheet sheet = openOptionsWith(screen, 0, Input.LONG_PRESS);
+            java.util.List<android.view.View> buttons = new java.util.ArrayList<>();
+            findByText(sheet.findViewById(android.R.id.content), screen.getString(R.string.host_menu_rename), buttons);
+            assertEquals(1, buttons.size());
+            buttons.get(0).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+            android.widget.EditText field = dialog.findViewById(R.id.rename_name);
+            assertEquals("Office", field.getText().toString());
+            field.setText("  Living room PC  ");
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertEquals("Living room PC", renamed.get("ready"));
+            assertEquals("Office", computer.details.name);
+            assertEquals("Living room PC", computer.details.displayName());
+            java.util.List<android.view.View> labels = new java.util.ArrayList<>();
+            findByText(grid.getChildAt(0), "Living room PC", labels);
+            assertFalse("The row shows the new name", labels.isEmpty());
+
+            // The empty name, and the PC's own name, both mean no alias.
+            saveName(screen, computer.details, "   ");
+            assertTrue(renamed.containsKey("ready"));
+            assertNull(renamed.get("ready"));
+            assertEquals("Office", computer.details.displayName());
+            saveName(screen, computer.details, "Den");
+            assertEquals("Den", renamed.get("ready"));
+            saveName(screen, computer.details, " Office ");
+            assertNull(renamed.get("ready"));
+            assertEquals("Office", computer.details.displayName());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void removeAsksFirstAndForgetsThePcOnlyAfterTheAnswer() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            PcView.ComputerObject computer = (PcView.ComputerObject) grid.getItemAtPosition(0);
+            computer.details.alias = "Den";
+
+            screen.hostActions().confirmRemove(computer.details);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertEquals(screen.getString(R.string.delete_pc_msg),
+                    ((TextView) dialog.findViewById(android.R.id.message)).getText().toString());
+            assertEquals(screen.getString(R.string.pcview_menu_delete_pc),
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            assertTrue(removed.isEmpty());
+            assertEquals(2, grid.getCount());
+
+            screen.hostActions().confirmRemove(computer.details);
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(java.util.List.of(computer.details), removed);
+            assertEquals(1, grid.getCount());
+            assertEquals("PC", ((PcView.ComputerObject) grid.getItemAtPosition(0)).details.name);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aCancelledPairingNeverShowsItsResult() throws Exception {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(1), 47989);
+        Thread worker = null;
+        try {
+            Library screen = controller.get();
+            com.limelight.computers.HostActions actions = screen.hostActions();
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            ComputerDetails computer = ((PcView.ComputerObject) grid.getItemAtPosition(0)).details;
+            grid.performItemClick(null, 0, 0);
+            worker = ReflectionHelpers.getField(actions, "pairingThread");
+            int generation = ReflectionHelpers.getField(actions, "pairingGeneration");
+            assertTrue(actions.isPairing());
+
+            actions.cancelPairing();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            worker.join(5000);
+            assertFalse(actions.isPairing());
+            android.app.Dialog before = ShadowDialog.getLatestDialog();
+
+            // The cancelled attempt reports late, on screen and while the screen is paused.
+            showResult(actions, generation, true, null, computer);
+            showResult(actions, generation, false, "late failure", computer);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertSame(before, ShadowDialog.getLatestDialog());
+            controller.pause();
+            showResult(actions, generation, false, "late failure", computer);
+            assertFalse(actions.deliverPendingResult());
+            controller.resume();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertSame(before, ShadowDialog.getLatestDialog());
+            assertNull(ReflectionHelpers.getField(actions, "pendingPairingResult"));
+        } finally {
+            controller.pause().stop().destroy();
+            if (worker != null) worker.join(5000);
         }
     }
 

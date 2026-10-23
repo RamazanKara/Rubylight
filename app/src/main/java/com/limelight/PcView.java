@@ -1,24 +1,20 @@
 package com.limelight;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.StringReader;
-import java.net.UnknownHostException;
 import java.util.Objects;
 
 import com.limelight.binding.video.DecoderBenchmark;
-import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.crypto.AndroidCryptoProvider;
 import com.limelight.computers.ComputerManagerListener;
+import com.limelight.computers.HostActions;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.grid.PcGridAdapter;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
-import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.http.PairingManager.PairState;
-import com.limelight.nvstream.wol.WakeOnLanSender;
 import com.limelight.preferences.AddComputerManually;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostStreamSettings;
@@ -28,7 +24,6 @@ import com.limelight.ui.AdapterFragmentCallbacks;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
 import com.limelight.update.UpdateFlow;
-import com.limelight.update.UpdateFlow;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.HelpLauncher;
@@ -37,8 +32,6 @@ import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.UiHelper;
 
 import com.limelight.ui.NightjarActivity;
-import android.app.ActivityManager;
-import androidx.appcompat.app.AlertDialog;
 import com.limelight.ui.NavigationDialogBuilder;
 import android.app.Service;
 import android.content.ComponentName;
@@ -51,14 +44,9 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
-import android.text.InputFilter;
-import android.text.InputType;
 import com.limelight.ui.ActionSheet;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.AbsListView;
-import android.widget.EditText;
-import android.widget.Toast;
 
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -72,12 +60,23 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private ActionSheet pcMenu;
     private PcGridAdapter pcGridAdapter;
     private ShortcutHelper shortcutHelper;
-    private NvHTTP pairingRequest;
-    private Thread pairingThread;
-    private volatile int pairingGeneration;
-    private AlertDialog pairingDialog;
-    // A pairing result that arrived while the PC list was in the background, shown on return.
-    private Runnable pendingPairingResult;
+    private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
+        @Override public ComputerManagerService.ComputerManagerBinder binder() { return managerBinder; }
+        @Override public boolean isForeground() { return inForeground; }
+        @Override public void onPaired(ComputerDetails computer) { doAppList(computer, true, false); }
+        @Override public void onRemoved(ComputerDetails computer) { removeFromList(computer); }
+        @Override public void onRenamed(ComputerDetails computer) { pcGridAdapter.notifyDataSetChanged(); }
+        @Override public void onWakeSent(ComputerDetails computer) {
+            ComputerObject row = findComputer(computer.uuid);
+            if (row != null) {
+                // The row says "Waking�" until the PC answers or the wake window passes.
+                row.wakeSentAt = SystemClock.elapsedRealtime();
+                pcGridAdapter.notifyDataSetChanged();
+            }
+        }
+        @Override public void pausePolling() { stopComputerUpdates(false); }
+        @Override public void resumePolling() { startComputerUpdates(); }
+    });
     private volatile ComputerManagerService.ComputerManagerBinder managerBinder;
     private boolean managerServiceBound;
     private Thread serviceWaitThread;
@@ -137,6 +136,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private final static int PC_SETTINGS_ID = 12;
     private final static int OTP_PAIR_ID = 13;
     private final static int PAIRING_HELP_ID = 14;
+    private final static int RENAME_ID = 15;
 
     /** How long a row says "Waking…" after a wake signal while the PC has not answered. */
     static final long WAKE_WINDOW_MS = 2 * 60 * 1000;
@@ -332,8 +332,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     public void onDestroy() {
         super.onDestroy();
 
-        cancelPairing();
-        pendingPairingResult = null;
+        hostActions.destroy();
         if (serviceWaitThread != null) {
             serviceWaitThread.interrupt();
         }
@@ -356,11 +355,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             // A host's library can arrive while this screen is away, which makes Home available.
             ShellBar.refresh(this);
         }
-        if (pendingPairingResult != null) {
-            Runnable result = pendingPairingResult;
-            pendingPairingResult = null;
-            result.run();
-        } else if (pairingThread == null) {
+        if (!hostActions.deliverPendingResult() && !hostActions.isPairing()) {
             startComputerUpdates();
         }
         if (completeOnCreateCalled) {
@@ -391,6 +386,37 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         Dialog.closeDialogs(PcView.this);
     }
 
+    // The hint about X and the three dots shows once a key or button was the last input, not a touch.
+    private boolean keysAreLastInput;
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            setKeysAreLastInput(true);
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+            setKeysAreLastInput(false);
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
+    private void setKeysAreLastInput(boolean keys) {
+        keysAreLastInput = keys;
+        updateOptionsHint();
+    }
+
+    private void updateOptionsHint() {
+        View hint = findViewById(R.id.pc_options_hint);
+        if (hint != null && pcGridAdapter != null) {
+            hint.setVisibility(keysAreLastInput && pcGridAdapter.getCount() > 0 ? View.VISIBLE : View.GONE);
+        }
+    }
+
     /** The first library was just written: Home joins the shell bar, and with it becomes the root for Back. */
     void onLibrarySeeded() {
         if (isFinishing() || isDestroyed()) return;
@@ -399,6 +425,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
     private void updateEmptyState() {
         boolean empty = pcGridAdapter.getCount() == 0;
+        updateOptionsHint();
         noPcFoundLayout.setVisibility(empty ? View.VISIBLE : View.GONE);
         findViewById(R.id.pcFragmentContainer).setVisibility(empty ? View.GONE : View.VISIBLE);
         findViewById(R.id.manuallyAddPc).setVisibility(empty ? View.GONE : View.VISIBLE);
@@ -438,13 +465,14 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     }
 
     /**
-     * The PC's menu: the actions for its current state first, then its settings, and Delete PC last.
-     * Everything else about the PC lives on its settings screen.
+     * The PC's menu, in this order: Open library, Resume and Quit, Pair, one-time PIN, Wake, PC settings,
+     * Rename, Unpair or Pairing help, then Remove PC last. Touch reaches it by long press or the three
+     * dots, a mouse by right-click, a D-pad or keyboard by Menu or Shift+F10, a controller by X.
      */
     void showComputerMenu(ComputerObject computer) {
         if (pcMenu != null) return;
         stopComputerUpdates(false);
-        ActionSheet sheet = new ActionSheet(this, computer.details.name);
+        ActionSheet sheet = new ActionSheet(this, computer.details.displayName());
         pcMenu = sheet;
         ComputerDetails details = computer.details;
         PcGridAdapter.RowState state = computer.rowState();
@@ -468,8 +496,15 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         }
         if (details.state != ComputerDetails.State.ONLINE && details.macAddress != null) {
             addPcAction(sheet, computer, WOL_ID, R.drawable.ic_power, getString(R.string.pcview_menu_send_wol));
+        } else if (state == PcGridAdapter.RowState.OFFLINE) {
+            // Wake needs the PC's address from a pairing made while it was on.
+            sheet.addNote(sheet.addGroup(), getString(R.string.host_wake_needs_pairing), false);
         }
         addPcAction(sheet, computer, PC_SETTINGS_ID, R.drawable.ic_settings, getString(R.string.pc_menu_settings));
+        addPcAction(sheet, computer, RENAME_ID, R.drawable.ic_edit, getString(R.string.host_menu_rename));
+        if (state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY) {
+            addPcAction(sheet, computer, UNPAIR_ID, R.drawable.ic_unpair, getString(R.string.pcview_menu_unpair_pc));
+        }
         if (details.pairState != PairState.PAIRED) {
             addPcAction(sheet, computer, PAIRING_HELP_ID, R.drawable.ic_help, getString(R.string.discovery_help));
         }
@@ -492,210 +527,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         });
     }
 
-    private void doPair(final ComputerDetails computer) {
-        doPair(computer, null, null);
-    }
-
-    private void showOneTimePinDialog(final ComputerDetails computer) {
-        View fields = getLayoutInflater().inflate(R.layout.dialog_pair_otp, null);
-        EditText pin = fields.findViewById(R.id.pair_pin);
-        pin.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        pin.setFilters(new InputFilter[] {new InputFilter.LengthFilter(4)});
-        pin.setSaveEnabled(false);
-        EditText passphrase = fields.findViewById(R.id.pair_passphrase);
-        passphrase.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        passphrase.setSingleLine(true);
-        passphrase.setSaveEnabled(false);
-        AlertDialog dialog = new NavigationDialogBuilder(this)
-                .setTitle(R.string.pair_otp_title)
-                .setView(fields)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.pcview_menu_pair_pc, null)
-                .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            String pinValue = pin.getText().toString();
-            String passphraseValue = passphrase.getText().toString();
-            if (!pinValue.matches("[0-9]{4}")) {
-                pin.setError(getString(R.string.pair_otp_invalid_pin));
-                return;
-            }
-            if (passphraseValue.codePointCount(0, passphraseValue.length()) < 4) {
-                passphrase.setError(getString(R.string.pair_otp_invalid_passphrase));
-                return;
-            }
-            dialog.dismiss();
-            doPair(computer, pinValue, passphraseValue);
-        }));
-        dialog.setOnDismissListener(ignored -> {
-            pin.getText().clear();
-            passphrase.getText().clear();
-        });
-        dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        dialog.show();
-    }
-
-    private synchronized void cancelPairing() {
-        pairingGeneration++;
-        if (pairingRequest != null) {
-            pairingRequest.cancelPendingRequests();
-            pairingRequest = null;
-            LimeLog.info("Pairing cancelled");
-        }
-        if (pairingThread != null) {
-            pairingThread.interrupt();
-            pairingThread = null;
-        }
-        if (pairingDialog != null) {
-            pairingDialog.dismiss();
-            pairingDialog = null;
-        }
-    }
-
-    private void doPair(final ComputerDetails computer, final String oneTimePin, final String passphrase) {
-        if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
-            Toast.makeText(this, R.string.pair_pc_offline, Toast.LENGTH_LONG).show();
-            return;
-        }
-        final ComputerManagerService.ComputerManagerBinder binder = managerBinder;
-        if (binder == null) {
-            Toast.makeText(this, R.string.error_manager_not_running, Toast.LENGTH_LONG).show();
-            return;
-        }
-        cancelPairing();
-        final int generation = pairingGeneration;
-        final String pin = oneTimePin == null ? PairingManager.generatePinString() : oneTimePin;
-        android.text.SpannableStringBuilder pairingText = new android.text.SpannableStringBuilder();
-        if (oneTimePin == null) {
-            // One instruction, then the PIN; the dialog used to ask for the PIN twice.
-            pairingText.append(getString(R.string.pair_pairing_help)).append("\n\n");
-            int pinStart = pairingText.length();
-            pairingText.append(pin);
-            pairingText.setSpan(new android.text.style.RelativeSizeSpan(2f), pinStart, pairingText.length(), 0);
-            pairingText.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), pinStart, pairingText.length(), 0);
-        } else {
-            pairingText.append(getString(R.string.pairing));
-        }
-        pairingDialog = new NavigationDialogBuilder(this).setTitle(R.string.pair_pairing_title)
-                .setMessage(pairingText)
-                .setNegativeButton(android.R.string.cancel, (dialog, which) -> {
-                    cancelPairing();
-                    startComputerUpdates();
-                }).setOnCancelListener(dialog -> {
-                    cancelPairing();
-                    startComputerUpdates();
-                }).create();
-        pairingDialog.show();
-        stopComputerUpdates(false);
-        LimeLog.info("Pairing started");
-        pairingThread = new Thread(() -> {
-            String message = null;
-            boolean success = false;
-            try {
-                binder.waitForPollingStopped();
-                NvHTTP request = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer),
-                        computer.httpsPort, binder.getUniqueId(), computer.serverCert,
-                        PlatformBinding.getCryptoProvider(getApplicationContext()));
-                synchronized (PcView.this) {
-                    if (generation != pairingGeneration) {
-                        request.cancelPendingRequests();
-                        return;
-                    }
-                    pairingRequest = request;
-                }
-                if (request.getPairState() == PairState.PAIRED) {
-                    success = true;
-                } else {
-                    PairingManager pairing = request.getPairingManager();
-                    PairState state = pairing.pair(request.getServerInfo(true), pin, passphrase);
-                    if (state == PairState.PAIRED) {
-                        ComputerDetails stored = binder.getComputer(computer.uuid);
-                        if (stored != null) {
-                            stored.serverCert = pairing.getPairedCert();
-                            binder.invalidateStateForComputer(computer.uuid);
-                            success = true;
-                        } else {
-                            message = getString(R.string.pair_fail);
-                        }
-                    } else {
-                        message = getString(state == PairState.PIN_WRONG ?
-                                (oneTimePin == null ? R.string.pair_incorrect_pin : R.string.pair_otp_incorrect_pin) :
-                                state == PairState.ALREADY_IN_PROGRESS ? R.string.pair_already_in_progress :
-                                        computer.runningGameId != 0 ? R.string.pair_pc_ingame : R.string.pair_fail);
-                    }
-                }
-            } catch (IOException | XmlPullParserException e) {
-                message = getString(R.string.pair_connection_fix);
-            }
-            final boolean paired = success;
-            final String failure = message;
-            runOnUiThread(() -> showPairingResult(generation, paired, failure, computer, oneTimePin));
-        }, "Pairing");
-        pairingThread.start();
-    }
-
-    private void showPairingResult(int generation, boolean paired, String failure,
-                                   ComputerDetails computer, String oneTimePin) {
-        if (generation != pairingGeneration || isFinishing() || isDestroyed()) {
-            return;
-        }
-        if (!inForeground) {
-            pendingPairingResult = () -> showPairingResult(generation, paired, failure, computer, oneTimePin);
-            return;
-        }
-        pairingRequest = null;
-        pairingThread = null;
-        if (pairingDialog != null) {
-            pairingDialog.dismiss();
-            pairingDialog = null;
-        }
-        LimeLog.info(paired ? "Pairing succeeded" : "Pairing failed");
-        if (paired) {
-            doAppList(computer, true, false);
-        } else {
-            startComputerUpdates();
-            new NavigationDialogBuilder(this).setTitle(R.string.pair_pairing_title)
-                    .setMessage(failure).setNegativeButton(android.R.string.cancel, null)
-                    .setPositiveButton(R.string.pair_try_again, (dialog, which) -> {
-                        if (oneTimePin == null) {
-                            doPair(computer);
-                        } else {
-                            showOneTimePinDialog(computer);
-                        }
-                    }).show();
-        }
-    }
-
+    /** Sends the wake signal; tests record it instead of broadcasting a magic packet. */
     protected void doWakeOnLan(final ComputerDetails computer) {
-        if (computer.state == ComputerDetails.State.ONLINE) {
-            Toast.makeText(PcView.this, getResources().getString(R.string.wol_pc_online), Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        if (computer.macAddress == null) {
-            Toast.makeText(PcView.this, getResources().getString(R.string.wol_no_mac), Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        new Thread(() -> {
-            boolean sent;
-            try {
-                WakeOnLanSender.sendWolPacket(computer);
-                sent = true;
-            } catch (IOException e) {
-                sent = false;
-            }
-            final boolean woken = sent;
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                ComputerObject row = woken ? findComputer(computer.uuid) : null;
-                if (row != null) {
-                    // The row says "Waking…" until the PC answers or the wake window passes.
-                    row.wakeSentAt = SystemClock.elapsedRealtime();
-                    pcGridAdapter.notifyDataSetChanged();
-                }
-                Toast.makeText(PcView.this, woken ? R.string.wol_waking_msg : R.string.wol_fail, Toast.LENGTH_LONG).show();
-            });
-        }, "Wake on LAN").start();
+        hostActions.wake(computer);
     }
 
     private ComputerObject findComputer(String uuid) {
@@ -708,89 +542,44 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         return null;
     }
 
-    private void doUnpair(final ComputerDetails computer) {
-        if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
-            Toast.makeText(PcView.this, getResources().getString(R.string.error_pc_offline), Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (managerBinder == null) {
-            Toast.makeText(PcView.this, getResources().getString(R.string.error_manager_not_running), Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        final ComputerManagerService.ComputerManagerBinder binder = managerBinder;
-        Toast.makeText(PcView.this, getResources().getString(R.string.unpairing), Toast.LENGTH_SHORT).show();
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                NvHTTP httpConn;
-                String message;
-                try {
-                    httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer),
-                            computer.httpsPort, binder.getUniqueId(), computer.serverCert,
-                            PlatformBinding.getCryptoProvider(PcView.this));
-                    if (httpConn.getPairState() == PairingManager.PairState.PAIRED) {
-                        httpConn.unpair();
-                        if (httpConn.getPairState() == PairingManager.PairState.NOT_PAIRED) {
-                            message = getResources().getString(R.string.unpair_success);
-                        }
-                        else {
-                            message = getResources().getString(R.string.unpair_fail);
-                        }
-                    }
-                    else {
-                        message = getResources().getString(R.string.unpair_error);
-                    }
-                } catch (UnknownHostException e) {
-                    message = getResources().getString(R.string.error_unknown_host);
-                } catch (FileNotFoundException e) {
-                    message = getResources().getString(R.string.error_404);
-                } catch (XmlPullParserException | IOException e) {
-                    message = e.getMessage();
-                    e.printStackTrace();
-                }
-
-                final String toastMessage = message;
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        Toast.makeText(PcView.this, toastMessage, Toast.LENGTH_LONG).show();
-                    }
-                });
-            }
-        }).start();
-    }
-
     private void doAppList(ComputerDetails computer, boolean newlyPaired, boolean showHiddenGames) {
         if (computer.state == ComputerDetails.State.OFFLINE) {
-            Toast.makeText(PcView.this, getResources().getString(R.string.error_pc_offline), Toast.LENGTH_SHORT).show();
+            hostActions.showError(computer.displayName(), getString(R.string.error_pc_offline), null);
             return;
         }
         if (managerBinder == null) {
-            Toast.makeText(PcView.this, getResources().getString(R.string.error_manager_not_running), Toast.LENGTH_LONG).show();
+            hostActions.showError(computer.displayName(), getString(R.string.error_manager_not_running), null);
             return;
         }
 
         Intent i = new Intent(this, AppView.class);
-        i.putExtra(AppView.NAME_EXTRA, computer.name);
+        i.putExtra(AppView.NAME_EXTRA, computer.displayName());
         i.putExtra(AppView.UUID_EXTRA, computer.uuid);
         i.putExtra(AppView.NEW_PAIR_EXTRA, newlyPaired);
         i.putExtra(AppView.SHOW_HIDDEN_APPS_EXTRA, showHiddenGames);
         startActivity(i);
     }
 
+    HostActions hostActions() {
+        return hostActions;
+    }
+
     private boolean onComputerAction(ComputerObject computer, int action) {
         switch (action) {
             case PAIR_ID:
-                doPair(computer.details);
+                hostActions.pair(computer.details);
                 return true;
 
             case OTP_PAIR_ID:
-                showOneTimePinDialog(computer.details);
+                hostActions.pairWithOneTimePin(computer.details);
                 return true;
 
             case UNPAIR_ID:
-                doUnpair(computer.details);
+                hostActions.confirmUnpair(computer.details);
+                return true;
+
+            case RENAME_ID:
+                hostActions.rename(computer.details);
                 return true;
 
             case WOL_ID:
@@ -798,17 +587,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 return true;
 
             case DELETE_ID:
-                if (ActivityManager.isUserAMonkey()) {
-                    LimeLog.info("Ignoring delete PC request from monkey");
-                    return true;
-                }
-                UiHelper.displayDeletePcConfirmationDialog(this, computer.details, () -> {
-                    if (managerBinder == null) {
-                        Toast.makeText(PcView.this, getResources().getString(R.string.error_manager_not_running), Toast.LENGTH_LONG).show();
-                        return;
-                    }
-                    removeComputer(computer.details);
-                }, null);
+                hostActions.confirmRemove(computer.details);
                 return true;
 
             case LIBRARY_ID:
@@ -817,7 +596,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
             case RESUME_ID:
                 if (managerBinder == null) {
-                    Toast.makeText(PcView.this, getResources().getString(R.string.error_manager_not_running), Toast.LENGTH_LONG).show();
+                    hostActions.showError(computer.details.displayName(), getString(R.string.error_manager_not_running), null);
                     return true;
                 }
                 ServerHelper.doStart(this, runningAppOf(computer), computer.details, managerBinder);
@@ -825,7 +604,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
             case QUIT_ID:
                 if (managerBinder == null) {
-                    Toast.makeText(PcView.this, getResources().getString(R.string.error_manager_not_running), Toast.LENGTH_LONG).show();
+                    hostActions.showError(computer.details.displayName(), getString(R.string.error_manager_not_running), null);
                     return true;
                 }
                 UiHelper.displayQuitConfirmationDialog(this, () -> ServerHelper.doQuit(PcView.this, computer.details,
@@ -833,7 +612,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 return true;
 
             case PC_SETTINGS_ID:
-                HostStreamSettings.show(this, computer.details.uuid, computer.details.name);
+                HostStreamSettings.show(this, computer.details.uuid, computer.details.displayName());
                 return true;
 
             case PAIRING_HELP_ID:
@@ -869,7 +648,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 doAppList(computer.details, false, false);
                 break;
             case NOT_PAIRED:
-                doPair(computer.details);
+                hostActions.pair(computer.details);
                 break;
             case WAKING:
             case OFFLINE:
@@ -885,13 +664,12 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         }
     }
 
-    private void removeComputer(ComputerDetails details) {
-        managerBinder.removeComputer(details);
-
+    /** The manager has removed the PC; take its row, its shortcuts and its alias off this screen. */
+    private void removeFromList(ComputerDetails details) {
         for (int i = 0; i < pcGridAdapter.getCount(); i++) {
             ComputerObject computer = (ComputerObject) pcGridAdapter.getItem(i);
 
-            if (details.equals(computer.details)) {
+            if (details.uuid.equals(computer.details.uuid)) {
                 // Disable or delete shortcuts referencing this PC
                 shortcutHelper.disableComputerShortcut(details,
                         getResources().getString(R.string.scut_deleted_pc));
@@ -1025,7 +803,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
         @Override
         public String toString() {
-            return details.name;
+            return details.displayName();
         }
     }
 }

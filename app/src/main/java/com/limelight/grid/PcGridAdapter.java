@@ -50,7 +50,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
 
     private void sortList() {
         Collections.sort(itemList, Comparator.comparingInt((PcView.ComputerObject computer) -> computer.rowState().group())
-                .thenComparing(computer -> computer.details.name, String.CASE_INSENSITIVE_ORDER));
+                .thenComparing(computer -> computer.details.displayName(), String.CASE_INSENSITIVE_ORDER));
     }
 
     public boolean removeComputer(PcView.ComputerObject computer) {
@@ -137,7 +137,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         // A PC that doesn't answer steps back: its icon and name take the quieter colours.
         imgView.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(imgView, away ?
                 com.google.android.material.R.attr.colorOutline : com.google.android.material.R.attr.colorOnSurfaceVariant)));
-        txtView.setText(obj.details.name);
+        txtView.setText(obj.details.displayName());
         txtView.setTextColor(MaterialColors.getColor(txtView, away ?
                 com.google.android.material.R.attr.colorOnSurfaceVariant : com.google.android.material.R.attr.colorOnSurface));
 
@@ -165,7 +165,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
             status += ". " + updateView.getText();
         }
 
-        parentView.setContentDescription(context.getString(R.string.library_item_description, obj.details.name, status));
+        parentView.setContentDescription(context.getString(R.string.library_item_description, obj.details.displayName(), status));
         // The grid owns taps and long presses; name both for screen readers and route them back to it.
         ViewCompat.replaceAccessibilityAction(parentView, AccessibilityActionCompat.ACTION_CLICK,
                 context.getString(mainActionLabel(obj)), (view, arguments) -> {
@@ -175,13 +175,20 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
                             grid.performItemClick(view, position, grid.getItemIdAtPosition(position));
                 });
         ViewCompat.replaceAccessibilityAction(parentView, AccessibilityActionCompat.ACTION_LONG_CLICK,
-                context.getString(R.string.pc_accessibility_actions), (view, arguments) -> {
-                    AdapterView<?> grid = grid(view);
-                    int position = grid == null ? AdapterView.INVALID_POSITION : grid.getPositionForView(view);
-                    AdapterView.OnItemLongClickListener listener = grid == null ? null : grid.getOnItemLongClickListener();
-                    return position != AdapterView.INVALID_POSITION && listener != null &&
-                            listener.onItemLongClick(grid, view, position, grid.getItemIdAtPosition(position));
-                });
+                context.getString(R.string.pc_accessibility_actions), (view, arguments) -> openOptions(view));
+        // A mouse's right button opens the same options.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            parentView.setOnContextClickListener(PcGridAdapter::openOptions);
+        }
+    }
+
+    /** Opens the options of the PC on this card, as a long press does. */
+    private static boolean openOptions(View card) {
+        AdapterView<?> grid = grid(card);
+        int position = grid == null ? AdapterView.INVALID_POSITION : grid.getPositionForView(card);
+        AdapterView.OnItemLongClickListener listener = grid == null ? null : grid.getOnItemLongClickListener();
+        return position != AdapterView.INVALID_POSITION && listener != null &&
+                listener.onItemLongClick(grid, card, position, grid.getItemIdAtPosition(position));
     }
 
     private static AdapterView<?> grid(View card) {

@@ -49,7 +49,9 @@ public final class UiNavigation {
 
     public static void bindGrid(GridView grid) {
         grid.setOnKeyListener((view, key, event) -> {
-            if (key != KeyEvent.KEYCODE_MENU && !(key == KeyEvent.KEYCODE_F10 && event.hasModifiers(KeyEvent.META_SHIFT_ON))) {
+            // Menu, Shift+F10 and a controller's X open the selected card's options, like a long press.
+            if (key != KeyEvent.KEYCODE_MENU && key != KeyEvent.KEYCODE_BUTTON_X
+                    && !(key == KeyEvent.KEYCODE_F10 && event.hasModifiers(KeyEvent.META_SHIFT_ON))) {
                 return false;
             }
             if (grid.getSelectedItemPosition() < 0 || grid.getOnItemLongClickListener() == null) return false;

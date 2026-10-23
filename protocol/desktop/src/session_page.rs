@@ -850,6 +850,29 @@ mod tests {
         assert_eq!(exit_failure_text(&failure), "The running game belongs to another device.");
     }
 
+    /// Manual: the page's worker against a real paired host, without a stream.
+    /// `NIGHTJAR_LIVE_CONFIG=<config dir> NIGHTJAR_LIVE_ADDRESS=127.0.0.1 cargo test -p nightjar-desktop
+    /// live_host -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs a paired Rubylight host; see the doc comment"]
+    fn live_host_answers_the_page() {
+        use nightjar_core::http::ClientIdentity;
+        let dir = std::env::var("NIGHTJAR_LIVE_CONFIG").expect("NIGHTJAR_LIVE_CONFIG");
+        let address = std::env::var("NIGHTJAR_LIVE_ADDRESS").expect("NIGHTJAR_LIVE_ADDRESS");
+        let store = crate::config::Store::at(dir.into()).unwrap();
+        let saved = store.identity().expect("a saved identity");
+        let identity = Arc::new(ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem).unwrap());
+        let record = store.hosts().into_iter().find(|h| h.address == address && h.server_certificate.is_some()).expect("a paired host at that address");
+        let page = Page::open(move || crate::hosts::client_for(&identity, &record, &address), Arc::new(|| {}));
+        until("the first answers", || {
+            let s = page.state();
+            s.session.is_some() && (s.radeon.panel.is_some() || s.radeon.hidden || s.radeon.load_failure.is_some())
+        });
+        let state = page.state();
+        println!("{state:#?}");
+        println!("actions: {:?}", state.actions(Hints { launch: true, host_control: false }));
+    }
+
     #[test]
     fn a_host_that_cannot_be_reached_is_said_not_hidden() {
         let page = Page::open_with(

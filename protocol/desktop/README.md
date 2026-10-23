@@ -143,6 +143,16 @@ Done:
   screen and the item it came from, and a controller drives all of it. "Open on Home" in
   Settings (on by default) chooses between starting on Home and on the PCs. Read failures
   show on Home and never block the UI.
+  Home also lists the games played most recently on this PC (a local list, updated when a
+  stream starts).
+- Session and graphics page (menu in a stream, Rubylight 3.0 hosts; modelled on Nightjar
+  Android's Session page): Resume, Disconnect, End session and Close game (with Host
+  control; otherwise Quit game), asked about before the destructive ones, plus the
+  connection facts. Its Radeon panel shows the five states the host reports at `/radeon`,
+  edits the settings only when the host says it can write now, shows write errors inline,
+  and says they go back to Off when the session ends. The page reads the host only while it
+  is open (the session every 2 s, the Radeon state at most once a second), on its own
+  thread. A controller and the keyboard drive it; Esc or B closes it.
 - Settings: resolution (native or presets), frame rate (display or presets), automatic or
   manual bitrate, codec (automatic/H.264/HEVC/AV1), HDR, decoder, window mode
   (fullscreen/borderless/windowed), VRR with "Show frames at the PC's frame times",
@@ -171,8 +181,7 @@ Missing compared with the Android app:
   settings, Remote Monitor/Input-only roles from the UI (the tiles are listed and launch),
   microphone, PyroWave, cursor shapes, clipboard sync, phase lock and display caps
   messages, statistics export. Strings are English only (there is no translation mechanism
-  yet). Home does not list recently played games, and the session actions beyond Close game
-  (End, Disconnect) and the Radeon panel are not in the UI yet.
+  yet).
 - A dedicated D3D11 renderer with a waitable swap chain (moonlight-qt's d3d11va/VRR pacer
   design) for frame-latency control beyond what SDL's renderer offers.
 

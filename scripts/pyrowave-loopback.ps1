@@ -70,9 +70,9 @@ try {
     }
     $install = Split-Path $HostExe
     $env:NO_PROXY = '*'; $env:RUST_LOG = 'info'
-    $hostLog = "$HostProfile\host.stdout.log"
+    $hostLog = "$HostProfile\logs\butterpollo.log"
     $hostProcess = Start-Process $HostExe -PassThru -WindowStyle Hidden -WorkingDirectory $HostProfile `
-        -RedirectStandardOutput $hostLog -RedirectStandardError "$HostProfile\host.stderr.log" `
+        -RedirectStandardOutput "$HostProfile\host.stdout.log" -RedirectStandardError "$HostProfile\host.stderr.log" `
         -ArgumentList '--config-dir', $HostProfile, '--assets', "`"$install\assets\web`"", '--port', $Port, '--bind', '127.0.0.1', '--no-tray'
     $up = $false
     foreach ($i in 1..60) {
@@ -97,7 +97,9 @@ try {
         $env:NIGHTJAR_AUTOSTREAM_PIN = $Pin
         $env:NIGHTJAR_AUTOSTREAM_SECONDS = "$StreamSeconds"
         if ($DumpDir) { $env:NIGHTJAR_PYROWAVE_DUMP = $DumpDir } else { Remove-Item Env:\NIGHTJAR_PYROWAVE_DUMP -ErrorAction SilentlyContinue }
-        Start-Process $Exe -PassThru -RedirectStandardError "$Out\$Name.log" -RedirectStandardOutput "$Out\$Name.stdout.log"
+        $started = Start-Process $Exe -PassThru -RedirectStandardError "$Out\$Name.log" -RedirectStandardOutput "$Out\$Name.stdout.log"
+        $null = $started.Handle  # without a cached handle ExitCode reads empty after the exit
+        $started
     }
     function Move-ClientWindow($Process) {
         Add-Type -Namespace Win -Name Native -ErrorAction SilentlyContinue -MemberDefinition '[DllImport("user32.dll")] public static extern bool MoveWindow(System.IntPtr h, int x, int y, int w, int hh, bool r);'

@@ -913,6 +913,12 @@ impl App {
         if auto.failed || self.connecting.is_some() || self.network_launch.is_some() {
             return;
         }
+        if let Dialog::Message { title, body } = &self.launcher.dialog {
+            let why = format!("{title}: {body}");
+            auto.fail(&why);
+            self.running = false;
+            return;
+        }
         let host = auto.host_seen(&self.hosts);
         let seen = autostream::Seen {
             identity: self.hosts.identity().is_some(),

@@ -134,9 +134,10 @@ pub fn fill(template: &str, args: &[&dyn Display]) -> String {
     out
 }
 
-/// The placeholders of a template, sorted: `[0, 1]` for `"{} of {}"` and for `"{1} von {0}"`.
+/// The placeholders of a template in the order they appear, each with the argument it shows
+/// and whether it names it (`{1}`) rather than taking the next one (`{}`).
 #[cfg(test)]
-fn placeholders(template: &str) -> Vec<usize> {
+fn placeholders(template: &str) -> Vec<(usize, bool)> {
     let mut found = Vec::new();
     let mut next = 0;
     let mut rest = template;
@@ -147,13 +148,15 @@ fn placeholders(template: &str) -> Vec<usize> {
             continue;
         }
         let Some(end) = tail.find('}') else { break };
-        found.push(tail[1..end].parse::<usize>().unwrap_or_else(|_| {
-            next += 1;
-            next - 1
-        }));
+        found.push(match tail[1..end].parse::<usize>() {
+            Ok(index) => (index, true),
+            Err(_) => {
+                next += 1;
+                (next - 1, false)
+            }
+        });
         rest = &tail[end + 1..];
     }
-    found.sort_unstable();
     found
 }
 
@@ -214,7 +217,7 @@ mod tests {
         ("gamepad.rs", include_str!("gamepad.rs")),
     ];
 
-    /// Read for their marked texts only: the stream code keeps its own toasts and overlay lines.
+    /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
     const MARKED_ONLY: [(&str, &str); 1] = [("stream/mod.rs", include_str!("stream/mod.rs"))];
 
     fn production(source: &str) -> &str {
@@ -273,6 +276,105 @@ mod tests {
         text[..bytes].chars().count()
     }
 
+    /// The length of the char literal at the start of `text` (which begins with `'`), or None
+    /// for a lifetime.
+    fn char_literal_len(text: &str) -> Option<usize> {
+        let mut chars = text.chars();
+        chars.next();
+        match chars.next()? {
+            '\\' => text.get(3..)?.find('\'').map(|end| end + 4),
+            c => text.get(1 + c.len_utf8()..)?.starts_with('\'').then_some(c.len_utf8() + 2),
+        }
+    }
+
+    /// A source without its comments (blanked, so offsets and lines stay), and every string
+    /// literal in it with the offset of its opening quote.
+    struct Lexed {
+        code: String,
+        literals: Vec<(usize, String)>,
+    }
+
+    fn lex(source: &str) -> Lexed {
+        let text = production(source);
+        let mut code = String::with_capacity(text.len());
+        let mut literals = Vec::new();
+        let mut i = 0;
+        while i < text.len() {
+            let rest = &text[i..];
+            let Some(c) = rest.chars().next() else { break };
+            if rest.starts_with("//") {
+                let end = rest.find('\n').unwrap_or(rest.len());
+                code.push_str(&" ".repeat(end));
+                i += end;
+            } else if rest.starts_with("/*") {
+                let end = rest.find("*/").map_or(rest.len(), |e| e + 2);
+                for ch in rest[..end].chars() {
+                    if ch == '\n' {
+                        code.push('\n');
+                    } else {
+                        code.push_str(&" ".repeat(ch.len_utf8()));
+                    }
+                }
+                i += end;
+            } else if c == '"' {
+                let used = match literal(rest) {
+                    Some((value, used)) => {
+                        literals.push((i, value));
+                        used
+                    }
+                    None => 1,
+                };
+                code.push_str(&rest[..used]);
+                i += used;
+            } else if c == '\'' {
+                let used = char_literal_len(rest).unwrap_or(1);
+                code.push_str(&rest[..used]);
+                i += used;
+            } else {
+                code.push(c);
+                i += c.len_utf8();
+            }
+        }
+        Lexed { code, literals }
+    }
+
+    /// The arguments of a call: `after` is the text right after its opening parenthesis.
+    fn split_args(after: &str) -> Vec<&str> {
+        let mut args = Vec::new();
+        let (mut depth, mut start, mut i) = (0i32, 0, 0);
+        while i < after.len() {
+            let rest = &after[i..];
+            let Some(c) = rest.chars().next() else { break };
+            match c {
+                '"' => {
+                    i += literal(rest).map_or(1, |(_, used)| used);
+                    continue;
+                }
+                '\'' => {
+                    i += char_literal_len(rest).unwrap_or(1);
+                    continue;
+                }
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                ',' if depth == 0 => {
+                    args.push(&after[start..i]);
+                    start = i + 1;
+                }
+                _ => {}
+            }
+            i += c.len_utf8();
+        }
+        if !after[start..i.min(after.len())].trim().is_empty() {
+            args.push(&after[start..i.min(after.len())]);
+        }
+        args
+    }
+
     /// Helpers that translate their text arguments themselves, and how many of the arguments
     /// after the prefix are text: call sites pass the English literal.
     const HELPERS: [(&str, usize); 8] = [
@@ -286,67 +388,62 @@ mod tests {
         ("setting_row(", 2),
     ];
 
-    /// The literals a helper call passes as its text arguments, up to `count`, in a row.
-    fn helper_literals(after: &str, count: usize) -> Vec<String> {
-        let mut out = Vec::new();
-        let mut rest = after;
-        for _ in 0..count {
-            let tail = rest.trim_start();
-            if tail.starts_with('"') {
-                let Some((text, used)) = literal(tail) else { break };
-                out.push(text);
-                rest = tail[used..].trim_start();
-                match rest.strip_prefix(',') {
-                    Some(next) => rest = next,
-                    None => break,
-                }
-            } else {
-                // Not a literal (a variable or an expression): skip to the next argument.
-                let mut depth = 0i32;
-                let mut end = None;
-                for (i, c) in tail.char_indices() {
-                    match c {
-                        '(' | '[' | '{' => depth += 1,
-                        ')' | ']' | '}' => depth -= 1,
-                        ',' if depth == 0 => {
-                            end = Some(i + 1);
-                            break;
-                        }
-                        _ => {}
-                    }
-                    if depth < 0 {
-                        break;
-                    }
-                }
-                match end {
-                    Some(end) => rest = &tail[end..],
-                    None => break,
-                }
+    /// The text arguments of the helper call that `prefix` starts at `start` in `code`.
+    fn helper_args<'a>(code: &'a str, prefix: &str, start: usize) -> Vec<&'a str> {
+        let from = start + prefix.len();
+        // `setting_row(ui, s, layer, &["key"], "Label", "Description", ...)`
+        let args = if prefix == "setting_row(" {
+            match code[from..].find("], ") {
+                Some(end) if end < 200 => &code[from + end + 3..],
+                _ => return Vec::new(),
             }
-        }
-        out
+        } else {
+            &code[from..]
+        };
+        split_args(args)
+    }
+
+    fn offset_in(code: &str, part: &str) -> usize {
+        part.as_ptr() as usize - code.as_ptr() as usize
+    }
+
+    fn line_of(code: &str, at: usize) -> usize {
+        code[..at].matches('\n').count() + 1
+    }
+
+    /// A call starts at `start`, not as the tail of a longer name or a method of something.
+    fn starts_call(code: &str, start: usize) -> bool {
+        let before = code[..start].chars().next_back();
+        !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.')
+    }
+
+    struct Marked {
+        file: &'static str,
+        text: String,
+        line: usize,
+        /// Where the literal starts in the lexed source.
+        at: usize,
     }
 
     /// Every literal inside `tr(...)`, `trf(...)` and `en(...)`, and the text arguments of the
-    /// translating helpers, with the file and line.
-    fn marked() -> Vec<(String, String, usize)> {
+    /// translating helpers.
+    fn marked() -> Vec<Marked> {
         let mut found = Vec::new();
         for (file, source) in SOURCES.into_iter().chain(MARKED_ONLY) {
-            let code = production(source);
+            let lexed = lex(source);
+            let code = lexed.code.as_str();
             for call in ["tr(", "trf(", "en("] {
                 let mut from = 0;
                 while let Some(at) = code[from..].find(call) {
                     let start = from + at;
                     from = start + call.len();
-                    let before = code[..start].chars().next_back();
-                    if before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.') {
+                    if !starts_call(code, start) {
                         continue;
                     }
                     let tail = code[from..].trim_start();
                     if tail.starts_with('"') {
                         if let Some((text, _)) = literal(tail) {
-                            let line = code[..start].matches('\n').count() + 1;
-                            found.push((file.to_owned(), text, line));
+                            found.push(Marked { file, text, line: line_of(code, start), at: offset_in(code, tail) });
                         }
                     }
                 }
@@ -356,22 +453,16 @@ mod tests {
                 while let Some(at) = code[from..].find(prefix) {
                     let start = from + at;
                     from = start + prefix.len();
-                    let before = code[..start].chars().next_back();
-                    if before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.') {
+                    if !starts_call(code, start) {
                         continue;
                     }
-                    // `setting_row(ui, s, layer, &["key"], "Label", "Description", ...)`
-                    let args = if prefix == "setting_row(" {
-                        match code[from..].find("], ") {
-                            Some(end) if end < 200 => &code[from + end + 3..],
-                            _ => continue,
+                    for arg in helper_args(code, prefix, start).into_iter().take(count) {
+                        let arg = arg.trim();
+                        if arg.starts_with('"') {
+                            if let Some((text, _)) = literal(arg) {
+                                found.push(Marked { file, text, line: line_of(code, start), at: offset_in(code, arg) });
+                            }
                         }
-                    } else {
-                        &code[from..]
-                    };
-                    let line = code[..start].matches('\n').count() + 1;
-                    for text in helper_literals(args, count) {
-                        found.push((file.to_owned(), text, line));
                     }
                 }
             }
@@ -388,12 +479,21 @@ mod tests {
     }
 
     #[test]
+    fn the_lexer_blanks_comments_and_keeps_strings() {
+        let lexed = lex("a(\"x // y\", '\"'); // tr(\"gone\")\n/* tr(\"also\") */ b<'a>(\"z\")");
+        assert!(!lexed.code.contains("gone") && !lexed.code.contains("also"), "{}", lexed.code);
+        assert_eq!(lexed.literals.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>(), ["x // y", "z"]);
+        assert_eq!(lexed.code.lines().count(), 2, "lines stay where they were");
+        assert_eq!(split_args("\"a, b\", f(1, 2), ','), tail"), ["\"a, b\"", " f(1, 2)", " ','"]);
+    }
+
+    #[test]
     fn every_marked_text_has_a_german_entry() {
         let table = german();
         let missing: Vec<String> = marked()
             .into_iter()
-            .filter(|(_, text, _)| !table.contains_key(text.as_str()))
-            .map(|(file, text, line)| format!("{file}:{line}: {text:?}"))
+            .filter(|m| !table.contains_key(m.text.as_str()))
+            .map(|m| format!("{}:{}: {:?}", m.file, m.line, m.text))
             .collect();
         assert!(missing.is_empty(), "no German for:\n{}", missing.join("\n"));
     }
@@ -404,34 +504,75 @@ mod tests {
         for (english, german) in de::TABLE {
             assert!(seen.insert(*english), "{english:?} is in the table twice");
             assert!(!english.trim().is_empty() && !german.trim().is_empty(), "{english:?} has an empty side");
-            assert_eq!(placeholders(english), placeholders(german), "{{}} differ in {english:?}");
+            let (e, g) = (placeholders(english), placeholders(german));
+            let sorted = |p: &[(usize, bool)]| {
+                let mut indexes: Vec<usize> = p.iter().map(|p| p.0).collect();
+                indexes.sort_unstable();
+                indexes
+            };
+            assert_eq!(sorted(&e), sorted(&g), "{{}} differ in {english:?}");
+            // With several placeholders the German sentence may need another order, so it names
+            // the English argument each one shows: {0}, {1}, ...
+            if e.len() > 1 {
+                assert!(g.iter().all(|p| p.1), "several placeholders need {{0}}, {{1}}, ... in German: {english:?}");
+            }
             assert_eq!(english.starts_with(' '), german.starts_with(' '), "leading space differs in {english:?}");
             assert_eq!(english.ends_with('\n'), german.ends_with('\n'), "trailing newline differs in {english:?}");
             assert_eq!(english.matches('\n').count(), german.matches('\n').count(), "line breaks differ in {english:?}");
         }
-        let used: std::collections::HashSet<String> = marked().into_iter().map(|(_, text, _)| text).collect();
+        let used: std::collections::HashSet<String> = marked().into_iter().map(|m| m.text).collect();
         let unused: Vec<&str> = de::TABLE.iter().map(|(e, _)| *e).filter(|e| !used.contains(*e)).collect();
         assert!(unused.is_empty(), "German entries no source uses (renamed English text?):\n{}", unused.join("\n"));
     }
 
-    /// Calls that draw text. A bare literal as their first text argument is untranslated.
-    const TEXT_CALLS: [&str; 15] = [
-        "RichText::new(\"",
-        "Button::new(\"",
-        "Checkbox::new(&mut",
-        ".label(\"",
-        ".weak(\"",
-        ".heading(\"",
-        ".hint_text(\"",
-        ".on_hover_text(\"",
-        ".selected_text(\"",
-        ".button(\"",
-        ".menu_button(\"",
-        ".collapsing(\"",
-        "Window::new(\"",
-        ".message(\"",
-        "show_toast(\"",
+    #[test]
+    fn placeholders_report_order_and_form() {
+        assert_eq!(placeholders("{} of {}"), [(0, false), (1, false)]);
+        assert_eq!(placeholders("{1} von {0} {{}}"), [(1, true), (0, true)]);
+    }
+
+    /// The last argument of a call.
+    const LAST: usize = usize::MAX;
+
+    /// Calls that draw text, and which argument is the text. A bare literal there is untranslated.
+    const TEXT_CALLS: [(&str, usize); 31] = [
+        ("RichText::new(", 0),
+        ("Label::new(", 0),
+        ("Button::new(", 0),
+        ("Checkbox::new(", LAST),
+        (".label(", 0),
+        (".colored_label(", 1),
+        (".weak(", 0),
+        (".small(", 0),
+        (".strong(", 0),
+        (".monospace(", 0),
+        (".heading(", 0),
+        (".hint_text(", 0),
+        (".on_hover_text(", 0),
+        (".on_disabled_hover_text(", 0),
+        (".selected_text(", 0),
+        (".button(", 0),
+        (".menu_button(", 0),
+        (".collapsing(", 0),
+        ("Window::new(", 0),
+        (".message(", 0),
+        (".message(", LAST),
+        // `painter.text(pos, align, "text", font, color)`
+        (".text(", 2),
+        ("show_toast(", 0),
+        // `selectable_value(&mut v, VALUE, "text")`, `.checkbox(&mut v, "text")`
+        ("selectable_value(", LAST),
+        ("selectable_label(", LAST),
+        (".radio_value(", LAST),
+        (".checkbox(", LAST),
+        (".toggle_value(", LAST),
+        (".link(", 0),
+        (".hyperlink_to(", 0),
+        (".on_hover_text_at_pointer(", 0),
     ];
+
+    /// The stream code is read for its toasts only.
+    const STREAM_CALLS: [(&str, usize); 1] = [("show_toast(", 0)];
 
     /// Literals that are the same in every language: names, key chords, codec names.
     const SAME_EVERYWHERE: [&str; 9] = [
@@ -446,9 +587,19 @@ mod tests {
         "Deutsch",
     ];
 
-    /// Whether a bare literal needs no translation: a symbol, an example, or in the list above.
+    /// Whether a bare literal needs no translation: a symbol, an example, a format string that
+    /// is all placeholders, or in the list above.
     fn same_everywhere(text: &str) -> bool {
-        SAME_EVERYWHERE.contains(&text) || text.chars().filter(|c| c.is_alphabetic()).count() < 2
+        let (mut letters, mut inside) = (0, false);
+        for c in text.chars() {
+            match c {
+                '{' => inside = true,
+                '}' => inside = false,
+                c if !inside && c.is_alphabetic() => letters += 1,
+                _ => {}
+            }
+        }
+        SAME_EVERYWHERE.contains(&text) || letters < 2
     }
 
     /// The bare literal a UI call starts at `text`, which begins with the quote.
@@ -456,41 +607,122 @@ mod tests {
         literal(text).map(|(t, _)| t).filter(|t| !same_everywhere(t))
     }
 
+    /// The bare literals a text argument is made of: the literal itself, the format string of a
+    /// `format!`, or the literals an `if` picks between.
+    fn bare_in(arg: &str) -> Vec<String> {
+        let arg = arg.trim().trim_start_matches('&').trim_start();
+        if arg.starts_with('"') {
+            return bare(arg).into_iter().collect();
+        }
+        if let Some(rest) = arg.strip_prefix("format!(") {
+            return split_args(rest).first().map(|first| bare_in(first)).unwrap_or_default();
+        }
+        if arg.starts_with("if ") {
+            let mut out = Vec::new();
+            for (at, _) in arg.match_indices('{') {
+                let tail = arg[at + 1..].trim_start();
+                if tail.starts_with('"') {
+                    out.extend(bare(tail));
+                }
+            }
+            return out;
+        }
+        Vec::new()
+    }
+
+    /// `file:line: text` for every bare literal in the text argument of one of `calls`.
+    fn bare_texts(file: &str, source: &str, calls: &[(&str, usize)]) -> Vec<String> {
+        let lexed = lex(source);
+        let code = lexed.code.as_str();
+        let mut found = Vec::new();
+        for (call, which) in calls {
+            for (start, _) in code.match_indices(call) {
+                let args = split_args(&code[start + call.len()..]);
+                let arg = if *which == LAST { args.last() } else { args.get(*which) };
+                for text in arg.map(|arg| bare_in(arg)).unwrap_or_default() {
+                    found.push(format!("{file}:{}: {text:?}", line_of(code, start)));
+                }
+            }
+        }
+        found
+    }
+
     #[test]
     fn no_text_is_left_in_the_ui_code() {
         let mut found = Vec::new();
         for (file, source) in SOURCES {
-            for (n, line) in production(source).lines().enumerate() {
-                let code = line.split("//").next().unwrap_or(line);
-                let mut flag = |text: &str| {
-                    if bare(text).is_some() {
-                        found.push(format!("{file}:{}: {}", n + 1, line.trim()));
-                    }
-                };
-                for call in TEXT_CALLS {
-                    // `Checkbox::new(&mut x, "text")`: a literal as the last argument.
-                    if call == "Checkbox::new(&mut" {
-                        if let (Some(_), Some(at)) = (code.find(call), code.rfind(", \"")) {
-                            flag(&code[at + 2..]);
-                        }
-                    } else if let Some(at) = code.find(call) {
-                        flag(&code[at + call.len() - 1..]);
-                    }
-                }
-                // `selectable_value(&mut v, VALUE, "text")` and `.checkbox(&mut v, "text")`.
-                for call in ["selectable_value(", "selectable_label(", ".checkbox(", ".message("] {
-                    if let Some(at) = code.find(call) {
-                        if let Some(last) = code[at..].rfind(", \"") {
-                            flag(&code[at + last + 2..]);
+            found.extend(bare_texts(file, source, &TEXT_CALLS));
+            // A formatted text passed to a helper is looked up as a whole and never found.
+            let lexed = lex(source);
+            for (prefix, count) in HELPERS {
+                for (start, _) in lexed.code.match_indices(prefix) {
+                    for arg in helper_args(&lexed.code, prefix, start).into_iter().take(count) {
+                        if arg.trim_start().trim_start_matches('&').starts_with("format!(") && !bare_in(arg).is_empty() {
+                            found.push(format!("{file}:{}: format! in {}", line_of(&lexed.code, start), prefix.trim_end_matches(", ")));
                         }
                     }
                 }
             }
         }
+        for (file, source) in MARKED_ONLY {
+            found.extend(bare_texts(file, source, &STREAM_CALLS));
+        }
         found.sort();
         found.dedup();
-        assert!(found.is_empty(), "text without tr():
-{}", found.join("
-"));
+        assert!(found.is_empty(), "text without tr():\n{}", found.join("\n"));
+    }
+
+    #[test]
+    fn the_scan_finds_what_it_is_meant_to_find() {
+        let found = |code: &str| bare_texts("t.rs", code, &TEXT_CALLS);
+        assert_eq!(found("ui.colored_label(ERROR, \"Broken\");").len(), 1);
+        assert_eq!(found("ui.label(\n    RichText::new(\n        \"Broken\"));").len(), 1);
+        assert_eq!(found("ui.add(Label::new(\"Broken\"));").len(), 1);
+        assert_eq!(found("painter.text(p, A, \"Broken\", f, c);").len(), 1);
+        assert_eq!(found("ui.radio_value(&mut v, 1, \"Broken\");").len(), 1);
+        assert_eq!(found("r.on_disabled_hover_text(\"Broken\");").len(), 1);
+        assert_eq!(found("ui.label(format!(\"Broken {}\", x));").len(), 1);
+        assert_eq!(found("show_toast(if a { \"One\" } else { \"Two\" });").len(), 2);
+        assert!(found("ui.label(tr(\"Fine\")); ui.small(format!(\"{}\", x)); // ui.label(\"x\")").is_empty());
+        assert!(found("ui.label(trf(\"Fine {}\", &[&x])); ui.label(\"1:2\");").is_empty());
+    }
+
+    #[test]
+    fn match_arm_texts_in_radeon_go_through_en() {
+        let mut found = Vec::new();
+        for (file, source) in SOURCES.into_iter().filter(|(file, _)| *file == "radeon.rs") {
+            let lexed = lex(source);
+            for (at, _) in lexed.code.match_indices("=> ") {
+                let tail = lexed.code[at + 3..].trim_start();
+                if tail.starts_with('"') && bare(tail).is_some() {
+                    found.push(format!("{file}:{}: {}", line_of(&lexed.code, at), tail.lines().next().unwrap_or("")));
+                }
+            }
+        }
+        assert!(found.is_empty(), "match arms with a bare text, wrap it in en():\n{}", found.join("\n"));
+    }
+
+    #[test]
+    fn a_translated_text_is_not_used_bare() {
+        // The catch-all: whatever call it is in, a literal that has a German entry and is not in
+        // tr(), trf(), en() or a helper's text argument would show in English. The stream
+        // overlay's labels stay English and are not read here.
+        let table = german();
+        let at: std::collections::HashSet<(&str, usize)> = marked().iter().map(|m| (m.file, m.at)).collect();
+        let mut found = Vec::new();
+        for (file, source) in SOURCES {
+            let lexed = lex(source);
+            for (start, text) in &lexed.literals {
+                // `name == "App"` compares; it does not show anything.
+                let before = lexed.code[..*start].trim_end();
+                if before.ends_with("==") || before.ends_with("!=") {
+                    continue;
+                }
+                if table.contains_key(text.as_str()) && !at.contains(&(file, *start)) {
+                    found.push(format!("{file}:{}: {text:?}", line_of(&lexed.code, *start)));
+                }
+            }
+        }
+        assert!(found.is_empty(), "translated text used without tr():\n{}", found.join("\n"));
     }
 }

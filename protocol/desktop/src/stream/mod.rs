@@ -40,7 +40,7 @@ use sdl3_sys::everything::*;
 use crate::config::{self, AudioChannels, CodecPreference, HostRecord, MouseMode, QualityMode, Settings};
 use crate::gamepad::{Action, Gamepads};
 use crate::hosts::Waker;
-use crate::strings::{en, trf};
+use crate::strings::{en, tr, trf};
 use crate::keymap;
 use crate::media::Hardware;
 use pipeline::{lock, Notice, Shared};
@@ -440,7 +440,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         .record
         .server_certificate
         .as_deref()
-        .ok_or("This PC is not paired.")?;
+        .ok_or_else(|| tr("This PC is not paired."))?;
     let client = HostClient::new(&plan.record.address, port, plan.identity.clone())
         .and_then(|c| c.with_server_certificate_pem(pem))
         .map_err(|e| e.to_string())?
@@ -852,11 +852,11 @@ impl Streaming {
 
     fn request_mode(&mut self, request: Reconfigure) -> bool {
         if !self.facts.reconfigure || Reconfigure::decode(&request.encode()).is_none() {
-            self.show_toast("This stream cannot use the requested size or frame rate.");
+            self.show_toast(tr("This stream cannot use the requested size or frame rate."));
             return false;
         }
         if let Err(error) = self.session.send(ClientMessage::Reconfigure(request)) {
-            self.show_toast(format!("Could not change the stream: {error}"));
+            self.show_toast(trf("Could not change the stream: {}", &[&error]));
             return false;
         }
         self.requested_mode = request;
@@ -960,8 +960,8 @@ impl Streaming {
         let mut csv = String::from("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_ms,latency_ms,bitrate_kbps\n");
         for row in &self.statistics { csv.push_str(row); }
         match std::fs::create_dir_all(directory).and_then(|_| std::fs::write(&path, csv)) {
-            Ok(()) => self.show_toast(format!("Statistics saved to {}", path.display())),
-            Err(error) => self.show_toast(format!("Could not save statistics: {error}")),
+            Ok(()) => self.show_toast(trf("Statistics saved to {}", &[&path.display()])),
+            Err(error) => self.show_toast(trf("Could not save statistics: {}", &[&error])),
         }
     }
 
@@ -1028,12 +1028,12 @@ impl Streaming {
                         Ok(Some(text)) => {
                             let text = std::ffi::CString::new(text);
                             if text.as_ref().is_ok_and(|text| unsafe { SDL_SetClipboardText(text.as_ptr()) }) {
-                                self.show_toast("PC clipboard copied to this device.");
+                                self.show_toast(tr("PC clipboard copied to this device."));
                             } else {
-                                self.show_toast("Could not copy the PC clipboard to this device.");
+                                self.show_toast(tr("Could not copy the PC clipboard to this device."));
                             }
                         }
-                        Ok(None) => self.show_toast("Clipboard sent to the PC."),
+                        Ok(None) => self.show_toast(tr("Clipboard sent to the PC.")),
                         Err(error) => self.show_toast(error),
                     }
                 }
@@ -1042,8 +1042,8 @@ impl Streaming {
                     self.command_busy = false;
                     match result {
                         Ok(payload) => match self.session.send(ClientMessage::ServerCommand(payload)) {
-                            Ok(()) => self.show_toast("Command sent to the PC."),
-                            Err(error) => self.show_toast(format!("Could not send the command: {error}")),
+                            Ok(()) => self.show_toast(tr("Command sent to the PC.")),
+                            Err(error) => self.show_toast(trf("Could not send the command: {}", &[&error])),
                         },
                         Err(error) => self.show_toast(error),
                     }
@@ -1071,7 +1071,7 @@ impl Streaming {
                             if let Some(policy) = &mut self.bitrate_policy {
                                 policy.applied(requested, kbps, self.started.elapsed().as_millis() as u64);
                             } else {
-                                self.show_toast(format!("Bitrate set to {kbps} kbps."));
+                                self.show_toast(trf("Bitrate set to {} kbps.", &[&kbps]));
                             }
                         }
                         Err(error) => {
@@ -1173,7 +1173,7 @@ impl Streaming {
         eprintln!("nightjar: cursor: {error}");
         if !self.cursor_warning {
             self.cursor_warning = true;
-            self.show_toast("The PC's cursor could not be drawn; using the default pointer.");
+            self.show_toast(tr("The PC's cursor could not be drawn; using the default pointer."));
         }
     }
 
@@ -1184,7 +1184,7 @@ impl Streaming {
             unsafe {
                 let text = SDL_GetClipboardText();
                 if text.is_null() {
-                    self.show_toast("Could not read the local clipboard.");
+                    self.show_toast(tr("Could not read the local clipboard."));
                     return;
                 }
                 let value = std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned();
@@ -1211,7 +1211,7 @@ impl Streaming {
 
     pub fn server_command(&mut self, index: usize) {
         if self.command_busy || self.last_command.is_some_and(|at| at.elapsed() < Duration::from_secs(1)) {
-            self.show_toast("Wait one second between PC commands.");
+            self.show_toast(tr("Wait one second between PC commands."));
             return;
         }
         let Some(name) = self.facts.server_commands.get(index).cloned() else { return; };
@@ -1337,11 +1337,11 @@ impl Streaming {
     pub fn send_shortcut(&mut self, shortcut: &crate::shortcuts::Shortcut) {
         if !self.focused || !self.captured || self.facts.role == AppRole::RemoteMonitor { return; }
         if !self.settings.capture_system_keys && shortcut.keys.iter().any(|key| matches!(crate::shortcuts::key_code(key), Some(0x5B | 0x5C))) {
-            self.show_toast("Enable Send system keys to use shortcuts with the Windows key.");
+            self.show_toast(tr("Enable Send system keys to use shortcuts with the Windows key."));
             return;
         }
         let result = self.session.input(|q| crate::shortcuts::send(&shortcut.keys, &self.keys_down, q));
-        if let Err(error) = result { self.show_toast(format!("Shortcut was not sent: {error}")); }
+        if let Err(error) = result { self.show_toast(trf("Shortcut was not sent: {}", &[&error])); }
     }
 
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
@@ -1378,7 +1378,7 @@ impl Streaming {
             self.pending_mode = None;
             self.quality_policy = None;
             self.quality_mode = QualityMode::Off;
-            self.show_toast("The PC did not confirm the requested size. Automatic quality stopped.");
+            self.show_toast(tr("The PC did not confirm the requested size. Automatic quality stopped."));
         }
         if self.facts.clock_sync && self.last_probe.elapsed() >= Duration::from_millis(250) {
             self.last_probe = Instant::now();
@@ -1434,10 +1434,7 @@ impl Streaming {
                 } else if p.decoded.setup.chroma_packing != 0 {
                     self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
                 } else {
-                    self.show_toast(format!(
-                        "Cannot show {} pictures",
-                        p.decoded.frame.format_name()
-                    ));
+                    self.show_toast(trf("Cannot show {} pictures", &[&p.decoded.frame.format_name()]));
                 }
             }
             if !self.first_frame {
@@ -1467,7 +1464,7 @@ impl Streaming {
                         None => {
                             self.upscaler = None;
                             self.upscale_failed = true;
-                            self.show_toast("GPU upscaling is unavailable; using bilinear scaling.");
+                            self.show_toast(tr("GPU upscaling is unavailable; using bilinear scaling."));
                         }
                     }
                 } else { self.upscaler = None; }
@@ -1880,7 +1877,7 @@ impl Streaming {
                     match action {
                         Some(Action::Quit) => self.exit = Some(Exit::User),
                         Some(Action::Menu) => self.toggle_menu(window, pads),
-                        Some(Action::Mouse(active)) => self.show_toast(if active { "Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad." } else { "Controller mouse disabled." }),
+                        Some(Action::Mouse(active)) => self.show_toast(if active { tr("Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad.") } else { tr("Controller mouse disabled.") }),
                         None => {}
                     }
                 }
@@ -1941,9 +1938,9 @@ impl Streaming {
                     self.raise_all_keys();
                     self.set_capture(window, on);
                     self.show_toast(if on {
-                        "Input captured. Ctrl+Alt+Shift+Z releases it."
+                        tr("Input captured. Ctrl+Alt+Shift+Z releases it.")
                     } else {
-                        "Input released. Click the stream to capture it."
+                        tr("Input released. Click the stream to capture it.")
                     });
                     return;
                 }
@@ -1958,9 +1955,9 @@ impl Streaming {
                     self.set_capture(window, false);
                     self.set_capture(window, on);
                     self.show_toast(if self.absolute {
-                        "Mouse: desktop pointer"
+                        tr("Mouse: desktop pointer")
                     } else {
-                        "Mouse: captured for games"
+                        tr("Mouse: captured for games")
                     });
                     return;
                 }

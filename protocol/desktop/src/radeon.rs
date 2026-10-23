@@ -79,13 +79,18 @@ impl Row {
         let Some(group) = group_title(&self.group) else {
             let group = words(&self.group);
             let field = words(&self.field);
-            return if field.is_empty() || field == "Enabled" { group } else { format!("{group}: {field}") };
+            return if field.is_empty() || field == "Enabled" {
+                tr(&group).to_owned()
+            } else {
+                format!("{}: {}", tr(&group), tr(&field))
+            };
         };
+        let group = tr(group);
         if let Some(field) = field_title(&self.field) {
-            return format!("{group}: {field}");
+            return format!("{group}: {}", tr(field));
         }
         let field = words(&self.field);
-        if field.is_empty() || field == "Enabled" || field == "Mode" { group.to_owned() } else { format!("{group}: {field}") }
+        if field.is_empty() || field == "Enabled" || field == "Mode" { group.to_owned() } else { format!("{group}: {}", tr(&field)) }
     }
 
     /// The value as shown: On/Off, an option's label, or the number with its unit.
@@ -161,26 +166,26 @@ impl Row {
 
 pub fn group_title(group: &str) -> Option<&'static str> {
     Some(match group {
-        "anti_lag" => "Radeon Anti-Lag",
-        "chill" => "Radeon Chill",
-        "boost" => "Radeon Boost",
-        "image_sharpening" => "Radeon Image Sharpening",
-        "enhanced_sync" => "Enhanced Sync",
-        "frame_rate_target" => "Frame Rate Target Control",
-        "afmf" => "AMD Fluid Motion Frames",
-        "rsr" => "Radeon Super Resolution",
-        "vsync" => "Vertical sync",
+        "anti_lag" => en("Radeon Anti-Lag"),
+        "chill" => en("Radeon Chill"),
+        "boost" => en("Radeon Boost"),
+        "image_sharpening" => en("Radeon Image Sharpening"),
+        "enhanced_sync" => en("Enhanced Sync"),
+        "frame_rate_target" => en("Frame Rate Target Control"),
+        "afmf" => en("AMD Fluid Motion Frames"),
+        "rsr" => en("Radeon Super Resolution"),
+        "vsync" => en("Vertical sync"),
         _ => return None,
     })
 }
 
 fn field_title(field: &str) -> Option<&'static str> {
     Some(match field {
-        "min_fps" => "Minimum FPS",
-        "max_fps" => "Maximum FPS",
-        "fps" => "Frame rate",
-        "min_resolution" => "Minimum resolution",
-        "sharpness" => "Sharpness",
+        "min_fps" => en("Minimum FPS"),
+        "max_fps" => en("Maximum FPS"),
+        "fps" => en("Frame rate"),
+        "min_resolution" => en("Minimum resolution"),
+        "sharpness" => en("Sharpness"),
         _ => return None,
     })
 }
@@ -526,6 +531,16 @@ mod tests {
         let mut data = fixture(true, true);
         data.gpus[0].settings[7].id = "future_thing.enabled".into();
         assert_eq!(Panel::of(&data).find("future_thing.enabled").unwrap().title(), "Future thing");
+    }
+
+    #[test]
+    fn names_follow_the_language() {
+        let panel = Panel::of(&fixture(true, true));
+        crate::strings::set(crate::strings::Lang::De);
+        assert_eq!(panel.find("chill.max_fps").unwrap().title(), "Radeon Chill: Maximale FPS");
+        assert_eq!(panel.find("vsync.mode").unwrap().title(), "Vertikale Synchronisierung");
+        // A name made from an id this client does not know stays as the host sent it.
+        assert_eq!(panel.find("future_thing.gain").unwrap().title(), "Future thing: Gain");
     }
 
     #[test]

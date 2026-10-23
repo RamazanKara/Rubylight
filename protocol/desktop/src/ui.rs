@@ -1210,7 +1210,7 @@ impl Launcher {
                     ui.label(RichText::new(tr("Pair Nightjar with this PC to play.")).color(ERROR));
                 }
                 if let Some(other) = &other_running {
-                    ui.label(RichText::new(trf("{} is running. Playing this game closes it.", &[&other])).color(TERTIARY));
+                    ui.label(RichText::new(trf("{} is running. Playing this game closes it.", &[&at_sentence_start(other)])).color(TERTIARY));
                 }
                 ui.add_space(8.0);
                 let can_play = detail.can_start && classic.is_some();
@@ -2773,6 +2773,16 @@ fn running_entry(host: &Host) -> Option<&nightjar_core::http::App> {
     }
 }
 
+/// A name that starts a sentence: the stand-in "the running app" gets its capital, a game's own
+/// name stays as it is spelled.
+fn at_sentence_start(name: &str) -> String {
+    if name != tr("the running app") {
+        return name.to_owned();
+    }
+    let mut chars = name.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+}
+
 fn running_name(host: &Host) -> String {
     let Some(running) = host.running_app() else {
         return tr("the running app").into();
@@ -3040,6 +3050,17 @@ impl UiExt for egui::Image<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stand_in_names_fit_their_sentences() {
+        assert_eq!(at_sentence_start(tr("the running app")), "the running app".replacen('t', "T", 1));
+        assert_eq!(at_sentence_start("osu!"), "osu!");
+        crate::strings::set(crate::strings::Lang::De);
+        assert_eq!(at_sentence_start(tr("the running app")), "Die laufende App");
+        assert_eq!(trf("Pairing with {} failed", &[&tr("the PC")]), "Koppeln mit dem PC fehlgeschlagen");
+        assert_eq!(trf("Pair with {}", &[&tr("the PC")]), "Mit dem PC koppeln");
+        assert_eq!(trf("Quit {}?", &[&tr("the running app")]), "die laufende App beenden?");
+    }
 
     fn launcher(console_home: bool, home_ready: bool) -> Launcher {
         let settings = Settings { console_home, ..Default::default() };

@@ -111,5 +111,8 @@ public class HomeScreenTest {
         playing.runningGameId = 7;
         assertNotEquals(online, ConsoleHomeActivity.signature(Collections.singletonList(playing)));
         assertNotEquals(online, ConsoleHomeActivity.signature(Arrays.asList(host, nativeHost("laptop", "Laptop", true))));
+        ComputerDetails renamed = new ComputerDetails(host);
+        renamed.alias = "Living room";
+        assertNotEquals(online, ConsoleHomeActivity.signature(Collections.singletonList(renamed)));
     }
 }

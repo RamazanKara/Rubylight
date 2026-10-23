@@ -78,6 +78,17 @@ if ($built['patches'] -ne $pin['patches']) { throw "built with patches $($built[
 Copy-Item $dll $Out -Force
 if (Test-Path "$Out\licenses") { Remove-Item -Recurse -Force "$Out\licenses" }
 Copy-Item (Join-Path $prefix 'share\licenses\pyrowave') "$Out\licenses" -Recurse
+# The DLL carries the MinGW runtime statically (it imports no libwinpthread or libstdc++ DLL), and
+# the licences of those libraries ask for their notices to travel with it.
+$runtime = @{
+    'LICENSE.winpthreads'            = 'ucrt64\share\licenses\winpthreads\COPYING'
+    'LICENSE.gcc-runtime-exception'  = 'ucrt64\share\licenses\gcc-libs\COPYING.RUNTIME'
+}
+foreach ($name in $runtime.Keys) {
+    $source = Join-Path $msys $runtime[$name]
+    if (-not (Test-Path $source)) { throw "$source is missing; install the MSYS2 package that owns it (mingw-w64-ucrt-x86_64-winpthreads, mingw-w64-ucrt-x86_64-gcc-libs)" }
+    Copy-Item $source "$Out\licenses\$name"
+}
 $sha = (Get-FileHash (Join-Path $Out 'libpyrowave-shared-1.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
 $text = (Get-Content $info) + "dll_sha256=$sha" + "built=$([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))"
 [System.IO.File]::WriteAllText((Join-Path $Out 'build-info.txt'), (($text -join "`n") + "`n"))

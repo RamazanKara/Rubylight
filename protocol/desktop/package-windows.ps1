@@ -60,6 +60,8 @@ if ($PyrowaveSdkDir) {
         throw "the PyroWave SDK in $PyrowaveSdkDir has granite_commit=$($built['granite_commit']), pyrowave-sdk.pin says $($pin['granite_commit'])"
     }
     $sha = (Get-FileHash $sdkDll -Algorithm SHA256).Hash.ToLowerInvariant()
+    $notice = Join-Path $PyrowaveSdkDir 'licenses\LICENSE.winpthreads'
+    if (-not (Test-Path $notice)) { throw "$notice is missing: the DLL carries winpthreads and its notice must ship; rebuild the SDK with scripts\build-pyrowave-sdk.ps1" }
     if ($built['dll_sha256'] -ne $sha) { throw "libpyrowave-shared-1.dll is $sha, build-info.txt recorded $($built['dll_sha256']): it is not the DLL that was built" }
 }
 

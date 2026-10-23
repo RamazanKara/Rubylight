@@ -18,7 +18,8 @@ pub enum Command {
     Launch { host: u64, app: i32, resume: bool },
     QuitApp(u64),
     ControlAction { host: u64, app: i32 },
-    QuitAndLaunch { host: u64, app: i32 },
+    /// `named` is the app the prompt said would be closed; it is checked again before closing.
+    QuitAndLaunch { host: u64, app: i32, named: Option<i32> },
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
     Wake(u64),
@@ -96,7 +97,7 @@ pub enum Dialog {
     Message { title: String, body: String },
     /// Quit the running app, then start `start`. `resume` is the running app's id when the
     /// dialog can offer to carry on with it instead.
-    ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String, resume: Option<i32> },
+    ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String, resume: Option<i32>, named: Option<i32> },
     ConfirmAction { host: u64, app: i32, name: String },
     ConfirmClose { host: u64, name: String },
     ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
@@ -726,6 +727,7 @@ impl Launcher {
                                         start: None,
                                         running: running_name(host),
                                         resume: None,
+                                        named: host.running_app(),
                                     };
                                     self.focus_dialog = true;
                                 }
@@ -889,12 +891,13 @@ impl Launcher {
                                             app: app.id,
                                             resume: true,
                                         });
-                                    } else if running.is_some() {
+                                    } else if running.is_some() && !host.confirms_replacement() {
                                         self.dialog = Dialog::ConfirmQuit {
                                             host: id,
                                             start: Some((app.id, app.name.clone())),
                                             running: running_name(host),
                                             resume: running_app_id(host),
+                                            named: host.running_app(),
                                         };
                                         self.focus_dialog = true;
                                     } else {
@@ -964,9 +967,10 @@ impl Launcher {
             let mut first = true;
             if !starred.is_empty() {
                 section(ui, "Favourites");
+                ui.label(RichText::new("Delete (keyboard) or Y (gamepad) removes the focused favourite.").font(semibold(13.0)).color(ON_SURFACE_VARIANT));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
-                    for item in &starred {
+                    for (index, item) in starred.iter().enumerate() {
                         let line = if item.online { format!("On {}", item.host_name) } else { format!("{} is away", item.host_name) };
                         let response = continue_card(ui, &item.title, &line, false);
                         self.focus_item(&response, &format!("favourite:{}:{}", item.host, item.app_id), std::mem::take(&mut first));
@@ -974,6 +978,16 @@ impl Launcher {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
                         }
                         let star = item.favourite.clone();
+                        if response.has_focus() && unstar_pressed(ui) {
+                            commands.push(Command::ToggleFavourite(star.clone()));
+                            // The focus moves to the next favourite (else the previous), not back to the top.
+                            match console::neighbour(starred.len(), index) {
+                                Some(near) => {
+                                    self.restore_key = Some(format!("favourite:{}:{}", starred[near].host, starred[near].app_id));
+                                }
+                                None => self.focus_screen = true,
+                            }
+                        }
                         response.context_menu(|ui| {
                             if ui.button("Remove from favourites").clicked() {
                                 commands.push(Command::ToggleFavourite(star));
@@ -1148,12 +1162,13 @@ impl Launcher {
                         if let Some(app) = &classic {
                             if resumes {
                                 commands.push(Command::Launch { host: host_id, app: app.id, resume: true });
-                            } else if let Some(running) = &other_running {
+                            } else if let (Some(running), false) = (&other_running, host.confirms_replacement()) {
                                 self.dialog = Dialog::ConfirmQuit {
                                     host: host_id,
                                     start: Some((app.id, game.title.clone())),
                                     running: running.clone(),
                                     resume: running_app_id(host),
+                                    named: host.running_app(),
                                 };
                                 self.focus_dialog = true;
                             } else {
@@ -1183,7 +1198,7 @@ impl Launcher {
                             self.dialog = if detail.end == EndAction::CloseGame {
                                 Dialog::ConfirmClose { host: host_id, name: game.title.clone() }
                             } else {
-                                Dialog::ConfirmQuit { host: host_id, start: None, running: game.title.clone(), resume: None }
+                                Dialog::ConfirmQuit { host: host_id, start: None, running: game.title.clone(), resume: None, named: host.running_app() }
                             };
                             self.focus_dialog = true;
                         }
@@ -2417,8 +2432,8 @@ impl Launcher {
                         });
                     });
             }
-            Dialog::ConfirmQuit { host, start, running, resume } => {
-                let (host, start, running, resume) = (*host, start.clone(), running.clone(), *resume);
+            Dialog::ConfirmQuit { host, start, running, resume, named } => {
+                let (host, start, running, resume, named) = (*host, start.clone(), running.clone(), *resume, *named);
                 egui::Modal::new(Id::unique("confirm-quit"))
                     .frame(frame)
                     .backdrop_color(Color32::from_black_alpha(150))
@@ -2433,25 +2448,38 @@ impl Launcher {
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             let r = primary_button(ui, if start.is_some() { "Quit and start" } else { "Quit app" });
-                            if focus_first {
+                            // Replacing a running game starts on the safe choice (Resume, else Cancel), never on
+                            // the button that closes it; "Quit app" is what the player just asked for.
+                            let replacing = start.is_some();
+                            if focus_first && !replacing {
                                 r.request_focus();
                                 focused = true;
                             }
                             if r.clicked() {
                                 commands.push(match start {
-                                    Some((app, _)) => Command::QuitAndLaunch { host, app },
+                                    Some((app, _)) => Command::QuitAndLaunch { host, app, named },
                                     None => Command::QuitApp(host),
                                 });
                                 close = true;
                             }
                             // Starting another game replaces the running one: carry on with it instead.
                             if let (Some(app), Some(_)) = (resume, &start) {
-                                if quiet_button(ui, &format!("Resume {running}")).clicked() {
+                                let r = quiet_button(ui, &format!("Resume {running}"));
+                                if focus_first {
+                                    r.request_focus();
+                                    focused = true;
+                                }
+                                if r.clicked() {
                                     commands.push(Command::Launch { host, app, resume: true });
                                     close = true;
                                 }
                             }
-                            if quiet_button(ui, "Cancel").clicked() {
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first && replacing && resume.is_none() {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
                                 close = true;
                             }
                         });
@@ -2818,6 +2846,13 @@ fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, running: boo
         painter.rect_filled(badge, CornerRadius::same(12), MOON);
         painter.text(badge.center(), Align2::CENTER_CENTER, "Running", semibold(12.5), ON_MOON);
     }
+}
+
+/// Delete, or Y on a gamepad (mapped to F3), takes the star off the focused favourite.
+fn unstar_pressed(ui: &Ui) -> bool {
+    ui.input_mut(|i| {
+        i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) | i.consume_key(egui::Modifiers::NONE, egui::Key::F3)
+    })
 }
 
 /// The right-click menu of a game card: star the game or take its star off.

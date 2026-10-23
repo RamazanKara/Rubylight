@@ -360,6 +360,7 @@ impl App {
                         SDL_GAMEPAD_BUTTON_EAST => Some(if swap { egui::Key::Enter } else { egui::Key::Escape }),
                         SDL_GAMEPAD_BUTTON_BACK => Some(egui::Key::Escape),
                         SDL_GAMEPAD_BUTTON_WEST => Some(egui::Key::F2),
+                        SDL_GAMEPAD_BUTTON_NORTH => Some(egui::Key::F3),
                         SDL_GAMEPAD_BUTTON_START => {
                             if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && self.connecting.is_none() {
                                 if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
@@ -667,9 +668,20 @@ impl App {
             }
             Command::QuitApp(host) => self.hosts.quit_app(host),
             Command::ControlAction { host, app } => self.hosts.control_action(host, app),
-            Command::QuitAndLaunch { host, app } => {
-                self.pending_launch = Some((host, app));
-                self.hosts.quit_app(host);
+            Command::QuitAndLaunch { host, app, named } => {
+                // The PC may run another app than the prompt named: look again before closing anything.
+                let now = self.hosts.get(host).and_then(|h| h.running_app());
+                match console::recheck_running(named, now) {
+                    console::Running::Changed => self.launcher.message(
+                        "The running app changed",
+                        "The PC runs another app now. Check the screen and try again.",
+                    ),
+                    console::Running::Gone => self.launch(host, app, false),
+                    console::Running::Same => {
+                        self.pending_launch = Some((host, app));
+                        self.hosts.quit_app(host);
+                    }
+                }
             }
             Command::Pair(host) => {
                 if let Some(why) = self.hosts.get(host).and_then(|h| h.pairing_blocked()) {

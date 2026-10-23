@@ -106,6 +106,11 @@ impl Host {
     }
 
     /// The PC speaks the native API now, or did when its library was saved.
+    /// Whether the PC asks the player itself before a start replaces the running app.
+    pub fn confirms_replacement(&self) -> bool {
+        self.info.as_ref().is_some_and(|i| i.capabilities.has(Feature::HostConfirmsReplacement))
+    }
+
     pub fn native_api(&self) -> bool {
         self.info.as_ref().is_some_and(|i| i.capabilities.has(Feature::NativeApi))
             || (self.info.is_none() && self.native.library.is_some())

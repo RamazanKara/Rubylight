@@ -522,6 +522,18 @@ pub fn toggle_favourite(list: &mut Vec<Favourite>, entry: Favourite) -> bool {
     true
 }
 
+/// The starred games in `text`, skipping entries that do not parse, and whether anything was
+/// skipped (or the whole text was unreadable), so the caller can keep the original aside.
+fn parse_favourites(text: &str) -> (Vec<Favourite>, bool) {
+    let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(text) else {
+        return (Vec::new(), true);
+    };
+    let total = entries.len();
+    let list: Vec<Favourite> = entries.into_iter().filter_map(|e| serde_json::from_value(e).ok()).collect();
+    let damaged = list.len() < total;
+    (list, damaged)
+}
+
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     let text = std::fs::read_to_string(path).ok()?;
     match serde_json::from_str(&text) {
@@ -627,7 +639,17 @@ impl Store {
     }
 
     pub fn favourites(&self) -> Vec<Favourite> {
-        read_json(&self.dir.join("favourites.json")).unwrap_or_default()
+        let path = self.dir.join("favourites.json");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Vec::new();
+        };
+        let (list, damaged) = parse_favourites(&text);
+        if damaged {
+            // Keep the list as it was, so a bad entry (or a file the next save would replace) is not lost.
+            eprintln!("nightjar: favourites.json has entries that could not be read; kept as favourites.json.bak");
+            let _ = std::fs::copy(&path, path.with_extension("json.bak"));
+        }
+        list
     }
 
     pub fn save_favourites(&self, favourites: &[Favourite]) -> std::io::Result<()> {
@@ -808,6 +830,29 @@ mod tests {
         assert_eq!(Store::at(dir.clone()).unwrap().favourites(), list);
         std::fs::write(dir.join("favourites.json"), "{ not json").unwrap();
         assert!(store.favourites().is_empty());
+        // The unreadable file is kept aside, not silently lost.
+        assert_eq!(std::fs::read_to_string(dir.join("favourites.json.bak")).unwrap(), "{ not json");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_bad_favourite_is_skipped_and_the_rest_and_the_original_are_kept() {
+        let text = r#"[
+            {"host":"pc","install_id":"A","app_id":1,"title":"One"},
+            {"host":"pc"},
+            {"host":"pc","install_id":"B","app_id":"x","title":"Two"},
+            {"host":"pc","install_id":"C","app_id":3,"title":"Three"}
+        ]"#;
+        let (list, damaged) = parse_favourites(text);
+        assert!(damaged);
+        assert_eq!(list.iter().map(|f| f.title.as_str()).collect::<Vec<_>>(), ["One", "Three"]);
+        assert_eq!(parse_favourites("[]"), (Vec::new(), false));
+
+        let dir = std::env::temp_dir().join(format!("nightjar-favourites-bad-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        std::fs::write(dir.join("favourites.json"), text).unwrap();
+        assert_eq!(store.favourites().len(), 2);
+        assert_eq!(std::fs::read_to_string(dir.join("favourites.json.bak")).unwrap(), text);
         std::fs::remove_dir_all(dir).ok();
     }
 

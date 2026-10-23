@@ -419,6 +419,34 @@ pub fn stream_summary(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> S
 
 /// The classic app list entry for a library game: by the install id the PC gives both lists,
 /// else by app id. `apps` are `(id, uuid)`.
+/// What the PC runs now, compared with the app a prompt named when it opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Running {
+    /// Still the named app (or nothing was named to compare with).
+    Same,
+    /// Nothing runs any more: there is nothing to close.
+    Gone,
+    /// Another app than the named one: closing it is not what the player agreed to.
+    Changed,
+}
+
+pub fn recheck_running(named: Option<i32>, now: Option<i32>) -> Running {
+    match (named, now) {
+        (_, None) => Running::Gone,
+        (Some(named), Some(now)) if named != now => Running::Changed,
+        _ => Running::Same,
+    }
+}
+
+/// The card that takes the focus when card `index` of `len` leaves the row: the next one, else the previous.
+pub fn neighbour(len: usize, index: usize) -> Option<usize> {
+    if index + 1 < len {
+        Some(index + 1)
+    } else {
+        index.checked_sub(1).filter(|_| len > 1)
+    }
+}
+
 pub fn classic_app(apps: &[(i32, &str)], install_id: &str, app_id: u32) -> Option<i32> {
     apps.iter()
         .find(|(_, uuid)| !uuid.is_empty() && uuid.eq_ignore_ascii_case(install_id))
@@ -760,5 +788,24 @@ mod tests {
         // A PC that told no unique id yet cannot be starred on.
         let nameless = source(3, "New", true, Some(&lib), None);
         assert!(favourite_of(&nameless, &lib.games[0]).is_none());
+    }
+
+    #[test]
+    fn the_running_app_is_checked_again_before_it_is_closed() {
+        assert_eq!(recheck_running(Some(11), Some(11)), Running::Same);
+        assert_eq!(recheck_running(Some(11), None), Running::Gone);
+        assert_eq!(recheck_running(Some(11), Some(12)), Running::Changed);
+        // Nothing was named (the app list was not loaded): only a stopped app is told apart.
+        assert_eq!(recheck_running(None, Some(12)), Running::Same);
+        assert_eq!(recheck_running(None, None), Running::Gone);
+    }
+
+    #[test]
+    fn a_removed_favourite_hands_focus_to_the_next_card_else_the_previous() {
+        assert_eq!(neighbour(3, 0), Some(1));
+        assert_eq!(neighbour(3, 1), Some(2));
+        assert_eq!(neighbour(3, 2), Some(1));
+        assert_eq!(neighbour(1, 0), None);
+        assert_eq!(neighbour(0, 0), None);
     }
 }

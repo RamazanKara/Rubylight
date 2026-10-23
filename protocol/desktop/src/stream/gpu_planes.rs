@@ -39,6 +39,7 @@ impl Pool {
         self.free.push_back(set);
     }
 
+    #[cfg(test)]
     pub fn free_count(&self) -> usize {
         self.free.len()
     }

@@ -194,6 +194,28 @@ impl Decoder {
         if *written == PYROWAVE_DUMP_FRAMES { eprintln!("nightjar: PyroWave dump: {PYROWAVE_DUMP_FRAMES} envelopes in {}", dir.display()); }
     }
 
+    /// What a frame the PyroWave decoder could not turn into a picture costs the stream.
+    fn failed(&mut self, failure: Failure) -> DecodeStatus {
+        let counters = &self.shared.counters;
+        match failure {
+            Failure::Frame(error) => {
+                eprintln!("nightjar: PyroWave: {error}");
+                counters.decode_errors.fetch_add(1, Ordering::Relaxed);
+                DecodeStatus::NeedIdr
+            }
+            Failure::NoPlanes => {
+                if counters.replaced.fetch_add(1, Ordering::Relaxed) == 0 { eprintln!("nightjar: PyroWave: every GPU plane set is waiting to be shown, dropping the frame (counted, not repeated)"); }
+                DecodeStatus::Ok
+            }
+            Failure::Device(error) => {
+                eprintln!("nightjar: PyroWave: {error}");
+                counters.decode_errors.fetch_add(1, Ordering::Relaxed);
+                self.shared.notify(Notice::DecoderFailed(error));
+                DecodeStatus::NeedIdr
+            }
+        }
+    }
+
     /// PyroWave decodes on the GPU with the SDK, into planes on this device.
     pub fn with_gpu_decoder(mut self, device: Option<GpuDevice>) -> Self {
         self.gpu = device;
@@ -320,17 +342,7 @@ impl VideoDecoder for Decoder {
             };
             let output = match decoder.frame(frame.data(), &mut evict) {
                 Ok(output) => output,
-                Err(Failure::Frame(error)) => { eprintln!("nightjar: PyroWave: {error}"); self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed); return DecodeStatus::NeedIdr; }
-                Err(Failure::NoPlanes) => {
-                    if self.shared.counters.replaced.fetch_add(1, Ordering::Relaxed) == 0 { eprintln!("nightjar: PyroWave: every GPU plane set is waiting to be shown, dropping the frame (counted, not repeated)"); }
-                    return DecodeStatus::Ok;
-                }
-                Err(Failure::Device(error)) => {
-                    eprintln!("nightjar: PyroWave: {error}");
-                    self.shared.counters.decode_errors.fetch_add(1, Ordering::Relaxed);
-                    self.shared.notify(Notice::DecoderFailed(error));
-                    return DecodeStatus::NeedIdr;
-                }
+                Err(failure) => return self.failed(failure),
             };
             let early = match output.source {
                 super::pyrowave::Source::Frame => 0,
@@ -584,5 +596,56 @@ impl Listener for Events {
 
     fn log(&self, message: &str) {
         eprintln!("nightjar: {message}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decoder() -> (Decoder, Arc<Shared>) {
+        let shared = Shared::new(Arc::new(|| {}), 8);
+        (Decoder::new(shared.clone(), Hardware::None), shared)
+    }
+
+    fn notices(shared: &Shared) -> Vec<Notice> {
+        std::mem::take(&mut *lock(&shared.notices))
+    }
+
+    #[test]
+    fn a_gpu_device_failure_ends_the_stream_with_its_message() {
+        let (mut decoder, shared) = decoder();
+        let status = decoder.failed(Failure::Device("PyroWave GPU decode failed: device removed".into()));
+        assert!(matches!(status, DecodeStatus::NeedIdr));
+        assert_eq!(shared.counters.decode_errors.load(Ordering::Relaxed), 1);
+        let notices = notices(&shared);
+        let [Notice::DecoderFailed(text)] = notices.as_slice() else { panic!("expected exactly the DecoderFailed notice") };
+        assert_eq!(text, "PyroWave GPU decode failed: device removed");
+        // The stream shows it as the reason it ended and does not reconnect on its own.
+        assert!(!crate::stream::Exit::Ended(Some(text.clone())).retryable());
+    }
+
+    #[test]
+    fn a_bad_frame_asks_for_an_idr_and_a_full_ring_drops_the_frame_without_ending_the_stream() {
+        let (mut decoder, shared) = decoder();
+        assert!(matches!(decoder.failed(Failure::Frame("bad".into())), DecodeStatus::NeedIdr));
+        assert!(matches!(decoder.failed(Failure::NoPlanes), DecodeStatus::Ok));
+        assert!(matches!(decoder.failed(Failure::NoPlanes), DecodeStatus::Ok));
+        assert_eq!(shared.counters.decode_errors.load(Ordering::Relaxed), 1);
+        assert_eq!(shared.counters.replaced.load(Ordering::Relaxed), 2);
+        assert!(notices(&shared).is_empty(), "only a broken GPU decoder ends the stream");
+    }
+
+    #[test]
+    fn gpu_mode_without_a_device_never_builds_a_cpu_decoder() {
+        // No renderer device: the GPU decoder cannot be built, and setup reports that instead of
+        // decoding on the CPU.
+        let (mut decoder, shared) = decoder();
+        decoder = decoder.with_gpu_decoder(Some(GpuDevice(std::ptr::null_mut())));
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_PYROWAVE, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        assert!(decoder.setup(&setup).is_err());
+        assert!(decoder.pyrowave.is_none());
+        let notices = notices(&shared);
+        assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("PyroWave GPU decoding is unavailable")));
     }
 }

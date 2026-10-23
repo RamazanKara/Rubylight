@@ -9,7 +9,7 @@
 //! checks their sizes and offsets.
 //!
 //! Every failure is an error naming the missing piece; nothing falls back to the CPU decoder.
-//! Nothing in the stream uses this yet (brief G2 wires it in).
+//! The stream's GPU decoder (`pyrowave.rs`, `Pyrowave::Gpu`) is the user of this module.
 #![allow(dead_code)]
 
 use std::collections::HashMap;

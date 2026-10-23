@@ -463,14 +463,14 @@ pub enum Failure {
 
 /// The PyroWave decoder of a stream, on the CPU or on the GPU (`Settings::pyrowave_decoder`).
 pub enum Pyrowave {
-    Cpu(Decoder),
+    Cpu(Box<Decoder>),
     #[cfg(windows)]
     Gpu(Box<GpuStream>),
 }
 
 impl Pyrowave {
     pub fn cpu(width: usize, height: usize, chroma444: bool) -> Result<Self, &'static str> {
-        Decoder::new(width, height, chroma444).map(Self::Cpu)
+        Decoder::new(width, height, chroma444).map(|decoder| Self::Cpu(Box::new(decoder)))
     }
 
     /// Takes one packet of the records envelope of the frame `frame` will get next.
@@ -659,6 +659,9 @@ impl GpuStream {
         self.stages.summary()
     }
 }
+
+#[cfg(all(test, windows))]
+mod gpu_tests;
 
 #[cfg(test)]
 mod tests {
@@ -863,14 +866,14 @@ mod tests {
     }
 
     /// The legacy container of a fixture as one bitstream: the sequence header, then blocks.
-    fn bitstream(container: &[u8]) -> Vec<u8> {
+    pub(super) fn bitstream(container: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         assert!(push_container(container, |packet| { out.extend_from_slice(packet); true }));
         out
     }
 
     /// The fixture's blocks packed whole into 1400-byte host packets, as (flags, payload).
-    fn host_packets(bitstream: &[u8]) -> Vec<(u32, Vec<u8>)> {
+    pub(super) fn host_packets(bitstream: &[u8]) -> Vec<(u32, Vec<u8>)> {
         use rubylight_protocol::pyrowave::{PACKET_FRAME_END, PACKET_FRAME_START, PACKET_RECORD_START};
         let mut payloads: Vec<Vec<u8>> = vec![Vec::new()];
         let mut at = 8;
@@ -897,7 +900,7 @@ mod tests {
     }
 
     /// The packets that arrived, in order, the one after a gap not contiguous.
-    fn arrived(packets: &[(u32, Vec<u8>)], lost: &[usize]) -> Vec<(u32, Vec<u8>)> {
+    pub(super) fn arrived(packets: &[(u32, Vec<u8>)], lost: &[usize]) -> Vec<(u32, Vec<u8>)> {
         let mut out = Vec::new();
         let mut previous = None;
         for (i, (flags, payload)) in packets.iter().enumerate() {
@@ -910,7 +913,7 @@ mod tests {
     }
 
     /// The client's frame data for those packets.
-    fn envelope(packets: &[(u32, Vec<u8>)]) -> Vec<u8> {
+    pub(super) fn envelope(packets: &[(u32, Vec<u8>)]) -> Vec<u8> {
         let mut out = vec![0; 4];
         for (flags, payload) in packets {
             out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
@@ -938,7 +941,7 @@ mod tests {
         (whole, early)
     }
 
-    fn fixture(which: usize) -> (&'static [u8], usize, usize, bool) {
+    pub(super) fn fixture(which: usize) -> (&'static [u8], usize, usize, bool) {
         match which {
             0 => (include_bytes!("../../tests/fixtures/pyrowave-420-8.bin"), 132, 98, false),
             1 => (include_bytes!("../../tests/fixtures/pyrowave-420-10.bin"), 132, 98, false),
@@ -967,7 +970,7 @@ mod tests {
 
     /// The fixture's records cut into packets of `piece` bytes wherever the cut falls, so a
     /// record runs over several packets: only the first has RECORD_START, the others continue it.
-    fn spanning_packets(bitstream: &[u8], piece: usize) -> Vec<(u32, Vec<u8>)> {
+    pub(super) fn spanning_packets(bitstream: &[u8], piece: usize) -> Vec<(u32, Vec<u8>)> {
         use rubylight_protocol::pyrowave::{PACKET_CONTIGUOUS, PACKET_FRAME_END, PACKET_FRAME_START, PACKET_RECORD_START};
         let pieces: Vec<&[u8]> = bitstream[8..].chunks(piece).collect();
         let count = pieces.len();
@@ -1076,7 +1079,7 @@ mod tests {
     /// cpu_costs_of_a_pyrowave_frame`: what a 1080p frame costs on the CPU before the GPU
     /// wavelets, in the pieces early decode moves around (docs/early-decode.md).
     /// The envelopes `NIGHTJAR_PYROWAVE_DUMP` wrote, in frame order, with their geometry.
-    fn dumped_frames(dir: &std::path::Path) -> Vec<(usize, usize, bool, Vec<u8>)> {
+    pub(super) fn dumped_frames(dir: &std::path::Path) -> Vec<(usize, usize, bool, Vec<u8>)> {
         let mut names: Vec<_> = std::fs::read_dir(dir).unwrap().filter_map(|entry| {
             let name = entry.ok()?.file_name().into_string().ok()?;
             parse_dump_name(&name).map(|geometry| (name, geometry))

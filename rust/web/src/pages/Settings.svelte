@@ -27,6 +27,7 @@
   import { guardNavigation, match, navigate } from '../lib/router.svelte';
   import { refreshMetadata } from '../lib/session.svelte';
   import { schema, settingGroups, settingsGroup } from '../lib/settings-schema';
+  import { SETTING as PRESET, covered, presetById, presetId, withPreset } from '../lib/stream-presets';
   import type { Category, CategoryId, Setting } from '../lib/settings-types';
 
   const categories = settingGroups;
@@ -78,8 +79,20 @@
   }
 
   const config = $derived(stored ?? {});
-  const values = $derived(currentValues(schema.settings, edits, config));
-  const changes = $derived(stored ? computeChanges(byKey, edits, stored) : {});
+  // The host fills the settings a preset covers, so under a preset they have
+  // that preset's defaults: a row shows what is in effect, and Reset goes
+  // back to the preset's value.
+  const preset = $derived(presetById(presetId(has(edits, PRESET) ? edits[PRESET] : config[PRESET])));
+  const described = $derived(withPreset(schema.settings, preset.id));
+  const defaults: ReadonlyMap<string, Setting> = $derived(new Map(described.map((setting) => [setting.key, setting])));
+  const values = $derived(currentValues(described, edits, config));
+  const changes = $derived(stored ? computeChanges(defaults, edits, stored) : {});
+  /** Settings the preset covers that are set by hand to something else. */
+  const handSet = $derived(
+    preset.id === 'balanced'
+      ? []
+      : described.filter((setting) => covered.includes(setting.key) && differsFromDefault(setting, edits, config)),
+  );
   const pending = $derived(new Set([...Object.keys(changes), ...Object.keys(invalid)]));
   const invalidCount = $derived(Object.keys(invalid).length);
 
@@ -139,7 +152,7 @@
     return groups;
   }
 
-  const inCategory = $derived(schema.settings.filter((setting) => settingsGroup(setting.category) === active?.id));
+  const inCategory = $derived(described.filter((setting) => settingsGroup(setting.category) === active?.id));
   // Keep a pending control reachable if editing its parent makes it inactive.
   const shown = $derived(inCategory.filter((setting) => visible(setting) || pending.has(setting.key)));
   const basic = $derived(grouped(shown.filter((setting) => (!setting.advanced || missing(setting)))));
@@ -163,7 +176,7 @@
     return categories
       .map((category) => ({
         category,
-        settings: schema.settings.filter(
+        settings: described.filter(
           (setting) =>
             settingsGroup(setting.category) === category.id &&
             inReview(setting.key) && (matchesSetting(setting, category, words) || matchesSetting(setting, schema.categories.find(item => item.id === setting.category)!, words)),
@@ -333,6 +346,14 @@
     onundo={() => undo(setting.key)}
     oninvalid={(text) => setInvalid(setting.key, text)}
   />
+  {#if setting.key === PRESET}
+    <p class="preset-note" data-preset-note>
+      {preset.description}
+      {#if handSet.length > 0}
+        <strong>Custom:</strong> set by hand, so they win over the preset: {handSet.map((item) => item.label).join(', ')}.
+      {/if}
+    </p>
+  {/if}
 {/snippet}
 
 {#snippet groups(list: Group[])}
@@ -557,6 +578,13 @@
 {/if}
 
 <style>
+  .preset-note {
+    margin: 0;
+    padding: 0 var(--space-5) var(--space-3);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+  .preset-note strong { color: var(--ink); }
   .custom-config { border-top: 1px solid var(--line); }
   .custom-config > summary { padding: 16px 24px; }
   .frame {

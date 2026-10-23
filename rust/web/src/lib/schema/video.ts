@@ -1,6 +1,7 @@
 // Settings for the categories named in settings-schema.ts: video and encoders.
 import type { ConfigValue } from '../api';
 import type { Aliases, Setting } from '../settings-types';
+import { SETTING, defaultPreset, presets } from '../stream-presets';
 
 type Values = Record<string, ConfigValue>;
 
@@ -42,6 +43,22 @@ const gridPacing = (values: Values) =>
   ['grid', 'fixed'].includes(read(values, 'frame_pacing', 'arrival').toLowerCase());
 
 const video: Setting[] = [
+  {
+    key: SETTING,
+    label: 'Stream preset',
+    description:
+      'Fills in the AMD encoder settings you have not set yourself. Settings you change below always win.',
+    details:
+      'Balanced is the host\'s defaults. Lowest latency limits every frame, recovery keyframes included, to one frame\'s share of the bitrate. Reference quality uses constant bitrate and leaves recovery keyframes unlimited, which suits a fast, steady link. Each value comes from our own measurements in PERFORMANCE.md. A device or an app can choose its own preset.',
+    category: 'video',
+    group: 'Preset',
+    control: {
+      kind: 'select',
+      options: presets.map((preset) => ({ value: preset.id, label: preset.label })),
+    },
+    aliases: { match: 'dash' },
+    default: defaultPreset,
+  },
   {
     key: 'capture',
     label: 'Capture method',

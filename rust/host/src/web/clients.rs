@@ -81,6 +81,11 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             {
                 anyhow::bail!("host_control must be true, false or null");
             }
+            // A preset the host does not know is refused here, as it is for the
+            // host's own setting, before anything is saved.
+            if let Some(overrides) = data.get("config_overrides") {
+                butterpollo_core::stream_preset::check_overrides(overrides)?;
+            }
             let previous_perm = c.perm;
             let previous_layout = c.extra.get("virtual_display_layout").cloned();
             if let Some(n) = data.get("name").and_then(Value::as_str) {
@@ -260,6 +265,41 @@ mod tests {
         )
         .unwrap();
         assert!(!f.host.radeon.holds(&client.uuid));
+    }
+
+    #[test]
+    fn a_device_cannot_save_a_preset_the_host_does_not_know() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let save = |overrides: serde_json::Value| {
+            handle(
+                &f.host,
+                "POST",
+                "/api/clients/update",
+                &json!({"uuid": client.uuid, "config_overrides": overrides}),
+            )
+        };
+        let stored = || {
+            f.host.paired.read().unwrap().clients[0]
+                .extra
+                .get("config_overrides")
+                .cloned()
+        };
+        save(json!({"stream_preset": "Lowest-Latency", "max_bitrate": 20000})).unwrap();
+        let good = stored();
+        for bad in [
+            json!("fastest"),
+            json!(3),
+            json!(true),
+            json!(["reference"]),
+        ] {
+            let error = save(json!({"stream_preset": bad, "max_bitrate": 1})).unwrap_err();
+            assert!(error.to_string().contains("stream_preset"), "{error}");
+            assert_eq!(stored(), good, "{bad}");
+        }
+        // Clearing it is fine.
+        save(json!({"stream_preset": null})).unwrap();
+        save(json!({"stream_preset": ""})).unwrap();
     }
 
     fn layout_settings(f: &Fixture) -> (Option<serde_json::Value>, bool, bool) {

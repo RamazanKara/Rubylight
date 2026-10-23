@@ -352,9 +352,6 @@ fn sets_peak(overrides: &serde_json::Map<String, serde_json::Value>) -> bool {
 
 pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     let mut config = h.config.read().unwrap().clone();
-    // The host's preset fills what the host left unset; a device's or app's
-    // own preset replaces it below.
-    butterpollo_core::stream_preset::fill(&mut config);
     let mut peak_chosen = false;
     if let Some(overrides) = launch
         .client
@@ -419,6 +416,10 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
         peak_chosen |= sets_peak(overrides);
         apply_overrides(&mut config, overrides)?;
     }
+    // Every explicit value of the host, the device and the app is in place;
+    // the most specific preset any of them named fills the covered settings
+    // that are still unset.
+    butterpollo_core::stream_preset::fill(&mut config);
     // A device's HDR calibration gives its screen's peak unless the device
     // or app chose one.
     if !peak_chosen
@@ -479,17 +480,6 @@ fn apply_overrides(
     // limit of -1) is skipped, as in the C++ host, instead of failing every
     // stream of the device or app, or the running stream when it is edited.
     let mut overrides = overrides;
-    // A preset first, so the layer's own values for the settings it covers
-    // still win over it.
-    let preset = overrides.remove(butterpollo_core::stream_preset::SETTING);
-    if let Some(name) = preset.as_ref().and_then(serde_json::Value::as_str)
-        && butterpollo_core::stream_preset::select(config, name)
-    {
-        config.values.insert(
-            butterpollo_core::stream_preset::SETTING.into(),
-            name.to_owned(),
-        );
-    }
     overrides.retain(|key, value| {
         let single = serde_json::Map::from_iter([(key.clone(), value.clone())]);
         match config.update(&single) {
@@ -4129,8 +4119,8 @@ mod tests {
         assert_eq!(reference.get("amd_max_frame_size", ""), "4");
         // No preset changes the rate control.
         assert!(!reference.values.contains_key("amd_rc"));
-        // A device's preset replaces the host's for the covered settings,
-        // and the device's own values still win over it.
+        // A device's preset is the one that fills what no layer set: the
+        // host's explicit values still win over it.
         set("stream_preset=reference\namd_quality=quality");
         let mut device = client.clone();
         device.extra.insert(
@@ -4140,7 +4130,14 @@ mod tests {
         let config = effective(&device);
         assert_eq!(config.get("stream_preset", ""), "lowest_latency");
         assert_eq!(config.get("amd_max_frame_size", ""), "1");
+        assert_eq!(config.get("amd_quality", ""), "quality");
+        assert_eq!(config.get("amd_preanalysis", ""), "false");
+        set("stream_preset=reference\namd_max_frame_size=4");
+        let config = effective(&device);
+        assert_eq!(config.get("amd_max_frame_size", ""), "4");
         assert_eq!(config.get("amd_quality", ""), "speed");
+        // The device's own values win too.
+        set("stream_preset=reference");
         device.extra.insert(
             "config_overrides".into(),
             json!({"stream_preset":"lowest_latency","amd_max_frame_size":"3"}),
@@ -4148,7 +4145,9 @@ mod tests {
         let config = effective(&device);
         assert_eq!(config.get("amd_max_frame_size", ""), "3");
         assert_eq!(config.get("amd_quality", ""), "speed");
-        // An app's preset beats the device's; an unknown one is ignored.
+        // An app's preset beats the device's for what is unset, and the
+        // device's explicit value still wins over it.
+        set("");
         f.host.apps.write().unwrap()[0].extra.insert(
             "config-overrides".into(),
             json!({"stream_preset":"reference"}),
@@ -4156,12 +4155,28 @@ mod tests {
         let config = effective(&client);
         assert_eq!(config.get("amd_max_frame_size", ""), "0");
         assert!(!config.values.contains_key("amd_quality"));
+        let config = effective(&device);
+        assert_eq!(config.get("stream_preset", ""), "reference");
+        assert_eq!(config.get("amd_max_frame_size", ""), "3");
+        // Reference names no quality preset, and the device's own preset gave way to the app's.
+        assert!(!config.values.contains_key("amd_quality"));
+        // An app's explicit value wins over its own preset and the device's.
+        f.host.apps.write().unwrap()[0].extra.insert(
+            "config-overrides".into(),
+            json!({"stream_preset":"lowest_latency","amd_max_frame_size":"auto"}),
+        );
+        let config = effective(&client);
+        assert_eq!(config.get("amd_max_frame_size", ""), "auto");
+        assert_eq!(config.get("amd_quality", ""), "speed");
+        // An unknown name is ignored: the layer below keeps its preset.
         f.host.apps.write().unwrap()[0].extra.insert(
             "config-overrides".into(),
             json!({"stream_preset":"fastest"}),
         );
+        set("stream_preset=reference\namd_quality=quality");
         let config = effective(&client);
         assert_eq!(config.get("stream_preset", ""), "reference");
+        assert_eq!(config.get("amd_max_frame_size", ""), "0");
         assert_eq!(config.get("amd_quality", ""), "quality");
     }
     #[test]

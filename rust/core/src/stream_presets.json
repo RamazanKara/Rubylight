@@ -32,12 +32,12 @@
     {
       "id": "reference",
       "label": "Reference quality",
-      "description": "Leaves recovery keyframes without a size limit, so they keep full quality. They are larger on the wire, so it suits a fast, steady link. Rate control, quality preset and pre-analysis stay at the defaults.",
+      "description": "Removes the size limit on recovery keyframes, so they are larger on the wire. It suits a fast, steady link; no picture quality gain was measured. Rate control, quality preset and pre-analysis stay at the defaults.",
       "settings": {
         "amd_max_frame_size": "0"
       },
       "evidence": {
-        "amd_max_frame_size": "rust/PERFORMANCE.md, \"Decision and limits\": the cap lowered encoded payload from 64 to 51 Mbps in the 63 Mbps recovery run, so removing it keeps recovery keyframes at full quality."
+        "amd_max_frame_size": "rust/PERFORMANCE.md, \"Decision and limits\": the cap lowered encoded payload from 64 to 51 Mbps in the 63 Mbps recovery run, so removing it makes recovery keyframes larger on the wire. HEVC was measured with a one-frame cap; H.264 was not measured separately with one."
       }
     }
   ]

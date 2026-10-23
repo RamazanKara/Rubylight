@@ -25,6 +25,9 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if app.name.trim().is_empty() {
                 anyhow::bail!("application name required");
             }
+            if let Some(overrides) = app.extra.get("config-overrides") {
+                butterpollo_core::stream_preset::check_overrides(overrides)?;
+            }
             if !app.extra.contains_key("uuid") {
                 app.extra
                     .insert("uuid".into(), json!(uuid::Uuid::new_v4().to_string()));
@@ -435,5 +438,48 @@ pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Va
         Ok(Ok(value)) => Json(value).into_response(),
         Ok(Err(err)) => error(StatusCode::BAD_REQUEST, &format!("{err:#}")),
         Err(err) => error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use crate::state::test_support::Fixture;
+    use serde_json::json;
+
+    #[test]
+    fn an_app_cannot_save_a_preset_the_host_does_not_know() {
+        let f = Fixture::new();
+        let save = |overrides: serde_json::Value| {
+            handle(
+                &f.host,
+                "POST",
+                "/api/apps",
+                &json!({"name": "Game", "uuid": "preset-app", "config-overrides": overrides}),
+            )
+        };
+        let stored = || {
+            f.host
+                .apps
+                .read()
+                .unwrap()
+                .iter()
+                .find(|app| app.name == "Game")
+                .map(|app| app.extra["config-overrides"].clone())
+        };
+        save(json!({"stream_preset": "reference"})).unwrap();
+        let good = stored();
+        assert_eq!(good, Some(json!({"stream_preset": "reference"})));
+        for bad in [
+            json!("fastest"),
+            json!(3),
+            json!(true),
+            json!(["reference"]),
+        ] {
+            let error = save(json!({"stream_preset": bad})).unwrap_err();
+            assert!(error.to_string().contains("stream_preset"), "{error}");
+            assert_eq!(stored(), good, "{bad}");
+        }
+        save(json!({"stream_preset": ""})).unwrap();
     }
 }

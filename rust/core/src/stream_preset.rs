@@ -2,11 +2,12 @@
 //! Balanced and Reference quality. The table is `stream_presets.json`, which
 //! the web console reads too, so the console and the host cannot disagree.
 //!
-//! A preset only fills in the settings it covers. A value set in
-//! `sunshine.conf` always wins, so the preset is a set of defaults, not a
-//! lock. A device or an app can name its own preset (`stream_preset` in its
-//! overrides); that replaces the host's values for the covered settings, and
-//! the device's or app's own overrides still win over it.
+//! A preset only fills in the settings it covers that nobody set. A value
+//! set in `sunshine.conf`, in a device's overrides or in an app's overrides
+//! always wins, so the preset is a set of defaults, not a lock. A device or
+//! an app can name its own preset (`stream_preset` in its overrides); the
+//! most specific name (app, then device, then host) is the one that fills
+//! the covered settings left unset by all three layers.
 //!
 //! Every value is one an existing setting already takes and that
 //! `rust/PERFORMANCE.md` or `rust/PERFORMANCE_WORK.md` measured; the table's
@@ -90,25 +91,19 @@ pub fn fill(config: &mut Config) {
     }
 }
 
-/// Make `id` the preset for the covered settings: set what it lists and
-/// drop the rest so they fall back to their defaults. For a device or an app
-/// that picks a preset over the host's. Returns false for an unknown `id`.
-pub fn select(config: &mut Config, id: &str) -> bool {
-    let Some(preset) = find(id) else {
-        crate::config::invalid(SETTING, id);
-        return false;
+/// Check the `stream_preset` of a device's or an app's overrides before they
+/// are saved, as the host's own setting is: it must be a preset name, empty
+/// (no preset of its own) or null (clears it). Anything else, including a
+/// number or a boolean, is an error.
+pub fn check_overrides(overrides: &serde_json::Value) -> anyhow::Result<()> {
+    let Some(value) = overrides.get(SETTING) else {
+        return Ok(());
     };
-    for covered in &table().covered {
-        match preset.settings.get(&covered.key) {
-            Some(value) => {
-                config.values.insert(covered.key.clone(), value.clone());
-            }
-            None => {
-                config.values.remove(&covered.key);
-            }
-        }
+    match value {
+        serde_json::Value::Null => Ok(()),
+        serde_json::Value::String(name) if name.is_empty() || valid(name) => Ok(()),
+        _ => anyhow::bail!("stream_preset must be lowest_latency, balanced or reference"),
     }
-    true
 }
 
 /// Whether `value` is a preset name the settings API accepts.
@@ -251,23 +246,37 @@ mod tests {
     }
 
     #[test]
-    fn selecting_a_preset_replaces_the_covered_settings_only() {
-        let mut config = config(
-            "amd_rc = hqvbr\namd_quality = quality\namd_max_frame_size = 4\nmax_bitrate = 9000\namd_vbaq = disabled",
-        );
-        assert!(select(&mut config, "reference"));
-        assert_eq!(config.get("amd_max_frame_size", ""), "0");
-        assert!(!config.values.contains_key("amd_quality"));
-        assert_eq!(config.get("amd_rc", ""), "hqvbr");
-        assert_eq!(config.get("max_bitrate", ""), "9000");
-        assert_eq!(config.get("amd_vbaq", ""), "disabled");
-        assert!(select(&mut config, "balanced"));
-        for covered in &table().covered {
-            assert!(!config.values.contains_key(&covered.key), "{}", covered.key);
+    fn overrides_name_a_preset_or_nothing() {
+        use serde_json::json;
+        for ok in [
+            json!({}),
+            json!({"max_bitrate": 5000}),
+            json!({"stream_preset": "reference"}),
+            json!({"stream_preset": "Lowest-Latency"}),
+            json!({"stream_preset": ""}),
+            json!({"stream_preset": null}),
+        ] {
+            check_overrides(&ok).unwrap_or_else(|e| panic!("{ok}: {e}"));
         }
-        let before = config.values.clone();
-        assert!(!select(&mut config, "fastest"));
-        assert_eq!(config.values, before);
+        for bad in [
+            json!({"stream_preset": "fastest"}),
+            json!({"stream_preset": 1}),
+            json!({"stream_preset": true}),
+            json!({"stream_preset": ["reference"]}),
+        ] {
+            assert!(check_overrides(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_web_consoles_copy_of_the_table_is_the_same_file() {
+        // build.ps1 builds a copy of rust/web, so the console cannot reach
+        // ../core; it keeps its own copy of this table.
+        assert_eq!(
+            include_bytes!("stream_presets.json"),
+            include_bytes!("../../web/src/lib/stream_presets.json"),
+            "copy rust/core/src/stream_presets.json to rust/web/src/lib/stream_presets.json"
+        );
     }
 
     fn stream(codec: u8) -> Negotiated {
@@ -323,17 +332,6 @@ mod tests {
                 Some(two_frames),
                 "codec {codec}"
             );
-            assert_eq!(
-                amf("stream_preset = balanced")
-                    .0
-                    .iter()
-                    .map(|p| (&p.name, p.required))
-                    .collect::<Vec<_>>(),
-                balanced_rate
-                    .iter()
-                    .map(|p| (&p.name, p.required))
-                    .collect::<Vec<_>>(),
-            );
             let default_rc = property(&balanced, rc);
             assert_eq!(
                 default_rc,
@@ -372,6 +370,58 @@ mod tests {
                 "codec {codec}"
             );
             assert_eq!(property(&explicit, rc), Some(2), "codec {codec}");
+        }
+    }
+
+    /// Every property the encoder policy resolves, by name, value and whether
+    /// the encoder must accept it.
+    fn resolved(config: &Config, stream: &Negotiated) -> Vec<(String, i64, bool)> {
+        let mut all = encoder_policy::amf_rate_control(config, stream).unwrap();
+        all.extend(encoder_policy::amf(config, stream).unwrap());
+        all.iter()
+            .map(|p| {
+                let value = match p.value {
+                    encoder_policy::Value::Integer(v) => v,
+                    encoder_policy::Value::Boolean(b) => i64::from(b),
+                };
+                (p.name.clone(), value, p.required)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn balanced_resolves_to_exactly_the_policy_main_has_without_presets() {
+        // encoder_policy.rs is unchanged from origin/main, so a configuration
+        // with no preset resolves as main does. Balanced must match it value
+        // for value, whatever the codec, bitrate, frame rate or dynamic range.
+        for codec in 0..=2u8 {
+            for (bitrate_kbps, fps, hdr) in [
+                (40_000, 60, false),
+                (8_000, 30, false),
+                (120_000, 120, true),
+                (300_000, 240, true),
+            ] {
+                let stream = Negotiated {
+                    codec,
+                    bitrate_kbps,
+                    fps,
+                    hdr,
+                    ..Negotiated::default()
+                };
+                let main = resolved(&Config::default(), &stream);
+                assert!(!main.is_empty());
+                for text in [
+                    "stream_preset = balanced",
+                    "stream_preset = \"Balanced\"",
+                    "stream_preset = fastest",
+                ] {
+                    assert_eq!(
+                        resolved(&filled(text), &stream),
+                        main,
+                        "codec {codec} {bitrate_kbps} {fps} {text}"
+                    );
+                }
+            }
         }
     }
 }

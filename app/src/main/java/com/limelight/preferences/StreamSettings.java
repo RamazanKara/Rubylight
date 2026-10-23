@@ -60,6 +60,7 @@ import com.limelight.binding.video.DecoderBenchmark;
 import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
+import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.VideoScaling;
@@ -77,6 +78,8 @@ import java.util.Map;
 public class StreamSettings extends NightjarActivity {
     private static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
+    /** Opens this section of {@link #SECTIONS} instead of the list; an unknown name opens the list. */
+    public static final String EXTRA_SECTION = "com.limelight.preferences.SECTION";
     static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";
     // Top-level screen keys (preferences_root.xml) and the preference categories each one shows
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
@@ -154,6 +157,8 @@ public class StreamSettings extends NightjarActivity {
                 contextLabel.setText(getResources().getQuantityString(R.plurals.settings_search_count, count, count));
             }
         }
+        // The shell bar belongs to the list of sections; a section or the search results keep the back arrow and title.
+        findViewById(R.id.shell_bar).setVisibility(section == null && searchQuery.isEmpty() ? View.VISIBLE : View.GONE);
         toolbar.setNavigationContentDescription(returnSearchQuery != null ? R.string.settings_back_to_search :
                 section == null ? R.string.settings_navigate_up : R.string.settings_back_to_overview);
     }
@@ -201,7 +206,8 @@ public class StreamSettings extends NightjarActivity {
 
     private static String normalizeSection(String section) {
         // Restore navigation saved by versions that placed these controls in a separate section.
-        return "developer".equals(section) ? "advanced" : section;
+        if ("developer".equals(section)) return "advanced";
+        return section != null && SECTIONS.containsKey(section) ? section : null;
     }
 
     static int sectionTitle(String section) {
@@ -288,6 +294,8 @@ public class StreamSettings extends NightjarActivity {
             returnSearchQuery = savedInstanceState.getString("return_search");
             returnSearchSection = normalizeSection(savedInstanceState.getString("return_section"));
             searchResultKey = savedInstanceState.getString("search_result");
+        } else {
+            section = normalizeSection(getIntent().getStringExtra(EXTRA_SECTION));
         }
         super.onCreate(savedInstanceState);
 
@@ -298,6 +306,7 @@ public class StreamSettings extends NightjarActivity {
         setContentView(R.layout.activity_stream_settings);
         toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), R.menu.settings);
         TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> navigateBack());
+        ShellBar.install(this, ShellBar.Destination.SETTINGS);
         toolbar.setOnMenuItemClickListener(item -> {
             openSearch();
             return true;
@@ -355,6 +364,7 @@ public class StreamSettings extends NightjarActivity {
     protected void onPostResume() {
         super.onPostResume();
         stateSaved = false;
+        ShellBar.refresh(this);
         if (renderPending) {
             renderPending = false;
             reloadSettings();
@@ -457,19 +467,21 @@ public class StreamSettings extends NightjarActivity {
     }
 
     private void finishSettings() {
-        finish();
-
         // Language changes are handled via configuration changes in Android 13+,
         // so manual activity relaunching is no longer required.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             PreferenceConfiguration newPrefs = PreferenceConfiguration.readPreferences(this);
             if (!newPrefs.language.equals(previousPrefs.language)) {
+                finish();
                 // Restart the PC view to apply UI changes
                 Intent intent = new Intent(this, PcView.class);
                 intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent, null);
+                return;
             }
         }
+        // Back from Settings goes to the root: Home, or the list of PCs when the app opens there.
+        ShellBar.leave(this, ShellBar.Destination.SETTINGS);
     }
 
     private static void stylePreferences(PreferenceGroup group) {

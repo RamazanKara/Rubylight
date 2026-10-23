@@ -23,9 +23,9 @@ import com.limelight.preferences.AddComputerManually;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostStreamSettings;
 import com.limelight.preferences.PreferenceConfiguration;
-import com.limelight.preferences.StreamSettings;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
+import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
 import com.limelight.update.UpdateFlow;
 import com.limelight.update.UpdateFlow;
@@ -54,7 +54,6 @@ import android.preference.PreferenceManager;
 import android.text.InputFilter;
 import android.text.InputType;
 import com.limelight.ui.ActionSheet;
-import com.google.android.material.appbar.MaterialToolbar;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.AbsListView;
@@ -153,21 +152,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         // Set default preferences if we've never been run
         PreferenceManager.setDefaultValues(this, R.xml.preferences, false);
 
-        MaterialToolbar toolbar = TopAppBar.configure(this, R.id.home_toolbar,
-                getString(R.string.library_computers), R.menu.home);
-        toolbar.setOnMenuItemClickListener(item -> {
-            if (item.getItemId() == R.id.settingsButton) {
-                startActivity(new Intent(this, StreamSettings.class));
-            } else if (item.getItemId() == R.id.helpButton) {
-                HelpLauncher.showHelp(this);
-            } else if (item.getItemId() == R.id.homeButton) {
-                startActivity(new Intent(this, com.limelight.console.ConsoleHomeActivity.class));
-            }
-            return true;
-        });
-        toolbar.getMenu().findItem(R.id.homeButton).setVisible(
-                com.limelight.nativeapi.ConsoleRepository.hasAnyLibrary(this));
-        toolbar.getMenu().findItem(R.id.helpButton).setVisible(!getPackageManager().hasSystemFeature("amazon.hardware.fire_tv"));
+        TopAppBar.configure(this, R.id.home_toolbar, getString(R.string.library_computers), 0);
+        ShellBar.install(this, ShellBar.Destination.PCS);
+        ShellBar.installBack(this, ShellBar.Destination.PCS);
         findViewById(R.id.manuallyAddPc).setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
 
         getFragmentManager().beginTransaction()
@@ -362,6 +349,10 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         UiHelper.showDecoderCrashDialog(this);
 
         inForeground = true;
+        if (completeOnCreateCalled) {
+            // A host's library can arrive while this screen is away, which makes Home available.
+            ShellBar.refresh(this);
+        }
         if (pendingPairingResult != null) {
             Runnable result = pendingPairingResult;
             pendingPairingResult = null;
@@ -963,6 +954,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             return true;
         });
         if (pcGridAdapter.getCount() == 0) findViewById(R.id.discovery_add).requestFocus();
+        else if (!listView.isInTouchMode()) listView.requestFocus(); // content first, not the shell bar
     }
 
     public static class ComputerObject {

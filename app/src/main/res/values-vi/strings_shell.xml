@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">Các mục chính</string>
+    <string name="shell_current_page">Trang hiện tại</string>
+</resources>

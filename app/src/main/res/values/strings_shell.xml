@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The shell bar: Home, PCs and Settings under the top app bar. -->
+    <string name="shell_destinations">Main sections</string>
+    <string name="shell_current_page">Current page</string>
+</resources>

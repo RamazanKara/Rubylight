@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">Sections principales</string>
+    <string name="shell_current_page">Page actuelle</string>
+</resources>

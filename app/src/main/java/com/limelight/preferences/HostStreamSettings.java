@@ -1108,7 +1108,7 @@ public class HostStreamSettings extends NightjarActivity {
 
         private void showDisplay() {
             AlertDialog picker = HostDisplaySettings.create(activity, activity.hostUuid,
-                    activity.getIntent().getStringExtra("host_name"), this::updateSummaries);
+                    activity.computer.displayName(), this::updateSummaries);
             showEditor("display", picker);
             HostDisplaySettings.bindHelp(activity, picker);
         }

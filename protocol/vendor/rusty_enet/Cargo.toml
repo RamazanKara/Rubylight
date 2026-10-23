@@ -1,0 +1,20 @@
+# rusty_enet 0.4.0 (MIT, https://github.com/jabuwu/rusty_enet) with one change: the smoothed round
+# trip time rounds up like moonlight-common-c's ENet fork (src/c/protocol.rs, marked "Nightjar").
+# Tests and dev-dependencies are dropped. Used through [patch.crates-io] in protocol/Cargo.toml.
+[package]
+edition = "2021"
+rust-version = "1.77"
+name = "rusty_enet"
+version = "0.4.0"
+description = "ENet for Rust (and wasm!) transpiled from C."
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/jabuwu/rusty_enet"
+
+[features]
+connected = []
+default = ["std"]
+std = []
+
+[target."cfg(target_arch = \"wasm32\")".dependencies.js-sys]
+version = "0.3.69"

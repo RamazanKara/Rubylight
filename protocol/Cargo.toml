@@ -10,6 +10,10 @@ edition = "2021"
 license = "GPL-3.0-only"
 rust-version = "1.80"
 
+# ENet's smoothed round trip time, rounded up like moonlight-common-c's fork (vendor/rusty_enet).
+[patch.crates-io]
+rusty_enet = { path = "vendor/rusty_enet" }
+
 # The Android library has no unwinder; a panic aborts like a C assert would.
 [profile.release]
 panic = "abort"

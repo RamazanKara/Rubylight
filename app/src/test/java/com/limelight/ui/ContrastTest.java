@@ -163,7 +163,7 @@ public class ContrastTest {
     }
 
     private static int restStroke(com.google.android.material.button.MaterialButton button) {
-        return button.getStrokeColor().getColorForState(new int[0], 0);
+        return button.getStrokeColor().getColorForState(new int[] {android.R.attr.state_enabled}, 0);
     }
 
     @Test
@@ -175,6 +175,8 @@ public class ContrastTest {
         Context high = highContrast(R.style.OledBlackTheme, false);
         com.google.android.material.button.MaterialButton button = tonalButton(high);
         assertContrast("tonal button outline at rest", BODY, restStroke(button), 0xFF000000);
+        assertEquals("disabled: the outline fades like the label", Math.round(0.38f * 255),
+                android.graphics.Color.alpha(button.getStrokeColor().getColorForState(new int[] {-android.R.attr.state_enabled}, 0)));
         assertEquals("focused: the amber ring", color(high, androidx.appcompat.R.attr.colorPrimary),
                 button.getStrokeColor().getColorForState(new int[] {android.R.attr.state_focused}, 0));
     }

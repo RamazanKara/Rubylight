@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- A tonal button: the focus ring as for the other buttons, and in high contrast an on-surface outline at rest, since
      the tonal fill alone does not stand out on black. -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
+<selector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <item android:state_focused="true" android:color="?attr/colorPrimary" />
     <item android:state_hovered="true" android:color="?attr/colorPrimary" />
+    <!-- android:alpha is API 23; older releases keep the outline at full strength while disabled. -->
+    <item android:state_enabled="false" android:alpha="0.38" android:color="?attr/nightjarButtonRestStroke" tools:targetApi="23" />
     <item android:color="?attr/nightjarButtonRestStroke" />
 </selector>

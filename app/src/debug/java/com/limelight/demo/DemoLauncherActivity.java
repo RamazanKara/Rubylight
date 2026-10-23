@@ -50,8 +50,11 @@ public final class DemoLauncherActivity extends Activity {
             throw new IllegalStateException("Demo assets missing; run scripts/demo/generate-assets.ps1", e);
         }
         String screen = getIntent().getStringExtra("state");
+        // "--es state pair" taps the Studio PC (not paired) to show the PIN; "--es state options" opens a PC card's
+        // options on Home (use --es host native for both Home states).
+        DemoFixtures.studioAddress = "pair".equals(screen);
         Class<?> target;
-        if ("home".equals(screen)) target = DemoConsoleHome.class;
+        if ("home".equals(screen) || "options".equals(screen)) target = DemoConsoleHome.class;
         else if ("detail".equals(screen)) target = DemoGameDetail.class;
         else if ("library".equals(screen)) target = DemoAppView.class;
         else if ("settings".equals(screen)) target = DemoStreamSettings.class;

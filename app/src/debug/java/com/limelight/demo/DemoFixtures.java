@@ -37,6 +37,8 @@ public final class DemoFixtures {
     static boolean sunshineHost;
     // "--es host native": Living-room PC also has the native API, which Home and the game detail need.
     static boolean nativeApiHost;
+    /** Gives the unpaired Studio PC an address (a documentation address, nothing answers) so Pair shows its PIN. */
+    static boolean studioAddress;
 
     public static HostCapabilities hostCapabilities() {
         String json = sunshineHost ? SUNSHINE_HOST : nativeApiHost ? HOST.replace("{\"v\":1,", "{\"v\":1,\"nativeApiVersion\":1,") : HOST;
@@ -67,6 +69,7 @@ public final class DemoFixtures {
             pc.state = i == 2 ? ComputerDetails.State.OFFLINE : ComputerDetails.State.ONLINE;
             pc.pairState = i == 1 ? PairState.NOT_PAIRED : PairState.PAIRED;
             pc.macAddress = "02:00:00:00:00:0" + (i + 1);
+            if (i == 1 && studioAddress) pc.activeAddress = new ComputerDetails.AddressTuple("192.0.2.20", 47989);
             pc.runningGameId = i == 0 ? 2 : 0;
             pc.rawAppList = appList();
             if (i == 0) describeHost(pc);

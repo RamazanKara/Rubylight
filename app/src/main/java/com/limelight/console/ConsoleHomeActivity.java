@@ -10,16 +10,22 @@ import android.view.View;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.AppView;
 import com.limelight.R;
+import com.limelight.computers.ComputerManagerService;
+import com.limelight.computers.HostActions;
+import com.limelight.computers.HostMenu;
+import com.limelight.grid.PcGridAdapter;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
 import com.limelight.nvstream.http.ComputerDetails;
-import com.limelight.preferences.StreamSettings;
+import com.limelight.preferences.HostStreamSettings;
+import com.limelight.ui.ActionSheet;
 import com.limelight.ui.NightjarActivity;
+import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
+import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
 
 import java.util.HashSet;
@@ -67,6 +73,26 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private int columns = 2;
     private int lastWidthPx;
 
+    private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
+        @Override public ComputerManagerService.ComputerManagerBinder binder() { return feed == null ? null : feed.binder(); }
+        @Override public boolean isForeground() { return shown; }
+        @Override public void onPaired(ComputerDetails computer) { }
+        @Override public void onRemoved(ComputerDetails computer) {
+            feed.forget(computer.uuid);
+            refreshedSignature = null;
+            scheduleReload();
+        }
+        @Override public void onRenamed(ComputerDetails computer) {
+            refreshedSignature = null;
+            scheduleReload();
+        }
+        @Override public void onWakeSent(ComputerDetails computer) { }
+        @Override public void pausePolling() { feed.pause(); }
+        @Override public void resumePolling() { if (shown) feed.resume(); }
+    });
+    private ActionSheet hostMenu;
+    private HomeModel model = HomeModel.empty();
+
     private final Runnable reload = this::reloadNow;
     private final Runnable settle = () -> {
         settled = true;
@@ -84,19 +110,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         setContentView(R.layout.activity_console_home);
         UiHelper.notifyNewRootView(this);
 
-        MaterialToolbar toolbar = TopAppBar.configure(this, R.id.console_toolbar, getString(R.string.console_title),
-                R.menu.console_home);
-        toolbar.setOnMenuItemClickListener(item -> {
-            if (item.getItemId() == R.id.console_hosts_button) {
-                openHosts();
-                return true;
-            }
-            if (item.getItemId() == R.id.settingsButton) {
-                startActivity(new Intent(this, StreamSettings.class));
-                return true;
-            }
-            return false;
-        });
+        TopAppBar.configure(this, R.id.console_toolbar, getString(R.string.console_title), 0);
+        ShellBar.install(this, ShellBar.Destination.HOME);
+        ShellBar.installBack(this, ShellBar.Destination.HOME);
 
         loading = findViewById(R.id.console_loading);
         empty = findViewById(R.id.console_empty);
@@ -134,6 +150,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             @Override
             public void onHost(HomeModel.HostCard card) {
                 openHost(card);
+            }
+
+            @Override
+            public void onHostOptions(HomeModel.HostCard card) {
+                showHostOptions(card);
             }
         });
         list.setAdapter(adapter);
@@ -180,6 +201,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     protected void onResume() {
         super.onResume();
         shown = true;
+        ShellBar.refresh(this);
         feed.resume();
         // A game may have started or ended while another screen was in front.
         refreshedSignature = null;
@@ -200,6 +222,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        hostActions.destroy();
         feed.unbind();
         worker.shutdownNow();
         starWorker.shutdownNow();
@@ -291,6 +314,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             if (mine != generation || isFinishing() || isDestroyed()) {
                 return;
             }
+            this.model = model;
             submitKeepingFocus(model);
             if (done) {
                 loading.setVisibility(View.GONE);
@@ -406,6 +430,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                     if (isFinishing() || isDestroyed()) {
                         return;
                     }
+                    this.model = model;
                     submitKeepingFocus(model);
                     scheduleReload();
                 });
@@ -425,13 +450,78 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             openHosts();
             return;
         }
-        startActivity(new Intent(this, AppView.class)
-                .putExtra(AppView.NAME_EXTRA, card.name)
-                .putExtra(AppView.UUID_EXTRA, card.uuid));
+        openLibrary(card.uuid, card.name);
     }
 
-    /** The classic list of PCs: pairing, wake, host settings. */
+    private void openLibrary(String uuid, String name) {
+        startActivity(new Intent(this, AppView.class)
+                .putExtra(AppView.NAME_EXTRA, name)
+                .putExtra(AppView.UUID_EXTRA, uuid));
+    }
+
+    /** The list of PCs: pairing and adding a PC. */
     private void openHosts() {
-        startActivity(HomeSettings.pcList(this));
+        ShellBar.open(this, ShellBar.Destination.HOME, ShellBar.Destination.PCS);
+    }
+
+    /** The PC's options, the same list as on the PCs screen (only for PCs this device is paired with). */
+    private void showHostOptions(HomeModel.HostCard card) {
+        ComputerDetails details = feed.host(card.uuid);
+        if (hostMenu != null || details == null) {
+            return;
+        }
+        String game = runningGameOf(card.uuid);
+        ActionSheet sheet = HostMenu.build(this, details, PcGridAdapter.rowState(details, false), game,
+                action -> onHostAction(details, action));
+        hostMenu = sheet;
+        sheet.setOnDismissListener(dialog -> hostMenu = null);
+        sheet.show();
+    }
+
+    /** The title of the game running on the PC, from what Home shows; null when it does not say. */
+    private String runningGameOf(String hostUuid) {
+        for (HomeModel.GameCard card : model.continuePlaying) {
+            if (card.hostUuid.equals(hostUuid) && card.badge == HomeModel.Badge.RUNNING) {
+                return card.title;
+            }
+        }
+        return null;
+    }
+
+    private void onHostAction(ComputerDetails details, int action) {
+        ComputerManagerService.ComputerManagerBinder binder = feed.binder();
+        switch (action) {
+            case HostMenu.LIBRARY:
+                openLibrary(details.uuid, details.displayName());
+                break;
+            case HostMenu.RESUME:
+            case HostMenu.QUIT:
+                if (binder == null) {
+                    hostActions.showError(details.displayName(), getString(R.string.error_manager_not_running), null);
+                } else if (action == HostMenu.RESUME) {
+                    ServerHelper.doStart(this, HostMenu.runningApp(null, details), details, binder);
+                } else {
+                    UiHelper.displayQuitConfirmationDialog(this, () -> ServerHelper.doQuit(this, details,
+                            HostMenu.runningApp(null, details), binder, null), null);
+                }
+                break;
+            case HostMenu.WAKE:
+                hostActions.wake(details);
+                break;
+            case HostMenu.PC_SETTINGS:
+                HostStreamSettings.show(this, details.uuid, details.displayName());
+                break;
+            case HostMenu.RENAME:
+                hostActions.rename(details);
+                break;
+            case HostMenu.UNPAIR:
+                hostActions.confirmUnpair(details);
+                break;
+            case HostMenu.REMOVE:
+                hostActions.confirmRemove(details);
+                break;
+            default:
+                break;
+        }
     }
 }

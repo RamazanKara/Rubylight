@@ -134,6 +134,9 @@ public class FavouritesRowTest {
 
             @Override public void onHost(HomeModel.HostCard card) {
             }
+
+            @Override public void onHostOptions(HomeModel.HostCard card) {
+            }
         };
     }
 

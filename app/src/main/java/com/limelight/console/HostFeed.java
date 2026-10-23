@@ -120,7 +120,7 @@ final class HostFeed {
         });
     }
 
-    private void update(ComputerDetails details) {
+    void update(ComputerDetails details) {
         if (details.pairState != PairingManager.PairState.PAIRED) {
             if (hosts.remove(details.uuid) != null) {
                 listener.onHostsChanged();
@@ -129,6 +129,13 @@ final class HostFeed {
         }
         hosts.put(details.uuid, details);
         listener.onHostsChanged();
+    }
+
+    /** A host was removed from this device; it leaves the feed at once instead of at the next poll. */
+    void forget(String uuid) {
+        if (hosts.remove(uuid) != null) {
+            listener.onHostsChanged();
+        }
     }
 
     /** The paired hosts, in the order they were first seen. */

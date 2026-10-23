@@ -11,6 +11,7 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.StringRes;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.color.MaterialColors;
@@ -39,6 +40,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         void onGameToggleFavourite(HomeModel.GameCard card);
 
         void onHost(HomeModel.HostCard card);
+
+        /** The three dots, a long press, Menu, X or a right-click on a host card: that PC's options. */
+        void onHostOptions(HomeModel.HostCard card);
     }
 
     static final int HEADER = 0;
@@ -218,6 +222,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 return new RecyclerView.ViewHolder(inflater.inflate(R.layout.console_section_header, parent, false)) { };
             case COVER_GAME:
                 return new CardHolder(inflater.inflate(R.layout.console_card_cover, parent, false), true);
+            case HOST:
+                return new CardHolder(inflater.inflate(R.layout.console_card_host, parent, false), false);
             default:
                 return new CardHolder(inflater.inflate(R.layout.console_card_wide, parent, false), false);
         }
@@ -242,7 +248,10 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         final TextView subtitle;
         final TextView badge;
         final View frame;
+        final View more;
         final boolean cover;
+        /** The host's three dots while the D-pad has marked them; the card keeps focus. */
+        private boolean moreMarked;
 
         CardHolder(View view, boolean cover) {
             super(view);
@@ -253,6 +262,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             title = view.findViewById(R.id.console_title);
             subtitle = view.findViewById(R.id.console_subtitle);
             badge = view.findViewById(R.id.console_badge);
+            more = view.findViewById(R.id.console_more);
             view.setOnHoverListener((card, event) -> {
                 card.setHovered(event.getActionMasked() != android.view.MotionEvent.ACTION_HOVER_EXIT);
                 return false;
@@ -315,9 +325,102 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             badge.setVisibility(View.GONE);
             itemView.setContentDescription(card.name + ", " + line);
             itemView.setOnClickListener(v -> listener.onHost(card));
-            itemView.setOnLongClickListener(null);
-            itemView.setLongClickable(false);
-            itemView.setOnKeyListener(null);
+            itemView.setOnLongClickListener(v -> {
+                listener.onHostOptions(card);
+                return true;
+            });
+            itemView.setOnContextClickListener(v -> {
+                listener.onHostOptions(card);
+                return true;
+            });
+            // The dots are marked by the D-pad, never a focus stop of their own (a style can make buttons focusable).
+            more.setFocusable(false);
+            more.setContentDescription(context.getString(R.string.library_more_for, card.name));
+            more.setOnClickListener(v -> listener.onHostOptions(card));
+            markMore(false);
+            itemView.setOnFocusChangeListener((v, hasFocus) -> {
+                if (!hasFocus) markMore(false);
+            });
+            itemView.setOnKeyListener((v, keyCode, event) -> onHostKey(card, keyCode, event));
+        }
+
+        private void markMore(boolean marked) {
+            moreMarked = marked;
+            more.setHovered(marked);
+        }
+
+        /**
+         * Menu, X and Shift+F10 open the options at once. Toward the end of the row with nothing further
+         * that way, the D-pad marks the three dots (the card keeps focus, as in the list of PCs); Center
+         * opens them, the way back unmarks.
+         */
+        private boolean onHostKey(HomeModel.HostCard card, int keyCode, KeyEvent event) {
+            boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+            if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BUTTON_X
+                    || (keyCode == KeyEvent.KEYCODE_F10 && event.isShiftPressed())) {
+                markMore(false);
+                if (!down) {
+                    listener.onHostOptions(card);
+                }
+                return true;
+            }
+            if (!event.hasNoModifiers()) {
+                return false;
+            }
+            boolean rtl = itemView.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+            int towardMore = rtl ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
+            int towardCard = rtl ? KeyEvent.KEYCODE_DPAD_RIGHT : KeyEvent.KEYCODE_DPAD_LEFT;
+            if (!moreMarked) {
+                if (keyCode == towardMore && atRowEnd()) {
+                    if (down) markMore(true);
+                    return true;
+                }
+                return false;
+            }
+            if (keyCode == towardMore) {
+                // The press that marked the dots, and the ones after it, stay on them.
+                return true;
+            }
+            if (keyCode == towardCard) {
+                if (down) markMore(false);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
+                    || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || keyCode == KeyEvent.KEYCODE_SPACE
+                    || keyCode == KeyEvent.KEYCODE_BUTTON_A) {
+                if (!down && !event.isCanceled()) {
+                    markMore(false);
+                    more.performClick();
+                }
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_BUTTON_B
+                    || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                if (!down && !event.isCanceled()) markMore(false);
+                return true;
+            }
+            markMore(false);
+            return false;
+        }
+
+        /** True when no card follows this one in its row, so the end direction has nowhere else to go. */
+        private boolean atRowEnd() {
+            int position = getBindingAdapterPosition();
+            if (position == RecyclerView.NO_POSITION) {
+                return false;
+            }
+            if (position == getItemCount() - 1) {
+                return true;
+            }
+            View parent = (View) itemView.getParent();
+            if (parent instanceof RecyclerView
+                    && ((RecyclerView) parent).getLayoutManager() instanceof GridLayoutManager) {
+                GridLayoutManager grid = (GridLayoutManager) ((RecyclerView) parent).getLayoutManager();
+                GridLayoutManager.SpanSizeLookup spans = grid.getSpanSizeLookup();
+                int count = grid.getSpanCount();
+                return spans.getSpanIndex(position, count) + spans.getSpanSize(position) >= count;
+            }
+            return true;
         }
 
         private String hostLine(HomeModel.HostCard card) {

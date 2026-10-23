@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The top-level destinations, in order. ui/ShellBar builds its buttons from these items and gives each
      button the item's id; Home is hidden while there is no library to show. -->
-<menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:id="@+id/shell_home" android:title="@string/console_title" android:icon="@drawable/ic_gamepad" />
-    <item android:id="@+id/shell_pcs" android:title="@string/library_computers" android:icon="@drawable/ic_computer" />
-    <item android:id="@+id/shell_settings" android:title="@string/settings" android:icon="@drawable/ic_settings" />
+<menu xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <!-- The buttons tint their own icons (Widget.Nightjar.ShellItem); iconTint here keeps the menu rule uniform. -->
+    <item android:id="@+id/shell_home" android:title="@string/console_title" android:icon="@drawable/ic_gamepad"
+        app:iconTint="?attr/colorOnSurface" />
+    <item android:id="@+id/shell_pcs" android:title="@string/library_computers" android:icon="@drawable/ic_computer"
+        app:iconTint="?attr/colorOnSurface" />
+    <item android:id="@+id/shell_settings" android:title="@string/settings" android:icon="@drawable/ic_settings"
+        app:iconTint="?attr/colorOnSurface" />
 </menu>

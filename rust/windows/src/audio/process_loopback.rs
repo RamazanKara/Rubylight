@@ -42,6 +42,27 @@ impl IActivateAudioInterfaceCompletionHandler_Impl for Completion_Impl {
     }
 }
 
+/// A VT_BLOB PROPVARIANT that points at `params` without owning it.
+/// PROPVARIANT's destructor frees VT_BLOB data with CoTaskMemFree, which on a
+/// Rust allocation frees it a second time when the owner drops (0xC0000374
+/// in 2.5.10). The ManuallyDrop keeps it from ever being cleared.
+fn borrowed_blob(params: &mut AUDIOCLIENT_ACTIVATION_PARAMS) -> ManuallyDrop<PROPVARIANT> {
+    ManuallyDrop::new(PROPVARIANT {
+        Anonymous: PROPVARIANT_0 {
+            Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
+                vt: VT_BLOB,
+                Anonymous: PROPVARIANT_0_0_0 {
+                    blob: BLOB {
+                        cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
+                        pBlobData: (params as *mut AUDIOCLIENT_ACTIVATION_PARAMS).cast(),
+                    },
+                },
+                ..Default::default()
+            }),
+        },
+    })
+}
+
 pub struct Activation {
     process: crate::process::AudioProcess,
     receiver: mpsc::Receiver<()>,
@@ -65,24 +86,7 @@ impl Activation {
             _process: process.clone(),
             sender,
         };
-        // PROPVARIANT's destructor frees VT_BLOB with CoTaskMemFree. This
-        // blob borrows the callback's Box, which must remain its only owner.
-        let params = ManuallyDrop::new(PROPVARIANT {
-            Anonymous: PROPVARIANT_0 {
-                Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
-                    vt: VT_BLOB,
-                    Anonymous: PROPVARIANT_0_0_0 {
-                        blob: BLOB {
-                            cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-                            pBlobData: (&mut *completion.params
-                                as *mut AUDIOCLIENT_ACTIVATION_PARAMS)
-                                .cast(),
-                        },
-                    },
-                    ..Default::default()
-                }),
-            },
-        });
+        let params = borrowed_blob(&mut completion.params);
         let callback: IActivateAudioInterfaceCompletionHandler = completion.into();
         // SAFETY: the callback owns the stable parameter allocation and PID handle;
         // the borrowed PROPVARIANT is read during activation, not PropVariantClear'd.
@@ -226,18 +230,61 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires Windows process loopback and the Windows Audio service"]
+    fn activation_blob_borrows_the_callbacks_parameters() {
+        let mut params = Box::<AUDIOCLIENT_ACTIVATION_PARAMS>::default();
+        let address = (&mut *params as *mut AUDIOCLIENT_ACTIVATION_PARAMS).cast();
+        let variant = borrowed_blob(&mut params);
+        // SAFETY: borrowed_blob just built a VT_BLOB, and nothing clears it.
+        unsafe {
+            let inner = &variant.Anonymous.Anonymous;
+            assert_eq!(inner.vt, VT_BLOB);
+            assert_eq!(
+                inner.Anonymous.blob.cbSize as usize,
+                size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>()
+            );
+            assert_eq!(inner.Anonymous.blob.pBlobData, address);
+        }
+        // The variant never owns the blob: dropping `params` must be the only free.
+        drop(params);
+    }
+
+    /// Runs the real activation against this process, which renders nothing.
+    /// A machine without the Windows Audio service may refuse with a clean
+    /// error; marshaling errors and crashes (run under page heap to catch heap
+    /// corruption) are the failures.
+    #[test]
     fn native_process_audio_survives_repeated_activation_and_cancellation() -> Result<()> {
         let _com = crate::capture::ComGuard::new()?;
         let process = current_process();
-        for _ in 0..50 {
-            drop(Activation::new(process.clone())?);
+        let clean = |error: anyhow::Error| {
+            let text = format!("{error:#}");
+            assert!(
+                !text.contains("0x80040155") && !text.contains("marshal"),
+                "activation failed while marshaling: {text}"
+            );
+            text
+        };
+        for round in 0..50 {
+            match Activation::new(process.clone()) {
+                Ok(cancelled) => drop(cancelled),
+                Err(error) => {
+                    eprintln!("process audio unavailable: {}", clean(error));
+                    return Ok(());
+                }
+            }
             let pending = Activation::new(process.clone())?;
             let mut capture = loop {
-                if let Some(capture) = pending.poll(2)? {
-                    break capture;
+                match pending.poll(2) {
+                    Ok(Some(capture)) => break capture,
+                    Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+                    Err(error) => {
+                        eprintln!(
+                            "process audio unavailable in round {round}: {}",
+                            clean(error)
+                        );
+                        return Ok(());
+                    }
                 }
-                std::thread::sleep(Duration::from_millis(5));
             };
             assert_eq!(capture.process_identity(), Some(process.identity));
             // This test process renders no audio, even if other applications do.

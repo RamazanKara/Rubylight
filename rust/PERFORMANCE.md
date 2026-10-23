@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Behaviour across client link speeds: 1000 to 10 Mbit/s, step changes, Wi-Fi profile, what breaks above the link | [October 23, behaviour across client link speeds](#october-23-behaviour-across-client-link-speeds) |
+| Nightjar desktop PyroWave decode: stage split, single upload (kept), batched passes (reverted), the present clock holding every frame 50 ms at the start | [October 23, PyroWave desktop decode stage split (brief 1)](#october-23-pyrowave-desktop-decode-stage-split-brief-1) |
 | PyroWave at 144 fps: normal against high process priority (reverted), async encode (not worth it), handles left by each encoder or decoder life | [October 23, PyroWave 144 fps pacing and async encode (B4)](#october-23-pyrowave-144-fps-pacing-and-async-encode-b4) |
 | Nightjar Android, Rust engine against the C engine on a phone: picture age, decode, 1% and 5% loss, PyroWave, 30-minute soak | [October 23, Rust engine against the C engine on Android (B8)](#october-23-rust-engine-against-the-c-engine-on-android-b8) |
 | Stream presets (`stream_preset`): frame cap applied, keyframe size, end-to-end latency | [October 23, stream presets (B3)](#october-23-stream-presets-b3) |
@@ -125,6 +126,35 @@ Before any link-adaptation change, the harness got nine healthy arms, `hz-r{1000
 Noise (`linkspeed.py noise`): the same package against itself differs by 0.05 to 1.2 ms in the p50 of one arm; the pooled run-to-run sigma is 0.51 ms (18 degrees of freedom), the worst arm 0.68 ms, the largest difference between two runs of one arm 1.18 ms. The spread is not a fixed offset between passes (the 500 and 300 Mbit/s arms were 1 ms higher in pass 2, the unshaped 20 Mbps arm in pass 3), so ordering the arms ABBA does not remove it. **A 0.3 ms bound on one arm's p50 cannot be resolved with a few runs: 95 % confidence needs 23 runs per side from the pooled sigma (39 from the worst arm).** `compare` defaults to `--repeats 23` for that reason and refuses to pass an arm with fewer. What does resolve: the bitrate series, the pacing lines, loss and freezes are exactly reproducible (every run above has the same single encoder bitrate and pacing, 0 % lost), and the mean delta over the nine arms, which `compare` prints, has a third of the spread of one arm. Whether the 0.3 ms per-arm bound is kept at 23 runs or replaced by the nine-arm mean is a decision for the acceptance run (B8).
 
 Not run here: PyroWave, real Wi-Fi, the loss-memory scenario (`--keep-memory` is in place for B8).
+
+## October 23: PyroWave desktop decode stage split (brief 1)
+
+Nightjar desktop, PyroWave 4:2:0 at 1080p60, loopback to an isolated Rubylight host (RX 7900 XT, one 5120x1440 display, WGC, a scrolling texture), release builds of Nightjar `pyrowave-decode-1`. Legs of 60 s, the first 5 s dropped, A B B A per bitrate, early decode off. The full tables, the harness (`scripts/pyrowave-loopback.ps1`) and the stage timers are in Nightjar's `docs/pyrowave-decode.md`.
+
+### Where the decode time goes (before any change)
+
+Milliseconds, p50 / p95, one leg per bitrate setting. The host's `sent_mbps` stayed at 83 to 90 Mbps in every leg of both settings, so with this content the two settings did not send different traffic.
+
+| Stage | 133 setting | 300 setting |
+| --- | --- | --- |
+| entropy decode | 2.45 / 3.42 | 3.02 / 6.93 |
+| clear coefficient planes | 0.92 / 1.27 | 0.98 / 1.64 |
+| half pack + RGBA16F frame | 5.03 / 8.66 | 5.97 / 13.77 |
+| upload to the texture (presenter) | 3.53 / 4.73 | 3.95 / 5.44 |
+| 11 wavelet passes (CPU submit time only) | 0.13 / 0.21 | 0.15 / 0.26 |
+
+The same code run offline over 120 real frames (146988 bytes each) gives 7.48 ms median and 15.05 ms p95 for the whole decoder; in the stream entropy and pack cost more at p50 (about 1.2 ms and 3 ms), with the encoding host on the same PC.
+
+### Two presenter changes
+
+- Upload to one texture instead of two: kept. The upload stage fell from 3.2 to 3.6 ms to 1.65 to 1.85 ms p50, `decode_to_present_ms` p50 from 54.0 to 52.4 ms at 133 and 53.8 to 52.3 ms at 300 (the repeat at 300: 53.9 to 52.3 ms). It passed the keep rule at 133 Mbps. At 300 Mbps it failed twice, once on an outlier A leg and once on `receive_to_present_ms` p95 (+2.94 ms) that comes from the decoder queue and not from the presenter. Kept as a judgement call, in its own commit. The ignored test `single_upload_draws_the_same_pixels_as_uploading_both_textures` compares every pixel.
+- All eleven passes in one command list: reverted. The submit cost fell from 0.10 to 0.04 ms, `decode_to_present_ms` p50 did not move (52.40 against 52.42 ms at 133).
+
+### The present clock held every frame for 50 ms at the start of a stream
+
+`decode_to_present_ms` sat at 53 to 54 ms in every leg. The cause is not the swap chain: with a display that reports tearing support the pacing is `HostTimes` (the default), vsync is off, and `PresentClock` shows each frame at its host timestamp plus a delay. That delay was seeded from the first frames, which are late while the decoder and GPU warm up (frame 1 was 92 ms late), and it falls at only 25 us a frame, so every frame was held for the 50 ms maximum until it had come down (the median fell from 53.5 ms at 25 s to 35 ms at 40 s in one leg and stayed at 54 ms for 60 s in another). The first 16 pictures are now shown as soon as they are ready and kept out of the lateness window. ABBA at 133 Mbps: `decode_to_present_ms` p50 47.0 to 11.5 ms and `receive_to_present_ms` p50 53.8 to 18.6 ms (p99 61.6 to 29.1 ms); at 300 Mbps `decode_to_present_ms` p50 52.3 to 16.5 ms and `receive_to_present_ms` p50 59.7 to 25.5 ms.
+
+The keep rule's fps criterion failed (shown fps 50.6 against 55.8 at 133, 53.1 against 57.8 at 300). The frames the client received fell, not the ones it dropped: the host sent fewer in B legs. A later leg on the final build held 58 to 60 fps at 15 to 16 ms, so the rate does not simply follow the latency, and the test client's window is on the display the host captures, so we did not isolate the cause. The change is kept for the latency win and the fps result needs a repeat on a harness with the client outside the capture. Not measured: H.264 or HEVC streams, a stream started from the GUI, a display without tearing support (vsync pacing does not use the clock), early decode with slice delivery on (the harness host sends whole frames, so the one early-decode leg decoded nothing ahead).
 
 ## October 23: PyroWave 144 fps pacing and async encode (B4)
 

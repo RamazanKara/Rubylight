@@ -15,11 +15,19 @@ an isolated Rubylight host), not a claim about other hardware or other clients.
   away from the real profile. Both are for measurement; a normal start ignores them.
 - One timing CSV (`NIGHTJAR_TIMING_CSV`) and one log per leg. Legs run A B B A per bitrate, 60 s
   each, the first 5 s discarded, early decode off (`NIGHTJAR_EARLY_DECODE=0`).
-- The script takes `C:\src\butterpollo-release\GPU-LOCK`, refuses to start unless the installed
-  host is idle, and exits with 3 on a suspected AMD encoder hang.
+- The script takes `C:\src\butterpollo-release\GPU-LOCK` (created atomically, polled twice a second)
+  and looks at the installed host again once it holds the lock. Exit codes: 2 for a failed or hung
+  leg (after a scan of the host log for a hang), 3 for a suspected AMD encoder hang, 4 when the
+  installed host does not answer and its service is not stopped.
+- The client window is kept out of the host's screen capture (`NIGHTJAR_EXCLUDE_FROM_CAPTURE=1`,
+  `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`) because this PC has one display. Without
+  that the client draws into the picture it is streaming and the rate follows what it shows (see
+  the fps question below). `-CaptureVisible` turns it off; `-Codec Hevc` streams HEVC instead of
+  PyroWave.
 - `scripts/timing_summary.py` summarizes the legs. Percentile rule:
-  `sorted[min(n-1, round_half_up(p/100*(n-1)))]`. The desktop CSV leaves `shown_fps` empty, so
-  fps comes from the `render_ns` stamps, per leg, then the mean of the legs.
+  `sorted[min(n-1, round_half_up(p/100*(n-1)))]`. Shown fps is `(n-1)/(last-first)` of the
+  `render_ns` stamps per leg, stalls included, then the mean of the legs. The CSV's `shown_fps`
+  column is now filled too (from the last second of presents).
 
 Keep rule for a fix (B against A, per bitrate): both B legs beat both A legs on the target metric's
 p50, the pooled p95 is not worse, `receive_to_present_ms` p95 is at most 0.5 ms worse and shown fps
@@ -176,7 +184,7 @@ not a measurement artefact, and it comes from the present clock, not from the sw
 - A leg of brief 2's run with fewer shown frames also had a shorter delay: what decides the delay
   is how the first frames came, not a fixed offset.
 
-Fix (`c2be55d5`): the first 16 pictures after the start, or after a restarted video clock, are
+First fix (`2c52af1b`, replaced by the rule in the next section): the first 16 pictures after the start, or after a restarted video clock, are
 shown as soon as they are ready (plus the 0.5 ms margin) and are not entered in the lateness
 window. The regression test `a_late_burst_at_the_start_does_not_hold_the_stream` held frame 30 for
 50415 us before the change. All other `present_clock` tests pass unchanged. Android's engine uses
@@ -205,8 +213,9 @@ to 6 to 20 ms, `receive_to_present_ms` p50 from 54 to 60 ms to 13 to 29 ms. In o
 (06) the delay rose back to the 50 ms hold after 40 s (the median goes 26, 19, 47, 53, 53, 53 ms
 from 30 s on), after a stretch of late frames; the clock does what it was built to do there.
 
-The keep rule says **revert** on the shown fps criterion (50.6 against 55.8 at 133, 53.1 against
-57.8 at 300). What we know about that:
+The keep rule said **revert** on the shown fps criterion for this first fix (50.6 against 55.8 at
+133, 53.1 against 57.8 at 300). That table was measured with the client window inside the host's
+capture, and the next section shows the fps gap was an artefact of that. What we knew then:
 
 - The frames the client shows are the frames the host sent, not frames the client dropped. B legs
   received 3009 and 3031 frames at 133 Mbps against 3308 in the first A leg, with 6 to 12 replaced
@@ -221,11 +230,93 @@ The keep rule says **revert** on the shown fps criterion (50.6 against 55.8 at 1
   is on the display the host captures (one 5120x1440 display), so the capture is not independent of
   what the client draws. We did not isolate the cause of the lower rate in the B legs.
 
-So: the change is kept for the latency win, the fps criterion is reported as failed, and it needs a
-repeat on a harness where the client window is outside the capture (a second display) or at least
-another ABBA before it is called settled. Not measured: H.264 and HEVC streams, and a stream started
-from the GUI (the code path is the same `Pacer::accept` for every codec, but the size of the startup
-burst is not).
+That first fix was reviewed and replaced by the clock rule below, and the repeat with the window out
+of the capture is in the next section.
+
+## The present clock rule, and the repeat with the client out of the capture
+
+Review of the first fix found three problems in the clock (`protocol/core/src/present_clock.rs`):
+the 25 us per frame fall was far too slow after any stall (a 50 ms delay takes about 33 s to fall at
+60 fps), the 50 ms hold was a cap on the wait but not on the delay, and "the first 16
+pictures" depended on the frame count, not on time (at 144 fps it is 111 ms, at 30 fps 530 ms). The
+rule now:
+
+- Fall: the gap between the held delay and the wanted one (the window's p97 plus 0.5 ms) closes by
+  `dt / 500 ms` of the gap each frame, where `dt` is the host timestamp step clamped to 0 to
+  100 ms, and never slower than `decay_us` (25 us) per frame. That is an exponential with a 500 ms
+  time constant (the gap halves about every 350 ms of stream time), and a tiny gap still goes at
+  25 us per frame.
+- Cap: the delay never exceeds the window median plus `max_hold_us` (50 ms). One stalled frame cannot
+  raise the delay for everything after it above what the stream usually needs.
+- Warm-up: the first 250 ms of host time (a time, so the same at 30, 60 and 144 fps; `reset()`
+  starts it again) show each picture at its ready time plus 0.5 ms and leave the window and the
+  delay untouched.
+
+Regression tests (`present_clock/tests.rs`): a stall in mid-stream does not hold the stream for
+long; a stall of the same size every 64 frames is late only the first time; a 300 ms start burst at
+144 fps is shown as it comes and then released; the existing slow-fall test now runs 300 plus 200
+frames and checks the fall is at least 25 us per frame. The API is unchanged, so Android's engine
+takes it as is.
+
+The harness change that matters for the result: with one display, the client window sat inside the
+host's WGC capture, so the client drew its own picture into the stream and the host's frame rate
+followed what the client was doing. The first measurements in this file therefore had a feedback
+loop (55 to 60 fps with the window visible; about 20 fps with it hidden and no animation). Both
+`pyrowave-loopback.ps1` and the client now keep the window out of the capture
+(`NIGHTJAR_EXCLUDE_FROM_CAPTURE=1`, `WDA_EXCLUDEFROMCAPTURE`). A first ABBA with that change streamed
+about 20 fps because `pyrowave-anim.ps1` did not compile on PowerShell 7.4 (no animation, so the
+host sent nothing new); it was discarded, the script fixed (longer `-ReferencedAssemblies`) and the
+harness now fails the run when the animation process exits.
+
+ABBA, 60 s legs, first 5 s dropped, early decode off, window out of the capture. A is the tree with
+the first-16 rule and the single upload (`E-main.exe`: `fa35d03d` plus the capture exclusion), B has
+the new clock too (`F-new.exe`). Times in ms; `frames` is the frames the host sent that reached the
+decoder (session-end video line).
+
+| Group | Leg | decode_to_present p50 / p95 | receive_to_present p50 / p95 / p99 | shown fps | frames |
+| --- | --- | --- | --- | --- | --- |
+| 133 | A 1 | 56.06 / 60.20 | 70.24 / 86.71 / 104.03 | 51.37 | 3013 |
+| 133 | B 1 | 11.47 / 18.16 | 21.35 / 28.20 / 29.75 | 60.19 | 3581 |
+| 133 | B 2 | 11.53 / 18.12 | 21.31 / 27.84 / 29.59 | 60.20 | 3585 |
+| 133 | A 2 | 47.19 / 55.26 | 57.14 / 66.06 / 69.09 | 60.04 | 3582 |
+| 133 | A pooled | 54.70 / 58.31 | 64.44 / 79.73 / 94.21 | 55.71 | |
+| 133 | B pooled | 11.50 / 18.13 | 21.33 / 28.03 / 29.66 | 60.20 | |
+| 300 | A 1 | 54.75 / 56.60 | 70.47 / 283.61 / 310.85 | 57.67 | 3444 |
+| 300 | B 1 | 13.69 / 33.44 | 28.55 / 49.46 / 55.36 | 60.19 | 3587 |
+| 300 | B 2 | 12.57 / 22.74 | 27.27 / 39.30 / 54.43 | 60.17 | 3587 |
+| 300 | A 2 | 31.42 / 55.13 | 46.47 / 70.26 / 73.45 | 60.12 | 3587 |
+| 300 | A pooled | 54.11 / 56.10 | 67.81 / 140.00 / 309.03 | 58.90 | |
+| 300 | B pooled | 13.13 / 31.01 | 27.90 / 47.12 / 55.12 | 60.18 | |
+
+The summary script says **KEEP** at both bitrates: both B legs beat both A legs on the
+`decode_to_present_ms` p50, the pooled p95 is better, `receive_to_present_ms` p95 is better by 52 ms
+at 133 and 93 ms at 300, and shown fps is higher (60.2 against 55.7 and 58.9), not lower. The host's
+`sent_mbps` medians were 140 in the 133 legs (112 in the first, cold A leg) and 316 to 317 in the 300
+legs, equal in both builds.
+
+What this settles and what it does not:
+
+- The fps failure of the first fix is gone, and we think it was the capture loop: with the window out
+  of the capture B holds 60.2 fps, and the A legs are the ones that vary (shown fps 51.4 in the cold
+  first leg; `receive_to_present_ms` p95 284 ms in leg 05 with `queue_wait_ms` p95 217 ms, which is a
+  stretch of the client not drawing, not the clock). We did not find what stalled leg 05.
+- A is also unstable in the clock sense: the old rule's delay falls 1.5 ms per second, so
+  `decode_to_present_ms` depends on how long ago the last bad stretch was (56 ms in leg 01, 47 ms in
+  leg 04, 31 ms in leg 08, the same build). B is 11.5 to 13.7 ms in all four legs.
+- B's p95 at 300 Mbps (22.7 to 33.4 ms) shows the clock still raising the delay for the late frames
+  of that bitrate (entropy decode p95 8.7 to 8.9 ms); that is what it is for.
+- HEVC 1080p60 at the default bitrate (`-Codec Hevc`, one leg each way, order A B, so this is a
+  check that the clock does not hurt, not a keep decision; host `sent_mbps` 18.5 in both):
+
+  | Leg | decode_to_present p50 / p95 | receive_to_present p50 / p95 / p99 | shown fps | frames |
+  | --- | --- | --- | --- | --- |
+  | A | 8.54 / 17.78 | 8.83 / 18.08 / 25.09 | 60.11 | 3587 |
+  | B | 8.11 / 13.94 | 8.40 / 14.25 / 15.75 | 60.21 | 3592 |
+
+  Neither leg shows the 50 ms start hold (decode_to_present p50 is 8 ms in both); B's tail is
+  shorter. H.264 was not measured, and neither was a stream started from the GUI.
+- Four legs per bitrate on one PC are a small sample, and the A legs differ among themselves by more
+  than some of the effects above; the verdict rests on the B legs being the same in all four.
 
 ## Ignored GPU tests
 
@@ -282,10 +373,9 @@ launcher fix, no retry workaround), `NIGHTJAR_EARLY_DECODE=1`:
 
 ## Notes for the next brief
 
-- The autostream asks the launcher again when it silently drops a launch (`launch_in_flight`
-  while nothing arrives). About half of the first launches were dropped before this; the client
-  prints `autostream launch was dropped, asking again` and fails after 5 drops. The cause in the
-  launcher is not investigated here.
+- Dropped first launches were fixed upstream (`162dd027`, `8dec231f`); the retry workaround in the
+  autostream was reverted. When the app list fails or the app is missing, the client now says so
+  (`LaunchApp::Failed`, `LaunchApp::Missing`) instead of waiting.
 - `PyrowaveStages` in the presenter has to survive `destroy` (test
   `the_pyrowave_stage_timers_survive_destroying_the_texture`), otherwise the session-end line
   never prints.

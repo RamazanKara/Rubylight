@@ -78,13 +78,18 @@ impl WireBudget {
         lo
     }
 
-    fn total_bps(&self, kbps: u32, fec: usize, period: Duration) -> u64 {
+    pub(crate) fn total_bps(&self, kbps: u32, fec: usize, period: Duration) -> u64 {
         // Round up so converting this wire allowance back to an encoder
         // bitrate cannot lose the last Kbps of a minimum viable frame.
         (self.video_bps(kbps, fec, period) * 10).div_ceil(9) + self.audio_bps
     }
 
-    fn minimum_encoder_kbps(&self, ceiling: u32, fec: usize, period: Duration) -> Option<u32> {
+    pub(crate) fn minimum_encoder_kbps(
+        &self,
+        ceiling: u32,
+        fec: usize,
+        period: Duration,
+    ) -> Option<u32> {
         if ceiling == 0 {
             return None;
         }

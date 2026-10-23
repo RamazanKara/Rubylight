@@ -334,16 +334,36 @@ fn reports_for_frames_sent_before_a_cut_took_effect_are_ignored() {
 }
 
 #[test]
-fn a_second_cut_is_never_below_half_the_first() {
+fn a_second_cut_right_after_the_first_may_go_below_half() {
     let mut rig = Rig::new(40_000);
     rig.clean(2_000);
     rig.lose_three();
     rig.clean(1_000);
     let first = rig.kbps;
+    // The first cut went down by at most half (40 -> 19 Mbit/s); the link
+    // carries far less, so the next one inside the window is not held to
+    // half of that again.
+    assert!(first >= 40_000 * 40 / 100, "{first}");
     rig.lose_three();
     rig.clean(500);
     assert_eq!(rig.cuts(), 2);
-    assert!(rig.kbps >= first * 40 / 100, "{first} -> {}", rig.kbps);
+    assert!(rig.kbps < first / 2, "{first} -> {}", rig.kbps);
+    assert!(rig.kbps >= 1_000, "{}", rig.kbps);
+}
+
+#[test]
+fn a_cut_after_a_quiet_window_is_held_to_half_again() {
+    let mut rig = Rig::new(40_000);
+    rig.clean(2_000);
+    rig.lose_three();
+    rig.clean(1_000);
+    let first = rig.kbps;
+    // The previous cut is older than the evidence window: an isolated cut.
+    rig.lr.last_cut = rig.lr.last_cut.map(|at| at - Duration::from_secs(3));
+    rig.lose_three();
+    rig.clean(500);
+    assert_eq!(rig.cuts(), 2);
+    assert!(rig.kbps >= first * 49 / 100, "{first} -> {}", rig.kbps);
 }
 
 #[test]
@@ -920,14 +940,9 @@ fn a_link_that_drops_to_an_eighth_recovers_within_twenty_seconds() {
         sim.spread = spread;
         sim.run(75.);
         let what = format!("fb {feedback}, q {queue}, sp {spread}");
-        // Three cuts of at most half each take three fences; at 80 ms of
-        // feedback (a 165 ms RTT) a fence is 0.58 s, so the freeze is about
-        // 1.9 s and the periodic 3x frame adds 0.8 % to the loss.
-        let (gap, loss) = if feedback > 50. {
-            (2.0, 0.036)
-        } else {
-            (1.5, 0.03)
-        };
+        // An eighth of the rate takes two cuts: the first is held to half,
+        // the second, right after it, goes to the delivered rate.
+        let (gap, loss) = (1.5, 0.03);
         assert!(
             sim.longest_gap(19., 45.) <= gap,
             "{what}: gap {}",
@@ -940,7 +955,7 @@ fn a_link_that_drops_to_an_eighth_recovers_within_twenty_seconds() {
         );
         let back = sim.reaches(40., 36_000).expect("back to 90 %");
         assert!(back <= 60., "{what}: 90 % at {back:.1} s");
-        assert!(sim.cuts() <= 3, "{what}: {} cuts", sim.cuts());
+        assert!(sim.cuts() <= 2, "{what}: {} cuts", sim.cuts());
     }
 }
 

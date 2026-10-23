@@ -83,13 +83,22 @@ pub const SEND_LOSS_FRAMES: usize = 3;
 /// Network-classified keyframe requests that cut, only from a client that
 /// sends no FEC status (E4).
 pub const KEYFRAME_REQUESTS: usize = 3;
+/// The loss share a cut will believe. Losses come in bursts, and the share is
+/// measured up to the newest lost frame, so a short window can read 100% on a
+/// link that carries half the rate; a cut never goes below a quarter of what
+/// was sent.
+const MAX_LOSS_SHARE: f64 = 0.75;
 /// A cut aims at this share of the delivered rate, FEC included.
 pub const DELIVERED_PERCENT: u64 = 85;
 /// One cut lowers the target by at least 15 % ...
 pub const MAX_CUT_PERCENT: u64 = 85;
-/// ... and at most by half, so one late or inflated estimate cannot collapse
-/// the stream.
+/// ... and a first cut at most by half, so one late or inflated estimate
+/// cannot collapse the stream. A further cut inside [`EVIDENCE_WINDOW`] is
+/// not held to half (see [`REPEAT_CUT_FLOOR_BPS`]).
 pub const MIN_CUT_PERCENT: u64 = 50;
+/// A further cut within [`EVIDENCE_WINDOW`] of the last one is not held to
+/// that limit, only to this many wire bits per second.
+pub const REPEAT_CUT_FLOOR_BPS: u64 = 1_000_000;
 /// Target after a cut when the loss share is unknown (E4 alone).
 pub const UNKNOWN_SHARE_PERCENT: u64 = 70;
 /// After a change, evidence from frames sent within this long is ignored so
@@ -253,6 +262,10 @@ struct Events {
     /// The oldest frame with any loss evidence; the delivered rate is
     /// measured from there, not diluted by the clean frames before the drop.
     first_loss: Option<u32>,
+    /// The newest frame with loss evidence. Frames after it may simply not
+    /// have been reported yet (feedback lag), so the loss share is measured
+    /// only up to here.
+    last_loss: Option<u32>,
 }
 impl Events {
     fn clear(&mut self) {
@@ -264,8 +277,15 @@ impl Events {
         self.sent = 0;
         self.hot = 0;
         self.first_loss = None;
+        self.last_loss = None;
     }
     fn lost(&mut self, frame: u32) {
+        if self
+            .last_loss
+            .is_none_or(|last| frame.wrapping_sub(last) < 1 << 31)
+        {
+            self.last_loss = Some(frame);
+        }
         if self
             .first_loss
             .is_none_or(|first| first.wrapping_sub(frame) < 1 << 31)
@@ -352,6 +372,7 @@ pub struct LinkRate {
     last_change: Option<Instant>,
     change: Option<Change>,
     steps_down: u32,
+    last_cut: Option<Instant>,
     probes: u32,
     failed_probes: u32,
 }
@@ -396,6 +417,7 @@ impl LinkRate {
             last_change: None,
             change: None,
             steps_down: 0,
+            last_cut: None,
             probes: 0,
             failed_probes: 0,
         }
@@ -714,6 +736,10 @@ impl LinkRate {
                     .events
                     .first_loss
                     .is_some_and(|first| s.frame.wrapping_sub(first) >= 1 << 31)
+                || self
+                    .events
+                    .last_loss
+                    .is_some_and(|last| last.wrapping_sub(s.frame) >= 1 << 31)
             {
                 continue;
             }
@@ -739,7 +765,7 @@ impl LinkRate {
             ((e.unrecoverable.len() + e.send_losses.len()) as f64 / frames as f64).min(1.);
         Some((
             ((bytes - first_bytes) as f64 * 8. / span) as u64,
-            packet_share.max(frame_share),
+            packet_share.max(frame_share).min(MAX_LOSS_SHARE),
         ))
     }
 
@@ -846,6 +872,17 @@ impl LinkRate {
             self.set_fence(now);
             return;
         }
+        // The first cut of an episode goes down by at most half; one right
+        // after it means the estimate was too high, so it may go to the
+        // delivered rate.
+        let repeat = self
+            .last_cut
+            .is_some_and(|at| now.saturating_duration_since(at) < EVIDENCE_WINDOW);
+        let lowest = if repeat {
+            REPEAT_CUT_FLOOR_BPS
+        } else {
+            cur * MIN_CUT_PERCENT / 100
+        };
         let estimate = self.delivered(now).filter(|_| why.share_known);
         let target = match estimate {
             Some((sent, share)) => {
@@ -859,7 +896,10 @@ impl LinkRate {
                 cur * UNKNOWN_SHARE_PERCENT / 100
             }
         }
-        .clamp(cur * MIN_CUT_PERCENT / 100, cur * MAX_CUT_PERCENT / 100)
+        .clamp(
+            lowest.min(cur * MAX_CUT_PERCENT / 100),
+            cur * MAX_CUT_PERCENT / 100,
+        )
         .max(floor);
         let knee = self
             .bad
@@ -879,6 +919,7 @@ impl LinkRate {
         self.at_ceiling = None;
         self.near_bad = None;
         self.steps_down += 1;
+        self.last_cut = Some(now);
         self.state = State::Limited;
         self.reason = why.reason;
         self.set_fence(now);

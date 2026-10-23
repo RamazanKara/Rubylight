@@ -188,6 +188,23 @@ def navigate_up():
         tap("Navigate up")
 
 
+def open_help():
+    """Help left the PCs toolbar: Settings, App, Help from the shell bar."""
+    tap(f"{PACKAGE}:id/shell_settings")
+    tap("App", scroll=True)
+    tap("Help", scroll=True)
+    find("Connect a PC")
+
+
+def close_help():
+    """Back out of Help, the App section and the Settings list to the PCs."""
+    for _ in range(3):
+        navigate_up()
+        if any(n.get("resource-id") == f"{PACKAGE}:id/home_toolbar" for n in tree().iter("node")):
+            return
+    find(f"{PACKAGE}:id/home_toolbar")
+
+
 def enter_text(label, text):
     field = find(label)
     tap(label)
@@ -259,7 +276,9 @@ def assert_cold_start_insets(runs=5):
         adb("shell", "am", "force-stop", PACKAGE)
         adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
         find(f"{PACKAGE}:id/home_toolbar")
-        root = assert_top_bar_clear("home_toolbar", "settingsButton")
+        root = assert_top_bar_clear("home_toolbar")
+        shell = find(f"{PACKAGE}:id/shell_settings")
+        assert bounds(shell)[1] >= bounds(find(f"{PACKAGE}:id/home_toolbar"))[3] - 1, "The shell bar overlaps the top app bar"
         content = next((n for n in root.iter("node") if n.get("resource-id") in
                         (f"{PACKAGE}:id/no_pc_found_layout", f"{PACKAGE}:id/fragmentView")), None)
         nav_top = min((f[1] for f in system_bar_frames()["navigationBars"] if f[1] > 0), default=None)
@@ -276,17 +295,17 @@ def focused_id(root=None):
 
 
 def assert_dpad_reaches_home_actions():
-    """D-pad and Tab must reach Settings and Help from the home content, not only the list and Add PC."""
+    """D-pad and Tab must reach the shell bar from the home content, not only the list and Add PC."""
     adb("shell", "input", "keyevent", "KEYCODE_DPAD_DOWN")
     for _ in range(4):
-        if focused_id() not in (f"{PACKAGE}:id/settingsButton", f"{PACKAGE}:id/helpButton", None):
+        if focused_id() not in (f"{PACKAGE}:id/shell_home", f"{PACKAGE}:id/shell_pcs", f"{PACKAGE}:id/shell_settings", None):
             break
         adb("shell", "input", "keyevent", "KEYCODE_DPAD_DOWN")
     content = focused_id()
-    assert content not in (None, f"{PACKAGE}:id/settingsButton", f"{PACKAGE}:id/helpButton"),         f"D-pad did not reach the home content: {content}"
+    assert content not in (None, f"{PACKAGE}:id/shell_home", f"{PACKAGE}:id/shell_pcs", f"{PACKAGE}:id/shell_settings"),         f"D-pad did not reach the home content: {content}"
     adb("shell", "input", "keyevent", "KEYCODE_DPAD_UP", "KEYCODE_DPAD_UP", "KEYCODE_DPAD_UP")
     reached = focused_id()
-    assert reached in (f"{PACKAGE}:id/settingsButton", f"{PACKAGE}:id/helpButton"),         f"D-pad up from the home content stopped at {reached} instead of the top app bar actions"
+    assert reached in (f"{PACKAGE}:id/shell_home", f"{PACKAGE}:id/shell_pcs", f"{PACKAGE}:id/shell_settings"),         f"D-pad up from the home content stopped at {reached} instead of the shell bar"
     print(f"D-pad reaches the top app bar from {content.split('/')[-1]}", flush=True)
 
 
@@ -425,16 +444,15 @@ def capture_ui_set(width, font, rotation=0):
     find("View details", scroll=True)
     screenshot(prefix + "-per-pc-host")
     navigate_up()
-    tap(f"{PACKAGE}:id/helpButton")
-    find("Connect a PC")
+    open_help()
     screenshot(prefix + "-help")
     # Every topic links out, down to the last one.
     find("What to include", scroll=True)
     # The last link can be found while the bottom edge still clips it; measure it fully shown.
     scroll_to_end()
     assert_touch_target("What to include")
-    navigate_up()
-    tap(f"{PACKAGE}:id/settingsButton")
+    close_help()
+    tap(f"{PACKAGE}:id/shell_settings")
     find("Presets", scroll=True)
     screenshot(prefix + "-settings-root")
     assert not any(n.get("text") == "Developer options" for n in tree().iter("node")), \
@@ -1097,12 +1115,11 @@ def main():
                   pref_value(root, "checkbox_gpu_max_clocks") in (None, "false"),
                   f"Fresh install is not at native {native} with every latency setting on and GPU clocks left alone")
             tap("android:id/button1")
-            # The home Help button opens the bundled help, which needs no network.
-            tap(f"{PACKAGE}:id/helpButton")
-            find("Connect a PC")
+            # Settings, App, Help opens the bundled help, which needs no network.
+            open_help()
             find("Fixing common problems", scroll=True)
             screenshot("23-help")
-            navigate_up()
+            close_help()
             tap(f"{PACKAGE}:id/discovery_add")
             enter_text(f"{PACKAGE}:id/hostTextView", "https://example.com/path")
             adb("shell", "input", "keyevent", "66")
@@ -1149,7 +1166,7 @@ def main():
             tap("android:id/button1")
             tap(f"{PACKAGE}:id/host_profile_save")
             prefs("HostStreamProfiles", lambda root: not list(root), "Host profile reset did not clear overrides")
-            tap(f"{PACKAGE}:id/settingsButton")
+            tap(f"{PACKAGE}:id/shell_settings")
             find("Presets")
             screenshot("04-settings")
             tap("Battery saver")
@@ -1197,7 +1214,7 @@ def main():
             adb("shell", "am", "force-stop", PACKAGE)
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
             find(HOST_NAME)
-            tap(f"{PACKAGE}:id/settingsButton")
+            tap(f"{PACKAGE}:id/shell_settings")
             tap("Display & image")
             find(vrr, scroll=True)
             # The row is exposed either as a clickable container or, since the accessibility pass, as a checkable switch.
@@ -1213,7 +1230,7 @@ def main():
                 n.get("name") == "checkbox_vrr" and n.get("value") == "false" for n in root),
                 "VRR preference could not be disabled")
             navigate_up()
-            tap("Advanced")
+            tap("Advanced", scroll=True)
             decoding = "Low-latency decoding"
             parts = ("checkbox_codec_low_latency", "checkbox_vendor_low_latency", "checkbox_phone_performance_hints")
             tap(decoding, scroll=True)

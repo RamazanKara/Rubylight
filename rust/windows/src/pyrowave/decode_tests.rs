@@ -1672,8 +1672,8 @@ fn handles_per_life(name: &str, lives: usize, mut life: impl FnMut() -> Result<(
 }
 
 /// Handles each encoder or decoder life may leave behind. The pinned SDK and
-/// the AMD Vulkan driver keep 3 events and 1 thread handle per Vulkan
-/// instance they build (measured: the same 4 for the encoder and the decoder,
+/// the AMD Vulkan driver leave 3 events and 1 thread handle open per
+/// encoder or decoder (measured: the same 4 for the encoder and the decoder,
 /// none for our D3D devices, imports and conversion); the bound catches any
 /// leak of ours on top of that. Handle counts are process-wide: run with
 /// `--test-threads=1`.

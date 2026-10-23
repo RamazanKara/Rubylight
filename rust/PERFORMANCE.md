@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| PyroWave at 144 fps: normal against high process priority (reverted), async encode (not worth it), handles left by each encoder or decoder life | [October 23, PyroWave 144 fps pacing and async encode (B4)](#october-23-pyrowave-144-fps-pacing-and-async-encode-b4) |
 | Stream presets (`stream_preset`): frame cap applied, keyframe size, end-to-end latency | [October 23, stream presets (B3)](#october-23-stream-presets-b3) |
 | Split-frame encoding through AMD's own sample encoder | [October 22, AMD's own sample encoder](#october-22-amds-own-sample-encoder) |
 | Slice delivery (`video_slice_delivery = 4`) against off: loopback, paced Wi-Fi emulation, real Wi-Fi (laptop), 1% loss, SSIM | [October 23, slice delivery (B2 step 2f)](#october-23-slice-delivery-b2-step-2f) |
@@ -36,6 +37,65 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 23: PyroWave 144 fps pacing and async encode (B4)
+
+Three open questions from the PyroWave audit, answered with the A8 timing record. Result: the 2.5.6 pacing change stays reverted, async encode is not worth building, and the handle growth is a fixed cost of the SDK and the AMD Vulkan driver that a new test now bounds.
+
+### 144 fps pacing: normal against high process priority
+
+**What was tried.** The change reverted in 2.5.9 ([#42](https://github.com/RamazanKara/Rubylight/issues/42)): 2.5.6 stopped raising the host to `HIGH_PRIORITY_CLASS` while streaming and relied on the early-arming timer wait (`Timer::until_paced`) alone. It was re-implemented as `stream_normal_priority` (off by default), measured, and removed again because it did not measure better. No code from it is in the tree.
+
+**Method.** RX 7900 XT, release build of main at 8d03c8cc8 plus the one setting, isolated profile, loopback, `rust/release/e2e.py --record` with the PyroWave receiver, 1920x1080 at 144 fps, 400 Mbps, 60 s per run, ABBAAB order (A is the shipped high priority, B is normal; the process priority of each host was read back at 30 s). The capture display runs at 240 Hz, so presents arrive at about 8.1 ms median with a 9.4 ms p99 even in the best case; that is the floor for the jitter column. Two batches: idle, and under load (12 spinning threads plus `gpu_load 60 1000 60 200`, started after the PyroWave capability probe finished, because a loaded probe timed out). Three runs per arm; means below, per-run values in `C:\src\b4-work\idle-*` and `load-*` on the dev box. A first batch ran by accident with both arms below normal and was discarded.
+
+| Idle, 3 runs per arm (mean) | A high (shipped) | B normal |
+| --- | --- | --- |
+| Delivered fps | 144.09 | 144.09 |
+| Present interval p50 / p99 (ms) | 8.12 / 9.36 | 8.07 / 10.49 |
+| Present interval max (ms) | 17.5 | 17.5 |
+| Arrival gaps over the harness limit (count) | 4.0 | 6.7 |
+| end_to_end median / p95 / p99 (ms) | 6.56 / 10.85 / 11.79 | 6.65 / 10.99 / 12.14 |
+| host_total p99 (ms) | 9.89 | 10.15 |
+| Picture age mean / p99 (ms) | 12.94 / 17.50 | 13.07 / 18.60 |
+| Host frames replaced | 0 | 0 |
+
+| Under load, 3 runs per arm (mean) | A high (shipped) | B normal |
+| --- | --- | --- |
+| Delivered fps | 143.33 | 142.90 |
+| Present interval p50 / p99 (ms) | 6.78 / 14.52 | 6.84 / 15.66 |
+| Arrival gaps over the harness limit (count) | 15.3 | 19.7 |
+| end_to_end median / p95 / p99 (ms) | 8.75 / 14.48 / 18.01 | 8.58 / 15.12 / 19.54 |
+| Picture age mean / p99 (ms) | 20.25 / 65.28 | 21.85 / 86.82 |
+| Host frames replaced | 0 | 0 |
+
+Normal priority was equal or worse on present jitter p99, arrival gaps, end_to_end p95/p99 and picture age in both batches; the only point in its favour is a 0.17 ms lower median under load, inside the run-to-run spread (8.59-8.97 ms for A). It had no jitter gain even with an idle PC, so there is no case for keeping it: kept only if no worse on every metric and better on jitter, and it is neither. This agrees with the field report in #42 and the 2.2.9 notes. Runs with rc=1 failed only the harness's "excessive gaps" check (an artefact of 144 fps on a 240 Hz display, present in both arms and in the idle A arm) or, under load, the receiver falling behind; their metrics were used. No run exited with code 3 (no encoder hang).
+
+### Async encode: not worth it
+
+`examples/performance.rs`, release build, PyroWave 400 Mbps, synthetic frames, RX 7900 XT, `encode_call` is the whole GPU-side call: conversion, submit, the CPU wait on the timeline fence, packetizing.
+
+| Run | Frames/s | encode_call p50 / p99 / max (ms) |
+| --- | --- | --- |
+| 1080p, unpaced (ceiling, repeat frame, 11.7 KB per frame) | 2,860 / 2,877 | 0.34 / 0.49 / 0.77 |
+| 1080p, paced 144 fps (261 KB per frame) | 144 | 0.81 / 0.94-0.99 / 1.1-1.2 |
+| 1440p, unpaced | 2,632 | 0.37 / 0.51 / 1.07 |
+| 1440p, paced 144 fps (264 KB per frame) | 144 | 0.92 / 1.11 / 1.15 |
+
+In the 144 fps e2e runs above the encode stage median is 1.06 ms (0.97 ms under load) and the whole host stage p99 is 9.9 ms. At 144 fps the frame interval is 6.94 ms, so the encoder thread waits on the GPU for at most 12-13% of it (0.81 and 0.92 ms), and the GPU is busy for no more than that. Overlapping that wait with the next frame's capture or conversion needs a next frame to exist, and at 144 fps the next present is still 6 ms away when the encode finishes; the capture-paced loop is idle, not blocked, for the other 87%. Letting two frames be in flight would only help when frames are already queued, which means the pipeline is behind, and it adds one frame (6.9 ms) of latency or buffering to that case. Packetizing and sending already run on their own threads after the encode. So there is no latency to win at 144 fps, and the ceiling is 2,600-2,900 fps at 1080p and 1440p, 18-20 times the target. Not prototyped.
+
+### Handles left by each encoder or decoder life
+
+Roughly 4 handles per life, measured with a handle count across lives in a new ignored GPU test (`pyrowave_lives_do_not_leak_handles`, 50 lives per case, growth counted after the first 10):
+
+| Life | Handles per life |
+| --- | --- |
+| D3D11 capture device and upload only | 0 |
+| Encoder built | 4.0 (161 over 40 lives) |
+| Encoder, one frame, graphics conversion | 4.0 (160) |
+| Encoder, one frame, D3D12 compute conversion | 4.0 (160) |
+| Decoder built | 4.0 (160) |
+
+The four are 3 events and 1 thread handle, the same count for the encoder and the decoder. The process thread count does not grow (3 to 4 threads over 10 lives), so they are handles left behind while the pinned SDK builds its Vulkan objects on the AMD driver (where exactly was not narrowed down), not threads we hold. Our D3D devices, the shared-handle imports (Granite closes those) and the compute conversion add nothing, and the SDK source has no thread or event creation of its own in the encoder or decoder. It cannot be fixed on our side without patching the driver, and it costs 4 handles per stream start, which a host would need millions of streams to notice. The test fails if a life leaves more than 4, so a leak of ours is caught.
 
 ## October 23: stream presets (B3)
 

@@ -65,6 +65,9 @@ public class SettingsKeysTest {
             "performance_overlay_mode", // Game and the overlay
             com.limelight.ui.AppTheme.OLED_BLACK, // AppTheme, including activities opened directly
             com.limelight.ui.AppTheme.ALWAYS_DARK,
+            com.limelight.ui.AppTheme.HIGH_CONTRAST, // AppTheme and the contrast overlay
+            com.limelight.ui.AppTheme.UI_SCALE, // NightjarActivity.attachBaseContext
+            com.limelight.ui.Motion.REDUCE_MOTION, // Motion
             com.limelight.update.UpdatePrefs.AUTO_CHECK_PREF_STRING, // UpdatePrefs
             com.limelight.console.HomeSettings.PREF_KEY)); // PcView and the console Home
 
@@ -105,6 +108,18 @@ public class SettingsKeysTest {
             }
         }
         return keys;
+    }
+
+    @Test
+    public void accessibilityKeysAreSettingsWithTheirDefaults() throws Exception {
+        Map<String, String> keys = keysInXml();
+        for (String key : new String[] {com.limelight.ui.AppTheme.UI_SCALE, com.limelight.ui.AppTheme.HIGH_CONTRAST,
+                com.limelight.ui.Motion.REDUCE_MOTION}) {
+            assertTrue("Missing: " + key, keys.containsKey(key));
+        }
+        assertEquals("list_ui_scale", com.limelight.ui.AppTheme.UI_SCALE);
+        assertEquals("checkbox_high_contrast", com.limelight.ui.AppTheme.HIGH_CONTRAST);
+        assertEquals("list_reduce_motion", com.limelight.ui.Motion.REDUCE_MOTION);
     }
 
     @Test

@@ -11,4 +11,14 @@
     <string name="host_unpair_title">要取消與 %1$s 的配對嗎？</string>
     <string name="host_unpair_message">電腦會忘記這台裝置，已儲存的遊戲庫也會在此清除。之後必須重新配對才能串流。電腦仍保留在清單中。</string>
     <string name="host_wake_needs_pairing">請在電腦開機時配對一次，以啟用喚醒</string>
+    <string name="settings_category_accessibility">無障礙</string>
+    <string name="title_ui_scale">介面大小</string>
+    <string name="summary_ui_scale">縮放應用程式的選單、清單和對話方塊。串流不會縮放。系統字型大小仍會疊加生效。立即生效。</string>
+    <string name="title_high_contrast">高對比</string>
+    <string name="summary_high_contrast">在應用程式的每個畫面使用黑色背景、更醒目的文字和輪廓，以及更粗的焦點框。串流不受影響。</string>
+    <string name="title_reduce_motion">減少動態效果</string>
+    <string name="summary_reduce_motion">「跟隨系統」會在 Android 動畫縮放為 0 時關閉動畫。「減少」以簡單的焦點框取代焦點放大和滑動面板。「完整」一律播放動畫。</string>
+    <string name="reduce_motion_system">跟隨系統</string>
+    <string name="reduce_motion_reduce">減少</string>
+    <string name="reduce_motion_full">完整</string>
 </resources>

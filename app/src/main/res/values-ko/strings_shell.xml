@@ -11,4 +11,14 @@
     <string name="host_unpair_title">%1$s 페어링을 해제할까요?</string>
     <string name="host_unpair_message">PC가 이 기기를 잊고 저장된 라이브러리도 여기서 지워집니다. 스트리밍하려면 다시 페어링해야 합니다. PC는 목록에 남습니다.</string>
     <string name="host_wake_needs_pairing">PC가 켜져 있을 때 한 번 페어링하면 깨울 수 있습니다</string>
+    <string name="settings_category_accessibility">접근성</string>
+    <string name="title_ui_scale">인터페이스 크기</string>
+    <string name="summary_ui_scale">앱의 메뉴, 목록, 대화상자 크기를 조절합니다. 스트림은 조절되지 않습니다. 시스템 글꼴 크기는 그 위에 추가로 적용됩니다. 바로 적용됩니다.</string>
+    <string name="title_high_contrast">고대비</string>
+    <string name="summary_high_contrast">앱의 모든 화면에서 검은 배경, 더 선명한 글자와 윤곽선, 더 굵은 포커스 링을 사용합니다. 스트림은 바뀌지 않습니다.</string>
+    <string name="title_reduce_motion">동작 줄이기</string>
+    <string name="summary_reduce_motion">시스템 설정 따르기는 Android 애니메이션 배율이 0일 때 애니메이션을 끕니다. 줄이기는 포커스 확대와 슬라이드 시트를 단순한 링으로 바꿉니다. 전체는 항상 애니메이션을 사용합니다.</string>
+    <string name="reduce_motion_system">시스템 설정 따르기</string>
+    <string name="reduce_motion_reduce">줄이기</string>
+    <string name="reduce_motion_full">전체</string>
 </resources>

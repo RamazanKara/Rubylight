@@ -10,21 +10,20 @@ import androidx.appcompat.app.AppCompatActivity;
 public abstract class NightjarActivity extends AppCompatActivity {
     @Override
     protected void attachBaseContext(android.content.Context base) {
-        super.attachBaseContext(com.limelight.utils.UiHelper.localeContext(base));
+        super.attachBaseContext(AppTheme.scaled(com.limelight.utils.UiHelper.localeContext(base)));
     }
 
-    private boolean oledBlack;
-    private boolean dark;
+    /** What the screen was themed with; see {@link AppTheme#appearance}. */
+    private String appearance;
     private boolean recreatingForTheme;
     private final SharedPreferences.OnSharedPreferenceChangeListener appearanceListener = (prefs, key) -> {
         // Android 11+ can report clear() as a null key when all settings are reset.
-        if (key == null || AppTheme.OLED_BLACK.equals(key) || AppTheme.ALWAYS_DARK.equals(key)) refreshAppearance();
+        if (AppTheme.affectsAppearance(key)) refreshAppearance();
     };
 
     @Override
     protected void onCreate(Bundle state) {
-        oledBlack = AppTheme.isOledBlack(this);
-        dark = AppTheme.isDark(this);
+        appearance = AppTheme.appearance(this);
         AppTheme.apply(this);
         super.onCreate(state);
     }
@@ -49,7 +48,7 @@ public abstract class NightjarActivity extends AppCompatActivity {
 
     private void refreshAppearance() {
         if (!recreatingForTheme && !isFinishing() && !isDestroyed() &&
-                (oledBlack != AppTheme.isOledBlack(this) || dark != AppTheme.isDark(this))) {
+                !AppTheme.appearance(this).equals(appearance)) {
             recreatingForTheme = true;
             recreate();
         }

@@ -9,7 +9,7 @@
         <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
             <shape android:shape="rectangle">
                 <corners android:radius="12dp" />
-                <stroke android:width="2dp" android:color="?attr/colorPrimary" />
+                <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
             </shape>
         </inset>
     </item>

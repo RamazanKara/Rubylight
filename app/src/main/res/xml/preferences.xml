@@ -592,6 +592,29 @@
         <Preference android:key="reset_all" android:title="@string/title_reset_settings" />
     </PreferenceCategory>
 
+    <!-- App: Accessibility (read by AppTheme and Motion, not by PreferenceConfiguration) -->
+    <PreferenceCategory android:key="category_accessibility" android:title="@string/settings_category_accessibility">
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_ui_scale"
+            android:title="@string/title_ui_scale"
+            android:dialogMessage="@string/summary_ui_scale"
+            android:entries="@array/ui_scale_names"
+            android:entryValues="@array/ui_scale_values"
+            android:defaultValue="100" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_high_contrast"
+            android:title="@string/title_high_contrast"
+            android:dialogMessage="@string/summary_high_contrast"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_reduce_motion"
+            android:title="@string/title_reduce_motion"
+            android:dialogMessage="@string/summary_reduce_motion"
+            android:entries="@array/reduce_motion_names"
+            android:entryValues="@array/reduce_motion_values"
+            android:defaultValue="system" />
+    </PreferenceCategory>
+
     <!-- Advanced -->
     <PreferenceCategory android:key="category_advanced_settings">
         <!-- Sets the decoder, chipset and phone switches below together (StreamSettings). -->

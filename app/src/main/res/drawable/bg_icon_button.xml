@@ -11,12 +11,12 @@
         <selector>
             <item android:state_focused="true">
                 <shape android:shape="oval">
-                    <stroke android:width="2dp" android:color="?attr/colorPrimary" />
+                    <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
                 </shape>
             </item>
             <item android:state_hovered="true">
                 <shape android:shape="oval">
-                    <stroke android:width="2dp" android:color="?attr/colorPrimary" />
+                    <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
                 </shape>
             </item>
             <item>

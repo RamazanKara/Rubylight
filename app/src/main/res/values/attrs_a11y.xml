@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        What High contrast and Reduce motion change, as theme attributes, so layouts and drawables stay the same
+        and AppTheme.apply only layers ThemeOverlay.Nightjar.HighContrast and ThemeOverlay.Nightjar.ReducedMotion.
+    -->
+    <!-- Stroke of the focus ring on rows, shell items and icon buttons. -->
+    <attr name="nightjarFocusRingWidth" format="dimension" />
+    <!-- Stroke of the focus ring on cards and grid items. -->
+    <attr name="nightjarCardFocusRingWidth" format="dimension" />
+    <!-- Stroke of an unfocused card. -->
+    <attr name="nightjarCardStrokeWidth" format="dimension" />
+    <!-- Focus animators (res/animator): full, still, thick and thick-still versions. -->
+    <attr name="nightjarCardFocusAnimator" format="reference" />
+    <attr name="nightjarControlFocusAnimator" format="reference" />
+</resources>

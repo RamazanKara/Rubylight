@@ -92,7 +92,7 @@ public class StreamSettings extends NightjarActivity {
                 "category_onscreen_controls", "category_keyboard_shortcuts"});
         SECTIONS.put("audio", new String[] {"category_audio_settings"});
         SECTIONS.put("streaming", new String[] {"category_streaming"});
-        SECTIONS.put("app", new String[] {"category_ui_settings"});
+        SECTIONS.put("app", new String[] {"category_ui_settings", "category_accessibility"});
         SECTIONS.put("advanced", new String[] {"category_advanced_settings", "category_advanced_decoder",
                 "category_advanced_input", "category_advanced_diagnostics"});
     }

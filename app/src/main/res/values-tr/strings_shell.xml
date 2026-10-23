@@ -11,4 +11,14 @@
     <string name="host_unpair_title">%1$s eşleştirmesi kaldırılsın mı?</string>
     <string name="host_unpair_message">Bilgisayar bu cihazı unutur ve kayıtlı kitaplık burada temizlenir. Yayın için yeniden eşleştirmeniz gerekir. Bilgisayar listede kalır.</string>
     <string name="host_wake_needs_pairing">Uyandırabilmek için bilgisayar açıkken bir kez eşleştirin</string>
+    <string name="settings_category_accessibility">Erişilebilirlik</string>
+    <string name="title_ui_scale">Arayüz boyutu</string>
+    <string name="summary_ui_scale">Uygulamanın menülerini, listelerini ve iletişim kutularını ölçekler. Yayın ölçeklenmez. Sistem yazı tipi boyutu ayrıca uygulanmaya devam eder. Hemen etkili olur.</string>
+    <string name="title_high_contrast">Yüksek kontrast</string>
+    <string name="summary_high_contrast">Uygulamanın her ekranında siyah arka plan, daha belirgin metin ve çerçeveler ve daha kalın bir odak halkası kullanır. Yayın değişmez.</string>
+    <string name="title_reduce_motion">Hareketi azalt</string>
+    <string name="summary_reduce_motion">Sistemi izle, Android animasyon ölçeği 0 olduğunda animasyonu kapatır. Azalt, odak yakınlaştırmasını ve kayan panelleri sade bir halkayla değiştirir. Tam her zaman animasyon kullanır.</string>
+    <string name="reduce_motion_system">Sistemi izle</string>
+    <string name="reduce_motion_reduce">Azalt</string>
+    <string name="reduce_motion_full">Tam</string>
 </resources>

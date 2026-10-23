@@ -175,6 +175,9 @@ These tables include every preference, including actions, grouped as the Setting
 | Check for updates now<br>`check_updates_now` | No stored default | Action | Look for a newer release now, even if the automatic check ran recently. A release you skipped is shown again. Hidden when the app was installed from Google Play. |
 | About<br>`about_app` | No stored default | Action | View the installed app version and open Source and licenses. |
 | Reset all settings<br>`reset_all` | No stored default | Action | Confirm to reset global preferences. Keeps pairing, PC profiles, controller mappings, control layout and language. |
+| Interface size<br>`list_ui_scale` | 100% | 85%; 100%; 115%; 130%; 150% | Raise for large, readable menus on a TV or a small phone; lower to fit more on screen. Scales the whole app layout, not the stream, and the system font size still applies on top. Applies immediately and stays separate from stream profiles. |
+| High contrast<br>`checkbox_high_contrast` | Off | On; Off | Enable for a black background, body-coloured secondary text and outlines (7:1 against the background) and a 4 dp focus ring on every app screen. The stream is unchanged. Applies immediately and stays separate from stream profiles. |
+| Reduce motion<br>`list_reduce_motion` | Follow system | Follow system; Reduce; Full | Follow system reduces motion when Android's animation scale is 0 or animators are off. Reduce always swaps the focus zoom and sheet slide for a plain ring; Full always animates. Applies immediately and stays separate from stream profiles. |
 
 ### Advanced
 

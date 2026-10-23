@@ -8,7 +8,7 @@
         <item name="iconTint">@color/shell_item_text</item>
         <item name="backgroundTint">@color/shell_item_background</item>
         <item name="strokeColor">@color/shell_item_stroke</item>
-        <item name="strokeWidth">2dp</item>
+        <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
         <item name="iconSize">20dp</item>
         <item name="iconPadding">6dp</item>
         <item name="android:paddingStart">14dp</item>

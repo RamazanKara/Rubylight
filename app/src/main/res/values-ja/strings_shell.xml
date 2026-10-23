@@ -11,4 +11,14 @@
     <string name="host_unpair_title">%1$s のペアリングを解除しますか？</string>
     <string name="host_unpair_message">PC はこの端末を忘れ、保存済みのライブラリもここで消去されます。ストリーミングするには再度ペアリングが必要です。PC は一覧に残ります。</string>
     <string name="host_wake_needs_pairing">PC の電源が入っているときに一度ペアリングすると、起動できるようになります</string>
+    <string name="settings_category_accessibility">ユーザー補助</string>
+    <string name="title_ui_scale">インターフェースのサイズ</string>
+    <string name="summary_ui_scale">アプリのメニュー、リスト、ダイアログを拡大・縮小します。ストリームは拡大・縮小されません。システムのフォントサイズは引き続き適用されます。すぐに反映されます。</string>
+    <string name="title_high_contrast">ハイコントラスト</string>
+    <string name="summary_high_contrast">黒い背景、より強い文字と輪郭、より太いフォーカスリングをアプリのすべての画面で使います。ストリームは変わりません。</string>
+    <string name="title_reduce_motion">動きを減らす</string>
+    <string name="summary_reduce_motion">「システムに従う」は、Android のアニメーションスケールが 0 のときにアニメーションをオフにします。「減らす」は、フォーカスのズームとスライドするシートを単純なリングに置き換えます。「通常」は常にアニメーションします。</string>
+    <string name="reduce_motion_system">システムに従う</string>
+    <string name="reduce_motion_reduce">減らす</string>
+    <string name="reduce_motion_full">通常</string>
 </resources>

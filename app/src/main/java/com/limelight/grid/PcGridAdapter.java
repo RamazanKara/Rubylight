@@ -176,10 +176,6 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
                 });
         ViewCompat.replaceAccessibilityAction(parentView, AccessibilityActionCompat.ACTION_LONG_CLICK,
                 context.getString(R.string.pc_accessibility_actions), (view, arguments) -> openOptions(view));
-        // A mouse's right button opens the same options.
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            parentView.setOnContextClickListener(PcGridAdapter::openOptions);
-        }
     }
 
     /** Opens the options of the PC on this card, as a long press does. */

@@ -93,6 +93,36 @@ public class AdaptiveGridView extends GridView {
         return super.onKeyUp(keyCode, event);
     }
 
+    private boolean secondaryGesture;
+
+    /**
+     * A mouse's right button opens the item's options, as a long press does, and the rest of that
+     * click is swallowed so it does not also open the item. A context-click listener on the cards
+     * would make them clickable and take touches away from the grid.
+     */
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == android.view.MotionEvent.ACTION_DOWN) {
+            secondaryGesture = false;
+            OnItemLongClickListener listener = getOnItemLongClickListener();
+            int position = pointToPosition((int) event.getX(), (int) event.getY());
+            if (listener != null && position != INVALID_POSITION && event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)
+                    && event.isButtonPressed(android.view.MotionEvent.BUTTON_SECONDARY)) {
+                secondaryGesture = true;
+                listener.onItemLongClick(this, getChildAt(position - getFirstVisiblePosition()), position,
+                        getItemIdAtPosition(position));
+                return true;
+            }
+        } else if (secondaryGesture) {
+            if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                secondaryGesture = false;
+            }
+            return true;
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
     @Override
     protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previouslyFocusedRect) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);

@@ -381,6 +381,28 @@ public class PcViewLifecycleTest {
         view.dispatchKeyEvent(new android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_UP, code, 0, meta));
     }
 
+    /** A mouse's right button pressed and released over {@code card}. */
+    private static void rightClick(GridView grid, android.view.View card) {
+        float x = card.getLeft() + card.getWidth() / 2f;
+        float y = card.getTop() + card.getHeight() / 2f;
+        long now = android.os.SystemClock.uptimeMillis();
+        for (int action : new int[] {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP}) {
+            android.view.MotionEvent.PointerProperties properties = new android.view.MotionEvent.PointerProperties();
+            properties.id = 0;
+            properties.toolType = android.view.MotionEvent.TOOL_TYPE_MOUSE;
+            android.view.MotionEvent.PointerCoords coords = new android.view.MotionEvent.PointerCoords();
+            coords.x = x;
+            coords.y = y;
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(now, now, action, 1,
+                    new android.view.MotionEvent.PointerProperties[] {properties},
+                    new android.view.MotionEvent.PointerCoords[] {coords}, 0,
+                    action == android.view.MotionEvent.ACTION_DOWN ? android.view.MotionEvent.BUTTON_SECONDARY : 0,
+                    1, 1, 0, 0, android.view.InputDevice.SOURCE_MOUSE, 0);
+            assertTrue(grid.dispatchTouchEvent(event));
+            event.recycle();
+        }
+    }
+
     /** Opens the options of {@code row} the way {@code input} does and returns the sheet, or null when nothing opened. */
     private static com.limelight.ui.ActionSheet openOptionsWith(Library screen, int row, Input input) {
         GridView grid = screen.findViewById(R.id.fragmentView);
@@ -395,7 +417,7 @@ public class PcViewLifecycleTest {
                 assertTrue(grid.getOnItemLongClickListener().onItemLongClick(grid, card, row, grid.getItemIdAtPosition(row)));
                 break;
             case MOUSE_RIGHT_CLICK:
-                assertTrue(card.performContextClick());
+                rightClick(grid, card);
                 break;
             default:
                 grid.requestFocus();
@@ -445,6 +467,7 @@ public class PcViewLifecycleTest {
                     assertTrue(where + ": " + actions, actions.contains(screen.getString(R.string.pcview_menu_delete_pc)));
                     sheet.dismiss();
                     Shadows.shadowOf(Looper.getMainLooper()).idle();
+                    assertFalse(where + " must not also act on the card", screen.hostActions().isPairing());
                 }
             }
         } finally {

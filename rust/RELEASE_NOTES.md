@@ -8,7 +8,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## Unreleased
 
-- **The host lowers the video bitrate when the network cannot carry it** (`link_rate_adaptation`, on by default). When a device loses frames that error correction cannot repair, for example 150 Mbps asked of a 100 Mbps link, the host cuts the bitrate to what the link delivered, says so in the log and on the stream card ("Bitrate limited by the network: 9 of 15 Mbps"), probes back up in small steps and returns to the requested rate after ten clean seconds. A link that carries the stream sees no change. Off for PyroWave, with Host adaptive bitrate, and once a client sets the bitrate itself. [Details](../docs/configuration.md#lower-bitrate-when-the-link-cannot-carry-it).
+- **The host lowers the video bitrate when the network cannot carry it** (`link_rate_adaptation`, on by default). When a device loses frames that error correction cannot repair, for example 150 Mbps asked of a 100 Mbps link, the host cuts the bitrate to what the link delivered, says so in the log and on the stream card ("Bitrate limited by the network: 9 of 15 Mbps"), probes back up in small steps and returns to the requested rate after ten clean seconds. A link that carries the stream sees no change. Off for PyroWave, with Host adaptive bitrate, and once a client sets the bitrate itself. Changing the bitrate never forces a keyframe on H.264, HEVC or AV1; H.264 cannot encode below about 5 Mbps at 1080p60 whatever the target (its quantiser limit), so a cut there stops at that. [Details](../docs/configuration.md#lower-bitrate-when-the-link-cannot-carry-it).
 
 ## New in 3.0.0-beta.1
 

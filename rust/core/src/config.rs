@@ -375,6 +375,11 @@ impl Config {
             && !self.boolean("host_adaptive_pacing", false)
             && !self.boolean("host_adaptive_bitrate", false)
     }
+    /// Lower the encoder bitrate when the link cannot carry the stream (on by
+    /// default). The opt-in `host_adaptive_bitrate` owns the bitrate when set.
+    pub fn link_rate_adaptation(&self) -> bool {
+        self.boolean("link_rate_adaptation", true) && !self.boolean("host_adaptive_bitrate", false)
+    }
     /// An integer setting; Vibepollo also writes quoted (`"756"`) and
     /// hexadecimal (`0x2a`) values.
     pub fn integer(&self, key: &str, default: i64) -> i64 {
@@ -816,6 +821,7 @@ pub fn override_allowed(key: &str) -> bool {
         "host_adaptive_bitrate",
         "host_adaptive_pacing",
         "keyframe_loss_pacing",
+        "link_rate_adaptation",
         "video_max_batch_size_kb",
         "pyrowave_critical_fec_percentage",
         "hevc_mode",
@@ -1149,6 +1155,27 @@ mod tests {
             assert_eq!(config.keyframe_loss_pacing(), enabled, "{text}");
         }
         assert!(super::override_allowed("keyframe_loss_pacing"));
+    }
+
+    #[test]
+    fn link_rate_adaptation_is_on_unless_disabled_or_the_opt_in_owns_the_bitrate() {
+        for (text, enabled) in [
+            ("", true),
+            ("link_rate_adaptation=true", true),
+            ("link_rate_adaptation=invalid", true),
+            ("link_rate_adaptation=false", false),
+            ("host_adaptive_bitrate=true", false),
+            (
+                "host_adaptive_bitrate=true\nlink_rate_adaptation=true",
+                false,
+            ),
+            ("host_adaptive_bitrate=false", true),
+            ("host_adaptive_pacing=true", true),
+        ] {
+            let config = super::Config::parse(text).unwrap();
+            assert_eq!(config.link_rate_adaptation(), enabled, "{text}");
+        }
+        assert!(super::override_allowed("link_rate_adaptation"));
     }
 
     #[test]

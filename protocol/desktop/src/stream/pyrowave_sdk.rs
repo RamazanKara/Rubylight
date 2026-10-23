@@ -46,6 +46,9 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 mod unix;
 #[cfg(unix)]
 pub use unix::*;
+// Platform independent, so the deadline logic is tested on every host.
+#[cfg(any(unix, test))]
+mod watchdog;
 
 #[cfg(test)]
 mod tests;

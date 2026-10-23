@@ -481,7 +481,8 @@ mod tests {
     #[test]
     #[ignore = "needs Rubylight's timing_report.py; see the doc comment"]
     fn timing_report_accepts_a_file_the_desktop_wrote() {
-        let script = std::env::var("RUBYLIGHT_TIMING_REPORT").expect("RUBYLIGHT_TIMING_REPORT");
+        let Some(script) = crate::sdl::test_input("RUBYLIGHT_TIMING_REPORT", "Rubylight's timing_report.py") else { return };
+        let script = script.to_string_lossy().into_owned();
         let path = std::env::temp_dir().join(format!("nightjar-timing-report-{}.csv", std::process::id()));
         let csv = TimingCsv::create(&path).unwrap();
         for number in 0..40u32 {

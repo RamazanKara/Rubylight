@@ -126,6 +126,30 @@ public class ConsoleRepositoryTest {
     }
 
     @Test
+    public void aRenamedHostShowsItsAliasOnHomeLiveCachedAndClassic() throws Exception {
+        tower();
+        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        tower.alias = "Living room";
+        ConsoleSnapshot live = repository.refresh(Collections.singletonList(tower));
+        assertEquals("Living room", live.host("tower").name);
+        assertEquals("Living room", live.titles.get(0).sources.get(0).hostName);
+
+        // Offline: the saved library is read, and the name still is the alias.
+        ComputerDetails offline = nativeHost("tower", "Tower", false);
+        offline.alias = "Living room";
+        ConsoleSnapshot cached = repository.refresh(Collections.singletonList(offline));
+        assertEquals(ConsoleSnapshot.Status.CACHED, cached.host("tower").status);
+        assertEquals("Living room", cached.host("tower").name);
+
+        ComputerDetails classic = classicHost("classic", "Sunshine");
+        classic.alias = "Den";
+        classicApps.put("classic", Collections.singletonList(app(1, "Desktop")));
+        ConsoleSnapshot snapshot = repository.refresh(Collections.singletonList(classic));
+        assertEquals("Den", snapshot.host("classic").name);
+        assertEquals("Den", snapshot.titles.get(0).sources.get(0).hostName);
+    }
+
+    @Test
     public void aTitleWithoutAGameIdIsNeverMergedAcrossHostsEvenWithTheSameName() throws Exception {
         transport.reply("tower", "library", ok(library("t", game("t-1", 1, "Notepad", null, false))));
         transport.reply("laptop", "library", ok(library("l", game("l-1", 1, "Notepad", null, false))));

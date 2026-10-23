@@ -230,7 +230,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     static String signature(List<ComputerDetails> hosts) {
         StringBuilder sb = new StringBuilder();
         for (ComputerDetails host : hosts) {
-            sb.append(host.uuid).append('|').append(host.name).append('|').append(host.state).append('|')
+            sb.append(host.uuid).append('|').append(host.displayName()).append('|').append(host.state).append('|')
                     .append(host.activeAddress == null ? "" : host.activeAddress.address + ":" + host.activeAddress.port)
                     .append('|').append(host.runningGameId).append('|').append(host.runningGameUuid).append(';');
         }

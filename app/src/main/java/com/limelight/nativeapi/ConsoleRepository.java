@@ -198,17 +198,17 @@ public final class ConsoleRepository {
         }
         List<NvApp> apps = classic.apps(computer);
         if (apps == null) {
-            return new ConsoleSnapshot.Host(computer.uuid, computer.name, ConsoleSnapshot.Status.UNAVAILABLE, 0,
+            return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.UNAVAILABLE, 0,
                     null, null, Collections.emptyList());
         }
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NvApp app : apps) {
-            sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.name, app.getAppId(), null,
+            sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), app.getAppId(), null,
                     app.getAppName(), null, computer.hasRunningGame() && app.matchesRunningApp(computer.runningGameId,
                     computer.runningGameUuid), null, app.getArtVersion(), null, app.getAppUuid(),
                     app.isHdrSupported()));
         }
-        return new ConsoleSnapshot.Host(computer.uuid, computer.name, ConsoleSnapshot.Status.CLASSIC, 0, null, null,
+        return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.CLASSIC, 0, null, null,
                 sources);
     }
 
@@ -229,7 +229,7 @@ public final class ConsoleRepository {
                         // Home still has the library; Continue playing just lacks this host's session.
                         LimeLog.info("No session from " + computer.name + ": " + e.getMessage());
                     }
-                    return new ConsoleSnapshot.Host(computer.uuid, computer.name, ConsoleSnapshot.Status.LIVE, now,
+                    return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.LIVE, now,
                             null, session, sourcesOf(computer, library));
                 } catch (NativeApiException e) {
                     failure = e;
@@ -242,20 +242,20 @@ public final class ConsoleRepository {
         if (stored != null) {
             try {
                 NativeLibrary library = NativeLibrary.parse(new JSONObject(stored.libraryJson));
-                return new ConsoleSnapshot.Host(computer.uuid, computer.name, ConsoleSnapshot.Status.CACHED,
+                return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.CACHED,
                         stored.fetchedAtMs, failure, null, sourcesOf(computer, library));
             } catch (JSONException e) {
                 LimeLog.warning("Unreadable cached library of " + computer.name + ": " + e.getMessage());
             }
         }
-        return new ConsoleSnapshot.Host(computer.uuid, computer.name, ConsoleSnapshot.Status.UNAVAILABLE, 0, failure,
+        return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.UNAVAILABLE, 0, failure,
                 null, Collections.emptyList());
     }
 
     private static List<ConsoleSnapshot.Source> sourcesOf(ComputerDetails computer, NativeLibrary library) {
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NativeLibrary.Game game : library.games) {
-            sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.name, game.appId, game.installId,
+            sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), game.appId, game.installId,
                     game.title, game.gameId, game.running, game.coverPath, game.coverVersion, game.installed, "",
                     false));
         }

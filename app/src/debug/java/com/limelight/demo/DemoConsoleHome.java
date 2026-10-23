@@ -40,6 +40,10 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
                 return;
             }
         }
+        // A short screen leaves the PCs row below the fold, where it is not laid out: scroll to it.
+        if (attempt == 3 && list.getAdapter() != null && list.getAdapter().getItemCount() > 0) {
+            list.scrollToPosition(list.getAdapter().getItemCount() - 1);
+        }
         if (attempt < 30) list.postDelayed(() -> openOptions(attempt + 1), 300);
     }
 

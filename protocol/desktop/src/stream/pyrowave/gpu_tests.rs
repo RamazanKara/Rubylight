@@ -92,7 +92,7 @@ fn setup(width: usize, height: usize, full: bool, ten: bool, range: i32) -> Vide
 }
 
 fn decoded(output: Output, setup: VideoSetup) -> Decoded {
-    Decoded { picture: output.picture, setup, rtp: 0, number: 0, receive_us: 0, enqueue_us: 0, input_us: 0, ready_us: 0, host_latency: 0, early: 0, first_block_us: 0 }
+    Decoded { picture: output.picture, setup, rtp: 0, number: 0, receive_us: 0, enqueue_us: 0, input_us: 0, ready_us: 0, host_latency: 0, early: 0, first_block_us: 0, race: output.race, bands: output.bands }
 }
 
 fn gpu_decoder(rig: &Rig, case: &Case, slots: usize) -> Pyrowave {
@@ -513,4 +513,100 @@ fn a_new_decoders_first_draw_lets_go_of_the_old_decoders_planes() {
     let mut second = gpu_decoder(&rig, &case, 2);
     present(&rig, &mut texture, &decoded(second.frame(&data, &mut || false).unwrap(), setup));
     assert_eq!(std::sync::Arc::strong_count(&old), 2, "only the decoder and this test hold the old sets now");
+}
+
+/// The bytes of plane `plane` as the SDK wrote them (any of its formats: R8 or R16 UNORM), rows
+/// without padding, read back through a staging copy once `fence_value` is signalled.
+fn read_plane_bytes(rig: &Rig, gpu: &GpuDecoder, lease: &crate::stream::gpu_planes::Lease, fence_value: u64, plane: usize) -> (usize, Vec<u8>) {
+    use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R8_UNORM};
+    use windows::Win32::Graphics::Direct3D11::*;
+    gpu.wait(fence_value, std::time::Duration::from_secs(5)).expect("the decode finishes");
+    let device = rig.device();
+    // SAFETY: Plain D3D11 calls on live objects; the mapped rows are read before `Unmap`.
+    unsafe {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        lease.textures()[plane].GetDesc(&mut desc);
+        let texel = match desc.Format { DXGI_FORMAT_R8_UNORM => 1, DXGI_FORMAT_R16_UNORM => 2, other => panic!("unexpected plane format {other:?}") };
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+        desc.MiscFlags = 0;
+        let mut staging = None;
+        device.CreateTexture2D(&desc, None, Some(&mut staging)).unwrap();
+        let staging = staging.unwrap();
+        let context = device.GetImmediateContext().unwrap();
+        context.cast::<ID3D11DeviceContext4>().unwrap().Wait(lease.decode_fence(), fence_value).unwrap();
+        context.CopyResource(&staging, &lease.textures()[plane]);
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).unwrap();
+        let row = desc.Width as usize * texel;
+        let mut bytes = Vec::with_capacity(row * desc.Height as usize);
+        for y in 0..desc.Height as usize {
+            bytes.extend_from_slice(std::slice::from_raw_parts((mapped.pData as *const u8).add(y * mapped.RowPitch as usize), row));
+        }
+        context.Unmap(&staging, 0);
+        (row, bytes)
+    }
+}
+
+/// The packets of a records envelope as (flags, payload).
+fn envelope_packets(data: &[u8]) -> Vec<(u32, Vec<u8>)> {
+    let mut packets = Vec::new();
+    let mut at = 4;
+    while at + 8 <= data.len() {
+        let length = u32::from_le_bytes(data[at..at + 4].try_into().unwrap()) as usize;
+        let flags = u32::from_le_bytes(data[at + 4..at + 8].try_into().unwrap());
+        packets.push((flags, data[at + 8..at + 8 + length].to_vec()));
+        at += 8 + length;
+    }
+    packets
+}
+
+#[test]
+#[ignore = "needs the PyroWave SDK, a GPU, a display and row-ordered frames in NIGHTJAR_PYROWAVE_FRAMES"]
+fn a_slice_decode_is_exact_on_its_rows_on_real_row_ordered_frames() {
+    let Some(dir) = std::env::var_os("NIGHTJAR_PYROWAVE_FRAMES") else { panic!("set NIGHTJAR_PYROWAVE_FRAMES to a NIGHTJAR_PYROWAVE_DUMP directory of a row-ordered stream") };
+    let _lock = gpu_lock();
+    let frames = super::tests::dumped_frames(std::path::Path::new(&dir));
+    assert!(!frames.is_empty(), "no frame-*.bin envelopes in {dir:?}");
+    let (width, height, full, _) = frames[0];
+    let rig = Rig::new();
+    let case = Case { bin: &[], width, height, full, ten: false };
+    let mut gpu = gpu_decoder(&rig, &case, 4);
+    let Pyrowave::Gpu(stream) = &mut gpu else { unreachable!() };
+    stream.set_slices(4);
+    let (mut slices, mut sliced_frames) = (0, 0);
+    for (n, (_, _, _, data)) in frames.iter().enumerate().take(24) {
+        // Each slice's planes, read the moment its decode has finished (the final decode then
+        // overwrites them): chunk by chunk, as the stream feeds the decoder.
+        type Planes = Vec<(usize, Vec<u8>)>;
+        let mut captured: Vec<(BandReady, Planes)> = Vec::new();
+        for (i, (flags, payload)) in envelope_packets(data).iter().enumerate() {
+            stream.chunk(i == 0, *flags, payload);
+            let race = stream.race.as_ref().expect("the beam race is on");
+            while captured.len() < race.bands.len() {
+                let band = race.bands[captured.len()];
+                let (lease, _) = race.lease.as_ref().expect("the slices decode into a plane set");
+                captured.push((band, (0..3).map(|p| read_plane_bytes(&rig, &stream.gpu, lease, band.fence_value, p)).collect()));
+            }
+        }
+        let output = stream.frame(data, &mut || false).unwrap_or_else(|e| panic!("GPU decode: {e:?}"));
+        let Picture::GpuPlanes { lease, fence_value } = &output.picture else { panic!("a plane picture") };
+        let last: Vec<_> = (0..3).map(|p| read_plane_bytes(&rig, &stream.gpu, lease, *fence_value, p)).collect();
+        assert_eq!(output.race.ordered, RaceReport::ORDERED, "frame {n} is not in row order: is this a row-ordered dump?");
+        assert_eq!(output.bands.len(), captured.len() + 1, "frame {n}: the final decode is the last slice");
+        assert_eq!(output.race.slices as usize, output.bands.len());
+        sliced_frames += usize::from(!captured.is_empty());
+        for (band, planes) in &captured {
+            for (plane, (row, bytes)) in planes.iter().enumerate() {
+                let scale = if plane == 0 || full { 1 } else { 2 };
+                let (first, end) = (band.first_row as usize / scale, band.end_row as usize / scale);
+                assert!(bytes[first * row..end * row] == last[plane].1[first * row..end * row],
+                    "frame {n} slice {} plane {plane}: rows {first}..{end} differ between the slice decode and the final decode", band.slice);
+            }
+            slices += 1;
+        }
+    }
+    println!("{sliced_frames} frames with {slices} slice decodes, every one exact on its rows ({width}x{height} 444={full})");
+    assert!(slices > 0, "no slice came due: are the dumped frames row-ordered?");
 }

@@ -46,6 +46,13 @@ pub struct Decoded {
     /// When its first block was decoded, before the frame completed (session clock, µs); 0
     /// unless `early` is 1.
     pub first_block_us: u64,
+    /// How the beam race went (all zero unless it is on): the timing CSV's slice columns.
+    pub race: super::pyrowave::RaceReport,
+    /// The slices decoded for the frame, in order, each ready once its fence value is signalled
+    /// (empty unless the beam race is on). The last runs to the end of the picture. The presenter
+    /// does not draw from them yet.
+    #[allow(dead_code)]
+    pub bands: Vec<super::pyrowave::BandReady>,
 }
 
 /// Something the UI should know about.
@@ -77,6 +84,11 @@ pub struct Counters {
     pub early_frames: AtomicU64,
     pub early_fallbacks: AtomicU64,
     pub early_us_total: AtomicU64,
+    /// Beam race: frames that were decoded in slices while they arrived, frames that were not
+    /// in row order (decoded whole), and the slice decodes made.
+    pub race_frames: AtomicU64,
+    pub race_unordered: AtomicU64,
+    pub race_slices: AtomicU64,
     pub audio_dropped: AtomicU64,
     /// Audio waiting in SDL's stream at the last packet, in microseconds.
     pub audio_queued_us: AtomicU64,
@@ -154,6 +166,25 @@ impl Shared {
         }
     }
 
+    /// Counts a frame's beam race (see `RaceReport`); a frame that arrived out of row order says
+    /// so once on stderr and always in the counters and the CSV.
+    fn count_race(&self, race: &super::pyrowave::RaceReport) {
+        use super::pyrowave::RaceReport;
+        match race.ordered {
+            RaceReport::ORDERED => {
+                self.counters.race_frames.fetch_add(1, Ordering::Relaxed);
+                self.counters.race_slices.fetch_add(u64::from(race.slices), Ordering::Relaxed);
+            }
+            RaceReport::UNORDERED => {
+                let first = self.counters.race_unordered.fetch_add(1, Ordering::Relaxed) == 0;
+                if first {
+                    eprintln!("nightjar: beam race: a frame did not arrive in row order, so it decoded whole (counted, not repeated)");
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn notify(&self, notice: Notice) {
         lock(&self.notices).push(notice);
         self.wake();
@@ -181,6 +212,8 @@ pub struct Decoder {
     setup: Option<VideoSetup>,
     pyrowave: Option<super::pyrowave::Pyrowave>,
     early: bool,
+    /// Slices per frame for the beam race (0 off, `Settings::beam_race`).
+    slices: u32,
     /// The renderer's D3D11 device when PyroWave is to be decoded on the GPU (`pyrowave_decoder = gpu`).
     gpu: Option<GpuDevice>,
     /// Measurement: where the first `PYROWAVE_DUMP_FRAMES` envelopes go (`NIGHTJAR_PYROWAVE_DUMP`),
@@ -202,6 +235,7 @@ impl Decoder {
             setup: None,
             pyrowave: None,
             early: false,
+            slices: 0,
             gpu: None,
             dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
         }
@@ -254,6 +288,12 @@ impl Decoder {
         self.early = early;
         self
     }
+
+    /// PyroWave decodes a row-ordered frame in `slices` slices while it arrives (0 off).
+    pub fn with_beam_race(mut self, slices: u32) -> Self {
+        self.slices = slices;
+        self
+    }
 }
 
 /// The SDK's decoder on the renderer's device, with a plane set per picture that can be waiting.
@@ -292,7 +332,10 @@ impl VideoDecoder for Decoder {
                     .map_err(|error| Notice::DecoderFallback(error.into())),
             };
             return match created {
-                Ok((decoder, name)) => {
+                Ok((mut decoder, name)) => {
+                    if self.slices > 0 {
+                        if let Err(error) = decoder.set_beam_race(self.slices) { eprintln!("nightjar: beam race: {error}"); }
+                    }
                     self.pyrowave = Some(decoder);
                     *lock(&self.shared.decoder_name) = name.into();
                     Ok(())
@@ -382,9 +425,10 @@ impl VideoDecoder for Decoder {
                 timing.record_samples += 1;
             }
             drop(timing);
+            self.shared.count_race(&output.race);
             let decoded = Decoded { picture: output.picture, setup, rtp: frame.rtp_timestamp, number: frame.number, receive_us: frame.receive_time_us,
                 enqueue_us: frame.enqueue_time_us, input_us: start, ready_us, host_latency: frame.host_processing_latency,
-                early, first_block_us: output.first_block_us };
+                early, first_block_us: output.first_block_us, race: output.race, bands: output.bands };
             let mut frames = lock(&self.shared.frames);
             frames.push_back(decoded);
             while frames.len() > self.shared.queue_limit { frames.pop_front(); counters.replaced.fetch_add(1, Ordering::Relaxed); }
@@ -432,6 +476,8 @@ impl VideoDecoder for Decoder {
                         host_latency: frame.host_processing_latency,
                         early: 0,
                         first_block_us: 0,
+                        race: Default::default(),
+                        bands: Vec::new(),
                     };
                     let mut frames = lock(&self.shared.frames);
                     frames.push_back(decoded);

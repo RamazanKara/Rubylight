@@ -751,6 +751,8 @@ pub(crate) mod tests {
             host_latency: 0,
             early: 0,
             first_block_us: 0,
+            race: Default::default(),
+            bands: Vec::new(),
         }
     }
 

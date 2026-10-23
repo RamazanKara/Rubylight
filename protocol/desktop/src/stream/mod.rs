@@ -17,7 +17,7 @@ mod quality;
 mod touch;
 mod upscale;
 mod phase;
-mod pyrowave;
+pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
 pub mod pyrowave_mode;
 mod stage_times;
@@ -109,6 +109,11 @@ pub struct Facts {
     /// PyroWave decodes blocks while a frame arrives (`Settings::early_decode`, or the
     /// `NIGHTJAR_EARLY_DECODE` override) on this stream.
     pub early_decode: bool,
+    /// Early decode was asked for on a PyroWave stream but the host sent no records, so the
+    /// frames arrive whole; the overlay and the log say so.
+    pub early_without_records: bool,
+    /// The picture is decoded in slices as its bands complete (`Settings::beam_race`).
+    pub beam_race: bool,
     pub app_name: String,
     pub host_name: String,
 }
@@ -426,6 +431,75 @@ fn early_summary(early_frames: u64, fallbacks: u64, chunk_us: u64, chunks_droppe
         {chunks_dropped} chunks dropped, {:.1} ms of decoding done while frames arrived", chunk_us as f64 / 1000.0)
 }
 
+/// The beam race in one line (overlay and session end): frames decoded in slices as they arrived,
+/// the slice decodes made, and the frames that were not in row order and decoded whole. A host
+/// that never sends row order says so instead of showing zeros.
+fn race_line(frames: u64, slices: u64, unordered: u64) -> String {
+    let mut line = format!("{frames} frames in {slices} slices, {unordered} not in row order");
+    if frames == 0 && unordered > 0 {
+        line.push_str(" (the host is not sending the row order)");
+    }
+    line
+}
+
+/// What early decode does on a stream. `NoRecords` is the failure the earlier measurements
+/// hit unseen: a host whose version did not parse never offered records, so no chunk ever came.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EarlyState {
+    Off,
+    On,
+    NoRecords,
+}
+
+const EARLY_NO_RECORDS: &str = "nightjar: early decode is on but the host sent no PyroWave records \
+    (its version did not offer them, or the client did not ask), so frames are decoded whole";
+
+fn early_state(requested: bool, pyrowave: bool, records: bool) -> EarlyState {
+    match (requested && pyrowave, records) {
+        (false, _) => EarlyState::Off,
+        (true, true) => EarlyState::On,
+        (true, false) => EarlyState::NoRecords,
+    }
+}
+
+/// What the beam race setting does on a stream: the client asks the host for the row order and
+/// decodes the picture in slices as its bands complete. `NotWired` is the setting on a link that
+/// is not known to be wired (the host's row order is for wired links), reported, not silent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BeamRace {
+    Off,
+    On,
+    NotWired,
+}
+
+const BEAM_RACE_NOT_WIRED: &str = "nightjar: beam race is on but the link is not a known wired one, so the host is not asked \
+    for the row order and frames are decoded whole";
+
+/// The setting, unless `NIGHTJAR_BEAM_RACE` is `1` (on, whatever the link; for measurement
+/// runs) or `0`.
+fn beam_race(setting: bool, link_mbps: u32) -> BeamRace {
+    match std::env::var("NIGHTJAR_BEAM_RACE").as_deref() {
+        Ok("1") => BeamRace::On,
+        Ok("0") => BeamRace::Off,
+        _ if !setting => BeamRace::Off,
+        _ if link_mbps == 0 => BeamRace::NotWired,
+        _ => BeamRace::On,
+    }
+}
+
+/// Slices per frame: 4, or 3 at 4K where each slice decode costs more (`NIGHTJAR_BEAM_RACE_SLICES`
+/// overrides, for measurement runs).
+fn beam_slices(height: u32) -> u32 {
+    std::env::var("NIGHTJAR_BEAM_RACE_SLICES").ok().and_then(|v| v.parse().ok()).filter(|n| (1..=16).contains(n))
+        .unwrap_or(if height >= 2000 { 3 } else { 4 })
+}
+
+/// A network hint the stream sends the host, unless the variable names another value (measurement
+/// runs on loopback, where the real link is not the one under test).
+fn hint_override(name: &str, value: u32) -> u32 {
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(value)
+}
+
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
 fn early_decode(setting: bool) -> bool {
     match std::env::var("NIGHTJAR_EARLY_DECODE").as_deref() {
@@ -520,6 +594,12 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         .info
         .capabilities
         .trusted_codec_mode_support(plan.info.server_codec_mode_support);
+    let link_mbps = hint_override("NIGHTJAR_PYROWAVE_LINK_MBPS", plan.pyrowave_link_mbps);
+    let pace_mbps = hint_override("NIGHTJAR_PYROWAVE_PACE_MBPS", plan.pyrowave_pace_mbps);
+    let beam = beam_race(settings.beam_race, link_mbps);
+    if beam == BeamRace::NotWired {
+        eprintln!("{BEAM_RACE_NOT_WIRED}");
+    }
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let stream = StreamConfig {
@@ -545,9 +625,10 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
-        pyrowave_link_mbps: plan.pyrowave_link_mbps as i32,
-        pyrowave_pace_mbps: plan.pyrowave_pace_mbps as i32,
+        pyrowave_link_mbps: link_mbps as i32,
+        pyrowave_pace_mbps: pace_mbps as i32,
         pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
+        pyrowave_row_order: beam == BeamRace::On,
         encryption_flags: ENCFLG_ALL,
         remote_input_aes_key: ri_key,
         remote_input_aes_iv: iv,
@@ -561,7 +642,9 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         rtsp_session_url: launched.rtsp_session_url,
         server_codec_mode_support: if scm != 0 { scm } else { SCM_H264 },
     };
-    let early = early_decode(settings.early_decode);
+    // The slices are decoded from chunks, so the beam race needs early decode.
+    let early = early_decode(settings.early_decode) || beam == BeamRace::On;
+    let slices = if beam == BeamRace::On { beam_slices(height) } else { 0 };
     let session = Session::start(
         &host,
         SessionConfig {
@@ -571,7 +654,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             input_only: role == AppRole::InputOnly,
             ..Default::default()
         },
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_gpu_decoder(plan.gpu_decoder)),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone())),
         Arc::new(pipeline::Events { shared }),
         interrupt,
@@ -599,10 +682,18 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         touch: outcome.sunshine_feature_flags & nightjar_core::control::negotiation::feature::PEN_TOUCH_EVENTS != 0
             && role != AppRole::RemoteMonitor,
         phase_lock: outcome.host_control_messages.contains(&rubylight_protocol::phase_lock::REPORT_MESSAGE_TYPE),
-        early_decode: early && outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+        early_decode: early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+            outcome.pyrowave_records_enabled) == EarlyState::On,
+        early_without_records: early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+            outcome.pyrowave_records_enabled) == EarlyState::NoRecords,
+        beam_race: slices > 0 && early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+            outcome.pyrowave_records_enabled) == EarlyState::On,
         app_name: plan.app.name.clone(),
         host_name: plan.host_name.clone(),
     };
+    if facts.early_without_records {
+        eprintln!("{EARLY_NO_RECORDS}");
+    }
     Ok((session, facts))
 }
 
@@ -1557,6 +1648,7 @@ impl Streaming {
                     clock: self.offset.offset_at(d.enqueue_us as i64).zip(self.offset.rtt_us()),
                     early: d.early,
                     first_block_us: d.first_block_us,
+                    race: d.race,
                     due_us: p.present_us,
                     begin_us: begin,
                     flip,
@@ -1663,10 +1755,17 @@ impl Streaming {
             "Decode".into(),
             format!("{decode_ms:.2} ms{}", if now.3 > last.3 { ", errors" } else { "" }),
         ));
+        if self.facts.early_without_records {
+            lines.push(("Early decode".into(), "off, the host sent no PyroWave records".into()));
+        }
         if self.facts.early_decode {
             let early = (c.early_frames.load(Ordering::Relaxed), c.early_fallbacks.load(Ordering::Relaxed));
             let last_early = std::mem::replace(&mut self.last_early, early);
             lines.push(("Early decode".into(), early_line(early, last_early, secs)));
+        }
+        if self.facts.beam_race {
+            lines.push(("Beam race".into(), race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
+                c.race_unordered.load(Ordering::Relaxed))));
         }
         lines.push((
             "Render".into(),
@@ -2107,6 +2206,11 @@ impl Streaming {
             eprintln!("{}", early_summary(c.early_frames.load(Ordering::Relaxed), c.early_fallbacks.load(Ordering::Relaxed),
                 c.early_us_total.load(Ordering::Relaxed), stats.early_chunks_dropped));
         }
+        if self.facts.beam_race {
+            let c = &self.shared.counters;
+            eprintln!("nightjar: beam race: {}", race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
+                c.race_unordered.load(Ordering::Relaxed)));
+        }
         self.session.stop();
     }
 }
@@ -2114,6 +2218,38 @@ impl Streaming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn early_decode_without_records_is_reported_not_silent() {
+        assert_eq!(early_state(false, true, true), EarlyState::Off);
+        assert_eq!(early_state(true, false, false), EarlyState::Off);
+        assert_eq!(early_state(true, true, true), EarlyState::On);
+        // The 0-frames-decoded-ahead runs: asked for, PyroWave, but the host never offered records.
+        assert_eq!(early_state(true, true, false), EarlyState::NoRecords);
+    }
+
+    #[test]
+    fn beam_race_line_names_a_host_that_sends_no_row_order() {
+        assert_eq!(race_line(100, 300, 0), "100 frames in 300 slices, 0 not in row order");
+        assert!(race_line(0, 0, 7).contains("not sending the row order"));
+        assert!(!race_line(90, 270, 10).contains("not sending"));
+    }
+
+    #[test]
+    fn beam_race_needs_the_setting_and_a_wired_link() {
+        // The environment override is for measurement runs; these cases are the settings.
+        if std::env::var_os("NIGHTJAR_BEAM_RACE").is_some() { return; }
+        assert_eq!(beam_race(false, 1000), BeamRace::Off);
+        assert_eq!(beam_race(true, 1000), BeamRace::On);
+        assert_eq!(beam_race(true, 0), BeamRace::NotWired);
+    }
+
+    #[test]
+    fn beam_slices_are_four_or_three_at_4k() {
+        if std::env::var_os("NIGHTJAR_BEAM_RACE_SLICES").is_some() { return; }
+        assert_eq!(beam_slices(1080), 4);
+        assert_eq!(beam_slices(2160), 3);
+    }
 
     fn display() -> Display {
         Display {

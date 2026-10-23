@@ -191,6 +191,10 @@ pub struct Settings {
     /// instead of when the frame is complete. Off by default until measured on the wired
     /// client (docs/early-decode.md). `NIGHTJAR_EARLY_DECODE=1` or `0` overrides it.
     pub early_decode: bool,
+    /// PyroWave on a wired link: ask the host to send the picture's records in row order and
+    /// decode it in slices as its bands complete (docs/beam-racing.md). Implies early decode. Off
+    /// by default; `NIGHTJAR_BEAM_RACE=1` or `0` overrides it.
+    pub beam_race: bool,
     /// PyroWave: reconstruct on the GPU with the PyroWave library (the default on Windows, where it
     /// measured better on every leg, docs/pyrowave-decode.md) or on the CPU.
     pub pyrowave_decoder: PyroWaveDecoder,
@@ -320,6 +324,7 @@ impl Default for Settings {
             background_controllers: false,
             decoder: DecoderPreference::Auto,
             early_decode: false,
+            beam_race: false,
             pyrowave_decoder: PyroWaveDecoder::default(),
             microphone: false,
             cursor_shapes: true,
@@ -1078,6 +1083,15 @@ mod tests {
         assert!(!old.early_decode, "a settings file from before early decode keeps it off");
         let on: Settings = serde_json::from_str("{\"early_decode\": true}").unwrap();
         assert!(on.early_decode);
+    }
+
+    #[test]
+    fn beam_race_is_off_unless_the_file_says_otherwise() {
+        assert!(!Settings::default().beam_race);
+        let old: Settings = serde_json::from_str("{\"early_decode\": true}").unwrap();
+        assert!(!old.beam_race, "a settings file from before the beam race keeps it off");
+        let on: Settings = serde_json::from_str("{\"beam_race\": true}").unwrap();
+        assert!(on.beam_race);
     }
 
     #[test]

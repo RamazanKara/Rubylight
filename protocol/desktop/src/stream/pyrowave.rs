@@ -5,6 +5,7 @@
 use std::cell::RefCell;
 use std::time::Instant;
 
+use rubylight_protocol::pyrowave::rows::{band_rows, slice_ends, RowReport, RowTracker};
 use rubylight_protocol::pyrowave::{push_container, Records};
 
 use crate::media::Picture;
@@ -445,6 +446,116 @@ pub struct Output {
     pub picture: Picture,
     pub loss_percent: f32,
     pub first_block_us: u64,
+    /// The slices decoded for the frame, in order (empty unless the beam race is on).
+    pub bands: Vec<BandReady>,
+    pub race: RaceReport,
+}
+
+/// A slice of the picture whose decode has finished: rows `first_row..end_row` of the frame being
+/// received are exact in the plane set once `fence_value` is signalled on the decode fence. The
+/// last slice is the final decode of the whole frame (its rows run to the end of the picture).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BandReady {
+    pub slice: u8,
+    pub first_row: u32,
+    pub end_row: u32,
+    pub fence_value: u64,
+    /// When the decode was seen to finish (session clock, us).
+    pub ready_us: u64,
+}
+
+/// How the beam race went for one frame (the timing CSV's `slices_decoded`, `first_slice_ready_ns`,
+/// `last_slice_ready_ns` and `row_ordered`). All zero when the race is off.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RaceReport {
+    /// Slice decodes for the frame, the final one included.
+    pub slices: u8,
+    pub first_ready_us: u64,
+    pub last_ready_us: u64,
+    /// 0 not known, `ORDERED` or `UNORDERED`.
+    pub ordered: u8,
+}
+
+impl RaceReport {
+    pub const ORDERED: u8 = 1;
+    pub const UNORDERED: u8 = 2;
+}
+
+/// Which slice of the picture is due while the records of a row-ordered frame arrive: the
+/// shared row tracker and the slice ends. The last slice is the final decode, so it is never due
+/// here.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub struct SlicePlan {
+    tracker: RowTracker,
+    /// Slice `i` holds the bands before `ends[i]`.
+    ends: Vec<u32>,
+    /// The next slice not yet decoded.
+    next: usize,
+    height: u32,
+}
+
+/// Rows of a slice that is due.
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Due {
+    pub slice: usize,
+    pub first_row: u32,
+    pub end_row: u32,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl SlicePlan {
+    pub fn new(width: u32, height: u32, chroma444: bool, slices: u32) -> Self {
+        let tracker = RowTracker::new(width, height, chroma444);
+        let ends = slice_ends(tracker.bands(), slices);
+        Self { tracker, ends, next: 0, height }
+    }
+
+    pub fn begin_frame(&mut self) {
+        self.tracker.begin_frame();
+        self.next = 0;
+    }
+
+    /// A packet was fed; the records it completed follow with `record`.
+    pub fn packet(&mut self) {
+        self.tracker.packet();
+    }
+
+    pub fn record(&mut self, index: u32) {
+        self.tracker.record(index);
+    }
+
+    /// The frame's last packet was fed.
+    pub fn finish(&mut self) {
+        self.tracker.finish();
+    }
+
+    pub fn report(&self) -> RowReport {
+        self.tracker.report()
+    }
+
+    /// The furthest slice that can be decoded exactly now, if it is one not decoded yet. A frame
+    /// that has left the row order is never sliced: it decodes whole.
+    pub fn due(&mut self) -> Option<Due> {
+        if self.tracker.report().violations > 0 { return None; }
+        let done = self.tracker.complete_bands();
+        let bands = self.tracker.bands();
+        let target = self.ends.iter().rposition(|&end| end <= done && end < bands)?;
+        if target < self.next { return None; }
+        let first = self.first_band();
+        let (first_row, end_row) = band_rows(self.height, first, self.ends[target]);
+        self.next = target + 1;
+        Some(Due { slice: target, first_row, end_row })
+    }
+
+    /// Rows still to show when the frame completes: after the last slice decoded.
+    pub fn rest(&self) -> (u32, u32) {
+        band_rows(self.height, self.first_band(), self.tracker.bands())
+    }
+
+    fn first_band(&self) -> u32 {
+        if self.next == 0 { 0 } else { self.ends[self.next - 1] }
+    }
 }
 
 /// Why a frame produced no picture.
@@ -482,6 +593,17 @@ impl Pyrowave {
         }
     }
 
+    /// Decodes the picture in `slices` slices as the bands of a row-ordered frame complete (the
+    /// beam race). Only the GPU decoder does; the CPU decoder says so, loudly, to its caller.
+    pub fn set_beam_race(&mut self, slices: u32) -> Result<(), &'static str> {
+        let _ = slices;
+        match self {
+            Self::Cpu(_) => Err("beam racing needs the GPU PyroWave decoder, so frames decode whole"),
+            #[cfg(windows)]
+            Self::Gpu(stream) => { stream.set_slices(slices); Ok(()) }
+        }
+    }
+
     /// Where the picture of the last `frame` came from, also after a frame that failed (the
     /// early and fallback counters count those too).
     pub fn source(&self) -> Source {
@@ -499,7 +621,8 @@ impl Pyrowave {
             Self::Cpu(decoder) => {
                 decoder.coefficients(data).map_err(|e| Failure::Frame(e.into()))?;
                 let frame = decoder.coefficient_frame().map_err(Failure::Frame)?;
-                Ok(Output { picture: Picture::Frame(frame), loss_percent: decoder.loss_percent, first_block_us: decoder.first_block_us })
+                Ok(Output { picture: Picture::Frame(frame), loss_percent: decoder.loss_percent, first_block_us: decoder.first_block_us,
+                    bands: Vec::new(), race: RaceReport::default() })
             }
             #[cfg(windows)]
             Self::Gpu(stream) => stream.frame(data, evict),
@@ -519,7 +642,7 @@ impl Pyrowave {
 #[cfg(windows)]
 const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 #[cfg(windows)]
-const GPU_STAGE_NAMES: [&str; 4] = ["clear", "push", "submit", "gpu"];
+const GPU_STAGE_NAMES: [&str; 5] = ["clear", "push", "submit", "gpu", "slices"];
 #[cfg(windows)]
 const GPU_CLEAR: usize = 0;
 #[cfg(windows)]
@@ -528,6 +651,9 @@ const GPU_PUSH: usize = 1;
 const GPU_SUBMIT: usize = 2;
 #[cfg(windows)]
 const GPU_WAIT: usize = 3;
+/// The slice decodes made while the frame arrives (beam race), submit and wait together.
+#[cfg(windows)]
+const GPU_SLICES: usize = 4;
 /// The first word of a record that is the sequence header.
 #[cfg(windows)]
 const HEADER_BIT: u32 = 0x8000_0000;
@@ -562,7 +688,46 @@ pub struct GpuStream {
     pushed: std::collections::HashSet<u32>,
     /// Where the last frame's records came from (`Pyrowave::source`).
     source: Source,
-    stages: Stages<4>,
+    stages: Stages<5>,
+    /// The beam race (`set_slices`); None decodes each frame once, as before.
+    race: Option<Race>,
+}
+
+/// The beam race state of the frame in flight.
+#[cfg(windows)]
+struct Race {
+    plan: SlicePlan,
+    /// The sequence header went to the SDK ahead of the records, so a prefix decodes.
+    header_pushed: bool,
+    /// The plane set the slices decode into, which the final decode then fills (with its `after`).
+    lease: Option<(super::gpu_planes::Lease, u64)>,
+    bands: Vec<BandReady>,
+    /// A slice decode failed: the frame ends with this (a loud presenter error), nothing falls back.
+    failure: Option<String>,
+    /// No plane set was free for the slices: the frame decodes once, whole.
+    no_plane: bool,
+}
+
+#[cfg(windows)]
+impl Race {
+    fn begin_frame(&mut self) {
+        self.plan.begin_frame();
+        self.header_pushed = false;
+        self.lease = None;
+        self.bands.clear();
+        self.failure = None;
+        self.no_plane = false;
+    }
+
+    /// The final decode is the last slice; what the frame's slices were.
+    fn finish(&mut self, fence_value: u64, ready_us: u64, chunks: bool) -> (RaceReport, Vec<BandReady>) {
+        let (first_row, end_row) = self.plan.rest();
+        self.bands.push(BandReady { slice: self.bands.len() as u8, first_row, end_row, fence_value, ready_us });
+        let bands = std::mem::take(&mut self.bands);
+        if !chunks { return (RaceReport::default(), bands); }
+        let ordered = if self.plan.report().ordered() { RaceReport::ORDERED } else { RaceReport::UNORDERED };
+        (RaceReport { slices: bands.len() as u8, first_ready_us: bands[0].ready_us, last_ready_us: ready_us, ordered }, bands)
+    }
 }
 
 #[cfg(windows)]
@@ -586,7 +751,22 @@ impl GpuStream {
             pushed: std::collections::HashSet::new(),
             source: Source::Frame,
             stages: Stages::new(GPU_STAGE_NAMES),
+            race: None,
         }
+    }
+
+    /// Decodes the picture in `slices` slices while a row-ordered frame arrives (0 turns it off).
+    /// Frames that do not arrive in row order are decoded once, whole, and say so in their report.
+    pub fn set_slices(&mut self, slices: u32) {
+        let config = self.gpu.config();
+        self.race = (slices > 0).then(|| Race {
+            plan: SlicePlan::new(config.width, config.height, config.chroma444, slices),
+            header_pushed: false,
+            lease: None,
+            bands: Vec::new(),
+            failure: None,
+            no_plane: false,
+        });
     }
 
     #[cfg(test)]
@@ -605,6 +785,7 @@ impl GpuStream {
             self.early_bytes = 4;
             self.first_block_us = 0;
             self.missed_start = false;
+            if let Some(race) = &mut self.race { race.begin_frame(); }
             self.stages.add(GPU_CLEAR, step);
         } else if self.early == Early::Off {
             self.missed_start = true;
@@ -614,25 +795,69 @@ impl GpuStream {
         let step = Instant::now();
         self.early_bytes += 8 + payload.len();
         if !self.records.feed_packet(flags, payload) { self.early = Early::Failed; return; }
-        let Self { records, gpu, pushed, .. } = self;
+        let Self { records, gpu, pushed, race, .. } = self;
         let mut failed = false;
+        if let Some(race) = race.as_mut() {
+            race.plan.packet();
+            if flags & rubylight_protocol::pyrowave::PACKET_FRAME_START != 0 && payload.len() >= 16 {
+                // The sequence header first, so a slice decode knows the picture. `finish_frame`
+                // pushes it again with the final record count, which the SDK takes for the same sequence.
+                if push_checked(gpu, &payload[8..16]) { race.header_pushed = true; } else { failed = true; }
+            }
+            if flags & rubylight_protocol::pyrowave::PACKET_FRAME_END != 0 { race.plan.finish(); }
+        }
         records.drain_new(|index, record| {
             if failed { return; }
             if !push_checked(gpu, record) { failed = true; return; }
             pushed.insert(index);
+            if let Some(race) = race.as_mut() { race.plan.record(index); }
         });
         if failed { self.early = Early::Failed; }
         if !self.pushed.is_empty() && self.first_block_us == 0 { self.first_block_us = nightjar_core::session::now_us(); }
         self.stages.add(GPU_PUSH, step);
+        self.decode_due_slice();
+    }
+
+    /// Decodes the slice that the records so far complete, if there is one: the prefix of the
+    /// frame, missing blocks as zero (the SDK needs no `is_ready` for that, which a prefix never
+    /// satisfies), into the plane set the final decode will use. Waits for it, because the next
+    /// decode needs the SDK's payload buffer free.
+    fn decode_due_slice(&mut self) {
+        if self.early != Early::Active { return; }
+        let Self { race: Some(race), gpu, planes, stages, .. } = self else { return };
+        if !race.header_pushed || race.failure.is_some() || race.no_plane { return; }
+        let Some(due) = race.plan.due() else { return };
+        let step = Instant::now();
+        if race.lease.is_none() {
+            match planes.acquire() {
+                Some(lease) => race.lease = Some(lease),
+                None => { race.no_plane = true; return; }
+            }
+        }
+        let Some((lease, after)) = &race.lease else { return };
+        match gpu.decode(lease.set(), *after).and_then(|fence| gpu.wait(fence, GPU_DECODE_TIMEOUT).map(|()| fence)) {
+            Ok(fence_value) => race.bands.push(BandReady {
+                slice: due.slice as u8, first_row: due.first_row, end_row: due.end_row, fence_value, ready_us: nightjar_core::session::now_us(),
+            }),
+            Err(error) => race.failure = Some(format!("PyroWave GPU decode failed: {error}")),
+        }
+        stages.add(GPU_SLICES, step);
     }
 
     pub fn frame(&mut self, data: &[u8], evict: &mut dyn FnMut() -> bool) -> Result<Output, Failure> {
         let early = std::mem::replace(&mut self.early, Early::Off);
         let missed_start = std::mem::take(&mut self.missed_start);
+        if let Some(race) = &mut self.race {
+            if let Some(failure) = race.failure.take() {
+                race.lease = None;
+                return Err(Failure::Device(failure));
+            }
+        }
         if early == Early::Off { self.stages.reset(); }
         let records_envelope = data.starts_with(&[0, 0, 0, 0]);
         let whole_early = early == Early::Active && records_envelope && self.early_bytes == data.len();
-        let mut slot = self.planes.acquire();
+        // The slices decoded into a plane set already; the final decode fills that one.
+        let mut slot = self.race.as_mut().and_then(|race| race.lease.take()).or_else(|| self.planes.acquire());
         while slot.is_none() && evict() { slot = self.planes.acquire(); }
         let Some((lease, after)) = slot else {
             // Keep the records cache current, so the frames after this one recover from it.
@@ -680,7 +905,11 @@ impl GpuStream {
         self.stages.add(GPU_WAIT, step);
         self.stages.commit();
         let first_block_us = if source == Source::Early { self.first_block_us } else { 0 };
-        Ok(Output { picture: Picture::GpuPlanes { lease, fence_value }, loss_percent, first_block_us })
+        let (race, bands) = match &mut self.race {
+            Some(race) => race.finish(fence_value, nightjar_core::session::now_us(), source == Source::Early),
+            None => (RaceReport::default(), Vec::new()),
+        };
+        Ok(Output { picture: Picture::GpuPlanes { lease, fence_value }, loss_percent, first_block_us, bands, race })
     }
 
     pub fn stage_summary(&self) -> Option<String> {
@@ -791,11 +1020,10 @@ mod tests {
         levels
     }
 
-    /// The row order's step for block row `row` of a band at `level`: the picture band (64 rows,
-    /// one block row of level 0) after which the block is sent, with `lookahead` bands of margin.
-    /// Level 4 is sent first of all. This is `row_steps` of the host, with the margin a parameter.
-    fn row_step(level: usize, row: usize, bands: usize, lookahead: usize) -> usize {
-        if level == 4 { 0 } else { ((row << level).saturating_sub(lookahead)).min(bands - 1) }
+    /// The negative control's step: `row_steps` without its one band of margin. Level 4 is sent
+    /// first of all.
+    fn unmargined_step(level: usize, row: usize, bands: usize) -> usize {
+        if level == 4 { 0 } else { (row << level).min(bands - 1) }
     }
 
     /// For each picture band k: decode only the blocks the row order sends before band k's cut
@@ -815,14 +1043,20 @@ mod tests {
         };
         reconstruct(&mut reference, decoder);
         let levels = band_levels(decoder);
+        // The steps the host and the client share, in the decoder's block order.
+        let steps = rubylight_protocol::pyrowave::rows::row_steps(stride as u32, rows as u32, full);
+        assert_eq!(steps.len(), decoder.bands.iter().map(|band| band.count).sum::<usize>());
         let mut errors = Vec::new();
         for k in 0..bands {
             let mut planes = whole.clone();
+            let mut index = 0;
             for (band, &level) in decoder.bands.iter().zip(&levels) {
                 let across = band.width.div_ceil(32);
                 for block in 0..band.count {
                     let row = block / across;
-                    if row_step(level, row, bands, lookahead) <= k { continue; }
+                    let step = if lookahead == 1 { usize::from(steps[index]) } else { unmargined_step(level, row, bands) };
+                    index += 1;
+                    if step <= k { continue; }
                     let (bx, by) = (block % across * 32, row * 32);
                     for y in by..(by + 32).min(band.height) {
                         let at = (band.y + y) * stride + band.x + bx;
@@ -876,6 +1110,61 @@ mod tests {
             println!("{width}x{height} 444={full}, no lookahead: {none:?}");
             if one.len() > 1 { assert!(none[..none.len() - 1].iter().any(|&e| e > 0.0), "{width}x{height}: {none:?}"); }
         }
+    }
+
+    /// Feeds `order` (block indices) to a plan `per_packet` records at a time, as the packets of a
+    /// frame, and returns the slices that came due, with the packet each came due in.
+    fn run_plan(plan: &mut SlicePlan, order: &[u32], per_packet: usize) -> Vec<(usize, Due)> {
+        plan.begin_frame();
+        let mut dues = Vec::new();
+        let packets = order.chunks(per_packet).count();
+        for (i, packet) in order.chunks(per_packet).enumerate() {
+            plan.packet();
+            for &index in packet { plan.record(index); }
+            if i + 1 == packets { plan.finish(); }
+            if let Some(due) = plan.due() { dues.push((i, due)); }
+        }
+        dues
+    }
+
+    #[test]
+    fn a_row_ordered_frame_comes_due_slice_by_slice_before_it_ends() {
+        let (width, height) = (1920u32, 1080u32);
+        let steps = rubylight_protocol::pyrowave::rows::row_steps(width, height, false);
+        let mut ordered: Vec<u32> = (0..steps.len() as u32).collect();
+        ordered.sort_by_key(|&i| (steps[i as usize], i));
+        let mut plan = SlicePlan::new(width, height, false, 4);
+        let packets = ordered.chunks(40).count();
+        let dues = run_plan(&mut plan, &ordered, 40);
+        assert!(plan.report().ordered(), "{:?}", plan.report());
+        assert_eq!(dues.len(), 3, "four slices, the last being the final decode: {dues:?}");
+        assert!(dues.iter().enumerate().all(|(n, (_, due))| due.slice == n), "{dues:?}");
+        assert!(dues.windows(2).all(|pair| pair[0].0 < pair[1].0), "each in a later packet: {dues:?}");
+        assert!(dues.iter().all(|&(packet, _)| packet + 1 < packets), "all before the frame ends");
+        // The slices tile the picture from the top, and the final decode takes the rest.
+        assert_eq!(dues[0].1.first_row, 0);
+        assert!(dues.windows(2).all(|pair| pair[0].1.end_row == pair[1].1.first_row));
+        assert_eq!(plan.rest(), (dues[2].1.end_row, height));
+        assert!(dues[2].1.end_row < height);
+    }
+
+    #[test]
+    fn an_index_ordered_frame_is_reported_unordered_and_stops_slicing() {
+        let (width, height) = (1920u32, 1080u32);
+        let count = rubylight_protocol::pyrowave::rows::row_steps(width, height, false).len() as u32;
+        let index_order: Vec<u32> = (0..count).collect();
+        let mut plan = SlicePlan::new(width, height, false, 4);
+        let dues = run_plan(&mut plan, &index_order, 40);
+        assert!(!plan.report().ordered(), "{:?}", plan.report());
+        assert!(plan.due().is_none(), "no slice is offered once the order is broken");
+        // Whatever came due before the first violation was seen is a prefix of the picture.
+        assert!(dues.len() < 3, "{dues:?}");
+        // The next frame starts clean: it is the same plan, reset.
+        let steps = rubylight_protocol::pyrowave::rows::row_steps(width, height, false);
+        let mut ordered: Vec<u32> = (0..count).collect();
+        ordered.sort_by_key(|&i| (steps[i as usize], i));
+        run_plan(&mut plan, &ordered, 40);
+        assert!(plan.report().ordered());
     }
 
     #[test]

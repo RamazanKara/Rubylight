@@ -216,6 +216,12 @@ pyrowave_sdk::tests`.
 - **Setting.** `pyrowave_decoder` in the settings file and the settings screen, with the probe
   result cached in the background for the settings screen. The overlay and the session summary
   name the decoder ("PyroWave (GPU decode, SDK)" or "PyroWave (Rust, GPU wavelets)").
+- **Known open issue: the GPU picture is darker.** On real 8-bit frames the GPU picture is 0.29
+  of a code darker than the CPU decoder's on average (signed mean -1.12e-3 in encoded RGB, the same
+  on every one of the 24 dumped 1080p frames; the fixtures show none). The cause is suspected in
+  the SDK's 8-bit plane store (R8) and has not been isolated. It is not fixed: the real-frames
+  test bounds the signed mean at 0.4 code (`REAL_MEAN_LIMIT`) so a larger offset or gain error
+  still fails, and the fixtures keep 0.25 code.
 - **Accuracy.** The GPU picture against the CPU picture, encoded RGB, SDR 4:2:0 and 4:4:4
   fixtures, 24 real 1080p frames from `NIGHTJAR_PYROWAVE_DUMP`: 10-bit planes max 0.0038 (0.98
   codes), rms 0.0007, inside the brief's bound (max under 1/255, rms under 0.001). 8-bit planes
@@ -289,8 +295,13 @@ CSV (`due_ns`, `present_begin_ns`, the swap chain's frame statistics; see `timin
   at 1080p and 12.5 to 16.6 at 4K, shown fps 58.7 to 59.0 and 59.6 to 58.4: more late frames at
   4K. Not shipped: it fails the "jitter no worse than 1 ms more" bar at 4K and the gain is within
   the leg-to-leg spread of 1 to 2 ms.
-- Default unchanged. Immediate saves about 7 ms of receive_to_present on this PC at the cost of
-  following the arrival cadence instead of the PC's frame times; a source with a small host-side
+- **Default changed: `present_at_host_times` is now off**, so a VRR/tearing display presents
+  immediately (`PacingMode::Immediate`; the setting "Show frames at the PC's frame times" is the
+  opt-in for `HostTimes`). On this display Immediate beats HostTimes on latency (receive_to_present
+  p50 3.21 against 10.36 ms at 1080p, 3.46 against 10.92 at 4K) and on smoothness (present-interval
+  p99 deviation 1.96 against 9.24 ms at 1080p; 6.51 against 11.51 at 4K). Displays without tearing
+  support still wait for vsync, as before. Immediate follows the arrival cadence instead of the
+  PC's frame times; a source with a small host-side
   spread (a game presenting right before the capture) gets a much smaller hold than this
   synthetic desktop animation. Cutting the host's acquired-to-submitted age (submit the capture
   closest to the encode tick, or stamp the frame with its submit time) would shrink the spread at

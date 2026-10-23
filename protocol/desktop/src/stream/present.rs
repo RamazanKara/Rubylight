@@ -672,8 +672,23 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_default_config_shows_frames_immediately_with_vrr_and_waits_for_vsync_without() {
+        // Measured on a 240 Hz tearing display: HostTimes held frames about 7 ms and had the
+        // less even present intervals, so it is opt-in (docs/pyrowave-decode.md).
+        let settings = crate::config::Settings::default();
+        assert!(!settings.present_at_host_times);
+        assert_eq!(pacing(&settings, true), (PacingMode::Immediate, true));
+        // No tearing support: VRR is not available and the display's refresh is awaited, as before.
+        assert_eq!(pacing(&settings, false), (PacingMode::Vsync, false));
+        let no_vrr = crate::config::Settings { vrr: false, ..settings.clone() };
+        assert_eq!(pacing(&no_vrr, true), (PacingMode::Vsync, false));
+        let no_vsync = crate::config::Settings { vrr: false, vsync: false, ..settings.clone() };
+        assert_eq!(pacing(&no_vsync, true), (PacingMode::Immediate, false));
+    }
+
+    #[test]
     fn pacing_preserves_vrr_without_host_time_delay() {
-        let mut settings = crate::config::Settings::default();
+        let mut settings = crate::config::Settings { present_at_host_times: true, ..Default::default() };
         assert_eq!(pacing(&settings, true), (PacingMode::HostTimes, true));
         settings.present_at_host_times = false;
         assert_eq!(pacing(&settings, true), (PacingMode::Immediate, true));

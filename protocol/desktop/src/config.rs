@@ -159,7 +159,10 @@ pub struct Settings {
     pub align_video_top: bool,
     /// The display has variable refresh (G-Sync, FreeSync, HDMI VRR).
     pub vrr: bool,
-    /// With VRR: show each frame at the PC's frame time plus a steady delay.
+    /// With VRR: show each frame at the PC's frame time plus a steady delay. Off by default: on a
+    /// 240 Hz tearing display it held PyroWave frames about 7 ms (receive_to_present p50 10.4 ms
+    /// against 3.2 ms shown immediately) and its present intervals were less even
+    /// (docs/pyrowave-decode.md, "The wait between decoded and shown").
     pub present_at_host_times: bool,
     /// Without VRR: wait for the display's refresh (no tearing).
     pub vsync: bool,
@@ -296,7 +299,7 @@ impl Default for Settings {
             video_scaling: VideoScaling::Fit,
             align_video_top: false,
             vrr: true,
-            present_at_host_times: true,
+            present_at_host_times: false,
             vsync: true,
             overlay: false,
             mouse_mode: MouseMode::Capture,
@@ -1134,7 +1137,7 @@ mod tests {
         // A settings file from an older version keeps the new fields' defaults.
         std::fs::write(dir.join("settings.json"), r#"{"fps": 90}"#).unwrap();
         assert_eq!(store.settings().fps, 90);
-        assert!(store.settings().present_at_host_times);
+        assert!(!store.settings().present_at_host_times);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

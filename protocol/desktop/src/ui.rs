@@ -22,6 +22,8 @@ pub enum Command {
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
     Wake(u64),
+    /// Name a PC on this device only; empty brings back the PC's own name.
+    Rename { host: u64, alias: String },
     HostSettings(u64),
     SaveHostSettings(u64),
     AppSettings { host: u64, app: nightjar_core::http::App },
@@ -98,6 +100,78 @@ pub enum Dialog {
     Shortcut { id: Option<String>, name: String, chord: String, error: Option<String> },
     DeleteShortcut { id: String, name: String },
     ImportShortcuts(crate::shortcuts::Shortcuts),
+    /// A PC's actions in one list, in the order of `host_options`.
+    HostOptions { host: u64 },
+    Rename { host: u64, text: String },
+    ConfirmRemove { host: u64, name: String },
+    ConfirmUnpair { host: u64, name: String },
+    /// Pairing did not work: what to do about it, and a way to try again.
+    PairError { host: u64, body: String, one_time: bool },
+}
+
+/// The header's top-level destinations, left to right.
+pub const DESTINATIONS: [(&str, Screen); 3] = [("Home", Screen::Home), ("PCs", Screen::Hosts), ("Settings", Screen::Settings)];
+
+/// The settings sections in the order Android lists them (App only on the main settings).
+const SETTINGS_SECTIONS: [&str; 7] = ["Video", "Display & image", "Controls", "Audio", "Streaming", "App", "Advanced"];
+
+/// What a PC's options list can hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostOption {
+    OpenLibrary,
+    QuitApp,
+    Pair,
+    PairOtp,
+    Wake,
+    Settings,
+    Rename,
+    Unpair,
+    CheckAgain,
+    Remove,
+}
+
+impl HostOption {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::OpenLibrary => "Open library",
+            Self::QuitApp => "Quit running app",
+            Self::Pair => "Pair",
+            Self::PairOtp => "Pair with one-time PIN",
+            Self::Wake => "Wake up",
+            Self::Settings => "PC settings",
+            Self::Rename => "Rename",
+            Self::Unpair => "Unpair",
+            Self::CheckAgain => "Check again",
+            Self::Remove => "Remove PC",
+        }
+    }
+}
+
+/// The options a PC offers now, in the order they are listed.
+pub fn host_options(host: &Host) -> Vec<HostOption> {
+    let mut options = Vec::new();
+    if host.paired() {
+        options.push(HostOption::OpenLibrary);
+        if host.running_app().is_some() {
+            options.push(HostOption::QuitApp);
+        }
+    } else {
+        options.push(HostOption::Pair);
+        if host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::OtpPairing)) {
+            options.push(HostOption::PairOtp);
+        }
+    }
+    if host.reach == Reach::Offline && host.record.mac.is_some() {
+        options.push(HostOption::Wake);
+    }
+    options.push(HostOption::Settings);
+    options.push(HostOption::Rename);
+    if host.paired() {
+        options.push(HostOption::Unpair);
+    }
+    options.push(HostOption::CheckAgain);
+    options.push(HostOption::Remove);
+    options
 }
 
 /// The connecting card's content.
@@ -224,6 +298,17 @@ fn text_button(ui: &mut Ui, text: &str) -> Response {
     response
 }
 
+/// A small pill that jumps to a section of the settings.
+fn chip(ui: &mut Ui, text: &str) -> Response {
+    let button = egui::Button::new(RichText::new(text).color(ON_SURFACE).font(semibold(13.5)))
+        .fill(SURFACE)
+        .corner_radius(CornerRadius::same(14))
+        .min_size(vec2(0.0, 28.0));
+    let response = ui.add(button);
+    focus_ring(ui, response.rect, &response, 14);
+    response
+}
+
 fn spinner(ui: &mut Ui, radius: f32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(radius * 2.0), Sense::hover());
     let t = ui.input(|i| i.time) as f32;
@@ -291,13 +376,50 @@ impl Launcher {
     pub fn open_settings(&mut self) {
         match self.screen {
             Screen::Settings => {}
-            Screen::HostSettings(_)
-            | Screen::AppSettings(_)
-            | Screen::ProfileSettings(_)
-            | Screen::Profiles
-            | Screen::Controllers
-            | Screen::Shortcuts => self.go(Screen::Settings),
-            _ => self.open(Screen::Settings),
+            Screen::Profiles | Screen::Controllers | Screen::Shortcuts => self.leave_subpage(),
+            Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.go(Screen::Settings),
+            _ => self.switch(Screen::Settings),
+        }
+    }
+
+    /// Moves to another top-level destination (Home, PCs, Settings). They replace each other, so
+    /// they never stack: Back from a destination that is not the root goes to the root.
+    pub fn switch(&mut self, destination: Screen) {
+        if destination == self.screen {
+            return;
+        }
+        let root = self.root();
+        if destination == root {
+            // Back to the root this came from (with its item focused), else a fresh one.
+            match self.trail.iter().rposition(|(screen, _)| *screen == root) {
+                Some(at) => {
+                    self.trail.truncate(at + 1);
+                    self.pop(root);
+                }
+                None => {
+                    self.trail.clear();
+                    self.go(root);
+                }
+            }
+            return;
+        }
+        let remembered = if self.screen == root {
+            Some((root, self.focused_key.take()))
+        } else {
+            self.trail.iter().find(|(screen, _)| *screen == root).cloned()
+        };
+        self.trail.clear();
+        self.trail.extend(remembered);
+        self.go(destination);
+    }
+
+    /// Back from a Settings page (Profiles, Controllers, Shortcuts) to the Settings row that
+    /// opened it.
+    fn leave_subpage(&mut self) {
+        if self.trail.last().is_some_and(|(screen, _)| *screen == Screen::Settings) {
+            self.pop(Screen::Settings);
+        } else {
+            self.go(Screen::Settings);
         }
     }
 
@@ -399,10 +521,10 @@ impl Launcher {
                     commands.extend(self.screen.save_command());
                     self.go(self.settings_return);
                 }
-                Screen::Profiles | Screen::Shortcuts => self.go(Screen::Settings),
+                Screen::Profiles | Screen::Shortcuts => self.leave_subpage(),
                 Screen::Controllers => {
                     commands.push(Command::SaveControllerMapping);
-                    self.go(Screen::Settings);
+                    self.leave_subpage();
                 }
             },
             Dialog::NetworkTest { .. } => { commands.push(Command::CancelNetworkTest); self.dialog = Dialog::None; }
@@ -410,7 +532,7 @@ impl Launcher {
                 commands.push(Command::CancelPair);
                 self.dialog = Dialog::None;
             }
-            _ => self.dialog = Dialog::None,
+            _ => self.close_dialog(),
         }
     }
 
@@ -422,6 +544,13 @@ impl Launcher {
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
         if escape && view.connecting.is_none() {
             self.back(&mut commands);
+        }
+        if self.screen == Screen::Hosts
+            && matches!(self.dialog, Dialog::None)
+            && view.connecting.is_none()
+            && ctx.input(|i| i.modifiers.command && i.key_pressed(Key::N))
+        {
+            self.add_host_dialog();
         }
         let logo = self.logo(&ctx);
         let full = ui.max_rect();
@@ -519,7 +648,7 @@ impl Launcher {
                 }
                 Screen::Profiles => {
                     if text_button(ui, "‹  Settings").clicked() {
-                        self.go(Screen::Settings);
+                        self.back(commands);
                     }
                     ui.label(RichText::new("Profiles").font(semibold(22.0)).color(PAPER));
                 }
@@ -528,45 +657,25 @@ impl Launcher {
                     ui.label(RichText::new("Controller mappings").font(semibold(22.0)).color(PAPER));
                 }
                 Screen::Shortcuts => {
-                    if text_button(ui, "‹  Settings").clicked() { self.go(Screen::Settings); }
+                    if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
                     ui.label(RichText::new("Keyboard shortcuts").font(semibold(22.0)).color(PAPER));
                 }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 22.0;
                 match self.screen {
-                Screen::Home => {
-                    if text_button(ui, "Settings").clicked() {
-                        self.open(Screen::Settings);
+                Screen::Home | Screen::Hosts | Screen::Settings => {
+                    // Drawn right to left, so they read in the order of `DESTINATIONS`.
+                    for (name, screen) in DESTINATIONS.into_iter().rev() {
+                        if screen != Screen::Home || self.home_ready || self.screen == Screen::Home {
+                            self.destination(ui, name, screen, commands);
+                        }
                     }
-                    if text_button(ui, "PCs").clicked() {
-                        self.open(Screen::Hosts);
+                    if self.screen == Screen::Hosts && text_button(ui, "Add PC").clicked() {
+                        self.add_host_dialog();
                     }
                 }
                 Screen::Game { .. } => {}
-                Screen::Hosts => {
-                    if text_button(ui, "Settings").clicked() {
-                        self.open(Screen::Settings);
-                    }
-                    if self.home_ready && text_button(ui, "Home").clicked() {
-                        let home = self.trail.iter().rposition(|(s, _)| *s == Screen::Home);
-                        match home {
-                            // Back to the Home this came from, else a fresh one.
-                            Some(at) => {
-                                self.trail.truncate(at + 1);
-                                self.pop(Screen::Home);
-                            }
-                            None => self.go(Screen::Home),
-                        }
-                    }
-                    if text_button(ui, "Add PC").clicked() {
-                        self.dialog = Dialog::AddHost {
-                            text: String::new(),
-                            error: None,
-                        };
-                        self.focus_dialog = true;
-                    }
-                }
                 Screen::Apps(id) => {
                     if text_button(ui, "PC settings").clicked() {
                         commands.push(Command::HostSettings(id));
@@ -585,10 +694,34 @@ impl Launcher {
                         }
                     }
                 }
-                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
+                Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
                 }
             });
         });
+    }
+
+    /// One of the header's top-level destinations; the current one is marked.
+    fn destination(&mut self, ui: &mut Ui, name: &str, screen: Screen, commands: &mut Vec<Command>) {
+        let current = self.screen == screen;
+        let text = RichText::new(name)
+            .font(semibold(15.0))
+            .color(if current { PAPER } else { ON_SURFACE_VARIANT });
+        let response = ui.add(egui::Button::new(if current { text.underline() } else { text }).frame(false).min_size(vec2(0.0, 36.0)));
+        focus_ring(ui, response.rect, &response, 8);
+        if response.clicked() && !current {
+            if let Some(save) = self.screen.save_command() {
+                commands.push(save);
+            }
+            self.switch(screen);
+        }
+    }
+
+    fn add_host_dialog(&mut self) {
+        self.dialog = Dialog::AddHost {
+            text: String::new(),
+            error: None,
+        };
+        self.focus_dialog = true;
     }
 
     fn hosts(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>, logo: egui::TextureId) {
@@ -635,52 +768,23 @@ impl Launcher {
                     ui.spacing_mut().item_spacing.x = 16.0;
                     for (i, host) in chunk.iter().enumerate() {
                         let response = host_card(ui, host, None);
+                        let options = options_button(ui, response.rect, response.id.with("options"));
                         self.focus_item(&response, &format!("host:{}", host.id), row == 0 && i == 0);
+                        self.focus_item(&options, &format!("options:{}", host.id), false);
                         if response.clicked() {
                             host_clicked(host, commands);
                         }
-                        response.context_menu(|ui| {
-                            if host.record.mac.is_some() && ui.button("Wake up").clicked() {
-                                commands.push(Command::Wake(host.id));
-                                ui.close();
-                            }
-                            if ui.button("PC settings").clicked() {
-                                commands.push(Command::HostSettings(host.id));
-                                ui.close();
-                            }
-                            if !host.paired()
-                                && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::OtpPairing))
-                                && ui.button("Pair with one-time PIN").clicked()
-                            {
-                                self.dialog = Dialog::Otp {
-                                    host: host.id,
-                                    pin: String::new(),
-                                    passphrase: String::new(),
-                                    error: None,
-                                };
-                                self.focus_dialog = true;
-                                ui.close();
-                            }
-                            if ui.button("Check again").clicked() {
-                                commands.push(Command::Refresh(host.id));
-                                ui.close();
-                            }
-                            if host.paired() && ui.button("Unpair").clicked() {
-                                commands.push(Command::Unpair(host.id));
-                                ui.close();
-                            }
-                            if ui.button("Remove").clicked() {
-                                commands.push(Command::Remove(host.id));
-                                ui.close();
-                            }
-                        });
+                        if options.clicked() || options_requested(ui, &[&response, &options]) {
+                            self.dialog = Dialog::HostOptions { host: host.id };
+                            self.focus_dialog = true;
+                        }
                     }
                 });
                 ui.add_space(16.0);
             }
             ui.add_space(8.0);
             ui.label(
-                RichText::new("Right-click a PC to unpair or remove it.")
+                RichText::new("Options for a PC: F2, right-click, the three dots, or the controller's X button. Ctrl+N adds a PC.")
                     .color(OUTLINE)
                     .font(regular(13.0)),
             );
@@ -1291,53 +1395,41 @@ impl Launcher {
         } else {
             let active = self.profiles.entries.iter().find(|p| Some(p.id) == self.profiles.active)
                 .map_or("Main settings", |p| p.name.as_str());
-            if row(ui, "Profiles", &format!("Active: {active}. PCs and games can override individual settings."), |ui| quiet_button(ui, "Manage profiles")).clicked() {
+            let manage = row(ui, "Profiles", &format!("Active: {active}. PCs and games can override individual settings."), |ui| quiet_button(ui, "Manage profiles"));
+            self.focus_item(&manage, "profiles-link", false);
+            if manage.clicked() {
                 commands.push(Command::SaveSettings);
-                self.go(Screen::Profiles);
+                self.open(Screen::Profiles);
                 return;
             }
-            row(ui, "Open on Home", "Start on the games to continue and your library. Off starts on the list of PCs.", |ui| {
-                toggle(ui, &mut self.settings.console_home)
-            });
-            row(ui, "Input customization", "Controller mappings, stick dead zones and saved keyboard chords.", |ui| {
-                ui.horizontal(|ui| {
-                    if quiet_button(ui, "Controllers").clicked() { commands.push(Command::ControllerSettings); }
-                    let button = quiet_button(ui, "Shortcuts");
-                    if button.clicked() { commands.push(Command::Shortcuts); }
-                    button
-                }).inner
-            });
         }
+        let mut jump: Option<&'static str> = None;
+        ui.horizontal_wrapped(|ui| {
+            for name in SETTINGS_SECTIONS {
+                // A profile or PC override has no app-wide section.
+                if layered && name == "App" {
+                    continue;
+                }
+                if chip(ui, name).clicked() {
+                    jump = Some(name);
+                }
+            }
+        });
+        ui.add_space(6.0);
+        let mut links: Vec<(&str, Response)> = Vec::new();
         let test_host = if let Screen::HostSettings(id) = self.screen { view.hosts.get(id) } else { None };
         let inherited = self.inherited_settings.clone();
         let overrides = &mut self.edit_overrides;
         let s = if layered { &mut self.edit_settings } else { &mut self.settings };
         let before = s.clone();
-        let focus_first = std::mem::take(&mut self.focus_screen);
+        // Coming back from a sub-page, the link that opened it takes focus instead.
+        let focus_first = self.focus_screen && self.restore_key.is_none();
+        if focus_first {
+            self.focus_screen = false;
+        }
         scroll(ui, "settings", |ui| {
             ui.set_max_width(760.0);
-            if let Some(host) = test_host {
-                section(ui, "Connection tests");
-                let online = host.paired() && host.reach == Reach::Online;
-                row(ui, "Bandwidth", "Receive 32 MiB from this PC. Uses network data and requires a supported paired host.", |ui| {
-                    let enabled = online && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::PyroWaveBandwidthProbe));
-                    let button = ui.add_enabled(enabled, egui::Button::new("Test speed"));
-                    if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: false }); }
-                    button
-                });
-                let note = host.record.pace.as_ref().map_or_else(|| "Find a frame pace for this network. May take several minutes and uses substantial network data; stop other streams first.".into(),
-                    |p| format!("Saved {} Mbps · {}. Recalibrate after changing the network or stream bitrate.", p.pace_mbps, if p.qualified { "confirmed" } else { "best available" }));
-                row(ui, "PyroWave frame pace", &note, |ui| {
-                    ui.horizontal(|ui| {
-                        let enabled = online && host.info.as_ref().is_some_and(|i| i.pyrowave_burst_probe);
-                        let button = ui.add_enabled(enabled, egui::Button::new("Calibrate"));
-                        if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: true }); }
-                        if host.record.pace.is_some() && text_button(ui, "Clear").clicked() { commands.push(Command::ClearPace(host.id)); }
-                        button
-                    }).inner
-                });
-            }
-            section(ui, "Video");
+            section_at(ui, "Video", &mut jump);
             let native = format!("Native ({}x{})", display.width, display.height);
             let current = if s.width == 0 {
                 native.clone()
@@ -1487,8 +1579,6 @@ impl Launcher {
                 "Streams 10-bit HDR to an HDR-enabled display. Enable HDR in the operating system first.",
                 |ui, s| toggle(ui, &mut s.hdr),
             );
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["experimental_packed_444"], "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
-                |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| toggle(ui, &mut s.experimental_packed_444)).inner);
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["full_range"], "Full color range", "Request the full RGB range from the host.", |ui, s| toggle(ui, &mut s.full_range));
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["decoder"], "Decoder", "Automatic uses hardware decoding when available. PyroWave always uses GPU wavelets.", |ui, s| {
                 ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| egui::ComboBox::from_id_salt("decoder")
@@ -1503,7 +1593,7 @@ impl Launcher {
                     .response).inner
             });
 
-            section(ui, "PC display");
+            section_at(ui, "Display & image", &mut jump);
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["virtual_display"], "Virtual display", "Use a separate display on hosts that support it.", |ui, s| toggle(ui, &mut s.virtual_display));
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["host_display"], "Display arrangement", "Applied only to normal streams on hosts that support display modes.", |ui, s| {
                 egui::ComboBox::from_id_salt("host-display")
@@ -1518,7 +1608,6 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["virtual_display_scale"], "PC display scaling", "Text and interface size on the virtual display.", |ui, s| {
                 ui.add(egui::Slider::new(&mut s.virtual_display_scale, 100..=300).step_by(25.0).suffix("%"))
             });
-            section(ui, "Display");
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
                     .selected_text(match s.window_mode {
@@ -1559,29 +1648,20 @@ impl Launcher {
                 toggle(ui, &mut s.overlay)
             });
 
-            section(ui, "Audio");
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio"], "Channels", "Surround needs a host and output device that support it.", |ui, s| {
-                egui::ComboBox::from_id_salt("audio")
-                    .selected_text(match s.audio {
-                        AudioChannels::Stereo => "Stereo",
-                        AudioChannels::Surround51 => "5.1 surround",
-                        AudioChannels::Surround71 => "7.1 surround",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.audio, AudioChannels::Stereo, "Stereo");
-                        ui.selectable_value(&mut s.audio, AudioChannels::Surround51, "5.1 surround");
-                        ui.selectable_value(&mut s.audio, AudioChannels::Surround71, "7.1 surround");
-                    })
-                    .response
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["play_audio_on_host"], "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui, s| {
-                toggle(ui, &mut s.play_audio_on_host)
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["microphone"], "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui, s| {
-                toggle(ui, &mut s.microphone)
-            });
-
-            section(ui, "Input");
+            section_at(ui, "Controls", &mut jump);
+            if !layered {
+                row(ui, "Input customization", "Controller mappings, stick dead zones and saved keyboard chords.", |ui| {
+                    ui.horizontal(|ui| {
+                        let controllers = quiet_button(ui, "Controllers");
+                        if controllers.clicked() { commands.push(Command::ControllerSettings); }
+                        let shortcuts = quiet_button(ui, "Shortcuts");
+                        if shortcuts.clicked() { commands.push(Command::Shortcuts); }
+                        links.push(("controllers-link", controllers));
+                        links.push(("shortcuts-link", shortcuts.clone()));
+                        shortcuts
+                    }).inner
+                });
+            }
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_mode"], "Mouse", "Captured suits games; desktop pointer suits remote work. Ctrl+Alt+Shift+M switches.", |ui, s| {
                 egui::ComboBox::from_id_salt("mouse")
                     .selected_text(match s.mouse_mode {
@@ -1604,21 +1684,6 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_speed"], "Mouse speed", "Sensitivity of the captured pointer.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_nav_buttons"], "Mouse navigation buttons", "Send the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
-            section(ui, "Connection");
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["auto_reconnect"], "Reconnect after an interruption", "Try to resume the same running app up to five times within one minute.", |ui, s| {
-                toggle(ui, &mut s.auto_reconnect)
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
-                egui::ComboBox::from_id_salt("network-grace")
-                    .selected_text(format!("{} seconds", s.network_grace_ms / 1000))
-                    .show_ui(ui, |ui| {
-                        for ms in [0, 3000, 5000, 10000, 15000] {
-                            ui.selectable_value(&mut s.network_grace_ms, ms, format!("{} seconds", ms / 1000));
-                        }
-                    }).response
-            });
-
-            section(ui, "Controllers");
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controllers"], "Controllers", "Every connected controller becomes a controller on the PC.", |ui, s| {
                 toggle(ui, &mut s.controllers)
             });
@@ -1649,6 +1714,71 @@ impl Launcher {
                     toggle(ui, &mut s.background_controllers)
                 });
             });
+            section_at(ui, "Audio", &mut jump);
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio"], "Channels", "Surround needs a host and output device that support it.", |ui, s| {
+                egui::ComboBox::from_id_salt("audio")
+                    .selected_text(match s.audio {
+                        AudioChannels::Stereo => "Stereo",
+                        AudioChannels::Surround51 => "5.1 surround",
+                        AudioChannels::Surround71 => "7.1 surround",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut s.audio, AudioChannels::Stereo, "Stereo");
+                        ui.selectable_value(&mut s.audio, AudioChannels::Surround51, "5.1 surround");
+                        ui.selectable_value(&mut s.audio, AudioChannels::Surround71, "7.1 surround");
+                    })
+                    .response
+            });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["play_audio_on_host"], "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui, s| {
+                toggle(ui, &mut s.play_audio_on_host)
+            });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["microphone"], "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui, s| {
+                toggle(ui, &mut s.microphone)
+            });
+
+            section_at(ui, "Streaming", &mut jump);
+            if let Some(host) = test_host {
+                let online = host.paired() && host.reach == Reach::Online;
+                row(ui, "Bandwidth", "Receive 32 MiB from this PC. Uses network data and requires a supported paired host.", |ui| {
+                    let enabled = online && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::PyroWaveBandwidthProbe));
+                    let button = ui.add_enabled(enabled, egui::Button::new("Test speed"));
+                    if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: false }); }
+                    button
+                });
+                let note = host.record.pace.as_ref().map_or_else(|| "Find a frame pace for this network. May take several minutes and uses substantial network data; stop other streams first.".into(),
+                    |p| format!("Saved {} Mbps · {}. Recalibrate after changing the network or stream bitrate.", p.pace_mbps, if p.qualified { "confirmed" } else { "best available" }));
+                row(ui, "PyroWave frame pace", &note, |ui| {
+                    ui.horizontal(|ui| {
+                        let enabled = online && host.info.as_ref().is_some_and(|i| i.pyrowave_burst_probe);
+                        let button = ui.add_enabled(enabled, egui::Button::new("Calibrate"));
+                        if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: true }); }
+                        if host.record.pace.is_some() && text_button(ui, "Clear").clicked() { commands.push(Command::ClearPace(host.id)); }
+                        button
+                    }).inner
+                });
+            }
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["auto_reconnect"], "Reconnect after an interruption", "Try to resume the same running app up to five times within one minute.", |ui, s| {
+                toggle(ui, &mut s.auto_reconnect)
+            });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
+                egui::ComboBox::from_id_salt("network-grace")
+                    .selected_text(format!("{} seconds", s.network_grace_ms / 1000))
+                    .show_ui(ui, |ui| {
+                        for ms in [0, 3000, 5000, 10000, 15000] {
+                            ui.selectable_value(&mut s.network_grace_ms, ms, format!("{} seconds", ms / 1000));
+                        }
+                    }).response
+            });
+
+            if !layered {
+                section_at(ui, "App", &mut jump);
+                row(ui, "Open on Home", "Start on the games to continue and your library. Off starts on the list of PCs.", |ui| {
+                    toggle(ui, &mut s.console_home)
+                });
+            }
+            section_at(ui, "Advanced", &mut jump);
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["experimental_packed_444"], "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
+                |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| toggle(ui, &mut s.experimental_packed_444)).inner);
             ui.add_space(18.0);
             ui.label(
                 RichText::new(
@@ -1663,6 +1793,9 @@ impl Launcher {
         if *s != before {
             self.settings_dirty = true;
         }
+        for (key, response) in links {
+            self.focus_item(&response, key, false);
+        }
     }
 
     fn dialogs(&mut self, ctx: &egui::Context, view: &View<'_>, commands: &mut Vec<Command>) {
@@ -1672,10 +1805,194 @@ impl Launcher {
             .inner_margin(Margin::same(28))
             .stroke(Stroke::new(1.0, OUTLINE_VARIANT));
         let mut close = false;
+        let mut next: Option<Dialog> = None;
         let focus_first = self.focus_dialog;
         let mut focused = false;
         match &mut self.dialog {
             Dialog::None => return,
+            Dialog::HostOptions { host: id } => {
+                let id = *id;
+                let mut chosen = None;
+                if let Some(host) = view.hosts.get(id) {
+                    let options = host_options(host);
+                    egui::Modal::new(Id::unique("host-options"))
+                        .frame(frame)
+                        .backdrop_color(Color32::from_black_alpha(150))
+                        .show(ctx, |ui| {
+                            ui.set_width(340.0);
+                            ui.label(RichText::new(host.display_name()).font(semibold(22.0)));
+                            ui.add_space(6.0);
+                            for (n, option) in options.iter().enumerate() {
+                                if *option == HostOption::Remove {
+                                    ui.separator();
+                                }
+                                let label = RichText::new(option.label()).font(semibold(16.0));
+                                let label = if *option == HostOption::Remove { label.color(ERROR) } else { label };
+                                let button = ui.add_sized(
+                                    [ui.available_width(), 38.0],
+                                    egui::Button::new(label).frame(false).fill(Color32::TRANSPARENT),
+                                );
+                                focus_ring(ui, button.rect, &button, 8);
+                                if n == 0 && focus_first {
+                                    button.request_focus();
+                                    focused = true;
+                                }
+                                if button.clicked() {
+                                    chosen = Some(*option);
+                                }
+                            }
+                            if host.reach == Reach::Offline && host.record.mac.is_none() {
+                                ui.add_space(6.0);
+                                ui.label(
+                                    RichText::new("Pair once while the PC is on to enable Wake.")
+                                        .font(regular(13.0))
+                                        .color(OUTLINE),
+                                );
+                            }
+                        });
+                    if let Some(option) = chosen {
+                        next = self.choose_host_option(host, option, commands);
+                        close = next.is_none();
+                    }
+                } else {
+                    close = true;
+                }
+            }
+            Dialog::Rename { host, text } => {
+                let id = *host;
+                let own = view.hosts.get(id).map_or(String::new(), |h| h.record.name.clone());
+                egui::Modal::new(Id::unique("rename"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new("Rename PC").font(semibold(22.0)));
+                        ui.label(
+                            RichText::new("The name is kept on this device only. Leave it empty to use the PC's own name.")
+                                .color(ON_SURFACE_VARIANT),
+                        );
+                        ui.add_space(8.0);
+                        let edit = ui.add(
+                            egui::TextEdit::singleline(text)
+                                .hint_text(own.as_str())
+                                .char_limit(crate::config::ALIAS_MAX_CHARS)
+                                .desired_width(f32::INFINITY)
+                                .margin(Margin::symmetric(12, 10)),
+                        );
+                        if focus_first {
+                            edit.request_focus();
+                            focused = true;
+                        }
+                        ui.add_space(8.0);
+                        let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        ui.horizontal(|ui| {
+                            if primary_button(ui, "Save").clicked() || submitted {
+                                commands.push(Command::Rename { host: id, alias: text.clone() });
+                                close = true;
+                            }
+                            if quiet_button(ui, "Cancel").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmRemove { host, name } => {
+                let id = *host;
+                let paired = view.hosts.get(id).is_some_and(|h| h.paired());
+                egui::Modal::new(Id::unique("confirm-remove"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(format!("Remove {name}?")).font(semibold(22.0)));
+                        let body = if paired {
+                            "This deletes the PC, its settings and its saved library from this device. The PC still lists this device as paired until you unpair it."
+                        } else {
+                            "This deletes the PC, its settings and its saved library from this device."
+                        };
+                        ui.label(RichText::new(body).color(ON_SURFACE_VARIANT));
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                            if primary_button(ui, "Remove PC").clicked() {
+                                commands.push(Command::Remove(id));
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmUnpair { host, name } => {
+                let id = *host;
+                egui::Modal::new(Id::unique("confirm-unpair"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(format!("Unpair {name}?")).font(semibold(22.0)));
+                        ui.label(
+                            RichText::new("The PC drops this device and its saved library is forgotten. It stays in the list; pair again to stream.")
+                                .color(ON_SURFACE_VARIANT),
+                        );
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                            if primary_button(ui, "Unpair").clicked() {
+                                commands.push(Command::Unpair(id));
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::PairError { host, body, one_time } => {
+                let (id, one_time) = (*host, *one_time);
+                let name = view.hosts.get(id).map_or("the PC", |h| h.display_name()).to_owned();
+                egui::Modal::new(Id::unique("pair-error"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(format!("Pairing with {name} failed")).font(semibold(22.0)));
+                        ui.label(RichText::new(body.as_str()).color(ON_SURFACE_VARIANT));
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            let retry = primary_button(ui, "Try again");
+                            if focus_first {
+                                retry.request_focus();
+                                focused = true;
+                            }
+                            if retry.clicked() {
+                                if one_time {
+                                    next = Some(Dialog::Otp {
+                                        host: id,
+                                        pin: String::new(),
+                                        passphrase: String::new(),
+                                        error: None,
+                                    });
+                                } else {
+                                    commands.push(Command::Pair(id));
+                                }
+                                close = true;
+                            }
+                            if quiet_button(ui, "Close").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
             Dialog::NetworkTest { stage } => {
                 egui::Modal::new(Id::unique("network-test")).frame(frame).backdrop_color(Color32::from_black_alpha(150)).show(ctx, |ui| {
                     ui.set_width(420.0);
@@ -2030,10 +2347,63 @@ impl Launcher {
         if focused {
             self.focus_dialog = false;
         }
-        if close {
-            self.dialog = Dialog::None;
-            self.focus_screen = true;
+        if let Some(dialog) = next {
+            self.dialog = dialog;
+            self.focus_dialog = true;
+        } else if close {
+            self.close_dialog();
         }
+    }
+
+    /// Closes the dialog. Those opened from a PC's card give focus back to it, the rest to the
+    /// screen's first item.
+    fn close_dialog(&mut self) {
+        let from_card = matches!(
+            self.dialog,
+            Dialog::HostOptions { .. }
+                | Dialog::Rename { .. }
+                | Dialog::ConfirmRemove { .. }
+                | Dialog::ConfirmUnpair { .. }
+                | Dialog::PairError { .. }
+        );
+        self.dialog = Dialog::None;
+        match self.focused_key.clone().filter(|_| from_card) {
+            Some(key) => self.restore_key = Some(key),
+            None => self.focus_screen = true,
+        }
+    }
+
+    /// Acts on an entry of a PC's options; a dialog to ask first is returned.
+    fn choose_host_option(&mut self, host: &Host, option: HostOption, commands: &mut Vec<Command>) -> Option<Dialog> {
+        let id = host.id;
+        let name = host.display_name().to_owned();
+        match option {
+            HostOption::OpenLibrary => commands.push(Command::OpenApps(id)),
+            HostOption::QuitApp => {
+                return Some(Dialog::ConfirmQuit { host: id, start: None, running: running_name(host) });
+            }
+            HostOption::Pair => commands.push(Command::Pair(id)),
+            HostOption::PairOtp => {
+                return Some(Dialog::Otp { host: id, pin: String::new(), passphrase: String::new(), error: None });
+            }
+            HostOption::Wake => commands.push(Command::Wake(id)),
+            HostOption::Settings => commands.push(Command::HostSettings(id)),
+            HostOption::Rename => return Some(Dialog::Rename { host: id, text: name }),
+            HostOption::Unpair => return Some(Dialog::ConfirmUnpair { host: id, name }),
+            HostOption::CheckAgain => commands.push(Command::Refresh(id)),
+            HostOption::Remove => {
+                // The card goes away, so there is nothing to give focus back to.
+                self.focused_key = None;
+                return Some(Dialog::ConfirmRemove { host: id, name });
+            }
+        }
+        None
+    }
+
+    /// Shows why pairing failed, with a way to try again.
+    pub fn pair_failed(&mut self, host: u64, body: impl Into<String>, one_time: bool) {
+        self.dialog = Dialog::PairError { host, body: body.into(), one_time };
+        self.focus_dialog = true;
     }
 
     fn connecting(&mut self, ctx: &egui::Context, c: &ConnectingView, commands: &mut Vec<Command>) {
@@ -2090,6 +2460,29 @@ fn host_display_name(mode: HostDisplay) -> &'static str {
 }
 
 /// What selecting a PC's card does: open its apps, check again, or pair.
+/// The three dots on a PC's card: a second stop for focus that opens the options.
+fn options_button(ui: &mut Ui, card: Rect, id: Id) -> Response {
+    let rect = Rect::from_min_size(card.right_top() + vec2(-42.0, 10.0), vec2(32.0, 32.0));
+    let response = ui.interact(rect, id, Sense::click()).on_hover_text("Options");
+    if ui.is_rect_visible(rect) {
+        if response.hovered() || response.has_focus() {
+            ui.painter().rect_filled(rect, CornerRadius::same(16), SURFACE_HIGHEST);
+        }
+        for dy in [-6.0, 0.0, 6.0] {
+            ui.painter().circle_filled(rect.center() + vec2(0.0, dy), 2.0, ON_SURFACE_VARIANT);
+        }
+        focus_ring(ui, rect, &response, 16);
+    }
+    response
+}
+
+/// Right-click, F2 or Shift+F10 on the card or its dots.
+fn options_requested(ui: &Ui, responses: &[&Response]) -> bool {
+    responses.iter().any(|r| r.secondary_clicked())
+        || (responses.iter().any(|r| r.has_focus())
+            && ui.input(|i| i.key_pressed(Key::F2) || (i.modifiers.shift && i.key_pressed(Key::F10))))
+}
+
 fn host_clicked(host: &Host, commands: &mut Vec<Command>) {
     if host.paired() {
         commands.push(Command::OpenApps(host.id));
@@ -2113,7 +2506,16 @@ fn running_name(host: &Host) -> String {
 }
 
 fn section(ui: &mut Ui, title: &str) {
+    section_at(ui, title, &mut None);
+}
+
+/// A section heading; scrolls itself to the top when `jump` names it (a section chip was used).
+fn section_at(ui: &mut Ui, title: &str, jump: &mut Option<&'static str>) {
     ui.add_space(14.0);
+    if jump.is_some_and(|j| j == title) {
+        ui.scroll_to_cursor(Some(Align::TOP));
+        *jump = None;
+    }
     ui.label(RichText::new(title.to_uppercase()).font(semibold(13.0)).color(MOON));
     ui.add_space(2.0);
 }
@@ -2399,5 +2801,335 @@ mod tests {
         let mut commands = Vec::new();
         l.back(&mut commands);
         assert_eq!(l.screen, Screen::Home, "one Back, not one per copy");
+    }
+
+    // ---- Headless frames: the PCs list driven by keys and the pointer. ----
+
+    use crate::config::HostRecord;
+    use crate::gamepad::Gamepads;
+    use std::sync::Arc;
+
+    fn record(name: &str, paired: bool, mac: bool) -> HostRecord {
+        HostRecord {
+            unique_id: name.into(),
+            name: name.into(),
+            address: "192.0.2.7".into(),
+            server_certificate: paired.then(|| "pem".into()),
+            mac: mac.then(|| "00:1a:2b:3c:4d:5e".into()),
+            manual: true,
+            ..Default::default()
+        }
+    }
+
+    /// A launcher on the PCs screen with a headless egui context.
+    struct Frames {
+        ctx: egui::Context,
+        l: Launcher,
+        hosts: Hosts,
+        pads: Gamepads,
+        time: f64,
+    }
+
+    impl Frames {
+        fn new(record: HostRecord, reach: Reach) -> Self {
+            let ctx = egui::Context::default();
+            crate::theme::apply(&ctx);
+            let mut l = launcher(false, false);
+            l.go(Screen::Hosts);
+            let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+            hosts.list[0].reach = reach;
+            let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0 };
+            frames.settle();
+            frames
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) -> Vec<Command> {
+            self.time += 0.05;
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 720.0))),
+                time: Some(self.time),
+                events,
+                focused: true,
+                ..Default::default()
+            };
+            let mut commands = Vec::new();
+            let mut output = self.ctx.run_ui(input, |ui| {
+                commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: None });
+            });
+            output.textures_delta.clear();
+            commands
+        }
+
+        fn settle(&mut self) -> Vec<Command> {
+            let mut commands = Vec::new();
+            for _ in 0..4 {
+                commands.extend(self.frame(Vec::new()));
+            }
+            commands
+        }
+
+        fn press(&mut self, key: Key) -> Vec<Command> {
+            let mut commands = self.frame(crate::gui::tap(key).to_vec());
+            commands.extend(self.settle());
+            commands
+        }
+
+        fn press_with(&mut self, key: Key, modifiers: egui::Modifiers) -> Vec<Command> {
+            let mut events = vec![egui::Event::ModifiersChanged(modifiers)];
+            events.extend(crate::gui::tap(key));
+            let mut commands = self.frame(events);
+            commands.extend(self.frame(vec![egui::Event::ModifiersChanged(Default::default())]));
+            commands.extend(self.settle());
+            commands
+        }
+
+        fn click_at(&mut self, pos: Pos2, button: egui::PointerButton) -> Vec<Command> {
+            let event = |pressed| egui::Event::PointerButton { pos, button, pressed, modifiers: egui::Modifiers::NONE };
+            let mut commands = self.frame(vec![egui::Event::PointerMoved(pos)]);
+            commands.extend(self.frame(vec![event(true)]));
+            commands.extend(self.frame(vec![event(false)]));
+            commands.extend(self.settle());
+            commands
+        }
+
+        /// The card (first stop) and its three dots, as laid out on screen.
+        fn card_and_dots(&self) -> (Rect, Rect) {
+            let focused = self.ctx.memory(|m| m.focused()).expect("the first PC has focus");
+            let card = self.ctx.read_response(focused).expect("the card was laid out").rect;
+            let dots = self.ctx.read_response(focused.with("options")).expect("the dots were laid out").rect;
+            (card, dots)
+        }
+
+        fn options_open(&self) -> bool {
+            matches!(self.l.dialog, Dialog::HostOptions { .. })
+        }
+
+        fn no_dialog(&self) -> bool {
+            matches!(self.l.dialog, Dialog::None)
+        }
+    }
+
+    fn every_state() -> Vec<(&'static str, HostRecord, Reach)> {
+        vec![
+            ("unpaired", record("Unpaired", false, false), Reach::Online),
+            ("offline, can wake", record("Offline", true, true), Reach::Offline),
+            ("paired", record("Paired", true, false), Reach::Online),
+        ]
+    }
+
+    fn removes(commands: &[Command]) -> bool {
+        commands.iter().any(|c| matches!(c, Command::Remove(_)))
+    }
+
+    #[test]
+    fn the_destinations_read_home_pcs_settings() {
+        let names: Vec<&str> = DESTINATIONS.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, ["Home", "PCs", "Settings"]);
+        let screens: Vec<Screen> = DESTINATIONS.iter().map(|(_, screen)| *screen).collect();
+        assert_eq!(screens, [Screen::Home, Screen::Hosts, Screen::Settings]);
+    }
+
+    #[test]
+    fn destinations_replace_each_other_and_back_ends_at_the_root() {
+        let mut l = launcher(true, true);
+        l.go(Screen::Home);
+        for screen in [Screen::Hosts, Screen::Settings, Screen::Hosts, Screen::Settings] {
+            l.switch(screen);
+            assert_eq!(l.screen, screen);
+            assert_eq!(l.trail.len(), 1, "one step back to Home, however many destinations were visited");
+        }
+        l.switch(Screen::Home);
+        assert_eq!((l.screen, l.trail.len()), (Screen::Home, 0), "Home is the root again");
+        l.switch(Screen::Hosts);
+        let mut commands = Vec::new();
+        l.back(&mut commands);
+        assert_eq!(l.screen, Screen::Home);
+    }
+
+    #[test]
+    fn profiles_and_shortcuts_pop_back_to_settings() {
+        let mut l = launcher(true, true);
+        l.go(Screen::Home);
+        l.open_settings();
+        l.focused_key = Some("profiles-link".into());
+        l.open(Screen::Profiles);
+        let mut commands = Vec::new();
+        l.back(&mut commands);
+        assert_eq!(l.screen, Screen::Settings);
+        assert_eq!(l.restore_key.as_deref(), Some("profiles-link"), "the row that opened it takes focus");
+        assert_eq!(l.trail.len(), 1, "Settings still goes back to Home in one step");
+        l.open(Screen::Shortcuts);
+        l.back(&mut commands);
+        l.back(&mut commands);
+        assert_eq!(l.screen, Screen::Home);
+    }
+
+    #[test]
+    fn settings_sections_follow_androids_order() {
+        let source = include_str!("ui.rs");
+        let body = &source[source.find("fn settings_page").unwrap()..];
+        let found: Vec<&str> = body
+            .match_indices("section_at(ui, \"")
+            .map(|(at, text)| {
+                let rest = &body[at + text.len()..];
+                &rest[..rest.find('"').unwrap()]
+            })
+            .take(SETTINGS_SECTIONS.len())
+            .collect();
+        assert_eq!(found, SETTINGS_SECTIONS, "the page and its chips list the same sections in the same order");
+    }
+
+    #[test]
+    fn the_options_list_follows_the_pc_state() {
+        let mut host = Frames::new(record("PC", false, false), Reach::Online).hosts.list.remove(0);
+        assert_eq!(
+            host_options(&host),
+            [HostOption::Pair, HostOption::Settings, HostOption::Rename, HostOption::CheckAgain, HostOption::Remove]
+        );
+        host.record.server_certificate = Some("pem".into());
+        host.reach = Reach::Offline;
+        host.record.mac = Some("00:1a:2b:3c:4d:5e".into());
+        assert_eq!(
+            host_options(&host),
+            [
+                HostOption::OpenLibrary,
+                HostOption::Wake,
+                HostOption::Settings,
+                HostOption::Rename,
+                HostOption::Unpair,
+                HostOption::CheckAgain,
+                HostOption::Remove
+            ]
+        );
+        host.record.mac = None;
+        assert!(!host_options(&host).contains(&HostOption::Wake), "no MAC, no Wake");
+    }
+
+    #[test]
+    fn f2_opens_the_options_for_the_focused_pc() {
+        for (state, record, reach) in every_state() {
+            let mut f = Frames::new(record, reach);
+            assert!(!f.options_open(), "{state}");
+            f.press(Key::F2);
+            assert!(f.options_open(), "{state}: F2, which the controller's West button sends, opens the options");
+            f.press(Key::Escape);
+            assert!(f.no_dialog(), "{state}: Escape closes them");
+            f.press_with(Key::F10, egui::Modifiers::SHIFT);
+            assert!(f.options_open(), "{state}: Shift+F10");
+        }
+    }
+
+    #[test]
+    fn right_click_and_the_three_dots_open_the_options() {
+        let mut f = Frames::new(record("Paired", true, false), Reach::Online);
+        let (card, dots) = f.card_and_dots();
+        let body = card.left_bottom() + vec2(20.0, -10.0);
+        f.click_at(body, egui::PointerButton::Secondary);
+        assert!(f.options_open(), "right-click");
+        f.press(Key::Escape);
+        f.click_at(dots.center(), egui::PointerButton::Primary);
+        assert!(f.options_open(), "the visible dots");
+        f.press(Key::Escape);
+        let commands = f.click_at(body, egui::PointerButton::Primary);
+        assert!(f.no_dialog(), "a plain click still takes the card's own action");
+        assert!(commands.iter().any(|c| matches!(c, Command::OpenApps(_))));
+    }
+
+    #[test]
+    fn every_option_is_reachable_with_the_keyboard() {
+        for (state, record, reach) in every_state() {
+            let options = host_options(&Frames::new(record.clone(), reach).hosts.list[0]);
+            for (n, option) in options.iter().enumerate() {
+                let mut f = Frames::new(record.clone(), reach);
+                f.press(Key::F2);
+                assert!(f.options_open(), "{state}");
+                for _ in 0..n {
+                    f.press(Key::ArrowDown);
+                }
+                let commands = f.press(Key::Enter);
+                let said = |what: fn(&Command) -> bool| commands.iter().any(what);
+                let ok = match option {
+                    HostOption::OpenLibrary => said(|c| matches!(c, Command::OpenApps(_))),
+                    HostOption::Pair => said(|c| matches!(c, Command::Pair(_))),
+                    HostOption::Wake => said(|c| matches!(c, Command::Wake(_))),
+                    HostOption::Settings => said(|c| matches!(c, Command::HostSettings(_))),
+                    HostOption::CheckAgain => said(|c| matches!(c, Command::Refresh(_))),
+                    HostOption::Rename => matches!(f.l.dialog, Dialog::Rename { .. }),
+                    HostOption::Unpair => matches!(f.l.dialog, Dialog::ConfirmUnpair { .. }),
+                    HostOption::Remove => matches!(f.l.dialog, Dialog::ConfirmRemove { .. }),
+                    HostOption::PairOtp => matches!(f.l.dialog, Dialog::Otp { .. }),
+                    HostOption::QuitApp => matches!(f.l.dialog, Dialog::ConfirmQuit { .. }),
+                };
+                assert!(ok, "{state}: {} by keys (entry {n})", option.label());
+            }
+        }
+    }
+
+    #[test]
+    fn removing_a_pc_asks_first() {
+        let mut f = Frames::new(record("Paired", true, false), Reach::Online);
+        let last = host_options(&f.hosts.list[0]).len() - 1;
+        let open_remove = |f: &mut Frames, round: &str| {
+            f.press(Key::F2);
+            for _ in 0..last {
+                f.press(Key::ArrowDown);
+            }
+            let commands = f.press(Key::Enter);
+            assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }), "{round}: the confirmation opens");
+            assert!(!removes(&commands), "{round}: choosing Remove does not remove");
+        };
+        // Cancel has focus: Enter and Escape both leave the PC alone.
+        open_remove(&mut f, "enter");
+        let commands = f.press(Key::Enter);
+        assert!(f.no_dialog());
+        assert!(!removes(&commands));
+        open_remove(&mut f, "escape");
+        let commands = f.press(Key::Escape);
+        assert!(f.no_dialog());
+        assert!(!removes(&commands));
+        // Only the Remove button does it.
+        open_remove(&mut f, "confirm");
+        f.press(Key::ArrowRight);
+        let commands = f.press(Key::Enter);
+        assert!(removes(&commands));
+    }
+
+    #[test]
+    fn rename_keeps_the_name_on_this_device() {
+        let mut f = Frames::new(record("Gaming PC", true, false), Reach::Online);
+        f.press(Key::F2);
+        f.press(Key::ArrowDown);
+        f.press(Key::ArrowDown);
+        f.press(Key::Enter);
+        let Dialog::Rename { text, .. } = &mut f.l.dialog else { panic!("the rename dialog") };
+        assert_eq!(text, "Gaming PC", "prefilled with the name shown");
+        *text = "  Living room  ".into();
+        let commands = f.press(Key::Enter);
+        let alias = commands.iter().find_map(|c| match c {
+            Command::Rename { alias, .. } => Some(alias.clone()),
+            _ => None,
+        });
+        assert_eq!(alias.as_deref(), Some("  Living room  "));
+        let id = f.hosts.list[0].id;
+        assert!(f.hosts.rename(id, "  Living room  "));
+        assert_eq!(f.hosts.list[0].display_name(), "Living room");
+        assert!(f.hosts.rename(id, ""));
+        assert_eq!(f.hosts.list[0].display_name(), "Gaming PC", "empty brings the PC's own name back");
+        assert!(f.hosts.rename(id, "Gaming PC"));
+        assert_eq!(f.hosts.list[0].record.alias, None, "the PC's own name is not stored as an alias");
+    }
+
+    #[test]
+    fn a_failed_pairing_offers_to_try_again() {
+        let mut f = Frames::new(record("PC", false, false), Reach::Online);
+        let id = f.hosts.list[0].id;
+        f.l.pair_failed(id, crate::hosts::PAIR_PIN_WRONG, false);
+        f.settle();
+        let commands = f.press(Key::Enter);
+        assert!(commands.iter().any(|c| matches!(c, Command::Pair(host) if *host == id)), "Try again pairs again");
+        f.l.pair_failed(id, crate::hosts::PAIR_OTP_PIN_WRONG, true);
+        f.settle();
+        f.press(Key::Enter);
+        assert!(matches!(f.l.dialog, Dialog::Otp { .. }), "a one-time PIN failure goes back to the PIN form");
     }
 }

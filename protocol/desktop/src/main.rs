@@ -526,9 +526,10 @@ impl App {
         for event in events {
             match event {
                 HostEvent::Paired { id, result, .. } => {
-                    if !matches!(self.launcher.dialog, Dialog::Pairing { host, .. } if host == id) {
-                        continue;
-                    }
+                    let one_time = match &self.launcher.dialog {
+                        Dialog::Pairing { host, pin } if *host == id => pin.is_empty(),
+                        _ => continue,
+                    };
                     match result {
                         Ok(_) => {
                             self.launcher.dialog = Dialog::None;
@@ -536,7 +537,7 @@ impl App {
                             self.hosts.load_apps(id);
                             self.launcher.open(Screen::Apps(id));
                         }
-                        Err(e) => self.launcher.message("Pairing failed", e),
+                        Err(e) => self.launcher.pair_failed(id, e, one_time),
                     }
                 }
                 HostEvent::Quit { id, result } => match result {
@@ -556,6 +557,7 @@ impl App {
                     Ok(()) => self.launcher.message("Wake request sent", "The PC should appear online shortly if Wake-on-LAN is enabled."),
                     Err(e) => self.launcher.message("Could not wake the PC", e),
                 },
+                HostEvent::Unpaired { result: Err(e), .. } => self.launcher.message("Could not unpair", e),
                 HostEvent::Session { action, result: Err(e), .. } => {
                     let title = match action {
                         ActionId::CloseGame => "Could not close the game",
@@ -666,6 +668,10 @@ impl App {
                 self.hosts.quit_app(host);
             }
             Command::Pair(host) => {
+                if let Some(why) = self.hosts.get(host).and_then(|h| h.pairing_blocked()) {
+                    self.launcher.pair_failed(host, why, false);
+                    return;
+                }
                 let pin = hosts::random_pin();
                 self.launcher.dialog = Dialog::Pairing {
                     host,
@@ -674,10 +680,19 @@ impl App {
                 self.hosts.pair(host, pin, None);
             }
             Command::PairOtp { host, pin, passphrase } => {
+                if let Some(why) = self.hosts.get(host).and_then(|h| h.pairing_blocked()) {
+                    self.launcher.pair_failed(host, why, true);
+                    return;
+                }
                 self.launcher.dialog = Dialog::Pairing { host, pin: String::new() };
                 self.hosts.pair(host, pin, Some(passphrase));
             }
             Command::Wake(host) => self.hosts.wake(host),
+            Command::Rename { host, alias } => {
+                if self.hosts.rename(host, &alias) {
+                    self.save_hosts();
+                }
+            }
             Command::HostSettings(id) => {
                 if let Some(host) = self.hosts.get(id) {
                     self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi));
@@ -749,7 +764,7 @@ impl App {
             }
             Command::ControllerSettings => {
                 self.command(Command::SaveSettings);
-                self.launcher.go(Screen::Controllers);
+                self.launcher.open(Screen::Controllers);
                 if self.launcher.controller_key.is_empty() {
                     if let Some(pad) = self.pads.pads.first() {
                         self.command(Command::EditController { key: pad.key.clone(), name: pad.name.clone() });
@@ -777,7 +792,7 @@ impl App {
             }
             Command::Shortcuts => {
                 self.command(Command::SaveSettings);
-                self.launcher.go(Screen::Shortcuts);
+                self.launcher.open(Screen::Shortcuts);
             }
             Command::SaveShortcuts => {
                 if let Err(e) = self.store.save_shortcuts(&self.launcher.shortcuts) {

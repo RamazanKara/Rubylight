@@ -949,4 +949,61 @@ mod tests {
         until("the error", || page.state().setup_error.is_some());
         assert_eq!(page.state().setup_error.as_deref(), Some("No client for this PC."));
     }
+
+    /// Benchmark, not a check: `cargo test --release -p nightjar-desktop bench_menu_frame -- --ignored --nocapture`.
+    /// One headless egui frame of the open "Session and graphics" window, laid out and tessellated.
+    #[test]
+    #[ignore = "benchmark"]
+    fn bench_menu_frame() {
+        let (fake, _) = fake(true);
+        let mut page = open(fake, 60_000, 60_000);
+        until("the page", || page.state().radeon.panel.is_some() && page.state().session.is_some());
+        let lines: Vec<(&'static str, String)> = connection_lines("GAMING-PC", "HEVC", (2560, 1440, 120), 40_000, "Home Wi-Fi", Some("4.0 ms RTT (±1.0), 0.0% frames lost"));
+        let hints = Hints { launch: true, host_control: true };
+        for lang in [crate::strings::Lang::En, crate::strings::Lang::De] {
+            crate::strings::set(lang);
+            let ctx = egui::Context::default();
+            crate::theme::apply(&ctx);
+            let mut time = 0.0;
+            let mut micros = Vec::new();
+            for frame in 0..1200 {
+                time += 1.0 / 60.0;
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0))),
+                    time: Some(time),
+                    focused: true,
+                    ..Default::default()
+                };
+                let start = Instant::now();
+                let mut output = ctx.run_ui(input, |ui| {
+                    egui::Window::new("Session and graphics")
+                        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                        .collapsible(false)
+                        .resizable(false)
+                        .vscroll(true)
+                        .default_width(440.0)
+                        .show(ui.ctx(), |ui| {
+                            crate::session_ui::show(ui, &mut page, "GAMING-PC", &lines, hints);
+                        });
+                });
+                let meshes = ctx.tessellate(std::mem::take(&mut output.shapes), 1.0);
+                output.textures_delta.clear();
+                std::hint::black_box(&meshes);
+                if frame >= 200 {
+                    micros.push(start.elapsed().as_secs_f64() * 1e6);
+                }
+            }
+            micros.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let at = |q: f64| micros[((micros.len() - 1) as f64 * q) as usize];
+            println!(
+                "BENCH {lang:?}: {} frames, p50 {:.0} us, p90 {:.0} us, p99 {:.0} us, max {:.0} us, mean {:.0} us",
+                micros.len(),
+                at(0.5),
+                at(0.9),
+                at(0.99),
+                micros[micros.len() - 1],
+                micros.iter().sum::<f64>() / micros.len() as f64
+            );
+        }
+    }
 }

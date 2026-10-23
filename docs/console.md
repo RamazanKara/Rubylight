@@ -38,6 +38,7 @@ Home, PCs and Settings sit in one bar under the top app bar of each of those thr
 
 - The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from any other of the three goes to that first screen. Back there leaves the app.
 - Switching does not stack screens: the first screen is brought back to the front, and any other screen closes when it opens a sibling.
+- A game's page belongs to Home and stays underneath when you open PCs or Settings from it. With Home as the first screen, Back from PCs goes to Home, not to the game page.
 - Help left the PCs toolbar. Find it under Settings, App, Help, press F1, or use the pairing guide.
 - Settings applies the Back rule only when the bar opened it; opened with Ctrl+comma or from a menu, Back just closes it. If Home turns on or off while you are in Settings, Back restarts the task on the new first screen.
 - Home appears in the bar as soon as the first library is read, without a resume.

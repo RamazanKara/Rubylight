@@ -114,6 +114,33 @@ public class GameDetailShellTest {
     }
 
     @Test
+    public void pcsFromThePageGoesBackToHomeWhenHomeIsTheRoot() {
+        ActivityController<Detail> controller = detail();
+        ActivityController<PcViewLifecycleTest.Library> pcs = null;
+        try {
+            Detail page = controller.get();
+            page.findViewById(R.id.shell_pcs).performClick();
+            Intent opened = shadowOf(page).getNextStartedActivity();
+            assertEquals(com.limelight.PcView.class.getName(), opened.getComponent().getClassName());
+            assertFalse("the page stays underneath", page.isFinishing());
+
+            // Same extras, the test subclass in place of PcView; Back from it is the Back of PcView.
+            Intent forTest = new Intent(opened).setClass(context, PcViewLifecycleTest.Library.class);
+            pcs = Robolectric.buildActivity(PcViewLifecycleTest.Library.class, forTest).setup().visible();
+            PcViewLifecycleTest.Library list = pcs.get();
+            list.getOnBackPressedDispatcher().onBackPressed();
+            Intent home = shadowOf(list).getNextStartedActivity();
+            assertEquals(ConsoleHomeActivity.class.getName(), home.getComponent().getClassName());
+            assertEquals(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                    home.getFlags() & (Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            assertTrue(list.isFinishing());
+        } finally {
+            if (pcs != null) pcs.pause().stop().destroy();
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     @Config(qualifiers = "television")
     public void onTelevisionTheDpadWalksTheBarThenPlayThenTheStar() {
         ActivityController<Detail> controller = detail();

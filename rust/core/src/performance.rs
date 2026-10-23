@@ -422,14 +422,12 @@ impl Performance {
         // The capture's age when the stream takes it: the wait a fixed encode
         // tick adds, unsynchronised to the content's frame phase.
         let age = |to: Instant| micros_between(stamps.acquired, to);
-        for (sample, value) in micros.iter_mut().zip(
-            stages.iter().copied().chain([
-                stages.iter().sum(),
-                moonlight_host,
-                age(stamps.claimed),
-                age(stamps.submitted),
-            ]),
-        ) {
+        for (sample, value) in micros.iter_mut().zip(stages.iter().copied().chain([
+            stages.iter().sum(),
+            moonlight_host,
+            age(stamps.claimed),
+            age(stamps.submitted),
+        ])) {
             *sample = value.min(u64::from(u32::MAX)) as u32;
         }
         // Each picture, for measurements that need every sample

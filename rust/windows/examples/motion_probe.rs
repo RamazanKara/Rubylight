@@ -135,7 +135,9 @@ mod schedule {
             let seen: Vec<_> = (0..8).map(|i| us(script.interval(i))).collect();
             assert_eq!(
                 seen,
-                [11_111, 11_111, 11_111, 100_000, 11_111, 11_111, 11_111, 100_000]
+                [
+                    11_111, 11_111, 11_111, 100_000, 11_111, 11_111, 11_111, 100_000
+                ]
             );
             // Two seconds of frames by default.
             let default = Schedule::parse("hitch:90:100").unwrap();
@@ -460,9 +462,7 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                 if WaitForSingleObject(wait.0, 1000) != WAIT_OBJECT_0 {
                     bail!("presentation event timed out");
                 }
-                let planned = animation
-                    .as_ref()
-                    .map(|a| a.interval(frames.len() as u64));
+                let planned = animation.as_ref().map(|a| a.interval(frames.len() as u64));
                 if let Some(interval) = planned {
                     timer.until(next_frame);
                     // Bound catch-up after a stall to one frame. A delayed

@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.preference.PreferenceManager;
@@ -20,6 +21,7 @@ import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 
+import androidx.core.graphics.ColorUtils;
 import androidx.core.widget.NestedScrollView;
 
 import com.limelight.PcView;
@@ -93,10 +95,25 @@ public class FocusVisibilityTest {
         if (!view.requestFocus() || !view.isFocused()) return "cannot take focus";
         settle(view);
         Bitmap after = draw(view);
-        if (!before.sameAs(after)) return null;
+        int ring = ringPixels(before, after, surfaceOf(view));
+        if (ring >= Math.max(view.getWidth(), view.getHeight())) return null;
+        // Robolectric does not draw a RippleDrawable's content layer; a ring inside one is checked as a selector.
+        if (view.getBackground() instanceof android.graphics.drawable.RippleDrawable) {
+            android.graphics.drawable.RippleDrawable ripple = (android.graphics.drawable.RippleDrawable) view.getBackground();
+            for (int i = 0; i < ripple.getNumberOfLayers(); i++) {
+                if (ripple.getId(i) == android.R.id.mask) continue;
+                if (selectorProblem(ripple.getDrawable(i), "ripple content") == null) return null;
+            }
+        }
         // Scale animators do not show in view.draw: the animator itself must hold a focus state.
         if (view.getStateListAnimator() != null && view.getScaleX() != 1f) return null;
-        return "draws the same with focus";
+        return "draws no ring with focus (" + ring + " of " + view.getWidth() + "x" + view.getHeight() + ", scale "
+                + view.getScaleX() + ")";
+    }
+
+    private static int surfaceOf(View view) {
+        return com.google.android.material.color.MaterialColors.getColor(view.getContext(),
+                com.google.android.material.R.attr.colorSurface, Color.BLACK);
     }
 
     private static String selectorProblem(Drawable selector, String what) {
@@ -111,7 +128,26 @@ public class FocusVisibilityTest {
         selector.jumpToCurrentState();
         Bitmap after = Bitmap.createBitmap(200, 80, Bitmap.Config.ARGB_8888);
         selector.draw(new Canvas(after));
-        return before.sameAs(after) ? what + " draws the same with focus" : null;
+        return ringPixels(before, after, Color.BLACK) >= 200 ? null : what + " draws no ring with focus";
+    }
+
+    /**
+     * How many pixels focus turns into something at least 3:1 away from what they were, over the surface. A Material
+     * state layer changes many pixels by a few percent; only a ring or an outline clears this.
+     */
+    private static int ringPixels(Bitmap before, Bitmap after, int surface) {
+        int count = 0;
+        for (int y = 0; y < before.getHeight(); y++) {
+            for (int x = 0; x < before.getWidth(); x++) {
+                int a = ColorUtils.compositeColors(before.getPixel(x, y), surface);
+                int b = ColorUtils.compositeColors(after.getPixel(x, y), surface);
+                double change = ColorUtils.calculateContrast(a, b);
+                // A filled amber button rings in light text, which is only 1.6:1 from the amber it covers but 7:1 or more
+                // from the surface around it, so a lesser change counts when the new colour stands out on the surface.
+                if (change >= 3.0 || (change >= 1.5 && ColorUtils.calculateContrast(b, surface) >= 7.0)) count++;
+            }
+        }
+        return count;
     }
 
     private static void collect(View view, List<View> out) {

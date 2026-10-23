@@ -48,6 +48,7 @@ pub mod input;
 pub mod input_policy;
 pub mod keyframe_loss;
 pub mod library;
+pub mod link_control;
 pub mod link_rate;
 pub mod logfile;
 pub mod lossless;

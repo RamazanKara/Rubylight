@@ -174,11 +174,13 @@ impl KeyframeLoss {
     /// keyframe, slow the stream like loss the client reports, and the
     /// client's own report of the frame is not counted a second time.
     pub fn abandoned(&mut self, frame: u32, period: Duration, now: Instant) -> Option<Latched> {
+        // Remembered even when the guard is off: [`KeyframeLoss::network_loss`]
+        // tells the bitrate controller which frames the host already counted.
+        self.abandoned[self.next_abandoned] = Some(frame);
+        self.next_abandoned = (self.next_abandoned + 1) % self.abandoned.len();
         if !self.enabled {
             return None;
         }
-        self.abandoned[self.next_abandoned] = Some(frame);
-        self.next_abandoned = (self.next_abandoned + 1) % self.abandoned.len();
         if self.keyframes.contains(&Some(frame)) {
             let detail = format!("the host could not send keyframe {frame} whole");
             return self.latch("a keyframe was lost on send", detail, now);
@@ -205,6 +207,40 @@ impl KeyframeLoss {
         self.host_change
             .filter(|(_, until, _)| now < *until)
             .map(|(frame, _, window)| (frame, window))
+    }
+    /// Whether a frame the client reports incomplete is evidence about the
+    /// network, by the same rules [`KeyframeLoss::unrecoverable`] applies:
+    /// not a frame the host abandoned on send (counted there), and not an
+    /// ordinary frame in the window after the host's own keyframe. A lost
+    /// keyframe counts. Pure, and independent of whether the guard is on, so
+    /// the bitrate controller shares the classification.
+    pub fn network_loss(&self, frame: u32, now: Instant) -> bool {
+        if self.abandoned.contains(&Some(frame)) {
+            return false;
+        }
+        if self.keyframes.contains(&Some(frame)) {
+            return true;
+        }
+        !self
+            .host_changed(now)
+            .is_some_and(|(from, _)| frame.wrapping_sub(from) < 1 << 31)
+    }
+    /// Whether a keyframe or reference invalidation request is evidence about
+    /// the network: not the client reacting to the host's own keyframe, and
+    /// not its decode queue overflowing behind the keyframe it just got
+    /// (a request [`DECODE_QUEUE`] or more frames after a keyframe that
+    /// answered the previous one). Call before [`KeyframeLoss::requested`].
+    pub fn network_request(&self, now: Instant) -> bool {
+        if self.host_changed(now).is_some() {
+            return false;
+        }
+        let gap = self
+            .last_request
+            .map(|at| now.saturating_duration_since(at));
+        let overflow = self.keyframe_since_request
+            && self.since_keyframe >= DECODE_QUEUE
+            && gap.is_some_and(|gap| gap < REPEAT);
+        !overflow
     }
     /// The client could not repair a block of this frame. Returns the reason
     /// when this report slows the stream.
@@ -1043,5 +1079,52 @@ mod tests {
             latched.detail,
             "unrecoverable frames [20, 22, 25]; last frame sent 30"
         );
+    }
+
+    #[test]
+    fn the_bitrate_controller_shares_the_classification_even_with_the_guard_off() {
+        let t0 = Instant::now();
+        for enabled in [true, false] {
+            let mut loss = KeyframeLoss::new(enabled);
+            loss.sending_at(1, true, t0);
+            for frame in 2..=10 {
+                loss.sending_at(frame, false, t0);
+            }
+            // The first keyframe's startup window: ordinary frames after it
+            // and requests are the client reacting, not the network.
+            assert!(!loss.network_loss(5, t0 + Duration::from_millis(10)));
+            assert!(!loss.network_request(t0 + Duration::from_millis(10)));
+            // A lost keyframe always counts.
+            assert!(loss.network_loss(1, t0 + Duration::from_millis(10)));
+            // Past the window an ordinary frame does.
+            let later = t0 + STARTUP_WINDOW + Duration::from_millis(1);
+            assert!(loss.network_loss(5, later));
+            assert!(loss.network_request(later));
+            // A frame the host abandoned on send is counted there.
+            loss.abandoned(7, PERIOD, later);
+            assert!(!loss.network_loss(7, later), "guard {enabled}");
+        }
+    }
+
+    #[test]
+    fn a_request_behind_a_full_decode_queue_is_not_network_evidence() {
+        let t0 = Instant::now();
+        let mut loss = running(1);
+        let first = t0 + Duration::from_secs(5);
+        assert_eq!(loss.requested(first), None);
+        loss.sending_at(40, true, first);
+        for frame in 41..41 + DECODE_QUEUE {
+            loss.sending_at(frame, false, first);
+        }
+        let soon = first + Duration::from_millis(250);
+        assert!(!loss.network_request(soon), "overflow behind the keyframe");
+        // A second later it is a fresh loss again.
+        assert!(loss.network_request(first + REPEAT + Duration::from_millis(1)));
+        // Right behind the keyframe it is the keyframe that was lost.
+        let mut loss = running(1);
+        assert_eq!(loss.requested(first), None);
+        loss.sending_at(40, true, first);
+        loss.sending_at(41, false, first);
+        assert!(loss.network_request(soon));
     }
 }

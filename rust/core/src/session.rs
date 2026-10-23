@@ -26,6 +26,19 @@ pub struct Warning {
     pub message: String,
 }
 
+/// The session warning code while the link-rate controller holds the video
+/// bitrate below the requested one.
+pub const LINK_WARNING: &str = "network_bitrate_limited";
+
+/// A bitrate for a sentence: "15 Mbps", "4.5 Mbps".
+fn mbps(kbps: u32) -> String {
+    if kbps >= 10_000 {
+        format!("{} Mbps", (f64::from(kbps) / 1000.).round())
+    } else {
+        format!("{:.1} Mbps", f64::from(kbps) / 1000.)
+    }
+}
+
 /// How long a dropped packet, frame or input stays on the stream card after
 /// it last happened.
 pub const EVENT_PERIOD: Duration = Duration::from_secs(30);
@@ -232,6 +245,140 @@ mod tests {
         assert_eq!(s.bitrate.load(Ordering::Acquire), 17_000);
         assert_eq!(s.adaptive_pacing_bps(800_000_000), 800_000_000);
         assert_eq!(s.info()["adaptive_bitrate"]["owner"], "client");
+    }
+    /// A session with the link controller on, `frames` frames of 100 packets
+    /// sent 17 ms apart ending now, and the wire frame marker past them.
+    fn link_session(frames: u32, enabled: bool) -> (Arc<Session>, Instant) {
+        let s = Session::new(
+            launch("link-rate", Role::Stream),
+            Negotiated {
+                bitrate_kbps: 20_000,
+                configured_bitrate_kbps: 20_000,
+                ..Default::default()
+            },
+        );
+        s.configure_link_rate(enabled, 0);
+        let end = Instant::now();
+        for frame in 1..=frames {
+            let at = end - Duration::from_millis(17 * u64::from(frames - frame));
+            s.record_link_sent_at(frame, 100, 112_600, at);
+        }
+        s.stats.video_frame.store(u64::from(frames) + 10, Ordering::Release);
+        (s, end)
+    }
+    fn lose_frames(s: &Session, frames: std::ops::RangeInclusive<u32>) {
+        for frame in frames {
+            s.record_fec_status(&fec_report(frame, 7, 1));
+        }
+    }
+    #[test]
+    fn a_burst_of_lost_frames_lowers_the_bitrate_and_says_so() {
+        let (s, end) = link_session(60, true);
+        assert_eq!(s.info()["link_rate"]["state"], "full");
+        lose_frames(&s, 50..=54);
+        let (from, to) = s
+            .tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10))
+            .expect("the controller lowers the bitrate");
+        assert_eq!(from, 20_000);
+        assert!(to < 20_000 * 85 / 100 && to >= 20_000 * 40 / 100, "{to}");
+        assert_eq!(s.bitrate.load(Ordering::Acquire), to);
+        let info = s.info();
+        assert_eq!(info["link_rate"]["state"], "limited");
+        let warning = info["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["code"] == LINK_WARNING)
+            .expect("the console gets a warning")
+            .clone();
+        assert!(warning["message"].as_str().unwrap().contains("Mbps"), "{warning}");
+        // Later ticks do not change the warning or the bitrate while it holds.
+        assert_eq!(
+            s.tick_link_rate(end + Duration::from_millis(300), Duration::from_millis(10)),
+            None
+        );
+    }
+    #[test]
+    fn a_healthy_session_keeps_its_bitrate_and_has_no_warning() {
+        let (s, end) = link_session(120, true);
+        // Frames that FEC repaired are not loss the controller acts on.
+        for frame in (10..120).step_by(7) {
+            s.record_fec_status(&fec_report(frame, 9, 1));
+        }
+        for ms in (0..3000).step_by(8) {
+            assert_eq!(
+                s.tick_link_rate(end + Duration::from_millis(ms), Duration::from_millis(10)),
+                None
+            );
+        }
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 20_000);
+        let info = s.info();
+        assert_eq!(info["link_rate"]["state"], "full");
+        assert!(
+            info["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|w| w["code"] != LINK_WARNING)
+        );
+    }
+    #[test]
+    fn the_controller_is_off_when_disabled_or_for_pyrowave() {
+        let (s, end) = link_session(60, false);
+        lose_frames(&s, 50..=54);
+        assert_eq!(s.tick_link_rate(end + Duration::from_millis(200), Duration::ZERO), None);
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 20_000);
+        assert_eq!(s.info()["link_rate"]["state"], "off");
+
+        let p = Session::new(
+            launch("link-pyrowave", Role::Stream),
+            Negotiated {
+                codec: 3,
+                bitrate_kbps: 200_000,
+                ..Default::default()
+            },
+        );
+        p.configure_link_rate(true, 0);
+        p.record_link_sent(1, 100, 112_600);
+        assert_eq!(p.link_sent.head(), 0, "nothing is recorded for PyroWave");
+        assert_eq!(p.info()["link_rate"]["reason"], "pyrowave");
+    }
+    #[test]
+    fn a_client_that_sets_the_bitrate_clears_the_warning_and_restores_nothing() {
+        let (s, end) = link_session(60, true);
+        lose_frames(&s, 50..=54);
+        s.tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10))
+            .unwrap();
+        assert!(s.launch.warnings.snapshot().iter().any(|w| w.code == LINK_WARNING));
+        s.set_client_bitrate(12_000);
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 12_000);
+        assert!(s.launch.warnings.snapshot().iter().all(|w| w.code != LINK_WARNING));
+        assert_eq!(s.info()["link_rate"]["reason"], "client_controlled");
+        lose_frames(&s, 55..=59);
+        assert_eq!(
+            s.tick_link_rate(end + Duration::from_secs(1), Duration::from_millis(10)),
+            None
+        );
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 12_000);
+        // A reconfigure keeps the client in charge and does not bring back the
+        // bitrate the host had lowered.
+        s.rebuild_link_rate(&s.config, true, 0);
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 12_000);
+        assert_eq!(s.info()["link_rate"]["reason"], "client_controlled");
+    }
+    #[test]
+    fn keyframe_requests_count_only_for_a_client_that_sends_no_fec_status() {
+        for reports_fec in [false, true] {
+            let (s, end) = link_session(60, true);
+            if reports_fec {
+                s.record_fec_status(&fec_report(40, 10, 2));
+            }
+            for _ in 0..4 {
+                s.request_client_keyframe();
+            }
+            let cut = s.tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10));
+            assert_eq!(cut.is_some(), !reports_fec, "reports_fec {reports_fec}");
+        }
     }
     fn pacing_traffic(s: &Session, frames: u64) {
         s.stats.frames.store(frames, Ordering::Relaxed);
@@ -1675,6 +1822,15 @@ pub struct Session<P = (), A = ()> {
     pub bitrate: AtomicU32,
     /// All bitrate writers take this lock, including client ownership handoff.
     pub adaptive_bitrate: std::sync::Mutex<crate::adaptive_bitrate::AdaptiveBitrate>,
+    /// Lowers the encoder bitrate when the link cannot carry the stream; see
+    /// [`crate::link_rate`]. Off for PyroWave, a client that sets the bitrate
+    /// and `host_adaptive_bitrate`.
+    pub link_rate: std::sync::Mutex<crate::link_control::LinkControl>,
+    /// What the video sender sent, for `link_rate`; one store per frame.
+    pub link_sent: crate::link_control::SentLog,
+    /// The route policy paced the last frame faster than the Wi-Fi rate, so
+    /// a latch that slows it may be the whole fix (see `LinkRate::on_latch`).
+    pace_was_fast: AtomicBool,
     pub adaptive_video_pacing_bps: AtomicU64,
     pub automatic_pacing: std::sync::Mutex<crate::adaptive_pacing::AdaptivePacing>,
     /// Slower pacing once the client's link has dropped a keyframe.
@@ -1730,6 +1886,7 @@ impl<P, A> Session<P, A> {
     pub fn new(launch: Launch<P, A>, config: Negotiated) -> Arc<Self> {
         let bitrate = config.bitrate_kbps;
         let mode = crate::reconfigure::Mode::of(&config);
+        let started = Instant::now();
         Arc::new(Self {
             encoder: Default::default(),
             capture_warnings: Default::default(),
@@ -1742,6 +1899,9 @@ impl<P, A> Session<P, A> {
             recovery_wake: Default::default(),
             bitrate: AtomicU32::new(bitrate),
             adaptive_bitrate: Default::default(),
+            link_rate: Default::default(),
+            link_sent: crate::link_control::SentLog::new(started),
+            pace_was_fast: AtomicBool::new(false),
             adaptive_video_pacing_bps: AtomicU64::new(0),
             automatic_pacing: Default::default(),
             keyframe_loss: Default::default(),
@@ -1752,7 +1912,7 @@ impl<P, A> Session<P, A> {
             phase_sync: Default::default(),
             reconfigure: std::sync::Mutex::new(crate::reconfigure::Reconfiguration::new(mode)),
             stats: Stats::default(),
-            started: Instant::now(),
+            started,
             output: std::sync::RwLock::new(String::new()),
             hdr_metadata: Default::default(),
             hdr_source: Default::default(),
@@ -1825,6 +1985,13 @@ impl<P, A> Session<P, A> {
         self.report_keyframe_loss(latched, ignored);
         self.request_idr();
     }
+    /// The client asked for a keyframe (0x0302): the same, and evidence for
+    /// the bitrate controller when it is the network and not the host or the
+    /// client's decode queue that caused the request.
+    pub fn request_client_keyframe(&self) {
+        self.link_request();
+        self.request_recovery_keyframe();
+    }
     /// The host could not send enough of a frame for the client to rebuild
     /// it, so the next frame is a keyframe. Moonlight, waiting for one,
     /// then recovers on that frame and sends no request of its own.
@@ -1844,6 +2011,7 @@ impl<P, A> Session<P, A> {
         if self.config.codec == 3 {
             return;
         }
+        self.link_request();
         if first == 0 || first > last {
             self.request_recovery_keyframe();
             return;
@@ -1876,6 +2044,7 @@ impl<P, A> Session<P, A> {
             // additional controller fence rejects feedback from an older rate.
             let frame = u32::from_be_bytes(payload[..4].try_into().unwrap());
             let period = self.stream_mode().period();
+            self.link_status(payload, frame, block);
             if matches!(block, crate::adaptive_fec::Block::Unrecoverable) {
                 let (latched, ignored) = {
                     let mut loss = self.keyframe_loss.lock().unwrap();
@@ -1944,8 +2113,16 @@ impl<P, A> Session<P, A> {
         let mut controller = self.adaptive_bitrate.lock().unwrap();
         controller.client_takeover();
         self.adaptive_video_pacing_bps.store(0, Ordering::Release);
-        self.bitrate.store(kbps, Ordering::Release);
+        {
+            // The link controller's own writes take this lock too, so none
+            // lands after the client's value.
+            let mut link = self.link_rate.lock().unwrap();
+            link.takeover();
+            self.link_sent.set_live(false);
+            self.bitrate.store(kbps, Ordering::Release);
+        }
         self.launch.warnings.clear("host_bitrate_budget");
+        self.launch.warnings.clear(LINK_WARNING);
     }
     pub fn adaptive_pacing_bps(&self, configured_bps: u64) -> u64 {
         let limit = self.adaptive_video_pacing_bps.load(Ordering::Acquire);
@@ -1953,6 +2130,214 @@ impl<P, A> Session<P, A> {
             configured_bps
         } else {
             configured_bps.min(limit)
+        }
+    }
+    /// Starts the link-rate controller for the stream: `enabled` is
+    /// `Config::link_rate_adaptation`, `maximum_kbps` the user's `max_bitrate`.
+    pub fn configure_link_rate(&self, enabled: bool, maximum_kbps: u32) {
+        self.rebuild_link_rate(&self.config, enabled, maximum_kbps);
+    }
+    /// A controller for a stream whose mode changed (0x5532). A bitrate it had
+    /// lowered goes back to the requested one; what it learned about the link
+    /// is forgotten, and a client that took the bitrate over keeps it.
+    pub fn rebuild_link_rate(&self, stream: &Negotiated, enabled: bool, maximum_kbps: u32) {
+        let mut link = self.link_rate.lock().unwrap();
+        if let Some(kbps) = link.restore.take() {
+            self.bitrate.store(kbps, Ordering::Release);
+        }
+        let rate = link
+            .rate
+            .rebuild(enabled, stream, maximum_kbps, self.fec_percent());
+        self.link_sent
+            .set_live(rate.state() != crate::link_rate::State::Off);
+        *link = crate::link_control::LinkControl::new(rate, self.link_sent.head());
+        self.launch.warnings.clear(LINK_WARNING);
+    }
+    /// A frame the video sender sent: its wire frame number, packets (data and
+    /// parity) and wire bytes. Lock-free, so any sender path may call it.
+    pub fn record_link_sent(&self, wire_frame: u32, packets: usize, wire_bytes: u64) {
+        self.record_link_sent_at(wire_frame, packets, wire_bytes, Instant::now());
+    }
+    fn record_link_sent_at(&self, wire_frame: u32, packets: usize, wire_bytes: u64, at: Instant) {
+        self.link_sent.record(
+            wire_frame,
+            packets.min(u32::MAX as usize) as u32,
+            wire_bytes,
+            at,
+        );
+    }
+    /// A client request for a keyframe or reference invalidation (E4).
+    fn link_request(&self) {
+        if !self.link_sent.live() {
+            return;
+        }
+        let now = Instant::now();
+        let network = self.keyframe_loss.lock().unwrap().network_request(now);
+        let mut link = self.link_rate.lock().unwrap();
+        link.drain(&self.link_sent);
+        link.rate.on_keyframe_request(network, now);
+    }
+    /// One validated, deduplicated FEC block (E1 and E2).
+    fn link_status(&self, payload: &[u8], frame: u32, block: crate::adaptive_fec::Block) {
+        if !self.link_sent.live() {
+            return;
+        }
+        let Ok(status) = crate::fec_status::Status::parse(payload) else {
+            return;
+        };
+        let now = Instant::now();
+        let network = matches!(block, crate::adaptive_fec::Block::Unrecoverable)
+            && self.keyframe_loss.lock().unwrap().network_loss(frame, now);
+        let mut link = self.link_rate.lock().unwrap();
+        link.drain(&self.link_sent);
+        link.rate.on_status(&status, now);
+        if network {
+            link.rate.on_unrecoverable(frame, now);
+        }
+    }
+    /// The link-rate state for the session API and the `stream timings` line.
+    pub fn link_rate_snapshot(&self) -> serde_json::Value {
+        self.link_rate
+            .lock()
+            .unwrap()
+            .rate
+            .snapshot(Instant::now())
+    }
+    /// Call from the feedback tick. Applies the controller's bitrate and says
+    /// so, loudly: a WARN on leaving the requested rate, a session warning for
+    /// the console, an INFO for later changes. Returns `(old, new)` kbps when
+    /// the encoder bitrate changed.
+    pub fn tick_link_rate(&self, now: Instant, rtt: Duration) -> Option<(u32, u32)> {
+        if !self.link_sent.live() {
+            return None;
+        }
+        let mut link = self.link_rate.lock().unwrap();
+        link.drain(&self.link_sent);
+        let period = self.stream_mode().period();
+        let current = self.bitrate.load(Ordering::Acquire);
+        let busy = link.busy(
+            now,
+            self.stats.frames.load(Ordering::Relaxed),
+            self.stats.bytes.load(Ordering::Relaxed),
+            period,
+            current,
+        );
+        let target = link
+            .rate
+            .tick(now, rtt, self.fec_percent(), period, current, busy);
+        let applied = match target {
+            Some(kbps) => {
+                link.restore.get_or_insert(current);
+                kbps
+            }
+            None => link.restore.take().unwrap_or(current),
+        };
+        if applied != current {
+            self.bitrate.store(applied, Ordering::Release);
+        }
+        if let Some(change) = link.rate.take_change() {
+            self.report_link_change(&mut link, now, change);
+        }
+        (applied != current).then_some((current, applied))
+    }
+    fn report_link_change(
+        &self,
+        link: &mut crate::link_control::LinkControl,
+        now: Instant,
+        change: crate::link_rate::Change,
+    ) {
+        use crate::link_rate::ChangeKind;
+        let e = change.evidence;
+        let kind = match change.kind {
+            ChangeKind::StepDown => "step_down",
+            ChangeKind::Probe => "probe",
+            ChangeKind::ProbeFailed => "probe_failed",
+            ChangeKind::Floor => "floor",
+            ChangeKind::Full => "full",
+        };
+        let was_limited = std::mem::replace(&mut link.limited, change.kind != ChangeKind::Full);
+        let ceiling = link.rate.ceiling_kbps();
+        match change.kind {
+            ChangeKind::StepDown | ChangeKind::Floor => {
+                if e.loss_share > 0. {
+                    link.loss_share = e.loss_share;
+                }
+                let message = if change.kind == ChangeKind::Floor {
+                    format!(
+                        "The network to this device cannot carry even {} of video, the lowest bitrate the host uses, so the picture will keep breaking up. Check the network path (Wi-Fi signal, cable, router) or lower the resolution or frame rate in Moonlight.",
+                        mbps(change.to_kbps)
+                    )
+                } else {
+                    let loss = if link.loss_share > 0. {
+                        format!("{:.0} % of packets lost", link.loss_share * 100.)
+                    } else {
+                        "video frames were lost".to_string()
+                    };
+                    format!(
+                        "The network to this device could not carry {} of video ({loss}). The host lowered the bitrate to {} and raises it again as the link allows. Lower the bitrate in Moonlight to avoid this.",
+                        mbps(ceiling),
+                        mbps(change.to_kbps)
+                    )
+                };
+                self.launch.warnings.set(LINK_WARNING, message);
+            }
+            ChangeKind::Full => self.launch.warnings.clear(LINK_WARNING),
+            ChangeKind::Probe | ChangeKind::ProbeFailed => {}
+        }
+        match change.kind {
+            ChangeKind::StepDown if !was_limited => tracing::warn!(
+                stream_id = %self.launch.id,
+                link_rate_change = kind,
+                reason = change.reason,
+                from_kbps = change.from_kbps,
+                to_kbps = change.to_kbps,
+                ceiling_kbps = ceiling,
+                delivered_kbps = change.delivered_kbps,
+                unrecoverable_frames = e.unrecoverable_frames,
+                send_losses = e.send_losses,
+                keyframe_requests = e.keyframe_requests,
+                loss_windows = e.loss_windows,
+                loss_share_percent = e.loss_share * 100.,
+                "the network to this device cannot carry the stream; lowering the video bitrate"
+            ),
+            ChangeKind::Floor => tracing::warn!(
+                stream_id = %self.launch.id,
+                link_rate_change = kind,
+                reason = change.reason,
+                from_kbps = change.from_kbps,
+                to_kbps = change.to_kbps,
+                delivered_kbps = change.delivered_kbps,
+                unrecoverable_frames = e.unrecoverable_frames,
+                send_losses = e.send_losses,
+                keyframe_requests = e.keyframe_requests,
+                loss_share_percent = e.loss_share * 100.,
+                "the network to this device cannot carry the stream even at the lowest video bitrate"
+            ),
+            _ if link
+                .logged
+                .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(1)) =>
+            {
+                link.logged = Some(now);
+                if change.kind == ChangeKind::Full {
+                    tracing::info!(
+                        stream_id = %self.launch.id,
+                        link_rate_change = kind,
+                        to_kbps = change.to_kbps,
+                        "video bitrate back at the requested rate"
+                    );
+                } else {
+                    tracing::info!(
+                        stream_id = %self.launch.id,
+                        link_rate_change = kind,
+                        reason = change.reason,
+                        from_kbps = change.from_kbps,
+                        to_kbps = change.to_kbps,
+                        delivered_kbps = change.delivered_kbps,
+                        "video bitrate changed to follow the network"
+                    );
+                }
+            }
+            _ => {}
         }
     }
     pub fn configure_automatic_pacing(&self, enabled: bool) {
@@ -2008,6 +2393,12 @@ impl<P, A> Session<P, A> {
             tracing::info!(stream_id = %self.launch.id, why, "video loss evidence not counted: the host caused it");
         }
         if let Some(crate::keyframe_loss::Latched { reason, detail }) = latched {
+            if self.link_sent.live() {
+                let mut link = self.link_rate.lock().unwrap();
+                link.drain(&self.link_sent);
+                link.rate
+                    .on_latch(Instant::now(), self.pace_was_fast.load(Ordering::Relaxed));
+            }
             tracing::warn!(stream_id = %self.launch.id, reason, detail, "video frames are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
             self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so video is now paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. Check the network path if loss continues."));
         }
@@ -2029,6 +2420,11 @@ impl<P, A> Session<P, A> {
                 loss.take_ignored(),
             )
         };
+        if self.link_sent.live() {
+            let mut link = self.link_rate.lock().unwrap();
+            link.drain(&self.link_sent);
+            link.rate.on_send_loss(wire_frame, Instant::now());
+        }
         self.report_keyframe_loss(latched, ignored);
     }
     pub fn keyframe_loss_active(&self) -> bool {
@@ -2044,12 +2440,16 @@ impl<P, A> Session<P, A> {
     /// route policy's `base`, or after confirmed losses at most `safe`, the
     /// Wi-Fi route's rate for this stream.
     pub fn keyframe_loss_bps(&self, base: u64, safe: u64, wire_frame: u32, keyframe: bool) -> u64 {
+        self.pace_was_fast.store(base > safe, Ordering::Relaxed);
         let mut loss = self.keyframe_loss.lock().unwrap();
         loss.sending(wire_frame, keyframe);
         loss.bps(base, safe)
     }
     pub fn record_control_ping(&self, now: Instant, payload: &[u8]) {
         self.adaptive_bitrate.lock().unwrap().on_ping(now, payload);
+        if self.link_sent.live() {
+            self.link_rate.lock().unwrap().rate.on_ping(now, payload);
+        }
         self.automatic_pacing.lock().unwrap().on_ping(now, payload);
     }
     pub fn tick_automatic_pacing(&self, now: Instant, rtt: Duration) -> Option<(u64, u64)> {
@@ -2152,7 +2552,7 @@ impl<P, A> Session<P, A> {
             .lock()
             .unwrap()
             .window(Instant::now());
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"slice_delivery_overflows":self.stats.slice_delivery_overflows.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"link_rate":self.link_rate_snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"slice_delivery_overflows":self.stats.slice_delivery_overflows.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }
 pub struct Sessions<P = (), A = ()> {

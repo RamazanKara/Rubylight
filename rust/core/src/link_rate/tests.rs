@@ -556,6 +556,24 @@ fn a_latch_that_fixes_the_loss_gets_one_fence_before_a_cut() {
 }
 
 #[test]
+fn a_lifted_latch_fences_only_when_the_pace_gets_faster() {
+    let mut rig = Rig::new(40_000);
+    rig.clean(2_000);
+    // Back at a rate no faster than the Wi-Fi rate: nothing changed.
+    rig.lr.on_unlatch(rig.now(), false);
+    assert!(rig.lr.fence_at().is_none());
+    // Back at the faster rate: one fence, so reports from before it decide
+    // nothing.
+    rig.lr.on_unlatch(rig.now(), true);
+    assert!(rig.lr.fence_at().is_some());
+    let late = rig.frame;
+    let now = rig.now();
+    unrecoverable(&mut rig.lr, late, now);
+    rig.clean(2_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+}
+
+#[test]
 fn the_snapshot_reports_state_and_counters() {
     let mut rig = Rig::new(40_000);
     let before = rig.lr.snapshot(rig.now());

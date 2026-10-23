@@ -565,11 +565,15 @@ mod tests {
         let at = t0 + Duration::from_secs(1);
         let confirmed = {
             let mut loss = s.keyframe_loss.lock().unwrap();
+            // More reports about the same keyframe are not new evidence.
+            assert!(loss.unrecoverable(1, 2, FRAME, at).is_none());
+            assert!(loss.abandoned(1, FRAME, at).is_none());
             for frame in 3..=4 {
                 loss.sending_at(frame, false, at);
                 assert!(loss.unrecoverable(frame, 4, FRAME, at).is_none());
             }
-            loss.unrecoverable(2, 4, FRAME, at)
+            loss.sending_at(5, false, at);
+            loss.unrecoverable(5, 5, FRAME, at)
         }
         .expect("more evidence confirms the latch");
         assert!(confirmed.confirmed);

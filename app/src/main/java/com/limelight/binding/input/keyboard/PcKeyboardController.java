@@ -25,6 +25,7 @@ public final class PcKeyboardController {
     private final Host host;
     private final PcKeyboardEngine engine;
     private PcKeyboardLayout layout;
+    private Runnable onReleased;
     private KeyboardFocus focus;
     private boolean focusVisible = true;
     private final boolean[] padDown = new boolean[Pad.values().length];
@@ -151,6 +152,11 @@ public final class PcKeyboardController {
         }
     }
 
+    /** Told after {@link #release}, so whoever feeds this controller can resync what it believes is held. */
+    public void setOnReleased(Runnable onReleased) {
+        this.onReleased = onReleased;
+    }
+
     /** Release everything pressed and forget locked modifiers, as when the keyboard closes. */
     public void release() {
         engine.releaseAll();
@@ -159,6 +165,7 @@ public final class PcKeyboardController {
         stickDirection = null;
         activeDirection = null;
         host.changed();
+        if (onReleased != null) onReleased.run();
     }
 
     private void key(String id, Pad owner, boolean down, long now) {

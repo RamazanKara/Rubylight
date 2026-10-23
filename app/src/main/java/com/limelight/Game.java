@@ -4525,6 +4525,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 });
             }
         });
+        // A release that leaves the keyboard open (a layout switch) must not leave a held USB stick stale.
+        pcKeyboard.controller().setOnReleased(controllerHandler::resyncPadCapture);
         setInputGrabState(true);
         streamView.requestFocus();
     }
@@ -4598,6 +4600,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case KeyEvent.KEYCODE_BUTTON_Y: return flip ? PcKeyboardController.Pad.X : PcKeyboardController.Pad.Y;
             case KeyEvent.KEYCODE_BUTTON_L1: return PcKeyboardController.Pad.LB;
             case KeyEvent.KEYCODE_BUTTON_R1: return PcKeyboardController.Pad.RB;
+            // Menu is Start, as in the game's own button mapping.
+            case KeyEvent.KEYCODE_MENU:
             case KeyEvent.KEYCODE_BUTTON_START: return PcKeyboardController.Pad.START;
             default: return null;
         }

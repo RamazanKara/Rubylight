@@ -107,7 +107,7 @@ public class PcKeyboardEngineTest {
         assertFalse(engine.modifiers().any());
     }
 
-    private static final String WIN = "5B", NEUTRAL = "FF";
+    private static final String WIN = "5B", NEUTRAL = "E8";
 
     @Test
     public void aLockedWinOrAltNeverUsedWithAKeyIsNotTakenAsAMenuTap() {

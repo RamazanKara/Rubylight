@@ -349,6 +349,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     private volatile PadCapture padCapture;
+    private final java.util.concurrent.atomic.AtomicInteger captureGeneration = new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * The keyboard forgot what the pads were doing (a layout switch released everything) while it stays
+     * open: each USB pad reports its held stick direction afresh on its next report.
+     */
+    public void resyncPadCapture() {
+        captureGeneration.incrementAndGet();
+    }
 
     /**
      * While set, USB-driver controllers send nothing to the game; null gives the input back. Set it
@@ -3351,6 +3360,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (context.steeringMenu) {
             // Buttons still held from the menu reach the host only after they were let go.
             context.steeringMenu = false;
+            context.captureStick = null;
             context.heldFromMenu = context.menuButtons;
         }
         context.heldFromMenu &= buttons;
@@ -3415,8 +3425,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             context.menuButtons = buttons | context.lastButtons;
             context.menuComboPending = false;
             context.captureStick = null;
+            context.captureGeneration = captureGeneration.get();
             // The game's last state is cleared here, on the thread that sends this pad's reports.
             releaseUsbInput(context);
+        }
+        int generation = captureGeneration.get();
+        if (context.captureGeneration != generation) {
+            context.captureGeneration = generation;
+            context.captureStick = null;
         }
         int changed = buttons ^ context.menuButtons;
         context.menuButtons = buttons;
@@ -3434,6 +3450,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // While the stream menu or one of its dialogs has focus, a newly pressed D-pad direction, A or B
     // of a USB-driver pad moves, chooses or goes back there.
     private void steerMenu(UsbDeviceContext context, int buttons) {
+        // The menu took the pad from the keyboard (if it had it), which let go of the stick.
+        context.captureStick = null;
         if (!context.steeringMenu) {
             context.steeringMenu = true;
             context.menuButtons = context.lastButtons;
@@ -3490,6 +3508,18 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         UsbDeviceContext context = usbDeviceContexts.get(controller.getControllerId());
         if (context != null) {
             LimeLog.info("Removed controller: "+controller.getControllerId());
+            // Unplugged while the PC keyboard was open: nothing will report what it held being let go.
+            PadCapture capture = padCapture;
+            if (capture != null && context.steeringMenu) {
+                for (int flag : CAPTURED_BUTTONS) {
+                    if ((context.menuButtons & flag) != 0) capture.button(flag, false);
+                }
+                context.menuButtons = 0;
+                if (context.captureStick != null) {
+                    context.captureStick = null;
+                    capture.stick(0f, 0f);
+                }
+            }
             if (context.assignedControllerNumber && (controller.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
                 conn.sendControllerTouchEvent((byte)context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL,
                         0, 0, 0, 0);
@@ -4026,6 +4056,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // The pad steers the stream menu while the stream has no input focus.
         boolean steeringMenu;
         KeyboardFocus.Direction captureStick;
+        int captureGeneration;
         int menuButtons, heldFromMenu, lastButtons;
 
         boolean ensureControllerArrival() {

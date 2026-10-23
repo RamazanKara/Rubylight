@@ -208,6 +208,83 @@ public class ControllerInputReleaseTest {
     }
 
     @Test
+    public void unpluggingAUsbPadLetsGoOfTheKeyboardButtonsItHeld() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        ControllerHandler.UsbDeviceContext pad = usbPad(handler);
+        List<String> events = new ArrayList<>();
+        try {
+            handler.setPadCapture(new ControllerHandler.PadCapture() {
+                @Override public void button(int flag, boolean down) { events.add(flag + (down ? "+" : "-")); }
+                @Override public void stick(float x, float y) { events.add("stick " + x + "," + y); }
+            });
+            usb(handler, 0);
+            handler.reportControllerState(3, ControllerPacket.X_FLAG, 0.9f, 0f, 0f, 0f, 0f, 0f);
+            assertEquals(java.util.Arrays.asList(ControllerPacket.X_FLAG + "+", "stick 0.9,0.0"), events);
+            events.clear();
+            handler.deviceRemoved((AbstractController) pad.device);
+            // Nothing reports the release of X or the stick any more: the keyboard hears it now.
+            assertEquals(java.util.Arrays.asList(ControllerPacket.X_FLAG + "-", "stick 0.0,0.0"), events);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
+    public void unpluggingAUsbPadWithoutACaptureReportsNothing() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, new PreferenceConfiguration());
+        ControllerHandler.UsbDeviceContext pad = usbPad(handler);
+        try {
+            usb(handler, ControllerPacket.X_FLAG);
+            handler.deviceRemoved((AbstractController) pad.device);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
+    public void aHeldUsbStickIsReportedAgainAfterTheMenuOrAResync() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        usbPad(handler);
+        List<String> sticks = new ArrayList<>();
+        try {
+            handler.setPadCapture(new ControllerHandler.PadCapture() {
+                @Override public void button(int flag, boolean down) { }
+                @Override public void stick(float x, float y) { sticks.add(x + "," + y); }
+            });
+            handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
+            handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
+            assertEquals(1, sticks.size());
+            // A layout switch released everything on the keyboard side while the stick stays pushed.
+            handler.resyncPadCapture();
+            handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
+            handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
+            assertEquals(2, sticks.size());
+            // The stream menu steers the pad for a while: the keyboard let go of the stick then too.
+            handler.setInputEnabled(false);
+            usb(handler, 0);
+            handler.setInputEnabled(true);
+            handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
+            assertEquals(3, sticks.size());
+            // Handing the pad back to the game and taking it again starts afresh as well.
+            handler.setPadCapture(null);
+            usb(handler, 0);
+            handler.setPadCapture(new ControllerHandler.PadCapture() {
+                @Override public void button(int flag, boolean down) { }
+                @Override public void stick(float x, float y) { sticks.add(x + "," + y); }
+            });
+            handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
+            assertEquals(4, sticks.size());
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
     public void releasingInputClearsEveryContextAndDoesNotFuseStaleAxes() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             RecordingConnection connection = new RecordingConnection();

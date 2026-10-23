@@ -429,6 +429,30 @@ public class GameKeyboardOverlayTest {
     }
 
     @Test
+    public void menuIsStartAndEnterOnTheKeyboard() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        connection.keys.clear();
+        assertTrue(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MENU, gamepad(), PAD_ID)));
+        assertTrue(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MENU, gamepad(), PAD_ID)));
+        assertEquals(2, connection.keys.size());
+        assertEquals(0x8000 | 0x0D, connection.keys.get(0)[0]);
+    }
+
+    @Test
+    public void switchingLayoutResyncsTheUsbPadSide() {
+        Game game = pcKeyboardGame(new RecordingConnection());
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ControllerHandler handler = ReflectionHelpers.getField(game, "controllerHandler");
+        java.util.concurrent.atomic.AtomicInteger generation = ReflectionHelpers.getField(handler, "captureGeneration");
+        int before = generation.get();
+        PcKeyboardController keyboard = pcKeyboardController(game);
+        keyboard.setLayout(PcKeyboardLayout.byId(PcKeyboardLayout.DE));
+        assertTrue(generation.get() > before);
+    }
+
+    @Test
     public void losingFocusLetsGoOfAHeldKey() {
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);

@@ -9,9 +9,9 @@
     <string name="stream_auto_bitrate_status">Bitrate automatico: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host occupato. Riprova tra poco.</string>
     <string name="title_auto_bitrate_min">Bitrate automatico minimo</string>
-    <string name="summary_auto_bitrate_min">Bitrate più basso a cui scende il bitrate automatico. Predefinito: 2 Mbps. Un valore superiore al bitrate dello stream mantiene il bitrate dello stream come minimo. Non usato con PyroWave.</string>
+    <string name="summary_auto_bitrate_min">Bitrate dell’encoder più basso a cui scende il bitrate automatico. Predefinito: 2 Mbps. Un valore superiore al bitrate dell’encoder con cui parte lo stream mantiene quel bitrate iniziale come minimo. Non usato con PyroWave.</string>
     <string name="auto_bitrate_min_default">Predefinito (2 Mbps)</string>
     <string name="title_auto_bitrate_max">Bitrate automatico massimo</string>
-    <string name="summary_auto_bitrate_max">Bitrate più alto usato dal bitrate automatico. Uno stream che parte sopra questo valore viene abbassato. Bitrate dello stream usa il bitrate impostato sopra. Non usato con PyroWave.</string>
-    <string name="auto_bitrate_max_default">Bitrate dello stream</string>
+    <string name="summary_auto_bitrate_max">Bitrate dell’encoder più alto usato dal bitrate automatico. Se lo stream parte con un bitrate dell’encoder più alto, viene abbassato a questo valore. Nessun limite mantiene il bitrate dell’encoder con cui parte lo stream. Non usato con PyroWave.</string>
+    <string name="auto_bitrate_max_default">Nessun limite</string>
 </resources>

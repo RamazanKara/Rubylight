@@ -9,9 +9,9 @@
     <string name="stream_auto_bitrate_status">Taxa de bits automática: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host ocupado. Tente novamente em instantes.</string>
     <string name="title_auto_bitrate_min">Mínimo da taxa de bits automática</string>
-    <string name="summary_auto_bitrate_min">Menor taxa de bits a que a taxa automática chega. O padrão é 2 Mbps. Um valor acima da taxa do stream mantém a taxa do stream como piso. Não é usado com PyroWave.</string>
+    <string name="summary_auto_bitrate_min">Menor taxa de bits do codificador a que a taxa automática chega. O padrão é 2 Mbps. Um valor acima da taxa do codificador com que o stream começa mantém essa taxa inicial como piso. Não é usado com PyroWave.</string>
     <string name="auto_bitrate_min_default">Padrão (2 Mbps)</string>
     <string name="title_auto_bitrate_max">Máximo da taxa de bits automática</string>
-    <string name="summary_auto_bitrate_max">Maior taxa de bits que a taxa automática usa. Um stream que começa acima é reduzido a esse valor. Taxa do stream usa a taxa definida acima. Não é usado com PyroWave.</string>
-    <string name="auto_bitrate_max_default">Taxa do stream</string>
+    <string name="summary_auto_bitrate_max">Maior taxa de bits do codificador que a taxa automática usa. Um stream que começa com taxa do codificador acima disso é reduzido a esse valor. Sem limite mantém a taxa do codificador com que o stream começa. Não é usado com PyroWave.</string>
+    <string name="auto_bitrate_max_default">Sem limite</string>
 </resources>

@@ -9,9 +9,9 @@
     <string name="stream_auto_bitrate_status">Automatische Bitrate: %1$.1f Mbit/s</string>
     <string name="stream_bitrate_busy">Host beschäftigt. Versuch es gleich erneut.</string>
     <string name="title_auto_bitrate_min">Minimum der automatischen Bitrate</string>
-    <string name="summary_auto_bitrate_min">Niedrigste Bitrate, auf die die automatische Bitrate sinkt. Standard sind 2 Mbit/s. Ein Wert über der Stream-Bitrate belässt die Stream-Bitrate als Untergrenze. Nicht mit PyroWave.</string>
+    <string name="summary_auto_bitrate_min">Niedrigste Encoder-Bitrate, auf die die automatische Bitrate sinkt. Standard sind 2 Mbit/s. Ein Wert über der Encoder-Bitrate, mit der der Stream startet, belässt diese Start-Bitrate als Untergrenze. Nicht mit PyroWave.</string>
     <string name="auto_bitrate_min_default">Standard (2 Mbit/s)</string>
     <string name="title_auto_bitrate_max">Maximum der automatischen Bitrate</string>
-    <string name="summary_auto_bitrate_max">Höchste Bitrate, die die automatische Bitrate nutzt. Ein Stream, der darüber startet, wird darauf gesenkt. Stream-Bitrate nutzt die oben eingestellte Bitrate. Nicht mit PyroWave.</string>
-    <string name="auto_bitrate_max_default">Stream-Bitrate</string>
+    <string name="summary_auto_bitrate_max">Höchste Encoder-Bitrate, die die automatische Bitrate nutzt. Startet der Stream mit einer höheren Encoder-Bitrate, wird sie darauf gesenkt. Keine Grenze behält die Encoder-Bitrate, mit der der Stream startet. Nicht mit PyroWave.</string>
+    <string name="auto_bitrate_max_default">Keine Grenze</string>
 </resources>

@@ -336,6 +336,7 @@ mod tests {
         sender.submit(
             vec![Encoded {
                 bytes: vec![42; 3000],
+                unit: butterpollo_windows::encoder::Unit::Whole,
                 idr: true,
                 after_invalidation: false,
                 frame_cap_bytes: None,
@@ -414,6 +415,7 @@ mod tests {
         });
         let picture = Encoded {
             bytes: vec![42; 3000],
+            unit: butterpollo_windows::encoder::Unit::Whole,
             idr: true,
             after_invalidation: false,
             frame_cap_bytes: None,
@@ -522,6 +524,7 @@ mod tests {
             };
             let frame = || Encoded {
                 bytes: vec![42; 3000],
+                unit: butterpollo_windows::encoder::Unit::Whole,
                 idr: true,
                 after_invalidation: false,
                 frame_cap_bytes: None,

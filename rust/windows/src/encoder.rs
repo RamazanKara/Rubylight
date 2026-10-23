@@ -8,8 +8,19 @@ use crate::capture::{GpuImage, Image};
 use anyhow::{Context, Result};
 use butterpollo_core::{amd_gpu, rtsp::Negotiated, session::Warnings};
 
+/// How `Encoded::bytes` relates to a picture. Only AMF in slice output mode
+/// (`video_slice_delivery`) returns anything but `Whole`: a P-frame then comes
+/// as `Slice` units in order, ending with `Last`, all of one frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unit {
+    Whole,
+    Slice { index: u32 },
+    Last { index: u32 },
+}
+
 pub struct Encoded {
     pub bytes: Vec<u8>,
+    pub unit: Unit,
     pub idr: bool,
     pub after_invalidation: bool,
     /// Driver-read AMF frame limit at submission. None means unavailable or
@@ -267,6 +278,22 @@ impl Encoder {
         match self {
             Self::Amf(e) => e.poll(),
             Self::Pyrowave(_) => Ok(vec![]),
+        }
+    }
+    /// Blocks a P-frame is sent in as its slices leave the encoder; 0 when
+    /// `video_slice_delivery` is off, for AV1 and PyroWave, and after
+    /// [`Self::join_slices`].
+    pub fn slice_delivery(&self) -> u8 {
+        match self {
+            Self::Amf(e) => e.slice_delivery(),
+            Self::Pyrowave(_) => 0,
+        }
+    }
+    /// Slice delivery is off for the rest of the session: later frames come
+    /// back whole.
+    pub fn join_slices(&mut self) {
+        if let Self::Amf(e) = self {
+            e.join_slices();
         }
     }
     /// A recreated encoder must keep the wire frame numbers used by RFI.

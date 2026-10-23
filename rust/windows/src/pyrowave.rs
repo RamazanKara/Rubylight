@@ -866,6 +866,7 @@ impl Encoder {
             }
             Ok(vec![Encoded {
                 bytes,
+                unit: crate::encoder::Unit::Whole,
                 idr: true,
                 after_invalidation: false,
                 frame_cap_bytes: None,

@@ -69,6 +69,22 @@ pub fn tristate(config: &Config, key: &str, default: Option<bool>) -> Option<boo
         },
     }
 }
+/// `video_slice_delivery = off | 2 | 4`: how many blocks an H.264 or HEVC
+/// P-frame is sent in, each as soon as its slices leave the encoder. 0 is off
+/// (the default, and always for AV1): frame output and the whole-frame send.
+pub fn slice_delivery(config: &Config, codec: u8) -> u8 {
+    const KEY: &str = "video_slice_delivery";
+    let blocks = match config.get(KEY, "off") {
+        "off" | "0" => 0,
+        "2" => 2,
+        "4" => 4,
+        other => {
+            crate::config::fallback(KEY, other, "off");
+            0
+        }
+    };
+    if codec > 1 { 0 } else { blocks }
+}
 /// AVC intra refresh requires two retained references in AMF. A client that
 /// negotiated only one must use IDR recovery instead of exceeding its budget.
 pub fn amf_intra_refresh(stream: &Negotiated) -> bool {
@@ -255,10 +271,12 @@ pub fn amf_rate_control(config: &Config, stream: &Negotiated) -> Result<Vec<Prop
 
 pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
     let codec = stream.codec;
-    let intra_refresh = amf_intra_refresh(stream);
     if codec > 2 {
         bail!("invalid AMF codec");
     }
+    let blocks = slice_delivery(config, codec);
+    // Refresh stripes and slice output interact; slice delivery wins.
+    let intra_refresh = amf_intra_refresh(stream) && blocks == 0;
     let prefix = match codec {
         0 => "",
         1 => "Hevc",
@@ -473,6 +491,16 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
                 tiles > 0,
             );
         }
+    } else if blocks > 0 {
+        // Slice delivery needs one slice per block at least, and the driver
+        // returning each slice as its own output; without either the stream
+        // would send whole frames, so a refusal fails the encoder.
+        add(format!("{prefix}OutputMode"), Value::Integer(1), true);
+        add(
+            format!("{prefix}SlicesPerFrame"),
+            Value::Integer(i64::from(blocks).max(i64::from(stream.slices))),
+            true,
+        );
     } else if stream.slices > 1 {
         // The client's slice request is a decoder hint (Moonlight-Switch asks
         // for four even when it decodes in hardware). A driver that rejects
@@ -922,6 +950,80 @@ mod tests {
                 );
             }
             assert!(!properties.iter().any(|p| p.name.starts_with("Hevc")));
+        }
+    }
+
+    #[test]
+    fn slice_delivery_is_off_unless_two_or_four_blocks_are_asked_for_on_avc_or_hevc() {
+        let set = |value: &str| Config::parse(&format!("video_slice_delivery={value}\n")).unwrap();
+        assert_eq!(slice_delivery(&Config::default(), 0), 0);
+        for (value, blocks) in [
+            ("off", 0),
+            ("0", 0),
+            ("2", 2),
+            ("4", 4),
+            ("3", 0),
+            ("on", 0),
+        ] {
+            for codec in [0, 1] {
+                assert_eq!(slice_delivery(&set(value), codec), blocks, "{value}");
+            }
+            assert_eq!(slice_delivery(&set(value), 2), 0, "AV1 is never sliced");
+        }
+    }
+
+    #[test]
+    fn slice_delivery_asks_for_slice_output_with_at_least_one_slice_per_block() {
+        let find = |properties: &[Property], name: &str| {
+            properties
+                .iter()
+                .find(|p| p.name == name)
+                .map(|p| (p.value, p.required))
+        };
+        let on = Config::parse("video_slice_delivery=4\n").unwrap();
+        for (codec, prefix) in [(0, ""), (1, "Hevc")] {
+            let slices = format!("{prefix}SlicesPerFrame");
+            let mode = format!("{prefix}OutputMode");
+            for (client, expected) in [(1, 4), (2, 4), (4, 4), (8, 8)] {
+                let stream = Negotiated {
+                    codec,
+                    slices: client,
+                    ..Default::default()
+                };
+                let properties = amf(&on, &stream).unwrap();
+                assert_eq!(find(&properties, &mode), Some((Value::Integer(1), true)));
+                assert_eq!(
+                    find(&properties, &slices),
+                    Some((Value::Integer(expected), true))
+                );
+                let off = amf(&Config::default(), &stream).unwrap();
+                assert_eq!(find(&off, &mode), None, "frame output is the default");
+            }
+        }
+        let av1 = Negotiated {
+            codec: 2,
+            slices: 4,
+            ..Default::default()
+        };
+        let properties = amf(&on, &av1).unwrap();
+        assert!(properties.iter().all(|p| !p.name.contains("OutputMode")));
+    }
+
+    #[test]
+    fn slice_delivery_turns_intra_refresh_off() {
+        let on = Config::parse("video_slice_delivery=2\n").unwrap();
+        for codec in [0, 1] {
+            let stream = Negotiated {
+                codec,
+                intra_refresh: true,
+                references: 2,
+                ..Default::default()
+            };
+            let refresh = |properties: &[Property]| {
+                properties.iter().any(|p| p.name.contains("IntraRefresh"))
+            };
+            assert!(refresh(&amf(&Config::default(), &stream).unwrap()));
+            assert!(!refresh(&amf(&on, &stream).unwrap()));
         }
     }
 

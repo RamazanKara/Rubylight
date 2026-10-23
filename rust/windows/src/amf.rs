@@ -7,12 +7,13 @@ pub(crate) mod gpu;
 mod intra_refresh;
 mod metadata;
 mod rate_control;
+mod units;
 
 use crate::text::to_wide;
 use crate::{
     amf_abi::*,
     capture::{Device, GpuImage, Image},
-    encoder::Encoded,
+    encoder::{Encoded, Unit},
 };
 use anyhow::{Context, Result, bail};
 use butterpollo_core::encoder_backlog::{AMF_SURFACE_LIMIT, AmfBacklog, QUERY_TIMEOUT};
@@ -127,6 +128,17 @@ fn guard_smart_access_video(properties: &mut [butterpollo_core::encoder_policy::
         );
     }
 }
+/// What a returned output needs of its submission, copied so a frame can stay
+/// in flight while its units come.
+#[derive(Clone, Copy)]
+struct Submitted {
+    started: Instant,
+    accepted: Instant,
+    presentation: Instant,
+    idr: bool,
+    after_invalidation: bool,
+    frame_cap_bytes: Option<u64>,
+}
 struct Submission {
     pts: i64,
     started: Instant,
@@ -189,6 +201,15 @@ pub struct Encoder {
     /// Every output unit, with when QueryOutput returned it. Set by the
     /// slice/tile delivery probe only.
     unit_log: Option<Vec<OutputUnit>>,
+    /// Blocks a P-frame is sent in when `video_slice_delivery` is on, else 0:
+    /// AMF then outputs slice by slice.
+    slice_blocks: u8,
+    /// Set when the host turns slice delivery off for the session: slice output
+    /// stays, but every frame is joined and returned whole.
+    slices_joined: bool,
+    units: units::Sequencer,
+    /// The last poll took a unit of a joined frame and returned nothing.
+    unit_held: bool,
 }
 /// One output buffer from QueryOutput: a frame, or with slice/tile output one
 /// slice or tile of it.
@@ -287,7 +308,14 @@ impl Encoder {
         let mut effective_config = config.clone();
         effective_config.intra_refresh =
             butterpollo_core::encoder_policy::amf_intra_refresh(config);
-        if config.intra_refresh && !effective_config.intra_refresh {
+        let slice_blocks = butterpollo_core::encoder_policy::slice_delivery(options, config.codec);
+        if slice_blocks > 0 && effective_config.intra_refresh {
+            effective_config.intra_refresh = false;
+            tracing::warn!(
+                "video_slice_delivery is on: intra refresh is off for this stream and a lost frame is recovered with a keyframe"
+            );
+        }
+        if config.intra_refresh && !effective_config.intra_refresh && slice_blocks == 0 {
             tracing::warn!(
                 client_max_reference_frames = config.references,
                 "AMF H.264 intra refresh requires two references; using larger IDR recovery frames for this decoder. Reduce bitrate if recovery stutters or use a client with two-reference support"
@@ -440,6 +468,13 @@ impl Encoder {
                 last_accepted: None,
                 input_full: 0,
                 unit_log: None,
+                slice_blocks: butterpollo_core::encoder_policy::slice_delivery(
+                    options,
+                    config.codec,
+                ),
+                slices_joined: false,
+                units: Default::default(),
+                unit_held: false,
             };
             let mut properties = butterpollo_core::encoder_policy::amf(options, config)?;
             guard_smart_access_video(&mut properties);
@@ -1426,11 +1461,25 @@ impl Encoder {
             .is_some_and(|s| s.started.elapsed() > Duration::from_secs(2))
         {
             let stale = self.in_flight.pop_front();
+            if let Some(stale) = &stale {
+                self.units.forget(stale.pts);
+            }
             self.warnings.event("encoder_dropped", format!("AMF returned no output for frame {:?} within two seconds; dropping it and requesting a keyframe. You may see a pause; lower game GPU load or update the AMD driver if this repeats.", stale.map(|s| s.pts)), butterpollo_core::session::EVENT_PERIOD);
             self.recover = true;
         }
     }
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
+        // A unit of a joined frame leaves nothing to hand on: ask again at
+        // once for the frame's next unit instead of after the caller's wait.
+        loop {
+            self.unit_held = false;
+            let output = self.poll_once()?;
+            if !(self.unit_held && output.is_empty()) {
+                return Ok(output);
+            }
+        }
+    }
+    fn poll_once(&mut self) -> Result<Vec<Encoded>> {
         if let Some(input) = &mut self.compute {
             input.converter.release_completed();
         }
@@ -1471,11 +1520,28 @@ impl Encoder {
             if self.unit_log.is_some() && self.log_unit(buffer, pts) {
                 return Ok(output);
             }
-            let submission = self
-                .in_flight
-                .iter()
-                .position(|s| s.pts == pts)
-                .and_then(|position| self.in_flight.remove(position));
+            // In slice output mode a frame stays in flight until its last unit.
+            let kind = if self.slice_blocks > 0 {
+                Self::buffer_kind(self.codec, buffer)
+            } else {
+                None
+            };
+            let last = kind != Some(1);
+            let position = self.in_flight.iter().position(|s| s.pts == pts);
+            let submission = position.map(|position| {
+                let s = &self.in_flight[position];
+                Submitted {
+                    started: s.started,
+                    accepted: s.accepted,
+                    presentation: s.presentation,
+                    idr: s.idr,
+                    after_invalidation: s.after_invalidation,
+                    frame_cap_bytes: s.frame_cap_bytes,
+                }
+            });
+            if let Some(position) = position.filter(|_| last) {
+                self.in_flight.remove(position);
+            }
             let latency = submission.as_ref().map(|s| s.started.elapsed());
             let presentation = submission.as_ref().map(|s| s.presentation);
             let timing = submission
@@ -1505,6 +1571,50 @@ impl Encoder {
             };
             let idr = output_is_idr(picture_type, requested_idr);
             let bytes = std::slice::from_raw_parts(raw, size as usize);
+            if self.slice_blocks > 0 {
+                let bytes = bytes.to_vec();
+                (v.Release.unwrap())(buffer);
+                let streamable = !self.slices_joined
+                    && !idr
+                    && !after_invalidation
+                    && frame_cap_bytes.is_some_and(|cap| cap > 0);
+                let pushed = self.units.push(pts, kind, bytes, || units::Meta {
+                    streamed: streamable,
+                    idr,
+                });
+                if let Some(lost) = pushed.abandoned {
+                    self.lost_frame(lost);
+                }
+                let (unit, bytes) = match pushed.step {
+                    units::Step::Hold => {
+                        self.unit_held = true;
+                        return Ok(output);
+                    }
+                    units::Step::Unit(unit, bytes) => (unit, bytes),
+                    units::Step::Whole(bytes) => (Unit::Whole, bytes),
+                };
+                let whole = unit == Unit::Whole;
+                // A joined or frame-mode keyframe is recovered as a whole.
+                let bytes =
+                    if whole && self.codec == 0 && pushed.meta.idr && self.references.enabled() {
+                        butterpollo_core::bitstream::h264_reference_recovery(&bytes)
+                    } else {
+                        bytes
+                    };
+                if last {
+                    self.frame_completed(timing, !bytes.is_empty());
+                }
+                output.push(Encoded {
+                    bytes,
+                    unit,
+                    idr: whole && pushed.meta.idr,
+                    after_invalidation: whole && after_invalidation,
+                    frame_cap_bytes,
+                    latency,
+                    presentation,
+                });
+                return Ok(output);
+            }
             // The sender outlives this AMF buffer reference. Own the compressed
             // bytes before Release makes its native storage available for reuse.
             let bytes = if self.codec == 0 && idr && self.references.enabled() {
@@ -1513,21 +1623,10 @@ impl Encoder {
                 bytes.to_vec()
             };
             (v.Release.unwrap())(buffer);
-            if let Some((accepted, preparation)) = timing.filter(|_| !bytes.is_empty()) {
-                let previous = self.backlog.limit();
-                let now = Instant::now();
-                self.backlog
-                    .completed(now, now.duration_since(accepted), preparation);
-                if self.backlog.limit() != previous {
-                    tracing::debug!(
-                        previous,
-                        limit = self.backlog.limit(),
-                        "AMF application backlog learned"
-                    );
-                }
-            }
+            self.frame_completed(timing, !bytes.is_empty());
             output.push(Encoded {
                 bytes,
+                unit: Unit::Whole,
                 idr,
                 after_invalidation,
                 frame_cap_bytes,
@@ -1536,6 +1635,65 @@ impl Encoder {
             });
             Ok(output)
         }
+    }
+    /// The `OutputBufferType` of a buffer QueryOutput returned: 0 frame, 1 slice
+    /// or tile, 2 last slice or tile. None when the driver does not say.
+    ///
+    /// # Safety
+    /// `buffer` is a live AMF buffer.
+    unsafe fn buffer_kind(codec: u8, buffer: *mut AMFBuffer) -> Option<i64> {
+        // SAFETY: The caller passes the live buffer; the property storage is
+        // initialized and only an INT64 tag is read.
+        unsafe {
+            let v = &*(*buffer).pVtbl;
+            let name = match codec {
+                0 => "OutputBufferType",
+                1 => "HevcOutputBufferType",
+                _ => "AV1OutputBufferType",
+            };
+            let mut value: AMFVariantStruct = std::mem::zeroed();
+            ((v.GetProperty.unwrap())(buffer, to_wide(name).as_ptr(), &mut value)
+                == AMF_RESULT_AMF_OK
+                && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
+                .then_some(value.__bindgen_anon_1.int64Value)
+        }
+    }
+    /// The backlog learns from every frame AMF finishes.
+    fn frame_completed(&mut self, timing: Option<(Instant, Duration)>, produced: bool) {
+        if let Some((accepted, preparation)) = timing.filter(|_| produced) {
+            let previous = self.backlog.limit();
+            let now = Instant::now();
+            self.backlog
+                .completed(now, now.duration_since(accepted), preparation);
+            if self.backlog.limit() != previous {
+                tracing::debug!(
+                    previous,
+                    limit = self.backlog.limit(),
+                    "AMF application backlog learned"
+                );
+            }
+        }
+    }
+    /// Slice output of a frame that never got its last unit: the sender may
+    /// have started it, so the next frame is a keyframe.
+    fn lost_frame(&mut self, pts: i64) {
+        self.warnings.event("encoder_dropped", format!("AMF returned frame {pts} in slices and never finished it; requesting a keyframe. You may see a pause; lower game GPU load or update the AMD driver if this repeats."), butterpollo_core::session::EVENT_PERIOD);
+        self.recover = true;
+    }
+    /// Blocks a P-frame is sent in, as its slices leave the encoder; 0 when
+    /// `video_slice_delivery` is off.
+    pub fn slice_delivery(&self) -> u8 {
+        if self.slices_joined {
+            0
+        } else {
+            self.slice_blocks
+        }
+    }
+    /// Return every later frame whole, even P-frames, from the next one on.
+    /// The encoder stays in slice output mode. A frame whose first unit has
+    /// left is finished as it began.
+    pub fn join_slices(&mut self) {
+        self.slices_joined = true;
     }
     /// Record one output unit for the probe. True for a slice or tile that is
     /// not the last of its frame: the frame stays in flight.
@@ -1549,16 +1707,7 @@ impl Encoder {
         // initialized and only an INT64 tag is read.
         unsafe {
             let v = &*(*buffer).pVtbl;
-            let name = match self.codec {
-                0 => "OutputBufferType",
-                1 => "HevcOutputBufferType",
-                _ => "AV1OutputBufferType",
-            };
-            let mut value: AMFVariantStruct = std::mem::zeroed();
-            let kind = ((v.GetProperty.unwrap())(buffer, to_wide(name).as_ptr(), &mut value)
-                == AMF_RESULT_AMF_OK
-                && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
-                .then_some(value.__bindgen_anon_1.int64Value);
+            let kind = Self::buffer_kind(self.codec, buffer);
             let submission = self.in_flight.iter().find(|s| s.pts == pts);
             let unit = OutputUnit {
                 pts,

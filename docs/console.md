@@ -58,6 +58,16 @@ The options are one list: **Open library** or **Pair**, **Resume** and **Quit** 
 
 - A PC's name on its game settings page (`HostStreamSettings`) and in the Home rows (`ConsoleRepository`) is still the PC's own name, not the one given with Rename. Planned for N5.
 
+## Accessibility on Android
+
+Three settings under **Settings > App > Accessibility** change how every screen of the app looks. They are global: no profile, PC or game overrides them, and the stream itself is never scaled or recoloured. A change recreates the screen you are on.
+
+- **Interface size**: 85, 100, 115, 130 or 150 percent. It scales the density of the app's own screens, so a 393 dp phone at 150 percent lays out like a 262 dp one, and the layout qualifiers follow. Touch targets stay 48 dp. The system font size still applies on top. `UiScaleTest` checks PCs and Settings at 150 percent for overflow and for targets under 48 dp.
+- **High contrast**: black surfaces, secondary text and outlines in the body text colour, a 2 dp outline on cards, and a 4 dp moon-amber focus ring on every focusable. `ContrastTest` computes the WCAG ratios from the palette and the theme: body and secondary text are at least 7:1 and focus rings at least 3:1 on every surface.
+- **Reduce motion**: **Follow system**, **Reduce** or **Full**. Follow system reduces when Android's animation scale is 0. Reduce replaces the TV focus zoom with a still ring and skips the sliding sheet on a TV. Full always animates. A focus ring always shows.
+
+On a TV every stop of a D-pad walk shows a ring, never only Material's faint state layer: buttons, icon buttons, rows and cards all draw one (`FocusVisibilityTest` requires focus to change pixels by at least 3:1 around the edge). A filled amber button gets a ring in the body text colour, because amber on amber would not show. Checked by D-pad on an Android 14 TV emulator, normal and high contrast: PCs opens with **Add PC** focused and Settings with its list focused, never the toolbar, and the screens keep 48 dp by 27 dp clear of the overscan edge.
+
 ## A game's page
 
 Pick a card to see the PC the game runs on and the stream settings it will use (resolution, frame rate, bitrate, and which profile layer set them), then **Play** or **Resume**. If another game is running on that PC, the page says that playing this game closes it. **Close game** appears when the PC has granted this device Host control. Without it you get the classic Quit.

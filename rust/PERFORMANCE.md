@@ -304,9 +304,9 @@ Two questions from the 3.0 plan, both measured on the laptop's Radeon 780M (RDNA
 
 ### B3: should packed 4:4:4 be the Reference preset's default
 
-**Verdict: no. The default stays as it is.** Packed 4:4:4 is clearly better on text above about 5 Mbit/s of actual bitrate, but it costs 1.2 to 2.1 ms more encode time and 0.7 to 1.2 ms more hardware decode, spends about four times the bits at a 20 Mbit/s target, and is worse than 4:2:0 at 2 Mbit/s. That is not "a small latency increase" and it is not better everywhere, so `stream_presets.json` is unchanged.
+**Verdict: no. The default stays as it is.** Packed 4:4:4 is clearly better on still text above about 5 Mbit/s of actual bitrate (8-bit HEVC; scrolling and the first frame gain less or lose), but it costs 1.2 to 2.1 ms more encode time and 0.7 to 1.2 ms more hardware decode, spends about four times the bits at a 20 Mbit/s target, and is worse than 4:2:0 at 2 Mbit/s. That is not "a small latency increase" and it is not better everywhere, so `stream_presets.json` is unchanged.
 
-**Fixture.** Three deterministic 90-frame scenes drawn by `chroma_fixtures.py` with sub-pixel text (a code editor, a browser article, a spreadsheet): 30 frames still, 30 scrolling 6 px a frame, 30 still. 1080p and 1440p, HEVC through AMF (`amf_quality`, 60 fps, Rec.709 limited, packing 0 = 4:2:0, 1 = packed 4:4:4), targets 2, 5, 10, 20, 50 and 100 Mbit/s, one encode per cell (72 runs; each row below is the mean of the three scenes). `chroma_quality.py score` decodes with FFmpeg, upsamples a 4:2:0 picture or unpacks a packed one, and compares 13 sampled frames per run with the source in full-resolution YCbCr: PSNR and SSIM per plane, and PSNR in RGB. "Settled" is the mean over the still frames at the end. Encode time is `amf_quality`'s frame latency, which starts at the colour conversion and packing, so the packing cost is in it.
+**Fixture.** Three deterministic 90-frame scenes drawn by `chroma_fixtures.py` with sub-pixel text (a code editor, a browser article, a spreadsheet): 30 frames still, 30 scrolling 6 px a frame, 30 still. 1080p and 1440p, 8-bit HEVC through AMF (`amf_quality`, 60 fps, Rec.709 limited, packing 0 = 4:2:0, 1 = packed 4:4:4), targets 2, 5, 10, 20, 50 and 100 Mbit/s, one encode per cell (72 runs; each row below is the mean of the three scenes). `chroma_quality.py score` decodes with FFmpeg, upsamples a 4:2:0 picture or unpacks a packed one, and compares 13 sampled frames per run with the source in full-resolution YCbCr: PSNR and SSIM per plane, and PSNR in RGB. "Settled" is the final still frame (frame 89 of 90); "scroll" is the mean of the sampled scroll frames and "first frame" is frame 0. Encode time is `amf_quality`'s frame latency, which starts at the colour conversion and packing, so the packing cost is in it.
 
 1080p:
 
@@ -342,7 +342,7 @@ Two questions from the 3.0 plan, both measured on the laptop's Radeon 780M (RDNA
 | 100 | 4:2:0 | 5.7 | 59.3 / 38.9 / 39.1 | 34.9 | 34.9 | 33.8 | 7.28 / 12.0 |
 | 100 | packed | 46.7 | 57.4 / 57.1 / 57.1 | 51.1 | 46.3 | 40.6 | 9.39 / 13.6 |
 
-Client decode, hardware HEVC through D3D11VA on the same 780M (FFmpeg `-hwaccel d3d11va`; the bitstream repeated 10 and 40 times so the difference removes start-up, 900 and 3600 frames; the 20 Mbit/s runs; three repeats agreed to 0.01 s). This is a proxy for Nightjar's decoder, not Nightjar itself:
+Client decode, hardware HEVC through D3D11VA on the same 780M (FFmpeg `-hwaccel d3d11va`; the bitstream repeated 10 and 40 times so the difference removes start-up, 900 and 3600 frames; the 20 Mbit/s runs; three repeats agreed to 0.02 s). This is a proxy for Nightjar's decoder, not Nightjar itself:
 
 | Picture | 4:2:0 | Packed (twice the height) | Difference |
 | --- | ---: | ---: | ---: |
@@ -357,11 +357,11 @@ Client decode, hardware HEVC through D3D11VA on the same 780M (FFmpeg `-hwaccel 
 - **At 2 Mbit/s it is worse.** Packed 4:4:4 is 1.1 dB lower in settled RGB at 1080p and 2.7 dB lower at 1440p, and its luma is 12 dB lower, because the same bits cover twice the picture.
 - **Scrolling gains less and later.** Scroll RGB is 0.8 dB lower at a 5 Mbit/s target, 1.2 dB higher at 10, 3.7 dB higher at 20 (37.3 against 33.6 dB, 1080p) and 8.4 dB higher at 50.
 - **The first frame is not better below 20 Mbit/s.** First-picture RGB is 0.2 to 1.9 dB lower with packed 4:4:4 at 2 to 10 Mbit/s (and 0.6 dB lower at 1440p, 20 Mbit/s); it is 1.9 dB higher at 1080p, 20 Mbit/s and 5.4 dB higher at 50. A keyframe is bit-limited in both modes.
-- **Cost.** Encode +1.2 ms at 1080p (4.9 to 6.1 ms) and +2.1 ms at 1440p (7.4 to 9.4 ms), p99 about +1.4 ms; client hardware decode +0.7 and +1.2 ms. Together roughly 1.9 ms at 1080p and 3.3 ms at 1440p of added picture time from these two stages, before the Nightjar reconstruction shader (not measured). At a 20 Mbit/s target the stream spends 12.8 to 13.4 Mbit/s against 3.2 to 3.4.
+- **Cost.** Encode +1.2 ms at 1080p (4.9 to 6.1 ms) and +2.1 ms at 1440p (7.4 to 9.4 ms), p99 +1.4 ms at 1080p and +1.7 ms at 1440p (means over all six targets); client hardware decode +0.7 and +1.2 ms. Together roughly 1.9 ms at 1080p and 3.3 ms at 1440p of added picture time from these two stages, before the Nightjar reconstruction shader (not measured). At a 20 Mbit/s target the stream spends 12.8 to 13.4 Mbit/s against 3.2 to 3.4.
 
 **Why the default stays.**
 
-- The latency increase is not small next to a 12 ms end-to-end median, and the rule is no added latency without a clear win.
+- The latency increase is not small next to the 7.06 ms end-to-end median the 780M measured over the LAN (6-minute 1080p60 HEVC, [plan](../docs/rubylight-3.0-plan.md), B9 row), and the rule is no added latency without a clear win.
 - The gain exists only when the link and the bitrate target are generous; at 2 Mbit/s it is a loss. A preset cannot know the link.
 - The advertisement is host-wide: `experimental_packed_444` is probed at startup (`rust/host/src/state.rs`) and the client has to request the packing, so a per-stream preset value cannot switch it on by itself. Making it a preset value would need a startup-level change, which is a separate piece of work.
 - Not measured: the Nightjar reconstruction shader on a phone, picture age end to end with a real client, AV1, and real desktop capture. The scenes are synthetic (sub-pixel text on flat backgrounds), which is close to the best case for the chroma ceiling.
@@ -377,7 +377,7 @@ Client decode, hardware HEVC through D3D11VA on the same 780M (FFmpeg `-hwaccel 
 | 1440p | 20 | 2.7 / 34.8 / 34.8 dB / 7.34 ms | 13.4 / 42.2 / 37.0 dB / 9.84 ms | 5.5 / 39.9 / 39.7 dB / 11.30 ms |
 | 1440p | 50 | 3.6 / 34.9 / 34.9 dB / 7.38 ms | 26.3 / 49.6 / 41.5 dB / 9.91 ms | 14.1 / 46.7 / 46.4 dB / 11.19 ms |
 
-Version 2 reaches 38 to 47 dB settled with 3.5 to 14 Mbit/s and keeps the scroll picture 2.7 to 5.7 dB better than version 1 at a 20 Mbit/s target, but its encode time is 2.1 to 3.9 ms above 4:2:0 (against 1.4 to 2.5 ms for version 1); the client's reconstruction cost was not measured. It does not change the verdict: the added encode time is larger, not smaller. Whether it is the better low-bitrate packing is a question for a link-limited run, which this fixed-target test does not answer.
+Version 2 reaches 38 to 47 dB settled with 3.5 to 14 Mbit/s and keeps the scroll picture 2.7 to 5.7 dB better than version 1 at a 20 Mbit/s target, but its encode time is 2.1 to 4.0 ms above 4:2:0 (against 1.4 to 2.6 ms for version 1); the client's reconstruction cost was not measured. It does not change the verdict: the added encode time is larger, not smaller. Whether it is the better low-bitrate packing is a question for a link-limited run, which this fixed-target test does not answer.
 
 Raw runs and scores: `C:\src\rl-b3b7-work\out\sdr` (`runs.jsonl`, `scores.jsonl`, the bitstreams); the decode bench output is `C:\src\rl-b3b7-work\out\decode-bench.txt` (its printed ms-per-frame column used unreliable frame counts; the table above uses the known 900 and 3600 and the rtime values).
 
@@ -385,7 +385,7 @@ Raw runs and scores: `C:\src\rl-b3b7-work\out\sdr` (`runs.jsonl`, `scores.jsonl`
 
 **Verdict: unresolved, and no Radeon control is added.** AFMF can be switched on and restored through the existing ADLX code on the 780M, but it did not engage for the test app, so no captured picture was ever a generated one, and the latency of generated frames could not be measured.
 
-**Method.** `afmf_scene` is a borderless, top-most, full-display D3D11 flip-model window with `Present(1, 0)` and a frame-latency waitable object, capped to 30, 60 or 240 fps. It draws a 64 px bar that jumps 48 px per frame and the frame number as 16 bits, so a rendered picture reads back its own number and a generated one shows a bar between two positions or a blend. `afmf_capture` captures the same display with WGC or Desktop Duplication through the host's capture module and classifies every captured picture as rendered, generated or unreadable. `radeon_set` writes `afmf.enabled` through the journaled controller and restores it. The engagement test is the app's own pacing: AFMF draws the app at about half the display rate, so an app that could run faster than the 120 Hz refresh would be held to about 60.
+**Method.** `afmf_scene` is a borderless, top-most, full-display D3D11 flip-model window with `Present(1, 0)` and a frame-latency waitable object, capped to 30, 60 or 240 fps. It draws a 64 px bar that jumps 48 px per frame and the frame number as 16 bits, so a rendered picture reads back its own number and a generated one shows a bar between two positions or a blend. `afmf_capture` captures the same display with WGC or Desktop Duplication through the host's capture module and classifies every captured picture as rendered, generated or unreadable. `radeon_set` writes `afmf.enabled` through the journaled controller and restores it. The engagement test is the app's own pacing. This is an assumption, not something measured here: that AFMF holds the app to about half the display rate, so an app that could run faster than the 120 Hz refresh would drop to about 60. The scene's bar jump and full-screen scroll may also be fast enough that AFMF's fast-motion handling falls back, which would look the same.
 
 | AFMF | Capture | App cap (fps) | App rendered fps | Captured fps | Rendered / generated / unreadable |
 | --- | --- | ---: | ---: | ---: | --- |
@@ -401,9 +401,9 @@ Raw runs and scores: `C:\src\rl-b3b7-work\out\sdr` (`runs.jsonl`, `scores.jsonl`
 | on, no capture running | none | 240 | 119.72 | n/a | n/a |
 | on, no capture running | none | 60 | 60.07 | n/a | n/a |
 
-`afmf.enabled` read back true while on, the restore returned cleanly, and nothing was pending afterwards. With it on the app was not slowed (119.7 against 119.9 fps), so the driver did not take over the pacing, and not one captured picture had a bar between positions. Exclusive fullscreen was tried on this panel and DXGI refused it (`SetFullscreenState` returned `0x887A0001` every time), so the borderless path is the only one tested.
+`afmf.enabled` read back true while on, the restore returned cleanly, and nothing was pending afterwards. With it on the app was not slowed (119.7 against 119.9 fps), so there was no sign that the driver took over the pacing (under the assumption above), and not one captured picture had a bar between positions. Exclusive fullscreen was tried on this panel and DXGI refused it (`SetFullscreenState` returned `0x887A0001` every time; observed during the work but the output was not saved), so the borderless path is the only one tested.
 
-**What this does and does not say.** On the 780M with this driver, a borderless D3D11 flip-model window was not interpolated, so WGC and Desktop Duplication captured only the app's own frames in every cell. It does not show that AFMF output is invisible to capture: AFMF may work for a game the driver recognises or in a mode this laptop could not offer, and then the answer could differ. The IddCx virtual display path was not run, because without a generated frame there was nothing to compare. No latency figure for AFMF is claimed.
+**What this does and does not say.** On the 780M with this driver, a borderless D3D11 flip-model window showed no sign of frame generation, so WGC and Desktop Duplication captured only the app's own frames in every cell. It does not show that AFMF output is invisible to capture: AFMF may work for a game the driver recognises or in a mode this laptop could not offer, or with slower motion than this scene's bar jump and full-screen scroll (AFMF reduces generation on fast motion), and then the answer could differ. The IddCx virtual display path was not run, because without a generated frame there was nothing to compare. No latency figure for AFMF is claimed.
 
 Raw reports: `C:\src\rl-b3b7-work\out\afmf` (`*.capture.json`, `*.scene.json`, `matrix.log`).
 

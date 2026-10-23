@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Navegación</string>
     <string name="desktop_controls_numpad">Teclado numérico</string>
     <string name="desktop_controls_shortcuts">Atajos</string>
-    <string name="desktop_controls_system_keyboard">Teclado del teléfono</string>
+    <string name="desktop_controls_system_keyboard">Teclado del sistema</string>
     <string name="desktop_controls_pad_hint">Mover · Tocar para hacer clic\nDos dedos para desplazarse o hacer clic derecho</string>
     <string name="desktop_controls_pad_no_tap">Mover · Dos dedos para desplazarse\nUsa los botones del ratón para hacer clic</string>
     <string name="desktop_controls_pad_accessibility">Panel táctil. Mueve un dedo para mover el puntero. Mueve dos dedos para desplazarte. Toca con dos dedos para hacer clic derecho.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Mostrar botón central del ratón</string>
     <string name="desktop_controls_extra_visible">Mostrar botones Atrás y Adelante del ratón</string>
     <string name="desktop_controls_lock_modifiers">Mantener los modificadores seleccionados para varias teclas</string>
-    <string name="desktop_controls_modifier_help">Toca los modificadores para seleccionarlos y combinarlos con teclas del panel. Mantén pulsado un modificador para enviarlo solo. La selección se borra al cerrar el panel. El texto del teclado del teléfono usa sus propios modificadores.</string>
+    <string name="desktop_controls_modifier_help">Toca los modificadores para seleccionarlos y combinarlos con teclas del panel. Mantén pulsado un modificador para enviarlo solo. La selección se borra al cerrar el panel. El texto del teclado del sistema usa sus propios modificadores.</string>
     <string name="desktop_controls_function_visible">Mostrar teclas de función</string>
     <string name="desktop_controls_navigation_visible">Mostrar teclas de navegación</string>
     <string name="desktop_controls_numpad_visible">Mostrar teclado numérico</string>

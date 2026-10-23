@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Navegação</string>
     <string name="desktop_controls_numpad">Teclado numérico</string>
     <string name="desktop_controls_shortcuts">Atalhos</string>
-    <string name="desktop_controls_system_keyboard">Teclado do celular</string>
+    <string name="desktop_controls_system_keyboard">Teclado do sistema</string>
     <string name="desktop_controls_pad_hint">Mover · Toque para clicar\nDois dedos para rolar ou clicar com o botão direito</string>
     <string name="desktop_controls_pad_no_tap">Mover · Dois dedos para rolar\nUse os botões do mouse para clicar</string>
     <string name="desktop_controls_pad_accessibility">Touchpad. Mova um dedo para mover o ponteiro. Mova dois dedos para rolar. Toque com dois dedos para clicar com o botão direito.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Mostrar botão do meio do mouse</string>
     <string name="desktop_controls_extra_visible">Mostrar botões Voltar e Avançar do mouse</string>
     <string name="desktop_controls_lock_modifiers">Manter os modificadores selecionados para várias teclas</string>
-    <string name="desktop_controls_modifier_help">Toque nos modificadores para selecioná-los e combiná-los com as teclas do painel. Mantenha um modificador pressionado para enviá-lo sozinho. As seleções são limpas ao fechar o painel. O teclado do celular usa seus próprios modificadores.</string>
+    <string name="desktop_controls_modifier_help">Toque nos modificadores para selecioná-los e combiná-los com as teclas do painel. Mantenha um modificador pressionado para enviá-lo sozinho. As seleções são limpas ao fechar o painel. O teclado do sistema usa seus próprios modificadores.</string>
     <string name="desktop_controls_function_visible">Mostrar teclas de função</string>
     <string name="desktop_controls_navigation_visible">Mostrar teclas de navegação</string>
     <string name="desktop_controls_numpad_visible">Mostrar teclado numérico</string>

@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Navigazione</string>
     <string name="desktop_controls_numpad">Tastierino</string>
     <string name="desktop_controls_shortcuts">Scorciatoie</string>
-    <string name="desktop_controls_system_keyboard">Tastiera del telefono</string>
+    <string name="desktop_controls_system_keyboard">Tastiera di sistema</string>
     <string name="desktop_controls_pad_hint">Muovi · Tocca per fare clic\nDue dita per scorrere o fare clic destro</string>
     <string name="desktop_controls_pad_no_tap">Muovi · Due dita per scorrere\nUsa i pulsanti del mouse per fare clic</string>
     <string name="desktop_controls_pad_accessibility">Trackpad. Muovi un dito per spostare il puntatore. Muovi due dita per scorrere. Tocca con due dita per fare clic destro.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Mostra pulsante centrale del mouse</string>
     <string name="desktop_controls_extra_visible">Mostra pulsanti Indietro e Avanti del mouse</string>
     <string name="desktop_controls_lock_modifiers">Mantieni i modificatori selezionati per più tasti</string>
-    <string name="desktop_controls_modifier_help">Tocca i modificatori per selezionarli e combinarli con i tasti del pannello. Tieni premuto un modificatore per inviarlo da solo. Le selezioni si cancellano alla chiusura del pannello. La tastiera del telefono usa i propri modificatori.</string>
+    <string name="desktop_controls_modifier_help">Tocca i modificatori per selezionarli e combinarli con i tasti del pannello. Tieni premuto un modificatore per inviarlo da solo. Le selezioni si cancellano alla chiusura del pannello. La tastiera di sistema usa i propri modificatori.</string>
     <string name="desktop_controls_function_visible">Mostra tasti funzione</string>
     <string name="desktop_controls_navigation_visible">Mostra tasti di navigazione</string>
     <string name="desktop_controls_numpad_visible">Mostra tastierino numerico</string>

@@ -32,7 +32,7 @@
     <string name="desktop_controls_middle_visible">Show middle mouse button</string>
     <string name="desktop_controls_extra_visible">Show mouse Back and Forward</string>
     <string name="desktop_controls_lock_modifiers">Keep selected modifiers for more than one key</string>
-    <string name="desktop_controls_modifier_help">Tap modifiers to select them for panel keys. Hold a modifier to send it alone. Selections clear when you close the panel. Phone keyboard text uses its own modifiers.</string>
+    <string name="desktop_controls_modifier_help">Tap modifiers to select them for panel keys. Hold a modifier to send it alone. Selections clear when you close the panel. System keyboard text uses its own modifiers.</string>
     <string name="desktop_controls_function_visible">Show function keys</string>
     <string name="desktop_controls_navigation_visible">Show navigation keys</string>
     <string name="desktop_controls_numpad_visible">Show number pad</string>

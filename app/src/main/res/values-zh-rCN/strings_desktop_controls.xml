@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">导航键</string>
     <string name="desktop_controls_numpad">数字键盘</string>
     <string name="desktop_controls_shortcuts">快捷键</string>
-    <string name="desktop_controls_system_keyboard">手机键盘</string>
+    <string name="desktop_controls_system_keyboard">系统键盘</string>
     <string name="desktop_controls_pad_hint">移动 · 轻点以点击\n双指滚动或右键点击</string>
     <string name="desktop_controls_pad_no_tap">移动 · 双指滚动\n使用鼠标按钮点击</string>
     <string name="desktop_controls_pad_accessibility">触控板。单指移动可移动指针。双指移动可滚动。双指轻点可右键点击。</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">显示鼠标中键</string>
     <string name="desktop_controls_extra_visible">显示鼠标后退和前进键</string>
     <string name="desktop_controls_lock_modifiers">为多个按键保留选中的修饰键</string>
-    <string name="desktop_controls_modifier_help">轻点修饰键可选择要与面板按键组合的键。长按修饰键可单独发送该键。关闭面板时会清除选择。手机键盘输入的文字使用其自身的修饰键。</string>
+    <string name="desktop_controls_modifier_help">轻点修饰键可选择要与面板按键组合的键。长按修饰键可单独发送该键。关闭面板时会清除选择。系统键盘输入的文字使用其自身的修饰键。</string>
     <string name="desktop_controls_function_visible">显示功能键</string>
     <string name="desktop_controls_navigation_visible">显示导航键</string>
     <string name="desktop_controls_numpad_visible">显示数字键盘</string>

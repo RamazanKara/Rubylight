@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Navigation</string>
     <string name="desktop_controls_numpad">Pavé numérique</string>
     <string name="desktop_controls_shortcuts">Raccourcis</string>
-    <string name="desktop_controls_system_keyboard">Clavier du téléphone</string>
+    <string name="desktop_controls_system_keyboard">Clavier système</string>
     <string name="desktop_controls_pad_hint">Déplacer · Toucher pour cliquer\nDeux doigts pour défiler ou faire un clic droit</string>
     <string name="desktop_controls_pad_no_tap">Déplacer · Deux doigts pour défiler\nUtilisez les boutons de la souris pour cliquer</string>
     <string name="desktop_controls_pad_accessibility">Pavé tactile. Déplacez un doigt pour déplacer le pointeur. Déplacez deux doigts pour défiler. Touchez avec deux doigts pour faire un clic droit.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Afficher le bouton du milieu de la souris</string>
     <string name="desktop_controls_extra_visible">Afficher les boutons Précédent et Suivant de la souris</string>
     <string name="desktop_controls_lock_modifiers">Conserver les modificateurs sélectionnés pour plusieurs touches</string>
-    <string name="desktop_controls_modifier_help">Touchez les modificateurs pour les sélectionner et les combiner aux touches du panneau. Maintenez un modificateur pour l’envoyer seul. La sélection est effacée à la fermeture du panneau. Le clavier du téléphone utilise ses propres modificateurs.</string>
+    <string name="desktop_controls_modifier_help">Touchez les modificateurs pour les sélectionner et les combiner aux touches du panneau. Maintenez un modificateur pour l’envoyer seul. La sélection est effacée à la fermeture du panneau. Le clavier système utilise ses propres modificateurs.</string>
     <string name="desktop_controls_function_visible">Afficher les touches de fonction</string>
     <string name="desktop_controls_navigation_visible">Afficher les touches de navigation</string>
     <string name="desktop_controls_numpad_visible">Afficher le pavé numérique</string>

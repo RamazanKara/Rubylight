@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">ナビゲーション</string>
     <string name="desktop_controls_numpad">テンキー</string>
     <string name="desktop_controls_shortcuts">ショートカット</string>
-    <string name="desktop_controls_system_keyboard">スマートフォンのキーボード</string>
+    <string name="desktop_controls_system_keyboard">システムキーボード</string>
     <string name="desktop_controls_pad_hint">移動 · タップでクリック\n2本指でスクロールまたは右クリック</string>
     <string name="desktop_controls_pad_no_tap">移動 · 2本指でスクロール\nマウスボタンでクリック</string>
     <string name="desktop_controls_pad_accessibility">トラックパッド。1本指で動かすとポインターを移動します。2本指で動かすとスクロールします。2本指でタップすると右クリックします。</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">マウスの中央ボタンを表示</string>
     <string name="desktop_controls_extra_visible">マウスの戻る・進むボタンを表示</string>
     <string name="desktop_controls_lock_modifiers">選択した修飾キーを複数のキー入力で保持</string>
-    <string name="desktop_controls_modifier_help">修飾キーをタップすると、パネルのキーと組み合わせるキーを選択できます。修飾キーを長押しすると、そのキーだけを送信します。パネルを閉じると選択が解除されます。スマートフォンのキーボードで入力するテキストには、そのキーボードの修飾キーが使われます。</string>
+    <string name="desktop_controls_modifier_help">修飾キーをタップすると、パネルのキーと組み合わせるキーを選択できます。修飾キーを長押しすると、そのキーだけを送信します。パネルを閉じると選択が解除されます。システムキーボードで入力するテキストには、そのキーボードの修飾キーが使われます。</string>
     <string name="desktop_controls_function_visible">ファンクションキーを表示</string>
     <string name="desktop_controls_navigation_visible">ナビゲーションキーを表示</string>
     <string name="desktop_controls_numpad_visible">テンキーを表示</string>

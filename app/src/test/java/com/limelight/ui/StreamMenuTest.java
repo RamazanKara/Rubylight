@@ -352,7 +352,7 @@ public class StreamMenuTest {
                 assertNull(menu.row(item));
                 assertFalse(items(menu.entries()).contains(item));
             }
-            assertEquals("On-screen keyboard", menu.row(KEYBOARD).getText().toString());
+            assertEquals("System keyboard", menu.row(KEYBOARD).getText().toString());
             assertNotNull(menu.row(KEYBOARD_KEYS));
             assertNotNull(menu.row(DISCONNECT));
             menu.row(OVERLAY_PAGE).performClick();

@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Навігація</string>
     <string name="desktop_controls_numpad">Цифровий блок</string>
     <string name="desktop_controls_shortcuts">Сполучення</string>
-    <string name="desktop_controls_system_keyboard">Клавіатура телефона</string>
+    <string name="desktop_controls_system_keyboard">Системна клавіатура</string>
     <string name="desktop_controls_pad_hint">Переміщення · Дотик для клацання\nДва пальці для прокручування або правого клацання</string>
     <string name="desktop_controls_pad_no_tap">Переміщення · Прокручування двома пальцями\nДля клацання використовуйте кнопки миші</string>
     <string name="desktop_controls_pad_accessibility">Тачпад. Рухайте одним пальцем, щоб переміщувати вказівник. Рухайте двома пальцями, щоб прокручувати. Торкніться двома пальцями, щоб клацнути правою кнопкою.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Показувати середню кнопку миші</string>
     <string name="desktop_controls_extra_visible">Показувати кнопки миші «Назад» і «Вперед»</string>
     <string name="desktop_controls_lock_modifiers">Зберігати вибрані модифікатори для кількох клавіш</string>
-    <string name="desktop_controls_modifier_help">Торкніться модифікаторів, щоб вибрати їх для поєднання з клавішами панелі. Утримуйте модифікатор, щоб надіслати його окремо. Після закриття панелі вибір скидається. Клавіатура телефона використовує власні модифікатори.</string>
+    <string name="desktop_controls_modifier_help">Торкніться модифікаторів, щоб вибрати їх для поєднання з клавішами панелі. Утримуйте модифікатор, щоб надіслати його окремо. Після закриття панелі вибір скидається. Системна клавіатура використовує власні модифікатори.</string>
     <string name="desktop_controls_function_visible">Показувати функціональні клавіші</string>
     <string name="desktop_controls_navigation_visible">Показувати клавіші навігації</string>
     <string name="desktop_controls_numpad_visible">Показувати цифровий блок</string>

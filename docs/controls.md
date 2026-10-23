@@ -156,9 +156,9 @@ The gear opens customization: key and panel size, background opacity, pointer sp
 
 **stream menu → PC keyboard** (top row), **Ctrl+Alt+Shift+K** or a finger-tap gesture set to **PC keyboard** opens a full PC keyboard over the bottom of the stream: Esc and F1-F12, the number row, letters, Tab, Caps, Enter, Backspace, Space, arrows, Home, End, PgUp, PgDn, Ins, Del and PrtSc. It is for keys a phone keyboard lacks, such as F-keys, Ctrl combinations and Win. Opening it closes the desktop panel and the system keyboard, and the other way round.
 
-- **Modifiers are sticky.** Tap Ctrl, Alt, Shift or Win once to apply it to the next key (blue), tap twice to lock it (amber) and tap again to release it. Locked modifiers stay held on the PC until released.
+- **Modifiers are sticky.** Tap Ctrl, Alt, Shift or Win once to apply it to the next key (blue), tap twice to lock it (amber) and tap again to release it. Locked modifiers stay held on the PC until released. A Win or Alt that was never combined with a key sends a neutral key first when it is released, so it does not open the Start menu or the menu bar; use Ctrl+Esc for Start.
 - **Keys repeat** while held, like a PC keyboard, and several fingers can press at once.
-- **Layout.** English (US) or German (QWERTZ), chosen from the system language. Change it for this stream with the layout label in the keyboard's header, or permanently in **Settings → Controls → Keyboard → Keyboard layout**. The keys send key positions, not characters, so the Windows layout on the PC decides which character appears. Set both to the same layout.
+- **Layout.** English (US) or German (QWERTZ), chosen from the system language (German legends only for German, Austrian, Luxembourg and Liechtenstein locales, so Swiss German gets US). Change it for this stream with the layout label in the keyboard's header, or permanently in **Settings → Controls → Keyboard → Keyboard layout**. The keys send key positions, not characters, so the Windows layout on the PC decides which character appears. Set both to the same layout.
 - **Size and opacity** are in the same settings: the keyboard takes 30-70% of the screen height (default 50%) and 30-100% opacity (default 90%). It only covers the bottom of the stream and respects display cutouts and system bars. It fits landscape phones, handhelds and TVs.
 - **Closing releases everything.** Closing the keyboard, leaving the stream or losing input releases every key and modifier it pressed, so none stays stuck on the PC.
 
@@ -174,7 +174,7 @@ While the keyboard is open, controllers and TV remotes steer it and the game get
 | LB / RB | Toggle Shift / Ctrl |
 | Start | Enter |
 
-With **Flip face buttons** on, A/B and X/Y swap here as they do in games. A TV remote uses the D-pad and OK. This works for Android-mapped and USB-driver controllers alike.
+With **Flip face buttons** on, A/B and X/Y swap here as they do in games, and a button you remapped for that controller in the button map does what its target does here (a disabled button does nothing). A TV remote uses the D-pad and OK. This works for Android-mapped and USB-driver controllers alike.
 
 ### Keyboard options
 

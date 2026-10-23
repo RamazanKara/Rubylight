@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Điều hướng</string>
     <string name="desktop_controls_numpad">Bàn phím số</string>
     <string name="desktop_controls_shortcuts">Phím tắt</string>
-    <string name="desktop_controls_system_keyboard">Bàn phím điện thoại</string>
+    <string name="desktop_controls_system_keyboard">Bàn phím hệ thống</string>
     <string name="desktop_controls_pad_hint">Di chuyển · Chạm để nhấp\nDùng hai ngón tay để cuộn hoặc nhấp chuột phải</string>
     <string name="desktop_controls_pad_no_tap">Di chuyển · Dùng hai ngón tay để cuộn\nDùng các nút chuột để nhấp</string>
     <string name="desktop_controls_pad_accessibility">Bàn di chuột. Di chuyển một ngón tay để di chuyển con trỏ. Di chuyển hai ngón tay để cuộn. Chạm bằng hai ngón tay để nhấp chuột phải.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Hiển thị nút chuột giữa</string>
     <string name="desktop_controls_extra_visible">Hiển thị nút Quay lại và Tiến của chuột</string>
     <string name="desktop_controls_lock_modifiers">Giữ các phím bổ trợ đã chọn cho nhiều phím</string>
-    <string name="desktop_controls_modifier_help">Chạm vào phím bổ trợ để chọn và kết hợp với các phím trên bảng. Nhấn giữ phím bổ trợ để gửi riêng phím đó. Lựa chọn sẽ bị xóa khi đóng bảng. Bàn phím điện thoại sử dụng các phím bổ trợ riêng.</string>
+    <string name="desktop_controls_modifier_help">Chạm vào phím bổ trợ để chọn và kết hợp với các phím trên bảng. Nhấn giữ phím bổ trợ để gửi riêng phím đó. Lựa chọn sẽ bị xóa khi đóng bảng. Bàn phím hệ thống sử dụng các phím bổ trợ riêng.</string>
     <string name="desktop_controls_function_visible">Hiển thị các phím chức năng</string>
     <string name="desktop_controls_navigation_visible">Hiển thị các phím điều hướng</string>
     <string name="desktop_controls_numpad_visible">Hiển thị bàn phím số</string>

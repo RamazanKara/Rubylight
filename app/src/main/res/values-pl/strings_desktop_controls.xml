@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Nawigacja</string>
     <string name="desktop_controls_numpad">Numeryczne</string>
     <string name="desktop_controls_shortcuts">Skróty</string>
-    <string name="desktop_controls_system_keyboard">Klawiatura telefonu</string>
+    <string name="desktop_controls_system_keyboard">Klawiatura systemowa</string>
     <string name="desktop_controls_pad_hint">Przesuwaj · Stuknij, aby kliknąć\nDwa palce: przewijanie lub prawy przycisk</string>
     <string name="desktop_controls_pad_no_tap">Przesuwaj · Przewijaj dwoma palcami\nKlikaj przyciskami myszy</string>
     <string name="desktop_controls_pad_accessibility">Touchpad. Przesuń jeden palec, aby poruszyć wskaźnikiem. Przesuń dwa palce, aby przewijać. Stuknij dwoma palcami, aby kliknąć prawym przyciskiem.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Pokaż środkowy przycisk myszy</string>
     <string name="desktop_controls_extra_visible">Pokaż przyciski myszy Wstecz i Dalej</string>
     <string name="desktop_controls_lock_modifiers">Zachowaj wybrane modyfikatory dla kilku klawiszy</string>
-    <string name="desktop_controls_modifier_help">Stuknij modyfikatory, aby wybrać je do połączenia z klawiszami panelu. Przytrzymaj modyfikator, aby wysłać go osobno. Zamknięcie panelu usuwa wybór. Klawiatura telefonu używa własnych modyfikatorów.</string>
+    <string name="desktop_controls_modifier_help">Stuknij modyfikatory, aby wybrać je do połączenia z klawiszami panelu. Przytrzymaj modyfikator, aby wysłać go osobno. Zamknięcie panelu usuwa wybór. Klawiatura systemowa używa własnych modyfikatorów.</string>
     <string name="desktop_controls_function_visible">Pokaż klawisze funkcyjne</string>
     <string name="desktop_controls_navigation_visible">Pokaż klawisze nawigacyjne</string>
     <string name="desktop_controls_numpad_visible">Pokaż klawiaturę numeryczną</string>

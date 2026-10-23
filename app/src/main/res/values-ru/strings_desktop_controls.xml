@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Навигация</string>
     <string name="desktop_controls_numpad">Цифровой блок</string>
     <string name="desktop_controls_shortcuts">Сочетания</string>
-    <string name="desktop_controls_system_keyboard">Клавиатура телефона</string>
+    <string name="desktop_controls_system_keyboard">Системная клавиатура</string>
     <string name="desktop_controls_pad_hint">Перемещение · Касание для щелчка\nДва пальца для прокрутки или правого щелчка</string>
     <string name="desktop_controls_pad_no_tap">Перемещение · Прокрутка двумя пальцами\nИспользуйте кнопки мыши для щелчков</string>
     <string name="desktop_controls_pad_accessibility">Тачпад. Перемещайте один палец для перемещения указателя. Перемещайте два пальца для прокрутки. Коснитесь двумя пальцами для щелчка правой кнопкой.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Показывать среднюю кнопку мыши</string>
     <string name="desktop_controls_extra_visible">Показывать кнопки мыши «Назад» и «Вперёд»</string>
     <string name="desktop_controls_lock_modifiers">Сохранять выбранные модификаторы для нескольких клавиш</string>
-    <string name="desktop_controls_modifier_help">Коснитесь модификаторов, чтобы выбрать их для сочетания с клавишами панели. Удерживайте модификатор, чтобы отправить его отдельно. При закрытии панели выбор сбрасывается. Клавиатура телефона использует собственные модификаторы.</string>
+    <string name="desktop_controls_modifier_help">Коснитесь модификаторов, чтобы выбрать их для сочетания с клавишами панели. Удерживайте модификатор, чтобы отправить его отдельно. При закрытии панели выбор сбрасывается. Системная клавиатура использует собственные модификаторы.</string>
     <string name="desktop_controls_function_visible">Показывать функциональные клавиши</string>
     <string name="desktop_controls_navigation_visible">Показывать клавиши навигации</string>
     <string name="desktop_controls_numpad_visible">Показывать цифровой блок</string>

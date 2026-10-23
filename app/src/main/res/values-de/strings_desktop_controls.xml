@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Navigation</string>
     <string name="desktop_controls_numpad">Ziffernblock</string>
     <string name="desktop_controls_shortcuts">Tastenkürzel</string>
-    <string name="desktop_controls_system_keyboard">Handytastatur</string>
+    <string name="desktop_controls_system_keyboard">Systemtastatur</string>
     <string name="desktop_controls_pad_hint">Bewegen · Zum Klicken tippen\nZwei Finger zum Scrollen oder Rechtsklicken</string>
     <string name="desktop_controls_pad_no_tap">Bewegen · Zwei Finger zum Scrollen\nZum Klicken die Maustasten verwenden</string>
     <string name="desktop_controls_pad_accessibility">Touchpad. Bewege einen Finger, um den Mauszeiger zu bewegen. Bewege zwei Finger zum Scrollen. Tippe mit zwei Fingern für einen Rechtsklick.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Mittlere Maustaste anzeigen</string>
     <string name="desktop_controls_extra_visible">Maustasten Zurück und Vor anzeigen</string>
     <string name="desktop_controls_lock_modifiers">Ausgewählte Zusatztasten für mehrere Tasten beibehalten</string>
-    <string name="desktop_controls_modifier_help">Tippe auf Zusatztasten, um sie für Tasten im Bedienfeld auszuwählen. Halte eine Zusatztaste gedrückt, um sie allein zu senden. Beim Schließen des Bedienfelds wird die Auswahl aufgehoben. Die Handytastatur verwendet eigene Zusatztasten.</string>
+    <string name="desktop_controls_modifier_help">Tippe auf Zusatztasten, um sie für Tasten im Bedienfeld auszuwählen. Halte eine Zusatztaste gedrückt, um sie allein zu senden. Beim Schließen des Bedienfelds wird die Auswahl aufgehoben. Die Systemtastatur verwendet eigene Zusatztasten.</string>
     <string name="desktop_controls_function_visible">Funktionstasten anzeigen</string>
     <string name="desktop_controls_navigation_visible">Navigationstasten anzeigen</string>
     <string name="desktop_controls_numpad_visible">Ziffernblock anzeigen</string>

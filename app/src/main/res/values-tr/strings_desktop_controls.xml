@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">Gezinme</string>
     <string name="desktop_controls_numpad">Sayı tuşları</string>
     <string name="desktop_controls_shortcuts">Kısayollar</string>
-    <string name="desktop_controls_system_keyboard">Telefon klavyesi</string>
+    <string name="desktop_controls_system_keyboard">Sistem klavyesi</string>
     <string name="desktop_controls_pad_hint">Hareket ettir · Tıklamak için dokun\nKaydırmak veya sağ tıklamak için iki parmak</string>
     <string name="desktop_controls_pad_no_tap">Hareket ettir · İki parmakla kaydır\nTıklamak için fare düğmelerini kullan</string>
     <string name="desktop_controls_pad_accessibility">Dokunmatik yüzey. İşaretçiyi hareket ettirmek için bir parmağını hareket ettir. Kaydırmak için iki parmağını hareket ettir. Sağ tıklamak için iki parmakla dokun.</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">Orta fare düğmesini göster</string>
     <string name="desktop_controls_extra_visible">Farenin Geri ve İleri düğmelerini göster</string>
     <string name="desktop_controls_lock_modifiers">Seçilen değiştirici tuşları birden fazla tuş için koru</string>
-    <string name="desktop_controls_modifier_help">Değiştirici tuşları panel tuşlarıyla birleştirmek üzere seçmek için dokun. Bir değiştirici tuşu tek başına göndermek için basılı tut. Paneli kapattığında seçimler temizlenir. Telefon klavyesi kendi değiştirici tuşlarını kullanır.</string>
+    <string name="desktop_controls_modifier_help">Değiştirici tuşları panel tuşlarıyla birleştirmek üzere seçmek için dokun. Bir değiştirici tuşu tek başına göndermek için basılı tut. Paneli kapattığında seçimler temizlenir. Sistem klavyesi kendi değiştirici tuşlarını kullanır.</string>
     <string name="desktop_controls_function_visible">İşlev tuşlarını göster</string>
     <string name="desktop_controls_navigation_visible">Gezinme tuşlarını göster</string>
     <string name="desktop_controls_numpad_visible">Sayısal tuş takımını göster</string>

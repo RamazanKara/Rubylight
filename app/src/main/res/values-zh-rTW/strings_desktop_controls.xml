@@ -13,7 +13,7 @@
     <string name="desktop_controls_navigation">導覽鍵</string>
     <string name="desktop_controls_numpad">數字鍵盤</string>
     <string name="desktop_controls_shortcuts">快捷鍵</string>
-    <string name="desktop_controls_system_keyboard">手機鍵盤</string>
+    <string name="desktop_controls_system_keyboard">系統鍵盤</string>
     <string name="desktop_controls_pad_hint">移動 · 輕點以點按\n雙指捲動或按右鍵</string>
     <string name="desktop_controls_pad_no_tap">移動 · 雙指捲動\n使用滑鼠按鈕點按</string>
     <string name="desktop_controls_pad_accessibility">觸控板。單指移動可移動游標。雙指移動可捲動。雙指輕點可按滑鼠右鍵。</string>
@@ -33,7 +33,7 @@
     <string name="desktop_controls_middle_visible">顯示滑鼠中鍵</string>
     <string name="desktop_controls_extra_visible">顯示滑鼠上一頁與下一頁按鈕</string>
     <string name="desktop_controls_lock_modifiers">為多個按鍵保留選取的輔助鍵</string>
-    <string name="desktop_controls_modifier_help">輕點輔助鍵可選取要與面板按鍵組合的鍵。長按輔助鍵可單獨傳送該鍵。關閉面板時會清除選取項目。手機鍵盤輸入的文字會使用其自身的輔助鍵。</string>
+    <string name="desktop_controls_modifier_help">輕點輔助鍵可選取要與面板按鍵組合的鍵。長按輔助鍵可單獨傳送該鍵。關閉面板時會清除選取項目。系統鍵盤輸入的文字會使用其自身的輔助鍵。</string>
     <string name="desktop_controls_function_visible">顯示功能鍵</string>
     <string name="desktop_controls_navigation_visible">顯示導覽鍵</string>
     <string name="desktop_controls_numpad_visible">顯示數字鍵盤</string>

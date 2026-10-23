@@ -4,7 +4,7 @@ use rubylight_native_api::capabilities::Capabilities;
 use rubylight_native_api::error::{ErrorBody, ErrorCode};
 use rubylight_native_api::library::Library;
 use rubylight_native_api::radeon::{Change, ControlState, Kind, Radeon, SettingsWrite, Value};
-use rubylight_native_api::session::{ActionId, Owner, Session, State};
+use rubylight_native_api::session::{ActionId, LauncherKind, Owner, ProfileState, Session, State};
 use rubylight_native_api::{feature, API_VERSION, PREFIX, SERVERINFO_FIELD};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -75,6 +75,38 @@ fn session_round_trip() {
 }
 
 #[test]
+fn session_with_a_launcher_notice_and_a_radeon_profile_round_trips() {
+    let session: Session = round_trip("session_launcher");
+    let launcher = session.launcher.as_ref().unwrap();
+    assert_eq!(launcher.launcher, "steam");
+    assert_eq!(launcher.kind, LauncherKind::Update);
+    let profile = session.radeon_profile.as_ref().unwrap();
+    assert_eq!(profile.state, ProfileState::Applied);
+    assert_eq!(
+        profile.settings,
+        ["frame_rate_target.enabled", "frame_rate_target.fps"]
+    );
+    // A host without either field is the plain session of before.
+    let plain: Session = round_trip("session");
+    assert!(plain.launcher.is_none() && plain.radeon_profile.is_none());
+    let text = serde_json::to_string(&plain).unwrap();
+    assert!(!text.contains("launcher") && !text.contains("radeon_profile"));
+}
+
+#[test]
+fn a_kind_or_state_from_a_newer_host_decodes_as_unknown() {
+    let session: Session = serde_json::from_value(json!({
+        "revision": 1, "state": "streaming", "owner": "you", "app": null,
+        "game_running": true, "actions": [],
+        "launcher": { "launcher": "gog", "kind": "region_lock", "window_title": "x", "since_unix_ms": 1 },
+        "radeon_profile": { "profile": "quality", "state": "queued" }
+    }))
+    .unwrap();
+    assert_eq!(session.launcher.unwrap().kind, LauncherKind::Unknown);
+    assert_eq!(session.radeon_profile.unwrap().state, ProfileState::Unknown);
+}
+
+#[test]
 fn session_without_details_serialises_null_app_and_no_times() {
     let session = Session {
         revision: 3,
@@ -84,6 +116,8 @@ fn session_without_details_serialises_null_app_and_no_times() {
         game_running: true,
         since_unix_ms: None,
         suspended_until_unix_ms: None,
+        launcher: None,
+        radeon_profile: None,
         actions: vec![],
     };
     let value = serde_json::to_value(&session).unwrap();

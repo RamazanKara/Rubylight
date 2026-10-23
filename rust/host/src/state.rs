@@ -194,6 +194,8 @@ pub struct Host {
     pub probed_encoder: Mutex<&'static str>,
     /// Which session changed Radeon settings, and when they go back.
     pub radeon: crate::radeon_session::Radeon,
+    /// The Radeon profile applied for the owner's game and a launcher prompt, for the session.
+    pub notes: crate::session_notes::SessionNotes,
     pub assets: PathBuf,
 }
 impl Host {
@@ -426,6 +428,7 @@ impl Host {
             serverinfo_cache: Mutex::new(Default::default()),
             probed_encoder: Mutex::new(""),
             radeon: crate::radeon_session::Radeon::default(),
+            notes: crate::session_notes::SessionNotes::default(),
         }))
     }
     pub fn assign_apps(&self, apps: &mut [App]) -> Result<()> {

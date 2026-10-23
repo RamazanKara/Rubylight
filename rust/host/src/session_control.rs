@@ -276,9 +276,12 @@ impl Host {
 
     /// The session as the native API shows it.
     pub fn session_snapshot(&self) -> SessionSnapshot {
-        self.with_session(|machine, facts, _| {
+        let mut snapshot = self.with_session(|machine, facts, _| {
             machine.snapshot(facts, self.grace_ms(machine.owner()))
-        })
+        });
+        self.notes
+            .fill(&mut snapshot, |device| self.radeon.holds(device));
+        snapshot
     }
     /// Follow the host between launches and teardowns: a stream starts or
     /// ends, a launch is never joined, the game exits. Every housekeeping

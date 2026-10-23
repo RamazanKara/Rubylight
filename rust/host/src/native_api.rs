@@ -262,19 +262,28 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                     .unique_id
                     .clone(),
             },
-            features: [feature::LIBRARY, feature::SESSION, feature::CLOSE_GAME]
-                .into_iter()
-                // The Radeon endpoints answer only where the host started its Radeon worker.
-                .chain(
-                    h.radeon
-                        .worker()
-                        .is_some()
-                        .then_some([feature::RADEON_READ, feature::RADEON_WRITE])
-                        .into_iter()
-                        .flatten(),
-                )
-                .map(String::from)
-                .collect(),
+            features: [
+                feature::LIBRARY,
+                feature::SESSION,
+                feature::CLOSE_GAME,
+                feature::SESSION_LAUNCHER,
+            ]
+            .into_iter()
+            // The Radeon endpoints answer only where the host started its Radeon worker.
+            .chain(
+                h.radeon
+                    .worker()
+                    .is_some()
+                    .then_some([
+                        feature::RADEON_READ,
+                        feature::RADEON_WRITE,
+                        feature::RADEON_PROFILE,
+                    ])
+                    .into_iter()
+                    .flatten(),
+            )
+            .map(String::from)
+            .collect(),
             permissions: Permissions {
                 list: client.allows(LIST),
                 view: client.allows(VIEW),

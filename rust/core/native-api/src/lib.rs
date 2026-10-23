@@ -28,4 +28,8 @@ pub mod feature {
     pub const CLOSE_GAME: &str = "session.close_game";
     pub const RADEON_READ: &str = "radeon.read";
     pub const RADEON_WRITE: &str = "radeon.write";
+    /// `Session::launcher` is filled in.
+    pub const SESSION_LAUNCHER: &str = "session.launcher";
+    /// `Session::radeon_profile` is filled in, and apps carry a Radeon profile.
+    pub const RADEON_PROFILE: &str = "radeon.profile";
 }

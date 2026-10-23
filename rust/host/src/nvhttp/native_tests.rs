@@ -25,6 +25,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 mod compat;
+mod launcher;
 mod radeon;
 
 const LIST: u32 = 1 << 24;
@@ -353,7 +354,12 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
     // Radeon features appear when the host started its Radeon worker (see native_tests/radeon.rs).
     assert_eq!(
         capabilities.features,
-        ["library", "session", "session.close_game"]
+        [
+            "library",
+            "session",
+            "session.close_game",
+            "session.launcher"
+        ]
     );
     let permissions = capabilities.permissions;
     assert_eq!(

@@ -1,0 +1,39 @@
+{
+  "profile_key": "radeon-profile",
+  "settings_key": "radeon-settings",
+  "stream_fps": "$stream_fps",
+  "profiles": [
+    {
+      "id": "competitive",
+      "label": "Competitive",
+      "description": "Turns Radeon Anti-Lag on while the game runs, to cut the time between your input and the frame it produces.",
+      "settings": [
+        { "id": "anti_lag.enabled", "value": true }
+      ]
+    },
+    {
+      "id": "smoothness",
+      "label": "Smoothness",
+      "description": "Caps the game's frame rate at the stream's, so the game does not render frames the stream drops and its frames arrive evenly.",
+      "settings": [
+        { "id": "frame_rate_target.enabled", "value": true },
+        { "id": "frame_rate_target.fps", "value": "$stream_fps" }
+      ]
+    },
+    {
+      "id": "quality",
+      "label": "Quality",
+      "description": "Turns anisotropic filtering on and lets the driver enhance the game's own anti-aliasing. Costs GPU time, so it suits games that run well under the stream's frame rate target.",
+      "settings": [
+        { "id": "anisotropic_filtering.enabled", "value": true },
+        { "id": "anti_aliasing.mode", "value": "enhance_app_settings" }
+      ]
+    },
+    {
+      "id": "custom",
+      "label": "Custom",
+      "description": "The Radeon settings listed for this game, and nothing else.",
+      "settings": []
+    }
+  ]
+}

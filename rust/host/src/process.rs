@@ -238,6 +238,9 @@ pub struct RunningApp {
     /// Fullscreen programs on that display the desktop started (pid,
     /// creation time): never closed, and not looked at again.
     desktop: std::collections::BTreeSet<(u32, u64)>,
+    /// The game's own process or window has been seen, so a launcher window is no longer
+    /// standing in for it (`launcher_watch`).
+    game_seen: bool,
 }
 /// The folder of the program an app starts, as Vibepollo uses when the app
 /// has no working directory: games often load files relative to it.
@@ -346,6 +349,7 @@ impl RunningApp {
             launched_at: butterpollo_windows::process::now(),
             foreign: BTreeMap::new(),
             desktop: Default::default(),
+            game_seen: false,
             exit_timeout: Duration::from_secs(
                 app.extra
                     .get("exit-timeout")
@@ -607,7 +611,11 @@ impl RunningApp {
             self.steam_check = std::time::Instant::now();
             let processes = butterpollo_windows::process::processes()?;
             match tracker.update(&processes, butterpollo_windows::process::image_path) {
-                Tracked::Waiting | Tracked::Running => return Ok(false),
+                Tracked::Waiting => return Ok(false),
+                Tracked::Running => {
+                    self.game_seen = true;
+                    return Ok(false);
+                }
                 Tracked::Exited => {
                     tracing::info!(app = %self.name, "the game exited");
                     return Ok(true);
@@ -654,6 +662,16 @@ impl RunningApp {
     /// Steam or Playnite tracking covers it, and its process started after the
     /// launch; quitting the plain desktop never closes what a user opened.
     pub fn observe_foreground(&mut self, pid: u32, program: &str) {
+        let is_launcher = butterpollo_core::launcher_prompt::launcher_of(program).is_some();
+        if !is_launcher
+            && self
+                .child
+                .as_ref()
+                .and_then(|child| child.process_ids().ok())
+                .is_some_and(|owned| owned.contains(&pid))
+        {
+            self.game_seen = true;
+        }
         if !self.launches
             || self.steam.is_some()
             || self.playnite.is_some()
@@ -685,6 +703,17 @@ impl RunningApp {
         }
         tracing::info!(app = %self.name, program, pid, "game started by another program; quitting the app closes it");
         self.foreign.insert(pid, created);
+        self.game_seen = true;
+    }
+    /// Whether the game itself is up, and how long ago the app was launched, for an app that
+    /// starts a program. A launcher window is a prompt only while the game is not up.
+    pub fn launch_progress(&self) -> Option<(bool, Duration)> {
+        self.launches
+            .then(|| (self.game_seen, self.started.elapsed()))
+    }
+    #[cfg(test)]
+    pub fn mark_game_seen(&mut self) {
+        self.game_seen = true;
     }
     /// Return true when the last game transport leaves an app that closes on pause.
     pub fn connection_state(&mut self, connected: bool) -> bool {

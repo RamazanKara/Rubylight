@@ -1,6 +1,7 @@
 mod console;
 mod controller_sessions;
 mod display_session;
+mod launcher_watch;
 mod library;
 mod logging;
 mod lossless;
@@ -14,11 +15,13 @@ mod playnite;
 mod process;
 mod pyrowave_probe;
 mod pyrowave_send;
+mod radeon_profile;
 mod radeon_session;
 mod remote_display;
 mod rtsp_server;
 mod runtime;
 mod session_control;
+mod session_notes;
 #[cfg(any(debug_assertions, test))]
 mod soak_fault;
 mod stall_watch;

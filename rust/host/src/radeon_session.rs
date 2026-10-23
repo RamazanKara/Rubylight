@@ -362,8 +362,7 @@ impl Inner {
         drop(failures);
         self.forget();
     }
-    /// Whether `device` may have settings changed that its session has not restored. For tests.
-    #[cfg(test)]
+    /// Whether `device` may have settings changed that its session has not restored.
     pub fn holds(&self, device: &str) -> bool {
         locked(&self.written).contains(device)
     }

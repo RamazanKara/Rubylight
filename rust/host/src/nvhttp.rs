@@ -1329,6 +1329,16 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         if let Some(session) = &mut session {
             session.succeed();
         }
+        if role == Role::Stream {
+            // Off the launch path: the profile's settings are written on a thread of their own.
+            crate::radeon_profile::launched(
+                &h,
+                &launch.client.uuid,
+                app.as_ref(),
+                args.get("mode")
+                    .and_then(|mode| crate::radeon_profile::stream_fps(mode)),
+            );
+        }
         Ok((reply.into(), format!("{scheme}://{host}:{rtsp_port}")))
     })();
     let driver_ready = result.is_ok() && butterpollo_windows::display::virtual_display_available();

@@ -10,7 +10,9 @@ use serde_json::Value;
 use crate::library::Source;
 use crate::native_api::error::ErrorCode;
 use crate::native_api::library::{Artwork, Game, Library, Store};
-use crate::native_api::session::{Action, ActionId, Owner, Session, SessionApp, State};
+use crate::native_api::session::{
+    Action, ActionId, LauncherNotice, Owner, RadeonProfile, Session, SessionApp, State,
+};
 use crate::remote;
 use crate::state::{App, Client};
 
@@ -175,6 +177,11 @@ pub struct SessionSnapshot {
     pub app: Option<SessionApp>,
     pub since_unix_ms: Option<u64>,
     pub suspended_until_unix_ms: Option<u64>,
+    /// A launcher shows a prompt in place of the game. The host adds it; the machine does not
+    /// know it.
+    pub launcher: Option<LauncherNotice>,
+    /// The Radeon profile of the running app, as applied. The host adds it too.
+    pub radeon_profile: Option<RadeonProfile>,
 }
 impl Default for SessionSnapshot {
     fn default() -> Self {
@@ -186,6 +193,8 @@ impl Default for SessionSnapshot {
             app: None,
             since_unix_ms: None,
             suspended_until_unix_ms: None,
+            launcher: None,
+            radeon_profile: None,
         }
     }
 }
@@ -305,6 +314,9 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
         suspended_until_unix_ms: snapshot
             .suspended_until_unix_ms
             .filter(|_| details && state == State::Suspended),
+        // What the host noticed about the owner's own game is the owner's to see.
+        launcher: snapshot.launcher.clone().filter(|_| details),
+        radeon_profile: snapshot.radeon_profile.clone().filter(|_| details),
         actions,
     }
 }
@@ -347,6 +359,8 @@ mod tests {
             app: Some(game(5)),
             since_unix_ms: Some(10),
             suspended_until_unix_ms: Some(20),
+            launcher: None,
+            radeon_profile: None,
         }
     }
     fn suspended(owner: &str) -> SessionSnapshot {
@@ -646,6 +660,38 @@ mod tests {
             assert!(!allowed(&session, id), "{id:?}");
             assert_eq!(reason(&session, id), Some(ErrorCode::NoSession), "{id:?}");
         }
+    }
+
+    #[test]
+    fn what_the_host_noticed_about_the_game_is_the_owners_to_see() {
+        use crate::native_api::session::{LauncherKind, ProfileState};
+        let mut noticed = snapshot(State::Streaming, "me");
+        noticed.launcher = Some(LauncherNotice {
+            launcher: "steam".into(),
+            kind: LauncherKind::Update,
+            window_title: "Updating Dota 2".into(),
+            since_unix_ms: 5,
+        });
+        noticed.radeon_profile = Some(RadeonProfile {
+            profile: "quality".into(),
+            state: ProfileState::Applied,
+            message: None,
+            settings: vec!["anisotropic_filtering.enabled".into()],
+        });
+        let mine = session_view(&noticed, &client(ALL, json!({})));
+        assert_eq!(mine.launcher, noticed.launcher);
+        assert_eq!(mine.radeon_profile, noticed.radeon_profile);
+        // Another device, or one that may neither view nor launch, sees neither.
+        let mut other = client(ALL, json!({}));
+        other.uuid = "someone-else".into();
+        let theirs = session_view(&noticed, &other);
+        assert!(theirs.launcher.is_none() && theirs.radeon_profile.is_none());
+        let blind = session_view(&noticed, &client(0, json!({})));
+        assert!(blind.launcher.is_none() && blind.radeon_profile.is_none());
+        // Nothing noticed, nothing on the wire.
+        let plain = session_view(&snapshot(State::Streaming, "me"), &client(ALL, json!({})));
+        let text = serde_json::to_string(&plain).unwrap();
+        assert!(!text.contains("launcher") && !text.contains("radeon_profile"));
     }
 
     #[test]

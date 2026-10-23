@@ -501,8 +501,10 @@ async fn capabilities_list_the_radeon_features_only_with_a_worker() {
             "library",
             "session",
             "session.close_game",
+            "session.launcher",
             "radeon.read",
-            "radeon.write"
+            "radeon.write",
+            "radeon.profile"
         ]
     );
 }
@@ -1404,4 +1406,237 @@ async fn a_new_write_clears_only_the_failures_of_the_settings_it_changes() {
     let pacing = setting(&panel, "pacing.limit");
     assert_eq!(pacing.reason.as_deref(), Some("restore_failed"));
     assert!(pacing.restore.is_some());
+}
+
+// A game's Radeon profile (plan item B5): applied at launch through the journaled path, shown to
+// the owner in the session, and restored with the session.
+
+use butterpollo_core::native_api::session::{ProfileState, RadeonProfile};
+
+impl Rig {
+    /// The first app carries `extra` (a Radeon profile) from now on.
+    fn app_with(&self, extra: serde_json::Value) -> butterpollo_core::state::App {
+        let mut apps = self.host().apps.write().unwrap();
+        for (key, value) in extra.as_object().unwrap() {
+            apps[0].extra.insert(key.clone(), value.clone());
+        }
+        apps[0].clone()
+    }
+    fn launched(&self, app: &butterpollo_core::state::App, fps: Option<u32>) {
+        crate::radeon_profile::launched(self.host(), &self.client.uuid, Some(app), fps);
+    }
+    /// The profile status once it left Applying.
+    fn settled(&self) -> RadeonProfile {
+        let until = Clock::now() + Duration::from_secs(15);
+        loop {
+            let held = self.host().notes.profile(&self.client.uuid);
+            if let Some(held) = held
+                && held.status.state != ProfileState::Applying
+            {
+                return held.status;
+            }
+            assert!(Clock::now() < until, "the Radeon profile never settled");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+fn smooth_driver() -> Fake {
+    only(vec![
+        toggle("frame_rate_target.enabled", State::Configurable, false),
+        integer("frame_rate_target.fps", State::Configurable, 60),
+        toggle("anti_lag.enabled", State::Configurable, false),
+    ])
+}
+
+#[tokio::test]
+async fn a_launched_profile_is_applied_shown_to_the_owner_and_restored_with_the_session() {
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    let app = rig.app_with(json!({"radeon-profile": "competitive"}));
+    rig.launched(&app, Some(60));
+    let status = rig.settled();
+    assert_eq!(status.state, ProfileState::Applied, "{status:?}");
+    assert_eq!(status.profile, "competitive");
+    assert_eq!(status.settings, ["anti_lag.enabled"]);
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(true));
+    assert_eq!(rig.journal().len(), 1);
+
+    // The session of the owner says so, and its revision moved with it.
+    let session = rig.get("/session").await.session();
+    assert_eq!(session.radeon_profile, Some(status));
+    assert!(session.revision > 1);
+
+    let ended = rig.post("/session/end").await.session();
+    assert_eq!(ended.state, SessionState::Idle);
+    assert!(ended.radeon_profile.is_none());
+    rig.flush();
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(false));
+    assert_eq!(rig.journal(), vec![]);
+}
+
+#[tokio::test]
+async fn smoothness_caps_the_game_at_the_stream_rate() {
+    let rig = Rig::with(smooth_driver());
+    let _stream = rig.owner();
+    let app = rig.app_with(json!({"radeon-profile": "smoothness"}));
+    rig.launched(&app, Some(120));
+    assert_eq!(rig.settled().state, ProfileState::Applied);
+    assert_eq!(rig.fake.value("frame_rate_target.enabled"), Raw::Bool(true));
+    assert_eq!(rig.fake.value("frame_rate_target.fps"), Raw::Int(120));
+    // The toggle was written first, as the driver needs.
+    let writes = rig.fake.writes();
+    assert!(
+        writes
+            .iter()
+            .position(|w| w.starts_with("frame_rate_target.enabled"))
+            < writes
+                .iter()
+                .position(|w| w.starts_with("frame_rate_target.fps"))
+    );
+    rig.post("/session/end").await;
+    rig.flush();
+    assert_eq!(rig.fake.value("frame_rate_target.fps"), Raw::Int(60));
+    assert_eq!(
+        rig.fake.value("frame_rate_target.enabled"),
+        Raw::Bool(false)
+    );
+}
+
+#[tokio::test]
+async fn a_custom_profile_writes_its_own_settings_and_nothing_else() {
+    let rig = Rig::with(smooth_driver());
+    let _stream = rig.owner();
+    let app = rig.app_with(json!({
+        "radeon-profile": "custom",
+        "radeon-settings": {"frame_rate_target.fps": 90, "frame_rate_target.enabled": true}
+    }));
+    rig.launched(&app, Some(60));
+    assert_eq!(rig.settled().state, ProfileState::Applied);
+    assert_eq!(rig.fake.value("frame_rate_target.fps"), Raw::Int(90));
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(false));
+}
+
+#[tokio::test]
+async fn a_profile_the_driver_refuses_is_reported_loudly_and_the_game_goes_on() {
+    let rig = Rig::new();
+    rig.fake.with(|d| d.refuse = Some("anti_lag.enabled"));
+    let _stream = rig.owner();
+    let app = rig.app_with(json!({"radeon-profile": "competitive"}));
+    rig.launched(&app, Some(60));
+    let status = rig.settled();
+    assert_eq!(status.state, ProfileState::Failed);
+    assert!(
+        status
+            .message
+            .as_deref()
+            .is_some_and(|m| m.contains("anti_lag.enabled")),
+        "{status:?}"
+    );
+    assert!(status.settings.is_empty());
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(false));
+    // The client sees it; the session itself is untouched.
+    let session = rig.get("/session").await.session();
+    assert_eq!(session.state, SessionState::Streaming);
+    assert_eq!(session.radeon_profile.unwrap().state, ProfileState::Failed);
+}
+
+#[tokio::test]
+async fn a_profile_naming_a_setting_this_gpu_lacks_fails_without_writing_anything() {
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    // `driver()` has no frame rate target.
+    let app = rig.app_with(json!({"radeon-profile": "smoothness"}));
+    rig.launched(&app, Some(60));
+    let status = rig.settled();
+    assert_eq!(status.state, ProfileState::Failed);
+    assert!(
+        status
+            .message
+            .unwrap()
+            .contains("frame_rate_target.enabled")
+    );
+    assert_eq!(rig.fake.writes(), Vec::<String>::new());
+    assert_eq!(rig.journal(), vec![]);
+}
+
+#[tokio::test]
+async fn a_resume_of_the_same_app_does_not_write_again_but_a_new_session_does() {
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    let app = rig.app_with(json!({"radeon-profile": "competitive"}));
+    rig.launched(&app, Some(60));
+    assert_eq!(rig.settled().state, ProfileState::Applied);
+    let writes = rig.fake.writes().len();
+    rig.launched(&app, Some(60));
+    rig.launched(&app, Some(60));
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(rig.fake.writes().len(), writes, "a resume writes nothing");
+
+    // After the session ended the settings went back, and the next launch applies them again.
+    rig.post("/session/end").await;
+    rig.flush();
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(false));
+    let _again = rig.streaming();
+    rig.launched(&app, Some(60));
+    assert_eq!(rig.settled().state, ProfileState::Applied);
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(true));
+}
+
+#[tokio::test]
+async fn launching_an_app_without_a_profile_puts_the_earlier_game_settings_back() {
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    let app = rig.app_with(json!({"radeon-profile": "competitive"}));
+    rig.launched(&app, Some(60));
+    assert_eq!(rig.settled().state, ProfileState::Applied);
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(true));
+
+    let mut plain = app.clone();
+    plain.extra.remove("radeon-profile");
+    rig.launched(&plain, Some(60));
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(false));
+    assert_eq!(rig.journal(), vec![]);
+    assert!(rig.host().notes.profile(&rig.client.uuid).is_none());
+    assert!(rig.get("/session").await.session().radeon_profile.is_none());
+}
+
+#[tokio::test]
+async fn an_app_without_a_profile_never_touches_the_driver() {
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    let reads = rig.fake.reads();
+    let app = rig.app_with(json!({}));
+    rig.launched(&app, Some(60));
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(rig.fake.writes(), Vec::<String>::new());
+    assert_eq!(rig.fake.reads(), reads);
+    assert!(rig.get("/session").await.session().radeon_profile.is_none());
+}
+
+#[tokio::test]
+async fn an_unreadable_profile_in_a_hand_edited_app_fails_loudly() {
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    let app = rig.app_with(json!({"radeon-profile": "fastest"}));
+    rig.launched(&app, Some(60));
+    let status = rig.settled();
+    assert_eq!(status.state, ProfileState::Failed);
+    assert!(status.message.unwrap().contains("radeon-profile"));
+    assert_eq!(rig.fake.writes(), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn another_device_sees_no_profile() {
+    let rig = Rig::new();
+    let _stream = rig.owner();
+    let app = rig.app_with(json!({"radeon-profile": "competitive"}));
+    rig.launched(&app, Some(60));
+    assert_eq!(rig.settled().state, ProfileState::Applied);
+    let snapshot = rig.host().session_snapshot();
+    assert!(snapshot.radeon_profile.is_some());
+    let mut other = rig.client.clone();
+    other.uuid = "someone-else".into();
+    let seen = butterpollo_core::native::session_view(&snapshot, &other);
+    assert!(seen.radeon_profile.is_none());
 }

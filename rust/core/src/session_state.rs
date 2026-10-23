@@ -322,6 +322,8 @@ impl Machine {
                         .map(|(at, grace)| at + grace)
                 })
                 .flatten(),
+            launcher: None,
+            radeon_profile: None,
         }
     }
 

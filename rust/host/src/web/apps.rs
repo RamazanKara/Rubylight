@@ -28,6 +28,9 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if let Some(overrides) = app.extra.get("config-overrides") {
                 butterpollo_core::stream_preset::check_overrides(overrides)?;
             }
+            // A Radeon profile the host cannot read is an error here, not a game that starts
+            // without it.
+            butterpollo_core::radeon_profile::check(&app.extra)?;
             if !app.extra.contains_key("uuid") {
                 app.extra
                     .insert("uuid".into(), json!(uuid::Uuid::new_v4().to_string()));
@@ -481,5 +484,62 @@ mod tests {
             assert_eq!(stored(), good, "{bad}");
         }
         save(json!({"stream_preset": ""})).unwrap();
+    }
+
+    #[test]
+    fn an_app_saves_a_radeon_profile_the_host_can_apply_and_refuses_others() {
+        let f = Fixture::new();
+        let save = |extra: serde_json::Value| {
+            let mut app = json!({"name": "Game", "uuid": "radeon-app"});
+            app.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            handle(&f.host, "POST", "/api/apps", &app)
+        };
+        let stored = || {
+            f.host
+                .apps
+                .read()
+                .unwrap()
+                .iter()
+                .find(|app| app.name == "Game")
+                .map(|app| {
+                    (
+                        app.extra.get("radeon-profile").cloned(),
+                        app.extra.get("radeon-settings").cloned(),
+                    )
+                })
+        };
+        save(json!({"radeon-profile": "smoothness"})).unwrap();
+        assert_eq!(stored(), Some((Some(json!("smoothness")), None)));
+        save(json!({
+            "radeon-profile": "custom",
+            "radeon-settings": {"chill.enabled": true, "chill.max_fps": 90}
+        }))
+        .unwrap();
+        let good = stored();
+        assert_eq!(
+            good.as_ref().unwrap().1,
+            Some(json!({"chill.enabled": true, "chill.max_fps": 90}))
+        );
+        for (bad, why) in [
+            (json!({"radeon-profile": "fastest"}), "radeon-profile"),
+            (json!({"radeon-profile": "custom"}), "at least one"),
+            (
+                json!({"radeon-profile": "custom", "radeon-settings": {"x": 1}}),
+                "not a Radeon setting id",
+            ),
+            (
+                json!({"radeon-profile": "quality", "radeon-settings": {"a.b": 1}}),
+                "only with the custom",
+            ),
+        ] {
+            let error = save(bad.clone()).unwrap_err();
+            assert!(error.to_string().contains(why), "{bad}: {error}");
+            assert_eq!(stored(), good, "a refused save changes nothing: {bad}");
+        }
+        // An app with none saves as before.
+        save(json!({})).unwrap();
+        assert_eq!(stored(), Some((None, None)));
     }
 }

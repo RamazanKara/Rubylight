@@ -1,0 +1,25 @@
+{
+  "revision": 57,
+  "state": "streaming",
+  "owner": "you",
+  "app": { "install_id": "c6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f", "app_id": 1093052211, "title": "Dota 2" },
+  "game_running": true,
+  "since_unix_ms": 1792303200000,
+  "launcher": {
+    "launcher": "steam",
+    "kind": "update",
+    "window_title": "Updating Dota 2",
+    "since_unix_ms": 1792303212000
+  },
+  "radeon_profile": {
+    "profile": "smoothness",
+    "state": "applied",
+    "settings": ["frame_rate_target.enabled", "frame_rate_target.fps"]
+  },
+  "actions": [
+    { "id": "resume", "allowed": true },
+    { "id": "disconnect", "allowed": true },
+    { "id": "end", "allowed": true },
+    { "id": "close_game", "allowed": false, "reason": "host_control_required" }
+  ]
+}

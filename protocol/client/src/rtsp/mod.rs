@@ -18,6 +18,7 @@ pub use describe::{
 };
 pub use message::{parse_response, RtspRequest, RtspResponse};
 
+use crate::priority::{self, Qos};
 use crate::sdp::{self, StreamConfig};
 use ring::aead;
 use std::io::{ErrorKind, Read, Write};
@@ -895,7 +896,7 @@ pub fn perform_handshake(
         v4 => SocketAddr::new(v4, handshake.rtsp_port()),
     };
     while let Some(request) = handshake.next_request()? {
-        let response = transact(address, &request, interrupted)?;
+        let response = transact(address, &request, interrupted, false, |_| {})?;
         handshake.handle_response(&response)?;
     }
     handshake.finish()
@@ -907,6 +908,8 @@ pub fn transact(
     address: SocketAddr,
     request: &[u8],
     interrupted: &AtomicBool,
+    network_priority: bool,
+    warn: impl Fn(&str),
 ) -> Result<Vec<u8>, RtspError> {
     let check = || {
         if interrupted.load(Ordering::SeqCst) {
@@ -928,6 +931,10 @@ pub fn transact(
         }
     };
     socket.set_nodelay(true)?;
+    // "Prioritize stream traffic" raises this connection like the rest, as the C engine does.
+    if let Err(e) = priority::prioritize_socket(&socket, Qos::BestEffort, network_priority) {
+        warn(&format!("Could not set the RTSP socket priority: {e}"));
+    }
     socket.write_all(request)?;
     let deadline = Instant::now() + RECEIVE_TIMEOUT;
     let mut response = Vec::new();

@@ -132,9 +132,16 @@ pub fn is_nat64(address: IpAddr) -> bool {
 
 /// A UDP socket bound to `local` on an ephemeral port, with the receive buffer stepped down
 /// from `buffer_size` until the OS accepts it (0 keeps the default). `qos` sets the queue
-/// priority as moonlight-common-c's `setSocketQos` does; a kernel that refuses it is not an
-/// error, the same as there.
-pub fn bind_udp(local: IpAddr, buffer_size: usize, qos: Qos) -> io::Result<UdpSocket> {
+/// priority as moonlight-common-c's `setSocketQos` does (`network_priority` is "prioritize
+/// stream traffic"). A kernel that refuses it is not an error, the same as there, but
+/// `warn` hears about it.
+pub fn bind_udp(
+    local: IpAddr,
+    buffer_size: usize,
+    qos: Qos,
+    network_priority: bool,
+    warn: impl Fn(&str),
+) -> io::Result<UdpSocket> {
     let address = SocketAddr::new(local, 0);
     let socket = Socket::new(
         Domain::for_address(address),
@@ -142,7 +149,9 @@ pub fn bind_udp(local: IpAddr, buffer_size: usize, qos: Qos) -> io::Result<UdpSo
         Some(Protocol::UDP),
     )?;
     socket.bind(&address.into())?;
-    let _ = priority::prioritize_socket(&socket, qos);
+    if let Err(e) = priority::prioritize_socket(&socket, qos, network_priority) {
+        warn(&format!("Could not set the {qos:?} socket priority: {e}"));
+    }
     let mut size = buffer_size;
     while size != 0 {
         if socket.set_recv_buffer_size(size).is_ok() || size <= RCV_BUFFER_SIZE_MIN {
@@ -324,31 +333,29 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     #[test]
     fn media_sockets_are_bound_with_their_priority() {
-        use std::os::fd::AsRawFd;
-        fn read(socket: &UdpSocket) -> i32 {
-            let mut value: i32 = -1;
-            let mut length = std::mem::size_of::<i32>() as libc::socklen_t;
-            let result = unsafe {
-                libc::getsockopt(
-                    socket.as_raw_fd(),
-                    libc::SOL_SOCKET,
-                    libc::SO_PRIORITY,
-                    (&mut value as *mut i32).cast(),
-                    &mut length,
-                )
-            };
-            assert_eq!(result, 0);
-            value
+        use crate::priority::tests::read_priority;
+        let bind = |qos, network_priority| {
+            bind_udp(Ipv4Addr::LOCALHOST.into(), 0, qos, network_priority, |_| {}).unwrap()
+        };
+        for network_priority in [false, true] {
+            assert_eq!(read_priority(&bind(Qos::Video, network_priority)), 5);
+            // The audio class is the microphone's too.
+            assert_eq!(read_priority(&bind(Qos::Audio, network_priority)), 6);
         }
-        let video = bind_udp(Ipv4Addr::LOCALHOST.into(), 0, Qos::Video).unwrap();
-        assert_eq!(read(&video), 5);
-        let audio = bind_udp(Ipv4Addr::LOCALHOST.into(), 0, Qos::Audio).unwrap();
-        assert_eq!(read(&audio), 6);
+        assert_eq!(read_priority(&bind(Qos::BestEffort, false)), 0);
+        assert_eq!(read_priority(&bind(Qos::BestEffort, true)), 6);
     }
 
     #[test]
     fn receive_times_out_without_data() {
-        let socket = bind_udp(Ipv4Addr::LOCALHOST.into(), 1 << 20, Qos::BestEffort).unwrap();
+        let socket = bind_udp(
+            Ipv4Addr::LOCALHOST.into(),
+            1 << 20,
+            Qos::BestEffort,
+            false,
+            |_| {},
+        )
+        .unwrap();
         let mut buffer = [0u8; 64];
         assert!(receive(&socket, &mut buffer).unwrap().is_none());
         let sender = UdpSocket::bind("127.0.0.1:0").unwrap();

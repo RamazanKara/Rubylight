@@ -288,13 +288,12 @@ impl VideoStream {
             },
         )?);
         if let Some(decoder) = queued {
-            let decode_session = session.clone();
-            stream.decode = Some(std::thread::Builder::new().name("VideoDec".into()).spawn(
-                move || {
-                    decode_session.prioritize_thread();
-                    decoder_thread(decoder, shared, control)
-                },
-            )?);
+            // Not raised: the C engine leaves VideoDec at the default priority.
+            stream.decode = Some(
+                std::thread::Builder::new()
+                    .name("VideoDec".into())
+                    .spawn(move || decoder_thread(decoder, shared, control))?,
+            );
         }
         stream.pinger = Some(Pinger::start(
             "VideoPing",

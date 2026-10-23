@@ -27,7 +27,7 @@ use super::session::{ControlSession, SendError, SessionOptions};
 use super::wire::{channel, Delivery};
 use crate::crypto::Key;
 use crate::input::{InputPacket, InputQueue};
-use crate::priority::{self, Qos};
+use crate::priority;
 
 /// The ENet peer timeout without a network grace period.
 pub const CONTROL_PEER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -39,6 +39,33 @@ const DISCONNECT_RECEIVE_WAIT: Duration = Duration::from_millis(100);
 const DISCONNECT_PROCESS_WAIT: Duration = Duration::from_secs(1);
 /// Longest sleep between ENet services, for its resend and ping timers.
 const MAX_SERVICE_INTERVAL: Duration = Duration::from_millis(5);
+
+/// Where the driver reports a problem that does not stop the stream (a socket option the OS
+/// refused).
+#[derive(Clone)]
+pub struct Warn(Arc<dyn Fn(&str) + Send + Sync>);
+
+impl Warn {
+    pub fn new(warn: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(warn))
+    }
+
+    fn say(&self, message: &str) {
+        (self.0)(message);
+    }
+}
+
+impl Default for Warn {
+    fn default() -> Self {
+        Self::new(|_| {})
+    }
+}
+
+impl std::fmt::Debug for Warn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Warn")
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct DriverConfig {
@@ -57,6 +84,7 @@ pub struct DriverConfig {
     pub unbatched_input: bool,
     /// Never send input ([`InputQueue::disable`]), for remote monitor sessions.
     pub input_disabled: bool,
+    pub warn: Warn,
 }
 
 impl DriverConfig {
@@ -70,6 +98,7 @@ impl DriverConfig {
             linger: Duration::from_secs(2),
             unbatched_input: false,
             input_disabled: false,
+            warn: Warn::default(),
         }
     }
 
@@ -271,6 +300,17 @@ struct ControlSocket {
     held_unsequenced: bool,
     reinject: Option<(SocketAddr, Vec<u8>)>,
     last_receive: Option<Instant>,
+    /// Set while the connect is in flight and the socket is still marked.
+    marking: Option<Marking>,
+    warn: Warn,
+}
+
+/// The connect-time watch over the control socket's QoS marking. ENet drops the marking when
+/// three connect attempts in a row get no answer (`enet_protocol_send_outgoing_commands`):
+/// some networks discard marked packets, so the fourth goes out plain.
+struct Marking {
+    ipv6: bool,
+    unanswered: u32,
 }
 
 impl ControlSocket {
@@ -301,6 +341,20 @@ impl rusty_enet::Socket for ControlSocket {
     }
 
     fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> io::Result<usize> {
+        if let Some(marking) = &mut self.marking {
+            if priority::should_drop_control_marking(marking.unanswered) {
+                let ipv6 = marking.ipv6;
+                self.marking = None;
+                self.warn
+                    .say("No answer to the first control connects; sending without QoS marking");
+                if let Err(e) = priority::mark_control_socket(&self.socket, ipv6, false) {
+                    self.warn
+                        .say(&format!("Could not unmark the control socket: {e}"));
+                }
+            } else {
+                marking.unanswered += 1;
+            }
+        }
         match rusty_enet::Socket::send(&mut self.socket, address, buffer) {
             Err(error) if datagram_lost(&error) => Ok(0),
             result => result,
@@ -327,6 +381,8 @@ impl rusty_enet::Socket for ControlSocket {
             }
             if address == self.remote {
                 self.last_receive = Some(Instant::now());
+                // The host answered: the marking works, so stop watching it.
+                self.marking = None;
             }
             if self.intercept && self.held_disconnect.is_none() {
                 if let Some(unsequenced) = enet_disconnect(&buffer[..length]) {
@@ -362,8 +418,18 @@ pub fn connect(
         SocketAddr::V6(_) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
     });
     let socket = UdpSocket::bind(local)?;
-    // The control socket has no QoS class of its own; "prioritize stream traffic" raises it.
-    let _ = priority::prioritize_socket(&socket, Qos::BestEffort);
+    // Marked before connecting, as the C engine does: the connect retransmissions below take
+    // the marking off again for routes that drop it.
+    let ipv6 = local.is_ipv6();
+    let marked = match priority::mark_control_socket(&socket, ipv6, true) {
+        Ok(()) => true,
+        Err(e) => {
+            config
+                .warn
+                .say(&format!("Could not mark the control socket for QoS: {e}"));
+            false
+        }
+    };
     let waker = Waker::new(socket.local_addr()?)?;
     let control_socket = ControlSocket {
         socket,
@@ -374,6 +440,11 @@ pub fn connect(
         held_unsequenced: false,
         reinject: None,
         last_receive: None,
+        marking: marked.then_some(Marking {
+            ipv6,
+            unanswered: 0,
+        }),
+        warn: config.warn.clone(),
     };
     let settings = HostSettings {
         peer_limit: 1,
@@ -662,6 +733,86 @@ impl ControlClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A control socket marked for QoS and watching its first connects, aimed at a sink.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn marked_socket() -> (ControlSocket, UdpSocket, Arc<Mutex<Vec<String>>>) {
+        let sink = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        priority::mark_control_socket(&socket, false, true).unwrap();
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let control = ControlSocket {
+            socket,
+            remote: sink.local_addr().unwrap(),
+            wake_from: "127.0.0.1:1".parse().unwrap(),
+            intercept: false,
+            held_disconnect: None,
+            held_unsequenced: false,
+            reinject: None,
+            last_receive: None,
+            marking: Some(Marking {
+                ipv6: false,
+                unanswered: 0,
+            }),
+            warn: Warn::new({
+                let warnings = warnings.clone();
+                move |m| warnings.lock().unwrap().push(m.to_string())
+            }),
+        };
+        (control, sink, warnings)
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn tos(socket: &UdpSocket) -> i32 {
+        priority::tests::read_option(socket, libc::IPPROTO_IP, libc::IP_TOS)
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn the_marking_comes_off_after_three_unanswered_connects() {
+        use rusty_enet::Socket as _;
+        let (mut control, sink, warnings) = marked_socket();
+        let remote = sink.local_addr().unwrap();
+        for _ in 0..3 {
+            control.send(remote, b"connect").unwrap();
+            assert_eq!(tos(&control.socket), priority::CONTROL_TOS);
+        }
+        control.send(remote, b"connect").unwrap();
+        assert_eq!(tos(&control.socket), 0);
+        assert_eq!(
+            priority::tests::read_priority(&control.socket),
+            0,
+            "the priority goes with the marking"
+        );
+        assert_eq!(warnings.lock().unwrap().len(), 1);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn an_answer_keeps_the_marking() {
+        use rusty_enet::Socket as _;
+        let (mut control, sink, warnings) = marked_socket();
+        let remote = sink.local_addr().unwrap();
+        control.send(remote, b"connect").unwrap();
+        // The host answers from its address.
+        let ours = control.socket.local_addr().unwrap();
+        sink.send_to(b"verify", ours).unwrap();
+        let mut buffer = [0u8; MTU_MAX];
+        let mut received = false;
+        for _ in 0..50 {
+            if control.receive(&mut buffer).unwrap().is_some() {
+                received = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(received);
+        for _ in 0..6 {
+            control.send(remote, b"data").unwrap();
+        }
+        assert_eq!(tos(&control.socket), priority::CONTROL_TOS);
+        assert!(warnings.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn disconnect_datagrams_are_recognized() {

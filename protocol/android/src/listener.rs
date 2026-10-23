@@ -246,6 +246,10 @@ impl Listener for Events {
     fn log(&self, message: &str) {
         platform::info(message);
     }
+
+    fn warn(&self, message: &str) {
+        platform::warn(message);
+    }
 }
 
 #[cfg(test)]

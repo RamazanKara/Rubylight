@@ -215,6 +215,11 @@ pub trait Listener: Send + Sync {
     /// control thread.
     fn control_event(&self, _event: ControlEvent) {}
     fn log(&self, _message: &str) {}
+    /// Something that does not stop the stream but should be seen: a socket option or thread
+    /// priority the OS refused. Logged like [`Listener::log`] unless overridden.
+    fn warn(&self, message: &str) {
+        self.log(message);
+    }
 }
 
 /// Aborts a [`Session::start`] in progress from another thread (`LiInterruptConnection`).
@@ -281,6 +286,8 @@ pub(crate) struct Shared {
     listener: Arc<dyn Listener>,
     stopping: AtomicBool,
     terminated: AtomicBool,
+    /// "Prioritize stream traffic" ([`SessionConfig::network_priority`]).
+    network_priority: bool,
 }
 
 impl Shared {
@@ -299,11 +306,15 @@ impl Shared {
         self.listener.log(message);
     }
 
+    pub(crate) fn warn(&self, message: &str) {
+        self.listener.warn(message);
+    }
+
     /// Raises the calling session thread when "prioritize stream traffic" is on, and says so
     /// in the log if the OS refuses.
     pub(crate) fn prioritize_thread(&self) {
-        if let Err(e) = priority::prioritize_current_thread() {
-            self.log(&format!(
+        if let Err(e) = priority::prioritize_current_thread(self.network_priority) {
+            self.warn(&format!(
                 "Could not raise the priority of {}: {e}",
                 std::thread::current().name().unwrap_or("a stream thread")
             ));
@@ -408,6 +419,7 @@ impl Session {
                 listener: listener.clone(),
                 stopping: AtomicBool::new(false),
                 terminated: AtomicBool::new(false),
+                network_priority: config.network_priority,
             }),
             remote: None,
             outcome: None,
@@ -623,7 +635,6 @@ fn start(
     }
 
     listener.stage_starting(Stage::PlatformInit);
-    priority::set_network_priority(config.network_priority);
     listener.stage_complete(Stage::PlatformInit);
 
     listener.stage_starting(Stage::NameResolution);
@@ -668,13 +679,22 @@ fn start(
     rtsp_address.set_port(handshake.rtsp_port());
     let interrupted = interrupt.0.clone();
     while let Some(request) = handshake.next_request().map_err(rtsp_fail)? {
-        let response = rtsp::transact(rtsp_address, &request, &interrupted).map_err(rtsp_fail)?;
+        let response = rtsp::transact(
+            rtsp_address,
+            &request,
+            &interrupted,
+            config.network_priority,
+            |m| listener.warn(m),
+        )
+        .map_err(rtsp_fail)?;
         handshake.handle_response(&response).map_err(rtsp_fail)?;
         if parts.audio_socket.is_none() {
             if let Some(port) = handshake.audio_port() {
                 // notifyAudioPortNegotiationComplete: ping before PLAY.
-                let socket = net::bind_udp(local, 0, Qos::Audio)
-                    .map_err(|e| fail(Stage::RtspHandshake, io_code(&e), e.to_string()))?;
+                let socket = net::bind_udp(local, 0, Qos::Audio, config.network_priority, |m| {
+                    listener.warn(m)
+                })
+                .map_err(|e| fail(Stage::RtspHandshake, io_code(&e), e.to_string()))?;
                 parts.audio_pinger = Some(
                     net::Pinger::start(
                         "AudioPing",
@@ -715,6 +735,10 @@ fn start(
     driver_config.network_grace = config.network_grace;
     driver_config.unbatched_input = config.unbatched_input;
     driver_config.input_disabled = config.remote_monitor;
+    driver_config.warn = driver::Warn::new({
+        let shared = parts.shared.clone();
+        move |message| shared.warn(message)
+    });
     listener.stage_complete(Stage::ControlStreamInit);
 
     listener.stage_starting(Stage::VideoStreamInit);
@@ -810,7 +834,9 @@ fn start(
             stream.bitrate_kbps.max(0) as u32,
             stream.packet_size as usize,
         );
-        let socket = match net::bind_udp(local, buffer, Qos::Video) {
+        let socket = match net::bind_udp(local, buffer, Qos::Video, config.network_priority, |m| {
+            listener.warn(m)
+        }) {
             Ok(socket) => socket,
             Err(e) => {
                 decoder.cleanup();
@@ -893,7 +919,11 @@ fn start(
     if outcome.mic_port != 0 {
         if outcome.encryption_enabled & sdp::SS_ENC_MICROPHONE == 0 {
             listener.log("Microphone: encryption was not negotiated; not sending");
-        } else if let Ok(socket) = net::bind_udp(local, 0, Qos::BestEffort) {
+        } else if let Ok(socket) =
+            net::bind_udp(local, 0, Qos::Audio, config.network_priority, |m| {
+                listener.warn(m)
+            })
+        {
             *parts.microphone.lock().unwrap_or_else(|p| p.into_inner()) = Some(Microphone {
                 socket,
                 target: SocketAddr::new(remote.ip(), outcome.mic_port),

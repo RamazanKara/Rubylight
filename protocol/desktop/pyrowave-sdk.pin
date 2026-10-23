@@ -1,0 +1,8 @@
+# The PyroWave SDK the desktop client's GPU decoder loads (libpyrowave-shared-1.dll).
+# scripts/build-pyrowave-sdk.ps1 builds exactly this and package-windows.ps1 refuses any other.
+# The patch order is the build order; 0003 to 0005 live in
+# app/src/main/jni/pyrowave-renderer/patches, 0002 in the Rubylight host's rust/codec-patches/pyrowave.
+pyrowave_commit=502a3b52a39312ab82c85b1e2fc0e746faee91a4
+granite_commit=fb178c80
+api_version=1.0.0
+patches=0002-payload-data-444-sizing,0003-decoder-reject-short-block,0004-decoder-synchronize-metadata-reads,0005-decoder-defer-linear-image-transition

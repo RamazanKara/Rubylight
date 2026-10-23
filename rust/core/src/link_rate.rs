@@ -95,47 +95,6 @@ pub const KEYFRAME_REQUESTS: usize = 3;
 const MAX_LOSS_SHARE: f64 = 0.75;
 /// A cut aims at this share of the delivered rate, FEC included.
 pub const DELIVERED_PERCENT: u64 = 85;
-
-/// Experimental near-link steps (brief 6), each off by default and read from
-/// the internal config keys `link_rate_pace_limited`, `link_rate_headroom_percent`
-/// and `link_rate_tight_encoder`. They apply only while limited.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Tuning {
-    /// Pace at `max(delivered, 1.25 x needed)` instead of the route or latch pace.
-    pub pace_limited: bool,
-    /// A cut aims at this share of the delivered rate.
-    pub headroom_percent: u64,
-    /// AMF peak bitrate = target and VBV = one frame's budget.
-    pub tight_encoder: bool,
-}
-
-impl Default for Tuning {
-    fn default() -> Self {
-        Self {
-            pace_limited: false,
-            headroom_percent: DELIVERED_PERCENT,
-            tight_encoder: false,
-        }
-    }
-}
-
-impl Tuning {
-    pub fn from_config(config: &crate::config::Config) -> Self {
-        Self {
-            pace_limited: config.boolean("link_rate_pace_limited", false),
-            headroom_percent: config
-                .integer("link_rate_headroom_percent", DELIVERED_PERCENT as i64)
-                .clamp(50, 95) as u64,
-            tight_encoder: config.boolean("link_rate_tight_encoder", false),
-        }
-    }
-}
-
-/// The pace while limited: what the link delivered, or 1.25 times what the
-/// stream needs if that is more (a probe above the delivered rate).
-pub fn limited_pace_bps(delivered: u64, needed: u64) -> u64 {
-    delivered.max(needed.saturating_add(needed / 4))
-}
 /// One cut lowers the target by at least 15 % ...
 pub const MAX_CUT_PERCENT: u64 = 85;
 /// ... and a first cut at most by half, so one late or inflated estimate
@@ -434,7 +393,6 @@ pub struct LinkRate {
     last_cut: Option<Instant>,
     probes: u32,
     failed_probes: u32,
-    tuning: Tuning,
 }
 
 impl Default for LinkRate {
@@ -482,7 +440,6 @@ impl LinkRate {
             last_cut: None,
             probes: 0,
             failed_probes: 0,
-            tuning: Tuning::default(),
         }
     }
 
@@ -535,26 +492,6 @@ impl LinkRate {
 
     pub fn state(&self) -> State {
         self.state
-    }
-
-    pub fn with_tuning(mut self, tuning: Tuning) -> Self {
-        self.tuning = tuning;
-        self
-    }
-
-    fn below_ceiling(&self) -> bool {
-        matches!(self.state, State::Limited | State::Floor)
-    }
-
-    /// The wire rate the link delivered at the last cut while limited, for the
-    /// pace (`Tuning::pace_limited`); zero when unknown. `None` otherwise.
-    pub fn pace_delivered_bps(&self) -> Option<u64> {
-        (self.tuning.pace_limited && self.below_ceiling()).then_some(self.delivered_bps)
-    }
-
-    /// Whether the encoder's peak and buffer are held tight (`Tuning::tight_encoder`).
-    pub fn encoder_tight(&self) -> bool {
-        self.tuning.tight_encoder && self.below_ceiling()
     }
 
     pub fn ceiling_kbps(&self) -> u32 {
@@ -1058,7 +995,7 @@ impl LinkRate {
                 evidence.loss_share = share;
                 let delivered = (sent as f64 * (1. - share)) as u64;
                 self.delivered_bps = delivered;
-                (delivered + budget.audio_bps) * self.tuning.headroom_percent / 100
+                (delivered + budget.audio_bps) * DELIVERED_PERCENT / 100
             }
             None => {
                 self.delivered_bps = 0;

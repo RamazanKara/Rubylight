@@ -2155,15 +2155,6 @@ pub struct Session<P = (), A = ()> {
     /// The route policy paced the last frame faster than the Wi-Fi rate, so
     /// a latch that slows it may be the whole fix (see `LinkRate::on_latch`).
     pace_was_fast: AtomicBool,
-    /// Brief 6's near-link steps (internal config keys), set from the config
-    /// when the stream starts.
-    link_tuning: std::sync::Mutex<crate::link_rate::Tuning>,
-    /// While limited with `Tuning::pace_limited`: the wire rate the link
-    /// delivered (at least 1), the sender's pace. Zero otherwise. Written by the
-    /// tick, read by the sender without a lock.
-    pub link_pace_bps: AtomicU64,
-    /// While limited with `Tuning::tight_encoder`: peak and buffer held tight.
-    pub link_encoder_tight: AtomicBool,
     pub adaptive_video_pacing_bps: AtomicU64,
     pub automatic_pacing: std::sync::Mutex<crate::adaptive_pacing::AdaptivePacing>,
     /// Slower pacing once the client's link has dropped a keyframe.
@@ -2235,9 +2226,6 @@ impl<P, A> Session<P, A> {
             link_rate: Default::default(),
             link_sent: crate::link_control::SentLog::new(started),
             pace_was_fast: AtomicBool::new(false),
-            link_tuning: Default::default(),
-            link_pace_bps: AtomicU64::new(0),
-            link_encoder_tight: AtomicBool::new(false),
             adaptive_video_pacing_bps: AtomicU64::new(0),
             automatic_pacing: Default::default(),
             keyframe_loss: Default::default(),
@@ -2455,7 +2443,6 @@ impl<P, A> Session<P, A> {
             let mut link = self.link_rate.lock().unwrap();
             link.takeover();
             self.link_sent.set_live(false);
-            self.clear_link_tuning_effects();
             self.bitrate.store(kbps, Ordering::Release);
         }
         self.launch.warnings.clear("host_bitrate_budget");
@@ -2474,14 +2461,6 @@ impl<P, A> Session<P, A> {
     pub fn configure_link_rate(&self, enabled: bool, maximum_kbps: u32) {
         self.rebuild_link_rate(&self.config, enabled, maximum_kbps);
     }
-    /// The near-link steps for this stream (call before `configure_link_rate`).
-    pub fn configure_link_tuning(&self, tuning: crate::link_rate::Tuning) {
-        *self.link_tuning.lock().unwrap() = tuning;
-    }
-    fn clear_link_tuning_effects(&self) {
-        self.link_pace_bps.store(0, Ordering::Release);
-        self.link_encoder_tight.store(false, Ordering::Release);
-    }
     /// A controller for a stream whose mode changed (0x5532). A bitrate it had
     /// lowered goes back to the requested one; what it learned about the link
     /// is forgotten, and a client that took the bitrate over keeps it.
@@ -2492,9 +2471,7 @@ impl<P, A> Session<P, A> {
         }
         let rate = link
             .rate
-            .rebuild(enabled, stream, maximum_kbps, self.fec_percent())
-            .with_tuning(*self.link_tuning.lock().unwrap());
-        self.clear_link_tuning_effects();
+            .rebuild(enabled, stream, maximum_kbps, self.fec_percent());
         self.link_sent
             .set_live(rate.state() != crate::link_rate::State::Off);
         *link = crate::link_control::LinkControl::new(rate, self.link_sent.head());
@@ -2578,12 +2555,6 @@ impl<P, A> Session<P, A> {
         let target = link
             .rate
             .tick(now, rtt, self.fec_percent(), period, current, busy);
-        self.link_pace_bps.store(
-            link.rate.pace_delivered_bps().map_or(0, |bps| bps.max(1)),
-            Ordering::Release,
-        );
-        self.link_encoder_tight
-            .store(link.rate.encoder_tight(), Ordering::Release);
         let applied = match target {
             Some(kbps) => {
                 link.restore.get_or_insert(current);

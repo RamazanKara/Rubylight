@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Behaviour across client link speeds: 1000 to 10 Mbit/s, step changes, Wi-Fi profile, what breaks above the link | [October 23, behaviour across client link speeds](#october-23-behaviour-across-client-link-speeds) |
+| Near-link tuning of the link-rate controller: pace above the delivered rate, headroom 0.80, tight AMF buffer (all reverted) | [October 24, near-link tuning (L6)](#october-24-near-link-tuning-three-steps-tried-and-reverted-l6) |
 | Nightjar desktop PyroWave decode: stage split, single upload (kept), batched passes (reverted), the present clock holding every frame 50 ms at the start | [October 23, PyroWave desktop decode stage split (brief 1)](#october-23-pyrowave-desktop-decode-stage-split-brief-1) |
 | PyroWave at 144 fps: normal against high process priority (reverted), async encode (not worth it), handles left by each encoder or decoder life | [October 23, PyroWave 144 fps pacing and async encode (B4)](#october-23-pyrowave-144-fps-pacing-and-async-encode-b4) |
 | Nightjar Android, Rust engine against the C engine on a phone: picture age, decode, 1% and 5% loss, PyroWave, 30-minute soak | [October 23, Rust engine against the C engine on Android (B8)](#october-23-rust-engine-against-the-c-engine-on-android-b8) |
@@ -128,7 +129,40 @@ Noise (`linkspeed.py noise`): the same package against itself differs by 0.05 to
 
 Not run here: PyroWave, real Wi-Fi, the loss-memory scenario (`--keep-memory` is in place for B8).
 
-## October 23: PyroWave desktop decode stage split (brief 1)
+## October 24: near-link tuning, three steps tried and reverted (L6)
+
+Three changes to the link-rate controller that apply only while it is `Limited`, each behind an internal config key (`link_rate_pace_limited`, `link_rate_headroom_percent`, `link_rate_tight_encoder`), measured against the unchanged build and kept only if loss or freezes improved and the p50 was no worse:
+
+- **(a) Pace at `max(delivered, 1.25 x needed)`** instead of the delivered rate.
+- **(b) Headroom 0.80** instead of the 0.85 the controller already uses (the cut aims at 80 % of the delivered rate).
+- **(c) Tight encoder:** AMF peak bitrate equal to the target (ratio 1.0) and a VBV of one frame while limited, restored on `Full`.
+
+None was kept. The keys, the code behind them and the plumbing were removed again (the experiment commit stays in the history).
+
+**Method.** Relative A/B only, on the 780M laptop (RDNA 3 iGPU, over Wi-Fi 6E to the LAN), which is not the release test host and not a gaming PC's absolute numbers. Host on the laptop (isolated profile, `virtual_display_layout = extended`, port 48923), client `nightjar-cli` in the container on the NUC, shaped by `linkshape.sh`. One package per round, the key switched per pass in `sunshine.conf`. Each step was run ABBA with two runs per side. The baseline passes of all rounds are pooled (8 runs per arm). Step (b) got a second ABBA round on the package rebuilt from current main (`abb803c67`, two B runs more, four in all). Arms: `r20-{hevc,av1,h264}-def`, `r30-hevc-def`, `step-80-10-80`, `q5-r50-hevc-def`, and `hz-r1000-hevc-20` as the control. The control had zero link-rate changes, zero adaptive-bitrate changes, one pacing selection and a constant encoder bitrate in all 16 runs, so none of the steps touches a healthy link. Picture age was not available on this client, so p50 and p99 are the end-to-end latency of the timing record.
+
+Cell: lost / freezes / p50 ms / p99 ms / host sent Mbps (means over the runs):
+
+| Arm | baseline (8 runs) | (a) pace (2) | (b) 0.80 (4) | (c) tight (2) |
+| --- | --- | --- | --- | --- |
+| 20 Mbps HEVC on 20 Mbit/s | 1.94 % / 3.2 / 30.7 / 110 / 11.5 | 0.26 % / 0.5 / 30.0 / 87 / 11.6 | 1.33 % / 2.8 / 28.4 / 77 / 11.6 | 2.39 % / 5.0 / 27.8 / 86 / 10.7 |
+| 20 Mbps AV1 on 20 | 1.25 % / 1.2 / 22.0 / 70 / 12.6 | 0.00 % / 0.0 / 21.9 / 26 / 13.8 | 0.00 % / 0.0 / 22.3 / 27 / 14.3 | 0.00 % / 0.0 / 21.9 / 26 / 13.8 |
+| 20 Mbps H.264 on 20 | 0.75 % / 1.8 / 26.5 / 86 / 10.1 | 0.67 % / 1.0 / 25.3 / 89 / 9.2 | 1.33 % / 2.8 / 25.5 / 86 / 9.4 | 2.00 % / 4.5 / 26.7 / 86 / 9.7 |
+| 20 Mbps HEVC on 30 | 0.18 % / 0.8 / 30.9 / 48 / 18.8 | 0.00 % / 0.0 / 30.3 / 40 / 18.6 | 0.00 % / 0.0 / 31.0 / 41 / 19.0 | 0.34 % / 1.0 / 31.1 / 69 / 17.3 |
+| step 80 to 10 to 80 | 1.95 % / 3.9 / 28.6 / 105 / 9.5 | 4.60 % / 7.5 / 31.6 / 225 / 8.5 | 1.72 % / 4.0 / 29.1 / 62 / 11.3 | 1.74 % / 4.0 / 28.1 / 61 / 9.9 |
+| HEVC on 50, 5 ms queue | 0 % / 0 / 31.0 / 40 / 18.9 | 0 % / 0 / 30.6 / 41 / 18.6 | 0 % / 0 / 31.3 / 43 / 18.9 | 0 % / 0 / 31.5 / 41 / 19.1 |
+| control: 1 GbE, 20 Mbps | 0 % / 0 / 31.2 / 41 / 18.9 | 0 % / 0 / 31.0 / 40 / 18.5 | 0.20 % / 0.8 / 31.5 / 54 / 18.9 | 0 % / 0 / 31.2 / 41 / 19.1 |
+
+Summed over the four limited arms (`r20` x3 and the step): loss 5.89 baseline, 5.53 (a), 4.39 (b), 6.12 (c) percentage points; freezes 10.1, 9.0, 9.5, 13.5; freeze time 2739, 3247, 2442, 3252 ms.
+
+**Decisions.**
+
+- **(a) pace above the delivered rate: reverted.** It helped the three r20 arms in two runs each (HEVC 0.26 % against 1.94 %), but the step arm got worse in both runs (4.60 % against 1.95 %, 7.5 freezes against 3.9, p99 225 ms against 105 ms, p50 +3 ms) and the freeze time summed over the limited arms is higher. Sending faster than the link delivered refills the queue the cut has just emptied.
+- **(b) headroom 0.80: reverted.** The first round looked good (summed loss 3.8 against 8.3 for the baseline passes next to it), the confirmation on current main did not (5.0 against 3.9), and H.264 was worse in both (1.33 % against 0.75 %, 2.8 freezes against 1.8). The eight baseline passes sum to 2.1 to 13.3 points of loss over the four limited arms; the four 0.80 passes lie from 3.2 to 5.7, the baseline median is 4.4. The control arm lost 0.78 % in one 0.80 run with no link-rate change, which is what the Wi-Fi hop alone does. A lower spread in bad passes is possible, but twelve passes cannot show it, and each cut costs 6 % of the bitrate for certain.
+- **(c) tight encoder: reverted.** Loss and freezes got worse on HEVC, H.264 and the 20-on-30 arm (HEVC 2.39 % against 1.94 %, H.264 2.00 % against 0.75 %, summed freezes 13.5 against 10.1) with a lower mean bitrate on HEVC (10.7 against 11.5 Mbps). A one-frame VBV starves the encoder on a complex frame.
+
+**Caveats.** Two runs per side on a Wi-Fi laptop cannot resolve effects below the run-to-run spread: a single baseline run of `r20-av1-def` lost 0 %, 3.1 % or 7.0 % depending on the pass. Only the sign of large effects is trustworthy, which is enough for (a) and (c), not to call (b) better or worse. The step arm of the first (a) round was invalid (the harness issued the step a minute late because a new ssh connection from the laptop stalled while the stream ran); the harness now sends step commands over one open shell (`fix(release): link speed step arms ...`) and the step arm was rerun for all four (a) passes. A 45 s arm is short for a probe cycle.
+
 
 Nightjar desktop, PyroWave 4:2:0 at 1080p60, loopback to an isolated Rubylight host (RX 7900 XT, one 5120x1440 display, WGC, a scrolling texture), release builds of Nightjar `pyrowave-decode-1`. Legs of 60 s, the first 5 s dropped, A B B A per bitrate, early decode off. The full tables, the harness (`scripts/pyrowave-loopback.ps1`) and the stage timers are in Nightjar's `docs/pyrowave-decode.md`.
 

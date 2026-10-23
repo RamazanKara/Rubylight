@@ -82,13 +82,6 @@ impl Encoder {
             _ => None,
         }
     }
-    /// While the link limits the stream, hold the encoder's peak bitrate at the
-    /// target and its buffer at one frame. Other backends ignore it.
-    pub fn set_rate_tight(&mut self, tight: bool) {
-        if let Self::Amf(encoder) = self {
-            encoder.set_rate_tight(tight);
-        }
-    }
     pub fn frame_cap(&self) -> Option<u64> {
         match self {
             Self::Amf(encoder) => encoder.frame_cap(),

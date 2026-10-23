@@ -1415,11 +1415,6 @@ impl Media {
                     } else { requested_fec.clamp(0, 100) as usize };
                     s.configure_fec(c.boolean("adaptive_fec", true), fec_ceiling);
                     s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, if s.config.codec == 3 { 2_000_000 } else { 500_000 }) as u32);
-                    let link_tuning = butterpollo_core::link_rate::Tuning::from_config(&c);
-                    if link_tuning != Default::default() {
-                        tracing::info!(stream_id = %s.launch.id, ?link_tuning, "link-rate tuning (experimental near-link steps)");
-                    }
-                    s.configure_link_tuning(link_tuning);
                     s.configure_link_rate(c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                     // Packet adaptation is opt-in. Explicit pacing and host
                     // bitrate adaptation keep their own policies.
@@ -2621,7 +2616,6 @@ impl Media {
                                 );
                                 let _ = active.set_frame_cap(cap);
                             }
-                            active.set_rate_tight(s.link_encoder_tight.load(Ordering::Acquire));
                             active.set_repeat(!fresh);
                             let mut presented_image = image.as_ref().clone();
                             if !fresh { presented_image.captured = Instant::now(); }

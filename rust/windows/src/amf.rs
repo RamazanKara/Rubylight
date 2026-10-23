@@ -1776,62 +1776,6 @@ impl Encoder {
     pub fn frame_cap(&self) -> Option<u64> {
         self.frame_cap.effective()
     }
-    /// Hold the peak bitrate at the target and the buffer at one frame while the
-    /// link limits the stream; see [`rate_control::State::set_tight`].
-    pub fn set_rate_tight(&mut self, tight: bool) {
-        let component = self.component;
-        self.rate_control.set_tight(
-            tight,
-            self.codec,
-            self.config.fps_millihz(),
-            &self.warnings,
-            // SAFETY: Self retains the component and runtime for this call.
-            |name| unsafe { Self::read_limit(component, name) },
-            // SAFETY: as above.
-            |name, value| unsafe { Self::set_int(component, name, value) },
-        );
-    }
-    /// # Safety
-    /// `component` is the live encoder component.
-    unsafe fn read_limit(component: *mut AMFComponent, name: &str) -> Option<rate_control::Limit> {
-        // SAFETY: The caller keeps the component and runtime alive. Null checks
-        // and INT64 tags precede all reads; only copied integers escape.
-        unsafe {
-            let mut current = int(0);
-            let mut info = ptr::null();
-            let table = &*(*component).pVtbl;
-            if (table.GetProperty.unwrap())(component, to_wide(name).as_ptr(), &mut current)
-                != AMF_RESULT_AMF_OK
-                || current.type_ != AMF_VARIANT_TYPE_AMF_VARIANT_INT64
-                || (table.GetPropertyInfo.unwrap())(component, to_wide(name).as_ptr(), &mut info)
-                    != AMF_RESULT_AMF_OK
-                || info.is_null()
-            {
-                return None;
-            }
-            Some(rate_control::Limit {
-                value: current.__bindgen_anon_1.int64Value,
-                minimum: ((*info).minValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
-                    .then(|| (*info).minValue.__bindgen_anon_1.int64Value),
-                maximum: ((*info).maxValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
-                    .then(|| (*info).maxValue.__bindgen_anon_1.int64Value),
-            })
-        }
-    }
-    /// # Safety
-    /// `component` is the live encoder component.
-    unsafe fn set_int(component: *mut AMFComponent, name: &str, value: i64) -> Result<()> {
-        // SAFETY: The component copies the terminated name and the correctly
-        // tagged integer during SetProperty.
-        unsafe {
-            check(((*(*component).pVtbl).SetProperty.unwrap())(
-                component,
-                to_wide(name).as_ptr(),
-                int(value),
-            ))
-            .with_context(|| format!("AMF property {name}"))
-        }
-    }
     fn set_bitrate(&mut self, bitrate: u32) -> Result<()> {
         let changed = bitrate != self.rate_control.requested();
         let component = self.component;
@@ -1839,10 +1783,47 @@ impl Encoder {
             self.codec,
             bitrate,
             &self.warnings,
-            // SAFETY: Self retains the component and runtime for this call.
-            |name| unsafe { Self::read_limit(component, name) },
-            // SAFETY: as above.
-            |name, value| unsafe { Self::set_int(component, name, value) },
+            |name| {
+                // SAFETY: Self retains the component/runtime and its borrowed
+                // property info. Null checks and INT64 tags precede all reads;
+                // only copied integers escape this call.
+                unsafe {
+                    let mut current = int(0);
+                    let mut info = ptr::null();
+                    let table = &*(*component).pVtbl;
+                    if (table.GetProperty.unwrap())(component, to_wide(name).as_ptr(), &mut current)
+                        != AMF_RESULT_AMF_OK
+                        || current.type_ != AMF_VARIANT_TYPE_AMF_VARIANT_INT64
+                        || (table.GetPropertyInfo.unwrap())(
+                            component,
+                            to_wide(name).as_ptr(),
+                            &mut info,
+                        ) != AMF_RESULT_AMF_OK
+                        || info.is_null()
+                    {
+                        return None;
+                    }
+                    Some(rate_control::Limit {
+                        value: current.__bindgen_anon_1.int64Value,
+                        minimum: ((*info).minValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
+                            .then(|| (*info).minValue.__bindgen_anon_1.int64Value),
+                        maximum: ((*info).maxValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
+                            .then(|| (*info).maxValue.__bindgen_anon_1.int64Value),
+                    })
+                }
+            },
+            |name, value| {
+                // SAFETY: The live component copies the terminated name and
+                // the correctly tagged integer during SetProperty.
+                unsafe {
+                    check(((*(*component).pVtbl).SetProperty.unwrap())(
+                        component,
+                        to_wide(name).as_ptr(),
+                        int(value),
+                    ))
+                    .with_context(|| format!("AMF property {name}"))
+                }
+            },
         );
         if changed {
             self.frame_cap

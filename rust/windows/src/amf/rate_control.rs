@@ -117,21 +117,10 @@ struct AppliedLimit {
     warning: Option<String>,
 }
 
-/// `value` inside the property's own minimum and maximum.
-fn clamp_limit(value: i64, limit: Limit) -> i64 {
-    let value = limit.minimum.map_or(value, |minimum| value.max(minimum));
-    limit.maximum.map_or(value, |maximum| value.min(maximum))
-}
-
 pub(super) struct State {
     requested: u32,
     scale_frame_cap: bool,
     limits: [AppliedLimit; 3],
-    /// Peak and buffer are held tight (see [`State::set_tight`]).
-    tight: bool,
-    /// The peak and buffer values before they were tightened, with the bitrate
-    /// they were written for, put back (scaled) when the hold ends.
-    saved: [Option<(i64, u32)>; 2],
 }
 
 impl State {
@@ -143,88 +132,11 @@ impl State {
                 bitrate,
                 warning: None,
             }),
-            tight: false,
-            saved: [None; 2],
         }
     }
 
     pub(super) fn requested(&self) -> u32 {
         self.requested
-    }
-
-    /// While the link is limiting the stream, hold the peak bitrate at the
-    /// target and the buffer at one frame's budget, so frame sizes stay smooth
-    /// for a bottleneck queue; `false` puts back what was there. Later bitrate
-    /// updates keep scaling both with the target, so the ratios hold. A write
-    /// that fails leaves that limit as it was and warns like `update`.
-    pub(super) fn set_tight(
-        &mut self,
-        tight: bool,
-        codec: u8,
-        fps_millihz: u32,
-        warnings: &Warnings,
-        mut read: impl FnMut(&str) -> Option<Limit>,
-        mut set: impl FnMut(&str, i64) -> Result<()>,
-    ) {
-        if tight == self.tight {
-            return;
-        }
-        self.tight = tight;
-        let prefix = match codec {
-            0 => "",
-            1 => "Hevc",
-            _ => "Av1",
-        };
-        let target_bits = i64::from(self.requested) * 1000;
-        let frame_bits = (i128::from(target_bits) * 1000 / i128::from(fps_millihz.max(1))) as i64;
-        for (index, suffix) in ["PeakBitrate", "VBVBufferSize"].into_iter().enumerate() {
-            let name = format!("{prefix}{suffix}");
-            let limit = &mut self.limits[index];
-            let Some(current) = read(&name).filter(|current| current.value > 0) else {
-                continue;
-            };
-            let wanted = if tight {
-                self.saved[index] = Some((current.value, limit.bitrate));
-                clamp_limit(if index == 0 { target_bits } else { frame_bits }, current)
-            } else {
-                let Some((value, basis)) = self.saved[index].take() else {
-                    continue;
-                };
-                clamp_limit(
-                    super::scale_rate_control(value, basis, self.requested),
-                    current,
-                )
-            };
-            match set(&name, wanted) {
-                Ok(()) => {
-                    limit.bitrate = self.requested;
-                    limit.warning = None;
-                }
-                Err(error) => {
-                    // What the driver holds is unchanged: nothing to put back.
-                    self.saved[index] = None;
-                    limit.warning = Some(format!(
-                        "AMF {name} update rejected ({error:#}); the driver retained its old rate-control limit and may exceed the expected frame budget."
-                    ));
-                }
-            }
-        }
-        let messages: Vec<_> = self
-            .limits
-            .iter()
-            .filter_map(|limit| limit.warning.as_deref())
-            .collect();
-        if messages.is_empty() {
-            warnings.clear("encoder_buffer");
-        } else {
-            warnings.set(
-                "encoder_buffer",
-                format!(
-                    "{} Reconnect at the desired bitrate or update the AMD driver.",
-                    messages.join(" ")
-                ),
-            );
-        }
     }
 
     pub(super) fn update(

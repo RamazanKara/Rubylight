@@ -402,6 +402,9 @@ impl Launcher {
             Screen::Settings => {}
             Screen::Profiles | Screen::Controllers | Screen::Shortcuts => self.leave_subpage(),
             Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.go(Screen::Settings),
+            // A library or game page is not a destination: Settings opens over it, and Back
+            // returns to the page with its item focused.
+            Screen::Apps(_) | Screen::Game { .. } => self.open(Screen::Settings),
             _ => self.switch(Screen::Settings),
         }
     }
@@ -2883,6 +2886,31 @@ mod tests {
         l.back(&mut commands);
         assert_eq!(l.screen, Screen::Home);
         assert!(commands.iter().any(|c| matches!(c, Command::SaveSettings)), "leaving Settings saves them");
+    }
+
+    #[test]
+    fn start_from_a_library_or_game_page_returns_to_it() {
+        for page in [Screen::Apps(1), Screen::Game { host: 1, app: 5 }] {
+            let mut l = launcher(true, true);
+            l.go(Screen::Home);
+            l.open(page);
+            l.focused_key = Some("play".into());
+            l.open_settings();
+            assert_eq!(l.screen, Screen::Settings);
+            let mut commands = Vec::new();
+            l.back(&mut commands);
+            assert_eq!(l.screen, page, "B returns to where Start was pressed");
+            assert_eq!(l.restore_key.as_deref(), Some("play"));
+            l.back(&mut commands);
+            assert_eq!(l.screen, Screen::Home, "and the page still goes back to the root");
+        }
+        // From a destination, Settings replaces it as before.
+        let mut l = launcher(false, false);
+        l.go(Screen::Hosts);
+        l.open_settings();
+        let mut commands = Vec::new();
+        l.back(&mut commands);
+        assert_eq!(l.screen, Screen::Hosts);
     }
 
     #[test]

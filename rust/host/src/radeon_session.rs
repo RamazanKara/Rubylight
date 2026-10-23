@@ -322,10 +322,6 @@ impl Inner {
             );
         }
     }
-    /// Whether any device may have settings changed.
-    pub fn any_held(&self) -> bool {
-        !locked(&self.written).is_empty()
-    }
     /// A device was unpaired or turned off: its settings go back even though its session may
     /// linger until the grace period ends.
     pub fn release_device(&self, device: &str) {

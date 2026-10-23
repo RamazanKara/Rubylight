@@ -248,6 +248,65 @@ mod tests {
     }
 
     #[test]
+    fn the_stream_preset_round_trips_without_saving_the_values_it_fills() {
+        let fixture = Fixture::new();
+        let host = &fixture.host;
+        let shown = handle(host, "GET", "/api/config", &Value::Null).unwrap();
+        assert!(shown.get("stream_preset").is_none());
+        handle(
+            host,
+            "PATCH",
+            "/api/config",
+            &json!({"stream_preset": "reference"}),
+        )
+        .unwrap();
+        let shown = handle(host, "GET", "/api/config", &Value::Null).unwrap();
+        assert_eq!(shown["stream_preset"], "reference");
+        // The preset's values are not written to the file, so changing the
+        // preset later changes them; only the name is saved.
+        for key in ["amd_rc", "amd_max_frame_size"] {
+            assert!(shown.get(key).is_none(), "{key}");
+        }
+        let saved = Config::load(&host.config_path).unwrap();
+        assert_eq!(saved.get("stream_preset", ""), "reference");
+        assert!(!saved.values.contains_key("amd_rc"));
+        // A manual value saves next to it and stays after the preset changes.
+        handle(
+            host,
+            "PATCH",
+            "/api/config",
+            &json!({"amd_max_frame_size": "2", "stream_preset": "lowest_latency"}),
+        )
+        .unwrap();
+        let saved = Config::load(&host.config_path).unwrap();
+        assert_eq!(saved.get("stream_preset", ""), "lowest_latency");
+        assert_eq!(saved.get("amd_max_frame_size", ""), "2");
+        // An unknown name is refused and the saved one stays.
+        assert!(
+            handle(
+                host,
+                "PATCH",
+                "/api/config",
+                &json!({"stream_preset": "fastest"})
+            )
+            .is_err()
+        );
+        let saved = Config::load(&host.config_path).unwrap();
+        assert_eq!(saved.get("stream_preset", ""), "lowest_latency");
+        // Clearing it means Balanced again.
+        handle(
+            host,
+            "PATCH",
+            "/api/config",
+            &json!({"stream_preset": null}),
+        )
+        .unwrap();
+        let saved = Config::load(&host.config_path).unwrap();
+        assert!(!saved.values.contains_key("stream_preset"));
+        assert_eq!(saved.get("amd_max_frame_size", ""), "2");
+    }
+
+    #[test]
     fn the_console_gets_settings_saved_under_an_earlier_name_under_the_current_one() {
         let fixture = Fixture::new();
         std::fs::write(

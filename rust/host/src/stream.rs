@@ -352,6 +352,9 @@ fn sets_peak(overrides: &serde_json::Map<String, serde_json::Value>) -> bool {
 
 pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     let mut config = h.config.read().unwrap().clone();
+    // The host's preset fills what the host left unset; a device's or app's
+    // own preset replaces it below.
+    butterpollo_core::stream_preset::fill(&mut config);
     let mut peak_chosen = false;
     if let Some(overrides) = launch
         .client
@@ -476,6 +479,17 @@ fn apply_overrides(
     // limit of -1) is skipped, as in the C++ host, instead of failing every
     // stream of the device or app, or the running stream when it is edited.
     let mut overrides = overrides;
+    // A preset first, so the layer's own values for the settings it covers
+    // still win over it.
+    let preset = overrides.remove(butterpollo_core::stream_preset::SETTING);
+    if let Some(name) = preset.as_ref().and_then(serde_json::Value::as_str)
+        && butterpollo_core::stream_preset::select(config, name)
+    {
+        config.values.insert(
+            butterpollo_core::stream_preset::SETTING.into(),
+            name.to_owned(),
+        );
+    }
     overrides.retain(|key, value| {
         let single = serde_json::Map::from_iter([(key.clone(), value.clone())]);
         match config.update(&single) {
@@ -4089,6 +4103,66 @@ mod tests {
             f.host.apps.read().unwrap()[0].extra["config-overrides"]["port"],
             51000
         );
+    }
+    #[test]
+    fn stream_presets_fill_the_host_and_a_device_or_app_can_pick_its_own() {
+        use crate::state::test_support::Fixture;
+        use serde_json::json;
+        let f = Fixture::new();
+        let set = |text: &str| *f.host.config.write().unwrap() = Config::parse(text).unwrap();
+        let client = f.client(u32::MAX);
+        let effective = |client: &butterpollo_core::state::Client| {
+            effective_config(&f.host, &f.launch(client.clone(), Role::Stream)).unwrap()
+        };
+        // No preset is Balanced: nothing is added.
+        set("max_bitrate=10000");
+        let plain = effective(&client);
+        assert!(!plain.values.contains_key("amd_max_frame_size"));
+        assert!(!plain.values.contains_key("amd_rc"));
+        set("stream_preset=balanced\nmax_bitrate=10000");
+        assert_eq!(effective(&client).values.len(), plain.values.len() + 1);
+        // The host's preset fills what it left unset; its own value wins.
+        set("stream_preset=lowest_latency");
+        assert_eq!(effective(&client).get("amd_max_frame_size", ""), "1");
+        set("stream_preset=reference\namd_max_frame_size=4");
+        let reference = effective(&client);
+        assert_eq!(reference.get("amd_rc", ""), "cbr");
+        assert_eq!(reference.get("amd_max_frame_size", ""), "4");
+        assert!(!f.host.config.read().unwrap().values.contains_key("amd_rc"));
+        // A device's preset replaces the host's for the covered settings,
+        // and the device's own values still win over it.
+        set("stream_preset=reference\namd_rc=hqvbr");
+        let mut device = client.clone();
+        device.extra.insert(
+            "config_overrides".into(),
+            json!({"stream_preset":"lowest_latency"}),
+        );
+        let config = effective(&device);
+        assert_eq!(config.get("stream_preset", ""), "lowest_latency");
+        assert_eq!(config.get("amd_max_frame_size", ""), "1");
+        assert!(!config.values.contains_key("amd_rc"));
+        device.extra.insert(
+            "config_overrides".into(),
+            json!({"stream_preset":"lowest_latency","amd_max_frame_size":"3"}),
+        );
+        let config = effective(&device);
+        assert_eq!(config.get("amd_max_frame_size", ""), "3");
+        assert_eq!(config.get("amd_quality", ""), "speed");
+        // An app's preset beats the device's; an unknown one is ignored.
+        f.host.apps.write().unwrap()[0].extra.insert(
+            "config-overrides".into(),
+            json!({"stream_preset":"reference"}),
+        );
+        let config = effective(&client);
+        assert_eq!(config.get("amd_rc", ""), "cbr");
+        assert_eq!(config.get("amd_max_frame_size", ""), "0");
+        f.host.apps.write().unwrap()[0].extra.insert(
+            "config-overrides".into(),
+            json!({"stream_preset":"fastest"}),
+        );
+        let config = effective(&client);
+        assert_eq!(config.get("stream_preset", ""), "reference");
+        assert_eq!(config.get("amd_rc", ""), "hqvbr");
     }
     #[test]
     fn a_background_stream_keeps_keyboard_and_mouse_off_whatever_overrides_say() {

@@ -404,6 +404,13 @@ fn early_line(now: (u64, u64), last: (u64, u64), secs: f64) -> String {
         now.0.saturating_sub(last.0) as f64 / secs, now.1.saturating_sub(last.1), now.1)
 }
 
+/// The line logged when any session ends: what the decoder was given, and the frames lost
+/// before the picture (over the decoder queue, or replaced by a newer one before they were due).
+fn video_summary(submitted: u64, queue_overflows: u64, replaced: u64) -> String {
+    format!("nightjar: video: {submitted} frames to the decoder, {queue_overflows} dropped over the decoder queue, \
+        {replaced} replaced before they were shown")
+}
+
 /// The line logged when an early decode session ends: the three counters of the decoder and
 /// the chunks the queue dropped.
 fn early_summary(early_frames: u64, fallbacks: u64, chunk_us: u64, chunks_dropped: u64) -> String {
@@ -421,6 +428,10 @@ mod early_tests {
         let summary = early_summary(1200, 4, 8_500, 7);
         for part in ["1200 frames decoded ahead", "4 fell back", "7 chunks dropped", "8.5 ms"] {
             assert!(summary.contains(part), "{summary}");
+        }
+        let video = video_summary(3600, 12, 5);
+        for part in ["3600 frames to the decoder", "12 dropped over the decoder queue", "5 replaced"] {
+            assert!(video.contains(part), "{video}");
         }
     }
 }
@@ -2083,10 +2094,13 @@ impl Streaming {
         pads.reset();
         self.upscaler = None;
         self.texture.destroy();
+        let stats = self.session.stats();
+        eprintln!("{}", video_summary(stats.frames_submitted, stats.decode_queue_overflows,
+            self.shared.counters.replaced.load(Ordering::Relaxed)));
         if self.facts.early_decode {
             let c = &self.shared.counters;
             eprintln!("{}", early_summary(c.early_frames.load(Ordering::Relaxed), c.early_fallbacks.load(Ordering::Relaxed),
-                c.early_us_total.load(Ordering::Relaxed), self.session.stats().early_chunks_dropped));
+                c.early_us_total.load(Ordering::Relaxed), stats.early_chunks_dropped));
         }
         self.session.stop();
     }

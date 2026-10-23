@@ -827,6 +827,14 @@ impl Launch {
             baseline,
         })
     }
+    /// Whether Playnite reported the game running, or already over: a launcher window is no
+    /// longer standing in for it (`launcher_watch`).
+    pub fn game_up(&self) -> bool {
+        matches!(
+            self.state.lock().unwrap().phase,
+            Phase::Running | Phase::Exited | Phase::Stopping
+        )
+    }
     /// Whether Playnite reported the game stopped.
     pub fn finished(&self) -> bool {
         matches!(

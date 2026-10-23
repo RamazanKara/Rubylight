@@ -241,6 +241,9 @@ pub struct RunningApp {
     /// The game's own process or window has been seen, so a launcher window is no longer
     /// standing in for it (`launcher_watch`).
     game_seen: bool,
+    /// Every program the app starts only opens a launcher's own window (Steam Big Picture): the
+    /// launcher is the app, so its windows are no prompt standing in for a game.
+    launcher_only: bool,
 }
 /// The folder of the program an app starts, as Vibepollo uses when the app
 /// has no working directory: games often load files relative to it.
@@ -350,6 +353,7 @@ impl RunningApp {
             foreign: BTreeMap::new(),
             desktop: Default::default(),
             game_seen: false,
+            launcher_only: only_opens_launchers(app),
             exit_timeout: Duration::from_secs(
                 app.extra
                     .get("exit-timeout")
@@ -662,14 +666,19 @@ impl RunningApp {
     /// Steam or Playnite tracking covers it, and its process started after the
     /// launch; quitting the plain desktop never closes what a user opened.
     pub fn observe_foreground(&mut self, pid: u32, program: &str) {
+        // The job's process list is read at most once, and not at all once the game was seen
+        // and nothing else needs it: this runs on the stream's thread every second.
+        let mut owned = None;
+        let mut owns = |app: &Self| {
+            *owned.get_or_insert_with(|| {
+                app.child
+                    .as_ref()
+                    .and_then(|child| child.process_ids().ok())
+                    .is_some_and(|ids| ids.contains(&pid))
+            })
+        };
         let is_launcher = butterpollo_core::launcher_prompt::launcher_of(program).is_some();
-        if !is_launcher
-            && self
-                .child
-                .as_ref()
-                .and_then(|child| child.process_ids().ok())
-                .is_some_and(|owned| owned.contains(&pid))
-        {
+        if !self.game_seen && !is_launcher && owns(self) {
             self.game_seen = true;
         }
         if !self.launches
@@ -678,11 +687,7 @@ impl RunningApp {
             || self.foreign.contains_key(&pid)
             || self.foreign.len() >= 8
             || pid == std::process::id()
-            || self
-                .child
-                .as_ref()
-                .and_then(|child| child.process_ids().ok())
-                .is_some_and(|owned| owned.contains(&pid))
+            || owns(self)
         {
             return;
         }
@@ -707,9 +712,24 @@ impl RunningApp {
     }
     /// Whether the game itself is up, and how long ago the app was launched, for an app that
     /// starts a program. A launcher window is a prompt only while the game is not up.
+    ///
+    /// None for an app that only opens a launcher, and once the watch ran out
+    /// (`launcher_prompt::WATCH_LIMIT`): the desktop is then no longer read for it.
     pub fn launch_progress(&self) -> Option<(bool, Duration)> {
-        self.launches
-            .then(|| (self.game_seen, self.started.elapsed()))
+        let age = self.started.elapsed();
+        if !self.launches
+            || self.launcher_only
+            || age > butterpollo_core::launcher_prompt::WATCH_LIMIT
+        {
+            return None;
+        }
+        // Playnite starts the game itself and says when it runs.
+        let game_up = self.game_seen
+            || self
+                .playnite
+                .as_ref()
+                .is_some_and(|launch| launch.game_up());
+        Some((game_up, age))
     }
     #[cfg(test)]
     pub fn mark_game_seen(&mut self) {
@@ -767,6 +787,24 @@ fn started_from_desktop(pid: u32, processes: &[butterpollo_core::steam::Process]
             && p.started <= child.started
             && p.name.eq_ignore_ascii_case("explorer.exe")
     })
+}
+/// Whether everything the app starts only opens a launcher's own window.
+fn only_opens_launchers(app: &App) -> bool {
+    let detached = app
+        .extra
+        .get("detached")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str);
+    let commands: Vec<&str> = std::iter::once(app.cmd.as_str())
+        .chain(detached)
+        .filter(|command| !command.trim().is_empty())
+        .collect();
+    !commands.is_empty()
+        && commands
+            .iter()
+            .all(|command| butterpollo_core::launcher_prompt::opens_launcher_itself(command))
 }
 fn foreign_game(program: &str, created: u64, launched_at: u64) -> bool {
     const CLIENTS: [&str; 14] = [
@@ -1284,6 +1322,75 @@ mod tests {
             assert!(!foreign_game(client, launched + 1, launched), "{client}");
         }
     }
+    /// An app that runs `ping` for a while, so its job has a process to name.
+    fn app_with_a_child() -> RunningApp {
+        let mut app = App::desktop();
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        app.cmd = format!(r#""{root}\System32\PING.EXE" -n 30 127.0.0.1"#);
+        RunningApp::with_environment(&app, BTreeMap::new()).unwrap()
+    }
+
+    #[test]
+    fn a_process_of_the_apps_own_job_is_the_game_and_an_unrelated_one_is_not() {
+        let mut app = app_with_a_child();
+        assert_eq!(app.launch_progress().map(|(up, _)| up), Some(false));
+        let owned = app.child.as_ref().unwrap().process_ids().unwrap();
+        assert!(!owned.is_empty());
+        // A window of some other program in front says nothing about the game.
+        app.observe_foreground(std::process::id(), "notepad.exe");
+        assert_eq!(app.launch_progress().map(|(up, _)| up), Some(false));
+        // A launcher's own window is never the game, even from the job.
+        app.observe_foreground(owned[0], "steamwebhelper.exe");
+        assert_eq!(app.launch_progress().map(|(up, _)| up), Some(false));
+        // The job's program in front is the game.
+        app.observe_foreground(owned[0], "game.exe");
+        assert_eq!(app.launch_progress().map(|(up, _)| up), Some(true));
+        // And once seen it stays seen.
+        app.observe_foreground(std::process::id(), "notepad.exe");
+        assert_eq!(app.launch_progress().map(|(up, _)| up), Some(true));
+    }
+
+    #[test]
+    fn the_launcher_watch_skips_launcher_apps_and_ends_with_its_limit() {
+        let app = |cmd: &str, detached: &[&str]| {
+            let mut app = App::desktop();
+            app.cmd = cmd.into();
+            app.extra
+                .insert("detached".into(), serde_json::json!(detached));
+            app
+        };
+        // The default Steam Big Picture app: the launcher is the app.
+        assert!(only_opens_launchers(&app("", &["steam://open/bigpicture"])));
+        assert!(only_opens_launchers(&app(
+            r"C:\Program Files (x86)\Steam\steam.exe",
+            &[]
+        )));
+        // A game by Steam, a program of its own, or a mix of the two is waited for.
+        assert!(!only_opens_launchers(&app("", &["steam://rungameid/570"])));
+        assert!(!only_opens_launchers(&app(r"C:\Games\game.exe", &[])));
+        assert!(!only_opens_launchers(&app(
+            r"C:\Games\game.exe",
+            &["steam://open/bigpicture"]
+        )));
+        assert!(!only_opens_launchers(&app("", &[])));
+
+        // Nothing is started here: only the watch's own state is looked at.
+        let mut running = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        running.launches = true;
+        assert!(running.launch_progress().is_some());
+        running.launcher_only = true;
+        assert_eq!(running.launch_progress(), None);
+        running.launcher_only = false;
+        running.started = std::time::Instant::now()
+            - butterpollo_core::launcher_prompt::WATCH_LIMIT
+            - Duration::from_secs(1);
+        assert_eq!(
+            running.launch_progress(),
+            None,
+            "a watch that ran out stops"
+        );
+    }
+
     #[test]
     fn existing_environment_syntax_is_case_insensitive_and_checked() {
         let env = BTreeMap::from([("PATH".into(), "C:\\tools".into())]);

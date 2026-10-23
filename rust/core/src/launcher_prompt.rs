@@ -16,6 +16,9 @@ use std::time::Duration;
 
 /// How long a launcher may sit in front before its window counts as a prompt in its own right.
 pub const GRACE: Duration = Duration::from_secs(20);
+/// How long after the launch the windows are still read. A game that has not shown by then is
+/// not held up by a prompt, and the host stops polling the desktop for it.
+pub const WATCH_LIMIT: Duration = Duration::from_secs(10 * 60);
 /// The longest title kept for the client.
 const TITLE_CHARS: usize = 120;
 
@@ -42,6 +45,34 @@ pub fn launcher_of(process: &str) -> Option<&'static str> {
         }
         _ => None,
     }
+}
+
+/// Whether a command line only opens a launcher's own window (Steam Big Picture, the Steam
+/// library, the launcher program with no game named) and starts no game. The launcher is then
+/// the app: a prompt on screen is what the client asked for, not a game held up by one.
+pub fn opens_launcher_itself(command: &str) -> bool {
+    let command = command.trim().to_ascii_lowercase();
+    let (target, rest) = match command.strip_prefix('"') {
+        Some(quoted) => quoted.split_once('"').unwrap_or((quoted, "")),
+        // An unquoted path may hold spaces ("C:\Program Files (x86)\Steam\steam.exe -silent"):
+        // the program ends at the first ".exe".
+        None => match command.find(".exe") {
+            Some(end) => command.split_at(end + ".exe".len()),
+            None => command
+                .split_once(char::is_whitespace)
+                .unwrap_or((command.as_str(), "")),
+        },
+    };
+    // A command that names a game to start is waited for, wherever it is written.
+    let starts_a_game = |text: &str| {
+        ["applaunch", "rungameid", "launch", "steam://run/"]
+            .iter()
+            .any(|word| text.contains(word))
+    };
+    if target.starts_with("steam://") {
+        return !starts_a_game(target);
+    }
+    launcher_of(target).is_some() && !starts_a_game(rest)
 }
 
 /// What a title asks for, from its words.
@@ -193,6 +224,33 @@ mod tests {
         }
         for program in ["game.exe", "explorer.exe", "chrome.exe", ""] {
             assert_eq!(launcher_of(program), None, "{program}");
+        }
+    }
+
+    #[test]
+    fn a_command_that_only_opens_a_launcher_is_not_a_game_waiting_on_one() {
+        for command in [
+            "steam://open/bigpicture",
+            " steam://open/games ",
+            r#""C:\Program Files (x86)\Steam\steam.exe""#,
+            r#""C:\Program Files (x86)\Steam\steam.exe" -bigpicture"#,
+            r"C:\Epic\EpicGamesLauncher.exe",
+            r"C:\Program Files (x86)\Steam\steam.exe",
+            r"C:\Program Files (x86)\Steam\steam.exe -bigpicture",
+        ] {
+            assert!(opens_launcher_itself(command), "{command}");
+        }
+        for command in [
+            r"C:\Program Files (x86)\Steam\steam.exe -applaunch 570",
+            "steam://rungameid/570",
+            "steam://run/570",
+            r#""C:\Program Files (x86)\Steam\steam.exe" -applaunch 570"#,
+            "com.epicgames.launcher://apps/Fortnite?action=launch&silent=true",
+            r"C:\Games\game.exe",
+            "game.exe",
+            "",
+        ] {
+            assert!(!opens_launcher_itself(command), "{command}");
         }
     }
 

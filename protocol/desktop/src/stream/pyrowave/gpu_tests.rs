@@ -597,16 +597,25 @@ fn a_slice_decode_is_exact_on_its_rows_on_real_row_ordered_frames() {
         assert_eq!(output.bands.len(), captured.len() + 1, "frame {n}: the final decode is the last slice");
         assert_eq!(output.race.slices as usize, output.bands.len());
         sliced_frames += usize::from(!captured.is_empty());
+        // The reference: the same frame decoded once, whole, with the beam race off.
+        stream.set_slices(0);
+        let whole = stream.frame(data, &mut || false).unwrap_or_else(|e| panic!("GPU decode (whole): {e:?}"));
+        let Picture::GpuPlanes { lease: whole_lease, fence_value: whole_fence } = &whole.picture else { panic!("a plane picture") };
+        let reference: Vec<_> = (0..3).map(|p| read_plane_bytes(&rig, &stream.gpu, whole_lease, *whole_fence, p)).collect();
+        stream.set_slices(4);
+        for plane in 0..3 {
+            assert!(last[plane].1 == reference[plane].1, "frame {n} plane {plane}: the final decode after its slices differs from the whole frame's decode");
+        }
         for (band, planes) in &captured {
             for (plane, (row, bytes)) in planes.iter().enumerate() {
                 let scale = if plane == 0 || full { 1 } else { 2 };
                 let (first, end) = (band.first_row as usize / scale, band.end_row as usize / scale);
-                assert!(bytes[first * row..end * row] == last[plane].1[first * row..end * row],
-                    "frame {n} slice {} plane {plane}: rows {first}..{end} differ between the slice decode and the final decode", band.slice);
+                assert!(bytes[first * row..end * row] == reference[plane].1[first * row..end * row],
+                    "frame {n} slice {} plane {plane}: rows {first}..{end} differ between the slice decode and the whole frame's decode", band.slice);
             }
             slices += 1;
         }
     }
-    println!("{sliced_frames} frames with {slices} slice decodes, every one exact on its rows ({width}x{height} 444={full})");
+    println!("{sliced_frames} frames with {slices} slice decodes, every one exact on its rows against the whole decode, and the final decodes byte-identical ({width}x{height} 444={full})");
     assert!(slices > 0, "no slice came due: are the dumped frames row-ordered?");
 }

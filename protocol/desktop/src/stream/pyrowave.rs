@@ -525,6 +525,16 @@ impl SlicePlan {
         self.tracker.record(index);
     }
 
+    /// Packets were lost before the one that was just fed: no slice is due for the rest of the frame.
+    pub fn gap(&mut self) {
+        self.tracker.gap();
+    }
+
+    /// The whole picture, for a frame that is decoded once.
+    pub fn whole(&self) -> (u32, u32) {
+        (0, self.height)
+    }
+
     /// The frame's last packet was fed.
     pub fn finish(&mut self) {
         self.tracker.finish();
@@ -535,9 +545,10 @@ impl SlicePlan {
     }
 
     /// The furthest slice that can be decoded exactly now, if it is one not decoded yet. A frame
-    /// that has left the row order is never sliced: it decodes whole.
+    /// that has left the row order, or lost a packet, is never sliced from there on: it decodes whole.
     pub fn due(&mut self) -> Option<Due> {
-        if self.tracker.report().violations > 0 { return None; }
+        let report = self.tracker.report();
+        if report.violations > 0 || report.gaps > 0 { return None; }
         let done = self.tracker.complete_bands();
         let bands = self.tracker.bands();
         let target = self.ends.iter().rposition(|&end| end <= done && end < bands)?;
@@ -639,8 +650,27 @@ impl Pyrowave {
 }
 
 /// The most a frame may have lost (the SDK gate's 90% packet ratio) once its slices were decoded.
-#[cfg(windows)]
+#[cfg_attr(not(windows), allow(dead_code))]
 const SLICED_LOSS_LIMIT_PERCENT: f32 = 10.0;
+/// Frames in a row that must arrive in row order before slicing starts again after one did not.
+#[cfg_attr(not(windows), allow(dead_code))]
+const ORDERED_FRAMES_TO_RESUME: u32 = 8;
+
+/// Whether the final decode of a frame may go ahead. A slice decode marks the SDK's sequence as
+/// decoded, and its ready flag is false for the rest of it, so a frame whose slices were decoded
+/// is judged on the loss its records cache had to fill in (the gate's own 90% packet ratio)
+/// when its chunks were the whole envelope (`finished`). Any other frame asks the SDK.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn final_decode_gate(sliced: bool, finished: bool, loss_percent: f32, sdk_ready: impl FnOnce() -> bool) -> Result<(), &'static str> {
+    if sliced && finished {
+        if loss_percent > SLICED_LOSS_LIMIT_PERCENT {
+            return Err("PyroWave frame lost too much of its data after its slices were decoded");
+        }
+    } else if !sdk_ready() {
+        return Err("PyroWave frame holds no picture data");
+    }
+    Ok(())
+}
 /// How long the decoder thread waits for the GPU to finish a frame before the stream ends.
 #[cfg(windows)]
 const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
@@ -709,6 +739,10 @@ struct Race {
     failure: Option<String>,
     /// No plane set was free for the slices: the frame decodes once, whole.
     no_plane: bool,
+    /// Frames in a row that arrived in row order, up to `ORDERED_FRAMES_TO_RESUME`.
+    ordered_run: u32,
+    /// This frame may be sliced (the last frames were in order).
+    slicing: bool,
 }
 
 #[cfg(windows)]
@@ -720,16 +754,24 @@ impl Race {
         self.bands.clear();
         self.failure = None;
         self.no_plane = false;
+        self.slicing = self.ordered_run >= ORDERED_FRAMES_TO_RESUME;
     }
 
-    /// The final decode is the last slice; what the frame's slices were.
+    /// The final decode is the last slice; what the frame's slices were. A frame that was not
+    /// received as chunks, or not in row order, has no slices: slices decoded before its order
+    /// broke are not exact, so the one entry is the final decode of the whole picture.
     fn finish(&mut self, fence_value: u64, ready_us: u64, chunks: bool) -> (RaceReport, Vec<BandReady>) {
-        let (first_row, end_row) = self.plan.rest();
+        let ordered = chunks && self.plan.report().ordered();
+        if chunks {
+            self.ordered_run = if ordered { (self.ordered_run + 1).min(ORDERED_FRAMES_TO_RESUME) } else { 0 };
+        }
+        let (first_row, end_row) = if ordered { self.plan.rest() } else { self.plan.whole() };
+        if !ordered { self.bands.clear(); }
         self.bands.push(BandReady { slice: self.bands.len() as u8, first_row, end_row, fence_value, ready_us });
         let bands = std::mem::take(&mut self.bands);
         if !chunks { return (RaceReport::default(), bands); }
-        let ordered = if self.plan.report().ordered() { RaceReport::ORDERED } else { RaceReport::UNORDERED };
-        (RaceReport { slices: bands.len() as u8, first_ready_us: bands[0].ready_us, last_ready_us: ready_us, ordered }, bands)
+        let flag = if ordered { RaceReport::ORDERED } else { RaceReport::UNORDERED };
+        (RaceReport { slices: bands.len() as u8, first_ready_us: bands[0].ready_us, last_ready_us: ready_us, ordered: flag }, bands)
     }
 }
 
@@ -769,6 +811,8 @@ impl GpuStream {
             bands: Vec::new(),
             failure: None,
             no_plane: false,
+            ordered_run: ORDERED_FRAMES_TO_RESUME,
+            slicing: true,
         });
     }
 
@@ -801,6 +845,8 @@ impl GpuStream {
         let Self { records, gpu, pushed, race, .. } = self;
         let mut failed = false;
         if let Some(race) = race.as_mut() {
+            // A packet that is not the first and does not continue the one before it follows a loss.
+            if !first && flags & rubylight_protocol::pyrowave::PACKET_CONTIGUOUS == 0 { race.plan.gap(); }
             race.plan.packet();
             if flags & rubylight_protocol::pyrowave::PACKET_FRAME_START != 0 && payload.len() >= 16 {
                 // The sequence header first, so a slice decode knows the picture. `finish_frame`
@@ -828,7 +874,7 @@ impl GpuStream {
     fn decode_due_slice(&mut self) {
         if self.early != Early::Active { return; }
         let Self { race: Some(race), gpu, planes, stages, .. } = self else { return };
-        if !race.header_pushed || race.failure.is_some() || race.no_plane { return; }
+        if !race.slicing || !race.header_pushed || race.failure.is_some() || race.no_plane { return; }
         let Some(due) = race.plan.due() else { return };
         let step = Instant::now();
         if race.lease.is_none() {
@@ -901,13 +947,7 @@ impl GpuStream {
         // A slice decode marks the SDK's sequence as decoded, and `is_ready` is then false for the
         // rest of it. The slices' frame is complete if its chunks were the envelope (`finished`);
         // what the cache had to fill in is the loss the gate would have judged.
-        if sliced && finished {
-            if loss_percent > SLICED_LOSS_LIMIT_PERCENT {
-                return Err(Failure::Frame("PyroWave frame lost too much of its data after its slices were decoded".into()));
-            }
-        } else if !self.gpu.is_ready(true) {
-            return Err(Failure::Frame("PyroWave frame holds no picture data".into()));
-        }
+        final_decode_gate(sliced, finished, loss_percent, || self.gpu.is_ready(true)).map_err(|why| Failure::Frame(why.into()))?;
         let step = Instant::now();
         let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
         self.stages.add(GPU_SUBMIT, step);
@@ -923,8 +963,9 @@ impl GpuStream {
         Ok(Output { picture: Picture::GpuPlanes { lease, fence_value }, loss_percent, first_block_us, bands, race })
     }
 
+    /// The stage times; the slices stage only when the beam race is on.
     pub fn stage_summary(&self) -> Option<String> {
-        self.stages.summary()
+        self.stages.summary_of(if self.race.is_some() { GPU_STAGE_NAMES.len() } else { GPU_SLICES })
     }
 }
 
@@ -1176,6 +1217,128 @@ mod tests {
         ordered.sort_by_key(|&i| (steps[i as usize], i));
         run_plan(&mut plan, &ordered, 40);
         assert!(plan.report().ordered());
+    }
+
+    fn row_order(width: u32, height: u32) -> Vec<u32> {
+        let steps = rubylight_protocol::pyrowave::rows::row_steps(width, height, false);
+        let mut ordered: Vec<u32> = (0..steps.len() as u32).collect();
+        ordered.sort_by_key(|&i| (steps[i as usize], i));
+        ordered
+    }
+
+    #[test]
+    fn a_lost_packet_stops_slicing_and_makes_the_frame_unordered() {
+        let (width, height) = (1920u32, 1080u32);
+        let ordered = row_order(width, height);
+        let mut plan = SlicePlan::new(width, height, false, 4);
+        plan.begin_frame();
+        let mut dues = 0;
+        for (i, packet) in ordered.chunks(40).enumerate() {
+            if i == 1 { plan.gap(); }
+            plan.packet();
+            for &index in packet { plan.record(index); }
+            dues += usize::from(plan.due().is_some());
+        }
+        assert_eq!(dues, 0, "no slice after a gap, although the records themselves are in order");
+        assert!(!plan.report().ordered(), "{:?}", plan.report());
+        // The next frame starts clean.
+        assert_eq!(run_plan(&mut plan, &ordered, 40).len(), 3);
+    }
+
+    #[test]
+    fn the_final_decode_gate_judges_a_sliced_frame_by_its_loss_and_any_other_by_the_sdk() {
+        let ready = || -> bool { panic!("a sliced frame never asks the SDK: its slice decodes cleared the flag") };
+        assert_eq!(final_decode_gate(true, true, 0.0, ready), Ok(()));
+        assert_eq!(final_decode_gate(true, true, SLICED_LOSS_LIMIT_PERCENT, ready), Ok(()), "the limit itself passes");
+        assert!(final_decode_gate(true, true, SLICED_LOSS_LIMIT_PERCENT + 0.1, ready).unwrap_err().contains("lost too much"));
+        // Slices decoded but the chunks were not the whole envelope: the SDK's gate decides.
+        assert_eq!(final_decode_gate(true, false, 50.0, || true), Ok(()));
+        assert!(final_decode_gate(true, false, 0.0, || false).unwrap_err().contains("no picture data"));
+        // No slices: the SDK's gate, whatever the loss.
+        assert_eq!(final_decode_gate(false, true, 50.0, || true), Ok(()));
+        assert!(final_decode_gate(false, true, 0.0, || false).is_err());
+    }
+
+    #[cfg(windows)]
+    fn race(width: u32, height: u32) -> Race {
+        Race {
+            plan: SlicePlan::new(width, height, false, 4),
+            header_pushed: false,
+            lease: None,
+            bands: Vec::new(),
+            failure: None,
+            no_plane: false,
+            ordered_run: ORDERED_FRAMES_TO_RESUME,
+            slicing: true,
+        }
+    }
+
+    /// Feeds a frame's records (40 a packet) to the race's plan, and finishes it as
+    /// `GpuStream::frame` does, with a slice recorded for each one that came due.
+    #[cfg(windows)]
+    fn race_frame(race: &mut Race, order: &[u32], chunks: bool) -> (RaceReport, Vec<BandReady>) {
+        race.begin_frame();
+        for packet in order.chunks(40) {
+            race.plan.packet();
+            for &index in packet { race.plan.record(index); }
+            if race.slicing {
+                if let Some(due) = race.plan.due() {
+                    race.bands.push(BandReady { slice: due.slice as u8, first_row: due.first_row, end_row: due.end_row, fence_value: 1, ready_us: 10 });
+                }
+            }
+        }
+        race.plan.finish();
+        race.finish(2, 20, chunks)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_unordered_frame_has_no_slices_and_slicing_waits_for_ordered_frames() {
+        let (width, height) = (1920u32, 1080u32);
+        let ordered = row_order(width, height);
+        // In order for the first half, so slices come due before the break is seen, then reversed.
+        let mut broken = ordered.clone();
+        let tail = broken.len() / 2;
+        broken[tail..].reverse();
+        let mut race = race(width, height);
+        let (report, bands) = race_frame(&mut race, &ordered, true);
+        assert_eq!((report.ordered, report.slices), (RaceReport::ORDERED, 4));
+        assert_eq!(bands.len(), 4);
+        assert_eq!(bands.last().map(|b| b.end_row), Some(height));
+        // Slices came due on the first half, which is in order; the frame then left the order.
+        let (report, bands) = race_frame(&mut race, &broken, true);
+        assert_eq!(report.ordered, RaceReport::UNORDERED);
+        assert_eq!((report.slices, bands.len()), (1, 1), "the slices decoded before the break are not marked exact");
+        assert_eq!((bands[0].first_row, bands[0].end_row), (0, height));
+        // Quiet: ordered frames do not slice until ORDERED_FRAMES_TO_RESUME of them in a row.
+        for n in 0..ORDERED_FRAMES_TO_RESUME {
+            let (report, bands) = race_frame(&mut race, &ordered, true);
+            assert_eq!(report.ordered, RaceReport::ORDERED);
+            assert_eq!(bands.len(), 1, "ordered frame {n} after the break is still decoded whole");
+        }
+        let (_, bands) = race_frame(&mut race, &ordered, true);
+        assert_eq!(bands.len(), 4, "slicing resumed");
+        // A break in the middle of the run starts it over.
+        race_frame(&mut race, &broken, true);
+        race_frame(&mut race, &ordered, true);
+        race_frame(&mut race, &broken, true);
+        for _ in 0..ORDERED_FRAMES_TO_RESUME - 1 { race_frame(&mut race, &ordered, true); }
+        assert_eq!(race_frame(&mut race, &ordered, true).1.len(), 1, "one frame short of the run");
+        assert_eq!(race_frame(&mut race, &ordered, true).1.len(), 4);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_frame_without_chunks_is_one_slice_of_the_whole_picture() {
+        let (width, height) = (1920u32, 1080u32);
+        let mut race = race(width, height);
+        race_frame(&mut race, &row_order(width, height), true);
+        // A frame that came whole never began: the plan still holds the last frame's slices, and
+        // the final decode must not take its rows from them.
+        assert!(race.plan.rest().0 > 0);
+        let (report, bands) = race.finish(3, 30, false);
+        assert_eq!(report, RaceReport::default());
+        assert_eq!(bands, [BandReady { slice: 0, first_row: 0, end_row: height, fence_value: 3, ready_us: 30 }]);
     }
 
     #[test]

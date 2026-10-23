@@ -56,7 +56,7 @@ private address), so the host sends 1024 byte packets, and a row-ordered frame i
 small does not fit its wire budget: the host sends it in index order, with a warning event
 (`PyroWave row order was dropped ...`). `NIGHTJAR_STREAM_LOCATION=local` makes the stream local
 (1360 byte packets, row-order framing about 3% larger than index order; at 1024 bytes it is
-about 20% larger). And the host version must parse: `3.0.0-rc.1` style versions were not.
+about 20% larger). And the host version must parse: `3.0.0-alpha` and `3.0.0-beta` versions did not (`-rc` always did).
 
 ## The timing CSV
 

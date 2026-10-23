@@ -1,4 +1,4 @@
-# PyroWave desktop decode measurement protocol (docs/pyrowave-decode.md), end to end:
+# PyroWave desktop decode measurement protocol (docs/pyrowave-decode-stages.md), end to end:
 # an isolated Rubylight host on 127.0.0.1:48123 streams a scrolling texture to Nightjar on the
 # same PC, 1080p60 PyroWave 4:2:0, in A B B A order per bitrate, one timing CSV per leg.
 #

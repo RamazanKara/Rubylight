@@ -127,4 +127,46 @@ public class CachedAppAssetLoaderTest {
             close(loader);
         }
     }
+
+    /** A host that is off: a cover saved on the disk still shows, and nothing asks the network for it. */
+    // Robolectric cannot decode a file with ImageDecoder (Android 9+); the disk loader uses BitmapFactory below that.
+    @Config(sdk = 25)
+    @Test public void savedCoverShowsWithTheHostOffline() throws Exception {
+        Application context = RuntimeEnvironment.getApplication();
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = "offline-host";
+        NvApp app = new NvApp("Saved game", 40, false);
+        DiskAssetLoader disk = new DiskAssetLoader(context);
+        java.io.File file = disk.getFile(computer.uuid, app.getAssetCacheKey());
+        assertTrue(file.getParentFile().isDirectory() || file.getParentFile().mkdirs());
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+            Bitmap.createBitmap(30, 40, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, out);
+        }
+        java.util.concurrent.atomic.AtomicInteger asked = new java.util.concurrent.atomic.AtomicInteger();
+        NetworkAssetLoader offline = new NetworkAssetLoader(context, "unique") {
+            @Override public java.io.InputStream getBitmapStream(CachedAppAssetLoader.LoaderTuple tuple) {
+                asked.incrementAndGet();
+                return null;
+            }
+        };
+        MemoryAssetLoader memory = new MemoryAssetLoader();
+        memory.clearCache();
+        CachedAppAssetLoader loader = new CachedAppAssetLoader(computer, 1, offline, memory, disk,
+                Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888));
+        try {
+            ImageView image = new ImageView(context);
+            TextView name = new TextView(context);
+            loader.populateImageView(app, image, name);
+            for (int i = 0; i < 250 && name.getVisibility() != android.view.View.GONE; i++) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                Thread.sleep(20);
+            }
+            assertEquals("The saved cover replaces the title", android.view.View.GONE, name.getVisibility());
+            assertTrue(CachedAppAssetLoader.hasArtwork(image));
+            Thread.sleep(200);
+            assertEquals("A saved cover never goes to the network", 0, asked.get());
+        } finally {
+            close(loader);
+        }
+    }
 }

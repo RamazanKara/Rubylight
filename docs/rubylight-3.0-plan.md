@@ -196,6 +196,8 @@ Each track starts with a spike and needs the user's go-ahead.
 | B2 slice/tile delivery | step 1 probe in progress | |
 | B4 PyroWave 3.0 | 4:4:4 PSNR fix in progress | |
 | B9 Nightjar desktop couch loop | brief 1 of 3 in progress | The desktop client is `protocol/desktop` on Nightjar main (SDL3 and egui, D3D11VA, flip model with tearing, VRR, PyroWave). It lacked the native API, Home, library, overlay session actions, the Radeon panel, a timing CSV and a Windows package |
+| B1, B3–B9 | not started | |
+| B2 slice/tile delivery | step 1 done (host probe: PASS for HEVC and H.264, AV1 PASS at 4 tiles only, unstable) | `cargo run --release -p butterpollo-windows --example amf_unit_probe`, result in `rust/release/fixtures/amf-unit-probe-7900xt.json`. On the RX 7900 XT at 4K60 the driver returns 4 or 8 slices (HEVC, H.264) or tiles (AV1) per frame, the first about 3.6 to 4.5 ms before a whole frame in frame mode, with the full frame no slower. AV1 tile frames are 2.6x (4 tiles) and 4.7x (8 tiles) the target size, so its numbers are not like-for-like. Step 2 not started |
 | B10 beam-raced PyroWave | not started | Added 2026-10-23 as the Nightjar desktop beta headline |
 | B11 GitHub issues | not started | Added 2026-10-23 at the user's request |
 | B12 on-screen keyboard | not started | Added 2026-10-23 at the user's request |

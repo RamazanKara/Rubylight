@@ -79,6 +79,12 @@ public class AndroidAudioRendererTest {
             return now;
         }
 
+        private int pendingMs;
+
+        @Override int pendingAudioMs() {
+            return pendingMs;
+        }
+
         void play() {
             playDecodedAudio(new short[6], 6);
         }
@@ -141,6 +147,24 @@ public class AndroidAudioRendererTest {
             assertEquals(List.of(0, 0), renderer.offsets);
             assertEquals(0, renderer.recreations);
         }
+    }
+
+    @Test public void bufferDropsAreCountedForTheProblemReport() {
+        ScriptedRenderer renderer = new ScriptedRenderer(AudioTrack.ERROR, 6);
+        // Over the 40 ms queue bound: dropped before any write, counted as late.
+        renderer.pendingMs = 45;
+        renderer.play();
+        renderer.play();
+        assertEquals(0, renderer.nextResult);
+        assertEquals(Long.valueOf(2), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
+        // A refused write is counted separately and the next buffer still plays.
+        renderer.pendingMs = 10;
+        renderer.play();
+        renderer.play();
+        assertEquals(2, renderer.nextResult);
+        assertEquals(Long.valueOf(2), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
     }
 
     @Test public void deadTrackRecreationIsRateLimitedAndRecoversLaterBuffers() {

@@ -2,8 +2,8 @@
 //! draws and collects [`Command`]s; `main.rs` carries them out.
 
 use egui::{
-    vec2, Align, Align2, Color32, CornerRadius, Frame, Id, Key, Layout, Margin, Pos2, Rect, Response,
-    RichText, Sense, Stroke, StrokeKind, TextureHandle, Ui, Vec2,
+    pos2, vec2, Align, Align2, Color32, CornerRadius, Frame, Id, Key, Layout, Margin, Pos2, Rect, Response,
+    RichText, Sense, Stroke, StrokeKind, TextureHandle, Ui, UiBuilder, Vec2,
 };
 
 use crate::config::{
@@ -213,6 +213,8 @@ pub struct Launcher {
     restore_key: Option<String>,
     /// Some PC has a library to show, so Home has something on it.
     home_ready: bool,
+    /// The width the header's actions took last frame, to keep them at the right edge.
+    header_width: f32,
     /// The display's tearing support, for the VRR setting's note.
     pub tearing_supported: bool,
     pub display: Display,
@@ -354,6 +356,7 @@ impl Launcher {
             focused_key: None,
             restore_key: None,
             home_ready: false,
+            header_width: 0.0,
             tearing_supported: false,
             display,
             identity_ready: false,
@@ -662,42 +665,53 @@ impl Launcher {
                     ui.label(RichText::new("Keyboard shortcuts").font(semibold(22.0)).color(PAPER));
                 }
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 22.0;
-                match self.screen {
-                Screen::Home | Screen::Hosts | Screen::Settings => {
-                    // Drawn right to left, so they read in the order of `DESTINATIONS`.
-                    for (name, screen) in DESTINATIONS.into_iter().rev() {
-                        if screen != Screen::Home || self.home_ready || self.screen == Screen::Home {
-                            self.destination(ui, name, screen, commands);
+            // The actions sit at the right edge but are registered left to right, so Tab walks
+            // Home, PCs, Settings, Add PC. Their width is last frame's; a change repaints.
+            let slot = ui.available_rect_before_wrap();
+            let width = self.header_width.min(slot.width());
+            let rect = Rect::from_min_max(pos2(slot.right() - width, slot.top()), slot.right_bottom());
+            let used = ui
+                .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
+                    ui.spacing_mut().item_spacing.x = 22.0;
+                    match self.screen {
+                        Screen::Home | Screen::Hosts | Screen::Settings => {
+                            for (name, screen) in DESTINATIONS {
+                                if screen != Screen::Home || self.home_ready || self.screen == Screen::Home {
+                                    self.destination(ui, name, screen, commands);
+                                }
+                            }
+                            if self.screen == Screen::Hosts && text_button(ui, "Add PC").clicked() {
+                                self.add_host_dialog();
+                            }
                         }
-                    }
-                    if self.screen == Screen::Hosts && text_button(ui, "Add PC").clicked() {
-                        self.add_host_dialog();
-                    }
-                }
-                Screen::Game { .. } => {}
-                Screen::Apps(id) => {
-                    if text_button(ui, "PC settings").clicked() {
-                        commands.push(Command::HostSettings(id));
-                    }
-                    if let Some(host) = view.hosts.get(id) {
-                        if host.running_app().is_some() && text_button(ui, "Quit running app").clicked() {
-                            self.dialog = Dialog::ConfirmQuit {
-                                host: id,
-                                start: None,
-                                running: running_name(host),
-                            };
-                            self.focus_dialog = true;
+                        Screen::Game { .. } => {}
+                        Screen::Apps(id) => {
+                            if let Some(host) = view.hosts.get(id) {
+                                if text_button(ui, "Refresh").clicked() {
+                                    commands.push(Command::Refresh(id));
+                                }
+                                if host.running_app().is_some() && text_button(ui, "Quit running app").clicked() {
+                                    self.dialog = Dialog::ConfirmQuit {
+                                        host: id,
+                                        start: None,
+                                        running: running_name(host),
+                                    };
+                                    self.focus_dialog = true;
+                                }
+                            }
+                            if text_button(ui, "PC settings").clicked() {
+                                commands.push(Command::HostSettings(id));
+                            }
                         }
-                        if text_button(ui, "Refresh").clicked() {
-                            commands.push(Command::Refresh(id));
-                        }
+                        Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
                     }
-                }
-                Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
-                }
-            });
+                    ui.min_rect().width()
+                })
+                .inner;
+            if (used - self.header_width).abs() > 0.5 {
+                self.header_width = used;
+                ui.ctx().request_repaint();
+            }
         });
     }
 
@@ -3145,6 +3159,39 @@ mod tests {
         assert_eq!(f.hosts.list[0].record.alias, None);
         assert!(f.hosts.rename(id, ""));
         assert_eq!(f.hosts.list[0].record.alias, None);
+    }
+
+    /// The tab stops in the header band, in the order Tab reaches them.
+    fn header_stops(f: &mut Frames) -> Vec<Rect> {
+        let mut stops: Vec<Rect> = Vec::new();
+        for _ in 0..14 {
+            f.press(Key::Tab);
+            let Some(id) = f.ctx.memory(|m| m.focused()) else { continue };
+            let Some(rect) = f.ctx.read_response(id).map(|r| r.rect) else { continue };
+            if rect.center().y < 80.0 && !stops.contains(&rect) {
+                stops.push(rect);
+            }
+        }
+        stops
+    }
+
+    #[test]
+    fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
+        // PCs: Home hides while there is no library, Add PC follows Settings.
+        let mut f = Frames::new(record("Paired", true, false), Reach::Online);
+        let stops = header_stops(&mut f);
+        assert_eq!(stops.len(), 3, "PCs, Settings and Add PC: {stops:?}");
+        assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
+        assert!(1280.0 - stops[2].right() < 80.0, "Add PC is at the right edge: {:?}", stops[2]);
+
+        // Home shows all three destinations in order.
+        let mut f = Frames::new(record("Paired", true, false), Reach::Online);
+        f.l.go(Screen::Home);
+        f.settle();
+        let stops = header_stops(&mut f);
+        assert_eq!(stops.len(), 3, "Home, PCs and Settings: {stops:?}");
+        assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
+        assert!(1280.0 - stops[2].right() < 80.0, "Settings is at the right edge");
     }
 
     #[test]

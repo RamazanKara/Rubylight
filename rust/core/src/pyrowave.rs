@@ -2,6 +2,7 @@
 use anyhow::{Context, Result, bail};
 use std::{
     collections::{HashMap, VecDeque},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 pub const BITSTREAM_ID: &str = "186f0393";
@@ -414,6 +415,26 @@ pub fn row_steps(width: u32, height: u32, chroma444: bool) -> Vec<u16> {
         })
         .collect()
 }
+/// `row_steps` for the frame's own geometry, kept from the frame before: a stream's pictures all
+/// have one size, so the table is built once.
+fn cached_row_steps(bitstream: &[u8]) -> Arc<Vec<u16>> {
+    static LAST: Mutex<Option<(u32, bool, Arc<Vec<u16>>)>> = Mutex::new(None);
+    let header = word(bitstream, 0);
+    let chroma444 = (word(bitstream, 4) >> 26) & 1 != 0;
+    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((h, c, steps)) = last.as_ref() {
+        if *h == header && *c == chroma444 {
+            return steps.clone();
+        }
+    }
+    let steps = Arc::new(row_steps(
+        (header & 0x3fff) + 1,
+        ((header >> 14) & 0x3fff) + 1,
+        chroma444,
+    ));
+    *last = Some((header, chroma444, steps.clone()));
+    steps
+}
 pub fn record_frame(bitstream: &[u8], payload: usize, limit: usize) -> Result<Vec<u8>> {
     record_frame_with(bitstream, payload, limit, false)
 }
@@ -435,23 +456,13 @@ pub fn record_frame_with(
         return Ok(bitstream.to_vec());
     }
     let coarse = coarse_count(bitstream);
-    let steps = rows.then(|| {
-        let header = word(bitstream, 0);
-        row_steps(
-            (header & 0x3fff) + 1,
-            ((header >> 14) & 0x3fff) + 1,
-            (word(bitstream, 4) >> 26) & 1 != 0,
-        )
-    });
+    let steps = rows.then(|| cached_row_steps(bitstream));
     let mut out = Vec::with_capacity(bitstream.len());
     out.extend_from_slice(&bitstream[..8]);
     for required in [true, false] {
-        let mut class: Vec<Record> = all
-            .iter()
-            .filter(|r| (r.index < coarse) == required)
-            .copied()
-            .collect();
         if let Some(steps) = steps.as_ref().filter(|_| !required) {
+            let mut class: Vec<Record> =
+                all.iter().filter(|r| r.index >= coarse).copied().collect();
             let step = |r: &Record| {
                 steps
                     .get(r.index as usize)
@@ -476,7 +487,7 @@ pub fn record_frame_with(
             continue;
         }
         let mut ordinary = Vec::new();
-        for r in &class {
+        for r in all.iter().filter(|r| (r.index < coarse) == required) {
             if r.size > payload - 8 {
                 big(&mut out, bitstream, r, payload);
             } else {
@@ -507,14 +518,22 @@ fn first_fit(
     payload: usize,
 ) {
     let mut fits = Fits::new(ordinary);
-    let (mut placed, mut front, mut next) = (vec![false; ordinary.len()], 0, 0);
+    // Only a frame with records over a packet in row order needs to know what is placed.
+    let mut placed = if bigs.is_empty() {
+        Vec::new()
+    } else {
+        vec![false; ordinary.len()]
+    };
+    let (mut front, mut next) = (0, 0);
     for _ in 0..ordinary.len() {
-        while front < placed.len() && placed[front] {
-            front += 1;
-        }
-        while next < bigs.len() && bigs[next].0 <= front {
-            big(out, bitstream, &bigs[next].1, payload);
-            next += 1;
+        if !bigs.is_empty() {
+            while front < placed.len() && placed[front] {
+                front += 1;
+            }
+            while next < bigs.len() && bigs[next].0 <= front {
+                big(out, bitstream, &bigs[next].1, payload);
+                next += 1;
+            }
         }
         loop {
             let room = payload - (out.len() + 8) % payload;
@@ -532,7 +551,9 @@ fn first_fit(
             }
             let r = ordinary[chosen];
             fits.remove(r.size / 4);
-            placed[chosen] = true;
+            if !placed.is_empty() {
+                placed[chosen] = true;
+            }
             out.extend_from_slice(&bitstream[r.offset..r.offset + r.size]);
             break;
         }

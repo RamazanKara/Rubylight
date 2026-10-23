@@ -422,3 +422,13 @@ fn the_packetizer_takes_a_row_ordered_frame_with_the_same_fec_blocks() {
         );
     }
 }
+
+#[test]
+fn the_cached_steps_follow_the_frame_geometry() {
+    for _ in 0..2 {
+        for &(w, h, c, seed, big) in &FIXTURES {
+            let frame = synthetic(w, h, c, seed, big);
+            assert_eq!(*cached_row_steps(&frame), row_steps(w, h, c), "{w}x{h}");
+        }
+    }
+}

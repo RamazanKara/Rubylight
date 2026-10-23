@@ -324,7 +324,9 @@ impl Negotiated {
             || get("x-ss-video[0].pyrowaveFeatures", 0)? & 1 != 0;
         n.pyrowave_client_link_mbps = get("x-ss-video[0].pyrowaveLinkMbps", 0)?;
         n.pyrowave_client_pace_mbps = get("x-ss-video[0].pyrowavePaceMbps", 0)?;
-        n.pyrowave_row_order = n.pyrowave_records && get("x-ss-video[0].pyrowaveRowOrder", 0)? == 1;
+        // Read whether or not there is record framing, so a bad value fails either way.
+        let row_order = get("x-ss-video[0].pyrowaveRowOrder", 0)?;
+        n.pyrowave_row_order = n.pyrowave_records && row_order == 1;
         n.packet_size = get("x-nv-video[0].packetSize", 1024)? as usize;
         n.min_fec = get("x-nv-vqos[0].fec.minRequiredFecPackets", 0)? as usize;
         n.audio_channels = u8::try_from(get("x-nv-audio.surround.numChannels", 2)?)?;
@@ -645,6 +647,7 @@ mod tests {
         assert!(
             Negotiated::from_sdp(sdp("a=x-ss-video[0].pyrowaveRowOrder:yes\n").as_bytes()).is_err()
         );
+        assert!(Negotiated::from_sdp(b"a=x-ss-video[0].pyrowaveRowOrder:yes\n").is_err());
         assert!(!Negotiated::default().pyrowave_row_order);
     }
     #[test]

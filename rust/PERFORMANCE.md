@@ -7,7 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Split-frame encoding through AMD's own sample encoder | [October 22, AMD's own sample encoder](#october-22-amds-own-sample-encoder) |
-| Slice delivery (`video_slice_delivery = 4`) against off: loopback, paced Wi-Fi emulation, 1% loss, SSIM | [October 23, slice delivery (B2 step 2f)](#october-23-slice-delivery-b2-step-2f) |
+| Slice delivery (`video_slice_delivery = 4`) against off: loopback, paced Wi-Fi emulation, real Wi-Fi (laptop), 1% loss, SSIM | [October 23, slice delivery (B2 step 2f)](#october-23-slice-delivery-b2-step-2f) |
 | Per-frame stage times from the timing record, and what the record costs | [October 23, timing record baselines](#october-23-per-frame-timing-record-baselines) |
 | 3.0 alpha.2 gate: couch loop, crash restore, cross-versions, soak | [October 22, alpha.2 gate](#october-22-30-alpha2-gate) |
 | Fence ring against keyed-mutex ring under GPU load | [October 22, fence ring under load](#october-22-fence-ring-under-gpu-load) |
@@ -38,7 +38,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 ## October 23: slice delivery (B2 step 2f)
 
-`video_slice_delivery = 4` against `off` ([docs/b2-slice-delivery.md](../docs/b2-slice-delivery.md), sections 6 and 8), measured on loopback at 3840x2160x60, 80 Mbps, 60 s a run, with the timing record. Verdict: loopback and quality pass; **the paced Wi-Fi emulation misses the 1 ms gate** (0.7 ms typical). Kill criterion 1 needs "less than 1 ms on emulated and real Wi-Fi", and the real-Wi-Fi half is the phone run, still pending, so nothing is killed yet. The feature is not killed by anything measured so far, and it is not passing either.
+`video_slice_delivery = 4` against `off` ([docs/b2-slice-delivery.md](../docs/b2-slice-delivery.md), sections 6 and 8), measured on loopback at 3840x2160x60, 80 Mbps, 60 s a run, with the timing record. Verdict: loopback and quality pass; **the paced Wi-Fi emulation misses the 1 ms gate** (0.7 ms typical), and **real Wi-Fi (the laptop, Nightjar desktop, below) clears it at 1.2 to 1.4 ms**. Kill criterion 1 needs "less than 1 ms on emulated and real Wi-Fi"; real Wi-Fi is not under 1 ms, so criterion 1 is not met and the feature is not killed. It passes the 1 ms gate on real Wi-Fi and loopback, and misses it only on the emulation.
 
 **Fixture.** RX 7900 XT, release package of main at 36c3c8ac3, isolated host profile on port 48523, `virtual_display_layout` unchanged from `e2e.py` (the physical 5120x1440 monitor, letterboxed into the 4K stream), WGC capture, the independent moonlight-common-c receiver decoding with D3D11VA, `e2e.py --record --noise-height 1024 --mode 3840x2160x60 --bitrate 80000 --seconds 60`. The moving strip carries per-pixel noise so the encoder spends the bitrate (77 to 80 Mbps sent, ~165 KB a frame); that makes the AMF encode 6.2 ms, against 2.6 ms for the 1080p baselines above, and it is the time between the first and the last slice that bounds the gain. `video_slice_delivery` and `pacing_max_bitrate_kbps` went in through `e2e.py --config`, the loss through `BUTTERPOLLO_TEST_SEND_LOSS=<percent>:7` in the environment (the host ignores nothing it inherits), so the harness needed no change. Each condition ran off, 4, 4, off (ABBA) with the same loss seed; every run is 3,590 to 3,601 frames, so each arm has at least 7,000. Host and receiver share the QPC clock (`shared_clock`, bound 0.0 ms). The Nightjar gradle daemons were running on this PC throughout (CPU load only); the ABBA order is there to cancel it.
 
@@ -108,6 +108,17 @@ The largest SSIM loss is 0.00024 (H.264 1080p60), a tenth of the 0.002 kill line
 
 **Checks.** Across the 54 runs (about 180,000 frames, plus a 4-run pilot): no run exited with code 3 or showed an encoder hang; every frame the receiver got was decoded with no decode failure; no "different picture type on a later slice" warning (the later-slice IDR check), no byte-cap overflow, no "never finished" frame, no dropped encoded frame, so `slice_delivery_overflows` was 0 (the counter is read from these warnings; the status JSON is not polled by the harness). `overlap` was positive in every "4" run, so the slices did leave early and the host did not fall back to whole frames.
 
+**Real Wi-Fi (laptop, Nightjar desktop).** The same host build streamed over the air to the 780M laptop (Wi-Fi 6E, 5 GHz channel 116, 802.11ax, 2402 Mbps both ways, RSSI -37 at the start, middle and end of every run), running Nightjar desktop (d3d11va decode) with its latency CSV joined to the host timing record by the clock-sync join (bound 0.48 to 0.51 ms, the same offset on both arms, so it cancels in the difference). The host was wired (Ethernet) at 192.168.4.69, release package of main, isolated profile paired once and kept between arms (the host was stopped, `video_slice_delivery` flipped and the host restarted for every run). Client settings: 3840x2160, 60 fps, HEVC, 80,000 kbps, ABR off; the laptop decoded 4K60 HEVC cleanly (decode 0.33 to 0.35 ms median), so there was no 1440p fallback. The picture was the loopback `motion_probe` with the noise strip (1024 rows) on the captured primary display: 60.1 fps received in every run. Order off, 4, 4, off, off, 4, 4, off (ABBA twice), 75 s a run, 4,527 to 4,610 client frames a run, 18,257 (off) and 18,205 (4) in total. No loss was injected; the link itself dropped nothing the receiver could see.
+
+| Arm | Runs | Frames | end_to_end median / p95 / p99 (ms) | to_decode median / p95 / p99 (ms) | overlap median (ms) | Host frames the client never showed | Decoder errors |
+| --- | ---: | ---: | --- | --- | ---: | ---: | ---: |
+| off | 4 | 18,257 | 18.68 / 22.15 / 25.33 | 13.20 / 17.43 / 19.12 | none | 0 | 0 |
+| 4 | 4 | 18,205 | 17.27 / 20.03 / 23.95 | 11.79 / 16.01 / 17.09 | 2.23 | 0 | 0 |
+
+Per run, median `end_to_end` in ms: off 18.31, 18.30, 18.49, 20.15; 4 16.99, 17.22, 17.23, 17.54. **Gain (off minus 4): 1.41 ms pooled medians, 1.18 ms median of the run medians; p95 2.12 ms, p99 1.38 ms. `to_decode` (`end_to_end` less the `display` stage, which ends at present, and so comparable to the loopback receiver that stops at decode): 1.40 ms pooled, 1.32 ms per-run.** The "4" arm is better in each pair; the largest off run (20.15 ms, p99 26.8) is a slow-display run, and without it the gain is 1.1 to 1.3 ms. The stages move as on loopback: `host_total` 11.83 to 10.61 ms, `send` 0.87 to 0.04, `packetize_pace` 0.12 to 1.39, `assemble` 0.67 to 2.04; network (first and last packet, "4" against off) is 0.94 against 0.97 and 0.72 against 0.84, so the gain is the encoder's slice lead, not a faster link. `overlap` was positive in every frame of every "4" run (`first_unit_us` present on all but the first of each stream), so the slices left early. No run exited with code 3 or showed an encoder hang; no "different picture type on a later slice" warning, byte-cap overflow, "never finished" frame or dropped encoded frame (`slice_delivery_overflows` 0); every client row was `rendered`.
+
+A first ABBA set was invalid and is not used: the harness wrote `video_slice_delivery = on`, not `4`, so both arms ran off. It stands as an off-against-off control: 0.07 ms pooled, -0.05 ms between per-run medians, and one run at 49.7 ms median with a 50 ms display stage (the first of the set, cause not investigated), which is the run-to-run noise to compare 1.2 to 1.4 ms with. The gain is measured on a quiet link (RSSI -37, 2.4 Gbps), one laptop, one room.
+
 **Findings.**
 
 - **Loopback gain is 1.3 to 1.5 ms, as estimated** (section 7: ~1.5 ms), for both codecs, at 0%, 1% and 5% loss.
@@ -117,10 +128,11 @@ The largest SSIM loss is 0.00024 (H.264 1080p60), a tenth of the 0.002 kill line
 
 **Not measured.**
 
-- Phones (Nightjar and stock Moonlight on Wi-Fi) are pending: the user runs them. They are the other half of the Wi-Fi kill criterion.
+- Phones (Nightjar on Android and stock Moonlight) are still pending: the user runs them. The laptop gives the real-Wi-Fi reading above; a phone decodes and presents differently.
 - The NUC over Ethernet was not run: the brief makes it conditional on runs 1 to 3 all passing, and run 2 missed its gate.
+- Real Wi-Fi with loss, a congested channel or a weak signal: the laptop run is a quiet 2.4 Gbps link at RSSI -37.
 - AV1 and PyroWave (never streamed), HDR, a game as the picture instead of the noise strip, 1080p streams, the 1% gate on a link with bursty loss, and any bitrate other than 80 Mbps.
-- Raw runs are under `C:\src\butterpollo-release\b2-2f` (`loop`, `paced`, `air`, `paced2`, `stress`, `rerun`, `ssim`; one `*.jsonl` of per-run summaries each).
+- Raw runs are under `C:\src\butterpollo-release\b2-2f` (`loop`, `paced`, `air`, `paced2`, `stress`, `rerun`, `ssim`; one `*.jsonl` of per-run summaries each; the real-Wi-Fi runs are under `C:\src\butterpollo-release\b2-wifi`, with the invalid first set in `invalid-run1`).
 
 ## October 23: per-frame timing record baselines
 

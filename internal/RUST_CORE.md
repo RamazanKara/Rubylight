@@ -93,10 +93,12 @@ The setting Settings > Advanced > Diagnostics > "New streaming engine (beta)"
   method that goes to `RustBridge` when the current stream runs on Rust, else to the C native
   (renamed with a `c` prefix: `cStartConnection`, `cSendMouseMove`, ...). Pairing, HTTP,
   STUN, the connectivity test, controller guessing and the USB audio natives stay C/Java.
-- `RustBridge.fallbackReason` keeps a stream on the C engine, with a log line saying why,
-  when it offers PyroWave, is a remote monitor session, the host is older than GFE 3.22
-  (app version below 7.1.431) or reports no codec support; a missing or broken
-  `libnightjar_core.so` does the same.
+- `RustBridge.fallbackReason` keeps a stream on the C engine when the host is older than
+  GFE 3.22 (app version below 7.1.431) or reports no codec support; a missing or broken
+  `libnightjar_core.so` does the same. `StreamEngine` records the engine and the reason; the
+  `Streaming engine` warning, the Statistics and Debug overlays (`... · Rust`, `Streaming engine:`
+  line) and the problem report ("Streaming engine for the last stream") all show it, so a
+  fallback is never only in logcat.
 - `libnightjar_core.so` (`protocol/android`) calls the same `MoonBridge.bridge*` callbacks as
   `callbacks.c`, so the renderers, the audio renderer and the listener serve both engines
   unchanged. Opus is decoded in Rust against the app's prebuilt `libopus.a` (the archive
@@ -117,9 +119,9 @@ The setting Settings > Advanced > Diagnostics > "New streaming engine (beta)"
 | Start, stop, interrupt, stages, termination codes, host termination reasons | yes | Same stage numbers and `ML_ERROR_*` codes; stage names and port flags still come from the C helpers. |
 | Network grace (`setNetworkGracePeriodMs`) | yes | `SessionConfig::network_grace`. |
 | Input-only sessions | yes | `SessionConfig::input_only`. |
-| Remote monitor sessions | falls back | The Rust session always wiggles the mouse at start; the C skips input. |
+| Remote monitor sessions | yes | `SessionConfig::remote_monitor`: the input queue is disabled (nothing is sent, not even the haptics enable) and the start wiggle is skipped, as the C skips `startInputStream`. Loopback test `a_remote_monitor_connection_sends_no_input_at_all`. |
 | H.264, HEVC, AV1, 10-bit, 4:4:4, RFI capabilities | yes | Parameter sets submitted separately, picture data in one buffer, timestamps mapped to CLOCK_MONOTONIC as `callbacks.c` does. |
-| PyroWave | falls back | Core supports records; not wired or tested on Android yet. |
+| PyroWave | yes, not yet tried on a device | The fallback is gone. Records, SDP/RTSP and the queue are difftested against the patched C (`protocol/difftest/tests/video.rs`) and negotiated in `host_interop.rs`; the Java renderer receives the same `bridgeDrSubmitDecodeUnit` units. Needs a Rubylight PyroWave stream on a phone before the default flips. |
 | HDR mode and metadata | yes | `SS_HDR_METADATA` layout. |
 | Audio (Opus, surround, high quality, packet loss concealment) | yes | Decoded in Rust with the app's libopus. |
 | Pending audio duration, pending video frames, RTT for the overlay | yes | From `Session::stats`. |
@@ -132,7 +134,8 @@ The setting Settings > Advanced > Diagnostics > "New streaming engine (beta)"
 | Display caps (0x5531), reconfigure (0x5532), cursor shapes (0x5540/0x5541), server commands (0x3000) | yes | Cursor shapes re-encoded to the wire form for Java. |
 | Microphone (Opus 32 kb/s VoIP, in-band FEC, 200 ms reset gap) | yes | Encrypted stream only, as in C. |
 | GFE before 3.22, hosts without codec support | falls back | Not ported. |
-| "Prioritize stream traffic" (socket QoS, thread priority) and the unbatched-input timing tweak | no | Ignored on the Rust path; no fallback. |
+| Socket QoS (`SO_PRIORITY` 6 audio, 5 video, always) and "Prioritize stream traffic" (6 on the control and microphone sockets, nice -4 on VideoRecv, VideoDec, AudioRecv, AudioDec, ControlRecv) | yes | `nightjar_core::priority`. Linux and Android only; a refused nice value is logged. Test: `media_sockets_are_bound_with_their_priority` (Linux). |
+| "Unbatched input" (no 1 ms mouse and pen batching) | yes | `SessionConfig::unbatched_input`, `InputQueue::set_unbatched`. |
 
 Emulator test on 2026-10-20 (AVD nj-demo2, x86_64, Android 15, `c2.goldfish` decoders,
 isolated Rubylight 2.5.9 host on this PC as 10.0.2.2, Desktop at 1280x720x60): Rust engine
@@ -173,6 +176,6 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
 - [x] `session` + `nightjar-cli`, e2e against Rubylight (loopback session tests in
   `protocol/client/tests/session_loopback.rs`)
 - [x] Android switch-over behind a setting (`protocol/android`, `RustBridge`; see the parity
-  checklist for what still falls back)
+  checklist and `docs/PARITY-MATRIX.md` for the remaining gaps)
 - [ ] Rust engine as the Android default, then removal of the C engine
 - [x] Desktop client milestone 1 (Windows, Linux): pairing, library, launch/resume/quit, hardware decoding, VRR pacing, audio, input, overlay. Streamed against an isolated Rubylight host on Windows (HEVC D3D11VA up to 5120x1440@240). Next: decode-only FFmpeg for packaging, HDR output, VAAPI dmabuf import, a dedicated D3D11 renderer with a waitable swap chain, per-PC settings, Wake-on-LAN, OTP pairing.

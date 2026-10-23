@@ -58,6 +58,56 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 
 See [building](building.md) for reproducible checks.
 
+## Rust streaming engine
+
+Nightjar ships two streaming engines. The C engine (moonlight-common-c with Nightjar's patches) is the default. The Rust engine (`nightjar-core` through `libnightjar_core.so`) is behind Settings › Advanced › Diagnostics › New streaming engine. Each stream picks one: the Rust engine runs only when the setting is on, the library loads and the host passes `RustBridge.fallbackReason`. Otherwise the stream runs on the C engine, and the stream overlays and the problem report say why ("Streaming engine: C (moonlight-common-c), Rust engine requested but unavailable: ..."). The Rust column below is what the code and its tests show; "device" means checked on a phone, which is the open part. Details of the Java and Rust split are in [internal/RUST_CORE.md](../internal/RUST_CORE.md).
+
+Status words: **same** (both engines do it and tests cover the Rust side), **C only** (a deliberate gap, with the reason), **neither** (no engine does it), **device pending** (written and tested in Rust, not yet seen on a phone).
+
+| Area | C engine | Rust engine | Notes |
+| --- | --- | --- | --- |
+| H.264, HEVC, AV1, 10-bit, HDR metadata | Yes | Same | Difftested against the patched C; emulator streams of H.264 and HEVC at 60 FPS, 0% loss (2026-10-20). |
+| YUV 4:4:4 (packed) | Yes | Same | `packed444` and its modes are passed through; loopback test in `session_loopback.rs`. Device pending. |
+| PyroWave records, link and pace hints | Yes | Same, device pending | The fallback was removed. Records, SDP/RTSP negotiation and the queue are difftested and covered by `host_interop.rs`; no phone has streamed PyroWave through the Rust engine yet. |
+| Audio: stereo, 5.1, 7.1, high-quality surround, concealment | Yes | Same | Opus multistream decoded in Rust against the app's own `libopus.a`. |
+| Microphone | Yes | Same | Encrypted stream only, in both. |
+| Mouse, keyboard, scroll, text | Yes | Same | Return codes match the C API. |
+| Unbatched input (no 1 ms batching of mouse and pen motion) | Yes | Same | `unbatched_input`; tests `unbatched_motion_does_not_wait` and `batched_motion_still_waits_by_default`. |
+| Touch, pen, controller touch, motion, battery | Yes | Same | |
+| Gamepad: buttons, triggers, sticks, rumble, trigger rumble, LED, adaptive triggers, haptics, controller audio | Yes | Same | Callbacks are the same `bridge*` methods; a JVM test (`RustEngineJniParityTest`) checks every callback and every native against the Rust sources. |
+| Clipboard, server commands | Yes | Same | Server commands (0x3000) through `sendServerCommand`. Clipboard transfer is Java and HTTP, so engine-neutral. |
+| Radeon and native-API extensions, session actions | Yes | Same | HTTP and Java side; the Rust crate has its own `native_api` client with its own tests. |
+| Host timing (0x5536), clock sync (0x5537), present clock, phase lock (0x5530), display caps (0x5531), reconfigure (0x5532), cursor shapes (0x5540) | Yes | Same | Used by phase-lock, automatic resolution, cursor shapes and the host-join columns of the timing CSV. |
+| Input-only sessions | Yes | Same | |
+| Remote monitor sessions | Yes | Same | The fallback was removed: no input is sent and the start wiggle is skipped. Test `a_remote_monitor_connection_sends_no_input_at_all`. |
+| Network grace period | Yes | Same | |
+| Socket QoS and Prioritize stream traffic | Yes | Same | `SO_PRIORITY` 6 for audio, 5 for video, 6 for the control and microphone sockets with the setting on, and nice -4 on the receive, decode and control threads. Linux and Android only; test `media_sockets_are_bound_with_their_priority`. |
+| Encryption: control, video, audio, microphone | Yes | Same | `ENCFLG_ALL` with hardware AES, `ENCFLG_AUDIO` without, in both. |
+| IPv6, NAT64, local and remote packet sizes | Yes | Same | |
+| Timing CSV and the client timing record (A8) | Yes | Same | The CSV is written in Java from `bridgeDrSubmitDecodeUnit` (receive, enqueue, host processing, present times) and the present-clock offset, which both engines fill the same way; `monotonic_ns_of` maps Rust session time to the same clock the C engine reports. The Statistics overlay and the problem report name the engine, so a CSV can be matched to its engine. |
+| Problem report fields | Yes | Same | The report has a "Streaming engine for the last stream" section, the decoder and audio sections are filled by the renderers, and native crash frames from `libnightjar_core.so` are kept. |
+| Automatic bitrate, manual bitrate, reconnect, automatic recovery | Yes | Same | Java policy and host requests above the engine. |
+| Host streamed-frame receive (B2) | Not built | Rust receive tested, no Java input | The Rust client receives and reassembles slice-delivered frames (`slice_delivery.rs`). The Java side has no partial-frame MediaCodec input, so neither engine uses it on a phone. B2 is a measurement probe. |
+| Client address change (roaming) | Neither | Neither | Needs the host to accept the new address; see the [proposal](protocol/client-roaming.md). |
+| GFE before 3.22 (plaintext control, RTSP over ENet) | Yes | C only | Not ported on purpose; these hosts stay on the C engine. The fallback reason names the host version. |
+| Hosts that report no codec support | Yes | C only | Falls back with a reason. |
+| Pull renderer, STUN | Yes | C only | The Java side never requests the pull renderer. STUN and the connectivity test stay in the C library. |
+| Stage names, port flags, `testClientConnectivity`, controller type guessing, USB audio natives | Yes | C only | Stay in the C library and Java. These must move out of `libmoonlight-core.so` before the C engine can be deleted. |
+
+### Switching the default
+
+Not done yet. Flipping it is a decision after the device measurements below. The places that change are `PreferenceConfiguration.RUST_ENGINE_PREF_STRING`'s `false` default, `checkbox_rust_engine` in `res/xml/preferences.xml`, and the expectations in `SettingsKeysTest` and `AdvancedOptionsTest`. Existing installs keep their stored value, so a default flip also needs a one-time migration if they should follow it.
+
+### Comparing the engines on a phone
+
+Use the same phone, host, codec, resolution, refresh rate and bitrate for both runs, with the phone on the same Wi-Fi spot. For each engine:
+
+1. Set Settings › Advanced › Diagnostics › New streaming engine (beta) to off (C) or on (Rust). Turn on the Debug overlay and the latency CSV.
+2. Start a stream and confirm the engine: the Statistics line ends with `· C` or `· Rust`, and the Debug view shows `Streaming engine: ...`. If it says "Rust fell back", read the reason; that run measures the C engine.
+3. Play the same content for 5 minutes, then a 30-minute soak. Read picture age (`receive_to_present_ms`, `receive_to_render_ms`), decode time (`input_to_output_ms`), loss percent, frame drops and RTT.
+4. Export the CSV with Export latency CSV, and share a problem report to keep the engine line with it. With a Rubylight host, join the CSV to the host's timing record with `timing_report.py`.
+5. Flip the setting and repeat. The Rust engine is no worse when its median and 99th-percentile picture age and decode time are within the C run's noise, loss is equal or lower, and the 30-minute soak has no disconnects or growing latency.
+
 ## Remaining gaps and validation
 
 The [October 2026 Android audit](android-audit-2026-10.md) records the reproducible defects, release tooling gaps and remaining hardware/integration checks. Feature implementation is not a claim that every device, host or document provider has been tested.

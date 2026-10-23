@@ -143,6 +143,7 @@ public class PreferenceConfiguration {
     static final String UPSCALING_PREF_STRING = "upscaling_mode";
     static final String UPSCALING_SHARPNESS_PREF_STRING = "upscaling_sharpness";
     static final String GL_RENDER_PREF_STRING = "checkbox_gl_render";
+    static final String VULKAN_RENDER_PREF_STRING = "checkbox_vulkan_render";
 
     static final String DEFAULT_RESOLUTION = "1280x720";
     static final String DEFAULT_FPS = "60";
@@ -292,6 +293,8 @@ public class PreferenceConfiguration {
     public int upscalingSharpness = 50;
     // Present MediaCodec frames through the GLES path even when nothing is upscaled.
     public boolean glRender;
+    // Present MediaCodec frames through the native Vulkan renderer, which paces them itself.
+    public boolean vulkanRender;
 
     public static boolean isNativeResolution(int width, int height) {
         // It's not a native resolution if it matches an existing resolution option
@@ -1179,6 +1182,7 @@ public class PreferenceConfiguration {
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));
         config.upscalingSharpness = Math.max(0, Math.min(100, prefs.getInt(UPSCALING_SHARPNESS_PREF_STRING, 50)));
         config.glRender = prefs.getBoolean(GL_RENDER_PREF_STRING, false);
+        config.vulkanRender = prefs.getBoolean(VULKAN_RENDER_PREF_STRING, false);
         if (config.vrr) {
             // VRR streams arrive at the game's own cadence: show each frame as soon as it is
             // decoded; Game votes for ARR where supported, or the highest refresh rate otherwise.

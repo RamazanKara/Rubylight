@@ -382,6 +382,9 @@
     <string name="summary_gl_render">Przesyła obraz przez OpenGL, aby nakładki generowania klatek mogły się do niego podpiąć. Zmienia tempo klatek, zwiększa opóźnienie, a nakładka opóźnień pokazuje mniej wartości. Używaj tylko do takich nakładek.</string>
     <string name="upscaling_gl_only">OpenGL (bez skalowania)</string>
     <string name="gl_render_fallback">Renderowanie OpenGL: wyjście bezpośrednie. %1$s</string>
+    <string name="title_vulkan_render">Renderowanie przez Vulkan</string>
+    <string name="summary_vulkan_render">Wyświetla wideo przez Vulkan z własnym sterowaniem tempem klatek (H.264, HEVC i AV1). Wymaga Androida 10 lub nowszego i zastępuje renderowanie OpenGL oraz skalowanie. Funkcja eksperymentalna.</string>
+    <string name="vulkan_render_fallback">Renderowanie Vulkan: wyjście bezpośrednie. Nie udało się uruchomić renderera.</string>
     <string name="upscaling_fallback">Skalowanie: wyjście bezpośrednie. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit używa wyjścia bezpośredniego, aby zachować kolory i precyzję.</string>
     <string name="upscaling_pyrowave">Strumienie PyroWave używają SGSR na GPU zarówno dla FSR, jak i SGSR.</string>

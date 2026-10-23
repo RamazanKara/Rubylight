@@ -1,0 +1,4 @@
+Imported verbatim from MoreOrLessSoftware/moonlight-android, app/src/main/jni/vulkan at
+3e6665e (2026-10-22), minus its tests/ and Android.mk. Nightjar's changes are in this
+directory's Android.mk and li_compat.{h,cpp} only, so a later sync is a plain copy.
+VulkanRendererBridge.java is the fork's, unchanged.

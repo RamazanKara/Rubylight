@@ -382,6 +382,9 @@
     <string name="summary_gl_render">Envia o vídeo via OpenGL para que sobreposições de geração de quadros possam se conectar. Altera o ritmo dos quadros, adiciona latência e a sobreposição de latência mostra menos valores. Use só para essas sobreposições.</string>
     <string name="upscaling_gl_only">OpenGL (sem escala)</string>
     <string name="gl_render_fallback">Renderização OpenGL: saída direta. %1$s</string>
+    <string name="title_vulkan_render">Renderizar com Vulkan</string>
+    <string name="summary_vulkan_render">Exibe o vídeo por meio do Vulkan, com ritmo de quadros próprio (H.264, HEVC e AV1). Requer Android 10 ou superior e substitui a renderização OpenGL e o upscaling. Experimental.</string>
+    <string name="vulkan_render_fallback">Renderização Vulkan: saída direta. Não foi possível iniciar o renderizador.</string>
     <string name="upscaling_fallback">Upscaling: saída direta. %1$s</string>
     <string name="upscaling_hdr">HDR/10 bits mantém a saída direta para preservar cor e precisão.</string>
     <string name="upscaling_pyrowave">Transmissões PyroWave usam SGSR na GPU tanto para FSR quanto para SGSR.</string>

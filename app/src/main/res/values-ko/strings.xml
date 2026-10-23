@@ -382,6 +382,9 @@
     <string name="summary_gl_render">프레임 생성 오버레이가 연결될 수 있도록 영상을 OpenGL로 보냅니다. 프레임 페이싱이 바뀌고 지연이 늘며 지연 오버레이에 표시되는 값이 줄어듭니다. 이러한 오버레이에만 사용하세요.</string>
     <string name="upscaling_gl_only">OpenGL(확대 없음)</string>
     <string name="gl_render_fallback">OpenGL 렌더링: 직접 출력. %1$s</string>
+    <string name="title_vulkan_render">Vulkan으로 렌더링</string>
+    <string name="summary_vulkan_render">H.264, HEVC, AV1 영상을 자체 프레임 페이싱으로 Vulkan을 통해 표시합니다. Android 10 이상이 필요하며 OpenGL 렌더링과 업스케일링을 대체합니다. 실험적 기능입니다.</string>
+    <string name="vulkan_render_fallback">Vulkan 렌더링: 직접 출력을 사용합니다. 렌더러를 시작하지 못했습니다.</string>
     <string name="upscaling_fallback">업스케일링: 직접 출력. %1$s</string>
     <string name="upscaling_hdr">HDR/10비트는 색상과 정밀도를 유지하기 위해 직접 출력을 사용합니다.</string>
     <string name="upscaling_pyrowave">PyroWave 스트림은 FSR과 SGSR 모두 GPU에서 SGSR을 사용합니다.</string>

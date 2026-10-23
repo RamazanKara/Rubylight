@@ -93,6 +93,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int renderWidth, renderHeight;
     private volatile GlesUpscaler upscaler;
     private volatile UpscalingPolicy upscalingPolicy;
+    // The native Vulkan renderer takes the GLES upscaler's place when selected: the decoder
+    // renders into its surface, and it paces and presents frames on the render target itself.
+    // It lives as long as this object, so a decoder restart renders into the same surface.
+    private boolean wantVulkan;
+    // The renderer's Lowest latency jitter buffer, which only matters to its host-timed pacing
+    private static final int VULKAN_JITTER_BUFFER = 3;
+    private volatile VulkanRendererBridge vulkanRenderer;
     // "Render through OpenGL" is routing the frames, with nothing to scale
     private volatile boolean glPresentOnly;
     private volatile boolean stopping;
@@ -592,7 +599,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // SPS fixups assume the first size.
     private MediaCodecInfo.VideoCapabilities reconfigureCapabilities() {
         if (stopping || videoDecoder == null || configuredFormat == null || !adaptivePlayback ||
-                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ||
+                vulkanRenderer != null || (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ||
                 Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return null;
         }
@@ -773,6 +780,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return;
         }
         glPresentOnly = false;
+        wantVulkan = false;
+        if (prefs.vulkanRender && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && VulkanRendererBridge.isSupported()) {
+                wantVulkan = true;
+                upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
+                return;
+            }
+            notifyVulkanFallback();
+        }
         if (prefs.upscalingMode == UpscalingPolicy.Mode.OFF && !prefs.glRender) {
             upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
             return;
@@ -808,6 +824,38 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         } else {
             notifyUpscalingFallback();
         }
+    }
+
+    private void notifyVulkanFallback() {
+        LimeLog.warning("Vulkan renderer unavailable; using the direct renderer");
+        activity.runOnUiThread(() -> {
+            if (!stopping) Toast.makeText(context, R.string.vulkan_render_fallback, Toast.LENGTH_LONG).show();
+        });
+    }
+
+    private VulkanRendererBridge createVulkanRenderer() {
+        VulkanRendererBridge renderer = VulkanRendererBridge.create(renderTarget,
+                initialWidth, initialHeight, refreshRate, prefs.framePacing,
+                VULKAN_JITTER_BUFFER, 0, getPreferredColorSpace(),
+                getPreferredColorRange() == MoonBridge.COLOR_RANGE_FULL,
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
+                false, false, 0, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+                        outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate(),
+                vulkanCodecName(), videoDecoder.getName(), null, false, false);
+        if (renderer != null) {
+            LimeLog.info("Using Vulkan renderer");
+            renderer.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
+            if (Boolean.TRUE.equals(currentHdrMode)) {
+                renderer.setHdrMode(true, currentHdrMetadata);
+            }
+        }
+        return renderer;
+    }
+
+    private String vulkanCodecName() {
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) return "hevc";
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) return "av1";
+        return "h264";
     }
 
     private void closeUpscaler() {
@@ -1391,7 +1439,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (Boolean.TRUE.equals(currentHdrMode)) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
             if (upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) closeUpscaler();
         }
-        videoDecoder.configure(format, upscaler == null ? renderTarget : upscaler.getInputSurface(), null, 0);
+        if (wantVulkan && vulkanRenderer == null) {
+            vulkanRenderer = createVulkanRenderer();
+            if (vulkanRenderer == null) {
+                wantVulkan = false;
+                notifyVulkanFallback();
+            }
+        }
+        videoDecoder.configure(format, vulkanRenderer != null ? vulkanRenderer.getDecoderSurface() :
+                upscaler == null ? renderTarget : upscaler.getInputSurface(), null, 0);
         videoDecoder.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT);
         videoDecoder.start();
 
@@ -1618,7 +1674,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private void setFrameRenderedListener() {
         // MediaCodec's callback on the GPU path refers to the intermediate texture, not the display.
-        if (upscaler == null && latencyHandler != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (upscaler == null && vulkanRenderer == null && latencyHandler != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             videoDecoder.setOnFrameRenderedListener(new MediaCodec.OnFrameRenderedListener() {
                 @Override
                 public void onFrameRendered(MediaCodec mediaCodec, long presentationTimeUs, long renderTimeNanos) {
@@ -2200,8 +2256,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                                 numFramesOut++;
 
+                                if (vulkanRenderer != null) {
+                                    // The Vulkan renderer paces and drops frames itself, so hand each
+                                    // one over as soon as it is decoded. It counts those it presents.
+                                    frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true, false);
+                                    videoDecoder.releaseOutputBuffer(lastIndex, true);
+                                    frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
+                                }
                                 // Render the latest frame now if frame pacing isn't in balanced mode
-                                if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {
+                                else if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {
                                     // Latency mode takes the newest output. Smooth modes only catch up
                                     // after a backlog exceeds the age budget, then resume normal order.
                                     // All frames have already been decoded, preserving codec references.
@@ -2418,7 +2481,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     public void prepareForStop() {
         // Let the decoding code know to ignore codec exceptions now
         stopping = true;
-        if (UpscalingPolicy.mayUseGles(prefs.upscalingMode, prefs.glRender) && Looper.myLooper() == Looper.getMainLooper()) {
+        if (vulkanRenderer == null && UpscalingPolicy.mayUseGles(prefs.upscalingMode, prefs.glRender) &&
+                Looper.myLooper() == Looper.getMainLooper()) {
             // stop() repeats this on the shutdown worker, away from EGL startup/recovery on the UI.
             return;
         }
@@ -2438,6 +2502,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         synchronized (codecRecoveryMonitor) {
             codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
             codecRecoveryMonitor.notifyAll();
+        }
+
+        // The output surface may be about to go away, so stop presenting to it now
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        if (vulkan != null) {
+            vulkan.stop();
         }
 
         quitChoreographerThread();
@@ -2507,6 +2577,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         synchronized (outputBufferQueue) {
             outputBufferQueue.clear();
         }
+        // Only once the decoder has let go of the renderer's surface
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        if (vulkan != null) {
+            vulkanRenderer = null;
+            vulkan.destroy();
+        }
         closeUpscaler();
         if (latencyHandler != null) {
             latencyHandler.removeCallbacks(flushPhaseLockReport);
@@ -2570,6 +2646,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 boolean previousMode = currentHdrMode != null ? currentHdrMode :
                         (getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
                 currentHdrMode = enabled;
+                // The Vulkan renderer switches its output between SDR and HDR10 itself
+                VulkanRendererBridge vulkan = vulkanRenderer;
+                if (vulkan != null) vulkan.setHdrMode(enabled, metadata);
                 if (enabled && upscaler != null) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
                 if (previousMode == enabled && Arrays.equals(currentHdrMetadata, metadata)) {
                     return;
@@ -2803,6 +2882,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (pyroWaveSkippedFrames + pyroWaveDecodedFrames != 0) {
                 pyroWaveSkippedPercent = 100f * pyroWaveSkippedFrames / (pyroWaveSkippedFrames + pyroWaveDecodedFrames);
                 pyroWaveSkippedFrames = pyroWaveDecodedFrames = 0;
+            }
+            VulkanRendererBridge vulkan = vulkanRenderer;
+            if (vulkan != null) {
+                activeWindowVideoStats.totalFramesRendered += vulkan.takePresentedFrames();
+                // The display mode can change mid-stream
+                vulkan.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
             }
             decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
             boolean pyroWave = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;

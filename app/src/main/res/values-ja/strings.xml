@@ -382,6 +382,9 @@
     <string name="summary_gl_render">フレーム生成オーバーレイがフックできるよう、映像を OpenGL 経由で送ります。フレームペーシングが変わり、遅延が増え、遅延オーバーレイの表示項目が減ります。そのようなオーバーレイにのみ使用してください。</string>
     <string name="upscaling_gl_only">OpenGL（拡大なし）</string>
     <string name="gl_render_fallback">OpenGL 描画: 直接出力になりました。%1$s</string>
+    <string name="title_vulkan_render">Vulkanで描画</string>
+    <string name="summary_vulkan_render">H.264、HEVC、AV1の映像を、独自のフレームペーシングでVulkan経由で表示します。Android 10以降が必要で、OpenGL描画とアップスケーリングの代わりに使われます。試験的機能です。</string>
+    <string name="vulkan_render_fallback">Vulkan描画: 直接出力を使用します。レンダラーを起動できませんでした。</string>
     <string name="upscaling_fallback">アップスケーリング: 直接出力。%1$s</string>
     <string name="upscaling_hdr">HDR/10 ビットでは、色と精度を保つため直接出力のままにします。</string>
     <string name="upscaling_pyrowave">PyroWave のストリームでは、FSR と SGSR のどちらでも GPU で SGSR を使用します。</string>

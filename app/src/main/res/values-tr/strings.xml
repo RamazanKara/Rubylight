@@ -382,6 +382,9 @@
     <string name="summary_gl_render">Kare üretimi kaplamalarının bağlanabilmesi için videoyu OpenGL üzerinden gönderir. Kare temposunu değiştirir, gecikme ekler ve gecikme kaplaması daha az değer gösterir. Yalnızca bu tür kaplamalar için kullanın.</string>
     <string name="upscaling_gl_only">OpenGL (ölçekleme yok)</string>
     <string name="gl_render_fallback">OpenGL işleme: doğrudan çıkış. %1$s</string>
+    <string name="title_vulkan_render">Vulkan ile işle</string>
+    <string name="summary_vulkan_render">Videoyu, kendi kare hızı denetimiyle Vulkan üzerinden gösterir (H.264, HEVC ve AV1). Android 10 veya üstü gerekir; OpenGL ile işlemenin ve ölçeklemenin yerini alır. Deneysel.</string>
+    <string name="vulkan_render_fallback">Vulkan ile işleme: doğrudan çıkış. İşleyici başlatılamadı.</string>
     <string name="upscaling_fallback">Ölçeklendirme: doğrudan çıkış. %1$s</string>
     <string name="upscaling_hdr">HDR/10 bit, rengi ve hassasiyeti korumak için doğrudan çıkışı kullanır.</string>
     <string name="upscaling_pyrowave">PyroWave yayınları hem FSR hem SGSR için GPU’da SGSR kullanır.</string>

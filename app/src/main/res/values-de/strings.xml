@@ -382,6 +382,9 @@
     <string name="summary_gl_render">Leitet das Video über OpenGL, damit Frame-Generation-Overlays es abgreifen können. Ändert das Frame-Pacing, erhöht die Latenz, und das Latenz-Overlay zeigt weniger Werte. Nur für solche Overlays verwenden.</string>
     <string name="upscaling_gl_only">OpenGL (ohne Skalierung)</string>
     <string name="gl_render_fallback">OpenGL-Rendering: direkte Ausgabe. %1$s</string>
+    <string name="title_vulkan_render">Über Vulkan rendern</string>
+    <string name="summary_vulkan_render">Gibt das Video über Vulkan mit eigenem Frame-Pacing aus (H.264, HEVC und AV1). Benötigt Android 10 oder neuer und ersetzt OpenGL-Rendering und Hochskalierung. Experimentell.</string>
+    <string name="vulkan_render_fallback">Vulkan-Rendering: direkte Ausgabe. Der Renderer konnte nicht gestartet werden.</string>
     <string name="upscaling_fallback">Hochskalierung: direkte Ausgabe. %1$s</string>
     <string name="upscaling_hdr">HDR/10-Bit nutzt direkte Ausgabe für volle Farbpräzision.</string>
     <string name="upscaling_pyrowave">PyroWave-Streams nutzen für FSR und SGSR immer SGSR auf der GPU.</string>

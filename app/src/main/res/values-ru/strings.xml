@@ -382,6 +382,9 @@
     <string name="summary_gl_render">Отправляет видео через OpenGL, чтобы оверлеи генерации кадров могли к нему подключиться. Меняет темп кадров, увеличивает задержку, а оверлей задержки показывает меньше значений. Используйте только для таких оверлеев.</string>
     <string name="upscaling_gl_only">OpenGL (без масштабирования)</string>
     <string name="gl_render_fallback">Рендеринг OpenGL: прямой вывод. %1$s</string>
+    <string name="title_vulkan_render">Рендеринг через Vulkan</string>
+    <string name="summary_vulkan_render">Выводит видео через Vulkan с собственным управлением темпом кадров (H.264, HEVC и AV1). Требуется Android 10 или новее; заменяет рендеринг через OpenGL и масштабирование. Экспериментально.</string>
+    <string name="vulkan_render_fallback">Рендеринг Vulkan: прямой вывод. Не удалось запустить рендерер.</string>
     <string name="upscaling_fallback">Масштабирование: прямой вывод. %1$s</string>
     <string name="upscaling_hdr">Для HDR/10 бит используется прямой вывод, чтобы сохранить цвет и точность.</string>
     <string name="upscaling_pyrowave">Трансляции PyroWave используют SGSR на GPU как для FSR, так и для SGSR.</string>

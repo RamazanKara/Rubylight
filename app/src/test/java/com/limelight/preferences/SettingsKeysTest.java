@@ -219,6 +219,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_drop_late_frames", new Read(true, false, c -> c.dropLateFrames));
         reads.put("checkbox_texture_view", new Read(false, true, c -> c.useTextureView));
         reads.put("checkbox_gl_render", new Read(false, true, c -> c.glRender));
+        reads.put("checkbox_vulkan_render", new Read(false, true, c -> c.vulkanRender));
         reads.put("checkbox_unlock_fps", new Read(false, true, c -> c.unlockFps));
         reads.put("checkbox_unbatched_input", new Read(true, false, c -> c.unbatchedInput));
         reads.put("checkbox_network_priority", new Read(true, false, c -> c.networkPriority));

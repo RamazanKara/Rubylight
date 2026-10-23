@@ -382,6 +382,9 @@
     <string name="summary_gl_render">Gửi video qua OpenGL để lớp phủ tạo khung hình có thể móc vào. Thay đổi nhịp khung hình, tăng độ trễ và lớp phủ độ trễ hiển thị ít số liệu hơn. Chỉ dùng cho các lớp phủ đó.</string>
     <string name="upscaling_gl_only">OpenGL (không phóng đại)</string>
     <string name="gl_render_fallback">Kết xuất OpenGL: xuất trực tiếp. %1$s</string>
+    <string name="title_vulkan_render">Kết xuất qua Vulkan</string>
+    <string name="summary_vulkan_render">Hiển thị video qua Vulkan với cơ chế điều nhịp khung hình riêng (H.264, HEVC và AV1). Cần Android 10 trở lên và thay thế kết xuất OpenGL cùng nâng tỷ lệ. Thử nghiệm.</string>
+    <string name="vulkan_render_fallback">Kết xuất Vulkan: xuất trực tiếp. Không thể khởi động bộ kết xuất.</string>
     <string name="upscaling_fallback">Nâng cấp độ phân giải: xuất trực tiếp. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit giữ xuất trực tiếp để bảo toàn màu sắc và độ chính xác.</string>
     <string name="upscaling_pyrowave">Stream PyroWave dùng SGSR trên GPU cho cả FSR và SGSR.</string>

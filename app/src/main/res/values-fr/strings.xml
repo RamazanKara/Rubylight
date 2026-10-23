@@ -382,6 +382,9 @@
     <string name="summary_gl_render">Envoie la vidéo via OpenGL pour que les surcouches de génération d’images puissent s’y brancher. Modifie le rythme des images, ajoute de la latence, et la surcouche de latence affiche moins de valeurs. À réserver à ces surcouches.</string>
     <string name="upscaling_gl_only">OpenGL (sans mise à l’échelle)</string>
     <string name="gl_render_fallback">Rendu OpenGL : sortie directe. %1$s</string>
+    <string name="title_vulkan_render">Rendu via Vulkan</string>
+    <string name="summary_vulkan_render">Affiche la vidéo via Vulkan avec sa propre gestion du rythme des images (H.264, HEVC et AV1). Nécessite Android 10 ou version ultérieure et remplace le rendu OpenGL et la mise à l’échelle. Expérimental.</string>
+    <string name="vulkan_render_fallback">Rendu Vulkan : sortie directe. Le moteur de rendu n’a pas pu démarrer.</string>
     <string name="upscaling_fallback">Mise à l’échelle : sortie directe. %1$s</string>
     <string name="upscaling_hdr">Le HDR/10 bits conserve la sortie directe pour préserver les couleurs et la précision.</string>
     <string name="upscaling_pyrowave">Les streams PyroWave utilisent SGSR sur le GPU pour FSR comme pour SGSR.</string>

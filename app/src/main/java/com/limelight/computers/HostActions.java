@@ -353,6 +353,8 @@ public final class HostActions {
                     httpConn.unpair();
                     if (httpConn.getPairState() == PairingManager.PairState.NOT_PAIRED) {
                         unpaired = true;
+                        // Drop the cached pair state so the next poll reads it afresh.
+                        binder.invalidateStateForComputer(computer.uuid);
                     } else {
                         failure = activity.getString(R.string.unpair_fail);
                     }
@@ -376,7 +378,7 @@ public final class HostActions {
                 if (done) {
                     // The PC no longer lists this device, so what was read from it is stale.
                     ConsoleRepository.forgetHost(activity, computer.uuid);
-                    Toast.makeText(activity, R.string.unpair_success, Toast.LENGTH_LONG).show();
+                    if (!gone()) Toast.makeText(activity, R.string.unpair_success, Toast.LENGTH_LONG).show();
                 } else if (callbacks.isForeground() && !gone()) {
                     showError(R.string.pcview_menu_unpair_pc, message, canRetry ? () -> unpair(computer) : null);
                 } else {

@@ -413,7 +413,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private void updateOptionsHint() {
         View hint = findViewById(R.id.pc_options_hint);
         if (hint != null && pcGridAdapter != null) {
-            hint.setVisibility(keysAreLastInput && pcGridAdapter.getCount() > 0 ? View.VISIBLE : View.GONE);
+            // Invisible, not gone, while a pointer is in use: the list must not resize on every input switch.
+            hint.setVisibility(pcGridAdapter.getCount() == 0 ? View.GONE
+                    : keysAreLastInput ? View.VISIBLE : View.INVISIBLE);
         }
     }
 

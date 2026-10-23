@@ -291,6 +291,30 @@ public class AppViewLifecycleTest {
         }
     }
 
+    @Test public void aControllersXOpensTheSelectedGamesMenuLikeALongPress() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            com.limelight.ui.UiNavigation.bindGrid(grid);
+            grid.requestFocus();
+            grid.setSelection(position(grid, "Desktop"));
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            long now = android.os.SystemClock.uptimeMillis();
+            for (int action : new int[] {android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP}) {
+                grid.dispatchKeyEvent(new android.view.KeyEvent(now, now, action, android.view.KeyEvent.KEYCODE_BUTTON_X, 0));
+            }
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            android.app.Dialog dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertTrue(dialog instanceof com.limelight.ui.ActionSheet && dialog.isShowing());
+            dialog.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test public void theRunningGameIsPinnedFirstWithARunningChipAndNoPlayLabels() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
                 .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");

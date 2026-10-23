@@ -65,6 +65,7 @@ public class PcViewLifecycleTest {
     private final ComputerManagerListener[] polling = new ComputerManagerListener[1];
     private final java.util.Map<String, String> renamed = new java.util.LinkedHashMap<>();
     private final java.util.List<ComputerDetails> removed = new java.util.ArrayList<>();
+    private final java.util.List<String> invalidated = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private ActivityController<Library> pairingScreen(CountDownLatch pollingStopped, int port) {
         Application application = RuntimeEnvironment.getApplication();
@@ -81,6 +82,7 @@ public class PcViewLifecycleTest {
             @Override public void stopPolling() { }
             @Override public void renameComputer(String uuid, String alias) { renamed.put(uuid, alias); }
             @Override public void removeComputer(ComputerDetails computer) { removed.add(computer); }
+            @Override public void invalidateStateForComputer(String uuid) { invalidated.add(uuid); }
             @Override public String getUniqueId() { return "client"; }
             @Override public void waitForPollingStopped() {
                 try {
@@ -439,6 +441,92 @@ public class PcViewLifecycleTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         android.app.Dialog dialog = ShadowDialog.getLatestDialog();
         return dialog instanceof com.limelight.ui.ActionSheet && dialog.isShowing() ? (com.limelight.ui.ActionSheet) dialog : null;
+    }
+
+    @Test
+    public void aRenamedPcTakesItsNewPlaceInTheList() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("a", "Alpha", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            report(pc("b", "Beta", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            assertEquals("Alpha", ((PcView.ComputerObject) grid.getItemAtPosition(0)).details.displayName());
+            PcView.ComputerObject alpha = (PcView.ComputerObject) grid.getItemAtPosition(0);
+            saveName(screen, alpha.details, "Zulu");
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals("Beta", ((PcView.ComputerObject) grid.getItemAtPosition(0)).details.displayName());
+            assertEquals("Zulu", ((PcView.ComputerObject) grid.getItemAtPosition(1)).details.displayName());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void theOptionsHintStaysInItsPlaceWhilePointerAndKeysTakeTurns() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("a", "Alpha", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            android.view.View hint = screen.findViewById(R.id.pc_options_hint);
+            long now = android.os.SystemClock.uptimeMillis();
+            screen.dispatchKeyEvent(new android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN,
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0));
+            assertEquals(android.view.View.VISIBLE, hint.getVisibility());
+            screen.dispatchTouchEvent(android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 1, 1, 0));
+            // Invisible, not gone: the list above must not change size on every switch.
+            assertEquals(android.view.View.INVISIBLE, hint.getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aSuccessfulUnpairDropsTheCachedStateAndTellsThePerson() throws Exception {
+        ServerSocket host = new ServerSocket(0, 5, InetAddress.getByName("127.0.0.1"));
+        java.util.concurrent.atomic.AtomicBoolean unpaired = new java.util.concurrent.atomic.AtomicBoolean();
+        Thread server = new Thread(() -> {
+            try {
+                while (true) {
+                    try (Socket client = host.accept()) {
+                        java.io.BufferedReader in = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
+                        String request = in.readLine();
+                        for (String line = in.readLine(); line != null && !line.isEmpty(); line = in.readLine()) { }
+                        if (request != null && request.contains("/unpair")) unpaired.set(true);
+                        byte[] body = ("<root status_code=\"200\"><appversion>7.1.431.-1</appversion><PairStatus>"
+                                + (unpaired.get() ? "0" : "1") + "</PairStatus></root>").getBytes(StandardCharsets.UTF_8);
+                        client.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: "
+                                + body.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+                        client.getOutputStream().write(body);
+                    }
+                }
+            } catch (java.io.IOException closed) {
+                // The test closed the socket.
+            }
+        }, "fake-host");
+        server.start();
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            ComputerDetails ready = pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            ready.activeAddress = new ComputerDetails.AddressTuple("127.0.0.1", host.getLocalPort());
+            ready.httpsPort = host.getLocalPort();
+            report(ready);
+            ReflectionHelpers.callInstanceMethod(screen.hostActions(), "unpair",
+                    ReflectionHelpers.ClassParameter.from(ComputerDetails.class, ready));
+            long deadline = System.currentTimeMillis() + 10000;
+            while (org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == null
+                    || !org.robolectric.shadows.ShadowToast.getTextOfLatestToast().equals(screen.getString(R.string.unpair_success))) {
+                assertTrue("Unpair did not finish", System.currentTimeMillis() < deadline);
+                Thread.sleep(20);
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+            }
+            assertEquals(java.util.List.of("ready"), invalidated);
+        } finally {
+            controller.pause().stop().destroy();
+            host.close();
+        }
     }
 
     @Test

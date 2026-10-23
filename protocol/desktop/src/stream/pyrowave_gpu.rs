@@ -199,10 +199,17 @@ mod tests {
                 let frame = decoder.coefficient_frame().unwrap();
                 let target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_TEXTUREACCESS_TARGET, width as i32, height as i32);
                 let mut gpu = Reconstruction::new(renderer, target, [width as u32, height as u32, 160, 128, 0, 0, 5 | (u32::from(ten) << 4) | (u32::from(full) << 5), 1.0f32.to_bits()]).unwrap();
-                // Draw twice per mode so a stale second texture from the previous frame would show.
+                // Draw twice per mode so a stale second texture from the previous frame would show;
+                // the single-upload draws start from a second texture full of NaNs.
                 let mut pictures = Vec::new();
                 for both in [true, false, true, false] {
                     gpu.upload_both = both;
+                    if !both {
+                        // Poison the second texture: a pass that read outside the area the
+                        // vertical pass wrote would carry the NaNs into the picture.
+                        let nan = vec![0x7E00u16; gpu.parameters[2] as usize * gpu.parameters[3] as usize * 4];
+                        assert!(SDL_UpdateTexture(gpu.textures[1], ptr::null(), nan.as_ptr().cast(), gpu.parameters[2] as i32 * 8), "{}", crate::sdl::error());
+                    }
                     assert!(gpu.draw(renderer, target, &frame), "{}", crate::sdl::error());
                     pictures.push((read_back(renderer, target), read_back(renderer, gpu.textures[0])));
                 }

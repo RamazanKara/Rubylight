@@ -9,7 +9,7 @@
     <string name="health_host">Host: i campioni di elaborazione più lenti hanno superato l’intervallo di frame. Confronta il carico di gioco/GPU e un limite di frame del gioco più basso. Questa misurazione include più della sola codifica.</string>
     <string name="health_presentation">Presentazione: i frame sono stati rilasciati più velocemente di quanto venissero mostrati, con lunghe attese del display. Confronta le modalità di frame pacing e la frequenza di aggiornamento dello schermo.</string>
     <string name="health_heat">Temperatura: Android ha segnalato un elevato carico termico. Riduci frame rate/risoluzione o disattiva le elaborazioni costose sul client; lascia raffreddare il dispositivo.</string>
-    <string name="health_evidence">Valori massimi osservati:\nPerdita di frame: %1$s %%\nDecodifica: %2$s ms\nElaborazione host p95: %3$s ms\nAttesa display p95: %4$s ms\nQueste fasi non si sommano alla latenza dall’input allo schermo.</string>
+    <string name="health_evidence">Valori massimi osservati:\nPerdita di frame: %1$s %%\nDecodifica: %2$s ms\nElaborazione host + invio p95: %3$s ms\nAttesa display p95: %4$s ms\nQueste fasi non si sommano alla latenza dall’input allo schermo.</string>
     <string name="health_trial_help">Una prova di bitrate modifica solo questa sessione. Confronta altri 30 secondi di gioco simile, poi torna qui per annullarla. Le modifiche manuali o automatiche del bitrate sostituiscono la prova.</string>
     <string name="health_try">Prova un bitrate più basso</string>
     <string name="health_undo">Annulla prova di bitrate</string>

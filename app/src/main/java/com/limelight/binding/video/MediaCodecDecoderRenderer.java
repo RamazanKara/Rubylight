@@ -183,7 +183,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     };
     private BufferedWriter latencyCsv;
     private volatile String latencyOverlay = "";
-    private volatile double[][] latencySummary = new double[5][4];
+    private volatile double[][] latencySummary = new double[8][4];
     private volatile String decoderDiagnostics = "";
     // Private file name kept from earlier releases so the last stream's timings survive updates.
     public static final String LATENCY_CSV_NAME = "butterpollo-latency.csv";
@@ -239,9 +239,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     static String formatLatencyOverlay(Context context, double[][] summary, float decodeAverageMs, boolean pyroWave) {
+        // With host timing reports the row runs to the last packet sent, so it says it includes the send.
+        boolean hostReports = summary.length > 7 && summary[7][0] > 0;
         int[] labels = { R.string.latency_receive_render, R.string.latency_queue_wait,
                 pyroWave ? R.string.latency_pyrowave_completed_decode : R.string.latency_input_output, R.string.latency_output_render,
-                R.string.latency_host_processing };
+                hostReports ? R.string.latency_host_processing_send : R.string.latency_host_processing };
         int[] stages = {3, 0, 1, 2, 4};
         StringBuilder text = new StringBuilder(context.getString(R.string.latency_header, FrameLatencyStats.WINDOW_SIZE));
         for (int line = 0; line < labels.length; line++) {
@@ -2712,7 +2714,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
                     PerformanceOverlay.statisticsText(context, stream, frameRates[2],
                             frameRates[0], receivedVideoMbps, fps.lossPercent,
-                            networkMs, varianceMs, PerformanceOverlay.average(timings, 4), shownDecodeTimeMs,
+                            networkMs, varianceMs, PerformanceOverlay.average(timings, 4),
+                            PerformanceOverlay.average(timings, 7), shownDecodeTimeMs,
                             frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2), !mediaCodec),
                     PerformanceOverlay.compactText(context, frameRates[2], frameRates[0], networkMs,
                             fps.lossPercent, decodeTimeMs));

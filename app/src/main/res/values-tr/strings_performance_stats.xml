@@ -8,6 +8,7 @@
     <string name="stats_throughput">Video verisi: %1$s Mbps · Kayıp: %%%2$s</string>
     <string name="stats_network">Ağ RTT: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Ana bilgisayar işleme süresi: %1$s ms</string>
+    <string name="stats_host_split">Ana bilgisayar işleme süresi: %1$s ms + gönderim %2$s ms</string>
     <string name="stats_client">Kod çözme: %1$s ms · Görüntüleme bekleme: %2$s ms</string>
     <string name="hardware_title">Ana bilgisayar donanımı (tüm GPU’lar)</string>
     <string name="hardware_cpu">Ana bilgisayar CPU: %%%1$s</string>

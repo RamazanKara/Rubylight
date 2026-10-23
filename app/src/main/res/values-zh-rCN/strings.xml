@@ -260,6 +260,7 @@
     <string name="latency_output_render">显示等待</string>
     <string name="latency_receive_render">客户端延迟</string>
     <string name="latency_host_processing">主机处理</string>
+    <string name="latency_host_processing_send">主机处理 + 发送</string>
     <string name="latency_host_split">主机排队 / 编码 / 发送（平均）: %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">优先使用 YUV 4:4:4</string>
     <string name="summary_yuv444">在电脑和此设备都支持时，彩色文字更清晰。HDR 优先。</string>

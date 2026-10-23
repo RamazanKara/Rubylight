@@ -8,6 +8,7 @@
     <string name="stats_throughput">Dữ liệu video: %1$s Mbps · Mất gói: %2$s%%</string>
     <string name="stats_network">RTT mạng: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Xử lý trên máy chủ: %1$s ms</string>
+    <string name="stats_host_split">Xử lý trên máy chủ: %1$s ms + gửi %2$s ms</string>
     <string name="stats_client">Giải mã: %1$s ms · Chờ hiển thị: %2$s ms</string>
     <string name="hardware_title">Phần cứng máy chủ (tất cả GPU)</string>
     <string name="hardware_cpu">CPU máy chủ: %1$s%%</string>

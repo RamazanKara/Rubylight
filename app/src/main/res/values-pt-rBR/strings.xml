@@ -260,6 +260,7 @@
     <string name="latency_output_render">Espera de exibição</string>
     <string name="latency_receive_render">Latência do cliente</string>
     <string name="latency_host_processing">Processamento no host</string>
+    <string name="latency_host_processing_send">Processamento no host + envio</string>
     <string name="latency_host_split">Fila / codificação / envio do host (média): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Preferir YUV 4:4:4</string>
     <string name="summary_yuv444">Texto colorido mais nítido quando o PC e este dispositivo suportam. O HDR tem prioridade.</string>

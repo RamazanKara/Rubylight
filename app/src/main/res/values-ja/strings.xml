@@ -260,6 +260,7 @@
     <string name="latency_output_render">表示待ち</string>
     <string name="latency_receive_render">クライアントの遅延</string>
     <string name="latency_host_processing">ホストの処理</string>
+    <string name="latency_host_processing_send">ホストの処理 + 送信</string>
     <string name="latency_host_split">ホストのキュー / エンコード / 送信（平均）: %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">YUV 4:4:4 を優先</string>
     <string name="summary_yuv444">PC とこのデバイスが対応している場合、色付きの文字がよりくっきり表示されます。HDR が優先されます。</string>

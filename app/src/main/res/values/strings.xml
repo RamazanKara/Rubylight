@@ -304,6 +304,7 @@
     <string name="latency_output_render">Display wait</string>
     <string name="latency_receive_render">Client latency</string>
     <string name="latency_host_processing">Host processing</string>
+    <string name="latency_host_processing_send">Host processing + send</string>
     <string name="latency_host_split">Host queue / encode / send (avg): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Prefer YUV 4:4:4</string>
     <string name="summary_yuv444">Sharper colored text when the PC and this device support it. HDR takes priority.</string>

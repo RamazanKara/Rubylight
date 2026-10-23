@@ -260,6 +260,7 @@
     <string name="latency_output_render">표시 대기</string>
     <string name="latency_receive_render">클라이언트 지연 시간</string>
     <string name="latency_host_processing">호스트 처리</string>
+    <string name="latency_host_processing_send">호스트 처리 + 전송</string>
     <string name="latency_host_split">호스트 대기 / 인코딩 / 전송 (평균): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">YUV 4:4:4 우선</string>
     <string name="summary_yuv444">PC와 이 기기가 지원하면 컬러 텍스트가 더 선명해집니다. HDR이 우선합니다.</string>

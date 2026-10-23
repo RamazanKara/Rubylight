@@ -9,7 +9,7 @@
     <string name="health_host">Servidor: las muestras de procesamiento más lentas superaron el intervalo de fotograma. Compara la carga del juego o la GPU y un límite de fotogramas más bajo en el juego. Esta medición incluye más que la codificación.</string>
     <string name="health_presentation">Presentación: los fotogramas se liberaron más rápido de lo que se mostraron, con esperas largas de pantalla. Compara los modos de ritmo de fotogramas y la frecuencia de actualización de la pantalla.</string>
     <string name="health_heat">Temperatura: Android ha indicado una presión térmica alta. Reduce la velocidad de fotogramas o la resolución, o desactiva el procesamiento costoso en el cliente; deja que el dispositivo se enfríe.</string>
-    <string name="health_evidence">Valores más altos observados:\nPérdida de fotogramas: %1$s %%\nDecodificación: %2$s ms\nProcesamiento del servidor p95: %3$s ms\nEspera de pantalla p95: %4$s ms\nEstas etapas no suman la latencia de la entrada a la pantalla.</string>
+    <string name="health_evidence">Valores más altos observados:\nPérdida de fotogramas: %1$s %%\nDecodificación: %2$s ms\nProcesamiento del servidor + envío p95: %3$s ms\nEspera de pantalla p95: %4$s ms\nEstas etapas no suman la latencia de la entrada a la pantalla.</string>
     <string name="health_trial_help">Una prueba de tasa de bits solo cambia esta sesión. Compara otros 30 segundos de juego similar y vuelve aquí para deshacerla. Los cambios manuales o automáticos de la tasa de bits sustituyen a la prueba.</string>
     <string name="health_try">Probar una tasa de bits más baja</string>
     <string name="health_undo">Deshacer prueba de tasa de bits</string>

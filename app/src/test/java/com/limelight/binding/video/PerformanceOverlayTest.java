@@ -4,6 +4,7 @@ import android.app.Application;
 import android.content.Context;
 import android.content.res.Configuration;
 
+import com.limelight.nvstream.av.video.HostTimingReport;
 import com.limelight.nvstream.http.HardwareMetrics;
 
 import org.junit.Test;
@@ -124,6 +125,54 @@ public class PerformanceOverlayTest {
             assertEquals(-1, PerformanceOverlay.average(summary, 4), 0);
             assertEquals(4, stats.takeDecodeTimeMs(), 0);
         }
+    }
+
+    private static HostTimingReport hostReport(long hostUs, long queueUs, long encodeUs, long sendUs) {
+        long[] fields = {1, hostUs, queueUs, encodeUs, sendUs};
+        byte[] data = new byte[4 + 20];
+        data[0] = 1;
+        data[1] = 1;
+        for (int field = 0; field < 5; field++) {
+            for (int b = 0; b < 4; b++) data[4 + 4 * field + b] = (byte) (fields[field] >> (8 * b));
+        }
+        return HostTimingReport.parse(data);
+    }
+
+    @Test
+    public void hostTimingReportsShowHostWorkAndSendApart() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onHostTiming(hostReport(4900, 100, 600, 4200), 1000000000L);
+        double[][] summary = stats.summarize();
+        String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
+                120, 120, 450, 0, 8, 1, PerformanceOverlay.average(summary, 4), PerformanceOverlay.average(summary, 7),
+                1, 1).toString();
+        assertTrue(text, text.contains("Host processing: 0.70 ms + send 4.20 ms"));
+        String german = PerformanceOverlay.statisticsText(context(Locale.GERMANY), "1280×720 · PyroWave · SDR",
+                120, 120, 450, 0, 8, 1, 4.9f, 4.2f, 1, 1).toString();
+        assertTrue(german, german.contains("Host-Verarbeitung: 0,70 ms + Senden 4,20 ms"));
+    }
+
+    @Test
+    public void hostWorkNeverGoesNegativeWhenSendRoundsAboveTheTotal() {
+        String text = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
+                4.2f, 4.2000005f, 1, 1).toString();
+        assertTrue(text, text.contains("Host processing: 0.00 ms + send 4.20 ms"));
+    }
+
+    @Test
+    public void withoutTheSendStageTheHostLineStaysASingleValue() {
+        // The frame header's host latency has no send stage; so does a report-free summary.
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 1000000000L, 1000000000L, 1000000000L, (char) 21);
+        double[][] summary = stats.summarize();
+        assertEquals(-1, PerformanceOverlay.average(summary, 7), 0);
+        String text = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
+                PerformanceOverlay.average(summary, 4), PerformanceOverlay.average(summary, 7), 1, 1).toString();
+        assertTrue(text, text.contains("Host processing: 2.10 ms\n"));
+        assertFalse(text.contains("send"));
+        String noHost = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
+                -1, 4.2f, 1, 1).toString();
+        assertTrue(noHost, noHost.contains("Host processing: — ms\n"));
     }
 
     @Test

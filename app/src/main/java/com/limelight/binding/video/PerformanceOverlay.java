@@ -49,7 +49,6 @@ public final class PerformanceOverlay {
         return elapsedNs > 0 ? (float) (bytes * 8000.0 / elapsedNs) : -1;
     }
 
-    @SuppressWarnings("deprecation")
     public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
                                                float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
                                                float hostMs, float decodeMs, float displayMs) {
@@ -57,10 +56,30 @@ public final class PerformanceOverlay {
                 networkMs, varianceMs, hostMs, decodeMs, displayMs, false);
     }
 
-    @SuppressWarnings("deprecation")
     public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
                                                float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
                                                float hostMs, float decodeMs, float displayMs, boolean submissionOnly) {
+        return statisticsText(context, stream, shownFps, receivedFps, videoMbps, frameLossPercent, networkMs,
+                varianceMs, hostMs, -1, decodeMs, displayMs, submissionOnly);
+    }
+
+    public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
+                                               float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
+                                               float hostMs, float sendMs, float decodeMs, float displayMs) {
+        return statisticsText(context, stream, shownFps, receivedFps, videoMbps, frameLossPercent, networkMs,
+                varianceMs, hostMs, sendMs, decodeMs, displayMs, false);
+    }
+
+    /**
+     * hostMs is the host's present to last packet sent. When the host's timing reports give the send
+     * stage (sendMs, first to last packet) the host line shows the two apart, so the network send is
+     * not read as processing; without it the line keeps the single value.
+     */
+    @SuppressWarnings("deprecation")
+    public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
+                                               float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
+                                               float hostMs, float sendMs, float decodeMs, float displayMs,
+                                               boolean submissionOnly) {
         Locale locale = context.getResources().getConfiguration().locale;
         String frames = context.getString(R.string.stats_frame_rates,
                 measurement(locale, shownFps, "%.1f"), measurement(locale, receivedFps, "%.1f"));
@@ -68,7 +87,10 @@ public final class PerformanceOverlay {
                 measurement(locale, videoMbps, "%.1f"), measurement(locale, frameLossPercent, "%.2f"));
         String network = context.getString(R.string.stats_network,
                 measurement(locale, networkMs, "%.0f"), measurement(locale, varianceMs, "%.0f"));
-        String host = context.getString(R.string.stats_host, measurement(locale, hostMs, "%.2f"));
+        String host = available(hostMs) && available(sendMs) ?
+                context.getString(R.string.stats_host_split,
+                        measurement(locale, Math.max(0, hostMs - sendMs), "%.2f"), measurement(locale, sendMs, "%.2f")) :
+                context.getString(R.string.stats_host, measurement(locale, hostMs, "%.2f"));
         String client = context.getString(submissionOnly ? R.string.stats_decode_submission : R.string.stats_client,
                 measurement(locale, decodeMs, "%.2f"), measurement(locale, displayMs, "%.2f"));
         SpannableString text = new SpannableString(stream + '\n' + frames + '\n' + throughput + '\n' + network + '\n' + host + '\n' + client);

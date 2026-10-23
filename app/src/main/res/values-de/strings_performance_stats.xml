@@ -7,6 +7,7 @@
     <string name="stats_throughput">Videodaten: %1$s Mbit/s · Verlust: %2$s%%</string>
     <string name="stats_network">Netzwerk-RTT: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Host-Verarbeitung: %1$s ms</string>
+    <string name="stats_host_split">Host-Verarbeitung: %1$s ms + Senden %2$s ms</string>
     <string name="stats_client">Decodierung: %1$s ms · Anzeigewartezeit: %2$s ms</string>
     <string name="hardware_title">Host-Hardware (alle GPUs)</string>
     <string name="hardware_cpu">Host-CPU: %1$s%%</string>

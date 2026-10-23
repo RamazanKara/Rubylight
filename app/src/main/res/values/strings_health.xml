@@ -9,7 +9,7 @@
     <string name="health_host">Host: the slower processing samples exceeded the frame interval. Compare game/GPU load and a lower game frame limit. This measurement includes more than encoding.</string>
     <string name="health_presentation">Presentation: frames were released faster than they were shown, with long display waits. Compare frame-pacing modes and the screen refresh rate.</string>
     <string name="health_heat">Temperature: Android reported high thermal pressure. Lower frame rate/resolution or disable expensive client processing; allow the device to cool.</string>
-    <string name="health_evidence">Largest observed values:\nFrame loss: %1$s %%\nDecode: %2$s ms\nHost processing p95: %3$s ms\nDisplay wait p95: %4$s ms\nThese stages do not add up to input-to-screen latency.</string>
+    <string name="health_evidence">Largest observed values:\nFrame loss: %1$s %%\nDecode: %2$s ms\nHost processing + send p95: %3$s ms\nDisplay wait p95: %4$s ms\nThese stages do not add up to input-to-screen latency.</string>
     <string name="health_trial_help">A bitrate trial changes only this session. Compare another 30 seconds of similar gameplay, then return here to undo it. Manual or automatic bitrate changes replace the trial.</string>
     <string name="health_try">Try a lower bitrate</string>
     <string name="health_undo">Undo bitrate trial</string>

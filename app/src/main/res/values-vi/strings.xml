@@ -260,6 +260,7 @@
     <string name="latency_output_render">Chờ hiển thị</string>
     <string name="latency_receive_render">Độ trễ trên thiết bị</string>
     <string name="latency_host_processing">Xử lý trên máy chủ</string>
+    <string name="latency_host_processing_send">Xử lý trên máy chủ + gửi</string>
     <string name="latency_host_split">Hàng đợi / mã hóa / gửi của máy chủ (TB): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Ưu tiên YUV 4:4:4</string>
     <string name="summary_yuv444">Chữ màu sắc nét hơn khi cả PC và thiết bị này hỗ trợ. HDR được ưu tiên.</string>

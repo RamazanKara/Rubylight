@@ -8,6 +8,7 @@
     <string name="stats_throughput">Видеоданные: %1$s Мбит/с · Потери: %2$s%%</string>
     <string name="stats_network">RTT сети: %1$s мс (±%2$s мс)</string>
     <string name="stats_host">Обработка на хосте: %1$s мс</string>
+    <string name="stats_host_split">Обработка на хосте: %1$s мс + отправка %2$s мс</string>
     <string name="stats_client">Декодирование: %1$s мс · Ожидание вывода: %2$s мс</string>
     <string name="hardware_title">Оборудование хоста (все GPU)</string>
     <string name="hardware_cpu">CPU хоста: %1$s%%</string>

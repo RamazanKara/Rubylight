@@ -8,6 +8,7 @@
     <string name="stats_throughput">동영상 데이터: %1$s Mbps · 손실: %2$s%%</string>
     <string name="stats_network">네트워크 RTT: %1$s ms(±%2$s ms)</string>
     <string name="stats_host">호스트 처리: %1$s ms</string>
+    <string name="stats_host_split">호스트 처리: %1$s ms + 전송 %2$s ms</string>
     <string name="stats_client">디코딩: %1$s ms · 표시 대기: %2$s ms</string>
     <string name="hardware_title">호스트 하드웨어(모든 GPU)</string>
     <string name="hardware_cpu">호스트 CPU: %1$s%%</string>

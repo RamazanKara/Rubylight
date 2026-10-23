@@ -260,6 +260,7 @@
     <string name="latency_output_render">Ожидание вывода</string>
     <string name="latency_receive_render">Задержка клиента</string>
     <string name="latency_host_processing">Обработка на хосте</string>
+    <string name="latency_host_processing_send">Обработка на хосте + отправка</string>
     <string name="latency_host_split">Очередь / кодирование / отправка хоста (сред.): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Предпочитать YUV 4:4:4</string>
     <string name="summary_yuv444">Более чёткий цветной текст, если ПК и это устройство поддерживают его. HDR имеет приоритет.</string>

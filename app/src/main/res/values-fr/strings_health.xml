@@ -9,7 +9,7 @@
     <string name="health_host">Hôte : les échantillons de traitement les plus lents ont dépassé l’intervalle d’image. Comparez la charge du jeu/GPU et une limite d’images plus basse dans le jeu. Cette mesure inclut plus que l’encodage.</string>
     <string name="health_presentation">Présentation : les images ont été libérées plus vite qu’elles n’étaient affichées, avec de longues attentes d’affichage. Comparez les modes de frame pacing et la fréquence de rafraîchissement de l’écran.</string>
     <string name="health_heat">Température : Android a signalé une forte contrainte thermique. Baissez la fréquence d’images/résolution ou désactivez les traitements coûteux côté client ; laissez l’appareil refroidir.</string>
-    <string name="health_evidence">Valeurs maximales observées :\nPerte d’images : %1$s %%\nDécodage : %2$s ms\nTraitement de l’hôte p95 : %3$s ms\nAttente d’affichage p95 : %4$s ms\nCes étapes ne s’additionnent pas pour donner la latence de la saisie à l’écran.</string>
+    <string name="health_evidence">Valeurs maximales observées :\nPerte d’images : %1$s %%\nDécodage : %2$s ms\nTraitement de l’hôte + envoi p95 : %3$s ms\nAttente d’affichage p95 : %4$s ms\nCes étapes ne s’additionnent pas pour donner la latence de la saisie à l’écran.</string>
     <string name="health_trial_help">Un essai de débit ne modifie que cette session. Comparez 30 autres secondes de jeu similaire, puis revenez ici pour l’annuler. Les modifications de débit manuelles ou automatiques remplacent l’essai.</string>
     <string name="health_try">Essayer un débit plus faible</string>
     <string name="health_undo">Annuler l’essai de débit</string>

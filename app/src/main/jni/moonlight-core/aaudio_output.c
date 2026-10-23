@@ -31,6 +31,7 @@
     X(AAudioStream_getBufferSizeInFrames) \
     X(AAudioStream_setBufferSizeInFrames) \
     X(AAudioStream_getXRunCount) \
+    X(AAudioStream_getDeviceId) \
     X(AAudioStream_requestStart) \
     X(AAudioStream_requestStop) \
     X(AAudioStream_close)
@@ -58,6 +59,7 @@ typedef struct {
     int32_t (*AAudioStream_getBufferSizeInFrames)(AAudioStream*);
     aaudio_result_t (*AAudioStream_setBufferSizeInFrames)(AAudioStream*, int32_t);
     int32_t (*AAudioStream_getXRunCount)(AAudioStream*);
+    int32_t (*AAudioStream_getDeviceId)(AAudioStream*);
     aaudio_result_t (*AAudioStream_requestStart)(AAudioStream*);
     aaudio_result_t (*AAudioStream_requestStop)(AAudioStream*);
     aaudio_result_t (*AAudioStream_close)(AAudioStream*);
@@ -178,9 +180,10 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioStats(JNIEnv* e
             (jint)output->queue.capacity,
             (jint)atomic_load(&output->queue.targetFrames),
             (xruns < 0 ? 0 : xruns) + underruns,
-            output->AAudioStream_getBufferSizeInFrames(output->stream), xruns, underruns};
-    jintArray result = (*env)->NewIntArray(env, 7);
-    if (result) (*env)->SetIntArrayRegion(env, result, 0, 7, stats);
+            output->AAudioStream_getBufferSizeInFrames(output->stream), xruns, underruns,
+            output->AAudioStream_getDeviceId(output->stream)};
+    jintArray result = (*env)->NewIntArray(env, 8);
+    if (result) (*env)->SetIntArrayRegion(env, result, 0, 8, stats);
     return result;
 }
 

@@ -9,6 +9,7 @@ static int32_t burst(AAudioStream* stream) { (void)stream; return 192; }
 static int32_t capacity(AAudioStream* stream) { (void)stream; return 384; }
 static int32_t size(AAudioStream* stream) { (void)stream; return hardwareFrames; }
 static int32_t xruns(AAudioStream* stream) { (void)stream; return 0; }
+static int32_t deviceId(AAudioStream* stream) { (void)stream; return 42; }
 static int32_t setSize(AAudioStream* stream, int32_t frames) {
     (void)stream;
     hardwareFrames = frames < 384 ? frames : 384;
@@ -33,6 +34,7 @@ int main(void) {
     output.AAudioStream_getBufferCapacityInFrames = capacity;
     output.AAudioStream_getBufferSizeInFrames = size;
     output.AAudioStream_getXRunCount = xruns;
+    output.AAudioStream_getDeviceId = deviceId;
     output.AAudioStream_setBufferSizeInFrames = setSize;
     jlong handle = (jlong)(intptr_t)&output;
     const struct JNINativeInterface functions = {
@@ -43,6 +45,7 @@ int main(void) {
 
     Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioStats(&env, NULL, handle);
     assert(stats[1] == 4096);
+    assert(stats[7] == 42);
     assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioBuffer(NULL, NULL, handle, 768) == 768);
     assert(hardwareFrames == 384);
     assert(atomic_load(&output.queue.targetFrames) == 768);

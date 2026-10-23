@@ -18,6 +18,15 @@ final class AudioDiagnostics {
         return text.toString();
     }
 
+    /**
+     * The device the output is routed to, when known. Otherwise every attached output, labelled as
+     * such, because the sound may be going to any of them.
+     */
+    static String route(int routedType, int[] attachedTypes) {
+        if (routedType >= 0) return typeName(routedType);
+        return "unknown (attached: " + routes(attachedTypes) + ")";
+    }
+
     static String typeName(int type) {
         switch (type) {
             case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return "speaker";

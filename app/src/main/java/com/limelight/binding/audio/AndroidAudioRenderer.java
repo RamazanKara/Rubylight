@@ -50,7 +50,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private int failedWrites;
     // Buffers that never played, for the problem report: over the 40 ms queue bound, or refused by the output.
     private long lateDropped, droppedWrites, nextDropReportAt;
+    // Cached at setup: the native rate is a cross-process call and the route changes only with the output.
+    private int nativeRate;
     private String routes = "unknown";
+    private boolean routeResolved;
+    private int routeRetries;
 
     private static native long nativeOpenAudio(int sampleRate);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
@@ -113,7 +117,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
         this.channels = audioConfiguration.channelCount;
         stopped = false;
         lastBufferCheckMs = 0;
-        routes = outputRoutes();
+        nativeRate = nativeOutputRate();
 
         switch (audioConfiguration.channelCount)
         {
@@ -139,21 +143,27 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
         LimeLog.info("Audio channel config: "+String.format("0x%X", channelConfig));
 
-        if (AudioBufferPolicy.useAAudio(Build.VERSION.SDK_INT, channels, enableAudioFx, sampleRate,
-                AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC))) {
+        if (AudioBufferPolicy.useAAudio(Build.VERSION.SDK_INT, channels, enableAudioFx, sampleRate, nativeRate)) {
             nativeAudio = nativeOpenAudio(sampleRate);
             if (nativeAudio != 0) {
                 int[] stats = nativeAudioStats(nativeAudio);
                 bufferPolicy = new AudioBufferPolicy(stats[0], stats[1], stats[2], stats[3], SystemClock.uptimeMillis());
                 LimeLog.info("Audio output: AAudio low latency");
+                refreshRoute(stats[7]);
                 reportNativeAudio(stats);
                 return 0;
             }
         }
-        return setupAudioTrack();
+        return buildAudioTrack();
     }
 
+    // For recreation and fallback: the output may have changed since setup(), so read the native rate again.
     private int setupAudioTrack() {
+        nativeRate = nativeOutputRate();
+        return buildAudioTrack();
+    }
+
+    private int buildAudioTrack() {
         bufferPolicy = null;
         lastBufferCheckMs = 0;
         int bytesPerFrame = channels * samplesPerFrame * 2;
@@ -211,7 +221,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
             }
 
             // Skip low latency options if hardware sample rate doesn't match the content
-            if (AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC) != sampleRate && lowLatency) {
+            if (nativeRate != sampleRate && lowLatency) {
                 continue;
             }
 
@@ -231,6 +241,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
                             actual > 0 ? actual : track.getBufferSizeInFrames(), track.getUnderrunCount(), SystemClock.uptimeMillis());
                 }
                 track.play();
+                refreshRoute(-1);
 
                 // Successfully created working AudioTrack. We're done here.
                 LimeLog.info("Audio track configuration: "+bufferSize+" "+lowLatency);
@@ -289,14 +300,18 @@ public class AndroidAudioRenderer implements AudioRenderer {
         int pendingMs = pendingAudioMs();
         if (pendingMs < 40) {
             if (nativeAudio != 0 && bufferPolicy.needsFallback() &&
-                    !fallbackToAudioTrack("AAudio keeps underrunning at its maximum reserve")) return;
+                    !fallbackToAudioTrack("AAudio keeps underrunning at its maximum reserve")) {
+                droppedWrites++;
+                return;
+            }
             if (nativeAudio != 0) {
-                if (nativeWriteAudio(nativeAudio, audioData, length)) {
+                if (writeNativeAudio(audioData, length)) {
                     tuneBuffer();
                     return;
                 }
                 if (!fallbackToAudioTrack("AAudio disconnected")) {
                     // Later buffers retry the AudioTrack like any other dead output.
+                    droppedWrites++;
                     return;
                 }
             }
@@ -330,22 +345,65 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
     }
 
-    private String outputRoutes() {
-        if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return "unknown";
+    int nativeOutputRate() {
+        return AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC);
+    }
+
+    /** Device type the AudioTrack is routed to, or -1 while it is not routed yet. */
+    int routedTrackType() {
+        AudioTrack current = track;
+        if (current == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return -1;
         try {
-            AudioManager manager = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
-            AudioDeviceInfo[] devices = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
-            int[] types = new int[devices.length];
-            for (int i = 0; i < devices.length; i++) types[i] = devices[i].getType();
-            return AudioDiagnostics.routes(types);
+            AudioDeviceInfo device = current.getRoutedDevice();
+            return device == null ? -1 : device.getType();
         } catch (RuntimeException e) {
-            return "unknown";
+            return -1;
         }
     }
 
-    private String outputDetails() {
-        return ", nativeRate=" + AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC) +
-                ", routes=" + routes + ", " + AudioDiagnostics.drops(lateDropped, droppedWrites);
+    /** {id, type} of every attached output, the fallback when the routed device is unknown. */
+    int[][] attachedOutputs() {
+        if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return new int[0][];
+        try {
+            AudioManager manager = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+            AudioDeviceInfo[] devices = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+            int[][] attached = new int[devices.length][];
+            for (int i = 0; i < devices.length; i++) attached[i] = new int[] {devices[i].getId(), devices[i].getType()};
+            return attached;
+        } catch (RuntimeException e) {
+            return new int[0][];
+        }
+    }
+
+    // aaudioDeviceId is the AAudio stream's device, 0 or less when unknown. The AudioTrack path asks the track.
+    void refreshRoute(int aaudioDeviceId) {
+        int[][] attached = attachedOutputs();
+        int routed = -1;
+        if (nativeAudio != 0) {
+            if (aaudioDeviceId > 0) {
+                for (int[] device : attached) if (device[0] == aaudioDeviceId) routed = device[1];
+            }
+        } else {
+            routed = routedTrackType();
+        }
+        int[] types = new int[attached.length];
+        for (int i = 0; i < attached.length; i++) types[i] = attached[i][1];
+        routes = AudioDiagnostics.route(routed, types);
+        routeResolved = routed >= 0;
+        routeRetries = 0;
+    }
+
+    // A track is often not routed yet right after play(); look again in a few reports before giving up.
+    private void resolveRoute(int aaudioDeviceId) {
+        if (!routeResolved && routeRetries < 5) {
+            int retries = routeRetries + 1;
+            refreshRoute(aaudioDeviceId);
+            routeRetries = retries;
+        }
+    }
+
+    String outputDetails() {
+        return ", nativeRate=" + nativeRate + ", route=" + routes + ", " + AudioDiagnostics.drops(lateDropped, droppedWrites);
     }
 
     boolean fallbackToAudioTrack(String reason) {
@@ -373,6 +431,10 @@ public class AndroidAudioRenderer implements AudioRenderer {
         AudioTrack current = track;
         // A failed recreation leaves no track. Treat that like a dead one so recovery is retried.
         return current == null ? AudioTrack.ERROR_DEAD_OBJECT : current.write(audioData, offset, length);
+    }
+
+    boolean writeNativeAudio(short[] audioData, int length) {
+        return nativeWriteAudio(nativeAudio, audioData, length);
     }
 
     int pendingAudioMs() {
@@ -455,12 +517,14 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
     @RequiresApi(Build.VERSION_CODES.N)
     private void reportAudioTrack(int underruns) {
+        resolveRoute(-1);
         ProblemReport.setAudioDiagnostics("AudioTrack: rate=" + sampleRate + ", channels=" + channels +
                 ", packetFrames=" + samplesPerFrame + ", bufferFrames=" + track.getBufferSizeInFrames() +
                 ", capacityFrames=" + track.getBufferCapacityInFrames() + ", underruns=" + underruns + outputDetails());
     }
 
     private void reportNativeAudio(int[] stats) {
+        resolveRoute(stats[7]);
         ProblemReport.setAudioDiagnostics("AAudio: rate=" + sampleRate + ", channels=" + channels +
                 ", packetFrames=" + samplesPerFrame + ", burstFrames=" + stats[0] +
                 ", reserveFrames=" + stats[2] + ", capacityFrames=" + stats[1] +

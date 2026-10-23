@@ -3,6 +3,7 @@ package com.limelight.binding.audio;
 import android.app.Application;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.media.AudioDeviceInfo;
 import android.media.AudioTrack;
 
 import org.junit.Test;
@@ -41,6 +42,8 @@ public class AndroidAudioRendererTest {
         private final int[] results;
         private int nextResult;
         private boolean recreationSucceeds = true;
+        private boolean fallbackSucceeds = true;
+        private boolean nativeWriteSucceeds = true;
         private int recreations;
         private String fallbackReason;
         private long now = 1000;
@@ -72,7 +75,11 @@ public class AndroidAudioRendererTest {
             fallbackReason = reason;
             ReflectionHelpers.setField(this, "nativeAudio", 0L);
             ReflectionHelpers.setField(this, "bufferPolicy", null);
-            return true;
+            return fallbackSucceeds;
+        }
+
+        @Override boolean writeNativeAudio(short[] data, int length) {
+            return nativeWriteSucceeds;
         }
 
         @Override long uptimeMillis() {
@@ -282,6 +289,30 @@ public class AndroidAudioRendererTest {
     // A real renderer whose output can be made to refuse new tracks, as during a route change.
     private static final class UnavailableOutput extends AndroidAudioRenderer {
         int refusedTracks;
+        int rateReads, rate = 44100, routedType = -1, pendingMs;
+        long now = 1000;
+        int[][] attached = new int[0][];
+
+        @Override int nativeOutputRate() {
+            rateReads++;
+            return rate;
+        }
+
+        @Override int routedTrackType() {
+            return routedType;
+        }
+
+        @Override int[][] attachedOutputs() {
+            return attached;
+        }
+
+        @Override int pendingAudioMs() {
+            return pendingMs;
+        }
+
+        @Override long uptimeMillis() {
+            return now;
+        }
 
         UnavailableOutput(Context context) {
             super(context, true, null);
@@ -323,6 +354,86 @@ public class AndroidAudioRendererTest {
         assertTrue(renderer.recreateAudioTrack());
         assertEquals(List.of("open", "close", "open", "close"), effectSessions);
         renderer.cleanup();
+    }
+
+    private static String audioReport() {
+        return ReflectionHelpers.getStaticField(com.limelight.utils.ProblemReport.class, "audioDiagnostics");
+    }
+
+    private static final com.limelight.nvstream.jni.MoonBridge.AudioConfiguration STEREO =
+            new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(2, 0x3);
+
+    @Test public void reportReadsTheNativeRateOnceAndFollowsTheRecreatedOutput() {
+        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
+        renderer.routedType = AudioDeviceInfo.TYPE_BLUETOOTH_A2DP;
+        renderer.attached = new int[][] {{1, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER}, {7, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP}};
+        assertEquals(0, renderer.setup(STEREO, 48000, 240));
+        // One read for the AAudio decision, reused by the track; reports must not ask again.
+        assertEquals(1, renderer.rateReads);
+        for (int i = 0; i < 3; i++) renderer.outputDetails();
+        assertEquals(1, renderer.rateReads);
+        assertTrue(audioReport(), audioReport().contains("nativeRate=44100"));
+        assertTrue(audioReport(), audioReport().contains("route=bluetooth-a2dp"));
+        assertFalse("only the routed device is named", audioReport().contains("speaker"));
+
+        // The output moved and the track was rebuilt: both values are read again.
+        renderer.rate = 48000;
+        renderer.routedType = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+        assertTrue(renderer.recreateAudioTrack());
+        assertEquals(2, renderer.rateReads);
+        assertTrue(audioReport(), audioReport().contains("nativeRate=48000"));
+        assertTrue(audioReport(), audioReport().contains("route=speaker"));
+        renderer.cleanup();
+    }
+
+    @Test public void unroutedOutputListsEveryAttachedOutputUntilTheTrackIsRouted() {
+        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
+        renderer.attached = new int[][] {{1, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER}, {7, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP}};
+        assertEquals(0, renderer.setup(STEREO, 48000, 240));
+        assertTrue(audioReport(), audioReport().contains("route=unknown (attached: speaker+bluetooth-a2dp)"));
+
+        // The next periodic report finds the track routed.
+        renderer.routedType = AudioDeviceInfo.TYPE_BLUETOOTH_A2DP;
+        renderer.pendingMs = 45;
+        renderer.playDecodedAudio(new short[6], 6);
+        assertTrue(audioReport(), audioReport().contains("route=bluetooth-a2dp"));
+        assertTrue(audioReport(), audioReport().contains("lateDropped=1"));
+        renderer.cleanup();
+    }
+
+    @Test public void aaudioRouteComesFromTheStreamDeviceId() {
+        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
+        renderer.attached = new int[][] {{1, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER}, {7, AudioDeviceInfo.TYPE_USB_HEADSET}};
+        // With a stream open the track is irrelevant, whatever it reports.
+        renderer.routedType = AudioDeviceInfo.TYPE_BLUETOOTH_A2DP;
+        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
+        renderer.refreshRoute(7);
+        assertEquals("usb-headset", ReflectionHelpers.getField(renderer, "routes"));
+        renderer.refreshRoute(0);
+        assertEquals("unknown (attached: speaker+usb-headset)", ReflectionHelpers.getField(renderer, "routes"));
+        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
+    }
+
+    @Test public void aaudioFailuresThatEndTheBufferAreCountedAsDropped() {
+        // Falling back from persistent underruns fails: the buffer is lost.
+        ScriptedRenderer renderer = new ScriptedRenderer();
+        renderer.fallbackSucceeds = false;
+        AudioBufferPolicy policy = new AudioBufferPolicy(192, 384, 384, 0, 0);
+        for (int i = 1; i <= 3; i++) policy.sample(i, i * 1000L);
+        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
+        ReflectionHelpers.setField(renderer, "bufferPolicy", policy);
+        renderer.play();
+        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
+
+        // The stream disconnects and the fallback cannot start either.
+        renderer = new ScriptedRenderer();
+        renderer.fallbackSucceeds = false;
+        renderer.nativeWriteSucceeds = false;
+        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
+        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
+        renderer.play();
+        assertEquals("AAudio disconnected", renderer.fallbackReason);
+        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
     }
 
     @Test public void failedRecreationIsRetriedByALaterBuffer() {

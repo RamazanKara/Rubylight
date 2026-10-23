@@ -209,7 +209,7 @@
               {#if client.network_loss_routes?.length}
                 <p class="network-memory muted">
                   Recent video loss: future streams at {client.network_loss_routes.map((route) => route.address).join(', ')} start with smaller packet bursts.
-                  Expires within 24 hours; the normal rate is tested every fifth stream.
+                  Expires within 24 hours; the normal rate is tested every second stream.
                 </p>
               {/if}
             </div>

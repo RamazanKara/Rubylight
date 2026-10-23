@@ -519,11 +519,14 @@ impl VideoTexture {
             // SAFETY: a texture we created.
             unsafe { SDL_DestroyTexture(self.texture) };
         }
+        // The stage timers belong to the whole stream, not to one texture.
+        let stages = std::mem::replace(&mut self.pyrowave_stages, super::stage_times::Stages::new(super::pyrowave_gpu::UPLOAD_AND_PASSES));
         *self = Self {
             #[cfg(windows)]
             direct_packed: self.direct_packed,
             hdr_mode: self.hdr_mode,
             hdr_metadata: self.hdr_metadata,
+            pyrowave_stages: stages,
             ..Self::default()
         };
     }
@@ -561,6 +564,16 @@ pub fn viewport(picture: (i32, i32), area: (i32, i32), scaling: crate::config::V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pyrowave_stage_timers_survive_destroying_the_texture() {
+        let mut texture = VideoTexture::default();
+        texture.pyrowave_stages.add(0, std::time::Instant::now());
+        texture.pyrowave_stages.commit();
+        texture.destroy();
+        assert_eq!(texture.pyrowave_stages.frames(), 1);
+        assert!(texture.pyrowave_stages.summary().is_some());
+    }
 
     #[test]
     fn scaling_matches_android_fit_fill_stretch_native_and_top_alignment() {

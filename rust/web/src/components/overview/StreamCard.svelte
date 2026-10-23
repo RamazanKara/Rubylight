@@ -58,7 +58,8 @@
       {#if limited}
         <Badge tone="warn">
           Bitrate limited by the network: <span class="num">{rate(stream.encoder_bitrate_kbps)}</span> of
-          <span class="num">{rate(limited.ceiling_kbps)}</span> Mbps
+          <span class="num">{rate(limited.ceiling_kbps)}</span> Mbps{#if limited.encoder_floor_kbps}
+            (the encoder cannot go lower){/if}
         </Badge>
       {/if}
     </div>

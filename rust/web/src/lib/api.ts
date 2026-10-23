@@ -431,9 +431,15 @@ export interface StreamSession {
     ceiling_kbps: number;
     current_kbps: number;
     delivered_kbps: number;
+    /** The rate that last failed, or 0 when none is known. */
+    bad_kbps: number;
+    /** What the encoder was seen to send after a cut asked for less, or 0. The host does not cut below it. */
+    encoder_floor_kbps: number;
     steps_down: number;
     probes: number;
     failed_probes: number;
+    /** Milliseconds since the last change, or 0 before the first. */
+    last_change_ms_ago: number;
   };
   /** Error correction (%) for the next video frame; adaptive FEC moves it. Null for PyroWave. */
   fec_percent?: number | null;

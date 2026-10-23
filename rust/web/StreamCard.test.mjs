@@ -70,7 +70,8 @@ test('present to sent is not invented for a still picture or a stream without fr
 
 const link = (state, current, ceiling) => ({
   state, reason: 'unrecoverable_frames', ceiling_kbps: ceiling, current_kbps: current,
-  delivered_kbps: current, steps_down: 1, probes: 0, failed_probes: 0,
+  delivered_kbps: current, bad_kbps: ceiling, encoder_floor_kbps: 0, steps_down: 1, probes: 0,
+  failed_probes: 0, last_change_ms_ago: 1200,
 });
 
 test('a bitrate the host lowered for the network is shown on the card', () => {
@@ -83,4 +84,15 @@ test('no network badge on a healthy, disabled or older host stream', () => {
   for (const link_rate of [link('full', 15_000, 15_000), link('off', 15_000, 15_000), undefined]) {
     assert.doesNotMatch(html({ link_rate }), /limited by the network/);
   }
+});
+
+test('the card shows the current bitrate, and says when the encoder cannot go lower', () => {
+  const lifted = html({ encoder_bitrate_kbps: 47_000, link_rate: link('limited', 47_000, 179_000) });
+  assert.match(lifted, /<span class="num[^"]*">47<\/span>[\s\S]*?<span class="num[^"]*">179<\/span>/);
+  assert.doesNotMatch(lifted, /encoder cannot go lower/);
+  const stuck = html({
+    encoder_bitrate_kbps: 14_000,
+    link_rate: { ...link('limited', 14_000, 40_000), encoder_floor_kbps: 14_000 },
+  });
+  assert.match(stuck, /encoder cannot go lower/);
 });

@@ -1412,11 +1412,42 @@ fn encode_and_decode(
     Ok(())
 }
 
+/// Where a life of the stream loses this process's D3D12 device.
+#[derive(Clone, Copy, Debug)]
+enum Loss {
+    /// Never: a control for what an ordinary life leaves open.
+    Never,
+    /// Between two frames, caught by the entry check.
+    BetweenFrames,
+    /// After the entry check, before the conversion is recorded, so the
+    /// conversion itself fails (`conversion_failed`).
+    BeforeConversion,
+    /// After the frame is submitted: the D3D12 fences jump to their maximum,
+    /// the Vulkan wait succeeds and only the check after it sees the loss.
+    MidFrame,
+}
+
+/// Aborts the run if a test hangs, until dropped. Dropping the guard (on any
+/// exit, including `?`) disconnects the channel and the thread ends quietly.
+struct Watchdog(#[allow(dead_code)] std::sync::mpsc::Sender<()>);
+impl Watchdog {
+    fn start(limit: std::time::Duration, name: &'static str) -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = receiver.recv_timeout(limit) {
+                eprintln!("{name} hung for {limit:?}");
+                std::process::abort();
+            }
+        });
+        Self(sender)
+    }
+}
+
 /// One life of a stream: encode, lose this process's D3D12 device under the
-/// encoder's compute conversion, require every later frame to fail as a device
-/// loss, then drop the encoder. Returns the time the failing frames took.
-/// Without `remove` the device stays, as a control for what a life leaves open.
-fn lose_the_d3d12_device(remove: bool) -> Result<std::time::Duration> {
+/// encoder's compute conversion at `loss`, require the frame and every later one
+/// to fail as a device loss with nothing quarantined, then drop the encoder.
+/// Returns the time the failing frames took.
+fn lose_the_d3d12_device(loss: Loss) -> Result<std::time::Duration> {
     use windows::Win32::Graphics::Direct3D12::ID3D12Device5;
     let gpu = Device::new("")?;
     let config = Negotiated {
@@ -1456,20 +1487,33 @@ fn lose_the_d3d12_device(remove: bool) -> Result<std::time::Duration> {
         .compute()
         .clone();
     ensure!(native.device_removed().is_none(), "lost before the removal");
-    if !remove {
+    if matches!(loss, Loss::Never) {
         drop(encoder);
         drop(decoder);
         return Ok(Default::default());
     }
-    // SAFETY: `compute.device` is this process's live D3D12 device for the
-    // adapter. RemoveDevice marks only that device as removed in software: no
-    // GPU reset, so other processes, the display and the D3D11 and Vulkan
-    // devices here are untouched.
-    unsafe { compute.device.cast::<ID3D12Device5>()?.RemoveDevice() };
-    ensure!(
-        crate::device_loss::DeviceLost::d3d12(&compute.device).is_some(),
-        "the D3D12 device is not removed"
-    );
+    let remove = {
+        let device = compute.device.cast::<ID3D12Device5>()?;
+        move || {
+            // SAFETY: `device` is this process's live D3D12 device for the
+            // adapter. RemoveDevice marks only that device as removed in
+            // software: no GPU reset, so other processes, the display and the
+            // D3D11 and Vulkan devices here are untouched.
+            unsafe { device.RemoveDevice() }
+        }
+    };
+    match loss {
+        Loss::Never => unreachable!(),
+        Loss::BetweenFrames => {
+            remove();
+            ensure!(
+                crate::device_loss::DeviceLost::d3d12(&compute.device).is_some(),
+                "the D3D12 device is not removed"
+            );
+        }
+        Loss::BeforeConversion => native.hooks.before_conversion = Some(Box::new(remove)),
+        Loss::MidFrame => native.hooks.after_submit = Some(Box::new(remove)),
+    }
     let started = Instant::now();
     for attempt in 0..3 {
         let Encoder::Pyrowave(native) = &mut encoder else {
@@ -1482,12 +1526,24 @@ fn lose_the_d3d12_device(remove: bool) -> Result<std::time::Duration> {
             .with_context(|| format!("frame {attempt} encoded on a removed device"))?;
         ensure!(
             crate::device_loss::DeviceLost::from_error(&error).is_some(),
-            "frame {attempt} failed, but not as a device loss: {error:#}"
+            "{loss:?}: frame {attempt} failed, but not as a device loss: {error:#}"
         );
         ensure!(
             crate::device_loss::DeviceLost::d3d11(&gpu.device).is_none(),
             "the D3D11 device was lost too"
         );
+        let Encoder::Pyrowave(native) = &encoder else {
+            unreachable!()
+        };
+        // A lost D3D12 device holds no work, so the lease is free and the
+        // adapter stays usable: the next life builds on a new device.
+        ensure!(
+            native.pending.is_none(),
+            "{loss:?}: frame {attempt} left the capture lease pinned: {error:#}"
+        );
+        super::quarantined_adapters()
+            .check(native.adapter)
+            .with_context(|| format!("{loss:?}: frame {attempt} quarantined the adapter"))?;
     }
     let elapsed = started.elapsed();
     drop(encoder);
@@ -1495,42 +1551,72 @@ fn lose_the_d3d12_device(remove: bool) -> Result<std::time::Duration> {
     Ok(elapsed)
 }
 
-/// A real, per-device removal: `ID3D12Device5::RemoveDevice` on the D3D12
-/// device the encoder converts on. The host classifies the failure as a device
-/// loss, and a stream rebuilt on a new device encodes and decodes again, with
-/// no quarantine of the adapter and no handles left behind.
-#[test]
-#[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL; removes only this process's D3D12 device"]
-fn pyrowave_recovers_from_a_removed_d3d12_device() -> Result<()> {
+/// Two ordinary lives, then three that lose the device at `loss`. A lost life
+/// must report device loss, quarantine nothing (the next life builds and
+/// decodes on the same adapter), and leave no more handles than an ordinary one.
+/// Handle counts are process-wide: run with `--test-threads=1`.
+fn recover_from_loss(loss: Loss, name: &'static str) -> Result<()> {
     let _com = ComGuard::new()?;
     // A hang fails the test instead of the run.
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(180));
-        eprintln!("PyroWave device-loss test hung for 180 s");
-        std::process::abort();
-    });
+    let _watchdog = Watchdog::start(std::time::Duration::from_secs(180), name);
     println!("PYROWAVE_LOSS_STREAM {}", stream_status()?);
     // Two lives that keep their device show what an ordinary life leaves
-    // behind (the SDK and driver keep a few handles per Vulkan device); two
-    // that lose it must leave no more.
-    let mut handles = Vec::new();
-    for (life, remove) in [false, false, true, true, true].into_iter().enumerate() {
-        let elapsed = lose_the_d3d12_device(remove)?;
+    // behind (the SDK and driver keep a few handles per Vulkan device); the
+    // lives that lose it must leave no more.
+    let mut handles: Vec<i64> = Vec::new();
+    for (life, loss) in [Loss::Never, Loss::Never, loss, loss, loss]
+        .into_iter()
+        .enumerate()
+    {
+        let elapsed = lose_the_d3d12_device(loss)?;
         ensure!(
             elapsed < std::time::Duration::from_secs(10),
             "life {life}: three failing frames took {elapsed:?}"
         );
-        handles.push(handle_count()?);
+        handles.push(handle_count()?.into());
         println!(
             "PYROWAVE_LOSS {}",
-            serde_json::json!({"life":life,"removed":remove,"failing_frames_ms":elapsed.as_millis(),"handles":handles.last()})
+            serde_json::json!({"life":life,"loss":format!("{loss:?}"),"failing_frames_ms":elapsed.as_millis(),"handles":handles.last()})
         );
     }
     // The first life of each kind warms driver and runtime caches.
-    let (ordinary, lost) = (handles[1] - handles[0], handles[4] - handles[3]);
+    let ordinary = handles[1] - handles[0];
+    let lost = handles[4] - handles[3];
     ensure!(
         lost <= ordinary,
         "a lost device leaks {lost} handles per life against {ordinary} for an ordinary one: {handles:?}"
     );
     Ok(())
+}
+
+/// A real, per-device removal: `ID3D12Device5::RemoveDevice` on the D3D12
+/// device the encoder converts on, between two frames. The host classifies the
+/// failure as a device loss, and a stream rebuilt on a new device encodes and
+/// decodes again, with no quarantine of the adapter and no handles left behind.
+#[test]
+#[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL; removes only this process's D3D12 device; run with --test-threads=1"]
+fn pyrowave_recovers_from_a_removed_d3d12_device() -> Result<()> {
+    recover_from_loss(
+        Loss::BetweenFrames,
+        "PyroWave device-loss test (between frames)",
+    )
+}
+
+/// The device is removed after the entry check and before the conversion, so the
+/// conversion fails on the dead device and `conversion_failed` must free the lease.
+#[test]
+#[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL; removes only this process's D3D12 device; run with --test-threads=1"]
+fn pyrowave_recovers_from_a_d3d12_device_lost_before_conversion() -> Result<()> {
+    recover_from_loss(
+        Loss::BeforeConversion,
+        "PyroWave device-loss test (before conversion)",
+    )
+}
+
+/// The device is removed after the frame is submitted: the shared fence jumps to
+/// its maximum, the Vulkan wait succeeds, and the loss must still free the lease.
+#[test]
+#[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL; removes only this process's D3D12 device; run with --test-threads=1"]
+fn pyrowave_recovers_from_a_d3d12_device_lost_mid_frame() -> Result<()> {
+    recover_from_loss(Loss::MidFrame, "PyroWave device-loss test (mid frame)")
 }

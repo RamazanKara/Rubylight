@@ -422,6 +422,17 @@ pub struct Encoder {
     pub(crate) luminance: [f32; 2],
     bitstream: Vec<u8>,
     packets: Vec<p::pyrowave_packet>,
+    #[cfg(test)]
+    pub(crate) hooks: TestHooks,
+}
+/// Runs a test's fault at an exact point of the next frame; each fires once.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct TestHooks {
+    /// After the entry checks, before the conversion is recorded.
+    pub(crate) before_conversion: Option<Box<dyn FnOnce() + Send>>,
+    /// After the encode is submitted, before its completion is awaited.
+    pub(crate) after_submit: Option<Box<dyn FnOnce() + Send>>,
 }
 impl Encoder {
     pub fn new(config: &Negotiated, display: &str) -> Result<Self> {
@@ -474,6 +485,8 @@ impl Encoder {
             luminance: [100., 1.],
             bitstream: vec![],
             packets: vec![],
+            #[cfg(test)]
+            hooks: Default::default(),
         };
         // SAFETY: `luid` and `info` are live locals, and `s` owns the device and encoder, which
         // Drop destroys.
@@ -582,6 +595,7 @@ impl Encoder {
         self.warnings.set("pyrowave_gpu_quarantine", "PyroWave stopped after GPU work could not be confirmed complete. Its resources are retained to protect capture; restart Rubylight before using PyroWave on this adapter again, or use HEVC/AV1.");
     }
     fn encode_gpu_inner(&mut self, image: &GpuImage, kbps: u32) -> Result<Vec<Encoded>> {
+        // Refuse a device already known or found lost before it gets new work.
         if let Some(loss) = self.device_removed() {
             return Err(loss.into());
         }
@@ -649,6 +663,10 @@ impl Encoder {
                     queue_family_index: 0xfffffffe,
                 })
                 .collect();
+            #[cfg(test)]
+            if let Some(fault) = self.hooks.before_conversion.take() {
+                fault();
+            }
             let i = &mut self.interop[0];
             let after = i.counter;
             i.counter = i
@@ -715,19 +733,36 @@ impl Encoder {
             // COPY→HOST barrier before this same-queue release signal. Granite
             // signals it at ALL_COMMANDS, so this covers the output writes as
             // well as the input reads; the getters below submit no GPU work.
+            #[cfg(test)]
+            if let Some(fault) = self.hooks.after_submit.take() {
+                fault();
+            }
             let completed = self
                 .completion
                 .as_ref()
                 .unwrap()
-                .wait(release.sync.semaphore, release.sync.value)
-                .and_then(|()| match self.device_removed() {
-                    Some(loss) => Err(loss.into()),
-                    None => Ok(()),
-                });
+                .wait(release.sync.semaphore, release.sync.value);
             if let Err(error) = &completed {
+                // A Vulkan loss (VK_ERROR_DEVICE_LOST) keeps the lease and
+                // quarantines: nothing proves the driver stopped reading the
+                // imported capture texture, unlike the D3D12 case below.
                 self.lost = crate::device_loss::DeviceLost::from_error(error);
             }
             finish_submission(&mut self.pending, completed)?;
+            // The Vulkan encode completed, so the lease is free. Only now ask
+            // whether a device died under the frame: a lost compute device
+            // signals its fences to the maximum, which satisfies that wait
+            // without the conversion having run. The output is garbage, and the
+            // host rebuilds on a new device; the adapter is not quarantined.
+            // This is the second GetDeviceRemovedReason pair per frame (the
+            // first is the entry check). Both stay: the entry check keeps a
+            // dead device from being handed new work, this one is the only
+            // check that sees a loss during the frame. Each is a runtime flag
+            // read on two devices, not a GPU round trip; not measured.
+            if let Some(loss) = self.device_removed() {
+                self.lost = Some(loss);
+                return Err(loss.into());
+            }
             let (mut raw, mut meta) = (ptr::null(), ptr::null());
             let (mut size, mut meta_size) = (0, 0);
             check((self.api.encoder_get_mapped_raw_bitstream)(

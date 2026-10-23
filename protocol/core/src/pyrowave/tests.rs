@@ -332,3 +332,146 @@ fn container_validates_everything_before_pushing() {
     trailing.push(0);
     assert!(!push_container(&trailing, |_| true));
 }
+
+/// Feeds `data` (a container) to `records` a few packets at a time, as a client taking records
+/// while the frame arrives would, and returns the pushes and the records given early.
+fn incremental(records: &mut Records, data: &[u8], per_feed: usize) -> Option<(Vec<Vec<u8>>, Vec<(u32, Vec<u8>)>)> {
+    assert_eq!(le32(data, 0), 0);
+    let mut early = Vec::new();
+    let mut offset = 4;
+    records.begin_frame();
+    while offset < data.len() {
+        let mut end = offset;
+        for _ in 0..per_feed {
+            if end < data.len() {
+                end += 8 + le32(data, end) as usize;
+            }
+        }
+        if !records.feed_envelope(&data[offset..end]) {
+            return None;
+        }
+        records.drain_new(|index, bytes| early.push((index, bytes.to_vec())));
+        offset = end;
+    }
+    let mut pushed = Vec::new();
+    records.finish_frame(|packet| { pushed.push(packet.to_vec()); true }).then_some((pushed, early))
+}
+
+#[test]
+fn feeding_packets_as_they_arrive_matches_the_whole_frame_and_gives_records_early() {
+    let frames: Vec<Vec<u8>> = (1..=4u32).map(|n| {
+        (0..9).flat_map(|i| record(n, i, 3 + (i * 5 + n) % 9, (n * 16 + i) as u8)).collect()
+    }).collect();
+    // Losses per frame, including the header packet, a record's middle and the last packet.
+    let lost: [&[usize]; 4] = [&[], &[2, 7], &[0, 5], &[9, 3]];
+    for per_feed in [1, 2, 5, 100] {
+        let (mut whole, mut stream) = (Records::with_geometry(WIDTH, HEIGHT, false), Records::with_geometry(WIDTH, HEIGHT, false));
+        for (n, body) in frames.iter().enumerate() {
+            let sequence = n as u32 + 1;
+            let mut all = packets(header(sequence, 9), body, 24);
+            // Only packets that begin a record say so; the others continue a longer one.
+            let mut starts = vec![0];
+            for i in 0..9 { starts.push(starts[i] + ((3 + (i as u32 * 5 + sequence) % 9) * 4) as usize); }
+            for (i, packet) in all.iter_mut().enumerate().skip(1) {
+                if !starts.contains(&(i * 24)) { packet.flags &= !PACKET_RECORD_START; }
+            }
+            let data = container(&all, lost[n]);
+            let expected = decode(&mut whole, &data).unwrap_or_else(|| panic!("whole frame {n} rejected; {} packets", all.len()));
+            let (pushed, early) = incremental(&mut stream, &data, per_feed).unwrap();
+            assert_eq!(pushed, expected, "frame {n}, {per_feed} packets per feed");
+            assert_eq!(stream.loss_percent, whole.loss_percent);
+            // Everything given early is in the frame (the replays come after the received ones).
+            for (index, bytes) in &early {
+                assert!(pushed[1..].contains(bytes), "frame {n} record {index}");
+                assert_eq!(le32(bytes, 4) >> 8, *index);
+            }
+            if lost[n].is_empty() {
+                assert_eq!(early.len(), 9, "no loss: every record is out before the frame ends");
+            }
+        }
+    }
+}
+
+#[test]
+fn early_records_arrive_before_the_last_packet() {
+    let body: Vec<u8> = (0..6).flat_map(|i| record(1, i, 6, i as u8)).collect();
+    let data = container(&packets(header(1, 6), &body, 24), &[]);
+    let mut records = Records::default();
+    records.begin_frame();
+    let mut seen = Vec::new();
+    let (mut offset, mut packets_fed) = (4, 0);
+    while offset < data.len() {
+        let end = offset + 8 + le32(&data, offset) as usize;
+        assert!(records.feed_envelope(&data[offset..end]));
+        packets_fed += 1;
+        records.drain_new(|index, _| seen.push(index));
+        offset = end;
+        // One record per 24-byte packet, available as soon as its packet is fed.
+        assert_eq!(seen.len(), packets_fed);
+    }
+    assert_eq!(seen, vec![0, 1, 2, 3, 4, 5]);
+    assert!(records.finish_frame(|_| true));
+}
+
+#[test]
+fn a_frame_malformed_part_way_is_rejected_as_a_whole_frame_and_keeps_the_cache() {
+    let first: Vec<u8> = (0..3).flat_map(|i| record(1, i, 6, i as u8 + 1)).collect();
+    let mut records = Records::default();
+    decode(&mut records, &container(&packets(header(1, 3), &first, 24), &[])).unwrap();
+    let mut bad = packets(header(2, 3), &first, 24);
+    bad[2].payload[3] = 0x30; // Sequence 3 in the middle of sequence 2.
+    for per_feed in [1, 3] {
+        let mut stream = records.clone();
+        assert!(incremental(&mut stream, &container(&bad, &[]), per_feed).is_none());
+        stream.loss_percent = 100.0;
+        let next: Vec<u8> = (0..3).flat_map(|i| record(3, i, 6, i as u8 + 7)).collect();
+        let data = container(&packets(header(3, 3), &next, 24), &[0, 1]);
+        assert_eq!(incremental(&mut stream, &data, per_feed).unwrap().0, decode(&mut records.clone(), &data).unwrap());
+    }
+    // Feeding after FRAME_END, or finishing a frame that was never begun, fails.
+    let mut ended = Records::default();
+    let done = container(&packets(header(1, 1), &record(1, 0, 4, 1), 1400), &[]);
+    assert!(incremental(&mut ended, &done, 1).is_some());
+    assert!(!ended.finish_frame(|_| true));
+    assert!(!ended.feed_envelope(&done[4..]));
+}
+
+#[test]
+fn random_losses_and_feed_sizes_never_differ_from_the_whole_frame() {
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move |bound: u64| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state % bound
+    };
+    let (mut whole, mut stream) = (Records::with_geometry(WIDTH, HEIGHT, false), Records::with_geometry(WIDTH, HEIGHT, false));
+    let mut rejected = 0;
+    for frame in 0..400u32 {
+        let sequence = frame % 8;
+        let count = 1 + next(30) as u32;
+        let sizes: Vec<u32> = (0..count).map(|_| 2 + next(14) as u32).collect();
+        let body: Vec<u8> = sizes.iter().enumerate().flat_map(|(i, &w)| record(sequence, i as u32, w, frame as u8 ^ i as u8)).collect();
+        let packet_size = 8 * (1 + next(8) as usize);
+        let mut all = packets(header(sequence, count), &body, packet_size);
+        let mut boundaries = vec![0usize];
+        for &w in &sizes { boundaries.push(boundaries.last().unwrap() + w as usize * 4); }
+        for (i, packet) in all.iter_mut().enumerate().skip(1) {
+            if !boundaries.contains(&(i * packet_size)) { packet.flags &= !PACKET_RECORD_START; }
+        }
+        let lost: Vec<usize> = (0..all.len()).filter(|_| next(100) < [0, 5, 20][frame as usize % 3]).collect();
+        let data = container(&all, &lost);
+        let expected = decode(&mut whole, &data);
+        let got = incremental(&mut stream, &data, 1 + next(4) as usize);
+        match (expected, got) {
+            (Some(expected), Some((pushed, early))) => {
+                assert_eq!(pushed, expected, "frame {frame}");
+                assert!(early.iter().all(|(_, bytes)| pushed[1..].contains(bytes)));
+            }
+            (None, None) => rejected += 1,
+            (expected, got) => panic!("frame {frame}: whole {:?}, streamed {:?}", expected.is_some(), got.is_some()),
+        }
+        assert_eq!(stream.loss_percent, whole.loss_percent);
+    }
+    assert!(rejected < 100, "the generator makes some usable frames ({rejected} rejected)");
+}

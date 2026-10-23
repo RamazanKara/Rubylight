@@ -115,6 +115,30 @@ pub struct Records {
     /// Share of this frame's records that were lost, 0-100; -1 without the record count,
     /// or 100 after a rejected frame.
     pub loss_percent: f32,
+    /// The frame being fed packet by packet.
+    scan: Scan,
+}
+
+/// How far the frame in progress has been parsed.
+#[derive(Debug, Clone, Default)]
+struct Scan {
+    active: bool,
+    packets: usize,
+    /// Envelope bytes fed so far, 8 per packet header plus the payloads.
+    envelope_bytes: usize,
+    /// Where the open run of contiguous packets starts in `incoming.bytes`.
+    run_start: usize,
+    /// Bytes of `incoming.bytes` parsed into records; the rest is a record in progress.
+    scanned: usize,
+    /// Records already handed out by `drain_new`.
+    reported: usize,
+    header: [u8; 8],
+    has_header: bool,
+    partial: bool,
+    ended: bool,
+    collecting: bool,
+    sequence: u32,
+    last_length: usize,
 }
 
 /// Byte ranges avoid allocating and copying each individual record. The previous frame and
@@ -145,87 +169,146 @@ impl Records {
     /// then recovered records by index. The recovery cache changes only after all pushes succeed.
     /// Records this frame lost are replayed from earlier frames of the same format, with this
     /// frame's sequence number. Returns false if the frame is unusable or `push` refuses one.
-    pub fn push_frame(&mut self, data: &[u8], mut push: impl FnMut(&[u8]) -> bool) -> bool {
-        self.loss_percent = 100.0;
+    ///
+    /// The whole-frame form of [`begin_frame`](Self::begin_frame), [`feed_envelope`](Self::feed_envelope)
+    /// and [`finish_frame`](Self::finish_frame), which a client uses to take records while the
+    /// frame is still arriving.
+    pub fn push_frame(&mut self, data: &[u8], push: impl FnMut(&[u8]) -> bool) -> bool {
+        self.begin_frame();
         if data.len() < 4 || data.len() > MAX_FRAME_BYTES || le32(data, 0) != 0 {
             return false;
         }
+        self.feed_envelope(&data[4..]) && self.finish_frame(push)
+    }
+
+    /// Starts a frame whose packets arrive one at a time. Drops what an abandoned frame had
+    /// collected; the recovery cache is untouched.
+    pub fn begin_frame(&mut self) {
+        self.loss_percent = 100.0;
         self.incoming.bytes.clear();
         self.incoming.records.clear();
-        let mut run_start = 0;
-        let mut header = [0u8; 8];
-        let (mut has_header, mut partial, mut ended, mut collecting) = (false, false, false, false);
-        let mut sequence = u32::MAX;
-        let mut last_length = 0usize;
+        self.scan = Scan { sequence: u32::MAX, active: true, ..Scan::default() };
+    }
 
-        let mut offset = 4;
+    /// Feeds whole envelope packets (length, flags, payload; the container's leading zero word
+    /// excluded) of the frame begun with [`begin_frame`](Self::begin_frame). Returns false if
+    /// the frame is unusable; the caller then ends it without `finish_frame`.
+    pub fn feed_envelope(&mut self, data: &[u8]) -> bool {
+        let mut offset = 0;
         while offset < data.len() {
-            if ended || data.len() - offset < 8 {
+            if data.len() - offset < 8 {
                 return false;
             }
-            let mut size = le32(data, offset) as usize;
+            let size = le32(data, offset) as usize;
             let flags = le32(data, offset + 4);
             offset += 8;
-            if size == 0 || size > MAX_PACKET_BYTES || size > data.len() - offset || flags & !15 != 0 {
+            if size > data.len() - offset || !self.feed_packet(flags, &data[offset..offset + size]) {
                 return false;
             }
-            let mut packet = offset;
             offset += size;
-            if flags & PACKET_CONTIGUOUS == 0 {
-                if !parse_run(&self.incoming.bytes[run_start..], run_start, true,
-                    has_header, &mut sequence, &mut self.incoming.records) {
-                    return false;
-                }
-                run_start = self.incoming.bytes.len();
-                collecting = flags & (PACKET_RECORD_START | PACKET_FRAME_START) != 0;
-                if flags & PACKET_FRAME_START == 0 {
-                    partial = true;
-                }
-            }
-            if flags & PACKET_FRAME_START != 0 {
-                if has_header || offset != 12 + size || size < 16 || data[packet] != 1 {
-                    return false;
-                }
-                last_length = usize::from(data[packet + 4]) | (usize::from(data[packet + 5]) << 8);
-                if last_length == 0 || last_length > MAX_PACKET_BYTES {
-                    return false;
-                }
-                header.copy_from_slice(&data[packet + 8..packet + 16]);
-                let word = le32(&header, 0);
-                if word & HEADER_BIT == 0 || word == PADDING || (le32(&header, 4) >> 24) & 3 != 0 {
-                    return false;
-                }
-                sequence = block_sequence(word);
-                has_header = true;
-            }
-            if flags & PACKET_RECORD_START != 0 {
-                collecting = true;
-            }
-            if flags & PACKET_FRAME_END != 0 {
-                ended = true;
-                if has_header {
-                    if last_length > size {
-                        return false;
-                    }
-                    size = last_length;
-                }
-            }
-            if flags & PACKET_FRAME_START != 0 {
-                if size < 16 {
-                    return false;
-                }
-                packet += 16;
-                size -= 16;
-            }
-            if collecting {
-                self.incoming.bytes.extend_from_slice(&data[packet..packet + size]);
-            }
         }
-        partial |= !ended || !has_header;
-        if !parse_run(&self.incoming.bytes[run_start..], run_start, !ended,
-            has_header, &mut sequence, &mut self.incoming.records) || sequence == u32::MAX {
+        true
+    }
+
+    /// Feeds one packet (`PACKET_*` flags and payload) of the frame in progress.
+    pub fn feed_packet(&mut self, flags: u32, payload: &[u8]) -> bool {
+        let scan = &mut self.scan;
+        let mut size = payload.len();
+        scan.envelope_bytes += 8 + size;
+        if !scan.active || scan.ended || 4 + scan.envelope_bytes > MAX_FRAME_BYTES
+            || size == 0 || size > MAX_PACKET_BYTES || flags & !15 != 0 {
             return false;
         }
+        let mut start = 0;
+        if flags & PACKET_CONTIGUOUS == 0 {
+            if !self.scan_run(true) {
+                return false;
+            }
+            let scan = &mut self.scan;
+            scan.run_start = self.incoming.bytes.len();
+            scan.scanned = scan.run_start;
+            scan.collecting = flags & (PACKET_RECORD_START | PACKET_FRAME_START) != 0;
+            if flags & PACKET_FRAME_START == 0 {
+                scan.partial = true;
+            }
+        }
+        let scan = &mut self.scan;
+        if flags & PACKET_FRAME_START != 0 {
+            if scan.has_header || scan.packets != 0 || size < 16 || payload[0] != 1 {
+                return false;
+            }
+            scan.last_length = usize::from(payload[4]) | (usize::from(payload[5]) << 8);
+            if scan.last_length == 0 || scan.last_length > MAX_PACKET_BYTES {
+                return false;
+            }
+            scan.header.copy_from_slice(&payload[8..16]);
+            let word = le32(&scan.header, 0);
+            if word & HEADER_BIT == 0 || word == PADDING || (le32(&scan.header, 4) >> 24) & 3 != 0 {
+                return false;
+            }
+            scan.sequence = block_sequence(word);
+            scan.has_header = true;
+        }
+        scan.packets += 1;
+        if flags & PACKET_RECORD_START != 0 {
+            scan.collecting = true;
+        }
+        if flags & PACKET_FRAME_END != 0 {
+            scan.ended = true;
+            if scan.has_header {
+                if scan.last_length > size {
+                    return false;
+                }
+                size = scan.last_length;
+            }
+        }
+        if flags & PACKET_FRAME_START != 0 {
+            if size < 16 {
+                return false;
+            }
+            start = 16;
+            size -= 16;
+        }
+        if scan.collecting {
+            self.incoming.bytes.extend_from_slice(&payload[start..start + size]);
+        }
+        self.scan_run(true)
+    }
+
+    /// Hands `f` the records completed since the last call, as (index, bytes): the frame's
+    /// records in arrival order, for a decoder that works while the frame is still arriving.
+    /// Every record given is one `finish_frame` pushes if it succeeds, so decoding them early
+    /// is safe; when it fails the frame is dropped whole. Call before `finish_frame`.
+    pub fn drain_new(&mut self, mut f: impl FnMut(u32, &[u8])) {
+        for record in &self.incoming.records[self.scan.reported..] {
+            f(record.index, &self.incoming.bytes[record.offset..record.offset + record.size]);
+        }
+        self.scan.reported = self.incoming.records.len();
+    }
+
+    /// Parses the records the open run has completed since the last scan. A record cut off at
+    /// the end waits for more bytes while `interrupted`, else it makes the frame unusable.
+    fn scan_run(&mut self, interrupted: bool) -> bool {
+        let scan = &mut self.scan;
+        let Some(used) = parse_run(&self.incoming.bytes[scan.scanned..], scan.scanned, interrupted,
+            scan.has_header, &mut scan.sequence, &mut self.incoming.records) else { return false };
+        scan.scanned += used;
+        true
+    }
+
+    /// Completes the frame: checks it, pushes the sequence header and every record (received,
+    /// then recovered from earlier frames) to `push`, and commits the recovery cache.
+    pub fn finish_frame(&mut self, mut push: impl FnMut(&[u8]) -> bool) -> bool {
+        if !self.scan.active {
+            return false;
+        }
+        self.scan.active = false;
+        let Scan { has_header, mut partial, ended, mut header, .. } = self.scan;
+        partial |= !ended || !has_header;
+        if !self.scan_run(!ended) || self.scan.sequence == u32::MAX {
+            return false;
+        }
+        let sequence = self.scan.sequence;
         self.incoming.records.sort_unstable_by_key(|record| record.index);
         if self.incoming.records.windows(2).any(|pair| pair[0].index == pair[1].index) {
             return false;
@@ -302,7 +385,8 @@ impl Records {
     }
 }
 
-/// Parses a run of contiguous packets into records. `interrupted` runs may end mid-record.
+/// Parses the records a run of contiguous packets completes, and returns the bytes used (a
+/// record cut off at the end is left, or an error unless `interrupted`); `None` if malformed.
 fn parse_run(
     run: &[u8],
     run_start: usize,
@@ -310,14 +394,14 @@ fn parse_run(
     has_header: bool,
     sequence: &mut u32,
     received: &mut Vec<RecordRange>,
-) -> bool {
+) -> Option<usize> {
     let mut at = 0;
     while at < run.len() {
         if !has_header && run[at..].iter().all(|&byte| byte == 0) {
-            return true;
+            return Some(at);
         }
         if run.len() - at < 8 {
-            return interrupted;
+            return interrupted.then_some(at);
         }
         let word = le32(run, at);
         let padding = word == PADDING;
@@ -327,16 +411,16 @@ fn parse_run(
             u64::from((word >> 16) & 0xfff) * 4
         };
         if size < 8 || (!padding && word & HEADER_BIT != 0) {
-            return false;
+            return None;
         }
         if size > (run.len() - at) as u64 {
-            return interrupted;
+            return interrupted.then_some(at);
         }
         let size = size as usize;
         if !padding {
             let block = block_sequence(word);
             if *sequence != u32::MAX && *sequence != block {
-                return false;
+                return None;
             }
             *sequence = block;
             let index = le32(run, at + 4) >> 8;
@@ -345,7 +429,7 @@ fn parse_run(
         }
         at += size;
     }
-    true
+    Some(at)
 }
 
 #[cfg(test)]

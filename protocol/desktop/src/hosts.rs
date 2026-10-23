@@ -127,6 +127,12 @@ impl Host {
         }
     }
 
+    /// What the rename field starts with: the name chosen here, else the PC's own, and empty
+    /// when it never reported one (the address is not a name to keep).
+    pub fn rename_prefill(&self) -> &str {
+        self.record.alias.as_deref().filter(|a| !a.is_empty()).unwrap_or(&self.record.name)
+    }
+
     /// Why pairing cannot start now, as text for the user.
     pub fn pairing_blocked(&self) -> Option<&'static str> {
         if self.reach == Reach::Offline {
@@ -491,7 +497,8 @@ impl Hosts {
         let Some(host) = self.get_mut(id) else {
             return false;
         };
-        let own = alias.trim() == host.record.name;
+        let given = alias.trim();
+        let own = given == host.record.name || given == host.record.address;
         host.record.set_alias(if own { "" } else { alias });
         true
     }

@@ -2394,7 +2394,7 @@ impl Launcher {
             }
             HostOption::Wake => commands.push(Command::Wake(id)),
             HostOption::Settings => commands.push(Command::HostSettings(id)),
-            HostOption::Rename => return Some(Dialog::Rename { host: id, text: name }),
+            HostOption::Rename => return Some(Dialog::Rename { host: id, text: host.rename_prefill().to_owned() }),
             HostOption::Unpair => return Some(Dialog::ConfirmUnpair { host: id, name }),
             HostOption::CheckAgain => commands.push(Command::Refresh(id)),
             HostOption::Remove => return Some(Dialog::ConfirmRemove { host: id, name }),
@@ -3125,6 +3125,26 @@ mod tests {
         assert_eq!(f.hosts.list[0].display_name(), "Gaming PC", "empty brings the PC's own name back");
         assert!(f.hosts.rename(id, "Gaming PC"));
         assert_eq!(f.hosts.list[0].record.alias, None, "the PC's own name is not stored as an alias");
+    }
+
+    #[test]
+    fn a_pc_that_never_reported_a_name_starts_the_rename_empty() {
+        let mut unnamed = record("x", true, false);
+        unnamed.name = String::new();
+        let mut f = Frames::new(unnamed, Reach::Online);
+        let id = f.hosts.list[0].id;
+        assert_eq!(f.hosts.list[0].display_name(), "192.0.2.7", "the card falls back to the address");
+        f.press(Key::F2);
+        f.press(Key::ArrowDown);
+        f.press(Key::ArrowDown);
+        f.press(Key::Enter);
+        let Dialog::Rename { text, .. } = &f.l.dialog else { panic!("the rename dialog") };
+        assert_eq!(text, "", "the address is not offered as a name");
+        // Saving the address back, or nothing, leaves no alias.
+        assert!(f.hosts.rename(id, "192.0.2.7"));
+        assert_eq!(f.hosts.list[0].record.alias, None);
+        assert!(f.hosts.rename(id, ""));
+        assert_eq!(f.hosts.list[0].record.alias, None);
     }
 
     #[test]

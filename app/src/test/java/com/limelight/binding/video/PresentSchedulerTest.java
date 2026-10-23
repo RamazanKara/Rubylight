@@ -11,7 +11,7 @@ public class PresentSchedulerTest {
      * less the slack, never before the first one the frame can make; a frame whose vsync was taken
      * by the one before it moves one vsync later once, else it shares.
      */
-    private static final class GridModel implements HostFrameClock.Bridge {
+    static final class GridModel implements HostFrameClock.Bridge {
         long offsetNs;
         long delayNs;
         long[] lastCall;

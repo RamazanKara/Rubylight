@@ -3,6 +3,14 @@ package com.limelight.binding.video;
 import java.util.Locale;
 
 final class DecoderQueuePolicy {
+    /**
+     * Frames the decoder holds: submitted less returned since the last flush, whose frames are gone
+     * (base is the difference at that moment). Never negative.
+     */
+    static int depth(int framesIn, int framesOut, int base) {
+        return Math.max(0, framesIn - framesOut - base);
+    }
+
     static int outputLimit(String decoderName, boolean advertisedLowLatency, boolean dropLateFrames,
                            boolean recovered) {
         if (dropLateFrames || recovered) return 1;

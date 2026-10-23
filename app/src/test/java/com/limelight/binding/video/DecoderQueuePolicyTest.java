@@ -142,4 +142,12 @@ public class DecoderQueuePolicyTest {
         f.onReleased(1, 10);
         assertEquals("a reset also forgets what was rendered", 1, f.count(0));
     }
+
+    @Test public void decoderDepthCountsFromTheLastFlushAndIsNeverNegative() {
+        assertEquals(3, DecoderQueuePolicy.depth(10, 7, 0));
+        // A flush with three frames inside: they are gone, so the count starts again from zero.
+        assertEquals(0, DecoderQueuePolicy.depth(10, 7, 3));
+        assertEquals(2, DecoderQueuePolicy.depth(12, 7, 3));
+        assertEquals("outputs returned for frames from before the flush", 0, DecoderQueuePolicy.depth(10, 9, 3));
+    }
 }

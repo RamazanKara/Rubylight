@@ -1,5 +1,6 @@
 //! Ordered conventional output with separate packetization and paced sending.
 pub(crate) mod recovery;
+mod streamed;
 mod transport;
 use crate::state::{Session, Shared};
 use anyhow::{Result, bail};
@@ -8,7 +9,7 @@ use butterpollo_core::{
     packet::{PacketBlock, VideoPacketizer},
     performance::{Claim, Claims},
 };
-use butterpollo_windows::encoder::Encoded;
+use butterpollo_windows::encoder::{Encoded, Unit};
 use std::{
     net::{SocketAddr, UdpSocket},
     sync::{
@@ -58,6 +59,14 @@ struct Prepared {
     claim: Option<Claim>,
     /// The RTP timestamp on the wire, for the timing record.
     timestamp: u32,
+    /// Set when this is one FEC block of a streamed frame, not a whole frame.
+    stream: Option<Part>,
+}
+/// Where a block sits in a streamed frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Part {
+    first: bool,
+    last: bool,
 }
 struct State {
     pending: Option<Frame>,
@@ -77,16 +86,22 @@ impl State {
     /// A client waiting for a keyframe throws away the frames before it.
     /// The skipped frame keeps its wire number, so the encoder's frame
     /// numbers (reference frame invalidation) still match the wire.
+    /// A streamed frame's units and blocks are not skipped: the frame is
+    /// already half on the wire, and dropping a piece of it would leave a
+    /// frame the client cannot finish and an index nobody consumed.
     fn skip_pending(&mut self) -> bool {
         let raw = self
             .pending
             .as_ref()
-            .is_some_and(|frame| !frame.encoded.idr);
+            .is_some_and(|frame| !frame.encoded.idr && frame.encoded.unit == Unit::Whole);
         if raw {
             self.pending = None;
             self.skipped = self.skipped.wrapping_add(1);
         }
-        let prepared = self.ready.as_ref().is_some_and(|frame| !frame.idr);
+        let prepared = self
+            .ready
+            .as_ref()
+            .is_some_and(|frame| !frame.idr && frame.stream.is_none());
         if prepared {
             // Packetization has already spent this frame's numbers and IVs.
             let frame = self.ready.take().unwrap();
@@ -195,6 +210,10 @@ pub struct Handoff {
     pub last_stamp: Instant,
     pub pacing_due: Instant,
     pub send_loss: butterpollo_core::stream_policy::SendLossRecovery,
+    /// FEC blocks per streamed frame; 0 when the stream does not stream.
+    pub slice_blocks: usize,
+    /// Slices per frame the encoder was asked for.
+    pub slices: usize,
 }
 pub struct Sender {
     slot: Arc<Slot>,
@@ -229,24 +248,56 @@ impl Sender {
             mut packetizer,
             mut present_stamper,
             mut last_stamp,
+            slice_blocks,
+            slices,
             ..
         } = handoff;
         let next_wire_frame = packetizer.frame;
         Self::spawn(s.launch.id.clone(), next_wire_frame, move |shared| {
             let _priority = butterpollo_windows::capture::Priority::new();
             let mut fec_reported = None;
+            let mut streams = streamed::Streams::new(slice_blocks, slices);
+            // Frames skipped while a streamed frame was open, owed to the next one.
+            let mut owed = 0u32;
             shared.run(|queued| {
                 let Frame {
                     encoded: frame, peer, claimed, polled, latency: encode,
                     processing_started, skipped, claim,
                 } = queued;
-                packetizer.frame = packetizer.frame.wrapping_add(skipped);
+                owed = owed.wrapping_add(skipped);
+                if frame.unit != Unit::Whole && !streamed::begins(frame.unit) {
+                    // A later unit of the streamed frame: its blocks go out as they complete.
+                    streams.unit(
+                        shared, &s, &mut packetizer, &frame.bytes, streamed::is_last(frame.unit),
+                        polled, encode, &mut fec_reported,
+                    )?;
+                    return Ok(streams.next_wire_frame(&packetizer));
+                }
+                // A frame that begins while another is open means the other lost its last unit.
+                streams.interrupted(&s, &mut packetizer);
+                packetizer.frame = packetizer.frame.wrapping_add(std::mem::take(&mut owed));
                 let captured = frame.presentation.unwrap_or(claimed);
                 let stamp = present_stamper.as_mut().map_or(captured, |stamper| {
                     stamper.stamp(captured, &s.output.read().unwrap())
                 }).max(last_stamp + Duration::from_nanos(11_112));
                 last_stamp = stamp;
                 let timestamp = (stamp.saturating_duration_since(start).as_secs_f64() * 90000.) as u64 as u32;
+                if frame.unit != Unit::Whole {
+                    // The first unit of a streamed frame.
+                    let packetized = Instant::now();
+                    packetizer.fec_percent = s.frame_fec_percent(false);
+                    streams.begin(&s, &mut packetizer, streamed::Start {
+                        peer, claimed, polled, packetized,
+                        processing: micros(packetized.saturating_duration_since(processing_started)),
+                        age: micros(claimed.saturating_duration_since(captured)),
+                        claim, timestamp, cap: frame.frame_cap_bytes,
+                    });
+                    streams.unit(
+                        shared, &s, &mut packetizer, &frame.bytes, streamed::is_last(frame.unit),
+                        polled, encode, &mut fec_reported,
+                    )?;
+                    return Ok(streams.next_wire_frame(&packetizer));
+                }
                 if frame.bytes.is_empty() {
                     return Ok(packetizer.frame);
                 }
@@ -297,6 +348,7 @@ impl Sender {
                     payload_bytes: frame.bytes.len(), peer, claimed, polled, packetized,
                     prepared: Instant::now(), latency: micros(encode), processing,
                     age: micros(claimed.saturating_duration_since(captured)), claim, timestamp,
+                    stream: None,
                 })?;
                 Ok(packetizer.frame)
             })
@@ -365,7 +417,13 @@ impl Sender {
         let mut state = self.slot.state.lock().unwrap();
         state.backlog()?;
         for encoded in frames {
-            let claim = claims.take(encoded.presentation);
+            // One claim per picture: a streamed frame takes it with its first unit.
+            let claim = match encoded.unit {
+                Unit::Whole | Unit::Slice { index: 0 } | Unit::Last { index: 0 } => {
+                    claims.take(encoded.presentation)
+                }
+                _ => None,
+            };
             let latency = encoded.latency.unwrap_or(latency);
             // Stamp every output from this poll before any capacity wait.
             let claimed = polled.checked_sub(latency).unwrap_or(polled);

@@ -223,3 +223,18 @@ Stop and revert to `off`-only (remove the code) if any of these hold after 2f:
   come back whole from AMF. The hand-off to the threaded sender is not taken while a streamed frame is open.
   `BUTTERPOLLO_TEST_SEND_LOSS` is applied to the inline path (`slices::send_lossy`), whole frames and streamed alike; the
   threaded path (`transport.rs`) takes it in 2d.
+- Review fixes after 2c: a streamed frame takes its index when block 0 is built, so `abandon` (or `skip_frame` for a frame
+  refused at the start) consumes it when no block left, and the client sees the gap. The timing stamps of a streamed frame
+  use its first unit's poll time. The header's last-length field is a full shard for a frame that sent early blocks.
+  `rust/core/src/packet/streamed_tests.rs` has wire fixtures and Nightjar's `video::slice_delivery` test reassembles them.
+- 2d: the threaded path sends one `Prepared` per FEC block (`Prepared.stream: Option<Part { first, last }>`, `last` from
+  the new `StreamedBlock::is_last`, since the block count is fixed by the plan but a small frame can end up with fewer).
+  The packetizer thread keeps the open frame (`video_send/streamed.rs`) and a unit of it travels through the same pending
+  slot as a whole frame. There is no separate "streaming" flag in `State`: `skip_pending` leaves non-`Whole` pending
+  units and ready parts alone, because dropping one would strand the frame. The paced sender (`transport.rs`) keeps the
+  `Sending` state across the parts: pacing, `SendLoss` (incremental), outage and `SendDrop` apply per part, and the frame
+  is accounted (stats, timing record, claim) once, after its last part. A frame whose last part never comes is not
+  accounted, and the next first part restarts the state. A new frame starting while one is open abandons it (warning,
+  recovery frame). The sender thread cannot turn delivery off: it counts the overflow in `slice_delivery_overflows` and
+  the stream thread's `Delivery::sync` takes it in. Only the first unit takes the picture's claim. Between two parts the
+  sender's backlog can read 0, so the stream thread may claim the next picture while the encoder still finishes this one.

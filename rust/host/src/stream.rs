@@ -7,7 +7,7 @@ mod device_recovery;
 mod encoder_tests;
 mod game_audio;
 mod qos;
-mod slices;
+pub(crate) mod slices;
 use qos::Tagged;
 #[cfg(test)]
 pub(crate) mod reconnect_tests;
@@ -1567,9 +1567,9 @@ impl Media {
                     let mut inline_paced = false;
                     let mut send_loss = butterpollo_core::stream_policy::SendLossRecovery::default();
                     // `video_slice_delivery`: AMF returns a P-frame in slices and
-                    // this path sends them in FEC blocks as they arrive. Off for
-                    // the rest of the session after a frame passes its byte cap,
-                    // or when the sender has its own thread.
+                    // they are sent in FEC blocks as they arrive, here or on the
+                    // sender thread. Off for the rest of the session after a
+                    // frame passes its byte cap.
                     let delivery = slices::Delivery::new(usize::from(butterpollo_core::encoder_policy::slice_delivery(&c, s.config.codec)));
                     let slice_blocks = delivery.blocks();
                     let mut slice_route = slices::Route::default();
@@ -1622,6 +1622,8 @@ impl Media {
                                     last_stamp,
                                     pacing_due: network_pacer.due(),
                                     send_loss: std::mem::take(&mut send_loss),
+                                    slice_blocks,
+                                    slices: s.config.slices as usize,
                                 };
                                 let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, handoff)?);
                                 tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, large_frame, mid_stream, wire_frame = packetizer.frame, "video frames are sent on their own thread for current or adaptive pacing");
@@ -1631,16 +1633,15 @@ impl Media {
                         // into the whole frame the other paths send.
                         let output = if output.iter().any(|frame| frame.unit != butterpollo_windows::encoder::Unit::Whole) || slice_route.streaming() {
                             let threaded = video_sender.get().is_some();
-                            if threaded {
-                                delivery.turn_off();
-                            }
+                            delivery.sync(&s.stats);
                             packetizer.fec_percent = s.frame_fec_percent(false);
                             let mut routed = Vec::with_capacity(output.len());
                             for frame in output {
                                 let result = slice_route.route(frame, |first| {
-                                    delivery.streams(threaded) && first.frame_cap_bytes.is_some_and(|cap| packetizer.streamable(slice_blocks, cap as usize))
+                                    delivery.streams() && first.frame_cap_bytes.is_some_and(|cap| packetizer.streamable(slice_blocks, cap as usize))
                                 });
-                                if result.interrupted {
+                                // On the sender thread, it sees the new frame begin and drops the old one itself.
+                                if result.interrupted && !threaded {
                                     // Its index is consumed if no block left, or the client sees no gap.
                                     let next = slices::drop_frame(&mut streaming, &mut packetizer, &mut slice_spare);
                                     s.launch.warnings.event("network_frame", "A streamed video frame lost its last slice; requesting a recovery frame.", butterpollo_core::session::EVENT_PERIOD);
@@ -1770,8 +1771,7 @@ impl Media {
                                     if let Err(error) = pushed {
                                         st.failed = true;
                                         if let Some(overflow) = slices::note_failure(&delivery, &s.stats, &error) {
-                                            tracing::warn!(frame = st.wire_frame, cap_bytes = overflow.cap, frame_bytes = overflow.bytes, "a streamed video frame passed the byte cap its blocks were planned for; slice delivery is off for this stream");
-                                            s.launch.warnings.event("slice_delivery_overflow", format!("A video frame reached {} bytes, past the {} byte cap its blocks were planned for. Slice delivery is off for the rest of this stream and a recovery frame follows. Report this with the host log.", overflow.bytes, overflow.cap), butterpollo_core::session::EVENT_PERIOD);
+                                            slices::report_overflow(&s, st.wire_frame, overflow);
                                         } else {
                                             s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
                                         }
@@ -2471,7 +2471,8 @@ impl Media {
                                 .as_mut()
                                 .expect("a missing encoder is rebuilt above");
                             // Frames of a stream that left slice delivery return whole.
-                            if delivery.joins(video_sender.get().is_some()) {
+                            delivery.sync(&s.stats);
+                            if delivery.joins() {
                                 active.join_slices();
                             }
                             if rebuilt {

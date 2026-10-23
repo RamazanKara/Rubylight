@@ -6,6 +6,7 @@
 //! other frame (one the plan cannot stream, or any frame once the sender has
 //! its own thread) are joined into the whole frame the send paths take.
 
+use crate::state::Session;
 use anyhow::Result;
 use butterpollo_core::{
     packet::{SliceOverflow, StreamedFrame, VideoPacketizer},
@@ -25,8 +26,8 @@ use std::{
 };
 
 /// Whether slice delivery is still on for the stream. A frame past its byte
-/// cap, or a sender thread that cannot stream, turns it off for the rest of
-/// the stream; the encoder is then told to return whole frames.
+/// cap turns it off for the rest of the stream, on whichever thread sends
+/// it; the encoder is then told to return whole frames.
 pub struct Delivery {
     blocks: usize,
     off: Cell<bool>,
@@ -46,13 +47,20 @@ impl Delivery {
     pub fn turn_off(&self) {
         self.off.set(true);
     }
-    /// A new P-frame may be streamed on this path.
-    pub fn streams(&self, threaded: bool) -> bool {
-        self.blocks > 0 && !self.off.get() && !threaded
+    /// Take in an overflow the sender thread counted, which it cannot turn
+    /// off from there.
+    pub fn sync(&self, stats: &Stats) {
+        if stats.slice_delivery_overflows.load(Ordering::Relaxed) != 0 {
+            self.turn_off();
+        }
+    }
+    /// A new P-frame may be streamed.
+    pub fn streams(&self) -> bool {
+        self.blocks > 0 && !self.off.get()
     }
     /// The encoder should return whole frames from now on.
-    pub fn joins(&self, threaded: bool) -> bool {
-        self.blocks > 0 && (self.off.get() || threaded)
+    pub fn joins(&self) -> bool {
+        self.blocks > 0 && self.off.get()
     }
 }
 
@@ -64,12 +72,30 @@ pub fn note_failure(
     stats: &Stats,
     error: &anyhow::Error,
 ) -> Option<SliceOverflow> {
-    let overflow = *error.downcast_ref::<SliceOverflow>()?;
+    let overflow = count_overflow(stats, error)?;
     delivery.turn_off();
+    Some(overflow)
+}
+
+/// Count a frame past its byte cap, for either send path; the stream thread
+/// turns delivery off when it sees the count ([`Delivery::sync`]).
+pub fn count_overflow(stats: &Stats, error: &anyhow::Error) -> Option<SliceOverflow> {
+    let overflow = *error.downcast_ref::<SliceOverflow>()?;
     stats
         .slice_delivery_overflows
         .fetch_add(1, Ordering::Relaxed);
     Some(overflow)
+}
+
+/// Say, loudly, that a frame passed the cap its blocks were planned for.
+pub fn report_overflow(session: &Session, frame: u32, overflow: SliceOverflow) {
+    tracing::warn!(
+        frame,
+        cap_bytes = overflow.cap,
+        frame_bytes = overflow.bytes,
+        "a streamed video frame passed the byte cap its blocks were planned for; slice delivery is off for this stream"
+    );
+    session.launch.warnings.event("slice_delivery_overflow", format!("A video frame reached {} bytes, past the {} byte cap its blocks were planned for. Slice delivery is off for the rest of this stream and a recovery frame follows. Report this with the host log.", overflow.bytes, overflow.cap), butterpollo_core::session::EVENT_PERIOD);
 }
 
 /// A streamed frame is open (units sent, the last one not seen), so the
@@ -479,7 +505,7 @@ mod tests {
     fn an_overflow_turns_delivery_off_and_the_encoder_is_told_to_join() {
         let stats = Stats::default();
         let delivery = Delivery::new(4);
-        assert!(delivery.streams(false) && !delivery.joins(false));
+        assert!(delivery.streams() && !delivery.joins());
         let mut packetizer = packetizer();
         let mut open = streaming(&mut packetizer, Vec::new(), 40 * SLICE);
         push(&mut open, &mut packetizer, 30 * SLICE, false).unwrap();
@@ -493,20 +519,29 @@ mod tests {
             }
         );
         assert_eq!(stats.slice_delivery_overflows.load(Ordering::Relaxed), 1);
-        assert!(!delivery.streams(false) && delivery.joins(false));
+        assert!(!delivery.streams() && delivery.joins());
         // Other failures are not overflows and leave it on.
         let delivery = Delivery::new(4);
         assert!(note_failure(&delivery, &stats, &anyhow::anyhow!("socket gone")).is_none());
-        assert!(delivery.streams(false) && !delivery.joins(false));
+        assert!(delivery.streams() && !delivery.joins());
         assert_eq!(stats.slice_delivery_overflows.load(Ordering::Relaxed), 1);
     }
 
     #[test]
-    fn delivery_is_off_for_a_sender_thread_and_when_not_asked_for() {
-        let delivery = Delivery::new(2);
-        assert!(!delivery.streams(true) && delivery.joins(true));
+    fn delivery_is_off_when_not_asked_for_and_follows_the_sender_threads_overflows() {
         let off = Delivery::new(0);
-        assert!(!off.streams(false) && !off.joins(false) && !off.joins(true));
+        assert!(!off.streams() && !off.joins());
+        // The sender thread counts an overflow; the stream thread turns off.
+        let stats = Stats::default();
+        let delivery = Delivery::new(2);
+        delivery.sync(&stats);
+        assert!(delivery.streams() && !delivery.joins());
+        let error: anyhow::Error = SliceOverflow { cap: 1, bytes: 2 }.into();
+        assert!(count_overflow(&stats, &error).is_some());
+        assert!(count_overflow(&stats, &anyhow::anyhow!("socket gone")).is_none());
+        delivery.sync(&stats);
+        assert!(!delivery.streams() && delivery.joins());
+        assert_eq!(stats.slice_delivery_overflows.load(Ordering::Relaxed), 1);
     }
 
     #[test]

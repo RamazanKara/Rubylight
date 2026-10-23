@@ -2352,6 +2352,11 @@ impl Launcher {
             self.dialog = dialog;
             self.focus_dialog = true;
         } else if close {
+            // The card goes away with the PC, so only then is there nothing to give focus back
+            // to; Cancel keeps it.
+            if matches!(self.dialog, Dialog::ConfirmRemove { .. }) && commands.iter().any(|c| matches!(c, Command::Remove(_))) {
+                self.focused_key = None;
+            }
             self.close_dialog();
         }
     }
@@ -2392,11 +2397,7 @@ impl Launcher {
             HostOption::Rename => return Some(Dialog::Rename { host: id, text: name }),
             HostOption::Unpair => return Some(Dialog::ConfirmUnpair { host: id, name }),
             HostOption::CheckAgain => commands.push(Command::Refresh(id)),
-            HostOption::Remove => {
-                // The card goes away, so there is nothing to give focus back to.
-                self.focused_key = None;
-                return Some(Dialog::ConfirmRemove { host: id, name });
-            }
+            HostOption::Remove => return Some(Dialog::ConfirmRemove { host: id, name }),
         }
         None
     }
@@ -3086,15 +3087,19 @@ mod tests {
         let commands = f.press(Key::Enter);
         assert!(f.no_dialog());
         assert!(!removes(&commands));
+        assert!(f.l.focused_key.is_some(), "Cancel keeps the card's focus");
+        assert!(f.ctx.memory(|m| m.focused()).is_some(), "and the card has it again");
         open_remove(&mut f, "escape");
         let commands = f.press(Key::Escape);
         assert!(f.no_dialog());
         assert!(!removes(&commands));
+        assert!(f.l.focused_key.is_some());
         // Only the Remove button does it.
         open_remove(&mut f, "confirm");
         f.press(Key::ArrowRight);
-        let commands = f.press(Key::Enter);
+        let commands = f.frame(crate::gui::tap(Key::Enter).to_vec());
         assert!(removes(&commands));
+        assert!(f.l.focused_key.is_none(), "the card goes with the PC");
     }
 
     #[test]

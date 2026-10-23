@@ -41,6 +41,8 @@ import com.limelight.binding.input.driver.AbstractController;
 import com.limelight.binding.input.driver.DualSenseController;
 import com.limelight.binding.input.driver.UsbDriverListener;
 import com.limelight.binding.input.driver.UsbDriverService;
+import com.limelight.binding.input.keyboard.KeyboardFocus;
+import com.limelight.binding.input.keyboard.PcKeyboardController;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
@@ -348,11 +350,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     private volatile PadCapture padCapture;
 
-    /** While set, USB-driver controllers send nothing to the game; null gives the input back. */
+    /**
+     * While set, USB-driver controllers send nothing to the game; null gives the input back. Set it
+     * before anything else changes: the first report of each USB pad after that sends its neutral state
+     * from the USB thread, so it is ordered after any report already on its way.
+     */
     public void setPadCapture(PadCapture capture) {
         padCapture = capture;
         if (capture != null) {
-            releaseInput();
+            releaseInput(false);
         }
     }
 
@@ -364,6 +370,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     public void releaseInput() {
+        releaseInput(true);
+    }
+
+    private void releaseInput(boolean includeUsbPads) {
         if (stopped) {
             return;
         }
@@ -374,24 +384,30 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
             }
         }
-        for (UsbDeviceContext context : usbDeviceContexts.values()) {
-            releaseInput(context);
-            // A pad whose capabilities have not reached the host yet has nothing to release there.
-            if (!context.assignedControllerNumber || context.arrivalPending) {
-                continue;
-            }
-            if ((context.device.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
-                conn.sendControllerTouchEvent((byte) context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL,
-                        0, 0, 0, 0);
-            }
-            if (prefConfig.gamepadMotionSensors && (context.device.getCapabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
-                conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
+        if (includeUsbPads) {
+            for (UsbDeviceContext context : usbDeviceContexts.values()) {
+                releaseUsbInput(context);
             }
         }
         layoutInputMap = 0;
         layoutLeftTrigger = layoutRightTrigger = 0;
         layoutLeftStickX = layoutLeftStickY = layoutRightStickX = layoutRightStickY = 0;
         releaseInput(defaultContext);
+    }
+
+    private void releaseUsbInput(UsbDeviceContext context) {
+        releaseInput(context);
+        // A pad whose capabilities have not reached the host yet has nothing to release there.
+        if (!context.assignedControllerNumber || context.arrivalPending) {
+            return;
+        }
+        if ((context.device.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
+            conn.sendControllerTouchEvent((byte) context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL,
+                    0, 0, 0, 0);
+        }
+        if (prefConfig.gamepadMotionSensors && (context.device.getCapabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
+            conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
+        }
     }
 
     private void releaseInput(GenericControllerContext context) {
@@ -1278,6 +1294,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             // Only Player 1 is active with multi-controller disabled
             return 1;
         }
+    }
+
+    /**
+     * What the user's button map sends for this key on its pad: a target key code,
+     * {@link ControllerButtonMap#DISABLED}, or {@link ControllerButtonMap#UNMAPPED}.
+     */
+    public synchronized int userMappedKey(KeyEvent event) {
+        InputDeviceContext context = inputDeviceContexts.get(event.getDeviceId());
+        return context == null ? ControllerButtonMap.UNMAPPED : context.buttonMap.map(event.getKeyCode());
     }
 
     static boolean updateMappedButton(Map<Integer, Integer> pressedButtons, int physicalKey, int target, boolean down) {
@@ -3385,15 +3410,25 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private void capturePad(UsbDeviceContext context, PadCapture capture, int buttons, float stickX, float stickY) {
         if (!context.steeringMenu) {
             context.steeringMenu = true;
-            context.menuButtons = context.lastButtons;
+            // Everything held as the keyboard takes over, such as the A that chose it in the menu, is no
+            // press for the keyboard and stays away from the game until it is let go.
+            context.menuButtons = buttons | context.lastButtons;
             context.menuComboPending = false;
+            context.captureStick = null;
+            // The game's last state is cleared here, on the thread that sends this pad's reports.
+            releaseUsbInput(context);
         }
         int changed = buttons ^ context.menuButtons;
         context.menuButtons = buttons;
         for (int flag : CAPTURED_BUTTONS) {
             if ((changed & flag) != 0) capture.button(flag, (buttons & flag) != 0);
         }
-        capture.stick(stickX, stickY);
+        // The stick is reported on every report; the keyboard only needs to hear when its direction changes.
+        KeyboardFocus.Direction direction = PcKeyboardController.stickDirection(stickX, stickY, context.captureStick);
+        if (direction != context.captureStick) {
+            context.captureStick = direction;
+            capture.stick(stickX, stickY);
+        }
     }
 
     // While the stream menu or one of its dialogs has focus, a newly pressed D-pad direction, A or B
@@ -3990,6 +4025,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         boolean menuComboPending;
         // The pad steers the stream menu while the stream has no input focus.
         boolean steeringMenu;
+        KeyboardFocus.Direction captureStick;
         int menuButtons, heldFromMenu, lastButtons;
 
         boolean ensureControllerArrival() {

@@ -131,4 +131,16 @@ public class PcKeyboardLayoutTest {
         assertSame(DE, PcKeyboardLayout.resolve(PcKeyboardLayout.DE, Locale.US));
         assertSame(US, PcKeyboardLayout.resolve("nonsense", Locale.US));
     }
+
+    @Test
+    public void germanLegendsOnlyWhereQwertzIsTheNorm() {
+        for (String country : new String[] {"DE", "AT", "LU", "LI"}) {
+            assertSame(country, DE, PcKeyboardLayout.resolve(PcKeyboardLayout.AUTO, new Locale("de", country)));
+        }
+        // Swiss keyboards and other German speakers get the US legends by default.
+        assertSame(US, PcKeyboardLayout.resolve(PcKeyboardLayout.AUTO, new Locale("de", "CH")));
+        assertSame(US, PcKeyboardLayout.resolve(PcKeyboardLayout.AUTO, new Locale("de", "BE")));
+        assertSame(US, PcKeyboardLayout.resolve(PcKeyboardLayout.AUTO, new Locale("en", "DE")));
+        assertSame("The user's choice still wins", DE, PcKeyboardLayout.resolve(PcKeyboardLayout.DE, new Locale("de", "CH")));
+    }
 }

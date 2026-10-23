@@ -4,6 +4,8 @@ import android.app.Application;
 import android.content.ComponentName;
 import android.content.Context;
 import android.graphics.Insets;
+import android.hardware.input.InputManager;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowInsets;
@@ -13,6 +15,7 @@ import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 
+import com.limelight.binding.input.ControllerButtonMap;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.keyboard.PcKey;
@@ -34,6 +37,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowInputDevice;
 import org.robolectric.util.ReflectionHelpers;
 
 import java.util.ArrayList;
@@ -220,9 +224,39 @@ public class GameKeyboardOverlayTest {
         return overlay.controller();
     }
 
+    private static final int PAD_ID = 12;
+
+    private static InputDevice gamepad() {
+        InputDevice device = ShadowInputDevice.makeInputDeviceNamed("Pad");
+        ReflectionHelpers.setField(device, "mId", PAD_ID);
+        ReflectionHelpers.setField(device, "mSources", InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_DPAD);
+        ReflectionHelpers.setField(device, "mKeyboardType", InputDevice.KEYBOARD_TYPE_NON_ALPHABETIC);
+        ReflectionHelpers.setField(device, "mMotionRanges", new java.util.ArrayList<>());
+        return device;
+    }
+
+    private static KeyEvent padEvent(int action, int keyCode, InputDevice device, int deviceId) {
+        KeyEvent event = new KeyEvent(0, 0, action, keyCode, 0, 0, deviceId, 0, 0, InputDevice.SOURCE_GAMEPAD);
+        shadowOf(event).setDevice(device);
+        return event;
+    }
+
     private static boolean padKey(Game game, int action, int keyCode) {
-        KeyEvent event = new KeyEvent(0, 0, action, keyCode, 0);
+        KeyEvent event = padEvent(action, keyCode, gamepad(), PAD_ID);
         return action == KeyEvent.ACTION_DOWN ? game.handleKeyDown(event) : game.handleKeyUp(event);
+    }
+
+    private static boolean takenByPcKeyboard(Game game, KeyEvent event) {
+        return (boolean) ReflectionHelpers.callInstanceMethod(game, "handlePcKeyboardKey",
+                ReflectionHelpers.ClassParameter.from(KeyEvent.class, event));
+    }
+
+    private static android.util.SparseBooleanArray heldPadKeys(Game game) {
+        return ReflectionHelpers.getField(game, "pcKeyboardKeys");
+    }
+
+    private static int[] lastKey(RecordingConnection connection) {
+        return connection.keys.get(connection.keys.size() - 1);
     }
 
     @Test
@@ -311,7 +345,125 @@ public class GameKeyboardOverlayTest {
         assertFalse(pcKeyboardVisible(game));
         assertTrue("The game never saw the press, so it must not see the release",
                 padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_Y));
-        assertEquals(0, ((android.util.SparseBooleanArray) ReflectionHelpers.getField(game, "pcKeyboardKeys")).size());
+        assertEquals(0, heldPadKeys(game).size());
+    }
+
+    @Test
+    public void noDeviceAndTheSyntheticDeviceAreNotControllers() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        connection.keys.clear();
+        PcKey focused = pcKeyboardController(game).focus().focused();
+        assertFalse(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y, null, PAD_ID)));
+        InputDevice synthetic = gamepad();
+        ReflectionHelpers.setField(synthetic, "mId", -1);
+        assertFalse(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y, synthetic, -1)));
+        InputDevice keys = gamepad();
+        ReflectionHelpers.setField(keys, "mSources", InputDevice.SOURCE_KEYBOARD);
+        assertFalse(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y, keys, PAD_ID)));
+        assertTrue(connection.keys.isEmpty());
+        assertSame(focused, pcKeyboardController(game).focus().focused());
+        assertEquals(0, heldPadKeys(game).size());
+        assertTrue(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y, gamepad(), PAD_ID)));
+    }
+
+    @Test
+    public void aPressWhileClosedDropsAStaleEntryForTheSameKey() {
+        Game game = pcKeyboardGame(new RecordingConnection());
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
+        assertTrue(heldPadKeys(game).get(KeyEvent.KEYCODE_BUTTON_Y));
+        // The keyboard closes and the pad never reports the release, then Y is pressed for the game.
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertFalse(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y, gamepad(), PAD_ID)));
+        assertEquals(0, heldPadKeys(game).size());
+        assertFalse("The release of the game's own press belongs to the game",
+                takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_Y, gamepad(), PAD_ID)));
+    }
+
+    @Test
+    public void releasingKeyboardInputAndUnpluggingThePadForgetHeldButtons() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
+        assertEquals(1, heldPadKeys(game).size());
+        ReflectionHelpers.callInstanceMethod(game, "releaseKeyboardInput");
+        assertEquals(0, heldPadKeys(game).size());
+
+        // Space is held by the pad when it is unplugged: the key goes up and the entry goes away.
+        connection.keys.clear();
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
+        assertEquals(KeyboardPacket.KEY_DOWN, lastKey(connection)[1]);
+        InputManager.InputDeviceListener listener = ReflectionHelpers.getField(game, "pcKeyboardDeviceListener");
+        listener.onInputDeviceRemoved(PAD_ID);
+        assertEquals(0, heldPadKeys(game).size());
+        assertEquals(KeyboardPacket.KEY_UP, lastKey(connection)[1]);
+        assertEquals(0x8000 | 0x20, lastKey(connection)[0]);
+    }
+
+    @Test
+    public void theUsersButtonMapReplacesFaceButtonFlippingOnTheKeyboard() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ControllerHandler handler = ReflectionHelpers.getField(game, "controllerHandler");
+        Map<Integer, Object> contexts = ReflectionHelpers.getField(handler, "inputDeviceContexts");
+        Object context = ReflectionHelpers.getField(handler, "defaultContext");
+        ControllerButtonMap map = new ControllerButtonMap();
+        map.put(KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_Y);
+        ReflectionHelpers.setField(context, "buttonMap", map);
+        contexts.put(PAD_ID, context);
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        connection.keys.clear();
+        // X was remapped to Y, which is Space.
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X));
+        assertEquals(0x8000 | 0x20, lastKey(connection)[0]);
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_X));
+        // A disabled button does nothing but is still the keyboard's.
+        map.put(KeyEvent.KEYCODE_BUTTON_Y, ControllerButtonMap.DISABLED);
+        connection.keys.clear();
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_Y));
+        assertTrue(connection.keys.isEmpty());
+    }
+
+    @Test
+    public void losingFocusLetsGoOfAHeldKey() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ReflectionHelpers.setField(game, "inputCaptureProvider", new Capture());
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        PcKeyboardController keyboard = pcKeyboardController(game);
+        keyboard.touchDown(keyboard.layout().key("A"), 1, 1000);
+        assertEquals(KeyboardPacket.KEY_DOWN, lastKey(connection)[1]);
+        ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
+                ReflectionHelpers.ClassParameter.from(boolean.class, false));
+        assertEquals(KeyboardPacket.KEY_UP, lastKey(connection)[1]);
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game, "pressedKeys");
+        assertTrue(pressed.isEmpty());
+    }
+
+    @Test
+    public void losingFocusLetsGoOfALockedModifier() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ReflectionHelpers.setField(game, "inputCaptureProvider", new Capture());
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        PcKeyboardController keyboard = pcKeyboardController(game);
+        keyboard.engine().tapModifier(PcModifier.CTRL);
+        keyboard.engine().tapModifier(PcModifier.CTRL);
+        keyboard.touchDown(keyboard.layout().key("A"), 1, 1000);
+        keyboard.touchUp(1);
+        connection.keys.clear();
+        // Ctrl is still down on the host.
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game, "pressedKeys");
+        assertFalse(pressed.isEmpty());
+        ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
+                ReflectionHelpers.ClassParameter.from(boolean.class, false));
+        assertTrue(pressed.isEmpty());
+        assertFalse(connection.keys.isEmpty());
+        for (int[] key : connection.keys) assertEquals(KeyboardPacket.KEY_UP, key[1]);
     }
 
     @Test

@@ -124,18 +124,31 @@ public final class PcKeyboardController {
         host.changed();
     }
 
+    /**
+     * The direction a left stick points (y growing downwards as Android reports it), or null while it is
+     * centred. Pushing past 0.6 engages a direction; it holds until the stick falls back under 0.35.
+     */
+    public static KeyboardFocus.Direction stickDirection(float x, float y, KeyboardFocus.Direction current) {
+        float ax = Math.abs(x), ay = Math.abs(y);
+        float threshold = current == null ? STICK_ENGAGE : STICK_RELEASE;
+        if (Math.max(ax, ay) < threshold) return null;
+        if (ax > ay) return x < 0 ? KeyboardFocus.Direction.LEFT : KeyboardFocus.Direction.RIGHT;
+        return y < 0 ? KeyboardFocus.Direction.UP : KeyboardFocus.Direction.DOWN;
+    }
+
     /** The left stick, with y growing downwards as Android reports it. */
     public void stick(float x, float y, long now) {
-        KeyboardFocus.Direction wanted = null;
-        float ax = Math.abs(x), ay = Math.abs(y);
-        float threshold = stickDirection == null ? STICK_ENGAGE : STICK_RELEASE;
-        if (Math.max(ax, ay) >= threshold) {
-            if (ax > ay) wanted = x < 0 ? KeyboardFocus.Direction.LEFT : KeyboardFocus.Direction.RIGHT;
-            else wanted = y < 0 ? KeyboardFocus.Direction.UP : KeyboardFocus.Direction.DOWN;
-        }
+        KeyboardFocus.Direction wanted = stickDirection(x, y, stickDirection);
         if (wanted == stickDirection) return;
         stickDirection = wanted;
         updateDirection(now);
+    }
+
+    /** Let go of every pad button held, as when the controller that held them is unplugged. */
+    public void releasePads(long now) {
+        for (Pad button : Pad.values()) {
+            if (padDown[button.ordinal()]) pad(button, false, now);
+        }
     }
 
     /** Release everything pressed and forget locked modifiers, as when the keyboard closes. */

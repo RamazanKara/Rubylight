@@ -155,24 +155,53 @@ public class ControllerInputReleaseTest {
                 @Override public void button(int flag, boolean down) { events.add(flag + (down ? "+" : "-")); }
                 @Override public void stick(float x, float y) { events.add("stick"); }
             });
-            int sent = connection.states.size();
-            // X was held before the keyboard opened: it is no press for the keyboard, only its release is seen.
+            // X was held before the keyboard opened, and A arrives on the first report it sees: neither is
+            // a press for the keyboard; X is only seen being let go. The game's last state is cleared from
+            // this thread with a neutral packet.
             usb(handler, ControllerPacket.X_FLAG | ControllerPacket.A_FLAG);
+            int[] neutral = connection.states.get(connection.states.size() - 1);
+            assertEquals("The capture starts neutral", 0, neutral[0]);
+            int sent = connection.states.size();
             usb(handler, ControllerPacket.A_FLAG);
             usb(handler, 0);
-            assertEquals(java.util.Arrays.asList(ControllerPacket.A_FLAG + "+", "stick",
-                    ControllerPacket.X_FLAG + "-", "stick", ControllerPacket.A_FLAG + "-", "stick"), events);
+            usb(handler, ControllerPacket.A_FLAG);
+            assertEquals(java.util.Arrays.asList(ControllerPacket.X_FLAG + "-", ControllerPacket.A_FLAG + "-",
+                    ControllerPacket.A_FLAG + "+"), events);
             assertEquals("Nothing reaches the host while the keyboard is open", sent, connection.states.size());
             // Closed with A held: the game sees A only after a new press.
-            usb(handler, ControllerPacket.A_FLAG);
             handler.setPadCapture(null);
             usb(handler, ControllerPacket.A_FLAG);
-            if (!connection.states.isEmpty()) {
-                assertEquals(0, connection.states.get(connection.states.size() - 1)[0] & ControllerPacket.A_FLAG);
-            }
+            assertEquals(0, connection.states.get(connection.states.size() - 1)[0] & ControllerPacket.A_FLAG);
             usb(handler, 0);
             usb(handler, ControllerPacket.A_FLAG);
             assertEquals(ControllerPacket.A_FLAG, connection.states.get(connection.states.size() - 1)[0] & ControllerPacket.A_FLAG);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
+    public void usbDriverStickReachesThePcKeyboardOnlyWhenItsDirectionChanges() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        usbPad(handler);
+        List<String> sticks = new ArrayList<>();
+        try {
+            handler.setPadCapture(new ControllerHandler.PadCapture() {
+                @Override public void button(int flag, boolean down) { }
+                @Override public void stick(float x, float y) { sticks.add(x + "," + y); }
+            });
+            handler.reportControllerState(3, 0, 0f, 0f, 0f, 0f, 0f, 0f);
+            handler.reportControllerState(3, 0, 0.1f, 0.2f, 0f, 0f, 0f, 0f);
+            assertTrue("Centred reports are not news", sticks.isEmpty());
+            handler.reportControllerState(3, 0, 0.7f, 0.1f, 0f, 0f, 0f, 0f);
+            handler.reportControllerState(3, 0, 0.8f, 0.2f, 0f, 0f, 0f, 0f);
+            handler.reportControllerState(3, 0, 0.5f, 0.2f, 0f, 0f, 0f, 0f);
+            assertEquals("Held right, and still right under the engage threshold", 1, sticks.size());
+            handler.reportControllerState(3, 0, 0.3f, 0.1f, 0f, 0f, 0f, 0f);
+            handler.reportControllerState(3, 0, 0.1f, 0f, 0f, 0f, 0f, 0f);
+            assertEquals("Back to centre", 2, sticks.size());
         } finally {
             handler.destroy();
         }

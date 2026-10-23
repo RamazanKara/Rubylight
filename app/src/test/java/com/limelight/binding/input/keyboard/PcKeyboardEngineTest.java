@@ -107,6 +107,49 @@ public class PcKeyboardEngineTest {
         assertFalse(engine.modifiers().any());
     }
 
+    private static final String WIN = "5B", NEUTRAL = "FF";
+
+    @Test
+    public void aLockedWinOrAltNeverUsedWithAKeyIsNotTakenAsAMenuTap() {
+        for (PcModifier modifier : new PcModifier[] {PcModifier.WIN, PcModifier.ALT}) {
+            events.clear();
+            String vk = modifier == PcModifier.WIN ? WIN : ALT;
+            engine.tapModifier(modifier);
+            engine.tapModifier(modifier);
+            assertEquals(List.of(vk + "+"), events);
+            engine.tapModifier(modifier);
+            assertEquals(List.of(vk + "+", NEUTRAL + "+", NEUTRAL + "-", vk + "-"), events);
+            assertNothingStuck();
+        }
+    }
+
+    @Test
+    public void closingWithALockedWinSendsTheNeutralKeyBeforeLettingGo() {
+        engine.tapModifier(PcModifier.WIN);
+        engine.tapModifier(PcModifier.WIN);
+        engine.releaseAll();
+        assertEquals(List.of(WIN + "+", NEUTRAL + "+", NEUTRAL + "-", WIN + "-"), events);
+    }
+
+    @Test
+    public void aLockedWinUsedWithAKeyIsLetGoPlainly() {
+        engine.tapModifier(PcModifier.WIN);
+        engine.tapModifier(PcModifier.WIN);
+        engine.press(key("D"), 1, 0);
+        engine.release(1);
+        events.clear();
+        engine.tapModifier(PcModifier.WIN);
+        assertEquals(List.of(WIN + "-"), events);
+    }
+
+    @Test
+    public void aWinHeldForAKeyIsNotFollowedByTheNeutralKey() {
+        engine.tapModifier(PcModifier.WIN);
+        engine.press(key("E"), 1, 0);
+        engine.release(1);
+        assertEquals(List.of(WIN + "+", "45+", "45-", WIN + "-"), events);
+    }
+
     @Test
     public void aHeldKeyRepeatsAfterTheDelayAndOnlyWhileHeld() {
         engine.press(key("A"), 1, 1000);

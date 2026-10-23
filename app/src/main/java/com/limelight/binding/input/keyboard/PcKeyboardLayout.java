@@ -62,7 +62,15 @@ public final class PcKeyboardLayout {
     public static PcKeyboardLayout resolve(String preference, Locale locale) {
         if (DE.equals(preference)) return LAYOUT_DE;
         if (US.equals(preference)) return LAYOUT_US;
-        return locale != null && "de".equals(locale.getLanguage()) ? LAYOUT_DE : LAYOUT_US;
+        return usesGermanKeys(locale) ? LAYOUT_DE : LAYOUT_US;
+    }
+
+    /** QWERTZ is the norm in Germany, Austria, Luxembourg and Liechtenstein; Swiss and other German speakers differ. */
+    private static boolean usesGermanKeys(Locale locale) {
+        if (locale == null || !"de".equals(locale.getLanguage())) return false;
+        String country = locale.getCountry();
+        return country.isEmpty() || "DE".equals(country) || "AT".equals(country)
+                || "LU".equals(country) || "LI".equals(country);
     }
 
     private static PcKeyboardLayout build(String id) {

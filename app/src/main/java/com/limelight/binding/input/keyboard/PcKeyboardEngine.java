@@ -36,10 +36,14 @@ public final class PcKeyboardEngine {
     }
 
     private static final PcModifier[] MODIFIERS = PcModifier.values();
+    /** A key Windows ignores, sent between a lone Alt or Win going down and up so it is not taken as a tap. */
+    static final int NEUTRAL_VK = 0xFF;
 
     private final Output output;
     private final StickyModifiers sticky = new StickyModifiers();
     private final EnumMap<PcModifier, Boolean> hostDown = new EnumMap<>(PcModifier.class);
+    /** Whether a key was pressed while the modifier was down, so letting it go is not a lone tap. */
+    private final boolean[] combined = new boolean[MODIFIERS.length];
     private final List<Held> held = new ArrayList<>();
 
     public PcKeyboardEngine(Output output) {
@@ -78,6 +82,7 @@ public final class PcKeyboardEngine {
         for (PcModifier modifier : MODIFIERS) {
             if (!sticky.isActive(modifier)) continue;
             setHostDown(modifier, true);
+            combined[modifier.ordinal()] = true;
             // The key uses an armed modifier up; a locked one stays down for the keys after it.
             if (sticky.state(modifier) == StickyModifiers.State.ONCE) entry.usedUp.add(modifier);
         }
@@ -149,6 +154,13 @@ public final class PcKeyboardEngine {
 
     private void setHostDown(PcModifier modifier, boolean down) {
         if (isHostDown(modifier) == down) return;
+        if (down) {
+            combined[modifier.ordinal()] = false;
+        } else if (!combined[modifier.ordinal()] && (modifier == PcModifier.ALT || modifier == PcModifier.WIN)) {
+            // Alt or Win let go with nothing between would open the menu bar or the Start menu, as on a PC.
+            output.send(NEUTRAL_VK, true, hostBits());
+            output.send(NEUTRAL_VK, false, hostBits());
+        }
         hostDown.put(modifier, down);
         output.send(modifier.vk, down, hostBits());
     }

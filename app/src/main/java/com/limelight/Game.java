@@ -5,6 +5,7 @@ import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.audio.SilentAudioRenderer;
 import com.limelight.binding.audio.MicrophoneStatus;
+import com.limelight.binding.input.ControllerButtonMap;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.MouseDeltaAccumulator;
@@ -203,6 +204,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private PcKeyboardOverlay pcKeyboard;
     // Controller keys the on-screen PC keyboard took on their way down, so their release goes to it too.
     private final android.util.SparseBooleanArray pcKeyboardKeys = new android.util.SparseBooleanArray();
+    private final InputManager.InputDeviceListener pcKeyboardDeviceListener = new InputManager.InputDeviceListener() {
+        @Override public void onInputDeviceAdded(int deviceId) { }
+        @Override public void onInputDeviceChanged(int deviceId) { }
+        @Override public void onInputDeviceRemoved(int deviceId) { runOnUiThread(Game.this::releasePcKeyboardPads); }
+    };
     private boolean desktopWindowFocused = true;
     private boolean dispatchingDesktopTouch;
     private int desktopHeldButtons;
@@ -1024,6 +1030,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
+        inputManager.registerInputDeviceListener(pcKeyboardDeviceListener, null);
 
         initializeTouchContexts();
 
@@ -2228,6 +2235,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (keyboardTranslator != null) {
             InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
             inputManager.unregisterInputDeviceListener(keyboardTranslator);
+            inputManager.unregisterInputDeviceListener(pcKeyboardDeviceListener);
         }
 
         if (usbDriverServiceBound) {
@@ -4503,9 +4511,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             pcKeyboard.setVisibility(View.VISIBLE);
             pcKeyboard.bringToFront();
         }
-        setInputGrabState(true);
-        // Whatever the game held is let go, and the pads steer the keyboard until it closes.
-        controllerHandler.releaseInput();
+        // The pads steer the keyboard until it closes. The capture is set before input is enabled, so no
+        // report can reach the game in between; setPadCapture lets go of whatever the game held, and each
+        // USB pad does the same from its own thread on its first report.
         controllerHandler.setPadCapture(new ControllerHandler.PadCapture() {
             @Override public void button(int flag, boolean down) {
                 PcKeyboardController.Pad pad = padForFlag(flag);
@@ -4517,6 +4525,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 });
             }
         });
+        setInputGrabState(true);
         streamView.requestFocus();
     }
 
@@ -4573,8 +4582,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private PcKeyboardController.Pad padForKey(int keyCode) {
-        boolean flip = prefConfig.flipFaceButtons;
+    private PcKeyboardController.Pad padForKey(int keyCode, boolean flip) {
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP: return PcKeyboardController.Pad.UP;
             case KeyEvent.KEYCODE_DPAD_DOWN: return PcKeyboardController.Pad.DOWN;
@@ -4601,17 +4609,24 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
      */
     private boolean handlePcKeyboardKey(KeyEvent event) {
         boolean remote = ControllerHandler.isRemoteControlEvent(event);
-        if (!remote && !ControllerHandler.isGameControllerDevice(event.getDevice())) return false;
+        if (!remote && !isRealGamepad(event.getDevice())) return false;
         int keyCode = event.getKeyCode();
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
         if (!isPcKeyboardVisible()) {
-            // A release of a key the keyboard took stays with it, even if it just closed.
-            if (down) return false;
+            // A release of a key the keyboard took stays with it, even if it just closed. A new press
+            // is the game's, so an old entry for the same key must not swallow its release.
+            if (down) {
+                pcKeyboardKeys.delete(keyCode);
+                return false;
+            }
             boolean taken = pcKeyboardKeys.get(keyCode);
             pcKeyboardKeys.delete(keyCode);
             return taken;
         }
-        PcKeyboardController.Pad pad = padForKey(keyCode);
+        // The user's button map for this pad replaces face-button flipping, as it does for the game.
+        int mapped = remote || controllerHandler == null ? ControllerButtonMap.UNMAPPED : controllerHandler.userMappedKey(event);
+        PcKeyboardController.Pad pad = mapped == ControllerButtonMap.UNMAPPED
+                ? padForKey(keyCode, prefConfig.flipFaceButtons) : padForKey(mapped, false);
         if (pad == null) return !remote;
         if (down) {
             pcKeyboardKeys.put(keyCode, true);
@@ -4622,6 +4637,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         pcKeyboard.controller().pad(pad, down, event.getEventTime());
         return true;
+    }
+
+    /** A controller that really exists with gamepad or joystick sources; the synthetic or missing device does not count. */
+    private static boolean isRealGamepad(InputDevice device) {
+        if (device == null || device.getId() == -1) return false;
+        int sources = device.getSources();
+        return (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+                || (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+    }
+
+    /** A controller went away: its held buttons would never come up, so the keyboard lets go of them. */
+    private void releasePcKeyboardPads() {
+        pcKeyboardKeys.clear();
+        if (pcKeyboard != null) pcKeyboard.controller().releasePads(SystemClock.uptimeMillis());
     }
 
     private void handlePcKeyboardMotion(MotionEvent event) {
@@ -6384,6 +6413,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (gameTouchControls != null) gameTouchControls.releaseInput();
         // Sticky modifiers and held keys of the PC keyboard go up with everything else.
         if (pcKeyboard != null) pcKeyboard.releaseInputs();
+        pcKeyboardKeys.clear();
         synchronized (pressedKeys) {
             for (Map.Entry<Short, Byte> key : pressedKeys.entrySet()) {
                 conn.sendKeyboardInput(key.getKey(), KeyboardPacket.KEY_UP, (byte) 0, key.getValue());

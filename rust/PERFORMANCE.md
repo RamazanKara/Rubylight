@@ -104,7 +104,27 @@ Nightjar's automatic bitrate (the CLI has none; static reading of the Android cl
 
 ### Tooling
 
-`rust/release/linkshape.sh` (tc shaper), `linkspeed_client.py` (runs in the client container), `linkspeed.py` (host side: `list`, `shapecheck`, `run ARM... --work DIR`, `report --work DIR`). Raw results are in `C:\src\rl-link-work\m` (clean) and `m-memory`.
+`rust/release/linkshape.sh` (tc shaper), `linkspeed_client.py` (runs in the client container), `linkspeed.py` (host side: `list`, `shapecheck`, `run ARM... --work DIR [--keep-memory]`, `report --work DIR`, `compare A_DIR B_DIR [--repeats N]`, `noise DIR...`), `linkcompare.py` (the analysis and verdicts, unit-tested in `test_release.py`). `ARM@2` runs an arm again into its own folder. Raw results are in `C:\src\rl-link-work\m` (clean) and `m-memory`.
+
+### Healthy links and run-to-run noise (3.0.0-beta.1)
+
+Before any link-adaptation change, the harness got nine healthy arms, `hz-r{1000,500,300}-hevc-{20,40,80}` (1080p60 HEVC, noise content, 45 s, loss memory reset), a per-second encoder bitrate and pacing series, and `compare`, which judges a candidate against a baseline (healthy arms: no bitrate change line, one constant encoder bitrate equal to the baseline's, the same `network pacing selected`, |delta p50| at most 0.3 ms, delta p99 at most +1 ms, loss no worse). Picture age here is `e2e_ms` of the A8 timing join. RX 7900 XT host, `butterpollo.exe` 3.0.0-beta.1 package, NUC client (VAAPI), three runs of every arm (the third in reverse arm order), per-run values in `C:\src\rl-link-work\l1\aa`:
+
+| Arm | Picture age p50 (ms), runs 1 / 2 / 3 | p99 (ms) | Lost | Freezes | Host sent (Mbps) | Encoder bitrate | Pacing |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 GbE, 20 Mbps | 13.0 / 13.0 / 14.2 | 26.7 / 26.2 / 28.7 | 0 % | 0 | 18.9 | 14,988 kbps, constant | 800 Mbps |
+| 1 GbE, 40 Mbps | 14.1 / 13.9 / 14.3 | 29.6 / 27.9 / 30.9 | 0 % | 0 | 38.8 | 30,988, constant | 800 Mbps |
+| 1 GbE, 80 Mbps | 15.4 / 15.3 / 16.0 | 29.5 / 28.4 / 33.9 | 0 % | 0 | 78.8 | 62,988, constant | 800 Mbps |
+| 500 Mbit/s, 20 Mbps | 12.8 / 13.9 / 12.9 | 26.0 / 27.7 / 25.0 | 0 % | 0 | 19.0 | 14,988, constant | 800 Mbps |
+| 500 Mbit/s, 40 Mbps | 13.6 / 14.8 / 14.8 | 27.2 / 31.6 / 29.7 | 0 % | 0 | 38.9 | 30,988, constant | 800 Mbps |
+| 500 Mbit/s, 80 Mbps | 15.2 / 16.1 / 15.7 | 29.7 / 36.2 / 35.9 | 0 % | 0 | 79.2 | 62,988, constant | 800 Mbps |
+| 300 Mbit/s, 20 Mbps | 13.1 / 13.4 / 13.1 | 26.8 / 28.9 / 27.1 | 0 % | 0 | 18.9 | 14,988, constant | 800 Mbps |
+| 300 Mbit/s, 40 Mbps | 13.7 / 14.8 / 14.0 | 27.7 / 30.5 / 28.1 | 0 % | 0 | 38.8 | 30,988, constant | 800 Mbps |
+| 300 Mbit/s, 80 Mbps | 15.7 / 16.6 / 15.7 | 28.3 / 32.5 / 29.8 | 0 % | 0 | 78.8 | 62,988, constant | 800 Mbps |
+
+Noise (`linkspeed.py noise`): the same package against itself differs by 0.05 to 1.2 ms in the p50 of one arm; the pooled run-to-run sigma is 0.51 ms (18 degrees of freedom), the worst arm 0.68 ms, the largest difference between two runs of one arm 1.18 ms. The spread is not a fixed offset between passes (the 500 and 300 Mbit/s arms were 1 ms higher in pass 2, the unshaped 20 Mbps arm in pass 3), so ordering the arms ABBA does not remove it. **A 0.3 ms bound on one arm's p50 cannot be resolved with a few runs: 95 % confidence needs 23 runs per side from the pooled sigma (39 from the worst arm).** `compare` defaults to `--repeats 23` for that reason and refuses to pass an arm with fewer. What does resolve: the bitrate series, the pacing lines, loss and freezes are exactly reproducible (every run above has the same single encoder bitrate and pacing, 0 % lost), and the mean delta over the nine arms, which `compare` prints, has a third of the spread of one arm. Whether the 0.3 ms per-arm bound is kept at 23 runs or replaced by the nine-arm mean is a decision for the acceptance run (B8).
+
+Not run here: PyroWave, real Wi-Fi, the loss-memory scenario (`--keep-memory` is in place for B8).
 
 ## October 23: PyroWave 144 fps pacing and async encode (B4)
 

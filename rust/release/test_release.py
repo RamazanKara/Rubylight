@@ -336,6 +336,9 @@ class LinkCompare(unittest.TestCase):
         run.update(extra)
         return run
 
+    def judge2(self, *args):
+        return self.lc.judge(*args, repeats=2)
+
     def failed(self, row):
         return sorted(c['name'] for c in row['checks'] if not c['ok'])
 
@@ -354,28 +357,28 @@ class LinkCompare(unittest.TestCase):
         self.assertEqual(self.lc.group_of('step-80-10-80-40m'), 'steps')
 
     def test_identical_healthy_runs_pass(self):
-        row = self.lc.judge('hz-r1000-hevc-20', [self.run_dict()] * 2, [self.run_dict(p50=13.2)] * 2)
+        row = self.judge2('hz-r1000-hevc-20', [self.run_dict()] * 2, [self.run_dict(p50=13.2)] * 2)
         self.assertEqual(row['verdict'], 'PASS', row['checks'])
         self.assertTrue(row['bitrate_equal'] and row['pacing_equal'])
 
     def test_healthy_p50_bound_is_two_sided_and_p99_is_one_sided(self):
         a = [self.run_dict()] * 2
-        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [self.run_dict(p50=13.4)] * 2)), ['p50'])
-        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [self.run_dict(p50=12.6)] * 2)), ['p50'])
-        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [self.run_dict(p99=27.5)] * 2)), ['p99'])
-        self.assertEqual(self.lc.judge('hz-r1000-hevc-20', a, [self.run_dict(p99=20.0)] * 2)['verdict'], 'PASS')
+        self.assertEqual(self.failed(self.judge2('hz-r1000-hevc-20', a, [self.run_dict(p50=13.4)] * 2)), ['p50'])
+        self.assertEqual(self.failed(self.judge2('hz-r1000-hevc-20', a, [self.run_dict(p50=12.6)] * 2)), ['p50'])
+        self.assertEqual(self.failed(self.judge2('hz-r1000-hevc-20', a, [self.run_dict(p99=27.5)] * 2)), ['p99'])
+        self.assertEqual(self.judge2('hz-r1000-hevc-20', a, [self.run_dict(p99=20.0)] * 2)['verdict'], 'PASS')
 
     def test_a_bitrate_change_or_different_pacing_fails_a_healthy_arm(self):
         a = [self.run_dict()] * 2
         changed = self.run_dict(kbps=(14988, 9000), adaptive_changes=dict(adaptive_bitrate=0, link_rate=2))
-        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [changed] * 2)), ['bitrate'])
+        self.assertEqual(self.failed(self.judge2('hz-r1000-hevc-20', a, [changed] * 2)), ['bitrate'])
         slower = self.run_dict(pacing_selected=['network pacing selected pacing_bps=30000000'])
-        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [slower] * 2)), ['pacing'])
+        self.assertEqual(self.failed(self.judge2('hz-r1000-hevc-20', a, [slower] * 2)), ['pacing'])
         paced = self.run_dict(pacing_kbps_series=[[0, 0], [1, 30000]])
-        self.assertEqual(self.failed(self.lc.judge('hz-r1000-hevc-20', a, [paced] * 2)), ['pacing'])
+        self.assertEqual(self.failed(self.judge2('hz-r1000-hevc-20', a, [paced] * 2)), ['pacing'])
 
     def test_loss_worse_than_the_baseline_fails(self):
-        row = self.lc.judge('hz-r300-hevc-80', [self.run_dict(lost=0.0)] * 2, [self.run_dict(lost=0.2)] * 2)
+        row = self.judge2('hz-r300-hevc-80', [self.run_dict(lost=0.0)] * 2, [self.run_dict(lost=0.2)] * 2)
         self.assertEqual(self.failed(row), ['loss'])
 
     def test_too_few_repeats_do_not_pass(self):
@@ -496,6 +499,15 @@ class LinkCompare(unittest.TestCase):
         self.assertEqual(self.lc.repeats_needed(0.05), 1)
         self.assertEqual(self.lc.repeats_needed(0.2), 4)
         self.assertEqual(self.lc.repeats_needed(0.4), 14)
+
+    def test_pooled_delta_over_healthy_arms(self):
+        a = self.run_dict(p50=13.0)
+        rows = [self.lc.judge('hz-r1000-hevc-20', [a], [self.run_dict(p50=13.2)], repeats=1),
+                self.lc.judge('hz-r500-hevc-20', [a], [self.run_dict(p50=12.8)], repeats=1),
+                self.lc.judge('wifi', [a], [self.run_dict(p50=20.0)], repeats=1)]
+        self.assertEqual(self.lc.pooled_healthy_delta(rows), (0.0, 2))
+        self.assertIn('mean delta p50 over 2 healthy arms', self.lc.format_rows(rows))
+        self.assertGreaterEqual(self.lc.DEFAULT_REPEATS, self.lc.repeats_needed(0.5))
 
     def test_load_runs_groups_repeats_by_arm(self):
         with tempfile.TemporaryDirectory() as t:

@@ -37,9 +37,11 @@ STEP_RECOVERY_FRACTION = 0.90
 STEP_RECOVERY_S = 20.0
 LAST_SECONDS = 20.0
 
-# From the A/A run of 3.0.0-beta.1 (PERFORMANCE.md, "Link adaptation harness"): runs per side that
-# resolve a 0.3 ms difference of picture age p50 with 95 % confidence.
-DEFAULT_REPEATS = 2
+# From the A/A run of 3.0.0-beta.1 (PERFORMANCE.md, "Link adaptation harness"): three runs of each of
+# the nine hz arms gave a pooled run-to-run sigma of 0.51 ms of picture age p50, so 23 runs per side
+# resolve a 0.3 ms difference of one arm with 95 % confidence. The mean over the nine arms is far
+# tighter, which is why format_rows also prints it.
+DEFAULT_REPEATS = 23
 
 
 def hz_arm_name(rate, mbps):
@@ -339,6 +341,12 @@ def compare(a_dirs, b_dirs, repeats=DEFAULT_REPEATS, only=None):
     return [judge(n, a.get(n, []), b.get(n, []), repeats) for n in names]
 
 
+def pooled_healthy_delta(rows):
+    """(mean delta p50 over the healthy arms, arms) for the summary line; None without healthy rows."""
+    deltas = [r['d_p50'] for r in rows if r['group'] == 'healthy' and r.get('d_p50') is not None]
+    return (round(sum(deltas) / len(deltas), 3), len(deltas)) if deltas else None
+
+
 def format_rows(rows):
     def num(v, digits=2):
         return '-' if v is None else f'{v:.{digits}f}'
@@ -353,5 +361,8 @@ def format_rows(rows):
             if not c['ok']:
                 lines.append(f'    FAIL {c["name"]}: {c["detail"]}')
     counts = {v: sum(1 for r in rows if r['verdict'] == v) for v in ('PASS', 'FAIL', 'INFO')}
+    pooled = pooled_healthy_delta(rows)
+    if pooled:
+        lines.append(f'mean delta p50 over {pooled[1]} healthy arms: {pooled[0]:+.3f} ms')
     lines.append(f'{counts["PASS"]} pass, {counts["FAIL"]} fail, {counts["INFO"]} info')
     return '\n'.join(lines)

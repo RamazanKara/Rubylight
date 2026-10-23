@@ -565,6 +565,15 @@ pub struct StreamedBlock {
     pub index: usize,
     pub data: usize,
     pub parity: usize,
+    /// The block count the frame's packets announce. A frame that turns out
+    /// to be small is framed whole, so this can be fewer than planned.
+    pub blocks: usize,
+}
+impl StreamedBlock {
+    /// The frame's last block: nothing more follows it.
+    pub fn is_last(&self) -> bool {
+        self.index + 1 == self.blocks
+    }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum StreamState {
@@ -892,6 +901,7 @@ impl StreamedFrame {
             index: self.next_block,
             data,
             parity: filled - data,
+            blocks,
         };
         self.first_shard += data;
         self.next_block += 1;

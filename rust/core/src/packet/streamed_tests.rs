@@ -208,6 +208,14 @@ fn a_streamed_frame_with_matching_block_boundaries_equals_the_conventional_one()
     }
 }
 
+fn assert_last_block_only_at_the_end(sent: &Sent) {
+    let last = sent.blocks.len() - 1;
+    for (index, block) in sent.blocks.iter().enumerate() {
+        assert_eq!(block.index, index);
+        assert_eq!(block.is_last(), index == last, "block {index} of {last}");
+    }
+}
+
 #[test]
 fn one_unit_is_framed_exactly_as_a_whole_frame() {
     // Nothing has left before the last unit, so the block count is still free.
@@ -225,6 +233,9 @@ fn one_unit_is_framed_exactly_as_a_whole_frame() {
         result.unwrap();
         assert_eq!(sent.early, 0);
         assert_eq!(sent.packets, conventional);
+        // A small frame is framed in fewer blocks than planned: the block
+        // that says it is the last one is the one the packets announce.
+        assert_last_block_only_at_the_end(&sent);
     }
     // Units that never completed a block early end the same way, with the
     // exact last payload length a whole frame announces.
@@ -258,6 +269,7 @@ fn carried_tails_keep_every_packet_full_and_the_block_plan_fixed() {
         // The cap of two frames' worth lets every block but the last leave early.
         assert_eq!(sent.early, 3);
         assert_eq!(sent.blocks.len(), 4);
+        assert_last_block_only_at_the_end(&sent);
         assert_eq!(sent.unit_of, [1, 2, 3, 4]);
         let (stream, layout) = reassemble(&sent.packets, key);
         assert_identical(&stream, &payload);
@@ -640,6 +652,9 @@ fn the_payload_buffer_is_reused_across_frames_and_the_length_outlives_it() {
     assert_eq!((buffer.as_ptr(), buffer.capacity()), (pointer, capacity));
 }
 
+/// A frame of a fixture: its kind, payload and packets.
+type FixtureFrame = (u8, Vec<u8>, Vec<Vec<u8>>);
+
 /// A fixture of packets the host built, for a receiver in another repository
 /// to reassemble: `rust/tests/fixtures/slice-delivery-<name>.bin`.
 ///
@@ -647,7 +662,7 @@ fn the_payload_buffer_is_reused_across_frames_and_the_length_outlives_it() {
 /// bytes, all zero when the packets are plain); the frame count (u32); then per
 /// frame its kind (1 P, 2 IDR), its payload (u32 length, bytes) and its
 /// packets (u32 count, then u16 length and bytes each).
-fn fixture(key: Option<[u8; 16]>, frames: &[(u8, Vec<u8>, Vec<Vec<u8>>)]) -> Vec<u8> {
+fn fixture(key: Option<[u8; 16]>, frames: &[FixtureFrame]) -> Vec<u8> {
     let mut out = b"RLSLICE1".to_vec();
     out.extend_from_slice(&1392u32.to_le_bytes());
     out.extend_from_slice(&key.unwrap_or([0; 16]));

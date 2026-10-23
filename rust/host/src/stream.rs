@@ -2108,6 +2108,12 @@ impl Media {
                                             format!("{:.2}/{:.2}/{:.2}", ms("mean_ms"), ms("p95_ms"), ms("p99_ms"))
                                         };
 
+                                        // How old the newest capture is when the stream takes it: p50/p95/p99 ms.
+                                        let age = |name: &str| {
+                                            let ms = |key: &str| timing["stages"][name][key].as_f64().unwrap_or(0.);
+                                            format!("{:.2}/{:.2}/{:.2}", ms("p50_ms"), ms("p95_ms"), ms("p99_ms"))
+                                        };
+
                                         tracing::info!(
                                             fps=ms("fps"),
                                             host_mean_ms=ms("host_processing_mean_ms"),
@@ -2132,6 +2138,8 @@ impl Media {
                                             stage_send_queue_ms=%stage("send_queue"),
                                             stage_send_ms=%stage("send"),
                                             moonlight_host_ms=%stage("moonlight_host"),
+                                            capture_age_at_claim_ms=%age("acquire_to_claim"),
+                                            capture_age_at_submit_ms=%age("acquire_to_submit"),
                                             stage_frames=timing["stages"]["frames"].as_u64().unwrap_or(0),
                                             detect_mean_ms,
                                             detect_p95_ms,

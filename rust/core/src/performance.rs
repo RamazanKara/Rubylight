@@ -159,6 +159,10 @@ impl Stamps {
 fn micros(duration: Duration) -> u64 {
     duration.as_micros().min(u128::from(u64::MAX)) as u64
 }
+/// Microseconds from `from` to `to`; zero if `to` is earlier.
+fn micros_between(from: Instant, to: Instant) -> u64 {
+    micros(to.saturating_duration_since(from))
+}
 /// A new picture's points up to its encoder submission, kept from its claim
 /// until its encoded frame is sent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,8 +229,9 @@ const STAGE_SAMPLES: usize = 2048;
 struct StageSample {
     at: Instant,
     /// `STAGES`, then the total, then Moonlight's host latency field for the
-    /// same picture, in microseconds.
-    micros: [u32; STAGES.len() + 2],
+    /// same picture, then the capture's age when the pacer claimed it and when
+    /// the encoder took it (from its acquire), in microseconds.
+    micros: [u32; STAGES.len() + 4],
 }
 #[derive(Default)]
 pub struct Performance {
@@ -412,13 +417,18 @@ impl Performance {
     /// Records where a new picture's time went. `moonlight_host` is the host
     /// latency sent to Moonlight for it, in microseconds.
     pub fn record_stages(&mut self, stamps: &Stamps, moonlight_host: u64) {
-        let mut micros = [0; STAGES.len() + 2];
+        let mut micros = [0; STAGES.len() + 4];
         let stages = stamps.stages();
+        // The capture's age when the stream takes it: the wait a fixed encode
+        // tick adds, unsynchronised to the content's frame phase.
+        let age = |to: Instant| micros_between(stamps.acquired, to);
         for (sample, value) in micros.iter_mut().zip(
-            stages
-                .iter()
-                .copied()
-                .chain([stages.iter().sum(), moonlight_host]),
+            stages.iter().copied().chain([
+                stages.iter().sum(),
+                moonlight_host,
+                age(stamps.claimed),
+                age(stamps.submitted),
+            ]),
         ) {
             *sample = value.min(u64::from(u32::MAX)) as u32;
         }
@@ -437,6 +447,8 @@ impl Performance {
             send_us = micros[8],
             present_to_sent_us = micros[9],
             moonlight_host_us = micros[10],
+            acquire_to_claim_us = micros[11],
+            acquire_to_submit_us = micros[12],
             "picture"
         );
         let at = stamps.last_sent;
@@ -486,7 +498,7 @@ impl Performance {
 pub struct Window {
     now: Instant,
     frames: Vec<Frame>,
-    stages: Vec<[u32; STAGES.len() + 2]>,
+    stages: Vec<[u32; STAGES.len() + 4]>,
     history: Vec<Second>,
     send_stutters: u64,
     fec_reports: u64,
@@ -513,6 +525,7 @@ impl Window {
             json!({
                 "mean_ms": values.iter().map(|v| f64::from(*v)).sum::<f64>()
                     / values.len().max(1) as f64 / 1000.,
+                "p50_ms": at(50),
                 "p95_ms": at(95),
                 "p99_ms": at(99),
             })
@@ -525,6 +538,8 @@ impl Window {
         }
         stages.insert("present_to_sent".into(), spread(STAGES.len()));
         stages.insert("moonlight_host".into(), spread(STAGES.len() + 1));
+        stages.insert("acquire_to_claim".into(), spread(STAGES.len() + 2));
+        stages.insert("acquire_to_submit".into(), spread(STAGES.len() + 3));
         Value::Object(stages)
     }
     pub fn snapshot(&self) -> Value {
@@ -905,6 +920,11 @@ mod tests {
         assert_eq!(stages["present_to_sent"]["mean_ms"], 4.18);
         assert_eq!(stages["present_to_sent"]["p95_ms"], 5.);
         assert_eq!(stages["moonlight_host"]["mean_ms"], 2.);
+        // The capture's age at the claim and at the encoder's submit, from its acquire.
+        assert_eq!(stages["acquire_to_claim"]["p50_ms"], 0.5);
+        assert_eq!(stages["acquire_to_submit"]["p50_ms"], 1.);
+        assert_eq!(stages["acquire_to_submit"]["p99_ms"], 1.);
+        assert_eq!(stages["capture"]["p50_ms"], 1.);
         // A picture is counted for five seconds after its last packet.
         let later = start + Duration::from_millis(990 + 9) + Duration::from_millis(4500);
         assert_eq!(p.snapshot(later)["stages"]["frames"], 50);

@@ -16,6 +16,8 @@ import android.os.Looper;
 import android.util.Rational;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.util.Log;
+import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.View;
 import android.view.WindowManager;
@@ -29,6 +31,8 @@ import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.binding.input.keyboard.PcKeyboardController;
+import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.ui.StreamMenu;
 import com.limelight.ui.StreamMenuHint;
 import com.limelight.ui.AdaptiveLayout;
@@ -55,6 +59,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private com.limelight.console.NativeMenuController radeon;
     private java.util.concurrent.ScheduledExecutorService radeonThread;
     private DemoTouchpad touchpad;
+    private PcKeyboardOverlay pcKeyboard;
     private String fit;
     private int alignment;
     // The bundled samples are 1920x1080.
@@ -132,6 +137,19 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
             stream.setOnClickListener(view -> showMenu());
         }
         FrameLayout container = (FrameLayout) stream.getParent();
+        if (getIntent().getBooleanExtra("pckeyboard", false)) {
+            // The production PC keyboard over the sample; what it would send to a host goes to logcat (tag
+            // NightjarDemoInput), and D-pad / gamepad key events from adb steer it as on a device.
+            pcKeyboard = new PcKeyboardOverlay(this, "auto", 50, 90,
+                    (vk, down, modifiers) -> Log.i("NightjarDemoInput", "key " + Integer.toHexString(vk) + (down ? " down" : " up")
+                            + " modifiers " + modifiers),
+                    () -> {
+                        pcKeyboard.releaseInputs();
+                        pcKeyboard.setVisibility(View.GONE);
+                    });
+            container.addView(pcKeyboard, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+        }
         controls = new VirtualController(null, container, this);
         com.limelight.ui.OverlayPlacement.attach(findViewById(R.id.performanceOverlayScroll), container,
                 out -> controls.collectVisibleBounds(out));
@@ -404,6 +422,32 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         if (touchpad != null) touchpad.stop();
         if (menu != null) menu.sheet().dismiss();
         super.onStop();
+    }
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        PcKeyboardController.Pad pad = pcKeyboard != null && pcKeyboard.getVisibility() == View.VISIBLE
+                ? padFor(event.getKeyCode()) : null;
+        if (pad == null || event.getRepeatCount() > 0) return super.dispatchKeyEvent(event);
+        pcKeyboard.controller().pad(pad, event.getAction() == KeyEvent.ACTION_DOWN, event.getEventTime());
+        return true;
+    }
+
+    private static PcKeyboardController.Pad padFor(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP: return PcKeyboardController.Pad.UP;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return PcKeyboardController.Pad.DOWN;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return PcKeyboardController.Pad.LEFT;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return PcKeyboardController.Pad.RIGHT;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_BUTTON_A: return PcKeyboardController.Pad.A;
+            case KeyEvent.KEYCODE_BUTTON_B: return PcKeyboardController.Pad.B;
+            case KeyEvent.KEYCODE_BUTTON_X: return PcKeyboardController.Pad.X;
+            case KeyEvent.KEYCODE_BUTTON_Y: return PcKeyboardController.Pad.Y;
+            case KeyEvent.KEYCODE_BUTTON_L1: return PcKeyboardController.Pad.LB;
+            case KeyEvent.KEYCODE_BUTTON_R1: return PcKeyboardController.Pad.RB;
+            case KeyEvent.KEYCODE_BUTTON_START: return PcKeyboardController.Pad.START;
+            default: return null;
+        }
     }
 
     @Override protected void onDestroy() {

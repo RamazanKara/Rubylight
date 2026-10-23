@@ -20,9 +20,12 @@ public final class StreamHealth {
         public final float budgetMs, lossPercent, jitterMs, decodeMs, hostP95Ms, displayP95Ms;
         public final float receivedFps, releasedFps, shownFps;
         public final int thermal;
+        /** True when hostP95Ms runs to the last packet sent, as the host's timing reports measure it. */
+        public final boolean hostIncludesSend;
         public Sample(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs,
                       float decodeMs, float hostP95Ms, float displayP95Ms,
-                      float receivedFps, float releasedFps, float shownFps, int thermal) {
+                      float receivedFps, float releasedFps, float shownFps, int thermal,
+                      boolean hostIncludesSend) {
             this.atMs = atMs;
             this.fresh = fresh;
             this.budgetMs = fps > 0 ? 1000f / fps : Float.NaN;
@@ -35,6 +38,7 @@ public final class StreamHealth {
             this.releasedFps = releasedFps;
             this.shownFps = shownFps;
             this.thermal = thermal;
+            this.hostIncludesSend = hostIncludesSend;
         }
     }
 
@@ -46,13 +50,17 @@ public final class StreamHealth {
         /** Network stalls started in the last {@link #STALL_HISTORY_MS}, and their rhythm (0 when none). */
         public final int stalls;
         public final long stallPeriodMs;
+        /** True when worstHostP95Ms comes from a sample whose host time includes the send. */
+        public final boolean hostIncludesSend;
         private Report(List<Finding> findings, int samples, boolean recent, float loss,
-                       float decode, float host, float display, int stalls, long stallPeriodMs) {
+                       float decode, float host, float display, int stalls, long stallPeriodMs,
+                       boolean hostIncludesSend) {
             this.findings = Collections.unmodifiableList(findings);
             this.samples = samples;
             this.recent = recent;
             this.stalls = stalls;
             this.stallPeriodMs = stallPeriodMs;
+            this.hostIncludesSend = hostIncludesSend;
             worstLossPercent = loss; worstDecodeMs = decode;
             worstHostP95Ms = host; worstDisplayP95Ms = display;
         }
@@ -108,12 +116,16 @@ public final class StreamHealth {
         int[] votes = new int[Finding.values().length];
         int valid = 0;
         float loss = -1, decode = -1, host = -1, display = -1;
+        boolean hostIncludesSend = false;
         for (Sample s : samples) {
             if (!s.fresh || !Float.isFinite(s.budgetMs)) continue;
             valid++;
             if (valid(s.lossPercent)) loss = Math.max(loss, s.lossPercent);
             if (valid(s.decodeMs)) decode = Math.max(decode, s.decodeMs);
-            if (valid(s.hostP95Ms)) host = Math.max(host, s.hostP95Ms);
+            if (valid(s.hostP95Ms) && s.hostP95Ms >= host) {
+                host = s.hostP95Ms;
+                hostIncludesSend = s.hostIncludesSend;
+            }
             if (valid(s.displayP95Ms)) display = Math.max(display, s.displayP95Ms);
             if (networkEvidence(s)) votes[Finding.NETWORK.ordinal()]++;
             if (valid(s.decodeMs) && s.decodeMs >= s.budgetMs) votes[Finding.DECODER.ordinal()]++;
@@ -132,7 +144,8 @@ public final class StreamHealth {
         // A rhythm spans minutes, so it stands on its own rather than on the last 30 seconds.
         if (stallPeriodMs > 0) findings.add(Finding.PERIODIC);
         boolean recent = !samples.isEmpty() && samples.getLast().fresh && nowMs - samples.getLast().atMs <= 2500;
-        return new Report(findings, valid, recent, loss, decode, host, display, stallCount, stallPeriodMs);
+        return new Report(findings, valid, recent, loss, decode, host, display, stallCount, stallPeriodMs,
+                hostIncludesSend);
     }
 
     private static boolean valid(float value) { return Float.isFinite(value) && value >= 0; }

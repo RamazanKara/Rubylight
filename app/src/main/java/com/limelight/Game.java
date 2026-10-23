@@ -2780,7 +2780,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             com.limelight.utils.WifiDiagnostics.period(context, report.stallPeriodMs), report.stalls) :
                     context.getString(descriptions[finding.ordinal()]));
         }
-        text.append("\n\n").append(context.getString(R.string.health_evidence,
+        text.append("\n\n").append(context.getString(
+                report.hostIncludesSend ? R.string.health_evidence_send : R.string.health_evidence,
                 healthMeasurement(context, report.worstLossPercent), healthMeasurement(context, report.worstDecodeMs),
                 healthMeasurement(context, report.worstHostP95Ms), healthMeasurement(context, report.worstDisplayP95Ms)));
         text.append("\n\n").append(context.getString(R.string.wifi_heading)).append('\n').append(connection);

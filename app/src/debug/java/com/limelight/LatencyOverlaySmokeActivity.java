@@ -99,7 +99,7 @@ public class LatencyOverlaySmokeActivity extends Activity {
         for (int second = 1; second <= 600; second++) {
             boolean stall = second % 120 >= 30 && second % 120 < 33;
             health.add(new com.limelight.utils.StreamHealth.Sample(second * 1000L, true, 60, stall ? 6 : 0.1f, 2,
-                    4.6f, 2.1f, 1.2f, 60, 60, 60, 0));
+                    4.6f, 2.1f, 1.2f, 60, 60, 60, 0, false));
         }
         com.limelight.utils.StreamHealth.Report report = health.report(600_000);
         healthDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(R.string.health_title)
@@ -133,7 +133,7 @@ public class LatencyOverlaySmokeActivity extends Activity {
         if (!debug) {
             overlay.setText(PerformanceOverlay.withHardwareMetrics(this,
                     PerformanceOverlay.statisticsText(this, "1280×720 · AV1 · HDR",
-                            119.94f, 120, 14.2f, 0.14f, 8, 1, 2.1f, 4.6f, 1.2f), hardwareMetrics, false));
+                            119.94f, 120, 14.2f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false), hardwareMetrics, false));
             return;
         }
         String video = getString(R.string.perf_overlay_streamdetails, "1280x720", 120f) + '\n' +

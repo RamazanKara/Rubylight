@@ -9,7 +9,8 @@
     <string name="health_host">Máy chủ: các mẫu xử lý chậm hơn vượt quá khoảng khung hình. Hãy so sánh tải trò chơi/GPU và thử giới hạn khung hình trong trò chơi thấp hơn. Phép đo này bao gồm nhiều hơn chỉ quá trình mã hóa.</string>
     <string name="health_presentation">Hiển thị: khung hình được đưa ra nhanh hơn tốc độ hiển thị, với thời gian chờ hiển thị dài. Hãy so sánh các chế độ nhịp độ khung hình và tần số quét màn hình.</string>
     <string name="health_heat">Nhiệt độ: Android báo áp lực nhiệt cao. Hãy giảm tốc độ khung hình/độ phân giải hoặc tắt các xử lý tốn tài nguyên trên thiết bị; để thiết bị nguội bớt.</string>
-    <string name="health_evidence">Giá trị lớn nhất quan sát được:\nMất khung hình: %1$s %%\nGiải mã: %2$s ms\nXử lý trên máy chủ + gửi p95: %3$s ms\nChờ hiển thị p95: %4$s ms\nTổng các giai đoạn này không bằng độ trễ từ đầu vào đến màn hình.</string>
+    <string name="health_evidence">Giá trị lớn nhất quan sát được:\nMất khung hình: %1$s %%\nGiải mã: %2$s ms\nXử lý trên máy chủ p95: %3$s ms\nChờ hiển thị p95: %4$s ms\nTổng các giai đoạn này không bằng độ trễ từ đầu vào đến màn hình.</string>
+    <string name="health_evidence_send">Giá trị lớn nhất quan sát được:\nMất khung hình: %1$s %%\nGiải mã: %2$s ms\nXử lý trên máy chủ + gửi p95: %3$s ms\nChờ hiển thị p95: %4$s ms\nTổng các giai đoạn này không bằng độ trễ từ đầu vào đến màn hình.</string>
     <string name="health_trial_help">Thử tốc độ bit chỉ thay đổi phiên này. Hãy so sánh thêm 30 giây chơi tương tự, rồi quay lại đây để hoàn tác. Thay đổi tốc độ bit thủ công hoặc tự động sẽ thay thế lần thử.</string>
     <string name="health_try">Thử tốc độ bit thấp hơn</string>
     <string name="health_undo">Hoàn tác thử tốc độ bit</string>

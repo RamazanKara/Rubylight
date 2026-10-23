@@ -9,7 +9,8 @@
     <string name="health_host">PC: langsamere Verarbeitungszeiten überschritten das Bildintervall. Vergleiche Spiel-/GPU-Auslastung und ein niedrigeres FPS-Limit im Spiel. Diese Messung umfasst mehr als die Kodierung.</string>
     <string name="health_presentation">Anzeige: Bilder wurden schneller freigegeben als angezeigt, bei langen Wartezeiten. Vergleiche Frame-Pacing und Bildschirmfrequenz.</string>
     <string name="health_heat">Temperatur: Android meldete hohe thermische Belastung. Verringere Bildrate/Auflösung oder aufwendige Client-Verarbeitung und lasse das Gerät abkühlen.</string>
-    <string name="health_evidence">Größte beobachtete Werte:\nBildverlust: %1$s %%\nDekodierung: %2$s ms\nPC-Verarbeitung + Senden p95: %3$s ms\nAnzeigewartezeit p95: %4$s ms\nDiese Stufen ergeben zusammen keine Eingabe-bis-Bildschirm-Latenz.</string>
+    <string name="health_evidence">Größte beobachtete Werte:\nBildverlust: %1$s %%\nDekodierung: %2$s ms\nPC-Verarbeitung p95: %3$s ms\nAnzeigewartezeit p95: %4$s ms\nDiese Stufen ergeben zusammen keine Eingabe-bis-Bildschirm-Latenz.</string>
+    <string name="health_evidence_send">Größte beobachtete Werte:\nBildverlust: %1$s %%\nDekodierung: %2$s ms\nPC-Verarbeitung + Senden p95: %3$s ms\nAnzeigewartezeit p95: %4$s ms\nDiese Stufen ergeben zusammen keine Eingabe-bis-Bildschirm-Latenz.</string>
     <string name="health_trial_help">Der Bitratentest gilt nur für diese Sitzung. Vergleiche weitere 30 Sekunden ähnliches Spielgeschehen und kehre zum Rückgängigmachen zurück. Manuelle oder automatische Bitratenänderungen ersetzen den Test.</string>
     <string name="health_try">Niedrigere Bitrate testen</string>
     <string name="health_undo">Bitratentest rückgängig machen</string>

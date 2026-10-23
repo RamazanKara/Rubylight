@@ -49,31 +49,10 @@ public final class PerformanceOverlay {
         return elapsedNs > 0 ? (float) (bytes * 8000.0 / elapsedNs) : -1;
     }
 
-    public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
-                                               float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
-                                               float hostMs, float decodeMs, float displayMs) {
-        return statisticsText(context, stream, shownFps, receivedFps, videoMbps, frameLossPercent,
-                networkMs, varianceMs, hostMs, decodeMs, displayMs, false);
-    }
-
-    public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
-                                               float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
-                                               float hostMs, float decodeMs, float displayMs, boolean submissionOnly) {
-        return statisticsText(context, stream, shownFps, receivedFps, videoMbps, frameLossPercent, networkMs,
-                varianceMs, hostMs, -1, decodeMs, displayMs, submissionOnly);
-    }
-
-    public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
-                                               float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
-                                               float hostMs, float sendMs, float decodeMs, float displayMs) {
-        return statisticsText(context, stream, shownFps, receivedFps, videoMbps, frameLossPercent, networkMs,
-                varianceMs, hostMs, sendMs, decodeMs, displayMs, false);
-    }
-
     /**
      * hostMs is the host's present to last packet sent. When the host's timing reports give the send
      * stage (sendMs, first to last packet) the host line shows the two apart, so the network send is
-     * not read as processing; without it the line keeps the single value.
+     * not read as processing; with sendMs unavailable (-1) the line keeps the single value.
      */
     @SuppressWarnings("deprecation")
     public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,

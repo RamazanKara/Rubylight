@@ -9,7 +9,8 @@
     <string name="health_host">Ana bilgisayar: daha yavaş işleme örnekleri kare aralığını aştı. Oyun/GPU yükünü ve daha düşük bir oyun kare sınırını karşılaştırın. Bu ölçüm kodlamadan fazlasını içerir.</string>
     <string name="health_presentation">Sunum: kareler gösterildiklerinden daha hızlı bırakıldı ve uzun görüntüleme beklemeleri oluştu. Kare zamanlama modlarını ve ekran yenileme hızını karşılaştırın.</string>
     <string name="health_heat">Sıcaklık: Android yüksek termal baskı bildirdi. Kare hızını/çözünürlüğü düşürün veya maliyetli istemci işlemlerini devre dışı bırakın; cihazın soğumasını bekleyin.</string>
-    <string name="health_evidence">Gözlenen en yüksek değerler:\nKare kaybı: %%%1$s\nKod çözme: %2$s ms\nAna bilgisayar işleme + gönderim p95: %3$s ms\nGörüntüleme bekleme p95: %4$s ms\nBu aşamaların toplamı girişten ekrana gecikmeyi vermez.</string>
+    <string name="health_evidence">Gözlenen en yüksek değerler:\nKare kaybı: %%%1$s\nKod çözme: %2$s ms\nAna bilgisayar işleme p95: %3$s ms\nGörüntüleme bekleme p95: %4$s ms\nBu aşamaların toplamı girişten ekrana gecikmeyi vermez.</string>
+    <string name="health_evidence_send">Gözlenen en yüksek değerler:\nKare kaybı: %%%1$s\nKod çözme: %2$s ms\nAna bilgisayar işleme + gönderim p95: %3$s ms\nGörüntüleme bekleme p95: %4$s ms\nBu aşamaların toplamı girişten ekrana gecikmeyi vermez.</string>
     <string name="health_trial_help">Bit hızı denemesi yalnızca bu oturumu değiştirir. Benzer oynanışın 30 saniyesini daha karşılaştırın, ardından geri almak için buraya dönün. Elle veya otomatik bit hızı değişiklikleri denemenin yerini alır.</string>
     <string name="health_try">Daha düşük bit hızı dene</string>
     <string name="health_undo">Bit hızı denemesini geri al</string>

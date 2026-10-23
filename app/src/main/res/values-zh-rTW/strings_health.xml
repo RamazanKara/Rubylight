@@ -9,7 +9,8 @@
     <string name="health_host">主機：較慢的處理樣本超過了影格間隔。請比較遊戲/GPU 負載，並嘗試降低遊戲的影格限制。這項測量涵蓋的不只是編碼。</string>
     <string name="health_presentation">呈現：影格釋出的速度比顯示的速度快，且顯示等待時間很長。請比較不同的影格調步模式和螢幕更新率。</string>
     <string name="health_heat">溫度：Android 回報熱壓力偏高。請降低影格速率/解析度，或停用耗資源的用戶端處理；讓裝置降溫。</string>
-    <string name="health_evidence">觀察到的最大值：\n影格遺失：%1$s %%\n解碼：%2$s ms\n主機處理 + 傳送 p95：%3$s ms\n顯示等待 p95：%4$s ms\n這些階段的總和並不等於輸入到畫面的延遲。</string>
+    <string name="health_evidence">觀察到的最大值：\n影格遺失：%1$s %%\n解碼：%2$s ms\n主機處理 p95：%3$s ms\n顯示等待 p95：%4$s ms\n這些階段的總和並不等於輸入到畫面的延遲。</string>
+    <string name="health_evidence_send">觀察到的最大值：\n影格遺失：%1$s %%\n解碼：%2$s ms\n主機處理 + 傳送 p95：%3$s ms\n顯示等待 p95：%4$s ms\n這些階段的總和並不等於輸入到畫面的延遲。</string>
     <string name="health_trial_help">位元速率試用只會變更這個工作階段。請以類似的遊戲內容再比較 30 秒，然後返回這裡復原。手動或自動變更位元速率會取代這項試用。</string>
     <string name="health_try">試用較低的位元速率</string>
     <string name="health_undo">復原位元速率試用</string>

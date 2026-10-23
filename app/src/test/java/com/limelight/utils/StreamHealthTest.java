@@ -7,7 +7,24 @@ public class StreamHealthTest {
     private StreamHealth.Sample sample(long time, boolean fresh, float loss, float decode,
                                       float host, float display, float released, float shown, int heat) {
         return new StreamHealth.Sample(time, fresh, 60, loss, 1, decode, host, display,
-                released, released, shown, heat);
+                released, released, shown, heat, false);
+    }
+    @Test public void hostEvidenceSaysWhetherItIncludesTheSend() {
+        StreamHealth withSend = new StreamHealth();
+        StreamHealth withoutSend = new StreamHealth();
+        for (int n = 1; n <= 3; n++) {
+            withSend.add(new StreamHealth.Sample(n * 1000, true, 60, 0, 1, 4, 5, 2, 60, 60, 60, 0, true));
+            withoutSend.add(new StreamHealth.Sample(n * 1000, true, 60, 0, 1, 4, 5, 2, 60, 60, 60, 0, false));
+        }
+        assertTrue(withSend.report(3000).hostIncludesSend);
+        assertFalse(withoutSend.report(3000).hostIncludesSend);
+        // After a switch from reports to the frame header's value the label follows the worst value shown.
+        StreamHealth mixed = new StreamHealth();
+        mixed.add(new StreamHealth.Sample(1000, true, 60, 0, 1, 4, 5, 2, 60, 60, 60, 0, true));
+        mixed.add(new StreamHealth.Sample(2000, true, 60, 0, 1, 4, 9, 2, 60, 60, 60, 0, false));
+        assertEquals(9f, mixed.report(2000).worstHostP95Ms, 0f);
+        assertFalse(mixed.report(2000).hostIncludesSend);
+        assertFalse(new StreamHealth().report(1000).hostIncludesSend);
     }
     @Test public void identifiesSimultaneousEvidenceWithoutInventingRootCause() {
         StreamHealth health = new StreamHealth();
@@ -41,7 +58,7 @@ public class StreamHealthTest {
         StreamHealth health = new StreamHealth();
         for (int n = 1; n <= 4; n++) health.add(new StreamHealth.Sample(n * 1000, true, 60,
                 Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.NaN, Float.POSITIVE_INFINITY,
-                Float.POSITIVE_INFINITY, 60, Float.POSITIVE_INFINITY, 0, 0));
+                Float.POSITIVE_INFINITY, 60, Float.POSITIVE_INFINITY, 0, 0, false));
         assertTrue(health.report(4000).findings.isEmpty());
         assertEquals(-1, health.report(4000).worstHostP95Ms, 0);
     }
@@ -52,7 +69,7 @@ public class StreamHealthTest {
         for (int second = 1; second <= minutes * 60; second++) {
             boolean stall = second % 120 >= 30 && second % 120 < 33;
             health.add(new StreamHealth.Sample(second * 1000L, true, 60, stall ? 6 : 0, 1, 4, 3, 2,
-                    60, 60, 60, 0));
+                    60, 60, 60, 0, false));
         }
         return health;
     }
@@ -84,7 +101,7 @@ public class StreamHealthTest {
     @Test public void staleOrUnmeasuredSamplesAreNotStalls() {
         StreamHealth health = new StreamHealth();
         for (int n = 1; n <= 600; n++) health.add(new StreamHealth.Sample(n * 1000L, n % 120 != 30, 60,
-                n % 120 == 30 ? 50 : 0, 1, 1, 1, 1, 60, 60, 60, 0));
+                n % 120 == 30 ? 50 : 0, 1, 1, 1, 1, 60, 60, 60, 0, false));
         assertEquals(0, health.report(600_000).stalls);
     }
 }

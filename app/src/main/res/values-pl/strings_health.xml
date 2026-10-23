@@ -9,7 +9,8 @@
     <string name="health_host">Host: wolniejsze próbki przetwarzania przekraczały interwał klatki. Porównaj obciążenie gry/GPU i niższy limit klatek w grze. Ten pomiar obejmuje więcej niż samo kodowanie.</string>
     <string name="health_presentation">Prezentacja: klatki były wydawane szybciej, niż były wyświetlane, z długim oczekiwaniem na wyświetlenie. Porównaj tryby tempa klatek i częstotliwość odświeżania ekranu.</string>
     <string name="health_heat">Temperatura: Android zgłosił wysokie obciążenie termiczne. Obniż liczbę klatek/rozdzielczość lub wyłącz kosztowne przetwarzanie na urządzeniu; pozwól urządzeniu ostygnąć.</string>
-    <string name="health_evidence">Największe zaobserwowane wartości:\nUtrata klatek: %1$s %%\nDekodowanie: %2$s ms\nPrzetwarzanie na hoście + wysyłanie p95: %3$s ms\nOczekiwanie na wyświetlenie p95: %4$s ms\nTe etapy nie sumują się do opóźnienia od sterowania do ekranu.</string>
+    <string name="health_evidence">Największe zaobserwowane wartości:\nUtrata klatek: %1$s %%\nDekodowanie: %2$s ms\nPrzetwarzanie na hoście p95: %3$s ms\nOczekiwanie na wyświetlenie p95: %4$s ms\nTe etapy nie sumują się do opóźnienia od sterowania do ekranu.</string>
+    <string name="health_evidence_send">Największe zaobserwowane wartości:\nUtrata klatek: %1$s %%\nDekodowanie: %2$s ms\nPrzetwarzanie na hoście + wysyłanie p95: %3$s ms\nOczekiwanie na wyświetlenie p95: %4$s ms\nTe etapy nie sumują się do opóźnienia od sterowania do ekranu.</string>
     <string name="health_trial_help">Próba szybkości transmisji zmienia tylko tę sesję. Porównaj kolejne 30 sekund podobnej rozgrywki, a potem wróć tu, aby ją cofnąć. Ręczne lub automatyczne zmiany szybkości transmisji zastępują próbę.</string>
     <string name="health_try">Wypróbuj niższą szybkość transmisji</string>
     <string name="health_undo">Cofnij próbę szybkości transmisji</string>

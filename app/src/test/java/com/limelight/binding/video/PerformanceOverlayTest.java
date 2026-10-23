@@ -30,7 +30,7 @@ public class PerformanceOverlayTest {
     @Test
     public void statisticsSeparatesMeasuredStagesInReadableLines() {
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · AV1 · HDR",
-                59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, 4.6f, 1.2f).toString();
+                59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
         assertEquals("1920×1080 · AV1 · HDR\n" +
                 "Displayed: 59.9 FPS · Received: 60.0 FPS\n" +
                 "Video payload: 20.4 Mbps · Loss: 0.14%\n" +
@@ -44,7 +44,7 @@ public class PerformanceOverlayTest {
     public void pyrowaveSubmissionIsLabelledAndNeverMixedWithCompletionPercentiles() {
         Context context = context(Locale.US);
         String statistics = PerformanceOverlay.statisticsText(context, "1920×1080 · PyroWave · SDR",
-                120, 120, 900, 0, 4, 1, 1.5f, 0.76f, 9.4f, true).toString();
+                120, 120, 900, 0, 4, 1, 1.5f, -1, 0.76f, 9.4f, true).toString();
         assertTrue(statistics.contains("CPU submission: 0.76 ms · Display wait: 9.40 ms"));
 
         double[][] completed = new double[5][4];
@@ -67,7 +67,7 @@ public class PerformanceOverlayTest {
     public void unavailableReadingsAreNotDisplayedAsZerosOrGuessedFromOtherStages() {
         for (float missing : new float[] {-1, Float.NaN, Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY}) {
             String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
-                    missing, 60, missing, missing, missing, missing, missing, missing, missing).toString();
+                    missing, 60, missing, missing, missing, missing, missing, missing, missing, missing, false).toString();
             assertTrue(text.contains("Displayed: — FPS · Received: 60.0 FPS"));
             assertTrue(text.contains("Video payload: — Mbps · Loss: —%"));
             assertTrue(text.contains("Network RTT: — ms (±— ms)"));
@@ -81,7 +81,7 @@ public class PerformanceOverlayTest {
     @Test
     public void germanUsesLocalizedLabelsAndMeasurements() {
         String text = PerformanceOverlay.statisticsText(context(Locale.GERMANY), "1920×1080 · HEVC · SDR",
-                59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, 4.6f, 1.2f).toString();
+                59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
         assertTrue(text.contains("Angezeigt: 59,9 FPS"));
         assertTrue(text.contains("Videodaten: 20,4 Mbit/s · Verlust: 0,14%"));
         assertTrue(text.contains("Host-Verarbeitung: 2,10 ms"));
@@ -104,7 +104,8 @@ public class PerformanceOverlayTest {
         double[][] summary = stats.summarize();
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
                 rates[2], rates[0], 12, 1.2f, 8, 1, PerformanceOverlay.average(summary, 4),
-                stats.takeDecodeTimeMs(), PerformanceOverlay.average(summary, 2)).toString();
+                PerformanceOverlay.average(summary, 7), stats.takeDecodeTimeMs(),
+                PerformanceOverlay.average(summary, 2), false).toString();
         assertTrue(text.contains("Displayed: 30.0 FPS"));
         assertTrue(text.contains("Host processing: 2.10 ms"));
         assertTrue(text.contains("Decode: 4.00 ms · Display wait: 4.00 ms"));
@@ -145,17 +146,17 @@ public class PerformanceOverlayTest {
         double[][] summary = stats.summarize();
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
                 120, 120, 450, 0, 8, 1, PerformanceOverlay.average(summary, 4), PerformanceOverlay.average(summary, 7),
-                1, 1).toString();
+                1, 1, false).toString();
         assertTrue(text, text.contains("Host processing: 0.70 ms + send 4.20 ms"));
         String german = PerformanceOverlay.statisticsText(context(Locale.GERMANY), "1280×720 · PyroWave · SDR",
-                120, 120, 450, 0, 8, 1, 4.9f, 4.2f, 1, 1).toString();
+                120, 120, 450, 0, 8, 1, 4.9f, 4.2f, 1, 1, false).toString();
         assertTrue(german, german.contains("Host-Verarbeitung: 0,70 ms + Senden 4,20 ms"));
     }
 
     @Test
     public void hostWorkNeverGoesNegativeWhenSendRoundsAboveTheTotal() {
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
-                4.2f, 4.2000005f, 1, 1).toString();
+                4.2f, 4.2000005f, 1, 1, false).toString();
         assertTrue(text, text.contains("Host processing: 0.00 ms + send 4.20 ms"));
     }
 
@@ -167,11 +168,11 @@ public class PerformanceOverlayTest {
         double[][] summary = stats.summarize();
         assertEquals(-1, PerformanceOverlay.average(summary, 7), 0);
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
-                PerformanceOverlay.average(summary, 4), PerformanceOverlay.average(summary, 7), 1, 1).toString();
+                PerformanceOverlay.average(summary, 4), PerformanceOverlay.average(summary, 7), 1, 1, false).toString();
         assertTrue(text, text.contains("Host processing: 2.10 ms\n"));
         assertFalse(text.contains("send"));
         String noHost = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
-                -1, 4.2f, 1, 1).toString();
+                -1, 4.2f, 1, 1, false).toString();
         assertTrue(noHost, noHost.contains("Host processing: — ms\n"));
     }
 
@@ -302,7 +303,7 @@ public class PerformanceOverlayTest {
         assertTrue(text.contains("Lüfter: — U/min (—%)"));
         HardwareMetrics empty = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":2000,\"interval_ms\":1000,\"cpu\":{},\"gpus\":[]}");
         assertEquals("Stream\nHost CPU: —%", PerformanceOverlay.withHardwareMetrics(context(Locale.US), "Stream", empty, false).toString());
-        CharSequence base = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1, 2, 4, 1);
+        CharSequence base = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1, 2, -1, 4, 1, false);
         assertSame(base, PerformanceOverlay.withHardwareMetrics(context(Locale.US), base, null, false));
         assertSame(base, PerformanceOverlay.withHardwareMetrics(context(Locale.US), base, null, true));
     }

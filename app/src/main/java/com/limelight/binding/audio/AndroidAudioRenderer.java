@@ -11,6 +11,8 @@ import android.media.audiofx.AudioEffect;
 import android.os.Build;
 import android.os.SystemClock;
 
+import androidx.annotation.RequiresApi;
+
 import com.limelight.LimeLog;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -451,6 +453,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.N)
     private void reportAudioTrack(int underruns) {
         ProblemReport.setAudioDiagnostics("AudioTrack: rate=" + sampleRate + ", channels=" + channels +
                 ", packetFrames=" + samplesPerFrame + ", bufferFrames=" + track.getBufferSizeInFrames() +

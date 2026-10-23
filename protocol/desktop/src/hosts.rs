@@ -88,6 +88,12 @@ pub struct Host {
     /// The cover version each `art` entry was asked for (empty for classic box art).
     art_versions: HashMap<i32, String>,
     pub native: Native,
+    /// Bumped when the PC is unpaired, so a native read that started before is dropped.
+    native_epoch: u64,
+    /// Counts native reads and actions, in the order they started or landed.
+    native_seq: u64,
+    /// `native_seq` when the last session action landed: older reads carry an older session.
+    action_seq: u64,
     pub error: Option<String>,
     polling: bool,
     last_poll: Option<Instant>,
@@ -155,6 +161,8 @@ pub enum Event {
     },
     Native {
         id: u64,
+        epoch: u64,
+        seq: u64,
         result: Result<Box<NativeRead>, String>,
     },
     Session {
@@ -264,6 +272,12 @@ fn describe(error: &nightjar_core::http::Error) -> String {
 
 impl Hosts {
     pub fn new(records: Vec<HostRecord>, waker: Waker) -> Self {
+        let mut hosts = Self::without_discovery(records, waker);
+        hosts._mdns = hosts.start_discovery();
+        hosts
+    }
+
+    fn without_discovery(records: Vec<HostRecord>, waker: Waker) -> Self {
         let (sender, events) = channel();
         let mut hosts = Self {
             list: Vec::new(),
@@ -280,7 +294,6 @@ impl Hosts {
         for record in records {
             hosts.insert(record);
         }
-        hosts._mdns = hosts.start_discovery();
         hosts
     }
 
@@ -304,6 +317,9 @@ impl Hosts {
             art: HashMap::new(),
             art_versions: HashMap::new(),
             native: Native::default(),
+            native_epoch: 0,
+            native_seq: 0,
+            action_seq: 0,
             error: None,
             polling: false,
             last_poll: None,
@@ -513,9 +529,7 @@ impl Hosts {
     }
 
     pub fn unpair(&mut self, id: u64) {
-        let Some(identity) = self.identity.clone() else {
-            return;
-        };
+        let identity = self.identity.clone();
         let Some(host) = self.get_mut(id) else {
             return;
         };
@@ -525,6 +539,10 @@ impl Hosts {
         host.art.clear();
         host.art_versions.clear();
         host.native = Native::default();
+        host.native_epoch += 1;
+        let Some(identity) = identity else {
+            return;
+        };
         self.spawn("unpair", move || {
             if let Ok(client) = client_for(&identity, &record, &record.address) {
                 let _ = client.unpair();
@@ -581,6 +599,8 @@ impl Hosts {
         if full {
             host.native.full_at = Some(Instant::now());
         }
+        host.native_seq += 1;
+        let (epoch, seq) = (host.native_epoch, host.native_seq);
         let record = host.record.clone();
         self.spawn("native-api", move || {
             let result = client_for(&identity, &record, &record.address).and_then(|client| {
@@ -600,7 +620,7 @@ impl Hosts {
                     _ => Ok(Box::new(NativeRead { capabilities, library, session })),
                 }
             });
-            Some(Event::Native { id, result })
+            Some(Event::Native { id, epoch, seq, result })
         });
     }
 
@@ -640,6 +660,8 @@ impl Hosts {
             .into_iter()
             .filter_map(|id| {
                 let host = self.get(id)?;
+                // A PC unpaired while its read was in flight must not get its library back.
+                host.record.server_certificate.as_ref()?;
                 Some((host.record.unique_id.clone(), host.native.library.clone()?))
             })
             .filter(|(unique_id, _)| !unique_id.is_empty())
@@ -807,11 +829,13 @@ impl Hosts {
                         host.art.insert(app, art);
                     }
                 }
-                Event::Native { id, result } => {
+                Event::Native { id, epoch, seq, result } => {
                     let mut reload_apps = false;
                     let mut save = false;
-                    if let Some(host) = self.get_mut(id) {
+                    // A read that started before an unpair says nothing about the PC now.
+                    if let Some(host) = self.get_mut(id).filter(|h| h.native_epoch == epoch && h.record.server_certificate.is_some()) {
                         host.native.loading = false;
+                        let newest = seq > host.action_seq;
                         match result {
                             Ok(read) => {
                                 let read = *read;
@@ -828,6 +852,8 @@ impl Hosts {
                                     host.native.library_live = true;
                                 }
                                 match read.session {
+                                    // A session read before an action landed is older than its answer.
+                                    Ok(_) if !newest => {}
                                     Ok(session) => host.native.session = Some(session),
                                     Err(e) => host.native.error = Some(format!("The session could not be read. {e}")),
                                 }
@@ -847,6 +873,8 @@ impl Hosts {
                         host.native.acting = false;
                         if let Ok(session) = &result {
                             host.native.session = Some((**session).clone());
+                            host.native_seq += 1;
+                            host.action_seq = host.native_seq;
                         }
                     }
                     self.poll_one(id);
@@ -1019,6 +1047,79 @@ fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn paired_record(unique_id: &str) -> HostRecord {
+        HostRecord {
+            pace: None,
+            unique_id: unique_id.into(),
+            name: "PC".into(),
+            address: "192.0.2.1".into(),
+            http_port: 0,
+            https_port: 0,
+            other_addresses: Vec::new(),
+            server_certificate: Some("pem".into()),
+            mac: None,
+            manual: true,
+            settings: None,
+            app_settings: Default::default(),
+        }
+    }
+
+    fn library() -> Library {
+        serde_json::from_str(include_str!("../../client/tests/fixtures/native-api/library.json")).unwrap()
+    }
+
+    fn session(state: &str) -> Session {
+        let text = include_str!("../../client/tests/fixtures/native-api/session.json")
+            .replace("\"suspended\"", &format!("\"{state}\""));
+        serde_json::from_str(&text).unwrap()
+    }
+
+    fn full_read(session: Session) -> Box<NativeRead> {
+        Box::new(NativeRead { capabilities: None, library: Some(library()), session: Ok(session) })
+    }
+
+    fn send(hosts: &mut Hosts, event: Event) {
+        hosts.sender.send(event).unwrap();
+        hosts.drain(&egui::Context::default());
+    }
+
+    #[test]
+    fn a_native_read_that_lands_after_unpairing_is_dropped() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        // The read started while the PC was paired (epoch 0).
+        hosts.unpair(id);
+        send(&mut hosts, Event::Native { id, epoch: 0, seq: 1, result: Ok(full_read(session("suspended"))) });
+        assert!(hosts.list[0].native.library.is_none(), "the library of an unpaired PC is not taken in");
+        assert!(hosts.take_library_saves().is_empty(), "and nothing is saved for it");
+
+        // Even when it was queued for saving before the unpair, an unpaired PC is not saved.
+        hosts.list[0].record.server_certificate = Some("pem".into());
+        let epoch = hosts.list[0].native_epoch;
+        send(&mut hosts, Event::Native { id, epoch, seq: 2, result: Ok(full_read(session("suspended"))) });
+        assert!(hosts.list[0].native.library.is_some());
+        hosts.list[0].record.server_certificate = None;
+        assert!(hosts.take_library_saves().is_empty());
+    }
+
+    #[test]
+    fn a_session_read_from_before_an_action_does_not_overwrite_its_answer() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        // A full read starts (seq 1), then Close game lands and says the session is gone.
+        hosts.list[0].native_seq = 1;
+        send(&mut hosts, Event::Session { id, action: ActionId::End, result: Ok(Box::new(session("idle"))) });
+        assert_eq!(hosts.list[0].native.session.as_ref().map(|s| s.state), Some(session("idle").state));
+        // The older read lands afterwards: its library counts, its session does not.
+        send(&mut hosts, Event::Native { id, epoch: 0, seq: 1, result: Ok(full_read(session("suspended"))) });
+        assert!(hosts.list[0].native.library.is_some());
+        assert_eq!(hosts.list[0].native.session.as_ref().map(|s| s.state), Some(session("idle").state));
+        // A read that started after the action is newer and replaces it.
+        let seq = hosts.list[0].native_seq + 1;
+        send(&mut hosts, Event::Native { id, epoch: 0, seq, result: Ok(full_read(session("suspended"))) });
+        assert_eq!(hosts.list[0].native.session.as_ref().map(|s| s.state), Some(session("suspended").state));
+    }
 
     #[test]
     fn pins_are_four_digits() {

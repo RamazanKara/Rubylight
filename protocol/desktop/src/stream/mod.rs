@@ -1528,6 +1528,7 @@ impl Streaming {
         // SAFETY: a live renderer.
         unsafe { SDL_RenderPresent(renderer) };
         let presented = session::now_us();
+        let flip = if self.timing_csv.is_some() && picture.is_some() { phase::present_stats(renderer) } else { Default::default() };
         self.needs_redraw = false;
         if let Some(p) = picture {
             let w = &mut self.window;
@@ -1556,6 +1557,9 @@ impl Streaming {
                     clock: self.offset.offset_at(d.enqueue_us as i64).zip(self.offset.rtt_us()),
                     early: d.early,
                     first_block_us: d.first_block_us,
+                    due_us: p.present_us,
+                    begin_us: begin,
+                    flip,
                 });
             }
             let host_us = self.rtp_clock.host_us(p.decoded.rtp);

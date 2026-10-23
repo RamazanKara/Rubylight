@@ -16,6 +16,14 @@
 //! that goes by name ignores them): `early` (0 decoded whole, 1 early decode, 2 early decode
 //! fell back to the whole frame) and `first_block_ns` (when the first block of an early frame
 //! was decoded; empty otherwise), for the early-decode comparison in docs/early-decode.md.
+//!
+//! Seven more desktop columns break the wait between decoding and showing a picture down
+//! (docs/pyrowave-decode.md, "Where the time between decoded and shown goes"): `due_ns` (when the
+//! pacer meant to present it), `present_begin_ns` (the presenter began drawing it), and, on
+//! Windows, the swap chain's frame statistics read right after the present call:
+//! `present_count` (the chain's count for this present), `stat_present_count`,
+//! `stat_present_refresh` and `stat_sync_refresh` (DXGI_FRAME_STATISTICS' PresentCount,
+//! PresentRefreshCount and SyncRefreshCount) and `stat_sync_ns` (SyncQPCTime on the session clock).
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -45,7 +53,10 @@ pub const OWN_COLUMNS: [&str; 32] = [
 ];
 
 /// The desktop's own columns after the host's.
-pub const EXTRA_COLUMNS: [&str; 2] = ["early", "first_block_ns"];
+pub const EXTRA_COLUMNS: [&str; 9] = [
+    "early", "first_block_ns", "due_ns", "present_begin_ns", "present_count", "stat_present_count", "stat_present_refresh",
+    "stat_sync_refresh", "stat_sync_ns",
+];
 
 pub fn header() -> String {
     format!("{},{},{}\n", OWN_COLUMNS.join(","), record::HEADER, EXTRA_COLUMNS.join(","))
@@ -79,6 +90,22 @@ pub struct Row {
     pub early: u8,
     /// The first block of an early frame was decoded (µs), 0 when not.
     pub first_block_us: u64,
+    /// When the pacer meant to present the picture, and when the presenter began on it (µs).
+    pub due_us: u64,
+    pub begin_us: u64,
+    /// The swap chain's counters and vblank time just after the present call (0 when unknown).
+    pub flip: Flip,
+}
+
+/// `IDXGISwapChain::GetFrameStatistics` and the chain's present count, read after a present.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Flip {
+    pub present_count: u32,
+    pub stat_present_count: u32,
+    pub stat_present_refresh: u32,
+    pub stat_sync_refresh: u32,
+    /// SyncQPCTime on the session clock, µs.
+    pub stat_sync_us: u64,
 }
 
 enum Message {
@@ -277,9 +304,15 @@ pub fn own_fields(row: &Row, lost: u64, previous_output_us: u64, shown_fps: Opti
     fields.join(",")
 }
 
-/// The two desktop columns of one row, comma separated.
+/// The desktop columns of one row, comma separated.
 pub fn extra_fields(row: &Row) -> String {
-    format!("{},{}", row.early, timestamp(row.first_block_us))
+    let count = |n: u32| if n == 0 { String::new() } else { n.to_string() };
+    let flip = &row.flip;
+    format!(
+        "{},{},{},{},{},{},{},{},{}",
+        row.early, timestamp(row.first_block_us), timestamp(row.due_us), timestamp(row.begin_us), count(flip.present_count),
+        count(flip.stat_present_count), count(flip.stat_present_refresh), count(flip.stat_sync_refresh), timestamp(flip.stat_sync_us),
+    )
 }
 
 #[cfg(test)]
@@ -322,6 +355,9 @@ mod tests {
             clock: Some((-5_000, 800)),
             early: 1,
             first_block_us: 1_000_900,
+            due_us: 0,
+            begin_us: 0,
+            flip: Flip::default(),
         }
     }
 
@@ -331,7 +367,7 @@ mod tests {
         let ours = header();
         let ours = ours.trim_end();
         assert!(ours.starts_with(android.trim_end()), "Android's columns come first, unchanged");
-        assert_eq!(&ours[android.trim_end().len()..], ",early,first_block_ns");
+        assert_eq!(&ours[android.trim_end().len()..], format!(",{}", EXTRA_COLUMNS.join(",")));
         assert_eq!(OWN_COLUMNS.len() + 9, android.split(',').count());
         assert_eq!(ours.split(',').count(), android.split(',').count() + EXTRA_COLUMNS.len());
     }
@@ -391,8 +427,8 @@ mod tests {
         assert_eq!(lines.len(), 3, "{text}");
         assert_eq!(format!("{}\n", lines[0]), header());
         let tail = |line: &str| line.split(',').skip(OWN_COLUMNS.len()).collect::<Vec<_>>().join(",");
-        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,1,1000900000");
-        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,1,1000900000");
+        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,1,1000900000,,,,,,,");
+        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,1,1000900000,,,,,,,");
         for line in &lines {
             assert_eq!(line.split(',').count(), header().trim_end().split(',').count());
         }
@@ -400,9 +436,16 @@ mod tests {
 
     #[test]
     fn the_early_columns_say_how_the_frame_was_decoded() {
-        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,");
-        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,");
-        assert_eq!(extra_fields(&row()), "1,1000900000");
+        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,,,,,,,,");
+        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,,,,,,,,");
+        assert_eq!(extra_fields(&row()), "1,1000900000,,,,,,,");
+        let timed = Row {
+            due_us: 1_008_000,
+            begin_us: 1_008_100,
+            flip: Flip { present_count: 7, stat_present_count: 6, stat_present_refresh: 100, stat_sync_refresh: 101, stat_sync_us: 1_009_500 },
+            ..row()
+        };
+        assert_eq!(extra_fields(&timed), "1,1000900000,1008000000,1008100000,7,6,100,101,1009500000");
         // Rows come back in the order they went in, each with its own columns.
         let path = std::env::temp_dir().join(format!("nightjar-timing-early-{}", std::process::id()));
         let csv = TimingCsv::create(&path).unwrap();
@@ -412,7 +455,7 @@ mod tests {
         drop(csv);
         let text = std::fs::read_to_string(&path).unwrap();
         let _ = std::fs::remove_file(&path);
-        let ends: Vec<String> = text.lines().skip(1).map(|l| l.rsplit(',').take(2).collect::<Vec<_>>().join("|")).collect();
+        let ends: Vec<String> = text.lines().skip(1).map(|l| { let f: Vec<&str> = l.split(',').skip(l.split(',').count() - EXTRA_COLUMNS.len()).collect(); format!("{}|{}", f[1], f[0]) }).collect();
         assert_eq!(ends, ["|0", "1000900000|1", "|2"]);
     }
 
@@ -461,6 +504,9 @@ mod tests {
                 clock: Some((4_900_000, 600)),
                 early: 1,
                 first_block_us: base + 1_000,
+                due_us: 0,
+                begin_us: 0,
+                flip: Flip::default(),
             });
         }
         drop(csv);

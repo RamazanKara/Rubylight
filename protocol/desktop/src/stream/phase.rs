@@ -58,6 +58,35 @@ pub fn timing(renderer: *mut SDL_Renderer, refresh_hz: f32) -> Option<(i64, i64)
     }
 }
 
+/// The swap chain's counters and last vblank time right after a present call, for the timing CSV
+/// (`timing_csv::Flip`). Empty when the renderer has no DXGI swap chain.
+#[cfg(windows)]
+pub fn present_stats(renderer: *mut SDL_Renderer) -> crate::timing_csv::Flip {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_FRAME_STATISTICS};
+    // SAFETY: the chain pointer comes from the live renderer and is only borrowed for these calls.
+    unsafe {
+        let chain = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER);
+        let Some(chain) = IDXGISwapChain::from_raw_borrowed(&chain) else { return Default::default() };
+        let mut flip = crate::timing_csv::Flip { present_count: chain.GetLastPresentCount().unwrap_or(0), ..Default::default() };
+        let mut stats = DXGI_FRAME_STATISTICS::default();
+        if chain.GetFrameStatistics(&mut stats).is_ok() {
+            flip.stat_present_count = stats.PresentCount;
+            flip.stat_present_refresh = stats.PresentRefreshCount;
+            flip.stat_sync_refresh = stats.SyncRefreshCount;
+            let age = SDL_GetPerformanceCounter().checked_sub(stats.SyncQPCTime as u64).filter(|_| stats.SyncQPCTime > 0);
+            if let Some(age) = age {
+                let age_us = (age as f64 * 1_000_000.0 / SDL_GetPerformanceFrequency() as f64) as u64;
+                flip.stat_sync_us = nightjar_core::session::now_us().saturating_sub(age_us);
+            }
+        }
+        flip
+    }
+}
+
+#[cfg(not(windows))]
+pub fn present_stats(_: *mut SDL_Renderer) -> crate::timing_csv::Flip { Default::default() }
+
 #[cfg(not(windows))]
 pub fn timing(renderer: *mut SDL_Renderer, _: f32) -> Option<(i64, i64)> {
     type Sync = unsafe extern "C" fn(*mut std::ffi::c_void, libc::c_ulong, *mut i64, *mut i64, *mut i64) -> i32;

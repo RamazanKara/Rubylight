@@ -116,6 +116,10 @@ final class RustBridge {
     static native boolean presentClockSchedule(long hostUs, long readyNs, long[] out);
     static native boolean presentClockStats(long[] out);
     static native boolean presentClockOffset(long[] out);
+    static native boolean presentClockScheduleOnGrid(long hostUs, long readyNs, long anchorNs, long intervalNs,
+            long leadNs, long slackNs, long[] out);
+    static native void presentClockObserve(long hostUs);
+    static native int presentClockContentRate();
     static native boolean sendCursorShapeRequest(boolean enabled);
     static native boolean sendControllerAudio(int kind, byte[] payload);
 }

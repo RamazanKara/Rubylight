@@ -18,6 +18,11 @@ import java.util.concurrent.TimeUnit;
  * The clock also runs, without scheduling anything, when only the clock sync is wanted: with
  * host frame times off, a host that announced clock sync is still probed so the timing CSV can
  * carry the clock offset. Then [presentNs] returns the ready time unchanged.
+ *
+ * On a panel with a fixed refresh rate, [presentOnGrid] moves the same schedule onto the
+ * display's vsync grid: it names the vsync a frame is meant for and when to release it so the
+ * compositor takes it for that vsync. [contentRateMilliHz] is the rate the game presents at,
+ * from the host timestamps of the frames passed to [onQueued].
  */
 final class HostFrameClock {
     /** Clock sync probes four times a second; the host answers each at once. */
@@ -36,6 +41,37 @@ final class HostFrameClock {
         boolean offset(long[] out);
         /** Sends a clock sync probe when the host announced clock sync. */
         void probe();
+        /**
+         * As [schedule], onto a vsync grid: the vsync times are anchorNs plus whole multiples of
+         * intervalNs (System.nanoTime()), the frame is released leadNs before its vsync, and a
+         * vsync up to slackNs before the schedule's present time may be taken. Fills out[0..6]:
+         * release time (ns), the vsync (ns), its index from the anchor, flags (bit 0 late, bit 1
+         * shares the previous frame's vsync), hold (us), host-to-vsync latency (us, -1 without
+         * clock sync), and how late the frame was (us).
+         */
+        boolean scheduleOnGrid(long hostUs, long readyNs, long anchorNs, long intervalNs,
+                long leadNs, long slackNs, long[] out);
+        /** Notes a frame's host time (us) for the content rate; call for every frame in order. */
+        void observe(long hostUs);
+        /** The content rate in millihertz once it held steady for two seconds, else 0. */
+        int contentRate();
+    }
+
+    /** Where one frame goes on the panel's vsync grid; see [presentOnGrid]. */
+    static final class GridPlan {
+        /** System.nanoTime() to release the frame at; never before it is ready. */
+        long releaseNs;
+        /** The vsync the frame is meant for, and its index from the anchor passed in. */
+        long vsyncNs;
+        long vsyncIndex;
+        /** The frame was ready after the host time plus the delay: behind the game's cadence. */
+        boolean late;
+        long lateByUs;
+        /** Same vsync as the frame scheduled before it: content faster than the panel. */
+        boolean sharesVsync;
+        long holdUs;
+        /** Host present to this vsync in us, -1 without clock sync. */
+        long latencyUs;
     }
 
     private static final Bridge NATIVE = new Bridge() {
@@ -48,6 +84,13 @@ final class HostFrameClock {
         @Override public boolean stats(long[] out) { return MoonBridge.presentClockStats(out); }
         @Override public boolean offset(long[] out) { return MoonBridge.presentClockOffset(out); }
         @Override public void probe() { MoonBridge.sendClockSyncProbe(); }
+        @Override public boolean scheduleOnGrid(long hostUs, long readyNs, long anchorNs, long intervalNs,
+                long leadNs, long slackNs, long[] out) {
+            return MoonBridge.presentClockScheduleOnGrid(hostUs, readyNs, anchorNs, intervalNs, leadNs,
+                    slackNs, out);
+        }
+        @Override public void observe(long hostUs) { MoonBridge.presentClockObserve(hostUs); }
+        @Override public int contentRate() { return MoonBridge.presentClockContentRate(); }
     };
 
     private final Bridge bridge;
@@ -56,10 +99,12 @@ final class HostFrameClock {
     private final long[] hostUs = new long[PENDING];
     private int next;
     private final long[] schedule = new long[4];
+    private final long[] grid = new long[7];
     private final long[] stats = new long[3];
     private ScheduledExecutorService prober;
     private volatile boolean scheduling;
     private volatile boolean started;
+    private volatile boolean trackingRate;
     private volatile long lastHoldUs = -1;
     private volatile long lastLatencyUs = -1;
 
@@ -79,9 +124,15 @@ final class HostFrameClock {
      * host announced clock sync); with neither it does not start at all.
      */
     void start(float maxRefreshHz, boolean schedule, boolean probe) {
-        if (!schedule && !probe) return;
+        start(maxRefreshHz, schedule, probe, false);
+    }
+
+    /** As above; trackRate also follows the content rate (see [contentRateMilliHz]) on its own. */
+    void start(float maxRefreshHz, boolean schedule, boolean probe, boolean trackRate) {
+        if (!schedule && !probe && !trackRate) return;
         int minIntervalUs = maxRefreshHz > 0 ? (int) (1_000_000f / maxRefreshHz) : 0;
         scheduling = schedule;
+        trackingRate = trackRate;
         bridge.start(minIntervalUs);
         started = true;
         clear();
@@ -108,6 +159,7 @@ final class HostFrameClock {
             prober = null;
         }
         scheduling = false;
+        trackingRate = false;
         if (started) {
             started = false;
             bridge.stop();
@@ -135,7 +187,12 @@ final class HostFrameClock {
     }
 
     /** Remembers the host timestamp of the frame queued with the codec timestamp codecPtsUs. */
-    synchronized void onQueued(long codecPtsUs, long frameHostUs) {
+    void onQueued(long codecPtsUs, long frameHostUs) {
+        remember(codecPtsUs, frameHostUs);
+        if (trackingRate && frameHostUs >= 0) bridge.observe(frameHostUs);
+    }
+
+    private synchronized void remember(long codecPtsUs, long frameHostUs) {
         codecPts[next] = codecPtsUs;
         hostUs[next] = frameHostUs;
         next = (next + 1) % PENDING;
@@ -161,6 +218,46 @@ final class HostFrameClock {
         lastHoldUs = schedule[1];
         lastLatencyUs = schedule[2];
         return schedule[0];
+    }
+
+    /**
+     * Plans the decoded frame with codec timestamp codecPtsUs, ready at readyNs, onto a display
+     * whose vsyncs are at anchorNs plus whole multiples of intervalNs: fills out and returns true.
+     * The frame is released at out.releaseNs for out.vsyncNs; the plan never holds a frame past
+     * the first vsync it can make by more than one vsync, and only to keep the game's cadence.
+     * Returns false, leaving out alone, when frames are not scheduled, the interval is not
+     * positive or the frame's host time is unknown: release it as without host frame times.
+     * leadNs is how long before its vsync a frame is released (the compositor's latch deadline
+     * and a margin); slackNs lets a vsync that much before the schedule's present time be taken
+     * (zero rounds up to the next vsync, half an interval rounds to the nearest).
+     */
+    boolean presentOnGrid(long codecPtsUs, long readyNs, long anchorNs, long intervalNs, long leadNs,
+            long slackNs, GridPlan out) {
+        if (!scheduling || intervalNs <= 0) return false;
+        long host = hostUsFor(codecPtsUs);
+        if (host < 0 || !bridge.scheduleOnGrid(host, readyNs, anchorNs, intervalNs, leadNs, slackNs, grid)) {
+            return false;
+        }
+        out.releaseNs = grid[0];
+        out.vsyncNs = grid[1];
+        out.vsyncIndex = grid[2];
+        out.late = (grid[3] & 1) != 0;
+        out.sharesVsync = (grid[3] & 2) != 0;
+        out.holdUs = grid[4];
+        out.latencyUs = grid[5];
+        out.lateByUs = grid[6];
+        lastHoldUs = out.holdUs;
+        lastLatencyUs = out.latencyUs;
+        return true;
+    }
+
+    /**
+     * The rate the game presents at, in millihertz (60000 for 60 fps), once it held steady for
+     * two seconds and moved only after a new rate did; 0 before that, when the clock was not
+     * started with trackRate, or after it stopped. Fed by [onQueued].
+     */
+    int contentRateMilliHz() {
+        return trackingRate ? bridge.contentRate() : 0;
     }
 
     /** One overlay line, or null before the first scheduled frame. */

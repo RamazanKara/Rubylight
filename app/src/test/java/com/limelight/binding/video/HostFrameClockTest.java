@@ -38,6 +38,25 @@ public class HostFrameClockTest {
         @Override public boolean stats(long[] out) { return false; }
         @Override public boolean offset(long[] out) { out[0] = -3955; out[1] = 90; return true; }
         @Override public void probe() { probes.countDown(); }
+        long[] lastGridCall;
+        volatile int gridCalls;
+        final java.util.List<Long> observed = new java.util.concurrent.CopyOnWriteArrayList<>();
+        volatile int rate;
+        @Override public boolean scheduleOnGrid(long hostUs, long readyNs, long anchorNs, long intervalNs,
+                long leadNs, long slackNs, long[] out) {
+            gridCalls++;
+            lastGridCall = new long[] {hostUs, readyNs, anchorNs, intervalNs, leadNs, slackNs};
+            out[0] = readyNs + 2_000_000L;
+            out[1] = anchorNs + 3 * intervalNs;
+            out[2] = 3;
+            out[3] = 3; // late and shares
+            out[4] = 2_000;
+            out[5] = -1;
+            out[6] = 7_500;
+            return true;
+        }
+        @Override public void observe(long hostUs) { observed.add(hostUs); }
+        @Override public int contentRate() { return rate; }
     }
 
     @Test public void clockSyncProbesRunWithHostFrameTimesOffAndFramesAreNotScheduled() throws Exception {
@@ -102,6 +121,88 @@ public class HostFrameClockTest {
             assertEquals(123_456_789L + 5_000_000L, clock.presentNs(1_000, 123_456_789L));
             assertEquals(1, bridge.schedules);
             assertEquals("an unknown frame is shown when ready", 77L, clock.presentNs(1_005, 77L));
+        } finally {
+            clock.stop();
+        }
+    }
+
+    @Test public void aFrameIsPlannedOntoTheVsyncGridWithTheArgumentsGiven() {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 60_000);
+        clock.start(60, true, false);
+        try {
+            clock.onQueued(1_000, 90_000_000L);
+            HostFrameClock.GridPlan plan = new HostFrameClock.GridPlan();
+            assertTrue(clock.presentOnGrid(1_000, 5_000_000_000L, 4_990_000_000L, 16_666_667L, 4_000_000L,
+                    8_000_000L, plan));
+            assertArrayEquals(new long[] {90_000_000L, 5_000_000_000L, 4_990_000_000L, 16_666_667L, 4_000_000L,
+                    8_000_000L}, bridge.lastGridCall);
+            assertEquals(5_002_000_000L, plan.releaseNs);
+            assertEquals(4_990_000_000L + 3 * 16_666_667L, plan.vsyncNs);
+            assertEquals(3, plan.vsyncIndex);
+            assertTrue(plan.late);
+            assertTrue(plan.sharesVsync);
+            assertEquals(2_000, plan.holdUs);
+            assertEquals(-1, plan.latencyUs);
+            assertEquals(7_500, plan.lateByUs);
+        } finally {
+            clock.stop();
+        }
+    }
+
+    @Test public void noGridPlanWithoutSchedulingAnIntervalOrAHostTime() {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 60_000);
+        HostFrameClock.GridPlan plan = new HostFrameClock.GridPlan();
+        clock.start(60, false, true);
+        try {
+            clock.onQueued(1_000, 90_000_000L);
+            assertFalse("clock sync only: frames are not scheduled",
+                    clock.presentOnGrid(1_000, 1_000_000L, 0, 16_666_667L, 0, 0, plan));
+        } finally {
+            clock.stop();
+        }
+        clock.start(60, true, false);
+        try {
+            clock.onQueued(1_000, 90_000_000L);
+            assertFalse("no interval", clock.presentOnGrid(1_000, 1_000_000L, 0, 0, 0, 0, plan));
+            assertFalse("unknown frame", clock.presentOnGrid(1_005, 1_000_000L, 0, 16_666_667L, 0, 0, plan));
+            assertEquals("the native side is never asked", 0, bridge.gridCalls);
+        } finally {
+            clock.stop();
+        }
+    }
+
+    @Test public void theContentRateIsTrackedOnItsOwnAndReadFromTheNativeSide() {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 60_000);
+        bridge.rate = 90_000;
+        assertEquals("not running", 0, clock.contentRateMilliHz());
+        clock.start(120, false, false, true);
+        try {
+            assertEquals("the native clock runs for the rate alone", 1, bridge.starts);
+            clock.onQueued(1_000, 90_000_000L);
+            clock.onQueued(1_001, 90_011_111L);
+            assertEquals(java.util.Arrays.asList(90_000_000L, 90_011_111L), bridge.observed);
+            assertEquals(90_000, clock.contentRateMilliHz());
+            assertEquals("frames are not scheduled", 5L, clock.presentNs(1_000, 5L));
+            assertEquals(0, bridge.schedules);
+        } finally {
+            clock.stop();
+        }
+        assertEquals(0, clock.contentRateMilliHz());
+        assertEquals(1, bridge.stops);
+    }
+
+    @Test public void framesAreNotObservedUnlessTheRateIsTracked() {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 60_000);
+        bridge.rate = 60_000;
+        clock.start(120, true, false);
+        try {
+            clock.onQueued(1_000, 90_000_000L);
+            assertTrue(bridge.observed.isEmpty());
+            assertEquals(0, clock.contentRateMilliHz());
         } finally {
             clock.stop();
         }

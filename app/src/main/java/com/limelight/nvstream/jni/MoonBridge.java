@@ -769,6 +769,28 @@ public class MoonBridge {
         return rustStream ? RustBridge.presentClockOffset(out) : cPresentClockOffset(out);
     }
     private static native boolean cPresentClockOffset(long[] out);
+    // PresentClock.schedule onto a display's vsync grid (present_clock.rs schedule_on_grid). out:
+    // release time (ns), vsync (ns), vsync index from the anchor, flags (1 late, 2 shares the
+    // previous frame's vsync), hold (us), host-to-vsync latency (us, -1 without clock sync) and
+    // how late the frame was (us).
+    public static boolean presentClockScheduleOnGrid(long hostUs, long readyNs, long anchorNs, long intervalNs,
+            long leadNs, long slackNs, long[] out) {
+        return rustStream
+                ? RustBridge.presentClockScheduleOnGrid(hostUs, readyNs, anchorNs, intervalNs, leadNs, slackNs, out)
+                : cPresentClockScheduleOnGrid(hostUs, readyNs, anchorNs, intervalNs, leadNs, slackNs, out);
+    }
+    private static native boolean cPresentClockScheduleOnGrid(long hostUs, long readyNs, long anchorNs,
+            long intervalNs, long leadNs, long slackNs, long[] out);
+    // Notes a frame's host time (us) for the content rate; the rate in millihertz once it held
+    // steady for two seconds, else 0.
+    public static void presentClockObserve(long hostUs) {
+        if (rustStream) RustBridge.presentClockObserve(hostUs); else cPresentClockObserve(hostUs);
+    }
+    private static native void cPresentClockObserve(long hostUs);
+    public static int presentClockContentRate() {
+        return rustStream ? RustBridge.presentClockContentRate() : cPresentClockContentRate();
+    }
+    private static native int cPresentClockContentRate();
 
     // Host cursor shapes, client to host (docs/protocol/cursor-shape.md).
     public static final int CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST = 0x5540;

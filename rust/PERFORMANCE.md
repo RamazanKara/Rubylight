@@ -7614,6 +7614,25 @@ Confirmed loss is retained for the authenticated paired identity plus canonical 
 
 A task-owned adaptation of the earlier fixture is retained at `D:\CodexArtifacts\rubylight-keyframe-recovery-20261018\fixture`. It supports an explicit 2× versus Automatic ABBA comparison at both 70.77 and 800 Mbps, with requested-keyframe decode timing, receive gaps and the following ten frames. The installed-host preflight reported an active application, so neither the synthetic native cap test nor the stream comparison was launched. The application was left untouched. There is no new hardware latency or quality result here; the historical fixed-cap measurements above must not be presented as validation of this policy. The static-desktop fixture also lacks controlled reference pixels and cannot establish visual quality by compressed size alone.
 
+## October 24: predictive claim waits under VRR
+
+Under the VRR hint the pacer did not wait for a predicted fresher frame, because the 1000 Hz virtual display would make every claim wait for nothing. A game faster than the stream on a source that is not at 1000 Hz then lost 2-4 ms: the claim took the first frame the credit allowed, which was up to a game frame old. The pacer now has a prediction floor: under VRR it waits for a predicted frame when the learned source interval is at least 2 ms (`Pacer::with_prediction_floor`, `stream.rs`); below that it behaves as before, equal to prediction off (unit test `a_prediction_floor_leaves_a_1000_hz_source_unchanged_and_waits_for_a_slower_one`).
+
+Measured on the RX 7900 XT (240 Hz physical display), HEVC, 2560x720, 60 fps stream, the VRR hint on, `minimum_fps_target=20`, a scripted game (`motion_probe`) at 120, 240 and 60 Hz, 25 s per run, the first 5 s dropped. A is the same host build with `frame_pacing_predictive=false` (the old VRR behaviour), B the default; order A B B A, two runs each, means of the two. Age is `capture_age_at_submit_ms` and present-to-sent `present_to_sent_ms` from the 5 s `stream timings` lines (two lines per run after the warm-up, so the p99 columns are noisy); the cadence error is `host_cadence_error` over the whole run (about 1200 pairs).
+
+| game / leg | age p50 / p95 / p99 | present-to-sent p50 / p95 / p99 | cadence error p50 / p99 | shown fps |
+| --- | --- | --- | --- | --- |
+| 120 Hz, A | 4.68 / 9.70 / 10.91 | 7.27 / 12.11 / 13.49 | 0.69 / 9.15 | 60.10 |
+| 120 Hz, B | 0.27 / 3.71 / 8.91 | 3.80 / 6.39 / 11.43 | 0.24 / 8.83 | 60.10 |
+| 240 Hz, A | 2.53 / 4.25 / 5.00 | 4.76 / 7.02 / 7.59 | 0.46 / 4.71 | 60.10 |
+| 240 Hz, B | 0.23 / 0.30 / 2.75 | 2.83 / 3.25 / 5.48 | 0.10 / 2.96 | 60.10 |
+| 60 Hz, A | 0.26 / 0.32 / 0.38 | 2.81 / 3.26 / 3.33 | 0.14 / 0.73 | 60.00 |
+| 60 Hz, B | 0.23 / 0.28 / 0.31 | 2.80 / 3.26 / 3.31 | 0.10 / 0.75 | 60.00 |
+
+The individual runs agree: the 120 Hz cadence error p99 was 8.72 and 9.57 (A) against 8.64 and 9.02 (B); the 240 Hz one 4.83 and 4.58 (A) against 4.83 and 1.08 (B), so the 240 Hz p99 gain comes from one of the two B runs and is not claimed. Median age falls by 4.4 ms and present-to-sent by 3.5 ms at 120 Hz, by 2.3 and 1.9 ms at 240 Hz; the 60 Hz game and the shown fps do not move. The 120 Hz game keeps a 3.7 ms age p95: a predicted frame that does not arrive inside the budget is still claimed late. Kept.
+
+Not measured: the 1000 Hz virtual display. An isolated host can only create that display as SYSTEM in the console session, and no harness for it exists here (`e2e.py` captures the physical display with `virtual_display_mode = disabled`). That the 1000 Hz case is unchanged rests on the floor: below 2 ms the pacer takes the same branch as with prediction off, which the unit test asserts.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

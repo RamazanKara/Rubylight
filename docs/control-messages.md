@@ -157,3 +157,5 @@ atomically disables host bitrate and adaptive pacing control for that client's
 current sessions. A client should send its current encoder bitrate once when
 starting its own controller; no lease renewal is needed. New sessions reset
 ownership. PyroWave is excluded from this host controller.
+
+By default (`link_rate_adaptation`, [configuration](configuration.md#lower-bitrate-when-the-link-cannot-carry-it)) the host also lowers the bitrate when the network cannot carry the stream. It reads the same validated `0x5502` reports (frames the client could not rebuild, and the share of packets reported missing), and the same `0x0200` pings for freshness. The keyframe request `0x0302` and reference invalidation count as network evidence only from a client that sends no `0x5502` at all, and only when the host or the client's decode queue did not cause them. A `/bitrate` request from the client turns it off for that session, as it does for the controller above.

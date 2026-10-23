@@ -260,6 +260,33 @@ public class GameLifecycleTest {
     }
 
     @Test
+    public void controllerReceivesTheMinimumAndMaximumInThatOrder() throws Exception {
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.autoBitrateMinKbps = 5000;
+        prefs.autoBitrateMaxKbps = 30000;
+        RetryConnection connection = new RetryConnection();
+        connection.fail = false;
+        connection.details.encoderBitrateSupported = true;
+        connection.details.encoderBitrateKbps = 45000;
+        connection.details.initialEncoderBitrateKbps = 38988;
+        ReflectionHelpers.setField(activity, "prefConfig", prefs);
+        ReflectionHelpers.setField(activity, "adaptiveBitrate",
+                new com.limelight.nvstream.AdaptiveBitrateController(0, 0, 60, 0));
+        ReflectionHelpers.setField(activity, "streamFps", 60);
+        ReflectionHelpers.setField(activity, "conn", connection);
+        ReflectionHelpers.setField(activity, "connected", true);
+        ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+                ReflectionHelpers.ClassParameter.from(int.class, 0));
+        awaitBitrateRequest(activity);
+        com.limelight.nvstream.AdaptiveBitrateController controller = ReflectionHelpers.getField(activity, "adaptiveBitrate");
+        // Swapped arguments would put the floor at 30000 and the limit at 5000 or 30000.
+        assertEquals(5000, (int) ReflectionHelpers.getField(controller, "floorKbps"));
+        assertEquals(30000, (int) ReflectionHelpers.getField(controller, "maxLimitKbps"));
+        assertEquals(30000, (int) ReflectionHelpers.getField(controller, "ceilingKbps"));
+    }
+
+    @Test
     public void autoBitrateStopsClaimingWhenTheHostNeverReportsItsEncoderBudget() throws Exception {
         for (boolean supported : new boolean[] {true, false}) {
             Game activity = Robolectric.buildActivity(Game.class).get();

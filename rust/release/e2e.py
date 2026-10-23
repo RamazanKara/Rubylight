@@ -73,6 +73,7 @@ parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
 args = parser.parse_args()
 RECOVERY_INTERVAL_MS = 500
+MOTION_SCRIPT_EXTRA = 30  # seconds the strip runs beyond the stream when a script is set
 at_rate = bool(args.recovery) or args.motion_at_rate
 if at_rate:
     # The default an unconfigured host has; the release streams resend at the
@@ -132,7 +133,8 @@ try:
             except requests.RequestException: pass
         assert time.monotonic() < deadline, 'host not ready'
         time.sleep(.2)
-    fixture_seconds = str(int(args.seconds) + 90)
+    # A scripted strip writes motion.json when it ends, so it runs only a little past the stream.
+    fixture_seconds = str(int(args.seconds) + (MOTION_SCRIPT_EXTRA if args.motion_script else 90))
     tone = spawn([str(audio_probe), fixture_seconds, sink['id'], '--render-only'], 'tone.log', env=env)
     motion_rate = args.motion_script or (int(fps) if at_rate else int(fps) * 2)
     strip = [str(args.noise_height), 'noise'] if args.noise_height else ['128']
@@ -160,6 +162,8 @@ try:
         if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
         time.sleep(.25)
     rc = receiver.returncode
+    if args.motion_script:
+        motion.wait(timeout=MOTION_SCRIPT_EXTRA + 30)
     if args.record:
         # The host writes the record's footer at stream teardown, just after the receiver is gone.
         wait_for_footer(case / 'record', 2)

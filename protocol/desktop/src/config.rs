@@ -610,6 +610,23 @@ impl Store {
     }
 }
 
+/// After a cover is saved at `keep` (`<app>.img` or `<app>-<version>.img`), removes the other
+/// files of the same app in that folder: older versions of the cover are never asked for again.
+pub fn prune_art(keep: &Path, app_id: i32) {
+    let Some(dir) = keep.parent() else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let plain = format!("{app_id}.img");
+    let versioned = format!("{app_id}-");
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        let same_app = name == plain || (name.starts_with(&versioned) && name.ends_with(".img"));
+        if same_app && path != keep {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
 fn sanitize(name: &str) -> String {
     name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect()
 }
@@ -722,6 +739,27 @@ mod tests {
         // A new cover version is a new file; no version keeps the classic name.
         assert_ne!(store.art_path(host, 7, "a41c09e2"), store.art_path(host, 7, "0c1d2e3f"));
         assert!(store.art_path(host, 7, "").ends_with("7.img"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn saving_a_cover_prunes_the_older_versions_of_that_app_only() {
+        let dir = std::env::temp_dir().join(format!("nightjar-art-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        let host = "5E0F4B1C";
+        let old = store.art_path(host, 7, "a41c09e2");
+        let new = store.art_path(host, 7, "0c1d2e3f");
+        let plain = store.art_path(host, 7, "");
+        let other_app = store.art_path(host, 70, "a41c09e2");
+        let other_app_plain = store.art_path(host, 8, "");
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        for path in [&old, &new, &plain, &other_app, &other_app_plain] {
+            std::fs::write(path, b"x").unwrap();
+        }
+        prune_art(&new, 7);
+        assert!(new.exists(), "the cover just saved stays");
+        assert!(!old.exists() && !plain.exists(), "older versions of app 7 go");
+        assert!(other_app.exists() && other_app_plain.exists(), "other apps keep theirs (70 is not 7)");
         let _ = std::fs::remove_dir_all(dir);
     }
 

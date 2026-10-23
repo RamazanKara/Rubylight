@@ -705,7 +705,9 @@ impl Hosts {
                 if let Some(dir) = cache.parent() {
                     let _ = std::fs::create_dir_all(dir);
                 }
-                let _ = std::fs::write(&cache, &bytes);
+                if std::fs::write(&cache, &bytes).is_ok() {
+                    crate::config::prune_art(&cache, app);
+                }
                 Some(bytes)
             });
             let image = bytes.and_then(|b| decode_image(&b));

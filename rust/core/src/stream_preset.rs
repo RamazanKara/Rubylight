@@ -174,13 +174,11 @@ mod tests {
         }
         // Today's defaults are what the table says an unset covered setting is.
         let nothing = Config::default();
-        assert_eq!(nothing.get("amd_rc", "vbr_latency"), "vbr_latency");
         assert!(encoder_policy::amf_frame_cap_automatic(&nothing));
         assert_eq!(nothing.get("amd_quality", "speed"), "speed");
         assert!(!nothing.boolean("amd_preanalysis", false));
         for covered in &table().covered {
             let default = match covered.key.as_str() {
-                "amd_rc" => "vbr_latency",
                 "amd_max_frame_size" => "auto",
                 "amd_quality" => "speed",
                 "amd_preanalysis" => "false",
@@ -199,7 +197,10 @@ mod tests {
             "stream_preset = fastest",
         ] {
             assert_eq!(selected(&config(text)).id, "balanced", "{text:?}");
-            assert!(!filled(text).values.contains_key("amd_rc"), "{text:?}");
+            assert!(
+                !filled(text).values.contains_key("amd_max_frame_size"),
+                "{text:?}"
+            );
         }
         for (text, id) in [
             ("stream_preset = reference", "reference"),
@@ -218,11 +219,20 @@ mod tests {
         assert_eq!(latency.get("amd_quality", ""), "speed");
         assert!(latency.values.contains_key("amd_preanalysis"));
         assert!(!latency.boolean("amd_preanalysis", true));
-        assert!(!latency.values.contains_key("amd_rc"));
         let reference = filled("stream_preset = reference");
-        assert_eq!(reference.get("amd_rc", ""), "cbr");
         assert_eq!(reference.get("amd_max_frame_size", ""), "0");
         assert!(!reference.values.contains_key("amd_quality"));
+        // No preset sets the rate control: the measurements give no reason to change it.
+        for preset in &table().presets {
+            assert!(!preset.settings.contains_key("amd_rc"), "{}", preset.id);
+        }
+        assert!(
+            !table()
+                .covered
+                .iter()
+                .any(|covered| covered.key == "amd_rc")
+        );
+        assert!(!reference.values.contains_key("amd_rc"));
         // The preset name itself stays in the configuration.
         assert_eq!(reference.get(SETTING, ""), "reference");
     }
@@ -246,9 +256,9 @@ mod tests {
             "amd_rc = hqvbr\namd_quality = quality\namd_max_frame_size = 4\nmax_bitrate = 9000\namd_vbaq = disabled",
         );
         assert!(select(&mut config, "reference"));
-        assert_eq!(config.get("amd_rc", ""), "cbr");
         assert_eq!(config.get("amd_max_frame_size", ""), "0");
         assert!(!config.values.contains_key("amd_quality"));
+        assert_eq!(config.get("amd_rc", ""), "hqvbr");
         assert_eq!(config.get("max_bitrate", ""), "9000");
         assert_eq!(config.get("amd_vbaq", ""), "disabled");
         assert!(select(&mut config, "balanced"));
@@ -349,14 +359,10 @@ mod tests {
                 ),
                 Some(0)
             );
-            // Reference quality asks for constant bitrate and leaves the frame size to the driver.
+            // Reference quality leaves the frame size to the driver and the rate control alone.
             let (reference_rate, reference) = amf("stream_preset = reference");
             assert_eq!(property(&reference_rate, size), None, "codec {codec}");
-            assert_eq!(
-                property(&reference, rc),
-                Some(if codec == 0 { 1 } else { 3 }),
-                "codec {codec}"
-            );
+            assert_eq!(property(&reference, rc), default_rc, "codec {codec}");
             // An explicit value still wins.
             let (explicit_rate, explicit) =
                 amf("stream_preset = reference\namd_rc = vbr_peak\namd_max_frame_size = 4");

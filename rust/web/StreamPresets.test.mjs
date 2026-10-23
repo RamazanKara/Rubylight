@@ -66,15 +66,16 @@ test('under a preset the covered settings show its values as their defaults', ()
   assert.equal(lowest.byKey.get('amd_max_frame_size').default, '1');
   assert.equal(lowest.byKey.get('amd_rc').default, 'vbr_latency');
   const reference = shown({ stream_preset: 'reference' });
-  assert.equal(reference.byKey.get('amd_rc').default, 'cbr');
+  // No preset changes the rate control.
+  assert.equal(reference.byKey.get('amd_rc').default, 'vbr_latency');
   assert.equal(reference.byKey.get('amd_max_frame_size').default, '0');
   assert.equal(reference.byKey.get('amd_quality').default, 'speed');
   const values = currentValues(reference.described, {}, { stream_preset: 'reference' });
-  assert.equal(values.amd_rc, 'cbr');
+  assert.equal(values.amd_rc, 'vbr_latency');
   assert.equal(values.amd_max_frame_size, '0');
   // Choosing the preset in the console changes the defaults before it is saved.
   const edited = shown({}, { stream_preset: 'reference' });
-  assert.equal(currentValues(edited.described, { stream_preset: 'reference' }, {}).amd_rc, 'cbr');
+  assert.equal(currentValues(edited.described, { stream_preset: 'reference' }, {}).amd_max_frame_size, '0');
   // A name the host cannot read means Balanced, as it does there.
   assert.equal(shown({ stream_preset: 'fastest' }).id, 'balanced');
   assert.equal(shown({ stream_preset: ' "Reference" ' }).id, 'reference');
@@ -84,10 +85,10 @@ test('under a preset the covered settings show its values as their defaults', ()
 test('a value set by hand is kept and shows as differing from the preset', () => {
   const { byKey } = shown({ stream_preset: 'reference', amd_max_frame_size: '4' });
   const frame = byKey.get('amd_max_frame_size');
-  const rc = byKey.get('amd_rc');
+  const quality = byKey.get('amd_quality');
   const stored = { stream_preset: 'reference', amd_max_frame_size: '4' };
   assert.equal(differsFromDefault(frame, {}, stored), true);
-  assert.equal(differsFromDefault(rc, {}, stored), false);
+  assert.equal(differsFromDefault(quality, {}, stored), false);
   // Back to the preset's own value is no longer a manual setting; Automatic now is.
   assert.equal(differsFromDefault(frame, { amd_max_frame_size: '0' }, stored), false);
   assert.equal(differsFromDefault(frame, { amd_max_frame_size: 'auto' }, stored), true);
@@ -101,8 +102,12 @@ test('saving a preset sends its name only, and a hand-set value stays in the fil
   const both = { stream_preset: 'reference', amd_max_frame_size: 'auto' };
   assert.deepEqual(computeChanges(shown(stored, both).byKey, both, stored), both);
   // Choosing the preset's own value is not a change.
-  const same = { stream_preset: 'reference', amd_rc: 'cbr' };
+  const same = { stream_preset: 'reference', amd_max_frame_size: '0' };
   assert.deepEqual(computeChanges(shown(stored, same).byKey, same, stored), { stream_preset: 'reference' });
+  // The rate control is not covered: choosing a mode is an ordinary change.
+  const rate = { stream_preset: 'reference', amd_rc: 'cbr' };
+  assert.deepEqual(computeChanges(shown(stored, rate).byKey, rate, stored), rate);
+  assert.equal(presets.covered.includes('amd_rc'), false);
   // Clearing the preset removes the name; the hand-set value is untouched.
   const saved = { stream_preset: 'reference', amd_max_frame_size: '4' };
   const cleared = { stream_preset: null };

@@ -264,12 +264,10 @@ mod tests {
         assert_eq!(shown["stream_preset"], "reference");
         // The preset's values are not written to the file, so changing the
         // preset later changes them; only the name is saved.
-        for key in ["amd_rc", "amd_max_frame_size"] {
-            assert!(shown.get(key).is_none(), "{key}");
-        }
+        assert!(shown.get("amd_max_frame_size").is_none());
         let saved = Config::load(&host.config_path).unwrap();
         assert_eq!(saved.get("stream_preset", ""), "reference");
-        assert!(!saved.values.contains_key("amd_rc"));
+        assert!(!saved.values.contains_key("amd_max_frame_size"));
         // A manual value saves next to it and stays after the preset changes.
         handle(
             host,

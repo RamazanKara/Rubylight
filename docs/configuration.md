@@ -384,22 +384,21 @@ If controls do nothing, check the paired device's **Controllers** permission und
 
 ## Stream presets
 
-`stream_preset` names a set of defaults for four AMD encoder settings: Lowest latency (`lowest_latency`), Balanced (`balanced`, the default) and Reference quality (`reference`). A preset only fills the settings you have not set yourself. A value in the settings file always wins, so you can pick a preset and still change one setting by hand. The preset's values are not written to the file; changing or clearing the preset changes them.
+`stream_preset` names a set of defaults for three AMD encoder settings: Lowest latency (`lowest_latency`), Balanced (`balanced`, the default) and Reference quality (`reference`). A preset only fills the settings you have not set yourself. A value in the settings file always wins, so you can pick a preset and still change one setting by hand. The preset's values are not written to the file; changing or clearing the preset changes them.
 
 | Setting | Lowest latency | Balanced | Reference quality |
 | --- | --- | --- | --- |
-| `amd_rc` (rate control) | `vbr_latency` | `vbr_latency` | `cbr` |
 | `amd_max_frame_size` | `1` (one frame's share of the bitrate) | `auto` | `0` (driver default, no limit) |
 | `amd_quality` | `speed` | `speed` | `speed` |
 | `amd_preanalysis` | `false` | `false` | `false` |
 
 - **Lowest latency** limits every frame, recovery keyframes included, to one frame's share of the bitrate. In [the October 7, 2026 recovery run](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) a one-frame cap cut the largest 4K40 HEVC recovery frame by 66% with the same steady frame sizes and encode time. It also pins the quality preset and pre-analysis to their cheapest values, which are the defaults, so a value set elsewhere cannot add their measured cost (1.0 ms for HEVC and 12 ms for AV1 per 4K60 frame for the quality preset; 25 ms against 5-6 ms for pre-analysis).
-- **Reference quality** uses constant bitrate and no frame size limit, so recovery keyframes keep full quality. It is the weakly backed choice: in the [AMF quality sweep](../rust/PERFORMANCE_WORK.md#amf-settings-per-codec-quality-at-a-given-bitrate) constant bitrate moved VMAF by -0.75 to +1.0 depending on codec and clip, with the same encode time, and the 99th-percentile frame grows by 30-67%. Use it on a fast, steady link. Pre-analysis, the quality presets and the quality rate-control modes stay off: the measurements show no consistent picture gain for their encode time. Packed 4:4:4 is not part of any preset yet; it waits for measurements on text and UI fixtures.
-- **Rate control and Lowest latency.** Lowest latency leaves `amd_rc` alone because setting it yourself makes the encoder require that mode and fail loudly if it is unavailable.
+- **Reference quality** removes the frame size limit, so recovery keyframes keep full quality. They are larger on the wire (the one-frame cap lowered the payload from 64 to 51 Mbps in the 63 Mbps recovery run), so use it on a fast, steady link. Pre-analysis, the quality presets and the quality rate-control modes stay off: the measurements show no consistent picture gain for their encode time. Packed 4:4:4 is not part of any preset yet; it waits for measurements on text and UI fixtures.
+- **Why no preset sets `amd_rc`.** Setting it makes the encoder require that mode and fail loudly if it is unavailable. Constant bitrate is not a quality setting either: in the [AMF quality sweep](../rust/PERFORMANCE_WORK.md#amf-settings-per-codec-quality-at-a-given-bitrate) it scored slightly higher on the first clip only because it spends more of the budget, the 99th-percentile frame grew by 30-67%, and the 48 HDR encodes found no reason to change the rate control. Rate control stays at the default in every preset.
 
 The console shows the selector under **Streaming** and, below it, which covered settings you set by hand ("Custom"). Settings the preset covers show its values as their defaults, and Reset returns to them.
 
-A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). That replaces the host's values for the four settings, and the device's or app's own values for them still win over it. The device editor has no control for this yet.
+A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). That replaces the host's values for the three settings, and the device's or app's own values for them still win over it. The device editor has no control for this yet.
 
 ## Settings for one app or device
 

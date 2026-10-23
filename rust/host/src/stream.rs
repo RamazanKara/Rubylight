@@ -4118,7 +4118,7 @@ mod tests {
         set("max_bitrate=10000");
         let plain = effective(&client);
         assert!(!plain.values.contains_key("amd_max_frame_size"));
-        assert!(!plain.values.contains_key("amd_rc"));
+        assert!(!plain.values.contains_key("amd_quality"));
         set("stream_preset=balanced\nmax_bitrate=10000");
         assert_eq!(effective(&client).values.len(), plain.values.len() + 1);
         // The host's preset fills what it left unset; its own value wins.
@@ -4126,12 +4126,12 @@ mod tests {
         assert_eq!(effective(&client).get("amd_max_frame_size", ""), "1");
         set("stream_preset=reference\namd_max_frame_size=4");
         let reference = effective(&client);
-        assert_eq!(reference.get("amd_rc", ""), "cbr");
         assert_eq!(reference.get("amd_max_frame_size", ""), "4");
-        assert!(!f.host.config.read().unwrap().values.contains_key("amd_rc"));
+        // No preset changes the rate control.
+        assert!(!reference.values.contains_key("amd_rc"));
         // A device's preset replaces the host's for the covered settings,
         // and the device's own values still win over it.
-        set("stream_preset=reference\namd_rc=hqvbr");
+        set("stream_preset=reference\namd_quality=quality");
         let mut device = client.clone();
         device.extra.insert(
             "config_overrides".into(),
@@ -4140,7 +4140,7 @@ mod tests {
         let config = effective(&device);
         assert_eq!(config.get("stream_preset", ""), "lowest_latency");
         assert_eq!(config.get("amd_max_frame_size", ""), "1");
-        assert!(!config.values.contains_key("amd_rc"));
+        assert_eq!(config.get("amd_quality", ""), "speed");
         device.extra.insert(
             "config_overrides".into(),
             json!({"stream_preset":"lowest_latency","amd_max_frame_size":"3"}),
@@ -4154,15 +4154,15 @@ mod tests {
             json!({"stream_preset":"reference"}),
         );
         let config = effective(&client);
-        assert_eq!(config.get("amd_rc", ""), "cbr");
         assert_eq!(config.get("amd_max_frame_size", ""), "0");
+        assert!(!config.values.contains_key("amd_quality"));
         f.host.apps.write().unwrap()[0].extra.insert(
             "config-overrides".into(),
             json!({"stream_preset":"fastest"}),
         );
         let config = effective(&client);
         assert_eq!(config.get("stream_preset", ""), "reference");
-        assert_eq!(config.get("amd_rc", ""), "hqvbr");
+        assert_eq!(config.get("amd_quality", ""), "quality");
     }
     #[test]
     fn a_background_stream_keeps_keyboard_and_mouse_off_whatever_overrides_say() {

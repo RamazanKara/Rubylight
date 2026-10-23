@@ -2,7 +2,6 @@
   "setting": "stream_preset",
   "default": "balanced",
   "covered": [
-    { "key": "amd_rc", "default": "vbr_latency" },
     { "key": "amd_max_frame_size", "default": "auto" },
     { "key": "amd_quality", "default": "speed" },
     { "key": "amd_preanalysis", "default": "false" }
@@ -33,13 +32,11 @@
     {
       "id": "reference",
       "label": "Reference quality",
-      "description": "Spends the whole bitrate on the picture: constant bitrate, and no size limit on recovery keyframes. Frames get larger, so it suits a fast, steady link.",
+      "description": "Leaves recovery keyframes without a size limit, so they keep full quality. They are larger on the wire, so it suits a fast, steady link. Rate control, quality preset and pre-analysis stay at the defaults.",
       "settings": {
-        "amd_rc": "cbr",
         "amd_max_frame_size": "0"
       },
       "evidence": {
-        "amd_rc": "rust/PERFORMANCE_WORK.md, \"AMF settings per codec: quality at a given bitrate\": constant bitrate raised VMAF by up to 0.5 (HEVC), 0.3 (AV1) and 1.0 (H.264) on the first clip and moved it by -0.75 to +0.24 on the second, with the same encode time. The 99th-percentile frame grows by 30-67%. Small and content-dependent; HDR rows were -0.23 to +0.48.",
         "amd_max_frame_size": "rust/PERFORMANCE.md, \"Decision and limits\": the cap lowered encoded payload from 64 to 51 Mbps in the 63 Mbps recovery run, so removing it keeps recovery keyframes at full quality."
       }
     }

@@ -5,7 +5,7 @@
 //! The sender thread must never wait for the controller's lock, so each frame
 //! it sends is one store into [`SentLog`], and the control thread drains the
 //! log into the controller before it reads a client report or ticks.
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering, fence};
 use std::time::{Duration, Instant};
 
 use crate::link_rate::LinkRate;
@@ -88,7 +88,10 @@ impl SentLog {
                 slot[0].load(Ordering::Relaxed),
                 slot[1].load(Ordering::Relaxed),
             );
-            if self.head.load(Ordering::Acquire).wrapping_sub(n) >= LOG as u64 - 1 {
+            // The slot words must be read before the head is read again; the
+            // fence keeps the relaxed loads above from moving below it.
+            fence(Ordering::Acquire);
+            if self.head.load(Ordering::Relaxed).wrapping_sub(n) >= LOG as u64 - 1 {
                 continue;
             }
             each(
@@ -114,6 +117,9 @@ pub struct LinkControl {
     pub limited: bool,
     /// The loss share (0..1) behind the last step down, for the warning text.
     pub loss_share: f64,
+    /// The lowest encoder bitrate (kbps) of this episode, for the warning text;
+    /// the console's badge shows the current one.
+    pub lowest_kbps: u32,
     /// When the last change was logged at INFO.
     pub logged: Option<Instant>,
     sample: Option<(Instant, u64, u64)>,
@@ -134,6 +140,7 @@ impl LinkControl {
             restore: None,
             limited: false,
             loss_share: 0.,
+            lowest_kbps: 0,
             logged: None,
             sample: None,
             busy: false,
@@ -221,6 +228,37 @@ mod tests {
         log.drain(&mut cursor, |f, _, _, _| panic!("frame {f} seen twice"));
         log.record(4, 1, u64::MAX, started);
         log.drain(&mut cursor, |f, _, b, _| assert_eq!((f, b), (4, u32::MAX)));
+    }
+
+    #[test]
+    fn a_reader_racing_the_sender_never_sees_a_torn_slot() {
+        use std::sync::Arc;
+        let started = Instant::now();
+        let log = Arc::new(SentLog::new(started));
+        log.set_live(true);
+        let writer = {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                for frame in 0..200_000u32 {
+                    // Every word of a slot says the same frame.
+                    log.record(frame, frame, u64::from(frame), started);
+                }
+            })
+        };
+        let mut cursor = 0;
+        let mut seen = 0usize;
+        while !writer.is_finished() {
+            log.drain(&mut cursor, |frame, packets, bytes, _| {
+                assert_eq!((packets, bytes), (frame, frame), "torn slot");
+                seen += 1;
+            });
+        }
+        writer.join().unwrap();
+        log.drain(&mut cursor, |frame, packets, bytes, _| {
+            assert_eq!((packets, bytes), (frame, frame), "torn slot");
+            seen += 1;
+        });
+        assert!(seen > 0);
     }
 
     #[test]

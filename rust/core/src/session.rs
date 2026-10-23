@@ -30,6 +30,63 @@ pub struct Warning {
 /// bitrate below the requested one.
 pub const LINK_WARNING: &str = "network_bitrate_limited";
 
+/// Update the bookkeeping for a change, under the lock, and return what to
+/// say about it.
+fn note_link_change(
+    link: &mut crate::link_control::LinkControl,
+    now: Instant,
+    change: crate::link_rate::Change,
+) -> LinkReport {
+    use crate::link_rate::ChangeKind;
+    let was_limited = std::mem::replace(&mut link.limited, change.kind != ChangeKind::Full);
+    match change.kind {
+        ChangeKind::StepDown | ChangeKind::Floor | ChangeKind::EncoderFloor => {
+            if change.evidence.loss_share > 0. {
+                link.loss_share = change.evidence.loss_share;
+            }
+            link.lowest_kbps = match link.lowest_kbps {
+                0 => change.to_kbps,
+                lowest => lowest.min(change.to_kbps),
+            };
+        }
+        ChangeKind::Full => link.lowest_kbps = 0,
+        ChangeKind::Probe | ChangeKind::ProbeFailed => {}
+    }
+    // Routine changes go to the log at most once a second; the first
+    // step down and the floors have their own WARN.
+    let warned = match change.kind {
+        ChangeKind::StepDown => !was_limited,
+        ChangeKind::Floor | ChangeKind::EncoderFloor => true,
+        _ => false,
+    };
+    let log_info = !warned
+        && link
+            .logged
+            .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(1));
+    if log_info {
+        link.logged = Some(now);
+    }
+    LinkReport {
+        change,
+        was_limited,
+        ceiling_kbps: link.rate.ceiling_kbps(),
+        loss_share: link.loss_share,
+        lowest_kbps: link.lowest_kbps,
+        log_info,
+    }
+}
+
+/// What to say about a link-rate change, worked out under the controller's
+/// lock and said after it.
+struct LinkReport {
+    change: crate::link_rate::Change,
+    was_limited: bool,
+    ceiling_kbps: u32,
+    loss_share: f64,
+    lowest_kbps: u32,
+    log_info: bool,
+}
+
 /// A bitrate for a sentence: "15 Mbps", "4.5 Mbps".
 fn mbps(kbps: u32) -> String {
     if kbps >= 10_000 {
@@ -385,6 +442,159 @@ mod tests {
         s.rebuild_link_rate(&s.config, true, 0);
         assert_eq!(s.bitrate.load(Ordering::Acquire), 12_000);
         assert_eq!(s.info()["link_rate"]["reason"], "client_controlled");
+    }
+    /// One block of a client FEC report: `data` and `parity` packets, of which
+    /// `received` arrived (data first).
+    fn fec_block(frame: u32, block: u8, blocks: u8, data: u16, received: u16) -> [u8; 21] {
+        let parity = (u32::from(data) * 20).div_ceil(100) as u16;
+        let mut report = [0; 21];
+        report[..4].copy_from_slice(&frame.to_be_bytes());
+        for (offset, word) in [(10, data), (12, parity), (14, received.min(data))] {
+            report[offset..offset + 2].copy_from_slice(&word.to_be_bytes());
+        }
+        report[16..18].copy_from_slice(&received.saturating_sub(data).to_be_bytes());
+        report[18] = 20;
+        report[19] = block;
+        report[20] = blocks;
+        report
+    }
+    #[test]
+    fn a_keyframe_the_host_abandoned_is_not_counted_again_as_network_loss() {
+        // Two 300-packet keyframes in two loss windows: every packet of both
+        // is missing at the client, 7 % of what was sent in each window.
+        for abandoned in [true, false] {
+            let s = Session::new(
+                launch("link-abandoned", Role::Stream),
+                Negotiated {
+                    bitrate_kbps: 20_000,
+                    configured_bitrate_kbps: 20_000,
+                    ..Default::default()
+                },
+            );
+            s.configure_link_rate(true, 0);
+            s.configure_keyframe_loss(true);
+            s.stats.video_frame.store(500, Ordering::Release);
+            let base = Instant::now();
+            let rtt = Duration::from_millis(10);
+            assert_eq!(s.tick_link_rate(base, rtt), None);
+            let mut cut = None;
+            for window in 0..2u32 {
+                let first = 1 + window * 41;
+                for frame in first..first + 40 {
+                    let at = base
+                        + Duration::from_millis(
+                            u64::from(window) * 600 + u64::from(frame - first) * 10,
+                        );
+                    s.record_link_sent_at(frame, 100, 112_600, at);
+                }
+                let keyframe = first + 40;
+                s.record_link_sent_at(
+                    keyframe,
+                    300,
+                    337_800,
+                    base + Duration::from_millis(u64::from(window) * 600 + 400),
+                );
+                if abandoned {
+                    s.keyframe_loss.lock().unwrap().sending(keyframe, true);
+                    s.keyframe_abandoned(keyframe);
+                }
+                s.record_fec_status(&fec_block(keyframe, 0, 2, 125, 0));
+                s.record_fec_status(&fec_block(keyframe, 1, 2, 125, 0));
+                cut = s.tick_link_rate(
+                    base + Duration::from_millis(u64::from(window + 1) * 600),
+                    rtt,
+                );
+            }
+            assert_eq!(
+                cut.is_some(),
+                !abandoned,
+                "abandoned {abandoned}: {}",
+                s.link_rate_snapshot()
+            );
+            if abandoned {
+                assert_eq!(s.link_rate_snapshot()["state"], "full");
+            }
+        }
+    }
+    #[test]
+    fn pacing_counts_as_fast_only_when_the_applied_rate_is_above_the_wifi_rate() {
+        let s = Session::new(launch("link-pace", Role::Stream), Negotiated::default());
+        s.configure_keyframe_loss(true);
+        assert_eq!(
+            s.keyframe_loss_bps(800_000_000, 62_000_000, 1, false),
+            800_000_000
+        );
+        assert!(s.pace_was_fast.load(Ordering::Relaxed));
+        // Once slowed to the Wi-Fi rate the route's own rate is not what ran.
+        s.configure_remembered_keyframe_loss(true, true);
+        assert_eq!(
+            s.keyframe_loss_bps(800_000_000, 62_000_000, 2, false),
+            62_000_000
+        );
+        assert!(!s.pace_was_fast.load(Ordering::Relaxed));
+    }
+    fn link_warning(s: &Session) -> Option<String> {
+        s.launch
+            .warnings
+            .snapshot()
+            .into_iter()
+            .find(|w| w.code == LINK_WARNING)
+            .map(|w| w.message)
+    }
+    #[test]
+    fn the_warning_and_the_console_agree_on_the_bitrate_and_nothing_is_said_under_the_lock() {
+        let (s, end) = link_session(60, true);
+        lose_frames(&s, 50..=54);
+        // The change is worked out under the lock; the warning is not set
+        // until the lock is released.
+        let now = end + Duration::from_millis(200);
+        let mut link = s.link_rate.lock().unwrap();
+        link.drain(&s.link_sent);
+        link.rate
+            .tick(
+                now,
+                Duration::from_millis(10),
+                s.fec_percent(),
+                s.stream_mode().period(),
+                20_000,
+                true,
+            )
+            .expect("the controller lowers the bitrate");
+        let change = link.rate.take_change().unwrap();
+        let report = note_link_change(&mut link, now, change);
+        drop(link);
+        assert_eq!(link_warning(&s), None);
+        s.announce_link_change(report);
+        let message = link_warning(&s).expect("the console gets a warning");
+        let lowest = s.link_rate.lock().unwrap().lowest_kbps;
+        // "As low as", never a bare "lowered the bitrate to X", which the
+        // badge's current rate would contradict once the host probes upward.
+        assert!(
+            message.contains(&format!("as low as {} so far", mbps(lowest))),
+            "{message}"
+        );
+        assert!(!message.contains("bitrate to"), "{message}");
+        assert!(message.contains("20 Mbps"), "{message}");
+    }
+    #[test]
+    fn an_encoder_floor_says_so_without_claiming_the_lowest_bitrate_is_too_high() {
+        let s = Session::new(launch("link-floor", Role::Stream), Negotiated::default());
+        let change = crate::link_rate::Change {
+            kind: crate::link_rate::ChangeKind::EncoderFloor,
+            reason: "encoder_floor",
+            from_kbps: 9_000,
+            to_kbps: 14_000,
+            delivered_kbps: 17_000,
+            evidence: Default::default(),
+        };
+        let mut link = s.link_rate.lock().unwrap();
+        let report = note_link_change(&mut link, Instant::now(), change);
+        drop(link);
+        s.announce_link_change(report);
+        let message = link_warning(&s).unwrap();
+        assert!(message.contains("14 Mbps"), "{message}");
+        assert!(message.contains("does not go lower"), "{message}");
+        assert!(!message.contains("cannot carry even"), "{message}");
     }
     #[test]
     fn keyframe_requests_count_only_for_a_client_that_sends_no_fec_status() {
@@ -2206,11 +2416,21 @@ impl<P, A> Session<P, A> {
             return;
         };
         let now = Instant::now();
-        let network = matches!(block, crate::adaptive_fec::Block::Unrecoverable)
-            && self.keyframe_loss.lock().unwrap().network_loss(frame, now);
+        let (network, abandoned) = {
+            let loss = self.keyframe_loss.lock().unwrap();
+            (
+                matches!(block, crate::adaptive_fec::Block::Unrecoverable)
+                    && loss.network_loss(frame, now),
+                loss.is_abandoned(frame),
+            )
+        };
         let mut link = self.link_rate.lock().unwrap();
         link.drain(&self.link_sent);
-        link.rate.on_status(&status, now);
+        // Packets of a frame the host stopped sending are its own loss,
+        // counted once on send (E3), not as the network's (E2).
+        if !abandoned {
+            link.rate.on_status(&status, now);
+        }
         if network {
             link.rate.on_unrecoverable(frame, now);
         }
@@ -2251,49 +2471,61 @@ impl<P, A> Session<P, A> {
         if applied != current {
             self.bitrate.store(applied, Ordering::Release);
         }
-        if let Some(change) = link.rate.take_change() {
-            self.report_link_change(&mut link, now, change);
+        // Say it once the lock is released: logging and the warning list must
+        // not run under it.
+        let report = link
+            .rate
+            .take_change()
+            .map(|change| note_link_change(&mut link, now, change));
+        drop(link);
+        if let Some(report) = report {
+            self.announce_link_change(report);
         }
         (applied != current).then_some((current, applied))
     }
-    fn report_link_change(
-        &self,
-        link: &mut crate::link_control::LinkControl,
-        now: Instant,
-        change: crate::link_rate::Change,
-    ) {
+    /// The WARN, the console warning or the INFO for a change.
+    fn announce_link_change(&self, report: LinkReport) {
         use crate::link_rate::ChangeKind;
+        let LinkReport {
+            change,
+            was_limited,
+            ceiling_kbps: ceiling,
+            loss_share,
+            lowest_kbps,
+            log_info,
+        } = report;
         let e = change.evidence;
         let kind = match change.kind {
             ChangeKind::StepDown => "step_down",
             ChangeKind::Probe => "probe",
             ChangeKind::ProbeFailed => "probe_failed",
             ChangeKind::Floor => "floor",
+            ChangeKind::EncoderFloor => "encoder_floor",
             ChangeKind::Full => "full",
         };
-        let was_limited = std::mem::replace(&mut link.limited, change.kind != ChangeKind::Full);
-        let ceiling = link.rate.ceiling_kbps();
         match change.kind {
-            ChangeKind::StepDown | ChangeKind::Floor => {
-                if e.loss_share > 0. {
-                    link.loss_share = e.loss_share;
-                }
-                let message = if change.kind == ChangeKind::Floor {
-                    format!(
+            ChangeKind::StepDown | ChangeKind::Floor | ChangeKind::EncoderFloor => {
+                let message = match change.kind {
+                    ChangeKind::Floor => format!(
                         "The network to this device cannot carry even {} of video, the lowest bitrate the host uses, so the picture will keep breaking up. Check the network path (Wi-Fi signal, cable, router) or lower the resolution or frame rate in Moonlight.",
                         mbps(change.to_kbps)
-                    )
-                } else {
-                    let loss = if link.loss_share > 0. {
-                        format!("{:.0} % of packets lost", link.loss_share * 100.)
-                    } else {
-                        "video frames were lost".to_string()
-                    };
-                    format!(
-                        "The network to this device could not carry {} of video ({loss}). The host lowered the bitrate to {} and raises it again as the link allows. Lower the bitrate in Moonlight to avoid this.",
-                        mbps(ceiling),
+                    ),
+                    ChangeKind::EncoderFloor => format!(
+                        "The network to this device still loses video at {}, and the encoder does not go lower for this picture, so the host stopped lowering the bitrate there and the picture will keep breaking up. Check the network path (Wi-Fi signal, cable, router) or lower the resolution or frame rate in Moonlight.",
                         mbps(change.to_kbps)
-                    )
+                    ),
+                    _ => {
+                        let loss = if loss_share > 0. {
+                            format!("{:.0} % of packets lost", loss_share * 100.)
+                        } else {
+                            "video frames were lost".to_string()
+                        };
+                        format!(
+                            "The network to this device could not carry {} of video ({loss}). The host lowered the bitrate, as low as {} so far, and raises it again as the link allows. Lower the bitrate in Moonlight to avoid this.",
+                            mbps(ceiling),
+                            mbps(lowest_kbps)
+                        )
+                    }
                 };
                 self.launch.warnings.set(LINK_WARNING, message);
             }
@@ -2329,11 +2561,15 @@ impl<P, A> Session<P, A> {
                 loss_share_percent = e.loss_share * 100.,
                 "the network to this device cannot carry the stream even at the lowest video bitrate"
             ),
-            _ if link
-                .logged
-                .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(1)) =>
-            {
-                link.logged = Some(now);
+            ChangeKind::EncoderFloor => tracing::warn!(
+                stream_id = %self.launch.id,
+                link_rate_change = kind,
+                from_kbps = change.from_kbps,
+                to_kbps = change.to_kbps,
+                delivered_kbps = change.delivered_kbps,
+                "the encoder sends more than the video bitrate asked for; treating what it sends as its lowest rate"
+            ),
+            _ if log_info => {
                 if change.kind == ChangeKind::Full {
                     tracing::info!(
                         stream_id = %self.launch.id,
@@ -2412,8 +2648,12 @@ impl<P, A> Session<P, A> {
             if self.link_sent.live() {
                 let mut link = self.link_rate.lock().unwrap();
                 link.drain(&self.link_sent);
-                link.rate
-                    .on_latch(Instant::now(), self.pace_was_fast.load(Ordering::Relaxed));
+                // `Latched` is returned once, for a new latch.
+                link.rate.on_latch(
+                    Instant::now(),
+                    self.pace_was_fast.load(Ordering::Relaxed),
+                    true,
+                );
             }
             tracing::warn!(stream_id = %self.launch.id, reason, detail, "video frames are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
             self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so video is now paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. Check the network path if loss continues."));
@@ -2456,10 +2696,13 @@ impl<P, A> Session<P, A> {
     /// route policy's `base`, or after confirmed losses at most `safe`, the
     /// Wi-Fi route's rate for this stream.
     pub fn keyframe_loss_bps(&self, base: u64, safe: u64, wire_frame: u32, keyframe: bool) -> u64 {
-        self.pace_was_fast.store(base > safe, Ordering::Relaxed);
         let mut loss = self.keyframe_loss.lock().unwrap();
         loss.sending(wire_frame, keyframe);
-        loss.bps(base, safe)
+        let bps = loss.bps(base, safe);
+        drop(loss);
+        // Fast is what was applied to this frame, not what the route allows.
+        self.pace_was_fast.store(bps > safe, Ordering::Relaxed);
+        bps
     }
     pub fn record_control_ping(&self, now: Instant, payload: &[u8]) {
         self.adaptive_bitrate.lock().unwrap().on_ping(now, payload);

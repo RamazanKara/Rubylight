@@ -208,6 +208,11 @@ impl KeyframeLoss {
             .filter(|(_, until, _)| now < *until)
             .map(|(frame, _, window)| (frame, window))
     }
+    /// Whether the host stopped sending this frame part way. The packets the
+    /// client never got are the host's loss, counted once on send.
+    pub fn is_abandoned(&self, frame: u32) -> bool {
+        self.abandoned.contains(&Some(frame))
+    }
     /// Whether a frame the client reports incomplete is evidence about the
     /// network, by the same rules [`KeyframeLoss::unrecoverable`] applies:
     /// not a frame the host abandoned on send (counted there), and not an
@@ -900,6 +905,18 @@ mod tests {
         off.sending_at(1, true, now);
         assert_eq!(off.abandoned(1, PERIOD, now), None);
         assert!(!off.latched());
+    }
+
+    #[test]
+    fn frames_abandoned_on_send_are_remembered_with_the_guard_on_or_off() {
+        let now = Instant::now();
+        for enabled in [true, false] {
+            let mut loss = KeyframeLoss::new(enabled);
+            assert!(!loss.is_abandoned(9));
+            loss.abandoned(9, PERIOD, now);
+            assert!(loss.is_abandoned(9), "guard {enabled}");
+            assert!(!loss.is_abandoned(10), "guard {enabled}");
+        }
     }
 
     #[test]

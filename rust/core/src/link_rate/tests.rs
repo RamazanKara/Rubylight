@@ -81,7 +81,10 @@ impl Rig {
             let now = self.now();
             if self.ms.is_multiple_of(PERIOD_MS) {
                 self.frame = self.frame.wrapping_add(1);
-                self.lr.on_sent(self.frame, PACKETS, WIRE_BYTES, now);
+                // The encoder follows its bitrate, so the frames shrink with it.
+                let bytes = (u64::from(WIRE_BYTES) * u64::from(self.kbps) / 40_000) as u32;
+                let packets = (u64::from(PACKETS) * u64::from(self.kbps) / 40_000).max(1) as u32;
+                self.lr.on_sent(self.frame, packets, bytes, now);
                 each(&mut self.lr, self.frame, now);
             }
             if self.ms.is_multiple_of(100) {
@@ -171,6 +174,20 @@ fn three_unrecoverable_frames_cut_once_to_between_half_and_85_percent() {
     assert_eq!(rig.kbps, cut.to_kbps);
     assert_eq!(rig.lr.state(), State::Limited);
     assert_eq!(cut.evidence.unrecoverable_frames, 3);
+}
+
+#[test]
+fn a_report_before_the_frame_is_recorded_counts_nothing_and_one_after_does() {
+    // The host records a frame once it has sent it (see the module notes).
+    let now = Instant::now();
+    let mut lr = LinkRate::new(true, &stream(40_000), 0, 20);
+    let early = status(7, 5, 0);
+    lr.on_status(&early, now);
+    assert_eq!(lr.events.missing, 0);
+    lr.on_sent(7, PACKETS, WIRE_BYTES, now);
+    lr.on_status(&early, now);
+    assert!(lr.events.missing > 0);
+    assert_eq!(lr.sent(7).unwrap().missing, lr.events.missing as u32);
 }
 
 #[test]
@@ -526,7 +543,7 @@ fn a_latch_that_fixes_the_loss_gets_one_fence_before_a_cut() {
             unrecoverable(lr, frame, now);
         }
     });
-    rig.lr.on_latch(rig.now(), true);
+    rig.lr.on_latch(rig.now(), true, true);
     let late = rig.frame;
     let now = rig.now();
     unrecoverable(&mut rig.lr, late, now);
@@ -922,6 +939,75 @@ fn a_big_overshoot_is_one_cut_not_a_cascade() {
             }
             assert!(sim.frame_loss(3., 75.) < 0.02, "{what}");
         }
+    }
+}
+
+#[test]
+fn an_encoder_that_cannot_go_below_the_link_is_not_cut_in_a_runaway() {
+    // H.264 on AMD sends at least 14 Mbit/s on noisy content however low it
+    // is asked. On a 12 Mbit/s link the controller used to cut again at every
+    // fence, down to 2 Mbit/s, and say the network could not carry even that.
+    for feedback in [2., 20., 80.] {
+        let mut sim = Sim::new(q(Link::constant(12.), 50.), 40_000, feedback);
+        sim.encoder_min_kbps = 14_000;
+        sim.run(60.);
+        let what = format!("fb {feedback}");
+        let kinds: Vec<_> = sim.changes.iter().map(|(_, c)| c.kind).collect();
+        assert!(
+            kinds.contains(&ChangeKind::EncoderFloor),
+            "{what}: {kinds:?}"
+        );
+        assert!(!kinds.contains(&ChangeKind::Floor), "{what}: {kinds:?}");
+        assert!(sim.cuts() <= 3, "{what}: {} cuts, {kinds:?}", sim.cuts());
+        let found = sim
+            .changes
+            .iter()
+            .find(|(_, c)| c.kind == ChangeKind::EncoderFloor)
+            .map(|(t, c)| (*t, c.to_kbps))
+            .unwrap();
+        assert!(found.0 < 15., "{what}: found at {} s", found.0);
+        // Nothing asks for less than the encoder sends, from then on.
+        let lowest = sim
+            .kbps_log
+            .iter()
+            .filter(|(t, _)| *t > found.0 + 1.)
+            .map(|(_, k)| *k)
+            .min()
+            .unwrap();
+        assert!(lowest >= 12_000, "{what}: asked for {lowest} kbps");
+        let after = sim.changes.iter().filter(|(t, _)| *t > found.0);
+        assert!(
+            after
+                .clone()
+                .all(|(_, c)| c.kind != ChangeKind::StepDown || c.to_kbps >= 12_000),
+            "{what}"
+        );
+        // It keeps trying upward from the floor, not from the minimum.
+        assert!(
+            after.clone().any(|(_, c)| c.kind == ChangeKind::Probe),
+            "{what}: {kinds:?}"
+        );
+        assert!(
+            sim.lr.snapshot(sim.at(60.))["encoder_floor_kbps"]
+                .as_u64()
+                .unwrap()
+                >= 12_000
+        );
+    }
+}
+
+#[test]
+fn an_encoder_that_follows_its_bitrate_never_gets_an_encoder_floor() {
+    for (link, kbps) in [(150., 225_000), (20., 40_000)] {
+        let mut sim = Sim::new(q(Link::constant(link), 50.), kbps, 20.);
+        sim.run(75.);
+        assert!(
+            sim.changes
+                .iter()
+                .all(|(_, c)| c.kind != ChangeKind::EncoderFloor),
+            "{link}: {:?}",
+            sim.changes.iter().map(|(_, c)| c.kind).collect::<Vec<_>>()
+        );
     }
 }
 

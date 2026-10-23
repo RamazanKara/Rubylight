@@ -24,10 +24,15 @@
 //!   control thread that reads client reports and the stream tick. Every
 //!   method takes `&mut self` and does bounded work with no allocation after
 //!   `new`.
-//! - [`LinkRate::on_sent`] comes before the frame's first packet is sent, with
-//!   the wire frame number the client will report, the packets (data and
-//!   parity) and the wire bytes. A report that arrives before `on_sent` for its
-//!   frame has no bytes to count against.
+//! - [`LinkRate::on_sent`] comes once the host has sent the frame, with the
+//!   wire frame number the client will report and the packets (data and
+//!   parity) and wire bytes actually sent. The host cannot say it earlier: a
+//!   frame sent in slices has no size until its last slice, and a frame the
+//!   host abandons part way counts only what left. It is stamped with the
+//!   time the host recorded it. A report that arrives before `on_sent` for
+//!   its frame (the first blocks of a large frame, on a fast link) has
+//!   nothing to count against and is dropped: loss is under-counted, never
+//!   over-counted.
 //! - Feed [`LinkRate::on_status`] only deduplicated FEC blocks (the same block
 //!   repeated in several reports once); a frame with several blocks is
 //!   counted once for E1, and its packets once for E2.
@@ -109,6 +114,11 @@ pub const FENCE_MARGIN: Duration = Duration::from_millis(250);
 /// Frames in the encoder when the bitrate changes (Oct 7: "two frames in the
 /// encoder"); the fence frame is this far past the next frame sent.
 pub const PIPELINE_FRAMES: u32 = 2;
+/// After a cut, frames sent past the fence that run more than this share above
+/// the target mean the encoder cannot go that low (H.264 on AMD stops at about
+/// 5 Mbps at 1080p60 however low it is asked, 14 Mbps on noise): cutting again
+/// only collapses the target while the stream stays the same.
+pub const ENCODER_OVERSHOOT_PERCENT: u64 = 120;
 /// Wait after a step down before the first probe.
 pub const HOLD: Duration = Duration::from_secs(2);
 /// A failed probe doubles the wait up to this. The link may have recovered
@@ -192,6 +202,9 @@ pub enum ChangeKind {
     Probe,
     ProbeFailed,
     Floor,
+    /// The encoder keeps sending far more than the target; the rate it sends
+    /// is now the lowest this controller asks for.
+    EncoderFloor,
     Full,
 }
 
@@ -347,6 +360,11 @@ pub struct LinkRate {
     good: u64,
     /// The last rate that did not.
     bad: Option<u64>,
+    /// Total wire bits per second the encoder was seen to send after a cut
+    /// asked for less (see [`ENCODER_OVERSHOOT_PERCENT`]); cuts stop here.
+    encoder_floor: Option<u64>,
+    /// Evidence rounds in a row whose frames ran above the target.
+    overshoots: u8,
     /// Probe steps above `good` not yet confirmed clean, oldest first.
     pending: [Option<Step>; PENDING_CAP],
     confirmed: Option<Confirmed>,
@@ -395,6 +413,8 @@ impl LinkRate {
             current: 0,
             good: 0,
             bad: None,
+            encoder_floor: None,
+            overshoots: 0,
             pending: [None; PENDING_CAP],
             confirmed: None,
             hold: HOLD,
@@ -578,9 +598,11 @@ impl LinkRate {
 
     /// `KeyframeLoss` latched (paced like Wi-Fi). If the pacing before the
     /// latch was faster than the Wi-Fi rate the latch may be the whole fix
-    /// (the Onn burst-loss port), so give it one fence before cutting.
-    pub fn on_latch(&mut self, now: Instant, was_fast: bool) {
-        if was_fast && self.is_active() {
+    /// (the Onn burst-loss port), so give it one fence before cutting. `new`
+    /// is whether the latch is new; a latch reported again starts nothing, so
+    /// the caller may report every latch event without a second fence.
+    pub fn on_latch(&mut self, now: Instant, was_fast: bool, new: bool) {
+        if new && was_fast && self.is_active() {
             self.set_fence(now);
         }
     }
@@ -773,6 +795,13 @@ impl LinkRate {
         self.budget().total_bps(self.floor_kbps, fec, period)
     }
 
+    /// The lowest total a cut may ask for: the configured minimum, or the rate
+    /// the encoder was seen to send if that is higher.
+    fn cut_floor(&self, fec: usize, period: Duration) -> u64 {
+        self.floor_total(fec, period)
+            .max(self.encoder_floor.unwrap_or(0))
+    }
+
     fn ceiling_total(&self, fec: usize, period: Duration) -> u64 {
         self.budget().total_bps(self.ceiling_kbps, fec, period)
     }
@@ -807,7 +836,7 @@ impl LinkRate {
                 .min(self.ceiling_total(fec, period));
             self.good = self.current;
         }
-        let mut evidence = why.evidence;
+        let evidence = why.evidence;
         // A probe is failing: go back to the last good rate, not below it.
         let recent = self
             .confirmed
@@ -851,10 +880,71 @@ impl LinkRate {
             return;
         }
         let cur = self.current;
-        let floor = self.floor_total(fec, period).min(cur);
+        let estimate = self.delivered(now);
+        // A cut was made and the frames sent since still run well above what
+        // it asked for, twice running: the encoder has a minimum, and cutting
+        // below it only lowers a target nothing follows. Two rounds, because a
+        // keyframe among the few frames of one round looks the same.
+        let overshoot = match estimate {
+            Some((sent, _)) if self.state != State::Full => {
+                let offered = sent + budget.audio_bps;
+                (offered * 100 > cur * ENCODER_OVERSHOOT_PERCENT).then_some((sent, offered))
+            }
+            _ => None,
+        };
+        let Some((sent, offered)) = overshoot else {
+            self.overshoots = 0;
+            return self.cut(now, why, fec, period, from_kbps, estimate);
+        };
+        self.overshoots += 1;
+        if self.overshoots < 2 {
+            return self.cut(now, why, fec, period, from_kbps, estimate);
+        }
+        self.overshoots = 0;
+        let observed = offered.min(self.ceiling_total(fec, period));
+        self.encoder_floor = Some(observed);
+        self.current = observed.max(cur);
+        self.good = self.current;
+        self.confirmed = None;
+        self.pending = [None; PENDING_CAP];
+        self.delivered_bps = sent;
+        self.at_ceiling = None;
+        self.near_bad = None;
+        self.reason = "encoder_floor";
+        self.next_probe = Some(now + self.hold.max(self.fence_wait()));
+        self.set_fence(now);
+        let to_kbps = self.encoder_kbps(fec, period);
+        self.record(
+            now,
+            Change {
+                kind: ChangeKind::EncoderFloor,
+                reason: "encoder_floor",
+                from_kbps,
+                to_kbps,
+                delivered_kbps: (sent / 1000) as u32,
+                evidence,
+            },
+        );
+    }
+
+    /// Cut the rate toward what the link delivered, or hold at the floor.
+    fn cut(
+        &mut self,
+        now: Instant,
+        why: Trigger,
+        fec: usize,
+        period: Duration,
+        from_kbps: u32,
+        estimate: Option<(u64, f64)>,
+    ) {
+        let cur = self.current;
+        let budget = self.budget();
+        let mut evidence = why.evidence;
+        let floor = self.cut_floor(fec, period).min(cur);
         if cur <= floor {
-            // Nothing left to cut.
-            if self.state != State::Floor {
+            // Nothing left to cut. At the encoder's own minimum the stream is
+            // already as low as it goes and has said so.
+            if self.state != State::Floor && self.encoder_floor.is_none() {
                 self.state = State::Floor;
                 self.reason = "floor";
                 self.record(
@@ -883,7 +973,7 @@ impl LinkRate {
         } else {
             cur * MIN_CUT_PERCENT / 100
         };
-        let estimate = self.delivered(now).filter(|_| why.share_known);
+        let estimate = estimate.filter(|_| why.share_known);
         let target = match estimate {
             Some((sent, share)) => {
                 evidence.loss_share = share;
@@ -1079,6 +1169,8 @@ impl LinkRate {
         self.state = State::Full;
         self.reason = "healthy";
         self.bad = None;
+        self.encoder_floor = None;
+        self.overshoots = 0;
         self.hold = HOLD;
         self.forget_knee();
         self.at_ceiling = None;
@@ -1111,6 +1203,7 @@ impl LinkRate {
             "current_kbps": current_kbps,
             "delivered_kbps": self.delivered_bps / 1000,
             "bad_kbps": self.bad.map_or(0, |bad| self.kbps_of(bad)),
+            "encoder_floor_kbps": self.encoder_floor.map_or(0, |floor| self.kbps_of(floor)),
             "steps_down": self.steps_down,
             "probes": self.probes,
             "failed_probes": self.failed_probes,

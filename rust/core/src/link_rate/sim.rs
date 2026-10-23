@@ -133,6 +133,9 @@ pub struct Sim {
     pub kbps_log: Vec<(f64, u32)>,
     pub keyframe_requests: bool,
     pub client_pings: bool,
+    /// The lowest bitrate the simulated encoder produces, however low it is
+    /// asked (H.264 on AMD stops near 14 Mbps on noise).
+    pub encoder_min_kbps: u32,
     encoder_kbps: u32,
     applied: [u32; 2],
     noise: Rng,
@@ -157,6 +160,7 @@ impl Sim {
             kbps_log: Vec::new(),
             keyframe_requests: false,
             client_pings: true,
+            encoder_min_kbps: 0,
             encoder_kbps: negotiated_kbps,
             applied: [negotiated_kbps; 2],
             noise: Rng::new(99),
@@ -169,7 +173,7 @@ impl Sim {
     }
 
     fn send_frame(&mut self, t: f64, index: u32) {
-        let kbps = self.applied[0];
+        let kbps = self.applied[0].max(self.encoder_min_kbps);
         self.applied.rotate_left(1);
         self.applied[1] = self.encoder_kbps;
         let average = f64::from(kbps) * 125. / 60.;

@@ -8,6 +8,8 @@ public final class AdaptiveBitrateController {
 
     private int ceilingKbps;
     private final int maxLimitKbps;
+    // Set only when the maximum lowered the ceiling, so a host rounding above the ceiling is left alone.
+    private final boolean maximumLowersCeiling;
     private int currentKbps;
     private int floorKbps;
     private float frameMs;
@@ -33,7 +35,8 @@ public final class AdaptiveBitrateController {
         this.ceilingKbps = Math.min(StreamConfiguration.MAX_BITRATE_KBPS, ceilingKbps);
         this.currentKbps = Math.min(currentKbps, this.ceilingKbps);
         maxLimitKbps = maxKbps > 0 ? Math.max(maxKbps, minKbps) : 0;
-        if (maxLimitKbps > 0 && this.ceilingKbps > maxLimitKbps) {
+        maximumLowersCeiling = maxLimitKbps > 0 && this.ceilingKbps > maxLimitKbps;
+        if (maximumLowersCeiling) {
             // The stream may start above the maximum; sample() brings it down.
             this.currentKbps = Math.min(currentKbps, StreamConfiguration.MAX_BITRATE_KBPS);
             this.ceilingKbps = maxLimitKbps;
@@ -57,7 +60,7 @@ public final class AdaptiveBitrateController {
     // lowers the bitrate (and with it the host's pacing rate) before losses pile up.
     public int sample(long nowMs, boolean recentVideo, boolean poorConnection, float lossPercent, float decodeMs,
                       float jitterMs, float queueMs) {
-        if (maxLimitKbps > 0 && currentKbps > ceilingKbps && nowMs - lastChangeMs >= LIMIT_RETRY_MS) {
+        if (maximumLowersCeiling && currentKbps > ceilingKbps && nowMs - lastChangeMs >= LIMIT_RETRY_MS) {
             return ceilingKbps;
         }
         if (!recentVideo && !poorConnection) {

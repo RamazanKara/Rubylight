@@ -357,4 +357,14 @@ public class AdaptiveBitrateControllerTest {
             assertEquals(0, controller.sample(now, true, false, 0, 2, 0, 0));
         }
     }
+
+    @Test
+    public void hostRoundingAboveTheCeilingIsNotRequestedAgainWhenTheMaximumIsHigher() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 60, 0, 0, 30000);
+        // The host applied a little more than requested; the maximum did not lower anything.
+        controller.applied(20000, 20500, 0);
+        for (long now = 1000; now <= 60000; now += 1000) {
+            assertEquals("no repeated request at " + now, 0, controller.sample(now, true, false, 0, 2, 0, 0));
+        }
+    }
 }

@@ -2921,6 +2921,10 @@ mod tests {
         hosts: Hosts,
         pads: Gamepads,
         time: f64,
+        /// The window; tall, a test can see a whole page at once.
+        size: egui::Vec2,
+        /// The text drawn by the last frame, in paint order.
+        drawn: Vec<String>,
     }
 
     impl Frames {
@@ -2940,7 +2944,7 @@ mod tests {
             if !apps.is_empty() {
                 hosts.list[0].apps = Apps::Loaded(apps);
             }
-            let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0 };
+            let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0, size: vec2(1280.0, 720.0), drawn: Vec::new() };
             frames.settle();
             frames
         }
@@ -2948,7 +2952,7 @@ mod tests {
         fn frame(&mut self, events: Vec<egui::Event>) -> Vec<Command> {
             self.time += 0.05;
             let input = egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 720.0))),
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, self.size)),
                 time: Some(self.time),
                 events,
                 focused: true,
@@ -2959,6 +2963,10 @@ mod tests {
                 commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: None });
             });
             output.textures_delta.clear();
+            self.drawn.clear();
+            for clipped in &output.shapes {
+                collect_text(&clipped.shape, &mut self.drawn);
+            }
             commands
         }
 
@@ -3008,6 +3016,14 @@ mod tests {
 
         fn no_dialog(&self) -> bool {
             matches!(self.l.dialog, Dialog::None)
+        }
+    }
+
+    fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_text(s, out)),
+            _ => {}
         }
     }
 
@@ -3111,17 +3127,16 @@ mod tests {
 
     #[test]
     fn settings_sections_follow_androids_order() {
-        let source = include_str!("ui.rs");
-        let body = &source[source.find("fn settings_page").unwrap()..];
-        let found: Vec<&str> = body
-            .match_indices("section_at(ui, \"")
-            .map(|(at, text)| {
-                let rest = &body[at + text.len()..];
-                &rest[..rest.find('"').unwrap()]
-            })
-            .take(SETTINGS_SECTIONS.len())
-            .collect();
-        assert_eq!(found, SETTINGS_SECTIONS, "the page and its chips list the same sections in the same order");
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        f.size = vec2(1280.0, 12000.0);
+        f.l.go(Screen::Settings);
+        f.settle();
+        // The chips come first, then the page's headings in capitals.
+        let chips: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
+        assert_eq!(chips, SETTINGS_SECTIONS, "the chips list the sections in order");
+        let upper: Vec<String> = SETTINGS_SECTIONS.iter().map(|s| s.to_uppercase()).collect();
+        let headings: Vec<&String> = f.drawn.iter().filter(|t| upper.contains(t)).collect();
+        assert_eq!(headings, upper.iter().collect::<Vec<_>>(), "and the page has them in the same order");
     }
 
     #[test]

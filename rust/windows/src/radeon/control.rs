@@ -209,6 +209,9 @@ pub enum Scope<'a> {
     /// Every entry, for a host start after a crash.
     All,
     Session(&'a str),
+    /// Only these settings of one session, and the switches the driver made as a consequence of
+    /// them. The session's other entries (a client's own writes) stay journaled.
+    Settings(&'a str, &'a [String]),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -363,6 +366,14 @@ fn validate(settings: &[Setting], changes: &[Change]) -> Result<(), WriteError> 
         }
     }
     Ok(())
+}
+
+/// Whether turning on one of the `<group>.enabled` toggles in `ids` can make the driver switch
+/// `partner` (another `<group>.enabled`) off.
+fn switched_off_by(ids: &[String], partner: &str) -> bool {
+    ids.iter()
+        .filter_map(|id| id.strip_suffix(".enabled"))
+        .any(|group| model::excluded_by(group).any(|other| format!("{other}.enabled") == partner))
 }
 
 /// The toggles a request is expected to make the driver switch off: each configurable
@@ -738,6 +749,10 @@ impl<B: RadeonBackend> Controller<B> {
         let selected = |e: &Entry| match scope {
             Scope::All => true,
             Scope::Session(session) => e.session == session,
+            Scope::Settings(session, ids) => {
+                e.session == session
+                    && (ids.contains(&e.id) || (e.side_effect && switched_off_by(ids, &e.id)))
+            }
         };
         // Only the signed-in user's entries: another user's values (or the defaults of a view
         // that is not theirs) must never be compared with or written into this user's settings.
@@ -1467,6 +1482,34 @@ mod tests {
         assert_eq!(fake.value("tessellation.mode"), Value::Choice("a".into()));
         assert_eq!(fake.value("pacing.limit"), Value::Int(150));
         assert_eq!(c.journal().unwrap().entries.len(), 1);
+    }
+
+    #[test]
+    fn restoring_named_settings_leaves_the_rest_of_the_session_journaled() {
+        let fake = panel();
+        fake.0.borrow_mut().excludes = vec![("chill.enabled", "anti_lag.enabled")];
+        let (mut c, _dir) = controller(&fake);
+        // The device's own write, then a profile's (which switches Anti-Lag off as a result).
+        c.apply("s1", 1, &[change("pacing.limit", Value::Int(150))])
+            .unwrap();
+        c.apply("s1", 1, &[change("chill.enabled", on(true))])
+            .unwrap();
+        assert_eq!(fake.value("anti_lag.enabled"), on(false));
+        let ids = ["chill.enabled".to_string()];
+        let report = c.restore(Scope::Settings("s1", &ids)).unwrap();
+        assert!(report.is_clean());
+        assert_eq!(fake.value("chill.enabled"), on(false));
+        assert_eq!(fake.value("anti_lag.enabled"), on(true));
+        // The device's own setting stays changed and journaled for its session's end.
+        assert_eq!(fake.value("pacing.limit"), Value::Int(150));
+        let left = c.journal().unwrap().entries;
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, "pacing.limit");
+        // And another session's entry of the same setting is never named by this scope.
+        c.apply("s2", 1, &[change("chill.enabled", on(true))])
+            .unwrap();
+        c.restore(Scope::Settings("s1", &ids)).unwrap();
+        assert_eq!(fake.value("chill.enabled"), on(true));
     }
 
     #[test]

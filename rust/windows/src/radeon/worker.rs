@@ -76,6 +76,9 @@ enum Job {
     },
     Restore {
         session: String,
+        /// Only these settings (and what the driver switched off because of them), or all of
+        /// the session's.
+        only: Option<Vec<String>>,
         reply: mpsc::Sender<anyhow::Result<RestoreReport>>,
     },
     Gpu {
@@ -199,9 +202,24 @@ impl Worker {
 
     /// Queue a restore and return at once, like [`Worker::queue_apply`].
     pub fn queue_restore(&self, session: &str) -> anyhow::Result<RestoreTicket> {
+        self.queue_restore_of(session, None)
+    }
+
+    /// Put back only `ids` of a session that goes on (and the switches the driver made because of
+    /// them), leaving its other journaled settings, waiting at most `call_limit`.
+    pub fn restore_settings(&self, session: &str, ids: &[String]) -> anyhow::Result<RestoreReport> {
+        self.queue_restore_of(session, Some(ids.to_vec()))?.wait()
+    }
+
+    fn queue_restore_of(
+        &self,
+        session: &str,
+        only: Option<Vec<String>>,
+    ) -> anyhow::Result<RestoreTicket> {
         let (reply, answer) = mpsc::channel();
         let job = Job::Restore {
             session: session.into(),
+            only,
             reply,
         };
         self.jobs
@@ -432,9 +450,19 @@ fn run<B: RadeonBackend>(
                 active.insert(session.clone());
                 let _ = reply.send(controller.apply(&session, gpu, &changes));
             }
-            Some(Job::Restore { session, reply }) => {
-                let result = controller.restore(Scope::Session(&session));
-                active.remove(&session);
+            Some(Job::Restore {
+                session,
+                only,
+                reply,
+            }) => {
+                let result = match &only {
+                    Some(ids) => controller.restore(Scope::Settings(&session, ids)),
+                    None => controller.restore(Scope::Session(&session)),
+                };
+                // A restore of some settings leaves the session going.
+                if only.is_none() {
+                    active.remove(&session);
+                }
                 match &result {
                     Ok(report) if !report.is_clean() => {
                         tracing::error!(

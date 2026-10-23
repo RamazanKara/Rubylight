@@ -573,6 +573,11 @@ enum StreamState {
     Abandoned,
 }
 impl VideoPacketizer {
+    /// Use up the next frame index without sending a frame: a frame that was
+    /// dropped before any packet left. The client sees the gap.
+    pub fn skip_frame(&mut self) {
+        self.frame = self.frame.wrapping_add(1);
+    }
     /// Whether a P-frame capped at `cap` payload bytes can be streamed in
     /// `blocks` FEC blocks: even all at 0% parity its shards must fit.
     pub fn streamable(&self, blocks: usize, cap: usize) -> bool {
@@ -593,6 +598,21 @@ impl VideoPacketizer {
         slices: usize,
         cap: usize,
     ) -> Result<StreamedFrame> {
+        self.streamed_in(Vec::new(), timestamp, latency_us, blocks, slices, cap)
+    }
+    /// [`streamed`](Self::streamed) collecting the payload in `buffer`, the
+    /// one [`StreamedFrame::into_buffer`] gave back for the previous frame,
+    /// so a stream allocates it once.
+    pub fn streamed_in(
+        &self,
+        mut buffer: Vec<u8>,
+        timestamp: u32,
+        latency_us: u64,
+        blocks: usize,
+        slices: usize,
+        cap: usize,
+    ) -> Result<StreamedFrame> {
+        buffer.clear();
         if !self.streamable(blocks, cap) {
             bail!("video frame cannot be streamed in {blocks} blocks");
         }
@@ -617,7 +637,8 @@ impl VideoPacketizer {
         Ok(StreamedFrame {
             sealer: self.key.as_ref().map(crypto::PacketSealer::new),
             header,
-            payload: Vec::new(),
+            payload: buffer,
+            len: 0,
             timestamp,
             frame: self.frame,
             slice,
@@ -680,6 +701,9 @@ pub struct StreamedFrame {
     sealer: Option<crypto::PacketSealer>,
     header: [u8; 8],
     payload: Vec<u8>,
+    /// Payload bytes received, which `payload` stops holding once the frame
+    /// is over.
+    len: usize,
     timestamp: u32,
     frame: u32,
     slice: usize,
@@ -720,14 +744,26 @@ impl StreamedFrame {
         }
         let result = self.push_unit(packetizer, unit, last, shards, &mut emit);
         if result.is_err() {
-            self.state = StreamState::Abandoned;
-            // Nothing was sent: the frame index still has to be consumed, or
-            // the client would not notice the missing picture.
-            if self.next_block == 0 && packetizer.frame == self.frame {
-                packetizer.frame = packetizer.frame.wrapping_add(1);
-            }
+            self.abandon(packetizer);
         }
         result
+    }
+    /// Give the frame up: nothing more is built. If no block was built, the
+    /// frame index is consumed here, or the client would see no gap for the
+    /// missing picture and decode the next one against a reference it never
+    /// got. Safe to call on a finished or abandoned frame.
+    pub fn abandon(&mut self, packetizer: &mut VideoPacketizer) {
+        if self.state == StreamState::Open {
+            self.state = StreamState::Abandoned;
+        }
+        if self.next_block == 0 && packetizer.frame == self.frame {
+            packetizer.skip_frame();
+        }
+    }
+    /// The payload buffer, emptied, for the next frame ([`VideoPacketizer::streamed_in`]).
+    pub fn into_buffer(mut self) -> Vec<u8> {
+        self.payload.clear();
+        self.payload
     }
     fn push_unit(
         &mut self,
@@ -738,13 +774,10 @@ impl StreamedFrame {
         emit: &mut impl FnMut(&mut [Vec<u8>], StreamedBlock) -> Result<()>,
     ) -> Result<()> {
         self.payload.extend_from_slice(unit);
+        self.len = self.payload.len();
         self.units += 1;
         if self.payload.len() > self.cap {
-            return Err(SliceOverflow {
-                cap: self.cap,
-                bytes: self.payload.len(),
-            }
-            .into());
+            return Err(self.overflow());
         }
         let stream_len = 8 + self.payload.len();
         if !last {
@@ -781,7 +814,8 @@ impl StreamedFrame {
             let Some((data, percentage)) =
                 tail_split(rest, remaining, self.percentage, self.minimum)
             else {
-                bail!("streamed video frame has no room for its last {remaining} blocks");
+                // The cap rule should have kept room: the plan is broken.
+                return Err(self.overflow());
             };
             self.fec_limited = percentage < self.percentage;
             for &data in &data[..remaining] {
@@ -790,6 +824,13 @@ impl StreamedFrame {
         }
         self.state = StreamState::Done;
         Ok(())
+    }
+    fn overflow(&self) -> anyhow::Error {
+        SliceOverflow {
+            cap: self.cap,
+            bytes: self.payload.len(),
+        }
+        .into()
     }
     /// Build the blocks before the last whose unit has arrived and whose
     /// complete shards, hold-back and cap rule allow it.
@@ -874,7 +915,7 @@ impl StreamedFrame {
     }
     /// Payload bytes received so far.
     pub fn payload_len(&self) -> usize {
-        self.payload.len()
+        self.len
     }
     /// Whether the last blocks carry less parity than the frame's percentage.
     pub fn fec_limited(&self) -> bool {

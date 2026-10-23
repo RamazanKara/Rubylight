@@ -189,3 +189,55 @@ fn a_lost_packet_in_every_block_of_a_streamed_frame_is_recovered() {
     assert_all_frames(&fixture, &events);
     assert_eq!(rx.stats().packets_recovered, lost as u64);
 }
+
+/// The block number of a streamed packet (byte 27, bits 4..6).
+fn block_of(packet: &[u8]) -> u8 {
+    (packet[27] >> 4) & 3
+}
+
+/// The host can drop a streamed frame after it has sent an early block (the
+/// encoder gave up, or the plan could not hold it). The client then sees the
+/// frame's first block, and next the following frame. It must drop the cut one,
+/// ask for recovery, and not decode the next P-frame against the missing one.
+#[test]
+fn a_streamed_frame_cut_off_after_an_early_block_is_dropped_and_the_next_is_not_decoded() {
+    for name in ["plain", "gcm"] {
+        let fixture = load(name);
+        // Frame 1 is the 4-block P-frame; frame 2 is the P-frame after it.
+        let cut = &fixture.frames[1];
+        let kept = cut.packets.iter().take_while(|p| block_of(p) == 0).count();
+        assert!(kept > 0 && kept < cut.packets.len(), "{name}");
+        let mut rx = receiver(&fixture);
+        let mut events = Vec::new();
+        let at = |number: usize| 1_000_000 + number as u64 * 16_000;
+        // The key frame, then only block 0 of the cut one.
+        for packet in &fixture.frames[0].packets {
+            rx.receive(packet, at(0), &mut events);
+        }
+        rx.frame_decoded(FrameType::Idr);
+        for packet in &cut.packets[..kept] {
+            rx.receive(packet, at(1), &mut events);
+        }
+        assert_eq!(frames(&events).len(), 1, "{name}: only the key frame so far");
+        // The next frame arrives whole.
+        for packet in &fixture.frames[2].packets {
+            rx.receive(packet, at(2), &mut events);
+        }
+        let received = frames(&events);
+        assert_eq!(
+            received.len(),
+            1,
+            "{name}: the cut frame and its successor are not decoded"
+        );
+        assert_eq!(received[0].frame_type, FrameType::Idr);
+        assert!(rx.stats().frame_drops >= 1, "{name}: the loss is counted");
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                VideoEvent::Signal(VideoSignal::RequestIdr | VideoSignal::InvalidateFrames { .. })
+            )),
+            "{name}: the loss is reported to the host"
+        );
+        assert_eq!(rx.stats().decrypt_failures, 0, "{name}");
+    }
+}

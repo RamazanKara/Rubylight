@@ -208,7 +208,7 @@
               {#if permissionSummary(client.perm) === 'View only'}<p class="network-memory muted">Can watch streams, but cannot start games or use controls.</p>{/if}
               {#if client.network_loss_routes?.length}
                 <p class="network-memory muted">
-                  Recent video loss: future streams at {client.network_loss_routes.map((route) => route.address).join(', ')} start with smaller packet bursts.
+                  Recent video loss: future streams at {[...new Set(client.network_loss_routes.map((route) => route.address))].join(', ')} start with smaller packet bursts.
                   Expires within 24 hours; the normal rate is tested every second stream.
                 </p>
               {/if}

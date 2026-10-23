@@ -79,6 +79,25 @@ fn select(
     }
 }
 
+/// Once per stream, when the client's link hint is below the encoder bitrate
+/// and the pace is floored at 1.1 times the bitrate instead.
+pub(crate) fn warn_if_client_link_below_stream(session: &Session, route: Link) {
+    let bitrate = session.bitrate.load(std::sync::atomic::Ordering::Acquire);
+    let client_link_mbps = session.config.pyrowave_client_link_mbps;
+    if network_pacing::client_link_below_stream(
+        bitrate,
+        route.bps,
+        u64::from(client_link_mbps) * 1_000_000,
+    ) {
+        tracing::warn!(
+            stream_id = %session.launch.id,
+            client_link_mbps,
+            encoder_bitrate_kbps = bitrate,
+            "the client reports a link slower than the encoder bitrate; pacing at 1.1 times the bitrate, not at the link"
+        );
+    }
+}
+
 /// Metadata belongs to the encoded picture, so a queued picture retains the cap
 /// that was active when submitted even if pacing changes before it is sent.
 pub(crate) struct RecoveryFrame {
@@ -181,6 +200,54 @@ mod tests {
                 "hint {hint}"
             );
         }
+    }
+
+    #[test]
+    fn a_client_link_hint_below_the_bitrate_floors_the_pace_at_one_point_one_times_it() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let packetizer = VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let period = Duration::from_secs_f64(1. / 60.);
+        let peer = "192.0.2.9:12345".parse().unwrap();
+        let route = Link {
+            bps: 1_000_000_000,
+            ..Default::default()
+        };
+        let session = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_core::rtsp::Negotiated {
+                pyrowave_client_link_mbps: 100,
+                ..Default::default()
+            },
+        );
+        session
+            .bitrate
+            .store(150_000, std::sync::atomic::Ordering::Release);
+        session.configure_keyframe_loss(true);
+        let config = Config::default();
+        assert_eq!(
+            pace(&session, &config, &packetizer, period, peer, route).bps,
+            165_000_000
+        );
+        assert_eq!(
+            preview_pace(&session, &config, &packetizer, period, peer, route).bps,
+            165_000_000
+        );
+        // A lighter stream is capped by the link as before.
+        session
+            .bitrate
+            .store(50_000, std::sync::atomic::Ordering::Release);
+        assert_eq!(
+            pace(&session, &config, &packetizer, period, peer, route).bps,
+            80_000_000
+        );
     }
 
     #[test]

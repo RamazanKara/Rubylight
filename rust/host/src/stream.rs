@@ -1865,7 +1865,11 @@ impl Media {
                             let block_layout = packetizer.block_layout(frame.bytes.len());
                             let fec_limited = packetizer.fec_limited(frame.bytes.len());
                             let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
+                            let first_link = link.is_none();
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+                            if first_link {
+                                crate::video_send::recovery::warn_if_client_link_below_stream(&s, route);
+                            }
                             let bitrate = s.bitrate.load(Ordering::Relaxed);
                             let crate::video_send::recovery::Pace { bps, needed } =
                                 crate::video_send::recovery::pace(&s, &c, &packetizer, stream_period.get(), peer, route);
@@ -1875,7 +1879,7 @@ impl Media {
                             if Instant::now() >= link_due {
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {
-                                    tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
+                                    tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, client_link_mbps=s.config.pyrowave_client_link_mbps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
                                     reported_pacing = Some(bps);
                                 }
                             }

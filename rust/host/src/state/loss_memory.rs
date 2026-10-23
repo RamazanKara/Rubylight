@@ -23,7 +23,7 @@ const SUSTAINED: &str = "sustained";
 
 /// What a history is about: the client, its address, the host interface the
 /// route leaves by and the client's own link when it reports one. A host that
-/// switches NIC or Wi-Fi, or a client that moves to another port, starts fresh.
+/// switches network adapter, or a client that moves to another port, starts fresh.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Scope {
     address: IpAddr,

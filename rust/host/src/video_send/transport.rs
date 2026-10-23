@@ -109,10 +109,15 @@ impl Transport<'_> {
         let (s, c) = (&self.s, &self.c);
         let period = s.stream_mode().period();
         let peer = frame.peer;
+        let first = self.link.is_none();
         let route = *self
             .link
             .get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
         let bitrate = s.bitrate.load(Ordering::Relaxed);
+        let client_link_mbps = s.config.pyrowave_client_link_mbps;
+        if first {
+            recovery::warn_if_client_link_below_stream(s, route);
+        }
         let recovery::Pace { bps, needed } =
             recovery::pace(s, c, &frame.packetizer, period, peer, route);
         let safe = network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
@@ -129,6 +134,7 @@ impl Transport<'_> {
                     pacing_bps = bps,
                     wire_budget_bps = needed,
                     link_bps = route.bps,
+                    client_link_mbps,
                     configured_kbps = c.integer("pacing_max_bitrate_kbps", 0),
                     "network pacing selected"
                 );

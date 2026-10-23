@@ -34,6 +34,7 @@ pub fn rate_bps_for_client(
     needed_bps: u64,
     client_link_bps: u64,
 ) -> u64 {
+    let host_link_bps = link_bps;
     let link_bps = match (link_bps, client_link_bps) {
         (0, client) => client,
         (host, 0) => host,
@@ -51,10 +52,36 @@ pub fn rate_bps_for_client(
         800_000_000
     };
     if link_bps > 0 {
-        requested.min(link_bps.saturating_mul(4) / 5).max(1)
+        let cap = link_bps.saturating_mul(4) / 5;
+        let floor = client_floor_bps(stream_kbps, host_link_bps, client_link_bps);
+        requested.min(cap.max(floor)).max(1)
     } else {
         requested
     }
+}
+
+/// A client that says its link is slower than the stream still has to get the
+/// stream: pacing never falls below 1.1 times the encoder bitrate because of
+/// the client's hint (the host's own link keeps its plain cap). Zero when the
+/// hint is not what limits the pace.
+pub fn client_floor_bps(stream_kbps: u32, host_link_bps: u64, client_link_bps: u64) -> u64 {
+    let client_limits =
+        client_link_bps > 0 && (host_link_bps == 0 || client_link_bps < host_link_bps);
+    if client_limits {
+        u64::from(stream_kbps) * 1100
+    } else {
+        0
+    }
+}
+
+/// The client's hint is below what the encoder sends, so the floor decides.
+pub fn client_link_below_stream(
+    stream_kbps: u32,
+    host_link_bps: u64,
+    client_link_bps: u64,
+) -> bool {
+    client_floor_bps(stream_kbps, host_link_bps, client_link_bps)
+        > client_link_bps.saturating_mul(4) / 5
 }
 
 /// What the client tells the host about its own path with each PyroWave
@@ -717,6 +744,31 @@ mod tests {
         );
         assert_eq!(
             rate_bps_for_client(800_000, 50_000, 0, false, 0, 100 * M),
+            80 * M
+        );
+    }
+
+    #[test]
+    fn a_client_link_below_the_bitrate_does_not_pace_the_stream_under_it() {
+        const M: u64 = 1_000_000;
+        // 100 Mbps client, 150 Mbps stream: 4/5 of the port is 80, the floor
+        // is 165.
+        let rate =
+            |client: u64| rate_bps_for_client(0, 150_000, 1000 * M, false, 180 * M, client * M);
+        assert_eq!(rate(100), 165 * M);
+        assert!(client_link_below_stream(150_000, 1000 * M, 100 * M));
+        // A hint that fits the stream is capped at 4/5 as before.
+        assert_eq!(rate(1000), 800 * M);
+        assert_eq!(
+            rate_bps_for_client(0, 50_000, 0, false, 65 * M, 100 * M),
+            80 * M
+        );
+        assert!(!client_link_below_stream(50_000, 0, 100 * M));
+        // No hint, or the host's own link limiting: no floor.
+        assert!(!client_link_below_stream(150_000, 100 * M, 0));
+        assert!(!client_link_below_stream(150_000, 100 * M, 1000 * M));
+        assert_eq!(
+            rate_bps_for_client(0, 150_000, 100 * M, false, 180 * M, 0),
             80 * M
         );
     }

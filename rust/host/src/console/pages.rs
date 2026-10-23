@@ -13,6 +13,16 @@ fn rows<'a>(value: &'a Value, key: &str) -> &'a [Value] {
         .and_then(Value::as_array)
         .map_or(&[], Vec::as_slice)
 }
+/// The same address on two host adapters is listed once.
+fn loss_addresses(routes: &[Value]) -> String {
+    let mut seen: Vec<&str> = Vec::new();
+    for address in routes.iter().map(|r| text(r, "address")) {
+        if !seen.contains(&address) {
+            seen.push(address);
+        }
+    }
+    seen.join(", ")
+}
 fn raw(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_default()
 }
@@ -572,12 +582,8 @@ async fn devices(
                 "Reset network history",
             );
             format!(
-                "<p>Recent video loss at {}. Future streams start with smaller packet bursts. History expires after 24 hours; every fifth stream tests the normal rate. Reset applies to the next stream.</p>",
-                esc(&routes
-                    .iter()
-                    .map(|r| text(r, "address"))
-                    .collect::<Vec<_>>()
-                    .join(", "))
+                "<p>Recent video loss at {}. Future streams start with smaller packet bursts. History expires after 24 hours; every second stream tests the normal rate. Reset applies to the next stream.</p>",
+                esc(&loss_addresses(routes))
             )
         };
         content += &card(
@@ -1024,6 +1030,18 @@ mod tests {
         assert_eq!(timestamp(&json!(0)), "1970-01-01 00:00 UTC");
         assert_eq!(timestamp(&json!("60")), "1970-01-01 00:01 UTC");
         assert_eq!(timestamp(&Value::Null), "Not available");
+    }
+    #[test]
+    fn an_address_remembered_on_two_adapters_is_listed_once() {
+        let routes = json!([
+            {"address":"192.0.2.9","interface":1},
+            {"address":"192.0.2.9","interface":2},
+            {"address":"192.0.2.10"}
+        ]);
+        assert_eq!(
+            loss_addresses(routes.as_array().unwrap()),
+            "192.0.2.9, 192.0.2.10"
+        );
     }
     #[test]
     fn token_permissions_are_readable_and_escaped() {

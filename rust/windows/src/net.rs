@@ -426,8 +426,9 @@ pub struct Link {
     pub bps: u64,
     pub wireless: bool,
     /// The NDIS locally unique identifier (LUID) of the interface the route
-    /// leaves by; zero means unknown. A host that changes NIC or Wi-Fi network
-    /// has a different path to the same client.
+    /// leaves by; zero means unknown. A host that changes network adapter
+    /// has a different path to the same client. It names the adapter, not the
+    /// network it is joined to.
     pub interface: u64,
 }
 fn interface_link(row: &windows::Win32::NetworkManagement::IpHelper::MIB_IF_ROW2) -> Link {

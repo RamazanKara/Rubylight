@@ -96,7 +96,7 @@ Status words: **same** (both engines do it and tests cover the Rust side), **C o
 
 ### Switching the default
 
-Not done yet. Flipping it is a decision after the device measurements below. The places that change are `PreferenceConfiguration.RUST_ENGINE_PREF_STRING`'s `false` default, `checkbox_rust_engine` in `res/xml/preferences.xml`, and the expectations in `SettingsKeysTest` and `AdvancedOptionsTest`. Existing installs keep their stored value, so a default flip also needs a one-time migration if they should follow it.
+Not done yet. Flipping it is a decision; the device measurements are in [October 23: Rust engine against the C engine on Android (B8)](#october-23-rust-engine-against-the-c-engine-on-android-b8). The places that change are `PreferenceConfiguration.RUST_ENGINE_PREF_STRING`'s `false` default, `checkbox_rust_engine` in `res/xml/preferences.xml`, and the expectations in `SettingsKeysTest` and `AdvancedOptionsTest`. Existing installs keep their stored value, so a default flip also needs a one-time migration if they should follow it.
 
 ### Comparing the engines on a phone
 
@@ -107,6 +107,79 @@ Use the same phone, host, codec, resolution, refresh rate and bitrate for both r
 3. Play the same content for 5 minutes, then a 30-minute soak. Read picture age (`receive_to_present_ms`, `receive_to_render_ms`), decode time (`input_to_output_ms`), loss percent, frame drops and RTT.
 4. Export the CSV with Export latency CSV, and share a problem report to keep the engine line with it. With a Rubylight host, join the CSV to the host's timing record with `timing_report.py`.
 5. Flip the setting and repeat. The Rust engine is no worse when its median and 99th-percentile picture age and decode time are within the C run's noise, loss is equal or lower, and the 30-minute soak has no disconnects or growing latency.
+
+### October 23: Rust engine against the C engine on Android (B8)
+
+Nightjar's new streaming engine (`checkbox_rust_engine`, Rust) against the current engine (C, moonlight-common-c), on the same phone, host, codec and picture. By measurement the Rust engine is no worse than the C engine on picture age, decode time, loss recovery and a 30-minute soak. The default is not flipped here; that is the owner's call. Two things need a follow-up first: the Rust engine writes no clock offset into its latency CSV, and its overlay shows a different RTT (see "Caveats").
+
+**Fixture.** Retroid Pocket 6 (Snapdragon, adb `e24bb88e`), Nightjar `dev-retroid` debug build with the B8 gap fixes (Nightjar main `6456da5d` and later), Wi-Fi at -41 to -43 dBm, link 1080 to 1200 Mbps. Host: isolated profile on 192.168.4.69:48123 (RX 7900 XT, AMF, WGC, `virtual_display_layout = extended`, audio off, `video_slice_delivery = off`) running the package from the B2 phone work. Picture: `motion_probe` with 1024 noise on the captured display. Compact overlay on. The engine was confirmed on every run from the logcat line `Streaming engine: C (moonlight-common-c)` or `Rust (nightjar-core)` and the overlay. Runs took the GPU-LOCK one group at a time and the main host was idle before each.
+
+**Method.** The client latency CSV joined to the host timing record (`BUTTERPOLLO_TIMING_RECORD`) with `timing_report.py`, first 2 s of every run dropped. The C engine writes `clock_offset_us` and `clock_rtt_us`, so its join is `clock_sync` (bound about 1 ms). The Rust engine writes neither, which would drop its join to a `min_owd` lower bound that cannot be compared with the C one. So the phone-to-PC clock (phone clock minus PC QPC, which drifts at a steady 34.9 us/s, checked over 14 runs) was fitted on the C runs and written into copies of the Rust CSVs. Leave-one-out error of that fit: median -115 to +64 us, p5 to p95 about +-0.5 ms. Differences under about 0.5 ms in `end_to_end` therefore need the clock-free rows to confirm them: `assemble`, `client_total` and `decode` are measured on the phone only.
+
+#### HEVC 1080p60, 40 Mbps, 4 runs of 75 s per engine (ABBA)
+
+| ms, median / p95 / p99 | C | Rust | Rust minus C (median) |
+| --- | --- | --- | ---: |
+| end_to_end (joined, picture age) | 7.04 / 10.42 / 15.98 | 6.92 / 10.23 / 15.61 | -0.12 |
+| network_last (host first packet to client last packet) | 1.72 / 2.91 / 4.33 | 1.50 / 2.69 / 4.10 | -0.22 |
+| decode (`input_to_output`) | 0.92 / 1.26 / 1.47 | 0.92 / 1.27 / 1.46 | 0.00 |
+| host_total | 3.49 / 6.87 / 12.49 | 3.56 / 6.87 / 12.41 | +0.07 |
+| assemble (client, clock-free) | 0.33 / 1.08 / 2.00 | 0.12 / 0.82 / 1.76 | -0.21 |
+| client_total (client, clock-free) | 1.72 / 2.64 / 3.62 | 1.53 / 2.39 / 3.37 | -0.19 |
+
+- Per-run `end_to_end` medians: C 7.24, 7.06, 7.00, 6.89; Rust 6.88, 7.01, 6.85, 6.91 (the unfitted lower-bound join put Rust 0.46 ms behind, which was the join, not the engine).
+- Frames: 17,523 (C) and 17,520 (Rust) joined of 18,003 and 18,000 sent. Dropped by the client: 2 (C, 0.011%) and 4 (Rust, 0.022%). CSV rows lost: 0 in both. Host `idr_requests` 1 and `reference_invalidations` 0 in every run, so no recovery keyframes.
+- Host fps median 59.35 (C) and 59.32 (Rust), the same capture rate in both.
+
+#### Loss recovery
+
+`BUTTERPOLLO_TEST_SEND_LOSS=<percent>:42` on the host (random drop of video datagrams, same seed), one 75 s run per engine and loss rate, HEVC 1080p60 at 40 Mbps.
+
+| Run | Engine | Packets FEC had to rebuild | Frames FEC rebuilt | Host `idr_requests` / `reference_invalidations` | Host frames the client never showed | `end_to_end` median / p95 / p99 (ms) | Longest gap between received frames (ms) |
+| --- | --- | ---: | ---: | --- | ---: | --- | ---: |
+| 1% | C | 1972 | 1561 | 1 / 0 | 0 | 7.28 / 10.94 / 16.89 | 23.7 |
+| 1% | Rust | 1950 | 1573 | 1 / 0 | 0 | 6.98 / 10.66 / 16.58 | 29.2 |
+| 5% | C | 10551 | 3813 | 4 / 3 | 3 | 7.56 / 10.65 / 15.97 | 49.8 |
+| 5% | Rust | 10363 | 3830 | 1 / 0 | 0 | 7.30 / 10.62 / 16.16 | 25.4 |
+
+- At 1% both engines recovered every frame from FEC. No recovery keyframe, no skipped frame.
+- At 5% the C run lost three frames (client CSV frame numbers 1507 to 1509, 1809 to 1811, 3892 to 3894) and asked for a reference invalidation each time, which the host answered without a keyframe. Each loss cost one skipped frame, no stall: the next frame decoded and displayed normally. The Rust run lost none. One run per engine, so 3 against 0 lost frames out of 4,490 is not a significant difference; it is a "no worse".
+- `fec_unrecoverable_frames` was 0 in all four runs and `send_loss_recoveries` 0. No visible corruption on the mid and end screenshots of any of the four runs (noise and checker picture stayed clean), no decode errors in logcat.
+- Recovery time: the longest gap between received frames never exceeded 50 ms (one C outlier at 49.8 ms), so every loss healed within about three frame intervals.
+
+#### PyroWave, 1080p60, 400 Mbps, 75 s per engine
+
+Nightjar has no PyroWave-specific default bitrate (the stored bitrate follows resolution and frame rate, 20 Mbps at 1080p60, below PyroWave's floor), so the value is the one `docs/video-and-latency.md` gives as the start for 1080p/60. The host streamed `codec=3` at 398.7 Mbps (configured 400,000 kbps) in both runs. Host `pyrowave = true`, adaptive FEC not negotiated by the client in either run (host warning, same in both).
+
+| ms, median / p95 / p99 | C | Rust | Rust minus C (median) |
+| --- | --- | --- | ---: |
+| end_to_end | 36.19 / 43.76 / 62.55 | 34.99 / 41.79 / 57.44 | -1.20 |
+| to_decode (end_to_end minus display) | 16.05 / 25.07 / 44.02 | 15.29 / 20.20 / 36.75 | -0.76 |
+| decode | 3.05 / 3.45 / 3.77 | 3.04 / 3.37 / 3.64 | -0.01 |
+| display | 19.72 / 25.10 / 26.62 | 19.23 / 25.47 / 26.66 | -0.49 |
+| assemble | 8.75 / 12.46 / 17.13 | 7.99 / 11.00 / 14.13 | -0.76 |
+
+Frames dropped by the client: 0 in both (4 rows each end with `stream_ended`, from leaving the stream). Host frames the client never showed: 16 (C) and 10 (Rust), counted at the end of the run, includes the frames in flight when the stream ended. One run per engine.
+
+#### Soak: Rust engine, HEVC 1080p60, 40 Mbps, 30 minutes
+
+- Frames: 107,513 sent, 14,915 joined. The client latency CSV holds the last 14,915 frames only (about the last 4 minutes), so the picture-age trend covers the last four minutes, not all 30. Host `stream timings` cover all 30 minutes (357 five-second lines).
+- Fps: host median 59.33 per 5 s window (C 75 s runs 59.35), minimum window 57.34. Mean per fifth of the run: 59.37, 59.29, 59.27, 59.35, 59.34, 59.36, 59.29, so steady. Client drops 0, CSV rows lost 0, `present_drops` 0.
+- Picture age over the last 4 minutes, per minute (median, p95, p99 ms): 7.57 / 18.41 / 20.22, then 7.39 / 10.55 / 16.28, 7.34 / 10.75 / 16.79, 7.38 / 10.65 / 16.10, and 7.34 / 11.64 / 19.94 for the 515 frames of the partial last minute. The median is flat and equals the 75 s runs. The first minute's p95 of 18 ms is one burst; I did not trace it, but the host logged one FEC-unrecoverable frame and three reference invalidations over the 30 minutes (host `idr_requests` 2, `fec_unrecoverable_frames` 1, no injected loss), so it is plausibly that.
+- Memory (`dumpsys meminfo`, total PSS): 153.3 MB at the start, then 148.3, 157.1, 154.5, 155.0, 154.6 MB at 5-minute steps; no growth. A last sample 22 s after the stream ended read 156.1 MB. Java heap 37.7 MB at the start and 38.2 MB at the last in-stream sample; native heap 21.5 and 21.2 MB.
+- Errors: no error-level lines in the 30-minute logcat, no ANR or crash, no warning or error in the host log. The stream ended only when the run was stopped.
+- Thermal: the thermal service reported status 0 throughout. Battery temperature 33.0 C at the start, 34.0 C from the 25-minute sample on; battery level 85 percent to 79 percent.
+
+#### Caveats
+
+- The Rust engine leaves `clock_offset_us` and `clock_rtt_us` empty in the CSV. The `end_to_end` figures above used a clock fitted on the C runs (leave-one-out error up to +-0.5 ms), so the 0.12 ms median gap is inside that error; the clock-free `assemble` and `client_total` rows (0.2 ms lower on Rust) and the equal decode time are the firmer evidence. Filling the clock columns in the Rust engine would make a future comparison direct.
+- The compact overlay RTT reads 2 ms on the C engine and 7 to 8 ms on the Rust engine on every screenshot taken (pilot runs, the 5% runs, the soak end), while the host measured 2.1 ms for both. The Rust engine's overlay RTT is not the same quantity as the C engine's, or is not right; not investigated here.
+- One run per engine for loss and PyroWave, one phone, one Wi-Fi spot, one picture. 75 s runs were not repeated at different times of day.
+- Not measured: HDR, 144 Hz, 4K, AV1, a phone on a poor link, controller input latency.
+
+#### Verdict
+
+Rust is no worse than C on picture age (median, p95 and p99 equal or lower in HEVC and PyroWave), decode time (equal), loss recovery (no more skipped frames, no corruption at 1% and 5%) and the 30-minute soak (steady fps, flat memory and latency, no errors). By the plan's rule the default can flip. Do the two caveats first (Rust engine writing the clock columns, and the overlay RTT), so the flip does not leave an unexplained number on screen.
 
 ## Remaining gaps and validation
 

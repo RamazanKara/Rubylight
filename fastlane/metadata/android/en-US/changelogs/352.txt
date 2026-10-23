@@ -1,0 +1,1 @@
+The new streaming engine is now on by default, including PyroWave and remote monitor sessions. Turn it off in Settings > Advanced > Diagnostics to use the classic engine. If you had it off, it is switched on once; turning it off again is kept. The engine now reports the same round trip time as the classic one and fills the clock columns of the latency CSV.

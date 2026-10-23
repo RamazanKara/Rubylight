@@ -85,8 +85,9 @@ The C client on the same package: h264 710/710 and recovery 3/3 (5.2 ms mean), e
 
 ## Android switch-over
 
-The setting Settings > Advanced > Diagnostics > "New streaming engine (beta)"
-(`checkbox_rust_engine`, off by default) picks the engine per stream:
+The setting Settings > Advanced > Diagnostics > "New streaming engine"
+(`checkbox_rust_engine`, on by default since 2026-10-23; off selects the classic C engine) picks
+the engine per stream:
 
 - `NvConnection` calls `MoonBridge.requestRustEngine(prefs.rustEngine)` before
   `startConnection`. `MoonBridge` keeps its public API; every streaming call is now a Java
@@ -121,7 +122,7 @@ The setting Settings > Advanced > Diagnostics > "New streaming engine (beta)"
 | Input-only sessions | yes | `SessionConfig::input_only`. |
 | Remote monitor sessions | yes | `SessionConfig::remote_monitor`: the input queue is disabled (nothing is sent, not even the haptics enable) and the start wiggle is skipped, as the C skips `startInputStream`. Server commands and controller audio messages are still sent on the control stream, as in C, which only skips the input stream. Loopback test `a_remote_monitor_connection_sends_no_input_at_all`. |
 | H.264, HEVC, AV1, 10-bit, 4:4:4, RFI capabilities | yes | Parameter sets submitted separately, picture data in one buffer, timestamps mapped to CLOCK_MONOTONIC as `callbacks.c` does. |
-| PyroWave | yes, not yet tried on a device | The fallback is gone. Records, SDP/RTSP and the queue are difftested against the patched C (`protocol/difftest/tests/video.rs`) and negotiated in `host_interop.rs`; the Java renderer receives the same `bridgeDrSubmitDecodeUnit` units. Needs a Rubylight PyroWave stream on a phone before the default flips. |
+| PyroWave | yes | The fallback is gone; a PyroWave stream ran on a phone in the B8 comparison (`docs/PARITY-MATRIX.md`). Records, SDP/RTSP and the queue are difftested against the patched C (`protocol/difftest/tests/video.rs`) and negotiated in `host_interop.rs`; the Java renderer receives the same `bridgeDrSubmitDecodeUnit` units. |
 | HDR mode and metadata | yes | `SS_HDR_METADATA` layout. |
 | Audio (Opus, surround, high quality, packet loss concealment) | yes | Decoded in Rust with the app's libopus. |
 | Pending audio duration, pending video frames, RTT for the overlay | yes | From `Session::stats`. |
@@ -152,8 +153,8 @@ disconnect was clean. The C engine on the same setup: 60 FPS, 0% loss, equivalen
    same for FEC.
 3. End to end against an isolated Rubylight host (`rust/release/e2e.py`, `e2e_host.py`) with
    `nightjar-cli` in place of the C test client.
-4. On Android, the Rust engine ships behind a setting first, then becomes the default, then
-   the C is removed.
+4. On Android, the Rust engine shipped behind a setting first and is now the default (the C engine
+   stays as the explicit opt-out); then the C is removed.
 
 ## Android parity checklist
 
@@ -177,5 +178,6 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
   `protocol/client/tests/session_loopback.rs`)
 - [x] Android switch-over behind a setting (`protocol/android`, `RustBridge`; see the parity
   checklist and `docs/PARITY-MATRIX.md` for the remaining gaps)
-- [ ] Rust engine as the Android default, then removal of the C engine
+- [x] Rust engine as the Android default (C engine kept as the opt-out)
+- [ ] Removal of the C engine
 - [x] Desktop client milestone 1 (Windows, Linux): pairing, library, launch/resume/quit, hardware decoding, VRR pacing, audio, input, overlay. Streamed against an isolated Rubylight host on Windows (HEVC D3D11VA up to 5120x1440@240). Next: decode-only FFmpeg for packaging, HDR output, VAAPI dmabuf import, a dedicated D3D11 renderer with a waitable swap chain, per-PC settings, Wake-on-LAN, OTP pairing.

@@ -96,13 +96,13 @@ Status words: **same** (both engines do it and tests cover the Rust side), **C o
 
 ### Switching the default
 
-Not done yet. Flipping it is a decision; the device measurements are in [October 23: Rust engine against the C engine on Android (B8)](#october-23-rust-engine-against-the-c-engine-on-android-b8). The places that change are `PreferenceConfiguration.RUST_ENGINE_PREF_STRING`'s `false` default, `checkbox_rust_engine` in `res/xml/preferences.xml`, and the expectations in `SettingsKeysTest` and `AdvancedOptionsTest`. Existing installs keep their stored value, so a default flip also needs a one-time migration if they should follow it.
+Done on 2026-10-23. `checkbox_rust_engine` is on by default (`PreferenceConfiguration`, `res/xml/preferences.xml`) and its label reads "New streaming engine" without "beta"; turning it off selects the classic C engine, which stays for that and for hosts older than GFE 3.22. The device measurements are in [October 23: Rust engine against the C engine on Android (B8)](#october-23-rust-engine-against-the-c-engine-on-android-b8). Installs that stored the old default cannot be told from an explicit off, so `migrateRustEngineDefault` switches a stored off to on once (flag `rust_engine_default_on`); an off chosen afterwards is kept, as is an explicit on. Tests: `RustEngineDefaultTest`.
 
 ### Comparing the engines on a phone
 
 Use the same phone, host, codec, resolution, refresh rate and bitrate for both runs, with the phone on the same Wi-Fi spot. For each engine:
 
-1. Set Settings › Advanced › Diagnostics › New streaming engine (beta) to off (C) or on (Rust). Turn on the Debug overlay and the latency CSV.
+1. Set Settings › Advanced › Diagnostics › New streaming engine to off (C) or on (Rust). Turn on the Debug overlay and the latency CSV.
 2. Start a stream and confirm the engine: the Statistics line ends with `· C` or `· Rust`, and the Debug view shows `Streaming engine: ...`. If it says "Rust fell back", read the reason; that run measures the C engine.
 3. Play the same content for 5 minutes, then a 30-minute soak. Read picture age (`receive_to_present_ms`, `receive_to_render_ms`), decode time (`input_to_output_ms`), loss percent, frame drops and RTT.
 4. Export the CSV with Export latency CSV, and share a problem report to keep the engine line with it. With a Rubylight host, join the CSV to the host's timing record with `timing_report.py`.
@@ -110,7 +110,7 @@ Use the same phone, host, codec, resolution, refresh rate and bitrate for both r
 
 ### October 23: Rust engine against the C engine on Android (B8)
 
-Nightjar's new streaming engine (`checkbox_rust_engine`, Rust) against the current engine (C, moonlight-common-c), on the same phone, host, codec and picture. By measurement the Rust engine is no worse than the C engine on picture age, decode time, loss recovery and a 30-minute soak. The default is not flipped here; that is the owner's call. Two things need a follow-up first: the Rust engine writes no clock offset into its latency CSV, and its overlay shows a different RTT (see "Caveats").
+Nightjar's new streaming engine (`checkbox_rust_engine`, Rust) against the current engine (C, moonlight-common-c), on the same phone, host, codec and picture. By measurement the Rust engine is no worse than the C engine on picture age, decode time, loss recovery and a 30-minute soak. The two follow-ups this measurement found (the empty clock columns and the high overlay RTT) are fixed, and the default is flipped (see "Caveats" and "After the fixes").
 
 **Fixture.** Retroid Pocket 6 (Snapdragon, adb `e24bb88e`), Nightjar `dev-retroid` debug build with the B8 gap fixes (Nightjar main `6456da5d` and later), Wi-Fi at -41 to -43 dBm, link 1080 to 1200 Mbps. Host: isolated profile on 192.168.4.69:48123 (RX 7900 XT, AMF, WGC, `virtual_display_layout = extended`, audio off, `video_slice_delivery = off`) running the package from the B2 phone work. Picture: `motion_probe` with 1024 noise on the captured display. Compact overlay on. The engine was confirmed on every run from the logcat line `Streaming engine: C (moonlight-common-c)` or `Rust (nightjar-core)` and the overlay. Runs took the GPU-LOCK one group at a time and the main host was idle before each.
 
@@ -172,14 +172,25 @@ Frames dropped by the client: 0 in both (4 rows each end with `stream_ended`, fr
 
 #### Caveats
 
-- The Rust engine leaves `clock_offset_us` and `clock_rtt_us` empty in the CSV. The `end_to_end` figures above used a clock fitted on the C runs (leave-one-out error up to +-0.5 ms), so the 0.12 ms median gap is inside that error; the clock-free `assemble` and `client_total` rows (0.2 ms lower on Rust) and the equal decode time are the firmer evidence. Filling the clock columns in the Rust engine would make a future comparison direct.
-- The compact overlay RTT reads 2 ms on the C engine and 7 to 8 ms on the Rust engine on every screenshot taken (pilot runs, the 5% runs, the soak end), while the host measured 2.1 ms for both. The Rust engine's overlay RTT is not the same quantity as the C engine's, or is not right; not investigated here.
-- One run per engine for loss and PyroWave, one phone, one Wi-Fi spot, one picture. 75 s runs were not repeated at different times of day.
-- Not measured: HDR, 144 Hz, 4K, AV1, a phone on a poor link, controller input latency.
+- Fixed. The Rust engine left `clock_offset_us` and `clock_rtt_us` empty in the CSV, so the `end_to_end` figures above used a clock fitted on the C runs (leave-one-out error up to +-0.5 ms); the 0.12 ms median gap is inside that error, and the clock-free `assemble`, `client_total` and `decode` rows are the firmer evidence. Cause: the renderer asks whether the host supports control messages when it starts, but the Rust session was stored only after `Session::start` returned, so the answer was always no and no clock probes ran. The session now reports the host's control-message support through a listener callback before the first frame.
+- Fixed. The compact overlay RTT read 2 ms on the C engine and 7 to 8 ms on the Rust engine while the host measured 2.1 ms. Cause: the ENet round-trip smoothing. moonlight-common-c's ENet fork rounds the smoothing step up (`(diff + 7) / 8`), while upstream ENet and `rusty_enet` truncate it (`diff / 8`); with truncation the mean stops moving once a sample is within 7 ms of it, so after a slow first exchange a stream on a 2 ms link stayed at 7 to 8 ms. The Rust engine now builds on a patched, vendored `rusty_enet` 0.4.0 (`protocol/vendor/rusty_enet`) that rounds like the fork, for the mean and the variance; a regression test (`protocol/client/tests/enet_rtt.rs`) pins the value.
 
 #### Verdict
 
-Rust is no worse than C on picture age (median, p95 and p99 equal or lower in HEVC and PyroWave), decode time (equal), loss recovery (no more skipped frames, no corruption at 1% and 5%) and the 30-minute soak (steady fps, flat memory and latency, no errors). By the plan's rule the default can flip. Do the two caveats first (Rust engine writing the clock columns, and the overlay RTT), so the flip does not leave an unexplained number on screen.
+Rust is no worse than C on picture age (median, p95 and p99 equal or lower in HEVC and PyroWave), decode time (equal), loss recovery (no more skipped frames, no corruption at 1% and 5%) and the 30-minute soak (steady fps, flat memory and latency, no errors). By the plan's rule the default can flip, and with both caveats fixed (below) it did, on 2026-10-23.
+
+#### After the fixes (2026-10-23, Retroid Pocket 6)
+
+One 60 s run per engine in the order C, Rust, C, on the same phone and an isolated host: HEVC, 1080p60, 40 Mbps, motion probe noise picture, Wi-Fi RSSI -41 dBm, compact overlay, host with the arm off. Release host build of the B2 package, debug root Nightjar with both fixes.
+
+| | C (1) | Rust | C (2) |
+|---|---|---|---|
+| CSV rows with a clock offset | 3462 of 3598 | 3469 of 3603 | 3463 of 3600 |
+| `clock_rtt_us` median | 2.11 ms | 2.15 ms | 2.10 ms |
+| Overlay RTT (mid-run screenshot) | 3 ms | 3 ms | 2 ms |
+| Host skipped or dropped frames, byte-cap hits | 0 | 0 | 0 |
+
+The phone-to-PC clock K (the CSV offset minus the host's media epoch) fits a line over receive time at 35.0 us/s on the two C runs. The Rust run's K sits a median of 28 us from that line (p5 -565 us, p95 +47 us), inside the 0.5 ms the brief asked for and inside the C runs' own scatter (p5 to p95 -292 to +462 us). The Rust run's own slope is 36.7 us/s. The Rust engine's overlay RTT now matches the C engine's (2 to 3 ms on every screenshot, against 7 to 8 ms before; the CSV round trip is 2.1 ms on both). One phone, one run per engine, so these confirm the two fixes and say nothing new about picture age.
 
 ## Remaining gaps and validation
 

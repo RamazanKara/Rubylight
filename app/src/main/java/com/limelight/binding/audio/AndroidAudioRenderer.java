@@ -55,6 +55,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private String routes = "unknown";
     private boolean routeResolved;
     private int routeRetries;
+    // What the AudioTrack really got, for the problem report: granted mode, output burst, smallest buffer we allow.
+    private int trackPerfMode = -1, outputBurst, floorFrames;
 
     private static native long nativeOpenAudio(int sampleRate);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
@@ -232,12 +234,27 @@ public class AndroidAudioRenderer implements AudioRenderer {
             }
 
             try {
+                int minBufferFrames = Math.max(0, AudioTrack.getMinBufferSize(sampleRate, channelConfig,
+                        AudioFormat.ENCODING_PCM_16BIT)) / (channels * 2);
                 int capacityBytes = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ?
-                        Math.max(bufferSize, bytesPerFrame * 8) : bufferSize;
+                        Math.max(bufferSize, AudioBufferPolicy.trackCapacityFrames(samplesPerFrame, minBufferFrames) *
+                                channels * 2) : bufferSize;
                 track = createAudioTrack(channelConfig, sampleRate, capacityBytes, lowLatency);
+                trackPerfMode = -1;
+                outputBurst = 0;
+                floorFrames = 0;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    int actual = track.setBufferSizeInFrames(bufferSize / (channels * 2));
-                    bufferPolicy = new AudioBufferPolicy(samplesPerFrame, track.getBufferCapacityInFrames(),
+                    // The framework may refuse the fast path. Such a track runs on the normal mixer, whose
+                    // period is far above two packets, so the buffer must not go below its own minimum.
+                    trackPerfMode = trackPerformanceMode();
+                    outputBurst = outputFramesPerBuffer();
+                    floorFrames = AudioBufferPolicy.trackFloorFrames(Build.VERSION.SDK_INT, trackPerfMode, lowLatency,
+                            samplesPerFrame, outputBurst, minBufferFrames);
+                    boolean fast = AudioBufferPolicy.trackIsFast(Build.VERSION.SDK_INT, trackPerfMode, lowLatency);
+                    int actual = track.setBufferSizeInFrames(Math.max(bufferSize / (channels * 2), floorFrames));
+                    bufferPolicy = AudioBufferPolicy.forTrack(
+                            AudioBufferPolicy.trackStepFrames(fast, samplesPerFrame, outputBurst),
+                            track.getBufferCapacityInFrames(), floorFrames,
                             actual > 0 ? actual : track.getBufferSizeInFrames(), track.getUnderrunCount(), SystemClock.uptimeMillis());
                 }
                 track.play();
@@ -247,7 +264,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 LimeLog.info("Audio track configuration: "+bufferSize+" "+lowLatency);
                 ProblemReport.setAudioDiagnostics("AudioTrack: rate=" + sampleRate + ", channels=" + channels +
                         ", packetFrames=" + samplesPerFrame + ", bufferBytes=" + bufferSize + ", lowLatency=" + lowLatency +
-                        outputDetails());
+                        pathDetails() + outputDetails());
                 break;
             } catch (Exception e) {
                 // Try to release the AudioTrack if we got far enough
@@ -343,6 +360,33 @@ public class AndroidAudioRenderer implements AudioRenderer {
         } else if (track != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             reportAudioTrack(track.getUnderrunCount());
         }
+    }
+
+    /** AudioTrack.getPerformanceMode(), or -1 where the platform cannot say (before Android 8.0). */
+    int trackPerformanceMode() {
+        AudioTrack current = track;
+        if (current == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return -1;
+        try {
+            return current.getPerformanceMode();
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
+    /** The output's native burst in frames, 0 when the property is missing or invalid. */
+    int outputFramesPerBuffer() {
+        if (context == null) return 0;
+        try {
+            AudioManager manager = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+            return AudioBufferPolicy.parseFrames(manager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    private String pathDetails() {
+        return ", perfMode=" + AudioBufferPolicy.perfModeName(trackPerfMode) + ", outputBurst=" + outputBurst +
+                ", floorFrames=" + floorFrames;
     }
 
     int nativeOutputRate() {
@@ -520,7 +564,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
         resolveRoute(-1);
         ProblemReport.setAudioDiagnostics("AudioTrack: rate=" + sampleRate + ", channels=" + channels +
                 ", packetFrames=" + samplesPerFrame + ", bufferFrames=" + track.getBufferSizeInFrames() +
-                ", capacityFrames=" + track.getBufferCapacityInFrames() + ", underruns=" + underruns + outputDetails());
+                ", capacityFrames=" + track.getBufferCapacityInFrames() + ", underruns=" + underruns +
+                pathDetails() + outputDetails());
     }
 
     private void reportNativeAudio(int[] stats) {

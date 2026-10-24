@@ -290,6 +290,7 @@ public class AndroidAudioRendererTest {
     private static final class UnavailableOutput extends AndroidAudioRenderer {
         int refusedTracks;
         int rateReads, rate = 44100, routedType = -1, pendingMs;
+        int perfMode = AudioBufferPolicy.PERF_NONE, burst = 192;
         long now = 1000;
         int[][] attached = new int[0][];
 
@@ -304,6 +305,14 @@ public class AndroidAudioRendererTest {
 
         @Override int[][] attachedOutputs() {
             return attached;
+        }
+
+        @Override int trackPerformanceMode() {
+            return perfMode;
+        }
+
+        @Override int outputFramesPerBuffer() {
+            return burst;
         }
 
         @Override int pendingAudioMs() {
@@ -383,6 +392,28 @@ public class AndroidAudioRendererTest {
         assertEquals(2, renderer.rateReads);
         assertTrue(audioReport(), audioReport().contains("nativeRate=48000"));
         assertTrue(audioReport(), audioReport().contains("route=speaker"));
+        renderer.cleanup();
+    }
+
+    @Test public void reportNamesTheGrantedPathAndTheBufferFloor() {
+        // #15: the fast path was denied, so the track runs on the normal mixer at the framework minimum.
+        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
+        renderer.rate = 48000;
+        int minFrames = AudioTrack.getMinBufferSize(48000, android.media.AudioFormat.CHANNEL_OUT_STEREO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT) / 4;
+        assertEquals(0, renderer.setup(STEREO, 48000, 240));
+        assertTrue(audioReport(), audioReport().contains("perfMode=none"));
+        assertTrue(audioReport(), audioReport().contains("outputBurst=192"));
+        assertTrue(audioReport(), audioReport().contains("floorFrames=" + Math.max(480, minFrames)));
+        renderer.cleanup();
+
+        // A granted fast path keeps the two-packet floor.
+        renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
+        renderer.rate = 48000;
+        renderer.perfMode = AudioBufferPolicy.PERF_LOW_LATENCY;
+        assertEquals(0, renderer.setup(STEREO, 48000, 240));
+        assertTrue(audioReport(), audioReport().contains("perfMode=lowLatency"));
+        assertTrue(audioReport(), audioReport().contains("floorFrames=480"));
         renderer.cleanup();
     }
 

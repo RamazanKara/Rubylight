@@ -143,8 +143,8 @@ public class PcKeyboardControllerTest {
         controller.pad(Pad.A, false, 21);
         assertTrue(controller.isFocusVisible());
         assertEquals(2, events.size());
-        assertTrue(events.get(0).endsWith("+"));
-        assertTrue(events.get(1).endsWith("-"));
+        assertEquals("the touched Q goes down", "51+", events.get(0));
+        assertEquals("the touched Q comes up", "51-", events.get(1));
     }
 
     @Test

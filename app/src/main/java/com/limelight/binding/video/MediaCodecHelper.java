@@ -637,29 +637,21 @@ public class MediaCodecHelper {
 
         // Without low-latency flags, fall back to an untuned format after the first rejected hint.
         if (performanceHints && tryNumber < (disableLowLatency ? 1 : 3)) {
-            if (MediaCodecHelper.decoderSupportsMaxOperatingRate(decoderInfo.getName())) {
+            // Experimental: Artemis asks Tegra decoders for the top operating rate, and the derflacco fork
+            // (moonlight-noir, GPL-3.0) MediaTek decoders too. They get the rate only, like Snapdragon:
+            // the real-time priority next to a rate the decoder cannot meet is the pair that crashes
+            // decoders after start(), outside the fallback ladder, so it is not sent to them (the fork
+            // does send it to MediaTek).
+            boolean rateOnly = useVendorOptions && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                    (isDecoderInList(tegraDecoderPrefixes, decoderInfo.getName()) ||
+                            isDecoderInList(mediaTekDecoderPrefixes, decoderInfo.getName()));
+            if (rateOnly || MediaCodecHelper.decoderSupportsMaxOperatingRate(decoderInfo.getName())) {
                 videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE);
                 setNewOption = true;
             }
             else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 videoFormat.setInteger(MediaFormat.KEY_PRIORITY, 0);
                 setNewOption = true;
-            }
-            // Experimental: the derflacco fork (moonlight-noir, GPL-3.0) also asks Tegra and MediaTek
-            // decoders for the top operating rate, and MediaTek for real-time priority. Both sit behind
-            // the performance hints like the Snapdragon rate, because a decoder that cannot meet the
-            // rate can crash after start(), outside the fallback ladder. Tegra gets the rate only, as
-            // in Artemis; its priority comes from the branch above.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && useVendorOptions) {
-                if (isDecoderInList(tegraDecoderPrefixes, decoderInfo.getName())) {
-                    videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE);
-                    setNewOption = true;
-                }
-                else if (isDecoderInList(mediaTekDecoderPrefixes, decoderInfo.getName())) {
-                    videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE);
-                    videoFormat.setInteger(MediaFormat.KEY_PRIORITY, 0);
-                    setNewOption = true;
-                }
             }
         }
 

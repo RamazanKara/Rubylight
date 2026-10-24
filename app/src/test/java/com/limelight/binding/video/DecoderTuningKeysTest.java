@@ -102,7 +102,8 @@ public class DecoderTuningKeysTest {
             assertAbsent(name, format, MediaFormat.KEY_OPERATING_RATE, MediaFormat.KEY_PRIORITY);
             MediaFormat hinted = tune(name, 0, true);
             assertEquals(name, Short.MAX_VALUE, hinted.getInteger(MediaFormat.KEY_OPERATING_RATE));
-            assertEquals(name, 0, hinted.getInteger(MediaFormat.KEY_PRIORITY));
+            // The real-time priority next to the top rate is what crashes decoders after start().
+            assertFalse(name, hinted.containsKey(MediaFormat.KEY_PRIORITY));
             assertEquals(name, name.startsWith("OMX"), format.containsKey("vdec-lowlatency"));
             assertAbsent(name, format, QTI_KEYS);
             assertAbsent(name, format, TEGRA_KEYS);
@@ -161,8 +162,12 @@ public class DecoderTuningKeysTest {
         assertAbsent("hints off", tune("OMX.Nvidia.h265.decode", 0, false), MediaFormat.KEY_OPERATING_RATE, MediaFormat.KEY_PRIORITY);
         MediaFormat format = tune("OMX.Nvidia.h265.decode", 0, true);
         assertEquals(Short.MAX_VALUE, format.getInteger(MediaFormat.KEY_OPERATING_RATE));
-        // The priority is the generic non-Qualcomm hint, not part of the Tegra keys.
-        assertEquals(0, format.getInteger(MediaFormat.KEY_PRIORITY));
+        assertFalse(format.containsKey(MediaFormat.KEY_PRIORITY));
+        // With the vendor switch off, the generic non-Qualcomm priority hint is all it gets.
+        MediaFormat off = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        MediaCodecHelper.setDecoderLowLatencyOptions(off, decoder("OMX.Nvidia.h265.decode"), 0, true, false, true, false);
+        assertFalse(off.containsKey(MediaFormat.KEY_OPERATING_RATE));
+        assertEquals(0, off.getInteger(MediaFormat.KEY_PRIORITY));
     }
 
     @Test

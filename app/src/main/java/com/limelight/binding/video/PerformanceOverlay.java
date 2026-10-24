@@ -69,9 +69,9 @@ public final class PerformanceOverlay {
                 measurement(locale, videoMbps, "%.1f"), measurement(locale, frameLossPercent, "%.2f"));
         String network = context.getString(R.string.stats_network,
                 measurement(locale, networkMs, "%.0f"), measurement(locale, varianceMs, "%.0f"));
-        String host = context.getString(R.string.stats_host, measurement(locale, hostMs, "%.2f"));
+        String host = context.getString(R.string.stats_host, measurement(locale, hostMs, "%.1f"));
         if (available(hostToNetworkMs)) {
-            host += "\n" + context.getString(R.string.stats_host_network, measurement(locale, hostToNetworkMs, "%.2f"));
+            host += "\n" + context.getString(R.string.stats_host_network, measurement(locale, hostToNetworkMs, "%.1f"));
         }
         String client = context.getString(submissionOnly ? R.string.stats_decode_submission : R.string.stats_client,
                 measurement(locale, decodeMs, "%.2f"), measurement(locale, displayMs, "%.2f"));

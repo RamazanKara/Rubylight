@@ -262,7 +262,7 @@
     <string name="latency_output_render">Görüntüleme bekleme</string>
     <string name="latency_receive_render">İstemci gecikmesi</string>
     <string name="latency_host_processing">Ana bilgisayar işleme süresi</string>
-    <string name="latency_host_processing_send">Ana bilgisayar işleme süresi + gönderim</string>
+    <string name="latency_host_processing_send">Ana bilgisayardan ağa</string>
     <string name="latency_host_split">Ana bilgisayar kuyruk / kodlama / gönderim (ort.): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">YUV 4:4:4 tercih et</string>
     <string name="summary_yuv444">Bilgisayar ve bu cihaz destekliyorsa renkli metin daha keskin olur. HDR önceliklidir.</string>

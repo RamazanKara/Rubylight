@@ -35,7 +35,7 @@ public class PerformanceOverlayTest {
                 "Displayed: 59.9 FPS · Received: 60.0 FPS\n" +
                 "Video payload: 20.4 Mbps · Loss: 0.14%\n" +
                 "Network RTT: 8 ms (±1 ms)\n" +
-                "Host processing: 2.10 ms\n" +
+                "Host processing: 2.1 ms\n" +
                 "Decode: 4.60 ms · Display wait: 1.20 ms", text);
         assertFalse(text.contains("13 ms"));
     }
@@ -84,7 +84,7 @@ public class PerformanceOverlayTest {
                 59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
         assertTrue(text.contains("Angezeigt: 59,9 FPS"));
         assertTrue(text.contains("Videodaten: 20,4 Mbit/s · Verlust: 0,14%"));
-        assertTrue(text.contains("Host-Verarbeitung: 2,10 ms"));
+        assertTrue(text.contains("Host-Verarbeitung: 2,1 ms"));
     }
 
     @Test
@@ -107,7 +107,7 @@ public class PerformanceOverlayTest {
                 PerformanceOverlay.average(summary, 7), stats.takeDecodeTimeMs(),
                 PerformanceOverlay.average(summary, 2), false).toString();
         assertTrue(text.contains("Displayed: 30.0 FPS"));
-        assertTrue(text.contains("Host processing: 2.10 ms"));
+        assertTrue(text.contains("Host processing: 2.1 ms"));
         assertTrue(text.contains("Decode: 4.00 ms · Display wait: 4.00 ms"));
     }
 
@@ -128,7 +128,7 @@ public class PerformanceOverlayTest {
         }
     }
 
-    private static HostTimingReport hostReport(long hostUs, long queueUs, long encodeUs, long sendUs) {
+    static HostTimingReport hostReport(long hostUs, long queueUs, long encodeUs, long sendUs) {
         long[] fields = {1, hostUs, queueUs, encodeUs, sendUs};
         byte[] data = new byte[4 + 20];
         data[0] = 1;
@@ -153,16 +153,16 @@ public class PerformanceOverlayTest {
         String with = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
                 120, 120, 450, 0, 8, 1, header, PerformanceOverlay.average(summary, FrameLatencyStats.HOST_SENT_STAGE),
                 1, 1, false).toString();
-        assertTrue(with, with.contains("Host processing: 0.50 ms\n"));
-        assertTrue(with, with.contains("Host to network: 4.90 ms\n"));
+        assertTrue(with, with.contains("Host processing: 0.5 ms\n"));
+        assertTrue(with, with.contains("Host to network: 4.9 ms\n"));
         assertFalse(with, with.contains("send"));
         // Same Host processing line with and without a report; only the extra line differs.
-        assertTrue(without, without.contains("Host processing: 0.50 ms\n"));
+        assertTrue(without, without.contains("Host processing: 0.5 ms\n"));
         assertFalse(without, without.contains("Host to network"));
-        assertEquals(without.replace("Host processing: 0.50 ms\n", "Host processing: 0.50 ms\nHost to network: 4.90 ms\n"), with);
+        assertEquals(without.replace("Host processing: 0.5 ms\n", "Host processing: 0.5 ms\nHost to network: 4.9 ms\n"), with);
         String german = PerformanceOverlay.statisticsText(context(Locale.GERMANY), "1280×720 · PyroWave · SDR",
                 120, 120, 450, 0, 8, 1, 0.5f, 4.9f, 1, 1, false).toString();
-        assertTrue(german, german.contains("Host-Verarbeitung: 0,50 ms\nHost bis Netzwerk: 4,90 ms"));
+        assertTrue(german, german.contains("Host-Verarbeitung: 0,5 ms\nHost bis Netzwerk: 4,9 ms"));
     }
 
     @Test
@@ -192,7 +192,7 @@ public class PerformanceOverlayTest {
         summary[FrameLatencyStats.HOST_SENT_STAGE] = new double[] {600, 5, 6, 7};
         String reports = MediaCodecDecoderRenderer.formatLatencyOverlay(context(Locale.US), summary, -1);
         assertTrue(reports, reports.contains("Host processing: 0.50 / 1.00 / 1.50 (n=600)"));
-        assertTrue(reports, reports.contains("Host processing + send: 5.00 / 6.00 / 7.00 (n=600)"));
+        assertTrue(reports, reports.contains("Host to network: 5.00 / 6.00 / 7.00 (n=600)"));
     }
 
     @Test

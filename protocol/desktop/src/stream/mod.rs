@@ -635,6 +635,8 @@ struct Window {
     hold_us: i64,
     latency_us: i64,
     latency_n: u32,
+    /// The header's processing times (100 us units) and the frames that carried one, over this
+    /// window and the one before it, filled in by `HostAverage` when the overlay is built.
     host_latency: u64,
     host_latency_n: u32,
     network_us: u64,
@@ -642,6 +644,26 @@ struct Window {
     timing_host_us: u64,
     timing_encode_us: u64,
     timing_n: u32,
+}
+
+/// Artemis and Moonlight average the header's processing time over the frames received in the last
+/// two statistics windows, whether or not they were shown. This keeps the per-window deltas of the
+/// receive-side counters and sums the previous window with the current one.
+#[derive(Default)]
+struct HostAverage {
+    seen: (u64, u64),
+    previous: (u64, u64),
+}
+
+impl HostAverage {
+    /// `total` and `frames` are the running counters; returns the two-window sum.
+    fn update(&mut self, total: u64, frames: u64) -> (u64, u32) {
+        let current = (total.saturating_sub(self.seen.0), frames.saturating_sub(self.seen.1));
+        self.seen = (total, frames);
+        let sum = (self.previous.0 + current.0, self.previous.1 + current.1);
+        self.previous = current;
+        (sum.0, u32::try_from(sum.1).unwrap_or(u32::MAX))
+    }
 }
 
 /// The overlay's host lines. "Host processing" is the average of the video frame header's per-frame
@@ -753,6 +775,7 @@ pub struct Streaming {
     last_probe: Instant,
     window: Window,
     last_counters: (u64, u64, u64, u64, u64, u64),
+    host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
     last_video: (u64, u64),
@@ -859,6 +882,7 @@ impl Streaming {
             last_probe: Instant::now(),
             window: Window::default(),
             last_counters: (0, 0, 0, 0, 0, 0),
+            host_average: HostAverage::default(),
             last_early: (0, 0),
             last_video: (0, 0),
             started: Instant::now(),
@@ -1031,7 +1055,7 @@ impl Streaming {
         self.export_statistics = false;
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
         let path = directory.join(format!("nightjar-{stamp}.csv"));
-        let mut csv = String::from("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_ms,latency_ms,bitrate_kbps\n");
+        let mut csv = String::from("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_to_network_ms,latency_ms,bitrate_kbps\n");
         for row in &self.statistics { csv.push_str(row); }
         match std::fs::create_dir_all(directory).and_then(|_| std::fs::write(&path, csv)) {
             Ok(()) => self.show_toast(trf("Statistics saved to {}", &[&path.display()])),
@@ -1563,10 +1587,6 @@ impl Streaming {
             w.render_us += presented - begin;
             w.hold_us += p.hold_us;
             w.late += u32::from(p.late);
-            if p.decoded.host_latency != 0 {
-                w.host_latency += u64::from(p.decoded.host_latency);
-                w.host_latency_n += 1;
-            }
             w.network_us += p.decoded.enqueue_us.saturating_sub(p.decoded.receive_us);
             w.network_n += 1;
             if let Some(csv) = &self.timing_csv {
@@ -1636,7 +1656,9 @@ impl Streaming {
         } else {
             0.0
         };
-        let w = std::mem::take(&mut self.window);
+        let mut w = std::mem::take(&mut self.window);
+        (w.host_latency, w.host_latency_n) = self.host_average.update(
+            c.host_latency_total.load(Ordering::Relaxed), c.host_latency_frames.load(Ordering::Relaxed));
         let avg = |sum: f64, n: u32| if n > 0 { sum / f64::from(n) } else { 0.0 };
         let measured = |sum: f64, n: u32| if n > 0 { format!("{:.3}", sum / f64::from(n) / 1000.0) } else { String::new() };
         self.statistics.push_back(format!("{},{:.3},{:.3},{:.3},{loss:.3},{},{decode_ms:.3},{},{},{},{}\n",
@@ -2205,6 +2227,22 @@ mod tests {
 #[cfg(test)]
 mod host_line_tests {
     use super::*;
+
+    #[test]
+    fn host_processing_averages_received_frames_over_two_windows_like_artemis() {
+        let mut average = HostAverage::default();
+        // First second: 60 frames of 0.5 ms (5 units). Nothing earlier to add.
+        assert_eq!(average.update(300, 60), (300, 60));
+        // Second second: 60 frames of 1.0 ms. The overlay sums both seconds.
+        assert_eq!(average.update(900, 120), (900, 120));
+        // Third second: only the last two seconds count, the first has dropped out.
+        assert_eq!(average.update(1200, 180), (900, 120));
+        // A window without frames carrying a header value leaves the previous one standing.
+        assert_eq!(average.update(1200, 180), (300, 60));
+        assert_eq!(average.update(1200, 180), (0, 0));
+        let w = Window { host_latency: 900, host_latency_n: 120, ..Default::default() };
+        assert_eq!(host_lines(&w), vec![("Host processing".to_owned(), "0.8 ms".to_owned())]);
+    }
 
     #[test]
     fn host_processing_is_the_header_average_and_a_host_report_never_changes_it() {

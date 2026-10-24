@@ -117,6 +117,10 @@ Why this combination:
 - Statistics: clock sync (0x5537) every 250 ms gives the host-to-client clock offset, so
   the overlay shows the PC-frame-to-display latency; host timing (0x5536) gives the host's
   present-to-send and encode times when the host offers them.
+  The overlay's Host processing is the video frame header's per-frame time averaged over the
+  frames received in the last two seconds, as Artemis and Moonlight show it; the host's
+  present-to-send is a separate Host to network line. The statistics CSV column `host_to_network_ms`
+  (named `host_ms` before) is that present-to-send, not host processing.
 
 ### Files
 

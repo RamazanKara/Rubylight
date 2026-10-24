@@ -91,10 +91,10 @@ The notice (host to client) is 12 bytes, sent reliably:
 | 1 | state | `0` full (the requested bitrate), `1` limited (lowered, probing back up), `2` floor (at the lowest bitrate the host uses, and the network still loses video) |
 | 2 | reason | `0` none (only with state `0`), `1` network |
 | 3 | reserved | 0 |
-| 4–7 | ceiling | the video bitrate the client asked for, as the encoder is given it, in kbps |
-| 8–11 | current | the encoder bitrate now, in kbps |
+| 4-7 | ceiling | the video bitrate the client asked for, as the encoder is given it, in kbps |
+| 8-11 | current | the encoder bitrate now, in kbps |
 
-The host sends one on each change of the controller's state or bitrate: a step down, a probe up, a failed probe, a floor, and the return to full. It sends at most one a second; when changes come faster, the newest follows when the second is up, and a return to full is never dropped. It also sends the return to full when a reconfigure (`0x5532`) rebuilds the controller or the client takes over the bitrate itself (`/bitrate`). The first notice a client gets is never state `0`; it assumes full. A client clears its notice on state `0`. A payload that is shorter, has another version, state or reason, has a zero bitrate, or pairs state `0` with a reason or another state with none is ignored. The notice is off the video send path and adds no latency to it. `LinkNotice::decode` in rubylight-protocol parses it.
+The host sends one on each change of the controller's state or bitrate: a step down, a probe up, a failed probe, a floor, and the return to full. It sends at most one a second; when changes come faster, the newest follows when the second is up, and a return to full is never dropped. A change of state goes out when the second is up. A bitrate that only moves inside one state is calmed so the overlay does not flicker: it goes out after 5 seconds, or after the second when it moved by more than a tenth of the last one sent. A second enable request repeats the standing limit. It also sends the return to full when a reconfigure (`0x5532`) rebuilds the controller or the client takes over the bitrate itself (`/bitrate`). The first notice a client gets is never state `0`; it assumes full. A client clears its notice on state `0`. A payload that is shorter, has another version, state or reason, has a zero bitrate, or pairs state `0` with a reason or another state with none is ignored. The notice is off the video send path and adds no latency to it. `LinkNotice::decode` in rubylight-protocol parses it.
 
 ## 0x5531 display luminance
 

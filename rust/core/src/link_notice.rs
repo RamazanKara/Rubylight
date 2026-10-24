@@ -4,7 +4,9 @@
 //! The link-rate controller ([`crate::link_rate`]) already tells the log and the console.
 //! A client has no other way to see it: the picture just gets softer. The session
 //! [`LinkNotices::note`]s each change; the control loop [`LinkNotices::take`]s the notice
-//! to send, off the video send path, at most once a second.
+//! to send, off the video send path, at most once a second. A change of state is sent when
+//! that second is up; a bitrate that only drifts inside one state is held back (see
+//! [`CALM_INTERVAL`]), so the overlay does not flicker.
 pub use rubylight_protocol::control::{
     LINK_NOTICE_BYTES, LINK_NOTICE_MESSAGE_TYPE, LinkNotice, LinkNoticeRequest, LinkReason,
     LinkState,
@@ -14,6 +16,14 @@ use std::time::{Duration, Instant};
 /// The least time between two notices. A burst of changes (a step down, a failed probe, the
 /// next step down) sends the newest one when the second is up.
 pub const INTERVAL: Duration = Duration::from_secs(1);
+
+/// The least time between two notices of the same state (the bitrate moved inside "limited").
+/// A move of more than [`CALM_FRACTION`] is sent after [`INTERVAL`] anyway.
+pub const CALM_INTERVAL: Duration = Duration::from_secs(5);
+
+/// A bitrate change inside one state is sent early only when it is more than this share (one
+/// tenth) of the bitrate the client was last told.
+const CALM_FRACTION: u32 = 10;
 
 #[derive(Default)]
 pub struct LinkNotices {
@@ -30,9 +40,8 @@ impl LinkNotices {
     /// requested bitrate hears it at once.
     pub fn on_request(&mut self, payload: &[u8]) -> Option<bool> {
         let request = LinkNoticeRequest::decode(payload)?;
-        if request.enabled != self.enabled {
-            self.sent = None;
-        }
+        // Every valid request repeats a standing limit, also a second "on" in a row.
+        self.sent = None;
         self.enabled = request.enabled;
         Some(self.enabled)
     }
@@ -64,9 +73,11 @@ impl LinkNotices {
         }
     }
 
-    /// The notice to send now, if the client asked, the state differs from the last one sent
-    /// and a second has passed since that. The newest state wins; a change inside the second
-    /// waits for it. The first notice a client gets is never `Full`, which it assumes.
+    /// The notice to send now, if the client asked, it differs from the last one sent and a
+    /// second has passed since that. A change of state goes out then; a bitrate that moved
+    /// inside the same state goes out when it moved by more than a tenth, or after
+    /// [`CALM_INTERVAL`]. The newest wins. The first notice a client gets is never `Full`,
+    /// which it assumes.
     pub fn take(&mut self, now: Instant) -> Option<[u8; LINK_NOTICE_BYTES]> {
         if !self.enabled {
             return None;
@@ -74,13 +85,26 @@ impl LinkNotices {
         let latest = self.latest?;
         match self.sent {
             Some((sent, _)) if sent == latest => return None,
-            Some((_, at)) if now.saturating_duration_since(at) < INTERVAL => return None,
+            Some((sent, at)) => {
+                let waited = now.saturating_duration_since(at);
+                if waited < INTERVAL || (calm(sent, latest) && waited < CALM_INTERVAL) {
+                    return None;
+                }
+            }
             None if !latest.limited() => return None,
             _ => {}
         }
         self.sent = Some((latest, now));
         Some(latest.encode())
     }
+}
+
+/// Whether `latest` is only a small drift from what the client was told: the same state and
+/// ceiling, and a bitrate within a tenth of the old one.
+fn calm(sent: LinkNotice, latest: LinkNotice) -> bool {
+    sent.state == latest.state
+        && sent.ceiling_kbps == latest.ceiling_kbps
+        && sent.current_kbps.abs_diff(latest.current_kbps) <= sent.current_kbps / CALM_FRACTION
 }
 
 #[cfg(test)]
@@ -237,6 +261,53 @@ mod tests {
         notices.on_request(&LinkNoticeRequest { enabled: false }.encode());
         notices.on_request(&LinkNoticeRequest { enabled: true }.encode());
         assert!(notices.take(t + Duration::from_millis(1)).is_some());
+    }
+
+    #[test]
+    fn asking_twice_in_a_row_repeats_the_standing_limit() {
+        let mut notices = asking();
+        let t = Instant::now();
+        notices.note(limited(60_000));
+        assert!(notices.take(t).is_some());
+        assert_eq!(notices.take(t + Duration::from_millis(1)), None);
+        notices.on_request(&LinkNoticeRequest { enabled: true }.encode());
+        let bytes = notices
+            .take(t + Duration::from_millis(2))
+            .expect("the second request hears it again");
+        assert_eq!(LinkNotice::decode(&bytes), Some(limited(60_000)));
+    }
+
+    #[test]
+    fn a_small_drift_inside_one_state_waits_five_seconds_a_big_move_does_not() {
+        let mut notices = asking();
+        let t = Instant::now();
+        notices.note(limited(100_000));
+        assert!(notices.take(t).is_some());
+        // Within a tenth: held back past the second, sent when the five are up, newest wins.
+        notices.note(limited(95_000));
+        assert_eq!(notices.take(t + INTERVAL), None);
+        notices.note(limited(92_000));
+        assert_eq!(notices.take(t + Duration::from_millis(4999)), None);
+        let bytes = notices.take(t + CALM_INTERVAL).expect("the five are up");
+        assert_eq!(LinkNotice::decode(&bytes), Some(limited(92_000)));
+        // More than a tenth: sent when the second is up.
+        notices.note(limited(80_000));
+        assert_eq!(notices.take(t + CALM_INTERVAL + Duration::from_millis(500)), None);
+        let bytes = notices
+            .take(t + CALM_INTERVAL + INTERVAL)
+            .expect("a big move is sent after the second");
+        assert_eq!(LinkNotice::decode(&bytes), Some(limited(80_000)));
+        // A change of state is never calmed: the floor and the return to full go out at once
+        // (after the second), however small the number moved.
+        let floor = LinkNotice {
+            state: LinkState::Floor,
+            ..limited(79_000)
+        };
+        notices.note(floor);
+        let at = t + CALM_INTERVAL + INTERVAL * 2;
+        assert_eq!(notices.take(at), Some(floor.encode()));
+        notices.note(full());
+        assert_eq!(notices.take(at + INTERVAL), Some(full().encode()));
     }
 
     #[test]

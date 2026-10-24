@@ -1,13 +1,14 @@
-//! The beam race capability probe on a stream (B10 step 4, docs/beam-racing.md): opens the
-//! scan line of the window's monitor, calibrates the scan on a thread for the first second, runs
-//! the scan-restart check on the presents that follow and keeps the verdict the overlay and the
-//! timing CSV show. Created only when the beam race is on, so a default stream does none of it.
+//! The beam race capability probe on a stream (B10 step 4, docs/beam-racing.md): opens the scan
+//! line of the window's monitor, calibrates the scan on a thread for the first second, runs the
+//! scan-restart check on the presents that follow (the polling that watches for the new scan runs
+//! on a helper thread, never on the render thread) and keeps the verdict the overlay and the timing
+//! CSV show. Created only when the beam race is on, so a default stream does none of it.
 
 use std::sync::{Arc, Mutex};
 
 use sdl3_sys::everything::*;
 
-use super::scanline::{decide, Beam, CalibrationError, Evidence, RestartCheck, Sample, Verdict};
+use super::scanline::{decide, Beam, CalibrationError, Evidence, Follow, RestartCheck, Sample, Verdict};
 
 /// What the timing CSV records for one present: the beam when the present was issued and the
 /// verdict (`race_reason`: "on", the reason, or empty while it is being checked).
@@ -24,7 +25,15 @@ impl ScanReport {
     }
 }
 
-type Calibration = Arc<Mutex<Option<Result<Beam, CalibrationError>>>>;
+/// What the calibration thread leaves: the generation it measured for, and the beam.
+type Calibration = Arc<Mutex<Option<(u32, Result<Beam, CalibrationError>)>>>;
+
+/// The calibration result if it is for `generation`. A result for an earlier one (the window
+/// moved to another monitor while it ran) is dropped: it measured the wrong display.
+fn take_current(slot: &Calibration, generation: u32) -> Option<Result<Beam, CalibrationError>> {
+    let (measured_for, result) = slot.lock().ok()?.take()?;
+    (measured_for == generation).then_some(result)
+}
 
 /// "median 0.95 ms, longest 5.1 ms" of the delays, or what it was when none began.
 fn delays(delays: &[u64]) -> String {
@@ -51,16 +60,42 @@ pub struct RaceProbe {
     check: RestartCheck,
     beam: Option<Result<Beam, CalibrationError>>,
     calibration: Calibration,
+    /// Counts the monitors the probe has measured; a calibration result carries the one it was for.
+    generation: u32,
     scanline_ok: bool,
     presents: u32,
     check_said: bool,
     /// Delay from each tested present to the first reading of the picture, for the summary line (ns).
     delays: Vec<u64>,
+    /// The longest the display has idled so far (ns), which the check keeps its tests clear of.
+    longest_idle_ns: u64,
     #[cfg(windows)]
     scan: Option<super::scanline::Scanline>,
+    #[cfg(windows)]
+    helper: Option<win::Helper>,
 }
 
 impl RaceProbe {
+    fn new(scanline_ok: bool) -> Self {
+        Self {
+            verdict: Verdict::Checking,
+            reported: String::new(),
+            check: RestartCheck::default(),
+            beam: None,
+            calibration: Calibration::default(),
+            generation: 0,
+            scanline_ok,
+            presents: 0,
+            check_said: false,
+            delays: Vec::new(),
+            longest_idle_ns: 0,
+            #[cfg(windows)]
+            scan: None,
+            #[cfg(windows)]
+            helper: None,
+        }
+    }
+
     /// What a verdict looks like for a CSV row.
     pub fn report(&self, sample: Option<Sample>) -> ScanReport { ScanReport::new(sample, &self.verdict) }
 
@@ -75,15 +110,41 @@ impl RaceProbe {
         }
     }
 
+    /// What the window moving to another monitor (`follow`) means for the measurements. Returns
+    /// whether the new display has to be measured again.
+    fn apply_follow(&mut self, follow: Follow) -> bool {
+        match follow {
+            Follow::Same => false,
+            Follow::Moved | Follow::Lost => {
+                // Another display has another scan: whatever was measured is not about this one.
+                self.generation += 1;
+                self.check = RestartCheck::default();
+                self.check_said = false;
+                self.delays.clear();
+                self.longest_idle_ns = 0;
+                self.beam = None;
+                if follow == Follow::Lost {
+                    eprintln!("nightjar: beam race: the scan line of the monitor the window moved to cannot be read");
+                    self.scanline_ok = false;
+                    return false;
+                }
+                eprintln!("nightjar: beam race: the window moved to another monitor, measuring it again");
+                true
+            }
+        }
+    }
+
     /// Folds what the calibration thread found and the check so far into the verdict.
     fn decide(&mut self, around: Surroundings) {
         if self.beam.is_none() {
-            self.beam = self.calibration.lock().ok().and_then(|mut done| done.take());
+            self.beam = take_current(&self.calibration, self.generation);
             if let Some(Ok(beam)) = &self.beam {
+                self.longest_idle_ns = beam.longest_idle_ns;
                 eprintln!(
                     "nightjar: beam race: scan {:.2} ms, {} rows behind {} lines of blanking, {:.1} lines per ms, {:.1} Hz at the top, \
-                     {:.0}% of the readings in the blanking, {} scans",
-                    beam.scan_ns as f64 / 1e6, beam.rows, beam.blank_rows, beam.lines_per_ms, beam.refresh_hz, beam.vblank_fraction * 100.0, beam.scans
+                     {:.0}% of the readings in the blanking, idling counted from line {}, longest idle {:.1} ms, {} scans",
+                    beam.scan_ns as f64 / 1e6, beam.rows, beam.blank_rows, beam.lines_per_ms, beam.refresh_hz, beam.vblank_fraction * 100.0,
+                    beam.idle_from, beam.longest_idle_ns as f64 / 1e6, beam.scans
                 );
             }
         }
@@ -110,12 +171,13 @@ impl RaceProbe {
 
 #[cfg(windows)]
 mod win {
+    use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender, TrySendError};
     use std::time::{Duration, Instant};
 
     use windows::Win32::Foundation::HWND;
 
-    use super::super::scanline::{calibrate, collect, restart, CalibrationError, Restart, RestartCheck, Sample, Scanline, Verdict, RESTART_WINDOW_NS};
-    use super::{Calibration, RaceProbe, Surroundings};
+    use super::super::scanline::{calibrate, collect, restart, Beam, CalibrationError, Follow, Restart, Sample, Scanline, RESTART_WINDOW_NS};
+    use super::{RaceProbe, Surroundings};
 
     /// How long the calibration reads the scan line, and how often.
     const CALIBRATION: Duration = Duration::from_millis(1200);
@@ -124,25 +186,83 @@ mod win {
     /// Presents between looks at whether the window moved to another monitor.
     const FOLLOW_EVERY: u32 = 120;
 
+    /// A helper that gets to a present more than this late (ns) has missed the first readings of
+    /// the scan it was to watch for, and says nothing about that present.
+    const LATE_START_NS: u64 = 1_000_000;
+
+    /// One present for the helper to watch: the beam from just before the call, when the call
+    /// returned (ns on the scan clock) and what the check compares against.
+    struct Job {
+        before: Sample,
+        returned_ns: u64,
+        beam: Beam,
+        longest_idle_ns: u64,
+        generation: u32,
+    }
+
+    /// What the helper saw after one present.
+    struct Outcome {
+        restart: Restart,
+        /// From the reading before the present to the first reading of the picture.
+        delay_ns: Option<u64>,
+        generation: u32,
+    }
+
+    /// The thread that polls the scan line for the new scan after a present, so the render thread
+    /// does not spin for up to `RESTART_WINDOW_NS` on it.
+    pub(super) struct Helper {
+        jobs: SyncSender<Job>,
+        outcomes: Receiver<Outcome>,
+    }
+
+    impl Helper {
+        fn spawn(window: HWND, clock: Instant) -> Option<Self> {
+            let (jobs, queue) = sync_channel::<Job>(1);
+            let (results, outcomes) = channel::<Outcome>();
+            // HWND is a plain handle value; the thread opens its own adapter on it.
+            let handle = window.0 as usize;
+            std::thread::Builder::new().name("beam-restart".into()).spawn(move || watch(handle, clock, queue, results)).ok()?;
+            Some(Self { jobs, outcomes })
+        }
+    }
+
+    fn watch(handle: usize, clock: Instant, queue: Receiver<Job>, results: Sender<Outcome>) {
+        // The same clock as the render thread's readings, so the times compare.
+        let Some(mut scan) = Scanline::open(HWND(handle as *mut _), clock) else { return };
+        for job in queue {
+            let mut outcome = Outcome { restart: Restart::NotTested, delay_ns: None, generation: job.generation };
+            let now = clock.elapsed().as_nanos() as u64;
+            if scan.follow_window() == Follow::Same && now <= job.returned_ns + LATE_START_NS {
+                let end = job.returned_ns + RESTART_WINDOW_NS;
+                let mut after = Vec::with_capacity(64);
+                while (clock.elapsed().as_nanos() as u64) < end {
+                    if let Some(sample) = scan.sample() {
+                        let active = !sample.vblank;
+                        after.push(sample);
+                        if active { break; }
+                    }
+                }
+                outcome.delay_ns = after.iter().find(|s| !s.vblank).map(|first| first.at_ns.saturating_sub(job.before.at_ns));
+                outcome.restart = restart(&job.before, &after, &job.beam, job.longest_idle_ns);
+            }
+            if results.send(outcome).is_err() { return; }
+        }
+    }
+
     impl RaceProbe {
         /// Opens the scan line of the monitor `window` is on and starts the calibration.
         pub fn start(window: HWND, around: Surroundings) -> Self {
             let scan = Scanline::open(window, Instant::now());
-            let mut probe = Self {
-                verdict: Verdict::Checking,
-                reported: String::new(),
-                check: RestartCheck::default(),
-                beam: None,
-                calibration: Calibration::default(),
-                scanline_ok: scan.is_some(),
-                presents: 0,
-                check_said: false,
-                delays: Vec::new(),
-                scan,
-            };
+            let mut probe = Self::new(scan.is_some());
+            probe.scan = scan;
             match &probe.scan {
                 Some(scan) => {
                     eprintln!("nightjar: beam race: reading the scan line of {} ({} rows)", scan.device_name(), scan.rows());
+                    probe.helper = Helper::spawn(window, scan.clock());
+                    if probe.helper.is_none() {
+                        eprintln!("nightjar: beam race: could not start the restart check's thread");
+                        probe.scanline_ok = false;
+                    }
                     probe.calibrate_in_background(window);
                 }
                 None => eprintln!("nightjar: beam race: the scan line of the window's monitor cannot be read (D3DKMTGetScanLine)"),
@@ -153,6 +273,7 @@ mod win {
 
         fn calibrate_in_background(&mut self, window: HWND) {
             let result = self.calibration.clone();
+            let generation = self.generation;
             // HWND is a plain handle value; the thread opens its own adapter on it.
             let handle = window.0 as usize;
             let spawned = std::thread::Builder::new().name("beam-calibration".into()).spawn(move || {
@@ -163,7 +284,7 @@ mod win {
                     }
                     None => Err(CalibrationError::NoScan),
                 };
-                if let Ok(mut slot) = result.lock() { *slot = Some(outcome); }
+                if let Ok(mut slot) = result.lock() { *slot = Some((generation, outcome)); }
             });
             if let Err(error) = spawned {
                 eprintln!("nightjar: beam race: could not start the calibration: {error}");
@@ -176,38 +297,58 @@ mod win {
             self.scan.as_ref().and_then(Scanline::sample)
         }
 
-        /// After the present call returned: the restart check on this present while it runs, then
-        /// the verdict. `before` is `before()`'s reading.
+        /// Takes what the helper found out of its queue into the check.
+        fn collect_outcomes(&mut self) {
+            let Some(helper) = &self.helper else { return };
+            while let Ok(outcome) = helper.outcomes.try_recv() {
+                // A result for the monitor the window has left says nothing about this one.
+                if outcome.generation != self.generation { continue; }
+                if self.check.running() {
+                    if let Some(delay) = outcome.delay_ns { self.delays.push(delay); }
+                    self.check.push(outcome.restart);
+                }
+            }
+        }
+
+        /// After the present call returned: hands the present to the helper while the check runs,
+        /// then folds the verdict. `before` is `before()`'s reading.
         pub fn after(&mut self, window: HWND, before: Option<Sample>, around: Surroundings) {
             self.presents += 1;
             if self.presents % FOLLOW_EVERY == 0 {
-                let moved = self.scan.as_mut().is_some_and(Scanline::follow_window);
-                if moved {
-                    // Another display has another scan: measure it again.
-                    eprintln!("nightjar: beam race: the window moved to another monitor, measuring it again");
-                    self.check = RestartCheck::default();
-                    self.check_said = false;
-                    self.delays.clear();
-                    self.beam = None;
-                    self.calibrate_in_background(window);
-                }
+                let follow = self.scan.as_mut().map_or(Follow::Same, Scanline::follow_window);
+                if follow == Follow::Lost { self.scan = None; }
+                if self.apply_follow(follow) { self.calibrate_in_background(window); }
             }
-            if let (Some(Ok(beam)), Some(before), Some(scan)) = (&self.beam, before, &self.scan) {
-                if self.check.running() && before.vblank && before.line >= beam.total_rows {
-                    // Poll for the new scan for as long as the check allows: it begins at once or not at all.
-                    let end = scan.clock().elapsed().as_nanos() as u64 + RESTART_WINDOW_NS;
-                    let mut after = Vec::with_capacity(32);
-                    while (scan.clock().elapsed().as_nanos() as u64) < end {
-                        if let Some(sample) = scan.sample() {
-                            let active = !sample.vblank;
-                            after.push(sample);
-                            if active { break; }
+            self.collect_outcomes();
+            if let (Some(Ok(beam)), Some(before), Some(scan)) = (self.beam, before, &self.scan) {
+                if self.check.running() {
+                    let idle = before.vblank && before.line >= beam.idle_from;
+                    let (mut sent, mut gone) = (false, false);
+                    if let (true, Some(helper)) = (idle, &self.helper) {
+                        let job = Job {
+                            before,
+                            returned_ns: scan.clock().elapsed().as_nanos() as u64,
+                            beam,
+                            longest_idle_ns: self.longest_idle_ns,
+                            generation: self.generation,
+                        };
+                        match helper.jobs.try_send(job) {
+                            Ok(()) => sent = true,
+                            // Still watching the last present: this one is not tested.
+                            Err(TrySendError::Full(_)) => {}
+                            Err(TrySendError::Disconnected(_)) => gone = true,
                         }
                     }
-                    if let Some(first) = after.iter().find(|s| !s.vblank) { self.delays.push(first.at_ns.saturating_sub(before.at_ns)); }
-                    self.check.push(restart(&before, &after, beam));
-                } else if self.check.running() {
-                    self.check.push(Restart::NotTested);
+                    if gone {
+                        eprintln!("nightjar: beam race: the restart check's thread stopped, its scan line cannot be read");
+                        self.helper = None;
+                        self.scanline_ok = false;
+                    }
+                    if idle {
+                        // The longest the display idled bounds its own refresh period; this reading counts for the next presents.
+                        self.longest_idle_ns = self.longest_idle_ns.max((f64::from(before.line) * 1e6 / beam.lines_per_ms) as u64);
+                    }
+                    if !sent { self.check.push(Restart::NotTested); }
                 }
             }
             self.decide(around);
@@ -219,17 +360,7 @@ mod win {
 impl RaceProbe {
     /// The scan line is a Windows call: another platform has none to read.
     fn start_unavailable(around: Surroundings) -> Self {
-        let mut probe = Self {
-            verdict: Verdict::Checking,
-            reported: String::new(),
-            check: RestartCheck::default(),
-            beam: None,
-            calibration: Calibration::default(),
-            scanline_ok: false,
-            presents: 0,
-            check_said: false,
-            delays: Vec::new(),
-        };
+        let mut probe = Self::new(false);
         probe.decide(around);
         probe
     }
@@ -280,5 +411,60 @@ impl RaceProbe {
         self.after(hwnd_of(window), before, around);
         #[cfg(not(windows))]
         { let _ = (window, before); self.after_unavailable(around) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn beam() -> Beam {
+        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 1840, longest_idle_ns: 17_000_000 }
+    }
+
+    fn around() -> Surroundings { Surroundings { tearing: true, fullscreen: true, content_hz: 60.0 } }
+
+    #[test]
+    fn a_calibration_for_another_monitor_is_dropped() {
+        let slot = Calibration::default();
+        *slot.lock().unwrap() = Some((1, Ok(beam())));
+        assert!(take_current(&slot, 2).is_none(), "measured the monitor the window has left");
+        assert!(slot.lock().unwrap().is_none(), "and gone, not kept for later");
+        *slot.lock().unwrap() = Some((2, Ok(beam())));
+        assert!(matches!(take_current(&slot, 2), Some(Ok(_))));
+    }
+
+    #[test]
+    fn a_probe_ignores_the_stale_calibration_and_takes_the_new_one() {
+        let mut probe = RaceProbe::new(true);
+        *probe.calibration.lock().unwrap() = Some((0, Ok(beam())));
+        assert!(probe.apply_follow(Follow::Moved), "the new display is measured again");
+        probe.decide(around());
+        assert!(probe.beam.is_none(), "the old display's beam is not the new one's");
+        *probe.calibration.lock().unwrap() = Some((1, Ok(Beam { rows: 1080, ..beam() })));
+        probe.decide(around());
+        assert!(matches!(probe.beam, Some(Ok(b)) if b.rows == 1080));
+    }
+
+    #[test]
+    fn a_monitor_that_cannot_be_opened_says_no_scanline() {
+        let mut probe = RaceProbe::new(true);
+        *probe.calibration.lock().unwrap() = Some((0, Ok(beam())));
+        probe.decide(around());
+        assert!(probe.beam.is_some());
+        assert!(!probe.apply_follow(Follow::Lost), "there is nothing to measure");
+        probe.decide(around());
+        assert_eq!(probe.line(), "off (no scanline)");
+        assert!(probe.beam.is_none() && probe.delays.is_empty(), "nothing of the old display is kept");
+    }
+
+    #[test]
+    fn staying_on_the_monitor_keeps_the_measurements() {
+        let mut probe = RaceProbe::new(true);
+        *probe.calibration.lock().unwrap() = Some((0, Ok(beam())));
+        probe.decide(around());
+        assert!(!probe.apply_follow(Follow::Same));
+        assert!(probe.beam.is_some());
+        assert_eq!(probe.longest_idle_ns, 17_000_000);
     }
 }

@@ -40,6 +40,14 @@ pub struct Beam {
     pub vblank_fraction: f64,
     /// Scans the calibration saw from their blanking to their end.
     pub scans: u32,
+    /// The counter reading from which a vblank reading is the display idling after a scan (a
+    /// variable refresh display waiting for a present) and not blanking: past the last row by
+    /// more than the blanking or 1 ms of lines, and past every line a scan that ran straight
+    /// through (a fixed refresh, or a stream at the display's rate) counted in a trailing blanking.
+    pub idle_from: u32,
+    /// The longest the display idled in the calibration (ns): the lower bound of the panel's own
+    /// refresh period, which the restart check keeps out of its tests.
+    pub longest_idle_ns: u64,
 }
 
 impl Beam {
@@ -73,7 +81,13 @@ pub enum CalibrationError {
     NoScan,
     /// The readings do not look like a beam (too few per scan, no steady rate).
     Unsteady,
+    /// The counter's top differs from the blanking plus the monitor's height by more than 3%: the
+    /// desktop is scaled or the display rotated, so the rows are not the picture's.
+    RowsDiffer,
 }
+
+/// How far the counter's top may be from the blanking plus the monitor's height.
+const ROWS_TOLERANCE: f64 = 0.03;
 
 /// Fewest readings a rising run needs to be fitted.
 const MIN_RUN: usize = 5;
@@ -128,6 +142,7 @@ pub fn calibrate(samples: &[Sample], picture_rows: u32) -> Result<Beam, Calibrat
     let vblank_fraction = if samples.is_empty() { 0.0 } else { vblank as f64 / samples.len() as f64 };
     let runs: Vec<&[Sample]> = rising_runs(samples).into_iter().filter(|run| run.len() >= MIN_RUN).collect();
     let (mut rates, mut edges, mut tops) = (Vec::new(), Vec::new(), Vec::new());
+    let mut scanned = Vec::new();
     for run in &runs {
         // A refresh counts when its blanking was read (the counter begins in the blanking).
         let Some(edge) = run.windows(2).find(|w| w[0].vblank && !w[1].vblank) else { continue };
@@ -135,6 +150,7 @@ pub fn calibrate(samples: &[Sample], picture_rows: u32) -> Result<Beam, Calibrat
         rates.push(rate);
         edges.push((f64::from(edge[0].line) + f64::from(edge[1].line)) / 2.0);
         tops.push(f64::from(run.iter().filter(|s| !s.vblank).map(|s| s.line).max().unwrap_or(0)));
+        scanned.push(*run);
     }
     if edges.is_empty() {
         return Err(if runs.is_empty() { CalibrationError::NoScan } else { CalibrationError::Unsteady });
@@ -143,23 +159,49 @@ pub fn calibrate(samples: &[Sample], picture_rows: u32) -> Result<Beam, Calibrat
     let blank_rows = median(&mut edges).round() as u32;
     // The highest line read is short of the last one by half a reading's walk on average.
     let step = rate * median(&mut samples.windows(2).map(|w| (w[1].at_ns - w[0].at_ns) as f64).collect::<Vec<_>>());
-    let total_rows = if picture_rows > 0 { blank_rows + picture_rows } else { (median(&mut tops) + step / 2.0).round() as u32 + 1 };
+    let top = (median(&mut tops) + step / 2.0).round() as u32 + 1;
+    let total_rows = if picture_rows > 0 { blank_rows + picture_rows } else { top };
     let rows = total_rows.saturating_sub(blank_rows);
     if rows == 0 { return Err(CalibrationError::Unsteady); }
+    if picture_rows > 0 && (f64::from(top) - f64::from(total_rows)).abs() > f64::from(total_rows) * ROWS_TOLERANCE {
+        return Err(CalibrationError::RowsDiffer);
+    }
     let scan_ns = (f64::from(total_rows) / rate).round() as u64;
+    // Vblank lines past the picture on scans that ran straight into the next one are a trailing
+    // blanking (a front porch), not idling; a scan that ran on for half as long again as one is idling.
+    let straight = scanned.iter()
+        .filter(|run| (run[run.len() - 1].at_ns - run[0].at_ns) as f64 <= scan_ns as f64 * 1.5)
+        .flat_map(|run| run.iter().filter(|s| s.vblank && s.line >= blank_rows).map(|s| s.line))
+        .max().unwrap_or(0);
+    let margin = blank_rows.max((rate * 1e6) as u32);
+    let idle_from = (total_rows + margin).max(straight + 1);
+    let longest_idle_ns = (f64::from(samples.iter().filter(|s| s.vblank).map(|s| s.line).max().unwrap_or(0)) / rate) as u64;
     Ok(Beam {
         rows, blank_rows, total_rows, scan_ns,
         refresh_hz: 1e9 / scan_ns as f64,
         lines_per_ms: rate * 1e6,
         vblank_fraction,
         scans: edges.len() as u32,
+        idle_from,
+        longest_idle_ns,
     })
+}
+
+/// What reopening the scan line on the window's monitor found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Follow {
+    Same,
+    /// Reopened on the monitor the window moved to.
+    Moved,
+    /// The window moved and the new monitor's scan line cannot be opened.
+    Lost,
 }
 
 /// What the scan-restart check saw after one present.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Restart {
-    /// The display was not in its blanking at the present, so the check says nothing.
+    /// The display was not idling at the present, or the new scan could be the panel's own
+    /// refresh: the check says nothing.
     NotTested,
     /// A new scan began within the window after the present.
     Began,
@@ -174,20 +216,35 @@ pub enum Restart {
 /// idler GPU the median was 0.95 ms and 92% were under 2 ms. 10 ms is the longest seen plus 1 ms.
 pub const RESTART_WINDOW_NS: u64 = 10_000_000;
 
+/// How close to the panel's own refresh period a new scan may start (ns) before it could be that
+/// refresh and not the present's.
+const FORCED_TOLERANCE_NS: i64 = 1_000_000;
+
 /// The check for one present: `before` was read just before the present call, `after` are the
-/// readings in the window that followed it. A present while the display idles after a scan
-/// (the counter past the last row, `total_rows`, which only a variable refresh display does: a
-/// fixed one wraps to line 0) starts a new scan when the present is scanned out directly, so the
-/// first reading that is not in the blanking must be within the first 5% of the picture's rows.
-/// A present in the blanking of a scan already under way proves nothing and is not tested.
-pub fn restart(before: &Sample, after: &[Sample], beam: &Beam) -> Restart {
-    if !before.vblank || before.line < beam.total_rows {
+/// readings in the window that followed it (which starts when the call returned, so a slow call
+/// does not eat it). A present while the display idles after a scan (the counter at or past
+/// `beam.idle_from`, which only a variable refresh display does: a fixed one wraps to line 0)
+/// starts a new scan when the present is scanned out directly, so the first reading that is not in
+/// the blanking must be within the first 5% of the picture's rows. A present in the blanking of a
+/// scan already under way proves nothing and is not tested. Neither is one whose new scan starts a
+/// whole `longest_idle_ns` (the longest the display idled so far: its minimum refresh rate, if it
+/// ever idled that long) after the last one began, within a millisecond: a VRR panel refreshes by
+/// itself at its floor, and that scan is not the present's.
+pub fn restart(before: &Sample, after: &[Sample], beam: &Beam, longest_idle_ns: u64) -> Restart {
+    if !before.vblank || before.line < beam.idle_from {
         return Restart::NotTested;
     }
-    match after.iter().find(|s| !s.vblank) {
-        Some(first) if u64::from(first.line.saturating_sub(beam.blank_rows)) * 100 < u64::from(beam.rows) * 5 => Restart::Began,
-        _ => Restart::Missed,
+    let Some(first) = after.iter().find(|s| !s.vblank) else { return Restart::Missed };
+    if u64::from(first.line.saturating_sub(beam.blank_rows)) * 100 >= u64::from(beam.rows) * 5 {
+        return Restart::Missed;
     }
+    // The scans' starts, counted back from their readings at the counter's rate.
+    let started = |s: &Sample| s.at_ns as i64 - (f64::from(s.line) * 1e6 / beam.lines_per_ms) as i64;
+    let gap = started(first) - started(before);
+    if longest_idle_ns > 0 && (gap - longest_idle_ns as i64).abs() <= FORCED_TOLERANCE_NS {
+        return Restart::NotTested;
+    }
+    Restart::Began
 }
 
 /// The presents the restart check tests, and the misses that fail it. A present is tested when
@@ -234,13 +291,14 @@ impl RestartCheck {
 pub struct RaceCapability {
     pub tearing: bool,
     pub vrr: bool,
-    pub independent_flip: bool,
+    /// Inferred: the scan restarts on our presents, which direct scanout does; the OS was not asked.
+    pub flip_inferred: bool,
     pub scanline: bool,
 }
 
 impl RaceCapability {
     #[allow(dead_code)] // the race itself (B10 step 4, brief 3) reads the beam; the probe and the tests do for now
-    pub fn on(&self) -> bool { self.tearing && self.vrr && self.independent_flip && self.scanline }
+    pub fn on(&self) -> bool { self.tearing && self.vrr && self.flip_inferred && self.scanline }
 }
 
 /// Everything the capability is decided from.
@@ -272,6 +330,10 @@ pub enum Reason {
     /// says VRR is not active for this window. The probe has no signal for composition itself.
     NoRestart,
     Windowed,
+    /// The stream presents about as often as the display scans: it never idles to be tested.
+    NoIdle,
+    /// The scan's rows do not match the monitor's height.
+    RowsDiffer,
 }
 
 impl Reason {
@@ -283,6 +345,8 @@ impl Reason {
             Self::NoVrr => "no VRR",
             Self::NoRestart => "no VRR scan restart",
             Self::Windowed => "not fullscreen",
+            Self::NoIdle => "no idle at this frame rate",
+            Self::RowsDiffer => "scan rows differ from the display's",
         }
     }
 }
@@ -318,11 +382,12 @@ impl Verdict {
 /// Decides from the evidence. Order of the reasons is the order of the design's table: tearing,
 /// scanline, then the window, then what the restart check says (no restart or not variable).
 pub fn decide(e: &Evidence) -> Verdict {
-    let mut capability = RaceCapability { tearing: e.tearing, vrr: false, independent_flip: false, scanline: e.scanline };
+    let mut capability = RaceCapability { tearing: e.tearing, vrr: false, flip_inferred: false, scanline: e.scanline };
     if !e.tearing { return Verdict::Off(Reason::NoTearing, capability); }
     if !e.scanline { return Verdict::Off(Reason::NoScanline, capability); }
     let beam = match e.beam {
         None => return Verdict::Checking,
+        Some(Err(CalibrationError::RowsDiffer)) => return Verdict::Off(Reason::RowsDiffer, capability),
         Some(Err(_)) => return Verdict::Off(Reason::NoScan, capability),
         Some(Ok(beam)) => beam,
     };
@@ -338,11 +403,13 @@ pub fn decide(e: &Evidence) -> Verdict {
         return Verdict::Off(if fixed { Reason::NoVrr } else { Reason::NoRestart }, capability);
     }
     if e.check.starved() {
-        // Enough presents went by without the display ever idling in its blanking.
-        return Verdict::Off(Reason::NoVrr, capability);
+        // Enough presents went by without the display ever idling after a scan. At a rate near
+        // the display's own that is the stream's doing; below it, the display scans all the time.
+        let busy = e.content_hz >= e.display_hz * 0.7;
+        return Verdict::Off(if busy { Reason::NoIdle } else { Reason::NoVrr }, capability);
     }
     capability.vrr = true;
-    capability.independent_flip = true;
+    capability.flip_inferred = true;
     if e.check.passed() { Verdict::On(beam, capability) } else { Verdict::Checking }
 }
 
@@ -351,7 +418,7 @@ pub use win::Scanline;
 
 #[cfg(windows)]
 mod win {
-    use super::Sample;
+    use super::{Follow, Sample};
     use std::time::Instant;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST};
@@ -384,6 +451,7 @@ mod win {
         }
 
         pub fn sample(&self) -> Option<Sample> {
+            if self.adapter == 0 { return None; }
             let mut query = D3DKMT_GETSCANLINE { hAdapter: self.adapter, VidPnSourceId: self.source, ..Default::default() };
             // SAFETY: a valid struct for the call; the adapter handle is open.
             let status = unsafe { D3DKMTGetScanLine(&mut query) };
@@ -391,18 +459,23 @@ mod win {
             status.is_ok().then_some(Sample { at_ns, line: query.ScanLine, vblank: query.InVerticalBlank })
         }
 
-        /// Reopens on the new monitor when the window moved to another one. Returns whether it did.
-        pub fn follow_window(&mut self) -> bool {
-            let Some((monitor, device, rows)) = monitor_of(self.window) else { return false };
-            if monitor == self.monitor { return false; }
-            let Some((adapter, source)) = open_adapter(&device) else { return false };
+        /// Reopens on the new monitor when the window moved to another one. When the new monitor
+        /// cannot be opened the old handle is closed (it reads another display's scan) and every
+        /// reading fails from then on.
+        pub fn follow_window(&mut self) -> Follow {
+            let Some((monitor, device, rows)) = monitor_of(self.window) else { return Follow::Same };
+            if monitor == self.monitor { return Follow::Same; }
             self.close();
+            let Some((adapter, source)) = open_adapter(&device) else {
+                self.monitor = monitor;
+                return Follow::Lost;
+            };
             self.adapter = adapter;
             self.source = source;
             self.monitor = monitor;
             self.device = device;
             self.rows = rows;
-            true
+            Follow::Moved
         }
 
         /// The GDI name of the monitor, for logs.
@@ -546,7 +619,7 @@ mod tests {
     }
 
     fn measured() -> Beam {
-        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50 }
+        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 2040, longest_idle_ns: 0 }
     }
 
     #[test]
@@ -570,7 +643,7 @@ mod tests {
         let before = at(0, 2400, true);
         // The first reading out of the blanking is on row 3 (line 203).
         let after = [at(10_000, 0, true), at(20_000, 130, true), at(30_000, 203, false), at(40_000, 215, false)];
-        assert_eq!(restart(&before, &after, &measured()), Restart::Began);
+        assert_eq!(restart(&before, &after, &measured(), 0), Restart::Began);
     }
 
     #[test]
@@ -578,10 +651,10 @@ mod tests {
         let before = at(0, 2400, true);
         let beam = measured();
         // Nothing within the window.
-        assert_eq!(restart(&before, &[at(100_000, 0, true), at(400_000, 0, true)], &beam), Restart::Missed);
-        assert_eq!(restart(&before, &[], &beam), Restart::Missed);
+        assert_eq!(restart(&before, &[at(100_000, 0, true), at(400_000, 0, true)], &beam, 0), Restart::Missed);
+        assert_eq!(restart(&before, &[], &beam, 0), Restart::Missed);
         // A scan already well down when first seen: it began before the present, so it is not the present's.
-        assert_eq!(restart(&before, &[at(1_000, 600, false)], &beam), Restart::Missed);
+        assert_eq!(restart(&before, &[at(1_000, 600, false)], &beam, 0), Restart::Missed);
     }
 
     #[test]
@@ -591,14 +664,14 @@ mod tests {
         const { assert!(RESTART_WINDOW_NS >= 8_790_000 + 1_000_000) };
         let beam = measured();
         let late = [at(8_700_000, 2400, true), at(8_790_000, 203, false)];
-        assert_eq!(restart(&at(0, 2400, true), &late, &beam), Restart::Began);
+        assert_eq!(restart(&at(0, 2400, true), &late, &beam, 0), Restart::Began);
     }
 
     #[test]
     fn a_present_in_the_middle_of_a_scan_or_in_its_blanking_says_nothing() {
         // The blanking of a scan under way (a fixed refresh has nothing else) is not the display idling.
-        assert_eq!(restart(&at(0, 50, true), &[at(1_000, 203, false)], &measured()), Restart::NotTested);
-        assert_eq!(restart(&at(0, 900, false), &[at(1_000, 910, false)], &measured()), Restart::NotTested);
+        assert_eq!(restart(&at(0, 50, true), &[at(1_000, 203, false)], &measured(), 0), Restart::NotTested);
+        assert_eq!(restart(&at(0, 900, false), &[at(1_000, 910, false)], &measured(), 0), Restart::NotTested);
     }
 
     #[test]
@@ -685,6 +758,94 @@ mod tests {
         let mut check = RestartCheck::default();
         for _ in 0..5 { check.push(Restart::Began); }
         assert_eq!(decide(&Evidence { check, ..evidence() }), Verdict::Checking);
+    }
+
+    /// A display whose counter never wraps by itself: it counts from each start in `starts` and
+    /// goes on, the blanking (`vblank`) before the first row and after the last, until the next
+    /// start. A long gap is a variable refresh display idling; a short one, a trailing blanking
+    /// (front porch) on scans that run straight into each other.
+    fn counting(starts: &[u64], blank: u32, rows: u32, lines_per_ms: f64, every_ns: u64, until: u64) -> Vec<Sample> {
+        let mut samples = Vec::new();
+        let mut t = 0;
+        while t < until {
+            samples.push(match starts.iter().rev().find(|s| **s <= t) {
+                Some(s) => {
+                    let line = ((t - s) as f64 * lines_per_ms / 1e6) as u32;
+                    Sample { at_ns: t, line, vblank: line < blank || line >= blank + rows }
+                }
+                None => Sample { at_ns: t, line: 0, vblank: true },
+            });
+            t += every_ns;
+        }
+        samples
+    }
+
+    #[test]
+    fn idling_is_counted_from_past_the_blanking_and_the_longest_idle_is_kept() {
+        let starts: Vec<u64> = (0..60).map(|i| 3_000_000 + i * 16_667_000).collect();
+        let beam = calibrate(&counting(&starts, BLANK, 1440, RATE, 250_000, 1_000_000_000), 1440).unwrap();
+        assert!(beam.idle_from >= beam.total_rows + beam.blank_rows, "{beam:?}");
+        assert!(beam.idle_from >= beam.total_rows + RATE as u32 - 5, "at least 1 ms of lines past the last row: {beam:?}");
+        assert!((15_500_000..=17_000_000).contains(&beam.longest_idle_ns), "a scan every 16.7 ms: {}", beam.longest_idle_ns);
+    }
+
+    #[test]
+    fn a_trailing_blanking_longer_than_the_margin_is_not_idling() {
+        // Scans 5.7 ms apart: 600 lines (1.5 ms) of blanking after the last row, more than the 1 ms
+        // or the blanking the margin allows. A reading in it must not count as the display idling.
+        let starts: Vec<u64> = (0..150).map(|i| 1_000_000 + i * 5_700_000).collect();
+        let beam = calibrate(&counting(&starts, BLANK, 1440, RATE, 250_000, 800_000_000), 1440).unwrap();
+        assert!(beam.idle_from > beam.total_rows + 540, "past the porch's lines: {beam:?}");
+        let in_porch = Sample { at_ns: 0, line: beam.total_rows + 500, vblank: true };
+        let late = [Sample { at_ns: 1_000_000, line: BLANK + 3, vblank: false }];
+        assert_eq!(restart(&in_porch, &late, &beam, 0), Restart::NotTested, "the porch of a scan that ran straight through");
+        let idling = Sample { at_ns: 0, line: beam.idle_from + 5, vblank: true };
+        assert_eq!(restart(&idling, &late, &beam, 0), Restart::Began);
+    }
+
+    #[test]
+    fn a_present_while_the_display_idles_short_of_the_margin_is_not_tested() {
+        let beam = measured();
+        let late = [at(1_000_000, 203, false)];
+        assert_eq!(restart(&at(0, beam.total_rows + 100, true), &late, &beam, 0), Restart::NotTested);
+        assert_eq!(restart(&at(0, beam.idle_from, true), &late, &beam, 0), Restart::Began);
+    }
+
+    #[test]
+    fn a_scan_at_the_panels_own_refresh_period_is_not_the_presents() {
+        // 400 lines per ms. A 48 Hz floor refreshes after 20.8 ms; the stream is 60 fps, so it
+        // presents at 16.7 ms of idling. The scan that starts 20.8 ms after the last one began is
+        // the panel's, whenever the present was, and cannot show the present restarted anything.
+        let beam = measured();
+        let before = at(1_000_000, 6_680, true); // 16.7 ms after the last scan began
+        let forced = [at(1_000_000 + 4_600_000, 200, false)]; // its picture starts 20.8 ms after the last start
+        assert_eq!(restart(&before, &forced, &beam, 20_800_000), Restart::NotTested);
+        // The same scan with nothing known about the floor is taken at its word.
+        assert_eq!(restart(&before, &forced, &beam, 0), Restart::Began);
+        // A flip 1.5 ms after the present is 3.8 ms short of the floor: the present's.
+        let flipped = [at(1_000_000 + 2_000_000, 200, false)];
+        assert_eq!(restart(&before, &flipped, &beam, 20_800_000), Restart::Began);
+    }
+
+    #[test]
+    fn a_counter_whose_top_differs_from_the_monitors_height_is_refused() {
+        // A scaled desktop or a rotated display: the monitor says 1440 rows, the counter walks 1080.
+        let starts: Vec<u64> = (0..60).map(|i| 3_000_000 + i * 16_667_000).collect();
+        let samples = counting(&starts, BLANK, 1080, RATE, 250_000, 1_000_000_000);
+        assert_eq!(calibrate(&samples, 1440), Err(CalibrationError::RowsDiffer));
+        assert!(calibrate(&samples, 1080).is_ok(), "the same readings fit the height they walk");
+        assert!(calibrate(&samples, 1100).is_ok(), "within 3%");
+        assert_eq!(decide(&Evidence { beam: Some(Err(CalibrationError::RowsDiffer)), ..evidence() }).line(), "off (scan rows differ from the display's)");
+    }
+
+    #[test]
+    fn a_stream_at_the_displays_rate_has_no_idle_to_test() {
+        let mut starved = RestartCheck::default();
+        for _ in 0..CHECK_FRAMES { starved.push(Restart::NotTested); }
+        let line = |hz: f64| decide(&Evidence { check: starved, content_hz: hz, ..evidence() }).line();
+        assert_eq!(line(240.0), "off (no idle at this frame rate)");
+        assert_eq!(line(200.0), "off (no idle at this frame rate)");
+        assert_eq!(line(60.0), "off (no VRR)", "a display that scans all the time under a slow stream");
     }
 
     /// Manual: `cargo test -p nightjar-desktop scanline_dump -- --ignored --nocapture` while a

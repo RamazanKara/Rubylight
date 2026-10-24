@@ -93,27 +93,42 @@ The verdict, in the order of the reasons:
 | no tearing | V-Sync pacing, or a swap chain without tearing |
 | no scanline | `D3DKMTOpenAdapterFromGdiDisplayName` or `D3DKMTGetScanLine` fails |
 | no scan seen | the calibration found no scan |
+| scan rows differ from the display's | the counter's top is more than 3% off the blanking plus the monitor's height: a scaled desktop or a rotated display, whose rows are not the picture's |
 | not fullscreen | the window is not a fullscreen window (the scan is not checked) |
 | no VRR scan restart | the scan-restart check failed on a fullscreen window: a present issued while the display idled did not start a scan, so VRR is not active for this window |
-| no VRR | the restart check failed on a display that scans all the time (under 30% of the readings in the blanking at a stream rate under 70% of the display's), or the display never idled for 300 presents |
+| no VRR | the restart check failed on a display that scans all the time (under 30% of the readings in the blanking at a stream rate under 70% of the display's), or the display never idled for 300 presents at a stream rate under 70% of its own |
+| no idle at this frame rate | the display never idled for 300 presents at a stream rate of 70% of its own or more: a 240 fps stream on a 240 Hz panel leaves nothing to test |
 
-The scan-restart check: a present issued while the display idles after a scan (the counter past
-the last row with `InVerticalBlank` set, which only a variable refresh display does; a fixed
-refresh wraps to line 0, and a present in the blanking of a scan under way proves nothing) has to
-start a new scan, the first reading out of the blanking within 5% of the picture rows. It looks for
-10 ms after the present call returned and fails at 9 misses in 30 tested presents.
+The scan-restart check: a present issued while the display idles after a scan has to start a new
+scan, the first reading out of the blanking within 5% of the picture rows. "Idles" is a `vblank`
+reading at or past `idle_from`, which calibration derives: past the last row by the blanking or 1 ms
+of lines, whichever is more, and past every line a scan that ran straight into the next one (within
+1.5 scans) counted in a trailing blanking. A fixed refresh wraps to line 0 and never reaches it;
+a present in the blanking of a scan under way proves nothing. The check looks for 10 ms after the
+present call returned, fails at 9 misses in 30 tested presents, and runs its polling on a helper
+thread (`beam-restart`), so the render thread only hands over the reading from before the present.
+A VRR panel also refreshes by itself at its minimum rate, and that scan would look like a restart:
+a new scan that starts within 1 ms of the longest idle seen so far (calibration plus the presents
+since) after the last one began is not counted, tested or missed (unit tested for 60 fps against a
+48 Hz floor; on this PC the display never idled long enough to see a floor). When the window moves
+to another monitor the probe measures it again, drops the old display's calibration if it finishes
+late (a generation tag), and says "no scanline" if the new monitor's scan line cannot be opened.
 
 The window comes from measurement. The flip waits for the GPU work queued ahead of it, so the scan
 begins anywhere between 0.2 ms and the time that work takes, not at a fixed delay. With the host
 encoding on the same GPU, 60 presents (two earlier traces) spread evenly over 0.2-8.8 ms after the
 present call, median 5 ms; a lighter run had median 0.95 ms and 92% under 2 ms. The first design's
 0.5 ms window and the second's 3 ms failed these setups (1.7-2.3 ms medians, 9 of 10-13 tested
-presents missed in the four runs on a quiet GPU); 10 ms is the longest seen plus 1 ms. The check
-cannot tell a fixed 240 Hz display from VRR by delay, which is why only presents in the idle zone
-are tested: a fixed refresh gives none and ends as "no VRR" after 300 presents (unit tested, not
-run on hardware: this PC's display is VRR). A forced refresh of the panel inside the window (the
-panel's own minimum rate) would pass a present that did not restart the scan; it was not seen at
-60 fps.
+presents missed in the four runs on a quiet GPU); 10 ms is the longest seen plus 1 ms. A fixed
+refresh gives no tested presents and ends as "no VRR" after 300 presents (unit tested, not run on
+hardware: this PC's display is VRR). The capability's `flip_inferred` is exactly that, an
+inference from the scan restarting on our presents, not an answer from the OS.
+
+All of it was seen with this driver's counter layout (the RX 7900 XT on this PC: blanking first,
+then the rows, then a counter that keeps counting while the display idles). A driver that lays the
+counter out differently (the blanking after the picture, a counter that wraps while idling) is not
+covered by hardware runs; the unit tests cover a trailing blanking and a counter that does not
+idle past the picture.
 
 Measured (30 s loopback streams, 2560x1440@60 PyroWave, GPU decode, borderless fullscreen, `Immediate`):
 

@@ -25,8 +25,10 @@
 //! Three more tell where the display's beam was when the present was issued (the same
 //! doc, "Scan line and capability"): `scan_line_at_present` and `in_vblank_at_present`
 //! (`D3DKMTGetScanLine`, 1 or 0) and `race_reason` (`on`, or what rules racing out: `no tearing`,
-//! `no scanline`, `no scan seen`, `no VRR`, `composed`; empty while it is being checked); all
-//! empty when the beam race is off.
+//! `no scanline`, `no scan seen`, `scan rows differ from the display's`, `not fullscreen`,
+//! `no VRR`, `no idle at this frame rate`, `no VRR scan restart`, the words of
+//! `stream::scanline::Reason`; empty while it is being checked); all empty when the beam race is
+//! off.
 //! The seven present-scheduler columns Android appends to the host's (`sched_vsync_ns` to
 //! `drop_reason`) are empty here, so a reader that goes by name sees the same header.
 //!
@@ -518,7 +520,7 @@ mod tests {
         let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 3).collect::<Vec<_>>().join(",");
         let scan = |line, vblank, reason| Row { scan: ScanReport { line, vblank, reason }, ..row() };
         assert_eq!(tail(&scan(Some(412), Some(false), "on")), "412,0,on");
-        assert_eq!(tail(&scan(Some(7), Some(true), "composed")), "7,1,composed");
+        assert_eq!(tail(&scan(Some(7), Some(true), "no VRR scan restart")), "7,1,no VRR scan restart");
         assert_eq!(tail(&scan(None, None, "no scanline")), ",,no scanline", "no reading, but the reason stays");
         assert_eq!(tail(&scan(Some(90), Some(true), "")), "90,1,", "no verdict yet");
         assert_eq!(tail(&row()), ",,", "the race off leaves the columns empty");

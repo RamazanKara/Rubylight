@@ -119,6 +119,28 @@ fn a_grid_learns_the_delay_of_a_lower_percentile() {
 }
 
 #[test]
+fn a_frame_that_is_only_scheduled_does_not_lift_the_grids_delay() {
+    let mut only_grid = PresentClock::default();
+    let mut mixed = PresentClock::default();
+    let mut noise = Lcg(13);
+    for i in 0..1500 {
+        let host = i * 11_111;
+        let ready = (host + 20_000 + noise.next(8_000) + 7_000_000) as u64;
+        only_grid.schedule_on_grid(rtp(host), ready, grid(16_667, 1_000));
+        // Every fourth frame is dropped for a newer one and only teaches the clock.
+        if i % 4 == 3 {
+            mixed.schedule(rtp(host), ready);
+        } else {
+            mixed.schedule_on_grid(rtp(host), ready, grid(16_667, 1_000));
+        }
+    }
+    let (mixed_delay, grid_delay) = (mixed.delay_us().unwrap(), only_grid.delay_us().unwrap());
+    // Not the same frames, so not the same window; both are the 75th percentile, not the 97th.
+    assert!((mixed_delay - grid_delay).abs() < 700, "{mixed_delay} against {grid_delay}");
+    assert!((mixed_delay - 7_000_000 - 20_000 - 6_000 - 500).abs() < 700, "{mixed_delay}");
+}
+
+#[test]
 fn a_grid_with_no_interval_keeps_the_plain_percentile() {
     let mut plain = PresentClock::default();
     let mut gridless = PresentClock::default();

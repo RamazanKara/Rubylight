@@ -20,8 +20,9 @@ package com.limelight.binding.video;
  * </ul>
  *
  * Late frames. The clock holds each frame to the host time plus a delay that covers recent
- * jitter. A frame ready more than half a content interval after that is behind the game's
- * cadence; the caller drops it when a newer output is already decoded, never two in a row. The
+ * jitter: on the grid the 75th percentile of the lateness window. A frame is behind the game's
+ * cadence when it is ready more than half a content interval after the 97th percentile of the
+ * window (PERCENTILE here), not after the clock's delay; the caller drops it when a newer output is already decoded, never two in a row. The
  * lateness window is kept here, not read from the clock, because the clock must see a frame only
  * once and a dropped frame must not take a vsync from the frame that replaces it.
  */

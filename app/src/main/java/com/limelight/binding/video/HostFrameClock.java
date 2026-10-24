@@ -264,7 +264,7 @@ final class HostFrameClock {
     String overlayLine() {
         if (!scheduling || !bridge.stats(stats) || stats[0] == 0) return null;
         StringBuilder line = new StringBuilder(String.format(Locale.US,
-                "Host frame times: held %.1f ms | late %.1f%%", lastHoldUs / 1000.0,
+                "Host frame times: held %.1f ms | ready after plan %.1f%%", lastHoldUs / 1000.0,
                 100.0 * stats[1] / stats[0]));
         if (lastLatencyUs >= 0) {
             line.append(String.format(Locale.US, " | host to present %.1f ms", lastLatencyUs / 1000.0));

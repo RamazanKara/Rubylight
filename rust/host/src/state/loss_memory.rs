@@ -713,7 +713,7 @@ mod tests {
             let s = session(&f, &c, "192.0.2.1", 0);
             let guard = f
                 .host
-                .configure_keyframe_loss(&s, config.keyframe_loss_pacing());
+                .configure_keyframe_loss(&s, config.keyframe_loss_pacing(0, false));
             loss(&s);
             assert!(!s.keyframe_loss_active(), "{text}");
             drop(guard);

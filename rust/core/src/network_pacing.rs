@@ -1,6 +1,13 @@
 //! Bound packet bursts without accumulating a catch-up burst after a late send.
 use std::time::{Duration, Instant};
 
+/// Whether to pace as a Wi-Fi route: the host's own route is wireless, or the
+/// client says its route to the host is (`x-rl-video[0].clientWireless:1`).
+/// The host cannot see a client behind an access point; absent means unknown.
+pub fn route_is_wireless(host_route_wireless: bool, client_wireless: bool) -> bool {
+    host_route_wireless || client_wireless
+}
+
 /// The route ceiling, before startup and loss-responsive pacing. Wired/unknown
 /// routes allow up to 800 Mbps. Confirmed Wi-Fi retains twice the
 /// encoder bitrate, allowing at least 25% headroom above packetized demand.
@@ -771,6 +778,53 @@ mod tests {
             rate_bps_for_client(0, 150_000, 100 * M, false, 180 * M, 0),
             80 * M
         );
+    }
+
+    #[test]
+    fn a_client_that_reports_wifi_gets_wifi_pacing_from_the_first_frame() {
+        const M: u64 = 1_000_000;
+        const GBPS: u64 = 1_000_000_000;
+        // Wired 1 GbE host, HEVC 4K60 at 63 Mbps, client link unknown (Wi-Fi).
+        let (kbps, needed) = (63_000, 75 * M);
+        let start = |host_wireless, client_wireless| {
+            rate_bps_for_client(
+                0,
+                kbps,
+                GBPS,
+                route_is_wireless(host_wireless, client_wireless),
+                needed,
+                0,
+            )
+        };
+        assert_eq!(start(false, false), 800 * M);
+        assert_eq!(start(false, true), 126 * M);
+        assert_eq!(start(false, true), rate_bps(0, kbps, GBPS, true, needed));
+        // A wireless host route still decides alone; the hint adds, never removes.
+        assert_eq!(start(true, false), 126 * M);
+        assert_eq!(start(true, true), 126 * M);
+        // The same clamp as the host's own Wi-Fi route: demand above 2x wins.
+        assert_eq!(
+            rate_bps_for_client(0, 63_000, GBPS, route_is_wireless(false, true), 200 * M, 0),
+            250 * M
+        );
+        // PyroWave without a client pace or wired link hint starts at demand,
+        // not at the host link; the wireless flag also drops a wired link hint.
+        let wired_hint = ClientPath {
+            link_bps: GBPS,
+            pace_bps: 0,
+        };
+        let pyrowave = |wireless| {
+            pyrowave_route_rate_bps(
+                0,
+                300_000,
+                2_500 * M,
+                route_is_wireless(false, wireless),
+                100 * M,
+                wired_hint,
+            )
+        };
+        assert_eq!(pyrowave(false), 950 * M);
+        assert_eq!(pyrowave(true), 412_500_000);
     }
 
     #[test]

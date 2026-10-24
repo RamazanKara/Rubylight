@@ -935,6 +935,26 @@ mod tests {
     }
 
     #[test]
+    fn a_wireless_client_stream_starts_at_the_controllers_conservative_rate_not_the_wired_ceiling()
+    {
+        let config = crate::config::Config::default();
+        for (wireless, expected) in [(true, 126_000_000), (false, 800_000_000)] {
+            let negotiated = Negotiated {
+                codec: 1,
+                bitrate_kbps: 63_000,
+                client_wireless: wireless,
+                ..Default::default()
+            };
+            let s = Session::new(launch("wireless-start", Role::Stream), negotiated);
+            s.configure_automatic_pacing(
+                config.adaptive_packet_pacing(s.config.codec, s.config.client_wireless),
+            );
+            // A wired 1 GbE host route allows 800 Mbps; only the controller lowers the start.
+            assert_eq!(s.video_pacing_bps(800_000_000, 75_000_000), expected);
+        }
+    }
+
+    #[test]
     fn pyrowave_fec_adapts_for_records_and_legacy_clients() {
         for records in [false, true] {
             let s = Session::new(
@@ -1766,7 +1786,7 @@ mod tests {
         ] {
             let config = crate::config::Config::parse(text).unwrap();
             let s = Session::new(launch("owner", Role::Stream), Negotiated::default());
-            s.configure_keyframe_loss(config.keyframe_loss_pacing());
+            s.configure_keyframe_loss(config.keyframe_loss_pacing(0, false));
             s.stats.video_frame.store(4, Ordering::Release);
             for frame in 1..=3 {
                 s.record_fec_status(&fec_report(frame, 7, 1));

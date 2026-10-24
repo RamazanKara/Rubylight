@@ -135,6 +135,7 @@ impl Transport<'_> {
                     wire_budget_bps = needed,
                     link_bps = route.bps,
                     client_link_mbps,
+                    client_wireless = s.config.client_wireless,
                     configured_kbps = c.integer("pacing_max_bitrate_kbps", 0),
                     "network pacing selected"
                 );

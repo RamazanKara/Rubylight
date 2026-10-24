@@ -67,7 +67,7 @@ fn select(
         config.integer("pacing_max_bitrate_kbps", 0),
         bitrate,
         route.bps,
-        route.wireless,
+        network_pacing::route_is_wireless(route.wireless, session.config.client_wireless),
         needed,
         client_link,
     );
@@ -119,7 +119,9 @@ pub(crate) fn report(session: &Session, config: &Config, frame: RecoveryFrame) {
     let pacing_reason = session.keyframe_loss_reason().unwrap_or_else(|| {
         if config.integer("pacing_max_bitrate_kbps", 0) > 0 {
             "configured pacing limit"
-        } else if config.adaptive_packet_pacing(session.config.codec) {
+        } else if config
+            .adaptive_packet_pacing(session.config.codec, session.config.client_wireless)
+        {
             "adaptive packet pacing"
         } else if config.boolean("host_adaptive_bitrate", false) {
             "adaptive bitrate pacing"

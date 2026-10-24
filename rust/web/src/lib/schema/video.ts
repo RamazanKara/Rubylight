@@ -412,12 +412,25 @@ const video: Setting[] = [
     advanced: true,
   },
   {
+    key: 'wireless_adaptive_pacing',
+    label: 'Adaptive packet pacing for Wi-Fi clients',
+    description:
+      'When a client says its connection is Wi-Fi or cellular, paces its video adaptively from the first frame instead of after the first lost frames.',
+    details:
+      'Applies to H.264, HEVC and AV1 for clients that report a wireless route, such as Nightjar. Starts at twice the encoder bitrate, speeds up while the link stays clean and backs off on loss, without changing picture bitrate or FPS. PyroWave keeps its own pacing. Changes apply on the next connection. A manual pacing rate or Adapt bitrate on the host turns it off.',
+    category: 'video',
+    group: 'Bitrate and network',
+    control: { kind: 'toggle' },
+    default: true,
+    advanced: true,
+  },
+  {
     key: 'keyframe_loss_pacing',
     label: 'Slow down after video loss',
     description:
       'After a lost keyframe or repeated unrecoverable frames, spaces video packets more evenly for the rest of the stream without changing picture bitrate.',
     details:
-      'Activates after a keyframe the client could not rebuild, a repeated request for the keyframe it was just sent, or three distinct unrecoverable frames within two seconds. Changes the host makes itself (Alt+Tab, a bitrate change, a restarted capture or encoder) do not count. Frames the host could not send whole, such as when the network send buffer fills at a high pacing rate, do: three within two seconds, or one keyframe. Loss that lasted is remembered for this device, address and network adapter for 24 hours, with a fast-rate retry every second eligible reconnect; a lost first keyframe alone is lifted after 10 clean seconds and not remembered. Reset remembered routes in Devices. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Adapt bitrate on the host turns it off.',
+      'Activates after a keyframe the client could not rebuild, a repeated request for the keyframe it was just sent, or three distinct unrecoverable frames within two seconds. Changes the host makes itself (Alt+Tab, a bitrate change, a restarted capture or encoder) do not count. Frames the host could not send whole, such as when the network send buffer fills at a high pacing rate, do: three within two seconds, or one keyframe. Loss that lasted is remembered for this device, address and network adapter for 24 hours, with a fast-rate retry every second eligible reconnect; a lost first keyframe alone is lifted after 10 clean seconds and not remembered. Reset remembered routes in Devices. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Adapt bitrate on the host turns it off. It also stays off on a stream that Adaptive packet pacing for Wi-Fi clients paces.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },

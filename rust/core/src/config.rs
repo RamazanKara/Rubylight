@@ -360,19 +360,28 @@ impl Config {
     }
     /// Experimental packet-rate adaptation is explicitly enabled per stream.
     /// Manual pacing and host bitrate adaptation own their respective limits;
-    /// Both conventional and PyroWave streams use the loss controller.
-    pub fn adaptive_packet_pacing(&self, codec: u8) -> bool {
-        self.boolean("host_adaptive_pacing", false)
+    /// Both conventional and PyroWave streams use the loss controller when
+    /// `host_adaptive_pacing` is set. A client that reports a Wi-Fi or cellular
+    /// route (`client_wireless`) gets it by default on H.264, HEVC and AV1
+    /// (codec 0-2), unless `wireless_adaptive_pacing` is off; PyroWave keeps its
+    /// calibrated-pace policy.
+    pub fn adaptive_packet_pacing(&self, codec: u8, client_wireless: bool) -> bool {
+        self.pacing_controller_chosen(codec, client_wireless)
             && self.integer("pacing_max_bitrate_kbps", 0) <= 0
             && !self.boolean("host_adaptive_bitrate", false)
             && codec <= 3
     }
+    fn pacing_controller_chosen(&self, codec: u8, client_wireless: bool) -> bool {
+        self.boolean("host_adaptive_pacing", false)
+            || (client_wireless && codec <= 2 && self.boolean("wireless_adaptive_pacing", true))
+    }
     /// Pace like Wi-Fi after a lost keyframe or repeated frame loss (on by default). A
-    /// manual pacing limit and the opt-in adaptations keep their own policies.
-    pub fn keyframe_loss_pacing(&self) -> bool {
+    /// manual pacing limit and the opt-in adaptations keep their own policies,
+    /// and so does a stream the adaptive pacing controller owns.
+    pub fn keyframe_loss_pacing(&self, codec: u8, client_wireless: bool) -> bool {
         self.boolean("keyframe_loss_pacing", true)
             && self.integer("pacing_max_bitrate_kbps", 0) <= 0
-            && !self.boolean("host_adaptive_pacing", false)
+            && !self.pacing_controller_chosen(codec, client_wireless)
             && !self.boolean("host_adaptive_bitrate", false)
     }
     /// Lower the encoder bitrate when the link cannot carry the stream (on by
@@ -851,6 +860,7 @@ pub fn override_allowed(key: &str) -> bool {
         "adaptive_fec",
         "host_adaptive_bitrate",
         "host_adaptive_pacing",
+        "wireless_adaptive_pacing",
         "keyframe_loss_pacing",
         "link_rate_adaptation",
         "video_max_batch_size_kb",
@@ -1160,13 +1170,122 @@ webrtc_media_port = 99999
             let config = super::Config::parse(text).unwrap();
             for (codec, enabled) in expected.into_iter().enumerate() {
                 assert_eq!(
-                    config.adaptive_packet_pacing(codec as u8),
+                    config.adaptive_packet_pacing(codec as u8, false),
                     enabled,
                     "codec {codec}: {text}"
                 );
             }
-            assert!(!config.adaptive_packet_pacing(u8::MAX));
+            assert!(!config.adaptive_packet_pacing(u8::MAX, false));
+            assert!(!config.adaptive_packet_pacing(u8::MAX, true));
         }
+    }
+
+    #[test]
+    fn a_wireless_client_gets_adaptive_pacing_on_h26x_and_av1_unless_something_owns_pacing() {
+        // (config, [H.264, HEVC, AV1, PyroWave] adaptive, keyframe-loss pacing, same for wired)
+        let on = [true, true, true, false];
+        let off = [false; 4];
+        let all = [true; 4];
+        let cases = [
+            ("", on, [false, false, false, true], off, [true; 4]),
+            (
+                "wireless_adaptive_pacing=true",
+                on,
+                [false, false, false, true],
+                off,
+                [true; 4],
+            ),
+            (
+                "wireless_adaptive_pacing=invalid",
+                on,
+                [false, false, false, true],
+                off,
+                [true; 4],
+            ),
+            (
+                "wireless_adaptive_pacing=false",
+                off,
+                [true; 4],
+                off,
+                [true; 4],
+            ),
+            // The host option still turns it on for everything, wired or wireless.
+            (
+                "host_adaptive_pacing=true",
+                all,
+                [false; 4],
+                all,
+                [false; 4],
+            ),
+            (
+                "host_adaptive_pacing=true\nwireless_adaptive_pacing=false",
+                all,
+                [false; 4],
+                all,
+                [false; 4],
+            ),
+            // A manual limit or host bitrate adaptation owns pacing.
+            (
+                "pacing_max_bitrate_kbps=80000",
+                off,
+                [false; 4],
+                off,
+                [false; 4],
+            ),
+            (
+                "pacing_max_bitrate_kbps=0",
+                on,
+                [false, false, false, true],
+                off,
+                [true; 4],
+            ),
+            (
+                "host_adaptive_bitrate=true",
+                off,
+                [false; 4],
+                off,
+                [false; 4],
+            ),
+            // Keyframe-loss pacing can still be switched off.
+            (
+                "keyframe_loss_pacing=false",
+                on,
+                [false; 4],
+                off,
+                [false; 4],
+            ),
+        ];
+        for (text, wireless, wireless_keyframe, wired, wired_keyframe) in cases {
+            let config = super::Config::parse(text).unwrap();
+            for codec in 0..4u8 {
+                let i = usize::from(codec);
+                assert_eq!(
+                    config.adaptive_packet_pacing(codec, true),
+                    wireless[i],
+                    "wireless codec {codec}: {text}"
+                );
+                assert_eq!(
+                    config.keyframe_loss_pacing(codec, true),
+                    wireless_keyframe[i],
+                    "wireless keyframe codec {codec}: {text}"
+                );
+                assert_eq!(
+                    config.adaptive_packet_pacing(codec, false),
+                    wired[i],
+                    "wired codec {codec}: {text}"
+                );
+                assert_eq!(
+                    config.keyframe_loss_pacing(codec, false),
+                    wired_keyframe[i],
+                    "wired keyframe codec {codec}: {text}"
+                );
+            }
+        }
+        // PyroWave plus a wireless client stays on its calibrated pace.
+        let default = super::Config::default();
+        assert!(!default.adaptive_packet_pacing(3, true));
+        assert!(default.keyframe_loss_pacing(3, true));
+        assert!(super::override_allowed("wireless_adaptive_pacing"));
     }
 
     #[test]
@@ -1224,7 +1343,7 @@ webrtc_media_port = 99999
             ("host_adaptive_bitrate=true", false),
         ] {
             let config = super::Config::parse(text).unwrap();
-            assert_eq!(config.keyframe_loss_pacing(), enabled, "{text}");
+            assert_eq!(config.keyframe_loss_pacing(0, false), enabled, "{text}");
         }
         assert!(super::override_allowed("keyframe_loss_pacing"));
     }
@@ -1253,7 +1372,7 @@ webrtc_media_port = 99999
     #[test]
     fn resetting_packet_pacing_opt_in_restores_the_disabled_default() {
         let mut config = super::Config::default();
-        assert!(!config.adaptive_packet_pacing(0));
+        assert!(!config.adaptive_packet_pacing(0, false));
         for reset in [serde_json::Value::Null, serde_json::json!("")] {
             config
                 .update(
@@ -1262,7 +1381,7 @@ webrtc_media_port = 99999
                         .unwrap(),
                 )
                 .unwrap();
-            assert!(config.adaptive_packet_pacing(0));
+            assert!(config.adaptive_packet_pacing(0, false));
             config
                 .update(
                     serde_json::json!({"host_adaptive_pacing": reset})
@@ -1270,7 +1389,7 @@ webrtc_media_port = 99999
                         .unwrap(),
                 )
                 .unwrap();
-            assert!(!config.adaptive_packet_pacing(0));
+            assert!(!config.adaptive_packet_pacing(0, false));
             assert!(!config.values.contains_key("host_adaptive_pacing"));
         }
     }

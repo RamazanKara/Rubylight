@@ -1493,11 +1493,12 @@ impl Media {
                     s.configure_fec(c.boolean("adaptive_fec", true), fec_ceiling);
                     s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, if s.config.codec == 3 { 2_000_000 } else { 500_000 }) as u32);
                     s.configure_link_rate(c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
-                    // Packet adaptation is opt-in. Explicit pacing and host
-                    // bitrate adaptation keep their own policies.
-                    let automatic_pacing = c.adaptive_packet_pacing(s.config.codec);
+                    // Packet adaptation is opt-in, or automatic for a client that
+                    // reports a wireless route. Explicit pacing and host bitrate
+                    // adaptation keep their own policies.
+                    let automatic_pacing = c.adaptive_packet_pacing(s.config.codec, s.config.client_wireless);
                     s.configure_automatic_pacing(automatic_pacing);
-                    keyframe_loss_memory = Some(h.configure_keyframe_loss(&s, c.keyframe_loss_pacing()));
+                    keyframe_loss_memory = Some(h.configure_keyframe_loss(&s, c.keyframe_loss_pacing(s.config.codec, s.config.client_wireless)));
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
                         iv_counter: 0,
@@ -1965,7 +1966,7 @@ impl Media {
                             if Instant::now() >= link_due {
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {
-                                    tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, client_link_mbps=s.config.pyrowave_client_link_mbps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
+                                    tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, client_link_mbps=s.config.pyrowave_client_link_mbps, client_wireless=s.config.client_wireless, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
                                     reported_pacing = Some(bps);
                                 }
                             }
@@ -4248,8 +4249,14 @@ mod tests {
         assert_eq!(device.integer("max_bitrate", 0), 20000);
         assert_eq!(device.get("capture", ""), "wgc");
         assert!(!device.boolean("keyboard", true));
-        assert!(device.adaptive_packet_pacing(0));
-        assert!(!f.host.config.read().unwrap().adaptive_packet_pacing(0));
+        assert!(device.adaptive_packet_pacing(0, false));
+        assert!(
+            !f.host
+                .config
+                .read()
+                .unwrap()
+                .adaptive_packet_pacing(0, false)
+        );
         assert_eq!(device.integer("port", 0), 47989);
         f.host.apps.write().unwrap()[0].extra.insert(
             "config-overrides".into(),
@@ -4259,7 +4266,7 @@ mod tests {
         assert_eq!(app.integer("max_bitrate", 0), 30000);
         assert_eq!(app.get("capture", ""), "wgc");
         assert!(app.boolean("keyboard", false));
-        assert!(!app.adaptive_packet_pacing(0));
+        assert!(!app.adaptive_packet_pacing(0, false));
         assert_eq!(app.integer("port", 0), 47989);
         assert_eq!(f.host.config.read().unwrap().values, original);
         assert_eq!(

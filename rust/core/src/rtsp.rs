@@ -168,6 +168,10 @@ pub struct Negotiated {
     /// Nonary's Moonlight), 0 when it did not say.
     #[serde(default)]
     pub pyrowave_client_link_mbps: u32,
+    /// The client's route to the host is Wi-Fi or cellular
+    /// (`x-rl-video[0].clientWireless:1`); false when absent or 0 (unknown).
+    #[serde(default)]
+    pub client_wireless: bool,
     /// The pace the client's calibration found loss-free, in Mbps
     /// (`x-ss-video[0].pyrowavePaceMbps`), 0 when it has none.
     #[serde(default)]
@@ -218,6 +222,7 @@ impl Default for Negotiated {
             vrr_low_latency: false,
             pyrowave_records: false,
             pyrowave_client_link_mbps: 0,
+            client_wireless: false,
             pyrowave_client_pace_mbps: 0,
             pyrowave_row_order: false,
             packet_size: 1024,
@@ -378,6 +383,7 @@ impl Negotiated {
         n.pyrowave_records = attrs.contains_key("x-ss-video[0].pyrowaveAdaptiveFec")
             || get("x-ss-video[0].pyrowaveFeatures", 0)? & 1 != 0;
         n.pyrowave_client_link_mbps = get("x-ss-video[0].pyrowaveLinkMbps", 0)?;
+        n.client_wireless = get("x-rl-video[0].clientWireless", 0)? == 1;
         n.pyrowave_client_pace_mbps = get("x-ss-video[0].pyrowavePaceMbps", 0)?;
         // Read whether or not there is record framing, so a bad value fails either way.
         let row_order = get("x-ss-video[0].pyrowaveRowOrder", 0)?;
@@ -736,6 +742,22 @@ mod tests {
             describe(0, 7, 0, true, true, true, false)
                 .contains("a=x-ss-pyrowave.bitstream:186f0393\r\n")
         );
+    }
+    #[test]
+    fn the_client_wireless_hint_is_on_only_for_a_one() {
+        let wireless = |sdp: &[u8]| Negotiated::from_sdp(sdp).unwrap().client_wireless;
+        assert!(!Negotiated::default().client_wireless);
+        assert!(!wireless(b"a=x-nv-video[0].maxFPS:60\n"));
+        assert!(wireless(b"a=x-rl-video[0].clientWireless:1\n"));
+        assert!(!wireless(b"a=x-rl-video[0].clientWireless:0\n"));
+        assert!(!wireless(b"a=x-rl-video[0].clientWireless:2\n"));
+        assert!(Negotiated::from_sdp(b"a=x-rl-video[0].clientWireless:yes\n").is_err());
+        // The wired-only link hint is independent of it.
+        let both = Negotiated::from_sdp(
+            b"a=x-ss-video[0].pyrowaveLinkMbps:0\na=x-rl-video[0].clientWireless:1\n",
+        )
+        .unwrap();
+        assert!((both.pyrowave_client_link_mbps, both.client_wireless) == (0, true));
     }
     #[test]
     fn the_row_order_hint_is_on_only_for_a_one_with_record_framing() {

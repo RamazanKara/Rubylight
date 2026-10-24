@@ -277,6 +277,8 @@ fn rebuilt_data_loss_cuts_only_while_the_rtt_is_elevated() {
     for (rtt, missing, cut) in [
         (20, 10, false),
         (100, 10, true),
+        // 4 of 80 data packets is 5 % of the block's 96, not 4 % of the 100 sent.
+        (100, 4, true),
         (100, 1, false),
         (100, 0, false),
     ] {

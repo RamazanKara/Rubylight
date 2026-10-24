@@ -610,9 +610,15 @@ impl LinkRate {
             self.rebuilt_packets += u64::from(total);
             self.rebuilt_data_missing += u64::from(data_missing);
             if data_missing > 0 && self.rtt_elevated() {
-                self.events.missing += u64::from(data_missing);
+                // The parity still in flight cannot be told from lost, so the
+                // share is taken from the data packets and scaled up to all of
+                // them: 5 % of the data lost is 6 % of the block.
+                let missing = (u64::from(data_missing) * u64::from(total))
+                    .div_ceil(u64::from(status.data.max(1)));
+                self.events.missing += missing;
                 self.events.lost(status.frame);
-                self.ring[status.frame as usize % RING].missing += data_missing;
+                self.ring[status.frame as usize % RING].missing +=
+                    u32::try_from(missing).unwrap_or(u32::MAX);
             }
             return;
         }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_enable_sdr10">10-бітний колір (SDR)</string>
+    <string name="summary_enable_sdr10">Передає SDR у 10-бітному HEVC або AV1, щоб зменшити смугастість. Потрібен декодер Main10 на цьому пристрої; дисплей ПК має бути в режимі SDR.</string>
+    <string name="startup_sdr10_not_accepted">Цей ПК не прийняв 10 біт, тому потік 8-бітний.</string>
+    <string name="stream_sdr10_host_hdr">ПК надсилає HDR. Перемкніть його дисплей на SDR для 10-бітного SDR.</string>
+    <string name="stream_sdr10_unavailable">10-бітний SDR не використовується, тому потік 8-бітний: %1$s</string>
+    <string name="stream_sdr10_reason_decoder">за поточного налаштування кодека немає декодера Main10 для HEVC або AV1.</string>
+    <string name="stream_sdr10_reason_pyrowave">вибрано PyroWave, а його 10-бітний вивід призначений лише для HDR.</string>
+    <string name="stream_sdr10_reason_packed">упакований 4:4:4 використовує власну обробку 10 біт.</string>
+    <string name="upscaling_tenbit_short">Не використовується з 10 бітами</string>
+</resources>

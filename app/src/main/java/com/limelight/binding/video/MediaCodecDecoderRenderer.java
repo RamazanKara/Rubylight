@@ -64,6 +64,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean submittedCsd;
     private volatile byte[] currentHdrMetadata;
     private volatile Boolean currentHdrMode;
+    // The stream was asked for as 10-bit SDR: no HDR assumed before the PC reports, SDR colour keys.
+    private volatile boolean sdr10;
 
     private int nextInputBufferIndex = -1;
     private ByteBuffer nextInputBuffer;
@@ -493,7 +495,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return !decoderCanMeetPerformancePoint(avcCaps, prefs) && decoderCanMeetPerformancePoint(av1Caps, prefs);
     }
 
-    private MediaCodecInfo findHevcDecoder(PreferenceConfiguration prefs, boolean meteredNetwork, boolean requestedHdr) {
+    private MediaCodecInfo findHevcDecoder(PreferenceConfiguration prefs, boolean meteredNetwork, boolean requestedHdr, boolean wantsSdr10) {
         // Don't return anything if H.264 is forced
         if (prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_H264) {
             return null;
@@ -508,6 +510,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 MediaCodecHelper.findProbableSafeDecoder("video/hevc", MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10) : null;
         if (hevcDecoderInfo == null && requestedHdr) {
             hevcDecoderInfo = MediaCodecHelper.findProbableSafeDecoder("video/hevc", MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus);
+        }
+        if (hevcDecoderInfo == null && wantsSdr10) {
+            hevcDecoderInfo = MediaCodecHelper.findProbableSafeDecoder("video/hevc", MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10);
         }
         if (hevcDecoderInfo == null && prefs.enableYuv444) {
             hevcDecoderInfo = MediaCodecHelper.findProbableSafeDecoder("video/hevc", MediaCodecInfo.CodecProfileLevel.HEVCProfileMain444);
@@ -524,8 +529,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     LimeLog.info("Forcing HEVC enabled despite non-whitelisted decoder");
                 }
                 // HDR implies HEVC forced on, since HEVCMain10HDR10 is required for HDR.
-                else if (requestedHdr) {
-                    LimeLog.info("Forcing HEVC enabled for HDR streaming");
+                else if (requestedHdr || wantsSdr10) {
+                    LimeLog.info("Forcing HEVC enabled for HDR or 10-bit SDR streaming");
                 }
                 else if ((getDecoderVideoFormats(hevcDecoderInfo, "video/hevc", false, prefs.enableYuv444) &
                         MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0) {
@@ -566,7 +571,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
-    private MediaCodecInfo findAv1Decoder(PreferenceConfiguration prefs, boolean requestedHdr) {
+    private MediaCodecInfo findAv1Decoder(PreferenceConfiguration prefs, boolean requestedHdr, boolean wantsSdr10) {
         if (prefs.videoFormat != PreferenceConfiguration.FormatOption.FORCE_AV1 &&
                 prefs.videoFormat != PreferenceConfiguration.FormatOption.AUTO &&
                 !(requestedHdr && prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE)) {
@@ -578,6 +583,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (decoderInfo == null && requestedHdr) {
             decoderInfo = MediaCodecHelper.findProbableSafeDecoder("video/av01", MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus);
         }
+        if (decoderInfo == null && wantsSdr10) {
+            decoderInfo = MediaCodecHelper.findProbableSafeDecoder("video/av01", MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10);
+        }
         if (decoderInfo == null) {
             decoderInfo = MediaCodecHelper.findProbableSafeDecoder("video/av01", -1);
         }
@@ -586,7 +594,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 LimeLog.info("Found AV1 decoder, but it's not whitelisted - "+decoderInfo.getName());
 
                 // Force HEVC enabled if the user asked for it
-                if (prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_AV1 || requestedHdr) {
+                if (prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_AV1 || requestedHdr || wantsSdr10) {
                     LimeLog.info("Forcing AV1 enabled despite non-whitelisted decoder");
                 }
                 // Use AV1 if the HEVC decoder is unable to meet the performance point
@@ -1026,7 +1034,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.warning("No AVC decoder found");
         }
 
-        hevcDecoder = findHevcDecoder(prefs, meteredData, requestedHdr);
+        hevcDecoder = findHevcDecoder(prefs, meteredData, requestedHdr, prefs.enableSdr10Bit);
         if (hevcDecoder != null) {
             LimeLog.info("Selected HEVC decoder: "+hevcDecoder.getName());
         }
@@ -1034,7 +1042,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.info("No HEVC decoder found");
         }
 
-        av1Decoder = findAv1Decoder(prefs, requestedHdr);
+        av1Decoder = findAv1Decoder(prefs, requestedHdr, prefs.enableSdr10Bit);
         if (av1Decoder != null) {
             LimeLog.info("Selected AV1 decoder: "+av1Decoder.getName());
         }
@@ -1043,7 +1051,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         if (prefs.videoFormat == PreferenceConfiguration.FormatOption.AUTO) {
-            skipMeasuredSlowerCodecs(prefs, requestedHdr);
+            skipMeasuredSlowerCodecs(prefs, requestedHdr || prefs.enableSdr10Bit);
         }
 
         // Set attributes that are queried in getCapabilities(). This must be done here
@@ -1107,8 +1115,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return (getDecoderVideoFormats(hevcDecoder, "video/hevc", true, false) & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
     }
 
+    /** A plain Main10 profile (HDR10 profiles count too): enough for 10-bit SDR. */
+    public boolean isHevcMain10Supported() {
+        return (getDecoderVideoFormats(hevcDecoder, "video/hevc", false, true, false) & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+    }
+
     public boolean isAv1Supported() {
         return av1Decoder != null;
+    }
+
+    public boolean isAv1Main10SdrSupported() {
+        return (getDecoderVideoFormats(av1Decoder, "video/av01", false, true, false) & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
     }
 
     public boolean isAv1Main10Supported() {
@@ -1116,6 +1133,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     static int videoFormatsForProfiles(String mime, int[] profiles, boolean hdr, boolean yuv444) {
+        return videoFormatsForProfiles(mime, profiles, hdr, false, yuv444);
+    }
+
+    /**
+     * @param hdr the HDR10 profiles give the 10-bit formats
+     * @param sdr10 plain Main10 gives them too (10-bit SDR needs no HDR10 profile)
+     */
+    static int videoFormatsForProfiles(String mime, int[] profiles, boolean hdr, boolean sdr10, boolean yuv444) {
         int formats = mime.equals("video/avc") ? MoonBridge.VIDEO_FORMAT_H264 :
                 mime.equals("video/hevc") ? MoonBridge.VIDEO_FORMAT_H265 : MoonBridge.VIDEO_FORMAT_AV1_MAIN8;
         for (int profile : profiles) {
@@ -1124,16 +1149,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     formats |= MoonBridge.VIDEO_FORMAT_H264_HIGH8_444;
                 }
             } else if (mime.equals("video/hevc")) {
-                if (hdr && (profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ||
-                        profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus)) {
+                if ((hdr || sdr10) && (profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ||
+                        profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus) ||
+                        sdr10 && profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10) {
                     formats |= MoonBridge.VIDEO_FORMAT_H265_MAIN10;
                 }
                 // API 37 adds this 8-bit profile. Older devices never advertise it.
                 if (yuv444 && profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain444) {
                     formats |= MoonBridge.VIDEO_FORMAT_H265_REXT8_444;
                 }
-            } else if (hdr && (profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10 ||
-                    profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus)) {
+            } else if ((hdr || sdr10) && (profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10 ||
+                    profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus) ||
+                    sdr10 && profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10) {
                 formats |= MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
             }
         }
@@ -1141,11 +1168,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private int getDecoderVideoFormats(MediaCodecInfo decoder, String mime, boolean hdr, boolean yuv444) {
+        return getDecoderVideoFormats(decoder, mime, hdr, false, yuv444);
+    }
+
+    private int getDecoderVideoFormats(MediaCodecInfo decoder, String mime, boolean hdr, boolean sdr10, boolean yuv444) {
         if (decoder == null) {
             return 0;
         }
         int baseFormat = videoFormatsForProfiles(mime, new int[0], false, false);
-        if (!hdr && !yuv444) {
+        if (!hdr && !sdr10 && !yuv444) {
             return baseFormat;
         }
         try {
@@ -1154,7 +1185,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             for (int i = 0; i < profiles.length; i++) {
                 profiles[i] = caps.profileLevels[i].profile;
             }
-            return videoFormatsForProfiles(mime, profiles, hdr, yuv444 &&
+            return videoFormatsForProfiles(mime, profiles, hdr, sdr10, yuv444 &&
                     caps.getVideoCapabilities().areSizeAndRateSupported(prefs.width, prefs.height, prefs.fps));
         } catch (RuntimeException e) {
             LimeLog.warning("Cannot query decoder profiles; using SDR 4:2:0: " + e);
@@ -1168,9 +1199,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     public int getSupportedVideoFormats(boolean hdr) {
+        return getSupportedVideoFormats(hdr, false);
+    }
+
+    /**
+     * @param sdr10 offer the 10-bit HEVC and AV1 formats for 10-bit SDR; PyroWave stays 8-bit
+     */
+    public int getSupportedVideoFormats(boolean hdr, boolean sdr10) {
         if (prefs.experimentalPacked444) {
-            return getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, false) |
-                    getDecoderVideoFormats(av1Decoder, "video/av01", hdr, false);
+            return getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, sdr10, false) |
+                    getDecoderVideoFormats(av1Decoder, "video/av01", hdr, sdr10, false);
         }
         int pyroWave = 0;
         if (isPyroWaveSupported()) {
@@ -1183,8 +1221,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         return pyroWave | MoonBridge.VIDEO_FORMAT_H264 |
                 getDecoderVideoFormats(avcDecoder, "video/avc", false, prefs.enableYuv444) |
-                getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, prefs.enableYuv444) |
-                getDecoderVideoFormats(av1Decoder, "video/av01", hdr, false);
+                getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, sdr10, prefs.enableYuv444) |
+                getDecoderVideoFormats(av1Decoder, "video/av01", hdr, sdr10, false);
     }
 
     /**
@@ -1269,6 +1307,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean packedHdrAvailable() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false;
         return HdrPolicy.hasHdr10(HdrPolicy.displayHdrTypes(outputDisplay));
+    }
+
+    /** Whether the PC is taken to send HDR until it reports otherwise: not for 10-bit SDR. */
+    private boolean assumesHdr() {
+        return Sdr10Policy.assumeHdr((getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, sdr10);
+    }
+
+    /** Streaming 10-bit SDR: the 10-bit formats were offered without asking for HDR. */
+    public void setSdr10Requested(boolean sdr10) {
+        this.sdr10 = sdr10;
     }
 
     /** The host's last HDR report, null until it has sent one. */
@@ -1392,7 +1440,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             // If the stream is HDR-capable, the decoder will detect transitions in color standards
             // rather than us hardcoding them into the MediaFormat.
-            if ((getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_10BIT) == 0) {
+            if (!assumesHdr()) {
                 // Set color format keys when not in HDR mode, since we know they won't change
                 videoFormat.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
                 switch (getPreferredColorSpace()) {
@@ -1445,8 +1493,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 throw new IllegalStateException("Packed full-chroma reconstruction is unavailable");
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            boolean hdr = currentHdrMode != null ? currentHdrMode :
-                    (getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+            boolean hdr = currentHdrMode != null ? currentHdrMode : assumesHdr();
             format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, hdr ?
                     MediaFormat.COLOR_TRANSFER_ST2084 : MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
             format.setInteger(MediaFormat.KEY_COLOR_STANDARD, hdr ? MediaFormat.COLOR_STANDARD_BT2020 :
@@ -2830,8 +2877,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // restarting the codec on anything earlier than that.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 byte[] metadata = enabled && hdrMetadata != null && hdrMetadata.length >= 24 ? hdrMetadata : null;
-                boolean previousMode = currentHdrMode != null ? currentHdrMode :
-                        (getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+                boolean previousMode = currentHdrMode != null ? currentHdrMode : assumesHdr();
                 currentHdrMode = enabled;
                 if (enabled && upscaler != null) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
                 if (previousMode == enabled && Arrays.equals(currentHdrMetadata, metadata)) {
@@ -2944,8 +2990,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             String codec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? "PyroWave" :
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ? "AV1" :
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ? "HEVC" : "H.264";
-            String color = Boolean.TRUE.equals(currentHdrMode) ? "HDR" :
-                    currentHdrMode == null && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 ? "10-bit" : "SDR";
+            String color = Sdr10Policy.overlayColor((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
+                    sdr10, currentHdrMode);
             String stream = streamWidth + "×" + streamHeight + " · " + codec + " · " + color
                     + " · " + StreamEngine.label();
             StringBuilder video = new StringBuilder();

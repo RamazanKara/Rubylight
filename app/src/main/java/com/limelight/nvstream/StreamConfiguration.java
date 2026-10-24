@@ -34,6 +34,8 @@ public class StreamConfiguration {
     private int remote;
     private MoonBridge.AudioConfiguration audioConfiguration;
     private int supportedVideoFormats;
+    // The 10-bit formats offered are for 10-bit SDR, not HDR: the launch does not ask for HDR.
+    private boolean sdr10Bit;
     private int attachedGamepadMask;
     private int encryptionFlags;
     private int colorRange;
@@ -164,6 +166,11 @@ public class StreamConfiguration {
             return this;
         }
 
+        public StreamConfiguration.Builder setSdr10Bit(boolean sdr10Bit) {
+            config.sdr10Bit = sdr10Bit;
+            return this;
+        }
+
         public StreamConfiguration.Builder setColorRange(int colorRange) {
             config.colorRange = colorRange;
             return this;
@@ -258,6 +265,10 @@ public class StreamConfiguration {
     
     public int getSupportedVideoFormats() {
         return supportedVideoFormats;
+    }
+
+    public boolean isSdr10Bit() {
+        return sdr10Bit;
     }
 
     public int getAttachedGamepadMask() {

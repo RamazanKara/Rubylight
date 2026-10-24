@@ -26,6 +26,8 @@ HDR10 needs an HDR10 display, Android 7+ and a compatible HEVC Main10 or AV1 10-
 
 Nightjar handles BT.2020/PQ and static mastering metadata. Debug stats show the negotiated format, so you can confirm HDR is active.
 
+**10-bit color (SDR)** is for screens without HDR, or with HDR off, where gradients show banding. It streams SDR in 10-bit HEVC or AV1 and needs a Main10 decoder on this device. The PC must offer 10-bit; if it does not, the stream is 8-bit and a message says so once per PC. The PC's display has to be in SDR, because a PC whose display is in HDR sends HDR whatever you chose here, and the status line says so. It is not used with PyroWave, and when HDR is on, HDR wins. The overlay's stream line reads "10-bit SDR" while it is active.
+
 **Prefer YUV 4:4:4** can improve colored text. It applies when the host and decoder both support it, with 4:2:0 used otherwise. HDR takes priority over a conflicting chroma preference. **Force full-range video** is an explicit override: mismatched range can crush blacks or clip highlights.
 
 ## Refresh rate and VRR

@@ -265,6 +265,8 @@ public class NvConnectionRecoveryTest {
         static String initial, probed;
         static IOException probeFailure, resumeFailure;
         static boolean resumeResult;
+        // Whether the last launch or resume asked for HDR.
+        static boolean lastHdr;
         static int probes;
         static final List<String> requests = new ArrayList<>();
 
@@ -282,6 +284,7 @@ public class NvConnectionRecoveryTest {
         @Implementation public boolean launchApp(ConnectionContext context, String verb, int id, boolean hdr)
                 throws IOException {
             requests.add(verb);
+            lastHdr = hdr;
             if (resumeFailure != null) throw resumeFailure;
             return resumeResult;
         }

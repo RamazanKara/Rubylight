@@ -93,6 +93,12 @@
             android:title="@string/title_enable_hdr"
             android:dialogMessage="@string/summary_enable_hdr"
             android:defaultValue="false" />
+        <!-- 10-bit SDR when HDR is not streamed; the HDR switch above wins (Sdr10Policy). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_sdr_10bit"
+            android:title="@string/title_enable_sdr10"
+            android:dialogMessage="@string/summary_enable_sdr10"
+            android:defaultValue="false" />
     </PreferenceCategory>
 
     <!-- Display & image -->

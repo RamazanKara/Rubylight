@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_enable_sdr10">10 bit renk (SDR)</string>
+    <string name="summary_enable_sdr10">Bantlanmayı azaltmak için SDR’yi 10 bit HEVC veya AV1 ile yayınlar. Bu cihazda Main10 çözücü gerekir; bilgisayarın ekranı SDR modunda olmalıdır.</string>
+    <string name="startup_sdr10_not_accepted">Bu bilgisayar 10 biti kabul etmedi, bu yüzden yayın 8 bit.</string>
+    <string name="stream_sdr10_host_hdr">Bilgisayar HDR gönderiyor. 10 bit SDR için ekranını SDR’ye geçirin.</string>
+    <string name="stream_sdr10_unavailable">10 bit SDR kullanılmıyor, bu yüzden yayın 8 bit: %1$s</string>
+    <string name="stream_sdr10_reason_decoder">geçerli codec ayarıyla kullanılabilir bir Main10 HEVC veya AV1 çözücüsü yok.</string>
+    <string name="stream_sdr10_reason_pyrowave">PyroWave seçili ve 10 bit çıkışı yalnızca HDR içindir.</string>
+    <string name="stream_sdr10_reason_packed">paketlenmiş 4:4:4 kendi 10 bit işlemesini kullanır.</string>
+    <string name="upscaling_tenbit_short">10 bit ile kullanılmaz</string>
+</resources>

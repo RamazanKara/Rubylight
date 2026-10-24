@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_enable_sdr10">Màu 10 bit (SDR)</string>
+    <string name="summary_enable_sdr10">Truyền SDR bằng HEVC hoặc AV1 10 bit để giảm hiện tượng sọc màu. Cần bộ giải mã Main10 trên thiết bị này; màn hình của PC phải ở chế độ SDR.</string>
+    <string name="startup_sdr10_not_accepted">PC này không chấp nhận 10 bit nên luồng là 8 bit.</string>
+    <string name="stream_sdr10_host_hdr">PC đang gửi HDR. Hãy chuyển màn hình của PC sang SDR để dùng SDR 10 bit.</string>
+    <string name="stream_sdr10_unavailable">SDR 10 bit không được dùng nên luồng là 8 bit: %1$s</string>
+    <string name="stream_sdr10_reason_decoder">không có bộ giải mã Main10 cho HEVC hoặc AV1 với thiết lập codec hiện tại.</string>
+    <string name="stream_sdr10_reason_pyrowave">đã chọn PyroWave và đầu ra 10 bit của nó chỉ dành cho HDR.</string>
+    <string name="stream_sdr10_reason_packed">4:4:4 đóng gói có cách xử lý 10 bit riêng.</string>
+    <string name="upscaling_tenbit_short">Không dùng với 10 bit</string>
+</resources>

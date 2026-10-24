@@ -112,6 +112,24 @@ public class MediaCodecDecoderRendererTest {
     }
 
     @Test
+    public void plainMain10GivesTenBitFormatsOnlyForTenBitSdr() {
+        assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+                "video/hevc", new int[] {CodecProfileLevel.HEVCProfileMain10}, false, true, false));
+        assertEquals(VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+                "video/av01", new int[] {CodecProfileLevel.AV1ProfileMain10}, false, true, false));
+        // The HDR10 profiles are Main10 decoders too.
+        assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+                "video/hevc", new int[] {CodecProfileLevel.HEVCProfileMain10HDR10}, false, true, false));
+        // Without the 10-bit SDR request the old rules hold.
+        assertEquals(VIDEO_FORMAT_H265, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+                "video/hevc", new int[] {CodecProfileLevel.HEVCProfileMain10}, false, false, false));
+        assertEquals(VIDEO_FORMAT_AV1_MAIN8, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+                "video/av01", new int[] {CodecProfileLevel.AV1ProfileMain10}, false, false, false));
+        assertEquals(VIDEO_FORMAT_H265, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+                "video/hevc", new int[] {CodecProfileLevel.HEVCProfileMain}, false, true, false));
+    }
+
+    @Test
     public void hdr10AndHdr10PlusDecodersCanReceiveStaticHdr10() {
         for (int profile : new int[] {CodecProfileLevel.HEVCProfileMain10HDR10, CodecProfileLevel.HEVCProfileMain10HDR10Plus}) {
             assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10,

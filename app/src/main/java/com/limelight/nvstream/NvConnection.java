@@ -712,7 +712,9 @@ public class NvConnection {
             int preparedFormats = renderer.prepareVideoFormats(commonFormats, context.negotiatedWidth,
                     context.negotiatedHeight, context.streamConfig.getRefreshRate());
             context.negotiatedVideoFormats = negotiateVideoFormats(preparedFormats, context.serverCodecModeSupport);
-            context.negotiatedHdr = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+            context.negotiated10Bit = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+            // 10-bit SDR offers 10-bit formats without asking for HDR in the launch.
+            context.negotiatedHdr = context.negotiated10Bit && !context.streamConfig.isSdr10Bit();
             if (pyroWaveHdrLost(commonFormats, context.negotiatedVideoFormats)) {
                 // The host and this device both offer PyroWave HDR, but its output could not be
                 // created here; AV1 or HEVC HDR carries the stream instead. Say so once per PC.
@@ -728,7 +730,17 @@ public class NvConnection {
                     MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PYROWAVE_HDR_UNAVAILABLE);
             }
-            if (!context.negotiatedHdr && (offeredFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
+            if (context.streamConfig.isSdr10Bit()) {
+                if (!context.negotiated10Bit) {
+                    LimeLog.warning("10-bit SDR offered, but this PC streams 8-bit");
+                    if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.SDR10_NOT_ACCEPTED)) {
+                        context.connListener.displayTransientMessage(appContext.getString(R.string.startup_sdr10_not_accepted));
+                    }
+                } else {
+                    // 10-bit works with this PC now; if it stops, say so again.
+                    HostNotices.reset(appContext, details.uuid, HostNotices.Notice.SDR10_NOT_ACCEPTED);
+                }
+            } else if (!context.negotiatedHdr && (offeredFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
                 if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.HDR_UNAVAILABLE)) {
                     context.connListener.displayTransientMessage(appContext.getString(R.string.startup_hdr_unavailable));
                 }

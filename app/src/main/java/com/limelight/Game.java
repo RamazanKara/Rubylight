@@ -36,6 +36,7 @@ import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
+import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.HostCapabilityCache;
@@ -428,6 +429,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             };
     // Whether this stream asked for HDR (setting on, HDR10 display and decoder).
     private boolean streamHdr;
+    // 10-bit formats offered for 10-bit SDR (the setting), without asking the PC for HDR.
+    private boolean streamSdr10;
+    private boolean sdr10HostHdrNoticed;
     private HdrPolicy.Status lastHdrStatus = HdrPolicy.Status.QUIET;
     private DisplayCapsReporter displayCapsReporter;
 
@@ -953,7 +957,26 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_av1_decoder_missing);
         }
 
-        int supportedVideoFormats = mediaStream ? decoderRenderer.getSupportedVideoFormats(willStreamHdr) : MoonBridge.VIDEO_FORMAT_H264;
+        // 10-bit SDR: the 10-bit formats without HDR. HDR, when granted, wins.
+        boolean sdr10Hevc = mediaStream && decoderRenderer.isHevcMain10Supported();
+        boolean sdr10Av1 = mediaStream && decoderRenderer.isAv1Main10SdrSupported();
+        Sdr10Policy.Refusal sdr10Refusal = Sdr10Policy.refusal(mediaStream, prefConfig.enableSdr10Bit, willStreamHdr,
+                sdr10Hevc, sdr10Av1, prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE,
+                prefConfig.experimentalPacked444);
+        streamSdr10 = Sdr10Policy.formats(sdr10Refusal, sdr10Hevc, sdr10Av1) != 0;
+        decoderRenderer.setSdr10Requested(streamSdr10);
+        if (Sdr10Policy.worthSaying(sdr10Refusal)) {
+            LimeLog.warning("10-bit SDR enabled but not used: " + sdr10Refusal);
+            int reason = sdr10Refusal == Sdr10Policy.Refusal.PYROWAVE ? R.string.stream_sdr10_reason_pyrowave :
+                    sdr10Refusal == Sdr10Policy.Refusal.PACKED_444 ? R.string.stream_sdr10_reason_packed :
+                            R.string.stream_sdr10_reason_decoder;
+            messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_UNAVAILABLE,
+                    getString(R.string.stream_sdr10_unavailable, getString(reason)));
+        } else if (sdr10Refusal == Sdr10Policy.Refusal.NONE) {
+            HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_UNAVAILABLE);
+        }
+
+        int supportedVideoFormats = mediaStream ? decoderRenderer.getSupportedVideoFormats(willStreamHdr, streamSdr10) : MoonBridge.VIDEO_FORMAT_H264;
 
         int gamepadMask = ControllerHandler.getAttachedControllerMask(this);
         if (!prefConfig.multiController) {
@@ -1023,6 +1046,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setMaxPacketSize(1392)
                 .setRemoteConfiguration(StreamConfiguration.STREAM_CFG_AUTO) // NvConnection will perform LAN and VPN detection
                 .setSupportedVideoFormats(supportedVideoFormats)
+                .setSdr10Bit(streamSdr10)
                 .setAttachedGamepadMask(gamepadMask)
                 .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
                 .setVirtualDisplay(!smallStream && prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
@@ -2412,7 +2436,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
 
                     if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
-                        message += " HDR";
+                        message += streamSdr10 && !Boolean.TRUE.equals(decoderRenderer.getHostHdrReport()) ?
+                                " 10-bit SDR" : " HDR";
                     }
 
                     message += "]";
@@ -6438,6 +6463,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (status != lastHdrStatus) {
                 lastHdrStatus = status;
                 if (res != 0) LimeLog.warning("HDR requested but " + status);
+            }
+        }
+        if (streamSdr10 && decoderRenderer != null) {
+            int format = decoderRenderer.getActiveVideoFormat();
+            if (Sdr10Policy.status((format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
+                    decoderRenderer.getHostHdrReport()) == Sdr10Policy.Status.HOST_HDR) {
+                text = getString(R.string.stream_sdr10_host_hdr);
+                if (!sdr10HostHdrNoticed) {
+                    sdr10HostHdrNoticed = true;
+                    LimeLog.warning("10-bit SDR requested but the PC sends HDR");
+                    hostNotice(HostNotices.Notice.SDR10_HOST_HDR, R.string.stream_sdr10_host_hdr);
+                }
             }
         }
         if (messages.status("hdr", text)) updatePerformanceOverlay();

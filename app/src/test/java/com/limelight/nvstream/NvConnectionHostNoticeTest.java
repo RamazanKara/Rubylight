@@ -34,6 +34,11 @@ public class NvConnectionHostNoticeTest {
             "<Permission>4294967295</Permission><VirtualDisplayCapable>true</VirtualDisplayCapable></root>");
 
     private static List<String> stream(String serverInfo, boolean virtualDisplay) throws Exception {
+        return stream(serverInfo, virtualDisplay, MoonBridge.VIDEO_FORMAT_H264, false);
+    }
+
+    private static List<String> stream(String serverInfo, boolean virtualDisplay, int formats, boolean sdr10)
+            throws Exception {
         NvConnectionRecoveryTest.FakeHost.initial = serverInfo;
         NvConnectionRecoveryTest.FakeHost.resumeFailure = null;
         NvConnectionRecoveryTest.FakeHost.resumeResult = true;
@@ -43,7 +48,7 @@ public class NvConnectionHostNoticeTest {
                 new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device",
                 new StreamConfiguration.Builder().setApp(app).setResolution(1280, 720).setRefreshRate(60)
                         .setVirtualDisplay(virtualDisplay, 100)
-                        .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264).build(), crypto(), null);
+                        .setSupportedVideoFormats(formats).setSdr10Bit(sdr10).build(), crypto(), null);
         List<String> messages = Collections.synchronizedList(new ArrayList<>());
         NvConnectionListener listener = (NvConnectionListener) Proxy.newProxyInstance(
                 NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
@@ -86,6 +91,28 @@ public class NvConnectionHostNoticeTest {
         // Gaining a virtual display re-arms the notice, so losing it again is reported.
         assertEquals(Collections.emptyList(), stream(WITH_DISPLAY, true));
         assertEquals(Collections.singletonList(unavailable), stream(SUNSHINE, true));
+    }
+
+    @Test
+    public void tenBitSdrNeverAsksForHdrAndAPcThatStaysAt8BitIsToldOnce() throws Exception {
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        String notAccepted = RuntimeEnvironment.getApplication().getString(R.string.startup_sdr10_not_accepted);
+        String hdrUnavailable = RuntimeEnvironment.getApplication().getString(R.string.startup_hdr_unavailable);
+        // The PC takes 10-bit: no message, and the launch is not an HDR launch.
+        assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
+        assertFalse(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        // The same offer as HDR does ask for it.
+        assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, false));
+        assertTrue(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        // A PC with no 10-bit codec streams 8-bit: said once, as 10-bit and not as HDR.
+        String eightBit = SUNSHINE.replace("<ServerCodecModeSupport>197377", "<ServerCodecModeSupport>257");
+        assertEquals(Collections.singletonList(notAccepted), stream(eightBit, false, offered, true));
+        assertFalse(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        assertEquals(Collections.emptyList(), stream(eightBit, false, offered, true));
+        // Gaining 10-bit re-arms the notice.
+        assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
+        assertEquals(Collections.singletonList(notAccepted), stream(eightBit, false, offered, true));
+        assertNotEquals(notAccepted, hdrUnavailable);
     }
 
     @Test

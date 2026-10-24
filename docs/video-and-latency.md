@@ -90,14 +90,14 @@ PyroWave handles display rotation during its existing color-conversion or upscal
 
 ## Upscaling
 
-Choose **Settings → Display & image → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **Host render scale** changes the PC's render resolution, not the transmitted video size.
+Choose **Settings → Display & image → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **PC render resolution** changes the PC's render resolution, not the transmitted video size.
 
 | Mode | Processing |
 | --- | --- |
 | Off (default) | Direct output without FSR/SGSR reconstruction. |
-| Bilinear | Bilinear scaling through GLES for MediaCodec or Vulkan for PyroWave. |
-| FSR 1.0 | AMD EASU reconstruction followed by RCAS sharpening. |
-| SGSR 1 | Qualcomm's single-pass spatial reconstruction. |
+| Smooth | Bilinear scaling through GLES for MediaCodec or Vulkan for PyroWave. |
+| Sharp (FSR) | AMD FSR 1.0: EASU reconstruction followed by RCAS sharpening. |
+| Sharp, Snapdragon (SGSR) | Qualcomm SGSR 1:'s single-pass spatial reconstruction. |
 
 MediaCodec GPU upscaling requires lower-resolution SDR video, GLES 3.0 and the required external-image support. Native/larger input, HDR and 10-bit use direct output. Under GPU overload or after a resize, this path switches to direct output for the rest of the session; reconnect to retry.
 
@@ -117,7 +117,7 @@ If loading, capability checks or initialization fail, Nightjar tries the system 
 
 ## Performance overlay
 
-Show or hide the overlay with **Overlay** in the stream menu's top row or **Ctrl+Alt+Shift+S**, and choose **Compact**, **Statistics** or **Debug** under **stream menu → Display → Overlay and diagnostics**. The saved default is under **Settings → Streaming → Performance overlay mode**, where all three modes are always available. **Copy stats** copies the full Debug text regardless of visible mode. The overlay hides in picture in picture.
+Show or hide the overlay with **Overlay** in the stream menu's top row or **Ctrl+Alt+Shift+S**, and choose **Compact**, **Statistics** or **Debug** under **stream menu → Display → Overlay and diagnostics**. The saved default is under **Settings → Streaming → Performance overlay**, a picker with Off, Compact, Statistics and Debug, all always available. **Copy stats** copies the full Debug text regardless of visible mode. The overlay hides in picture in picture.
 
 Compact is the default: one line such as `● 119.9 FPS · 8 ms RTT · 0.1% loss`, with displayed FPS, the measured network round trip (labelled RTT, not end-to-end latency) and frame loss. The dot is green, turns amber from 1% loss, a 40 ms round trip, a tenth of the received frames not shown or decoding slower than a frame, and red from 5% loss, an 80 ms round trip or a quarter of the frames not shown. Compact sits top-start, moves to a free corner or the top centre when on-screen controls would sit under it, and keeps clear of camera cutouts. Statistics shows stream resolution/codec/color, displayed and received FPS, received video payload Mbps, network frame loss, network RTT and variation, host processing, decode time and display wait. These are separate measurements: adding network RTT and decode time does not measure end-to-end latency. Payload Mbps excludes audio, protocol overhead and retransmissions, so it is not the configured bitrate or total link traffic.
 

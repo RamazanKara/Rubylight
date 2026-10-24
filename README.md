@@ -101,7 +101,7 @@ All of these are our own runs on an RX 7900 XT host, with the method and raw res
 - Desktop tools: a compact keyboard and trackpad panel with key banks and shortcuts, pinch zoom, and video on an external display with the phone as a touchpad
 - Settings per PC, Native and Battery saver presets, Wake-on-LAN and automatic discovery
 - Phones, foldables, tablets, Android TV and Fire TV with D-pad navigation, plus picture-in-picture; TV remote Back and Menu open stream controls, and D-pad/Select send arrow keys/Enter to the PC ([controls](docs/controls.md#tv-and-fire-tv-remotes))
-- Optional OLED black appearance for app screens, menus and dialogs, even with a light system theme
+- System, Dark or OLED black appearance for app screens, menus and dialogs, even with a light system theme
 - Built-in help that works offline, and problem reports that stay on your phone until you share them
 - In 15 languages; native speakers can [help translate](docs/TRANSLATIONS.md#help-translate)
 - No ads, no analytics, no accounts

@@ -22,6 +22,11 @@
 //! `last_slice_ready_ns` (when the first slice's decode and the last one finished) and
 //! `row_ordered` (1 when the frame's records arrived in the host's row order, 0 when not); all
 //! empty when the beam race is off.
+//! Three more tell where the display's beam was when the present was issued (the same
+//! doc, "Scan line and capability"): `scan_line_at_present` and `in_vblank_at_present`
+//! (`D3DKMTGetScanLine`, 1 or 0) and `race_reason` (`on`, or what rules racing out: `no tearing`,
+//! `no scanline`, `no scan seen`, `no VRR`, `composed`; empty while it is being checked); all
+//! empty when the beam race is off.
 //! The seven present-scheduler columns Android appends to the host's (`sched_vsync_ns` to
 //! `drop_reason`) are empty here, so a reader that goes by name sees the same header.
 //!
@@ -48,6 +53,7 @@ use nightjar_core::timing_record::{self as record, PendingRow, Record};
 use rubylight_protocol::control::{HostTiming, HostTimingExtra};
 
 use crate::stream::pyrowave::RaceReport;
+use crate::stream::race_probe::ScanReport;
 
 /// The receiver's own columns, in `FrameLatencyStats.CSV_HEADER` order; the nine host columns
 /// (`record::HEADER`) follow.
@@ -69,9 +75,10 @@ pub const SCHEDULER_COLUMNS: [&str; 7] = [
 ];
 
 /// The desktop's own columns after those.
-pub const EXTRA_COLUMNS: [&str; 13] = [
+pub const EXTRA_COLUMNS: [&str; 16] = [
     "early", "first_block_ns", "due_ns", "present_begin_ns", "present_count", "stat_present_count", "stat_present_refresh",
     "stat_sync_refresh", "stat_sync_ns", "slices_decoded", "first_slice_ready_ns", "last_slice_ready_ns", "row_ordered",
+    "scan_line_at_present", "in_vblank_at_present", "race_reason",
 ];
 
 pub fn header() -> String {
@@ -111,6 +118,8 @@ pub struct Row {
     pub begin_us: u64,
     /// How the beam race went for the frame (empty columns when it is off).
     pub race: RaceReport,
+    /// The display's beam at the present and whether racing it can work (empty when the race is off).
+    pub scan: ScanReport,
     /// The swap chain's counters and vblank time just after the present call (0 when unknown).
     pub flip: Flip,
 }
@@ -333,11 +342,14 @@ pub fn extra_fields(row: &Row) -> String {
     let flip = &row.flip;
     let race = &row.race;
     format!(
-        "{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         row.early, timestamp(row.first_block_us), timestamp(row.due_us), timestamp(row.begin_us), count(flip.present_count),
         count(flip.stat_present_count), count(flip.stat_present_refresh), count(flip.stat_sync_refresh), timestamp(flip.stat_sync_us),
         count(u32::from(race.slices)), timestamp(race.first_ready_us), timestamp(race.last_ready_us),
         match race.ordered { RaceReport::ORDERED => "1", RaceReport::UNORDERED => "0", _ => "" },
+        row.scan.line.map_or_else(String::new, |line| line.to_string()),
+        row.scan.vblank.map_or("", |vblank| if vblank { "1" } else { "0" }),
+        row.scan.reason,
     )
 }
 
@@ -384,6 +396,7 @@ mod tests {
             due_us: 0,
             begin_us: 0,
             race: RaceReport::default(),
+            scan: ScanReport::default(),
             flip: Flip::default(),
         }
     }
@@ -454,8 +467,8 @@ mod tests {
         assert_eq!(lines.len(), 3, "{text}");
         assert_eq!(format!("{}\n", lines[0]), header());
         let tail = |line: &str| line.split(',').skip(OWN_COLUMNS.len()).collect::<Vec<_>>().join(",");
-        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,");
-        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,");
+        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,");
+        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,");
         for line in &lines {
             assert_eq!(line.split(',').count(), header().trim_end().split(',').count());
         }
@@ -463,16 +476,16 @@ mod tests {
 
     #[test]
     fn the_early_columns_say_how_the_frame_was_decoded() {
-        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,,,,,,,,,,,,");
-        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,,,,,,,,,,,,");
-        assert_eq!(extra_fields(&row()), "1,1000900000,,,,,,,,,,,");
+        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,,,,,,,,,,,,,,,");
+        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,,,,,,,,,,,,,,,");
+        assert_eq!(extra_fields(&row()), "1,1000900000,,,,,,,,,,,,,,");
         let timed = Row {
             due_us: 1_008_000,
             begin_us: 1_008_100,
             flip: Flip { present_count: 7, stat_present_count: 6, stat_present_refresh: 100, stat_sync_refresh: 101, stat_sync_us: 1_009_500 },
             ..row()
         };
-        assert_eq!(extra_fields(&timed), "1,1000900000,1008000000,1008100000,7,6,100,101,1009500000,,,,");
+        assert_eq!(extra_fields(&timed), "1,1000900000,1008000000,1008100000,7,6,100,101,1009500000,,,,,,,");
         // Rows come back in the order they went in, each with its own columns.
         let path = std::env::temp_dir().join(format!("nightjar-timing-early-{}", std::process::id()));
         let csv = TimingCsv::create(&path).unwrap();
@@ -492,12 +505,25 @@ mod tests {
             race: RaceReport { slices, first_ready_us: 1_003_000, last_ready_us: 1_004_400, ordered },
             ..row()
         };
-        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 4).collect::<Vec<_>>().join(",");
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 7).take(4).collect::<Vec<_>>().join(",");
         assert_eq!(tail(&raced(4, RaceReport::ORDERED)), "4,1003000000,1004400000,1");
         assert_eq!(tail(&raced(1, RaceReport::UNORDERED)), "1,1003000000,1004400000,0", "a frame that left the row order says so");
         assert_eq!(tail(&row()), ",,,", "the race off leaves the columns empty");
-        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 4..];
+        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 7..EXTRA_COLUMNS.len() - 3];
         assert_eq!(names, ["slices_decoded", "first_slice_ready_ns", "last_slice_ready_ns", "row_ordered"]);
+    }
+
+    #[test]
+    fn the_scan_columns_say_where_the_beam_was_and_why_racing_is_off() {
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 3).collect::<Vec<_>>().join(",");
+        let scan = |line, vblank, reason| Row { scan: ScanReport { line, vblank, reason }, ..row() };
+        assert_eq!(tail(&scan(Some(412), Some(false), "on")), "412,0,on");
+        assert_eq!(tail(&scan(Some(7), Some(true), "composed")), "7,1,composed");
+        assert_eq!(tail(&scan(None, None, "no scanline")), ",,no scanline", "no reading, but the reason stays");
+        assert_eq!(tail(&scan(Some(90), Some(true), "")), "90,1,", "no verdict yet");
+        assert_eq!(tail(&row()), ",,", "the race off leaves the columns empty");
+        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 3..];
+        assert_eq!(names, ["scan_line_at_present", "in_vblank_at_present", "race_reason"]);
     }
 
     #[test]
@@ -549,6 +575,7 @@ mod tests {
                 due_us: 0,
                 begin_us: 0,
                 race: RaceReport::default(),
+                scan: ScanReport::default(),
                 flip: Flip::default(),
             });
         }

@@ -17,6 +17,8 @@ mod quality;
 mod touch;
 mod upscale;
 mod phase;
+pub mod scanline;
+pub mod race_probe;
 pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
 pub mod pyrowave_mode;
@@ -865,6 +867,8 @@ pub struct Streaming {
     upscaler: Option<upscale::Upscaler>,
     upscale_failed: bool,
     phase: phase::Phase,
+    /// Whether racing the display's beam can work here, once the beam race is on and a picture is shown.
+    race_probe: Option<race_probe::RaceProbe>,
     pub overlay_visible: bool,
     pub overlay: Overlay,
     /// What the host last said about holding the bitrate down for the network; `None` while it has not.
@@ -982,6 +986,7 @@ impl Streaming {
             upscaler: None,
             upscale_failed: false,
             phase: phase::Phase::default(),
+            race_probe: None,
             overlay_visible: settings.overlay,
             overlay: Overlay::default(),
             link_notice: None,
@@ -1729,9 +1734,20 @@ impl Streaming {
             }
         }
         draw_overlay(self, renderer);
+        // The beam race probe reads the scan line around the present (nothing when the race is off).
+        if self.facts.beam_race && has_picture && self.race_probe.is_none() {
+            self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps)));
+        }
+        let beam_before = self.race_probe.as_ref().filter(|_| has_picture).and_then(race_probe::RaceProbe::before);
         // SAFETY: a live renderer.
         unsafe { SDL_RenderPresent(renderer) };
         let presented = session::now_us();
+        let mode_tears = self.pacer.mode != PacingMode::Vsync;
+        let fps = f64::from(self.facts.fps);
+        let scan = self.race_probe.as_mut().filter(|_| has_picture).map(|probe| {
+            probe.after_present(renderer, beam_before, mode_tears, fps);
+            probe.report(beam_before)
+        });
         let flip = if self.timing_csv.is_some() && picture.is_some() { phase::present_stats(renderer) } else { Default::default() };
         self.needs_redraw = false;
         if let Some(p) = picture {
@@ -1758,6 +1774,7 @@ impl Streaming {
                     early: d.early,
                     first_block_us: d.first_block_us,
                     race: d.race,
+                    scan: scan.unwrap_or_default(),
                     due_us: p.present_us,
                     begin_us: begin,
                     flip,
@@ -1877,8 +1894,11 @@ impl Streaming {
         if let Some(reason) = self.facts.beam_race_off {
             lines.push(("Beam race".into(), reason.into()));
         }
+        if let Some(probe) = &self.race_probe {
+            lines.push(("Beam race".into(), probe.line()));
+        }
         if self.facts.beam_race {
-            lines.push(("Beam race".into(), race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
+            lines.push(("Race slices".into(), race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
                 c.race_unordered.load(Ordering::Relaxed))));
         }
         lines.push((

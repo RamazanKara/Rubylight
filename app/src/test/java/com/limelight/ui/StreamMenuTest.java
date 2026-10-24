@@ -338,6 +338,33 @@ public class StreamMenuTest {
         }
     }
 
+    /** The text size of a quick toggle, a page row and an action row, in pixels. */
+    private static float[] textSizes(float fontScale) {
+        org.robolectric.RuntimeEnvironment.setFontScale(fontScale);
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu menu = new StreamMenu(activity, () -> options("rubylight-serverinfo.xml", NvApp.Role.STREAM), item -> { });
+            menu.show();
+            return new float[] {
+                    ((MaterialButton) menu.row(KEYBOARD)).getTextSize(),
+                    ((MaterialButton) menu.row(OVERLAY_PAGE)).getTextSize(),
+                    ((MaterialButton) menu.row(DISCONNECT)).getTextSize()};
+        } finally {
+            org.robolectric.RuntimeEnvironment.setFontScale(1f);
+        }
+    }
+
+    @Test
+    public void theMenuTextFollowsTheSystemFontScale() {
+        float[] normal = textSizes(1f);
+        float[] large = textSizes(1.3f);
+        for (int i = 0; i < normal.length; i++) {
+            assertTrue("text " + i + " is drawn", normal[i] > 0);
+            assertEquals("text " + i + " grows with the font scale", 1.3f, large[i] / normal[i], 0.02f);
+        }
+    }
+
     @Test @Config(qualifiers = "television")
     public void tvMenusKeepRemoteActionsAndLeaveOutTouchOnlyControls() {
         try (var controller = Robolectric.buildActivity(Activity.class).setup()) {

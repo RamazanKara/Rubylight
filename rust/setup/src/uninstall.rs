@@ -133,6 +133,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     let _ = std::fs::remove_file(legacy_start_menu_link());
     system::delete_key(HKEY_LOCAL_MACHINE, &format!("{UNINSTALL}\\Butterpollo"));
     remove_package(&install);
+    remove_leftover_folders(&install);
     if options.factory_reset {
         progress.set("Deleting settings and paired devices…");
         let _ = std::fs::remove_dir_all(profile().parent().unwrap_or(&profile()));
@@ -268,6 +269,29 @@ fn remove_package(install: &Path) {
         let _ = std::fs::remove_dir(folder);
     }
 }
+/// Folders earlier versions shipped that are Rubylight's alone, with whatever
+/// an update left in them: the Intel VPL (libvpl) licenses of 2.6.x.
+const LEGACY_FOLDERS: [&str; 1] = ["licenses\\libvpl"];
+/// What `remove_package` leaves of the install folder besides the user's own
+/// files: folders no longer in any manifest (an update deletes the files a new
+/// version stops shipping, not their folders, and 3.0 stopped shipping
+/// libvpl's) and empty folders of any kind. Everything stays inside `install`:
+/// a link is removed itself, never followed.
+fn remove_leftover_folders(install: &Path) {
+    for legacy in LEGACY_FOLDERS {
+        // Every step must be a real folder: a junction at `licenses` would
+        // lead the removal out of the install folder.
+        let mut folder = install.to_path_buf();
+        let real = Path::new(legacy).components().all(|part| {
+            folder.push(part);
+            std::fs::symlink_metadata(&folder).is_ok_and(|meta| meta.is_dir())
+        });
+        if real {
+            let _ = std::fs::remove_dir_all(&folder);
+        }
+    }
+    remove_empty_folders(install);
+}
 fn files_in(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for entry in std::fs::read_dir(folder)? {
@@ -334,7 +358,6 @@ mod tests {
         for name in profile_files {
             write(&root.join("config").join(name), "user profile");
         }
-        std::fs::create_dir_all(root.join("empty")).unwrap();
         remove_package(root);
         for gone in [
             "butterpollo.exe",
@@ -346,12 +369,7 @@ mod tests {
         ] {
             assert!(!root.join(gone).exists(), "{gone} remains");
         }
-        for kept in [
-            "notes.txt",
-            "assets\\mine.png",
-            "drivers\\other\\tool.sys",
-            "empty",
-        ] {
+        for kept in ["notes.txt", "assets\\mine.png", "drivers\\other\\tool.sys"] {
             assert!(root.join(kept).exists(), "{kept} was deleted");
         }
         for name in profile_files {
@@ -414,6 +432,66 @@ mod tests {
         remove_empty_folders(&kept);
         assert!(!kept.join("drivers\\display").exists());
         assert!(kept.join("drivers\\rubylight-display\\notes.txt").exists());
+    }
+    #[test]
+    fn the_install_folder_goes_with_the_folders_an_earlier_version_left() {
+        // 2.6.x shipped licenses\libvpl; an update to 3.0 deleted its files
+        // and left the folders, so the uninstaller found them behind.
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Rubylight");
+        package(&root);
+        std::fs::create_dir_all(root.join("licenses\\libvpl\\third-party\\empty")).unwrap();
+        std::fs::create_dir_all(root.join("licenses\\other\\empty")).unwrap();
+        std::fs::create_dir_all(root.join("vulkan-layer")).unwrap();
+        // A libvpl file an update could not delete is Rubylight's too.
+        write(&root.join("licenses\\libvpl\\LICENSE"), "intel");
+        write(&root.join("licenses\\libvpl\\x\\y.txt"), "intel");
+        remove_package(&root);
+        remove_leftover_folders(&root);
+        assert!(
+            !root.exists(),
+            "{:?}",
+            std::fs::read_dir(&root).map(|d| d.count())
+        );
+    }
+    #[test]
+    fn leftover_folders_keep_the_users_files_and_never_follow_a_link_out() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Rubylight");
+        package(&root);
+        write(&root.join("notes.txt"), "mine");
+        write(&root.join("licenses\\mine\\note.txt"), "mine");
+        std::fs::create_dir_all(root.join("licenses\\stale\\deeper")).unwrap();
+        // An empty tree and a file outside, reachable by a junction inside.
+        let outside = temp.path().join("outside");
+        write(&outside.join("libvpl\\keep.txt"), "not ours");
+        std::fs::create_dir_all(outside.join("empty")).unwrap();
+        let link = |at: &Path, to: &Path| {
+            let made = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(at)
+                .arg(to)
+                .output()
+                .unwrap();
+            assert!(made.status.success(), "{made:?}");
+        };
+        link(&root.join("through"), &outside);
+        remove_package(&root);
+        remove_leftover_folders(&root);
+        assert!(root.join("notes.txt").exists());
+        assert!(root.join("licenses\\mine\\note.txt").exists());
+        assert!(!root.join("licenses\\stale").exists());
+        assert!(outside.join("libvpl\\keep.txt").exists());
+        assert!(outside.join("empty").exists());
+        // A junction named licenses, standing where the legacy folder's
+        // parent is, leads nowhere either.
+        let other = temp.path().join("Other");
+        package(&other);
+        link(&other.join("licenses"), &outside);
+        remove_package(&other);
+        remove_leftover_folders(&other);
+        assert!(outside.join("libvpl\\keep.txt").exists());
+        assert!(outside.join("empty").exists());
     }
     #[test]
     fn an_installation_of_only_the_package_leaves_nothing_behind() {

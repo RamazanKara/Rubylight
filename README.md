@@ -21,7 +21,7 @@
 
 <p align="center">
   <img src="docs/assets/shots/stream-stats.png" width="410" alt="A Nightjar stream with the Statistics overlay: 1920 by 1080 AV1 HDR, 119.9 FPS displayed, 38.6 Mbps, 8 ms network round trip, host processing, decode time, and the PC's CPU and GPU load, temperature and power (demo sample data)">
-  <img src="docs/assets/shots/desktop-home.png" width="410" alt="Nightjar's Desktop client (Experimental) on Windows: the Home screen with a library of ten games as cover art, and the Living-room PC and Studio PC below">
+  <img src="docs/assets/shots/desktop-home.png" width="410" alt="Nightjar's Desktop client (Experimental) on Windows: the Home screen with a library of ten games as cover art, and the Living-room PC below">
 </p>
 
 <p align="center">

@@ -156,10 +156,10 @@ pub const MAX_HOLD: Duration = Duration::from_secs(8);
 /// 0.9, but a 60 s wait keeps a recovered link at 90 % of its old rate that
 /// long; 30 s is the middle.
 pub const KNEE_MAX_HOLD: Duration = Duration::from_secs(30);
-/// A failure with a queue standing in the path (the RTT elevated) keeps probes
-/// under the knee this long, at least, and a cut from a rate the stream
-/// climbed to goes only [`KNEE_BACKOFF_PERCENT`] of it when it has no
-/// estimate. r50-hevc-hi (50 Mbit/s, 50 ms queue, 59 Mbps asked) cut to
+/// A failed probe keeps probes under the knee this long, at least; so does a
+/// cut, but only one made with the RTT elevated (a queue standing in the
+/// path). Such a cut from a rate the stream climbed to goes only
+/// [`KNEE_BACKOFF_PERCENT`] of it when it has no estimate. r50-hevc-hi (50 Mbit/s, 50 ms queue, 59 Mbps asked) cut to
 /// 70 % from every standing queue and climbed back into the next one, a
 /// sawtooth with a freeze at each tooth.
 pub const KNEE_QUIET: Duration = Duration::from_secs(20);
@@ -431,6 +431,8 @@ pub struct LinkRate {
     rebuilt_blocks: u64,
     rebuilt_packets: u64,
     rebuilt_data_missing: u64,
+    /// The last tick saw a static picture: next to nothing was sent.
+    static_picture: bool,
     /// Running share of a rebuilt block's data packets reported missing while
     /// the RTT is flat (what reordering looks like on this path), and the
     /// excess over it seen while the RTT is up, in packets (see
@@ -490,6 +492,7 @@ impl LinkRate {
             rebuilt_blocks: 0,
             rebuilt_packets: 0,
             rebuilt_data_missing: 0,
+            static_picture: false,
             reorder_share: 0.,
             excess_credit: 0,
             last_sent: None,
@@ -800,16 +803,19 @@ impl LinkRate {
         self.budget.is_some() && self.state != State::Off
     }
 
-    /// Whether a latch is still being judged (see [`LATCH_WATCH`]).
     /// A probe step is unconfirmed, or was confirmed within the evidence
-    /// window: whatever breaks now is likely the step.
+    /// window: whatever breaks now is likely the step. Not while the picture
+    /// is static: a pending step waits for motion (its clock is held), and
+    /// requests made when next to nothing is sent are not the step's doing.
     fn probe_unconfirmed(&self, now: Instant) -> bool {
-        self.pending.iter().any(Option::is_some)
+        !self.static_picture
+            && self.pending.iter().any(Option::is_some)
             || self
                 .confirmed
                 .is_some_and(|c| now.saturating_duration_since(c.at) < EVIDENCE_WINDOW)
     }
 
+    /// Whether a latch is still being judged (see [`LATCH_WATCH`]).
     fn watching(&self, now: Instant) -> bool {
         self.latch_watch.is_some_and(|until| now < until)
     }
@@ -849,6 +855,7 @@ impl LinkRate {
             return None;
         }
         self.rtt = rtt;
+        self.static_picture = !busy;
         if self.next_eval.is_none_or(|at| now >= at) {
             self.next_eval = Some(now + EVALUATE_EVERY);
             self.observe_rtt(now, rtt);

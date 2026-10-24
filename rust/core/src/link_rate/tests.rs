@@ -1681,6 +1681,35 @@ fn a_storm_of_keyframe_requests_fails_the_probe_that_is_pending() {
     assert_eq!(change.reason, "keyframe_requests");
 }
 
+/// Review 2026-10-24: a probe step sent just before the picture went static
+/// stays pending (its clock is held), and a client reporting FEC status then
+/// had its requests counted against the step although nothing was being sent.
+#[test]
+fn keyframe_requests_while_the_picture_is_static_do_not_fail_a_pending_probe() {
+    for busy in [true, false] {
+        let mut rig = Rig::new(59_000);
+        rig.clean(2_000);
+        rig.run(10, |lr, frame, now| repaired(lr, frame, 2, now));
+        rig.lose_three();
+        rig.clean(500);
+        rig.until_probe();
+        assert!(rig.lr.pending.iter().any(Option::is_some));
+        rig.busy = busy;
+        let before = rig.changes.len();
+        let mut n = 0u32;
+        rig.run(1_500, |lr, _, now| {
+            n += 1;
+            if n.is_multiple_of(7) {
+                lr.on_keyframe_request(true, now);
+            }
+        });
+        let failed = rig.changes[before..]
+            .iter()
+            .any(|(_, c)| c.kind == ChangeKind::ProbeFailed);
+        assert_eq!(failed, busy, "busy {busy}: {:?}", rig.kinds());
+    }
+}
+
 #[test]
 fn keyframe_requests_without_a_pending_probe_or_with_fewer_than_three_are_not_a_cut() {
     // A healthy link: a client that reports FEC status asks for a few keyframes.

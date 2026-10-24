@@ -39,6 +39,7 @@ pub struct Methods {
     pub controller_haptics: JStaticMethodID,
     pub controller_audio: JStaticMethodID,
     pub host_timing: JStaticMethodID,
+    pub link_notice: JStaticMethodID,
     pub cursor_shape: JStaticMethodID,
 }
 
@@ -86,6 +87,7 @@ pub fn init(env: &mut JNIEnv) -> jni::errors::Result<()> {
         controller_haptics: id("bridgeClControllerHaptics", "(SI[B)V")?,
         controller_audio: id("bridgeClControllerAudio", "(I[B)V")?,
         host_timing: id("bridgeClHostTiming", "([B)V")?,
+        link_notice: id("bridgeClLinkNotice", "(III)V")?,
         cursor_shape: id("bridgeClCursorShape", "([B)V")?,
     };
     let bridge = Bridge {

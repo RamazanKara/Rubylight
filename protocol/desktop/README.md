@@ -122,6 +122,10 @@ Why this combination:
   present-to-send is a separate Host to network line. The statistics CSV column `host_to_network_ms`
   (named `host_ms` before) is that present-to-send, not host processing.
 
+  When the host announces link notices (0x5538) the client asks for them, and the overlay adds a
+  "Notice" line, "Host lowered the bitrate to X Mbps: network", while the host holds the
+  bitrate down for the network; it clears when the host is back at the requested rate.
+
 ### Files
 
 | File | Role |

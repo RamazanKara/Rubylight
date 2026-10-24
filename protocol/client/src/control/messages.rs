@@ -1,7 +1,9 @@
 //! Client-to-host control messages: payloads, channels and delivery, as
 //! moonlight-common-c's `ControlStream.c` and Nightjar's `android_control.c` send them.
 
-use rubylight_protocol::control::{ClockSyncRequest, DisplayCaps, HostTimingRequest, Reconfigure};
+use rubylight_protocol::control::{
+    ClockSyncRequest, DisplayCaps, HostTimingRequest, LinkNoticeRequest, Reconfigure,
+};
 use rubylight_protocol::phase_lock;
 
 use super::wire::{channel, ptype, Delivery};
@@ -80,6 +82,8 @@ pub enum ClientMessage {
     Reconfigure(Reconfigure),
     HostTimingRequest(HostTimingRequest),
     ClockSync(ClockSyncRequest),
+    /// Asks the host to say when it lowers the video bitrate for the network (0x5538).
+    LinkNoticeRequest(LinkNoticeRequest),
     /// Asks the host to send its cursor image (0x5541) and leave it out of the video, or to
     /// stop.
     CursorShapeRequest {
@@ -109,6 +113,7 @@ impl ClientMessage {
             Self::Reconfigure(_) => ptype::RECONFIGURE,
             Self::HostTimingRequest(_) => ptype::HOST_TIMING,
             Self::ClockSync(_) => ptype::CLOCK_SYNC,
+            Self::LinkNoticeRequest(_) => ptype::LINK_NOTICE,
             Self::CursorShapeRequest { .. } => ptype::CURSOR_SHAPE_REQUEST,
             Self::ControllerMicrophone(_) => ptype::CONTROLLER_MICROPHONE,
             Self::ControllerAudioStatus { .. } => ptype::CONTROLLER_AUDIO_CONTROL,
@@ -139,6 +144,7 @@ impl ClientMessage {
             Self::Reconfigure(request) => request.encode().to_vec(),
             Self::HostTimingRequest(request) => request.encode().to_vec(),
             Self::ClockSync(request) => request.encode().to_vec(),
+            Self::LinkNoticeRequest(request) => request.encode().to_vec(),
             Self::CursorShapeRequest { enabled } => {
                 let edge = CURSOR_SHAPE_MAX_EDGE.to_le_bytes();
                 vec![CURSOR_SHAPE_VERSION, u8::from(*enabled), edge[0], edge[1]]
@@ -181,6 +187,7 @@ impl ClientMessage {
             | Self::Reconfigure(_)
             | Self::HostTimingRequest(_)
             | Self::ClockSync(_)
+            | Self::LinkNoticeRequest(_)
             | Self::CursorShapeRequest { .. }
             | Self::ControllerMicrophone(_)
             | Self::ControllerAudioStatus { .. } => Some(self.message_type()),

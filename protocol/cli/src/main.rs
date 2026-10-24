@@ -30,7 +30,8 @@ use nightjar_core::video::Frame;
 use decode::Received;
 use report::{distribution, IdrProbe, Measurements};
 use rubylight_protocol::control::{
-    HostTimingRequest, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE,
+    HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkReason, LinkState, CLOCK_SYNC_MESSAGE_TYPE,
+    HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE,
 };
 
 const MAX_MEASUREMENTS: usize = 3600 * 240;
@@ -578,6 +579,10 @@ impl Listener for Events {
                 }
                 return;
             }
+            ControlEvent::LinkNotice(notice) => {
+                println!("{}", link_notice_line(&notice));
+                return;
+            }
             ControlEvent::ClockSync { reply, received } => {
                 if let Some(record) = &self.state.record {
                     lock(record)
@@ -627,6 +632,23 @@ impl Listener for Events {
             ),
         }
     }
+}
+
+/// The line printed for each link notice the host sends (0x5538), for the link-speed harness.
+fn link_notice_line(notice: &LinkNotice) -> String {
+    let state = match notice.state {
+        LinkState::Full => "full",
+        LinkState::Limited => "limited",
+        LinkState::Floor => "floor",
+    };
+    let reason = match notice.reason {
+        LinkReason::None => "none",
+        LinkReason::Network => "network",
+    };
+    format!(
+        "LINK_NOTICE {{\"state\":\"{state}\",\"reason\":\"{reason}\",\"ceiling_kbps\":{},\"current_kbps\":{}}}",
+        notice.ceiling_kbps, notice.current_kbps
+    )
 }
 
 fn usage_error(message: &str) -> ! {
@@ -937,6 +959,16 @@ fn run() -> i32 {
             enabled: true,
         }));
     }
+    // The host's notice that it lowered the bitrate for the network is printed, with or without a CSV.
+    if session
+        .outcome()
+        .host_control_messages
+        .contains(&LINK_NOTICE_MESSAGE_TYPE)
+    {
+        let _ = session.send(ClientMessage::LinkNoticeRequest(LinkNoticeRequest {
+            enabled: true,
+        }));
+    }
     let clock_sync = announced(CLOCK_SYNC_MESSAGE_TYPE);
     let mut last_clock_probe_us = 0u64;
     let started = clock::ms();
@@ -1120,4 +1152,33 @@ fn run() -> i32 {
         && (!state.options.audio_tone || audio.peak > 0.01)
         && (env("BUTTERPOLLO_TEST_REQUIRE_PICTURE").is_none() || detailed > 0);
     i32::from(!passed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_link_notice_is_one_json_line() {
+        let limited = LinkNotice {
+            state: LinkState::Limited,
+            reason: LinkReason::Network,
+            ceiling_kbps: 150_000,
+            current_kbps: 75_000,
+        };
+        assert_eq!(
+            link_notice_line(&limited),
+            "LINK_NOTICE {\"state\":\"limited\",\"reason\":\"network\",\"ceiling_kbps\":150000,\"current_kbps\":75000}"
+        );
+        let full = LinkNotice {
+            state: LinkState::Full,
+            reason: LinkReason::None,
+            ceiling_kbps: 150_000,
+            current_kbps: 150_000,
+        };
+        assert_eq!(
+            link_notice_line(&full),
+            "LINK_NOTICE {\"state\":\"full\",\"reason\":\"none\",\"ceiling_kbps\":150000,\"current_kbps\":150000}"
+        );
+    }
 }

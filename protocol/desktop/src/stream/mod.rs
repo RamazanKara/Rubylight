@@ -39,7 +39,7 @@ use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, Lau
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, Session, SessionConfig, Stage};
-use rubylight_protocol::control::{HostTimingRequest, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
+use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::present_clock::ClockOffset;
 use sdl3_sys::everything::*;
 
@@ -97,6 +97,8 @@ pub struct Facts {
     pub bitrate_kbps: i32,
     pub format: u32,
     pub host_timing: bool,
+    /// The host says when it lowers the video bitrate because of the network (0x5538).
+    pub link_notice: bool,
     pub clock_sync: bool,
     pub display_caps: bool,
     pub cursor_shapes: bool,
@@ -419,6 +421,14 @@ fn early_line(now: (u64, u64), last: (u64, u64), secs: f64) -> String {
         &[&format!("{:.0}", now.0.saturating_sub(last.0) as f64 / secs), &now.1.saturating_sub(last.1), &now.1])
 }
 
+/// The overlay's line while the host holds the bitrate down for the network: whole Mbps from 10,
+/// one decimal below, as Nightjar Android says it.
+fn link_notice_line(notice: &LinkNotice) -> String {
+    let mbps = f64::from(notice.current_kbps) / 1000.0;
+    let mbps = if mbps >= 10.0 { format!("{mbps:.0}") } else { format!("{mbps:.1}") };
+    trf("Host lowered the bitrate to {} Mbps: network", &[&mbps])
+}
+
 /// The line logged when any session ends: what the decoder was given, and the frames lost
 /// before the picture (over the decoder queue, or replaced by a newer one before they were due).
 fn video_summary(submitted: u64, queue_overflows: u64, replaced: u64) -> String {
@@ -707,6 +717,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         bitrate_kbps: outcome.config.bitrate_kbps,
         format: outcome.negotiated_video_format,
         host_timing: outcome.host_control_messages.contains(&HOST_TIMING_MESSAGE_TYPE),
+        link_notice: outcome.host_control_messages.contains(&LINK_NOTICE_MESSAGE_TYPE),
         clock_sync: outcome.host_control_messages.contains(&CLOCK_SYNC_MESSAGE_TYPE),
         display_caps: outcome.host_control_messages.contains(&rubylight_protocol::control::DISPLAY_CAPS_MESSAGE_TYPE),
         cursor_shapes: plan.info.capabilities.has(Feature::CursorShape) && outcome.host_control_messages.contains(&0x5540),
@@ -856,6 +867,8 @@ pub struct Streaming {
     phase: phase::Phase,
     pub overlay_visible: bool,
     pub overlay: Overlay,
+    /// What the host last said about holding the bitrate down for the network; `None` while it has not.
+    link_notice: Option<LinkNotice>,
     pub exit: Option<Exit>,
     pub toast: Option<(String, Instant)>,
     pub host_id: u64,
@@ -934,6 +947,9 @@ impl Streaming {
         if facts.host_timing {
             let _ = session.send(ClientMessage::HostTimingRequest(HostTimingRequest { enabled: true }));
         }
+        if facts.link_notice {
+            let _ = session.send(ClientMessage::LinkNoticeRequest(LinkNoticeRequest { enabled: true }));
+        }
         let settings = connecting.settings.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
@@ -966,6 +982,7 @@ impl Streaming {
             phase: phase::Phase::default(),
             overlay_visible: settings.overlay,
             overlay: Overlay::default(),
+            link_notice: None,
             exit: None,
             toast: None,
             host_id: connecting.host_id,
@@ -1378,6 +1395,9 @@ impl Streaming {
                         self.timings.pop_front();
                     }
                 }
+            }
+            ControlEvent::LinkNotice(notice) => {
+                self.link_notice = (notice.state != LinkState::Full).then_some(notice);
             }
             ControlEvent::ClockSync { reply, received } => {
                 let receive_us = session::now_us().saturating_sub(received.elapsed().as_micros() as u64);
@@ -1913,6 +1933,9 @@ impl Streaming {
         lines.push(("Audio".into(), audio));
         lines.push(("Bitrate".into(), format!("{:.1} Mbps{}", f64::from(self.facts.bitrate_kbps) / 1000.0,
             if self.adaptive_bitrate { ", automatic" } else { "" })));
+        if let Some(notice) = &self.link_notice {
+            lines.push(("Notice".into(), link_notice_line(notice)));
+        }
         self.overlay = Overlay { lines };
         let timing = std::mem::take(&mut *lock(&self.shared.decode_window));
         let recent = decoded > 0 && self.last_arrival.is_some_and(|(_, at)| session::now_us().saturating_sub(at) < 500_000);
@@ -2406,6 +2429,21 @@ mod tests {
         let b = c.host_us(600);
         // 1500 ticks of 90 kHz across the wrap, give or take the rounding.
         assert!((b - a - 16_667).abs() <= 1, "{}", b - a);
+    }
+
+    #[test]
+    fn the_link_notice_line_says_the_lowered_bitrate() {
+        use rubylight_protocol::control::LinkReason;
+        let notice = |current_kbps| LinkNotice {
+            state: LinkState::Limited,
+            reason: LinkReason::Network,
+            ceiling_kbps: 150_000,
+            current_kbps,
+        };
+        assert_eq!(link_notice_line(&notice(37_500)), "Host lowered the bitrate to 38 Mbps: network");
+        assert_eq!(link_notice_line(&notice(9_900)), "Host lowered the bitrate to 9.9 Mbps: network");
+        crate::strings::set(crate::strings::Lang::De);
+        assert_eq!(link_notice_line(&notice(4_500)), "Host hat die Bitrate auf 4.5 Mbit/s gesenkt: Netzwerk");
     }
 
     #[test]

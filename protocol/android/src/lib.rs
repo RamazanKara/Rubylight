@@ -26,7 +26,7 @@ use jni::JNIEnv;
 use nightjar_core::control::ClientMessage;
 use nightjar_core::input::InputQueue;
 use nightjar_core::session::{HostInfo, SessionConfig};
-use rubylight_protocol::control::{HostTimingRequest, Reconfigure};
+use rubylight_protocol::control::{HostTimingRequest, LinkNoticeRequest, Reconfigure};
 
 use crate::extras::input_result;
 
@@ -569,6 +569,19 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendHostTiming
 ) -> jboolean {
     jbool(engine::send(ClientMessage::HostTimingRequest(
         HostTimingRequest {
+            enabled: enabled == JNI_TRUE,
+        },
+    )))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendLinkNoticeRequest(
+    _: JNIEnv,
+    _: JClass,
+    enabled: jboolean,
+) -> jboolean {
+    jbool(engine::send(ClientMessage::LinkNoticeRequest(
+        LinkNoticeRequest {
             enabled: enabled == JNI_TRUE,
         },
     )))

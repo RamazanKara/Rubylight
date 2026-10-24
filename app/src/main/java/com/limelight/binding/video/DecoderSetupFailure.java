@@ -12,7 +12,7 @@ import com.limelight.R;
  */
 public final class DecoderSetupFailure {
     enum Kind {
-        /** The device has no decoder for the negotiated codec (or the size needs HEVC). */
+        /** The device has no decoder for the negotiated codec. (H.264 above 4K is refused without a record, so the host text shows.) */
         NO_DECODER,
         /** A decoder exists but rejected every format it was offered. */
         REJECTED,

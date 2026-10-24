@@ -5769,11 +5769,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     // A decoder that rejected the stream is this device's failure, not the host's, and
                     // no port or host advice applies to it.
                     DecoderSetupFailure decoderFailure = decoderRenderer == null ? null : decoderRenderer.getSetupFailure();
-                    boolean decoderFailed = decoderFailure != null && stage.contains("video");
-                    String dialogText = decoderFailed ? decoderFailure.message(Game.this) :
-                            connectionErrorMessage != null ? connectionErrorMessage :
-                            getString(errorCode == 0 ? R.string.startup_connection_failed :
-                                    R.string.startup_host_error, errorCode);
+                    boolean decoderFailed = isDecoderStageFailure(decoderFailure, stage);
+                    String dialogText = startupFailureText(Game.this, decoderFailure, stage, connectionErrorMessage, errorCode);
 
                     if (portFlags != 0 && !decoderFailed) {
                         dialogText += "\n\n" + getResources().getString(R.string.check_ports_msg) + "\n" +
@@ -5793,6 +5790,24 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
             }
         });
+    }
+
+    /** A recorded decoder setup failure at a video stage: this device's failure, not the host's. */
+    public static boolean isDecoderStageFailure(DecoderSetupFailure decoderFailure, String stage) {
+        return decoderFailure != null && stage.contains("video");
+    }
+
+    /** The stream dialog's text for a failed stage: the decoder's reason, else the connection error, else the host's. */
+    public static String startupFailureText(Context context, DecoderSetupFailure decoderFailure, String stage,
+                                            String connectionErrorMessage, int errorCode) {
+        if (isDecoderStageFailure(decoderFailure, stage)) {
+            return decoderFailure.message(context);
+        }
+        if (connectionErrorMessage != null) {
+            return connectionErrorMessage;
+        }
+        return context.getString(errorCode == 0 ? R.string.startup_connection_failed :
+                R.string.startup_host_error, errorCode);
     }
 
     static String terminationDescription(int errorCode) {

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
 
+import com.limelight.Game;
 import com.limelight.R;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
@@ -76,10 +77,34 @@ public class DecoderSetupFailureTest {
                 assertEquals(1440, failure.height);
                 String message = failure.message(activity.get());
                 assertTrue(message, message.contains("HEVC"));
+                // A setup that fails without a record (an unknown format) clears the old one.
+                assertNotEquals(0, renderer.setup(0, 2560, 1440, 60));
+                assertNull(renderer.getSetupFailure());
             } finally {
                 renderer.stop();
                 renderer.cleanup();
             }
         }
+    }
+
+    @Test
+    public void theDialogBlamesTheDecoderOnlyForARecordedFailureAtAVideoStage() {
+        Context context = Robolectric.buildActivity(Activity.class).get();
+        DecoderSetupFailure failure = new DecoderSetupFailure(DecoderSetupFailure.Kind.REJECTED,
+                "c2.test.decoder", "video/hevc", 1920, 1080, 60, new IllegalStateException("configure failed"));
+        String host = context.getString(R.string.startup_host_error, -5);
+
+        String decoderText = Game.startupFailureText(context, failure, "video stream", null, -5);
+        assertEquals(failure.message(context), decoderText);
+        assertFalse(decoderText, decoderText.contains(host));
+        assertTrue(Game.isDecoderStageFailure(failure, "video stream"));
+
+        assertEquals("no recorded failure: the host text", host, Game.startupFailureText(context, null, "video stream", null, -5));
+        assertFalse(Game.isDecoderStageFailure(null, "video stream"));
+        assertEquals("a recorded failure at an audio stage is not the decoder's", host,
+                Game.startupFailureText(context, failure, "audio stream", null, -5));
+        assertFalse(Game.isDecoderStageFailure(failure, "audio stream"));
+        assertEquals("a connection error still wins over the host text", "refused",
+                Game.startupFailureText(context, null, "control stream", "refused", -5));
     }
 }

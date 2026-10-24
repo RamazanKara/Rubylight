@@ -272,13 +272,25 @@ public class HostCapabilitiesTest {
 
     @Test
     public void pyroWaveRecordsKeepTheNativeVersionRule() {
-        for (String version : new String[] {"2.0.0-rc.1", "2.0.0-rc.25", "2.0.0", "2.1.0", "3.0.0", "2.0.0-rc.2+build.7"}) {
+        for (String version : new String[] {"2.0.0-rc.1", "2.0.0-rc.25", "2.0.0", "2.1.0", "3.0.0", "2.0.0-rc.2+build.7",
+                "3.0.0-alpha.1", "3.0.0-beta.1", "3.0.0-beta.12+abc.1"}) {
             assertEquals(version, HostCapabilities.NATIVE_PYROWAVE_RECORDS, rubylightWithPyroWave(version).nativeFeatures());
         }
-        for (String version : new String[] {"1.9.9", "2.0.0-rc.0", "2.0.0-beta.9", "test", "2.0", "2.0.0-rc.1junk",
+        for (String version : new String[] {"1.9.9", "2.0.0-rc.0", "3.0.0-beta.0", "3.0.0-beta", "3.0.0-gamma.1", "test", "2.0", "2.0.0-rc.1junk",
                 "2.0.0-rc.01", "2.0.0+", "02.0.0", "999999999.0.0"}) {
             assertEquals(version, 0, rubylightWithPyroWave(version).nativeFeatures());
             assertTrue(rubylightWithPyroWave(version).has(PYROWAVE));
+        }
+    }
+
+    @Test
+    public void preReleasesRankAlphaBelowBetaBelowRcBelowTheRelease() {
+        String[] ascending = {"3.0.0-alpha.1", "3.0.0-alpha.9", "3.0.0-beta.1", "3.0.0-beta.12", "3.0.0-rc.1", "3.0.0-rc.30", "3.0.0"};
+        for (int i = 0; i + 1 < ascending.length; i++) {
+            assertTrue(ascending[i], !HostCapabilities.versionAtLeast(
+                    HostCapabilities.parseRubylightVersion(ascending[i]), HostCapabilities.parseRubylightVersion(ascending[i + 1])));
+            assertTrue(ascending[i + 1], HostCapabilities.versionAtLeast(
+                    HostCapabilities.parseRubylightVersion(ascending[i + 1]), HostCapabilities.parseRubylightVersion(ascending[i])));
         }
     }
 
@@ -290,10 +302,10 @@ public class HostCapabilitiesTest {
     @Test
     public void displayModesNeedRubylight221AndAWorkingVirtualDisplay() {
         String fields = "<VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";
-        for (String version : new String[] {"2.2.0", "2.2.1-rc.3", "2.0.0-rc.19", "1.0", "test"}) {
+        for (String version : new String[] {"2.2.0", "2.2.1-rc.3", "2.2.1-beta.3", "2.0.0-rc.19", "1.0", "test"}) {
             assertReason(caps("<RustHostVersion>" + version + "</RustHostVersion>" + fields), HOST_DISPLAY_MODES, Reason.UPDATE_HOST);
         }
-        for (String version : new String[] {"2.2.1", "2.2.21", "2.10.0", "3.0.0-rc.1"}) {
+        for (String version : new String[] {"2.2.1", "2.2.21", "2.10.0", "3.0.0-rc.1", "3.0.0-alpha.1", "3.0.0-beta.1"}) {
             assertTrue(version, caps("<RustHostVersion>" + version + "</RustHostVersion>" + fields).has(HOST_DISPLAY_MODES));
         }
         HostCapabilities off = caps("<RustHostVersion>2.2.21</RustHostVersion><VirtualDisplayCapable>false</VirtualDisplayCapable>");

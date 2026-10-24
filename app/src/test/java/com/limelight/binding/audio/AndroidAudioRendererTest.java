@@ -404,6 +404,7 @@ public class AndroidAudioRendererTest {
         assertEquals(0, renderer.setup(STEREO, 48000, 240));
         assertTrue(audioReport(), audioReport().contains("perfMode=none"));
         assertTrue(audioReport(), audioReport().contains("outputBurst=192"));
+        assertTrue(audioReport(), audioReport().contains("minBufferFrames=" + minFrames));
         assertTrue(audioReport(), audioReport().contains("floorFrames=" + Math.max(480, minFrames)));
         renderer.cleanup();
 

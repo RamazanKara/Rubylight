@@ -38,16 +38,13 @@ final class AudioBufferPolicy {
 
     /**
      * Smallest buffer, in frames, the path an AudioTrack really got can run without underrunning.
-     * A fast (low latency) track needs a couple of packets or output bursts. A track on the normal
+     * A fast (low latency) track keeps the two-packet floor it always had. A track on the normal
      * mixer needs the framework's own minimum, which the platform sizes to the mixer period.
      */
     static int trackFloorFrames(int sdk, int perfMode, boolean lowLatencyRequested, int packetFrames,
-                                int outputFramesPerBuffer, int minBufferFrames) {
+                                int minBufferFrames) {
         int floor = packetFrames * 2;
-        if (trackIsFast(sdk, perfMode, lowLatencyRequested)) {
-            return Math.max(floor, outputFramesPerBuffer > 0 ? outputFramesPerBuffer * 2 : 0);
-        }
-        return Math.max(floor, minBufferFrames);
+        return trackIsFast(sdk, perfMode, lowLatencyRequested) ? floor : Math.max(floor, minBufferFrames);
     }
 
     // Before Android 8.0 the granted mode cannot be read; a low latency request is taken as granted.
@@ -60,9 +57,14 @@ final class AudioBufferPolicy {
         return fast ? packetFrames : Math.max(packetFrames, outputFramesPerBuffer);
     }
 
-    /** Capacity to request: 8 packets as before, or the framework minimum plus 4 packets, in whole packets. */
-    static int trackCapacityFrames(int packetFrames, int minBufferFrames) {
-        int wanted = Math.max(packetFrames * 8, minBufferFrames + packetFrames * 4);
+    /**
+     * Capacity to request before the granted path is known: 8 packets as before, or enough for the
+     * normal-mixer floor plus its growth steps, in whole packets.
+     */
+    static int trackCapacityFrames(int packetFrames, int minBufferFrames, int outputFramesPerBuffer) {
+        int floor = Math.max(packetFrames * 2, minBufferFrames);
+        int step = trackStepFrames(false, packetFrames, outputFramesPerBuffer);
+        int wanted = Math.max(packetFrames * 8, floor + HEADROOM_STEPS * step);
         return (wanted + packetFrames - 1) / packetFrames * packetFrames;
     }
 

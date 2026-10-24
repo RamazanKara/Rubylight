@@ -56,7 +56,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private boolean routeResolved;
     private int routeRetries;
     // What the AudioTrack really got, for the problem report: granted mode, output burst, smallest buffer we allow.
-    private int trackPerfMode = -1, outputBurst, floorFrames;
+    private int trackPerfMode = -1, outputBurst, floorFrames, trackMinBufferFrames;
 
     private static native long nativeOpenAudio(int sampleRate);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
@@ -236,20 +236,21 @@ public class AndroidAudioRenderer implements AudioRenderer {
             try {
                 int minBufferFrames = Math.max(0, AudioTrack.getMinBufferSize(sampleRate, channelConfig,
                         AudioFormat.ENCODING_PCM_16BIT)) / (channels * 2);
-                int capacityBytes = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ?
-                        Math.max(bufferSize, AudioBufferPolicy.trackCapacityFrames(samplesPerFrame, minBufferFrames) *
-                                channels * 2) : bufferSize;
-                track = createAudioTrack(channelConfig, sampleRate, capacityBytes, lowLatency);
                 trackPerfMode = -1;
-                outputBurst = 0;
+                trackMinBufferFrames = minBufferFrames;
+                outputBurst = outputFramesPerBuffer();
                 floorFrames = 0;
+                // The granted path is unknown until the track exists, so size for the normal mixer.
+                int capacityBytes = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ?
+                        Math.max(bufferSize, AudioBufferPolicy.trackCapacityFrames(samplesPerFrame, minBufferFrames,
+                                outputBurst) * channels * 2) : bufferSize;
+                track = createAudioTrack(channelConfig, sampleRate, capacityBytes, lowLatency);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     // The framework may refuse the fast path. Such a track runs on the normal mixer, whose
                     // period is far above two packets, so the buffer must not go below its own minimum.
                     trackPerfMode = trackPerformanceMode();
-                    outputBurst = outputFramesPerBuffer();
                     floorFrames = AudioBufferPolicy.trackFloorFrames(Build.VERSION.SDK_INT, trackPerfMode, lowLatency,
-                            samplesPerFrame, outputBurst, minBufferFrames);
+                            samplesPerFrame, minBufferFrames);
                     boolean fast = AudioBufferPolicy.trackIsFast(Build.VERSION.SDK_INT, trackPerfMode, lowLatency);
                     int actual = track.setBufferSizeInFrames(Math.max(bufferSize / (channels * 2), floorFrames));
                     bufferPolicy = AudioBufferPolicy.forTrack(
@@ -386,7 +387,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
     private String pathDetails() {
         return ", perfMode=" + AudioBufferPolicy.perfModeName(trackPerfMode) + ", outputBurst=" + outputBurst +
-                ", floorFrames=" + floorFrames;
+                ", minBufferFrames=" + trackMinBufferFrames + ", floorFrames=" + floorFrames;
     }
 
     int nativeOutputRate() {

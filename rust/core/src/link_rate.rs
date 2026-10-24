@@ -106,6 +106,13 @@ pub const KEYFRAME_REQUESTS: usize = 3;
 /// link that carries half the rate; a cut never goes below a quarter of what
 /// was sent.
 const MAX_LOSS_SHARE: f64 = 0.75;
+/// Rebuilt blocks the running share of reordered data packets averages over.
+const REORDER_BLOCKS: f64 = 64.;
+
+/// How far below the baseline the excess of rebuilt data loss may sink, in
+/// packets, so that a run of clean blocks pays for the next noisy ones.
+const EXCESS_CREDIT_CAP: i64 = 64;
+
 /// A cut aims at this share of the delivered rate, FEC included.
 pub const DELIVERED_PERCENT: u64 = 85;
 /// One cut lowers the target by at least 15 % ...
@@ -424,6 +431,12 @@ pub struct LinkRate {
     rebuilt_blocks: u64,
     rebuilt_packets: u64,
     rebuilt_data_missing: u64,
+    /// Running share of a rebuilt block's data packets reported missing while
+    /// the RTT is flat (what reordering looks like on this path), and the
+    /// excess over it seen while the RTT is up, in packets (see
+    /// [`Self::on_status`]).
+    reorder_share: f64,
+    excess_credit: i64,
     last_sent: Option<u32>,
     ring: Box<[Sent]>,
     events: Events,
@@ -477,6 +490,8 @@ impl LinkRate {
             rebuilt_blocks: 0,
             rebuilt_packets: 0,
             rebuilt_data_missing: 0,
+            reorder_share: 0.,
+            excess_credit: 0,
             last_sent: None,
             ring: Box::default(),
             events: Events::default(),
@@ -623,12 +638,34 @@ impl LinkRate {
             self.rebuilt_blocks += 1;
             self.rebuilt_packets += u64::from(total);
             self.rebuilt_data_missing += u64::from(data_missing);
-            if data_missing > 0 && self.rtt_elevated() {
+            let data = u64::from(status.data.max(1));
+            let elevated = self.rtt_elevated();
+            if !elevated {
+                // What this path reorders, learned while nothing queues.
+                self.reorder_share +=
+                    (f64::from(data_missing) / data as f64 - self.reorder_share) / REORDER_BLOCKS;
+                self.excess_credit = 0;
+            }
+            // Reordering does not stop when the RTT rises for a moment (a roam,
+            // a competing flow): only the packets over what the flat RTT
+            // already showed are a queue. The excess is a running sum that
+            // noise around the baseline cancels, so one short excursion adds
+            // nothing and a standing queue's extra loss adds up.
+            let excess = if elevated {
+                let expected = (self.reorder_share * data as f64).round() as i64;
+                let credit = (self.excess_credit + i64::from(data_missing) - expected)
+                    .max(-EXCESS_CREDIT_CAP);
+                let counted = credit.max(0) - self.excess_credit.max(0);
+                self.excess_credit = credit;
+                u64::try_from(counted).unwrap_or(0)
+            } else {
+                0
+            };
+            if excess > 0 {
                 // The parity still in flight cannot be told from lost, so the
                 // share is taken from the data packets and scaled up to all of
                 // them: 5 % of the data lost is 6 % of the block.
-                let missing = (u64::from(data_missing) * u64::from(total))
-                    .div_ceil(u64::from(status.data.max(1)));
+                let missing = (excess * u64::from(total)).div_ceil(data);
                 self.events.missing += missing;
                 self.events.lost(status.frame);
                 self.ring[status.frame as usize % RING].missing +=

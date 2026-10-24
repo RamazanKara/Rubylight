@@ -355,64 +355,80 @@ fn an_encoder_at_one_and_a_fifth_of_the_link_cuts_within_two_seconds_and_settles
 ///
 /// Modelled here as it is: a random arrival order per block, 0.5 % of packets
 /// lost, a report at the 32nd arrival unless all 32 data packets came first.
+/// One block of the `wifi` arm as the client reports it (see the test below):
+/// data 32 + parity 7 in a random arrival order, `loss_permille` of the packets
+/// lost, a report at the 32nd arrival unless all 32 data packets came first.
+/// `queued` more data packets than that were still behind a queue when parity
+/// made up for them. Returns whether the block was reported.
+fn wifi_block(
+    seed: &mut u64,
+    lr: &mut LinkRate,
+    frame: u32,
+    loss_permille: u64,
+    queued: u16,
+    now: Instant,
+) -> bool {
+    let mut random = || {
+        *seed ^= *seed << 13;
+        *seed ^= *seed >> 7;
+        *seed ^= *seed << 17;
+        *seed
+    };
+    let mut order: Vec<u16> = (0..39).collect();
+    for i in (1..order.len()).rev() {
+        order.swap(i, (random() % (i as u64 + 1)) as usize);
+    }
+    let (mut data, mut parity) = (0u16, 0u16);
+    let mut report = None;
+    for index in order {
+        if random() % 1000 < loss_permille {
+            continue;
+        }
+        if index < 32 {
+            data += 1;
+        } else {
+            parity += 1;
+        }
+        if data + parity == 32 {
+            report = Some((data, parity));
+            break;
+        }
+    }
+    let (data, parity) = report.unwrap_or((data, parity));
+    // A block whose data all came first needs no report.
+    if data == 32 {
+        return false;
+    }
+    let (data, parity) = (data.saturating_sub(queued), (parity + queued).min(7));
+    lr.on_status(
+        &Status {
+            frame,
+            highest_received: 38,
+            next_contiguous: 0,
+            missing_before_highest: 39 - data - parity,
+            data: 32,
+            parity: 7,
+            received_data: data,
+            received_parity: parity,
+            percentage: 20,
+            block: 0,
+            blocks: 1,
+        },
+        now,
+    );
+    true
+}
+
 #[test]
 fn the_wifi_arm_with_reordering_and_random_loss_never_cuts() {
     let mut rig = Rig::new(14_988);
     // Far more than the 3 +/- 2 ms each way of the arm.
     rig.rtt_jitter_ms = 8;
     let mut seed = 0x9e37_79b9_7f4a_7c15u64;
-    let mut random = move || {
-        seed ^= seed << 13;
-        seed ^= seed >> 7;
-        seed ^= seed << 17;
-        seed
-    };
     let (mut blocks, mut rebuilt) = (0u32, 0u32);
     rig.run(45_000, |lr, frame, now| {
-        // Data 32 + parity 7, indices 0..32 are data.
-        let mut order: Vec<u16> = (0..39).collect();
-        for i in (1..order.len()).rev() {
-            order.swap(i, (random() % (i as u64 + 1)) as usize);
-        }
-        let (mut data, mut parity) = (0u16, 0u16);
-        let mut report = None;
-        for index in order {
-            if random() % 1000 < 5 {
-                continue;
-            }
-            if index < 32 {
-                data += 1;
-            } else {
-                parity += 1;
-            }
-            if data + parity == 32 {
-                report = Some((data, parity));
-                break;
-            }
-        }
         blocks += 1;
-        let (data, parity) = report.unwrap_or((data, parity));
-        // A block whose data all came first needs no report.
-        if data == 32 {
-            return;
-        }
-        rebuilt += 1;
-        lr.on_status(
-            &Status {
-                frame,
-                highest_received: 38,
-                next_contiguous: 0,
-                missing_before_highest: 39 - data - parity,
-                data: 32,
-                parity: 7,
-                received_data: data,
-                received_parity: parity,
-                percentage: 20,
-                block: 0,
-                blocks: 1,
-            },
-            now,
-        );
+        rebuilt += u32::from(wifi_block(&mut seed, lr, frame, 5, 0, now));
     });
     assert!(rig.changes.is_empty(), "{:?}", rig.changes);
     assert_eq!(rig.kbps, 14_988);
@@ -424,6 +440,43 @@ fn the_wifi_arm_with_reordering_and_random_loss_never_cuts() {
         .as_f64()
         .unwrap();
     assert!(share > 5., "{share}");
+}
+
+/// The review of 2026-10-24: the same arm with the RTT up from 20 to 60 ms for
+/// 1.5 s at 20 s (a Wi-Fi roam, a competing flow) gave a cut 14,988 -> 8,705
+/// and a rate still 14,027 kbps 21 s later: while the RTT is up the reordering
+/// share counted as loss. Only what the flat RTT did not already show is a
+/// queue; a real one, with loss on top, still cuts.
+#[test]
+fn a_short_rtt_excursion_on_the_wifi_arm_is_no_cut_but_a_real_queue_is() {
+    // Data packets behind a queue on top of the arm's, per block, while the
+    // RTT is up.
+    for extra in [0u16, 3] {
+        let mut rig = Rig::new(14_988);
+        rig.rtt_jitter_ms = 8;
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        rig.run(20_000, |lr, frame, now| {
+            wifi_block(&mut seed, lr, frame, 5, 0, now);
+        });
+        assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+        rig.rtt = Duration::from_millis(60);
+        rig.run(1_500, |lr, frame, now| {
+            wifi_block(&mut seed, lr, frame, 5, extra, now);
+        });
+        rig.rtt = Duration::from_millis(20);
+        rig.run(20_000, |lr, frame, now| {
+            wifi_block(&mut seed, lr, frame, 5, 0, now);
+        });
+        assert_eq!(
+            rig.cuts() > 0,
+            extra > 0,
+            "extra {extra}: {:?}",
+            rig.changes
+        );
+        if extra == 0 {
+            assert_eq!(rig.kbps, 14_988);
+        }
+    }
 }
 
 #[test]

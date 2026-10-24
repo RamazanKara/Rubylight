@@ -278,22 +278,12 @@ pub async fn maintain(
             });
         }
         if Instant::now() >= update_at {
-            let interval = h
-                .config
-                .read()
-                .unwrap()
-                .integer("update_check_interval", 86400);
-            // Not during a stream, as in Vibepollo; try again in a minute.
-            let streaming = crate::updater::busy(&h);
-            if interval > 0 && !streaming {
+            update_at = Instant::now() + Duration::from_secs(1);
+            // Due by the wall clock since the last check, so a PC that slept
+            // checks as soon as it wakes and a new interval applies at once.
+            if crate::updater::check_due(&h) {
                 maintenance::trigger_update(&h, false);
             }
-            update_at = Instant::now()
-                + Duration::from_secs(if interval > 0 && !streaming {
-                    interval.max(3600) as u64
-                } else {
-                    60
-                });
         }
         crate::updater::poll(&h);
         start_deferred(&h);

@@ -113,6 +113,7 @@ pub fn trigger_update(h: &Shared, tell: bool) {
                 state["releases"] = json!(releases);
                 state["check_error"] = Value::Null;
                 drop(state);
+                tracing::info!(current, latest = ?latest, "release check succeeded");
                 if tell && latest.is_none() {
                     butterpollo_windows::tray::notify(
                         "Rubylight is up to date",
@@ -130,8 +131,10 @@ pub fn trigger_update(h: &Shared, tell: bool) {
                 }
             }
             Err(error) => {
-                state["check_error"] = json!(error.to_string());
-                tracing::warn!(%error,"release check failed");
+                // The chain names the cause (DNS, timeout, TLS); the top
+                // message alone is "error sending request".
+                state["check_error"] = json!(format!("{error:#}"));
+                tracing::warn!(error = %format!("{error:#}"), "release check failed");
                 if tell {
                     butterpollo_windows::tray::notify(
                         "Update check failed",

@@ -7,7 +7,7 @@
   import LoadState from '../LoadState.svelte';
   import { api, type UpdatesState } from '../../lib/api';
   import { confirm, failed } from '../../lib/feedback.svelte';
-  import { ago } from '../../lib/format';
+  import { ago, when } from '../../lib/format';
   import { link } from '../../lib/router.svelte';
   import { refreshMetadata, session } from '../../lib/session.svelte';
   import { localTime, reason } from './util';
@@ -90,11 +90,14 @@
             {#if latest.published_at}<span class="muted"> · {localTime(latest.published_at)}</span>{/if}
           {:else}<span class="muted">{updates.checked_at ? 'No releases found for your update settings' : 'Not checked yet'}</span>{/if}
         </dd>
-        <dt>Last checked</dt><dd>{updates.checked_at ? ago(updates.checked_at) : 'Never'}</dd>
+        <dt>Last checked</dt><dd>{updates.checked_at ? `${ago(updates.checked_at)}${updates.check_failed ? ' (failed)' : ''}` : 'Never'}</dd>
+        {#if updates.next_check_at != null}
+          <dt>Next check</dt><dd>{updates.next_check_at * 1000 <= Date.now() ? 'Shortly' : when(updates.next_check_at)}</dd>
+        {/if}
         <dt>Automatic installation</dt><dd>{!updates.install_supported ? 'Unavailable — requires the Windows service' : updates.update_check_interval <= 0 ? 'Off — automatic update checks are disabled' : updates.auto_update ? 'On — installs when idle' : 'Off — notify me first'}</dd>
       </dl>
       {#if !updates.install_supported}<p class="notice">In-app installation requires the installed Windows service. Use the release page for portable builds.</p>{/if}
-      {#if updates.check_failed}<p class="notice warn" role="alert">The last check failed. {updates.check_error || 'Check that this PC can reach GitHub.'}</p>{/if}
+      {#if updates.check_failed}<p class="notice warn" role="alert">The last check failed. {updates.check_error || 'Check that this PC can reach GitHub.'}{updates.next_check_at != null ? ' Rubylight tries again automatically.' : ''}</p>{/if}
       {#if loadError}<p class="notice warn" role="alert">Could not refresh update status: {loadError}</p>{/if}
       {#if (updates.phase === 'waiting' || updates.phase === 'ready') && updates.now}
         <p class="notice" role="status">Installing {updates.queued_version} now…</p>

@@ -533,6 +533,8 @@ export interface UpdatesState {
   check_failed: boolean;
   check_error?: string | null;
   checked_at: number;
+  /** Unix seconds of the next automatic check; null when automatic checks are off. */
+  next_check_at?: number | null;
   releases: Release[];
   update_available?: boolean;
   latest_version?: string | null;

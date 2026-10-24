@@ -145,10 +145,65 @@ pub fn status(h: &Shared) -> Value {
             .unwrap()
             .integer("update_check_interval", 86400)
     );
+    // Null when automatic checks are off.
+    state["next_check_at"] = json!(next_check(h));
     state["last_install"] =
         butterpollo_core::state::load_json(&h.directory.join("update-result.json"), json!(null))
             .unwrap_or(Value::Null);
     state
+}
+
+/// The floor for the update check interval, as the console enforces it.
+const MIN_CHECK_INTERVAL: i64 = 3600;
+/// After a failed check (typically the network is not back yet after the PC
+/// woke from sleep) try again soon, not after a whole interval.
+const RETRY_AFTER_FAILURE: u64 = 120;
+
+/// When the next automatic check is due, as Unix seconds of the wall clock,
+/// so sleep counts as elapsed time and a changed interval applies at once.
+/// `None` when automatic checks are off; 0 when one is due right away.
+pub fn next_check_at(interval: i64, checked_at: u64, failed: bool, now: u64) -> Option<u64> {
+    if interval <= 0 {
+        return None;
+    }
+    // Never checked, or the clock was set back past the last check.
+    if checked_at == 0 || checked_at > now {
+        return Some(0);
+    }
+    let wait = if failed {
+        RETRY_AFTER_FAILURE
+    } else {
+        interval.max(MIN_CHECK_INTERVAL) as u64
+    };
+    Some(checked_at + wait)
+}
+
+fn next_check(h: &Shared) -> Option<u64> {
+    let interval = h
+        .config
+        .read()
+        .unwrap()
+        .integer("update_check_interval", 86400);
+    let state = h.updates.lock().unwrap();
+    next_check_at(
+        interval,
+        state["checked_at"].as_u64().unwrap_or(0),
+        state["check_failed"] == true,
+        now(),
+    )
+}
+
+/// Whether the maintenance loop should look for a release now. A stream
+/// defers it (the loop asks again in a second); a game left running with no
+/// client connected does not.
+pub fn check_due(h: &Shared) -> bool {
+    if h.updates.lock().unwrap()["checking"] == true {
+        return false;
+    }
+    let sessions = h.sessions.lock().unwrap();
+    let streaming = !sessions.active.is_empty() || !sessions.pending.is_empty();
+    drop(sessions);
+    !streaming && next_check(h).is_some_and(|at| now() >= at)
 }
 
 pub fn installing(h: &Shared) -> bool {
@@ -694,6 +749,79 @@ mod tests {
             .insert("update_check_interval".into(), "0".into());
         assert_eq!(status(h)["update_check_interval"], 0);
         assert!(queue(h, false, false).is_err());
+    }
+    fn set_interval(h: &Shared, seconds: &str) {
+        h.config
+            .write()
+            .unwrap()
+            .values
+            .insert("update_check_interval".into(), seconds.into());
+    }
+    #[test]
+    fn the_schedule_follows_the_wall_clock_and_the_current_interval() {
+        let day = 86400;
+        let t = 1_000_000_000;
+        // Off, or never checked.
+        assert_eq!(next_check_at(0, t, false, t), None);
+        assert_eq!(next_check_at(-1, t, false, t), None);
+        assert_eq!(next_check_at(day, 0, false, t), Some(0));
+        // Not due until a whole interval after the last check; the console's
+        // floor of an hour applies to a smaller value.
+        assert_eq!(
+            next_check_at(day, t - 100, false, t),
+            Some(t - 100 + day as u64)
+        );
+        assert_eq!(next_check_at(60, t - 100, false, t), Some(t - 100 + 3600));
+        // A PC that slept for days is overdue the moment it wakes.
+        assert!(next_check_at(day, t - 3 * 86400, false, t).unwrap() <= t);
+        // A clock set back must not postpone the check by the difference.
+        assert_eq!(next_check_at(day, t + 5000, false, t), Some(0));
+        // A failed check (network not back after sleep) is retried within
+        // minutes, not after a whole interval.
+        let retry = next_check_at(day, t - 10, true, t).unwrap();
+        assert!(retry > t && retry <= t + 300, "{retry}");
+    }
+    #[test]
+    fn a_changed_interval_applies_without_a_restart_and_a_failed_check_is_retried() {
+        let f = Fixture::new();
+        let h = &f.host;
+        // Checked two hours ago with the default daily interval: not due.
+        *h.updates.lock().unwrap() =
+            json!({"checking":false,"check_failed":false,"checked_at":now() - 7200});
+        assert!(!check_due(h));
+        assert_eq!(status(h)["next_check_at"], now() - 7200 + 86400);
+        // The user picks the minimum: due now, same running host.
+        set_interval(h, "3600");
+        assert!(check_due(h));
+        // Turned off.
+        set_interval(h, "0");
+        assert!(!check_due(h));
+        assert!(status(h)["next_check_at"].is_null());
+        // A check in flight is not started again.
+        set_interval(h, "3600");
+        h.updates.lock().unwrap()["checking"] = json!(true);
+        assert!(!check_due(h));
+        // A check that failed a moment ago waits briefly; one that failed
+        // minutes ago is retried even with a daily interval.
+        set_interval(h, "86400");
+        *h.updates.lock().unwrap() =
+            json!({"checking":false,"check_failed":true,"checked_at":now() - 10});
+        assert!(!check_due(h));
+        h.updates.lock().unwrap()["checked_at"] = json!(now() - 600);
+        assert!(check_due(h));
+    }
+    #[test]
+    fn a_stream_defers_the_check() {
+        let f = Fixture::new();
+        let h = &f.host;
+        *h.updates.lock().unwrap() = json!({"checking":false,"checked_at":0});
+        assert!(check_due(h));
+        h.sessions
+            .lock()
+            .unwrap()
+            .queue(launch(butterpollo_core::session::Role::Stream))
+            .unwrap();
+        assert!(!check_due(h));
     }
     #[tokio::test]
     #[ignore = "downloads the official public installer; never executes it"]

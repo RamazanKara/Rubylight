@@ -57,6 +57,8 @@ struct Rig {
     frame: u32,
     kbps: u32,
     rtt: Duration,
+    /// Up to this many milliseconds are added to `rtt` at every tick.
+    rtt_jitter_ms: u64,
     /// False while the picture is static.
     busy: bool,
     changes: Vec<(u64, Change)>,
@@ -74,6 +76,7 @@ impl Rig {
             frame: 0,
             kbps,
             rtt: Duration::from_millis(20),
+            rtt_jitter_ms: 0,
             busy: true,
             changes: Vec::new(),
         }
@@ -100,7 +103,10 @@ impl Rig {
             if self.ms.is_multiple_of(8)
                 && let Some(kbps) = self.lr.tick(
                     now,
-                    self.rtt,
+                    self.rtt
+                        + Duration::from_millis(
+                            self.ms.wrapping_mul(2_654_435_761) % (self.rtt_jitter_ms + 1),
+                        ),
                     20,
                     Duration::from_micros(16_667),
                     self.kbps,
@@ -260,6 +266,82 @@ fn an_occasional_failed_frame_is_not_a_cut() {
     assert!(rig.changes.is_empty(), "{:?}", rig.changes);
 }
 
+/// A frame that lost `missing` data packets that FEC rebuilt.
+fn rebuilt_data(lr: &mut LinkRate, frame: u32, missing: u16, now: Instant) {
+    lr.on_status(&status(frame, 80 - missing, 0), now);
+}
+
+#[test]
+fn rebuilt_data_loss_cuts_only_while_the_rtt_is_elevated() {
+    // (rtt ms, data packets missing per 100 sent, cut)
+    for (rtt, missing, cut) in [
+        (20, 10, false),
+        (100, 10, true),
+        (100, 1, false),
+        (100, 0, false),
+    ] {
+        let mut rig = Rig::new(40_000);
+        rig.clean(3_000);
+        rig.rtt = Duration::from_millis(rtt);
+        rig.run(5_000, |lr, frame, now| {
+            rebuilt_data(lr, frame, missing, now)
+        });
+        assert_eq!(
+            rig.cuts() > 0,
+            cut,
+            "rtt {rtt}, {missing}: {:?}",
+            rig.changes
+        );
+        if cut {
+            assert_eq!(rig.changes[0].1.reason, "fec_loss_share");
+        }
+    }
+}
+
+#[test]
+fn a_queue_filling_on_a_link_the_stream_exceeds_cuts_before_fec_gives_out() {
+    // 50 Mbit/s with a 50 ms drop-tail queue and about 7 % more on the wire
+    // than the link carries, packets spread over the frame period: FEC rebuilds
+    // every frame (under 1 % are lost), the RTT climbs by the whole queue, and
+    // the stream sits there. Only the rebuilt blocks, with the RTT, show it.
+    let mut sim = Sim::new(q(Link::constant(50.), 50.), 38_800, 20.);
+    sim.spread = 1.;
+    sim.run(30.);
+    let first = sim.changes.first().expect("a cut");
+    assert_eq!(first.1.kind, ChangeKind::StepDown);
+    assert_eq!(first.1.reason, "fec_loss_share");
+    assert!(first.0 < 5., "cut at {} s", first.0);
+    let wire = sim.mean_wire_bps(10., 30.) / 1e6;
+    assert!(
+        (50. * 0.65..=50. * 1.02).contains(&wire),
+        "{wire:.1} Mbit/s"
+    );
+    assert!(
+        sim.frame_loss(3., 30.) < 0.02,
+        "{}",
+        sim.frame_loss(3., 30.)
+    );
+}
+
+#[test]
+fn an_encoder_at_one_and_a_fifth_of_the_link_cuts_within_two_seconds_and_settles_under_it() {
+    let mut sim = Sim::new(q(Link::constant(50.), 50.), 60_000, 20.);
+    sim.run(30.);
+    let first = sim.changes.first().expect("a cut");
+    assert_eq!(first.1.kind, ChangeKind::StepDown);
+    assert!(first.0 < 2., "cut at {} s", first.0);
+    let wire = sim.mean_wire_bps(10., 30.) / 1e6;
+    assert!(
+        (50. * 0.65..=50. * 1.08).contains(&wire),
+        "{wire:.1} Mbit/s"
+    );
+    assert!(
+        sim.frame_loss(3., 30.) < 0.02,
+        "{}",
+        sim.frame_loss(3., 30.)
+    );
+}
+
 /// The 2026-10-24 `wifi` arm (150 Mbit/s, 3 +/- 2 ms delay, 0.5 % loss, HEVC
 /// 1080p60 at 14,988 kbps, 20 % FEC) from `host-samples.jsonl`: about 38 packets
 /// a frame. A frame leaves the host in under a millisecond and the +/- 2 ms
@@ -274,6 +356,8 @@ fn an_occasional_failed_frame_is_not_a_cut() {
 #[test]
 fn the_wifi_arm_with_reordering_and_random_loss_never_cuts() {
     let mut rig = Rig::new(14_988);
+    // Far more than the 3 +/- 2 ms each way of the arm.
+    rig.rtt_jitter_ms = 8;
     let mut seed = 0x9e37_79b9_7f4a_7c15u64;
     let mut random = move || {
         seed ^= seed << 13;

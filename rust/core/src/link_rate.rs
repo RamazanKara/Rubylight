@@ -72,10 +72,11 @@ pub const EVALUATE_EVERY: Duration = Duration::from_millis(100);
 pub const UNRECOVERABLE_FRAMES: usize = 3;
 /// Share of the packets the host sent that the FEC reports show missing in
 /// blocks the client could not rebuild, and that cuts (E2). Blocks FEC rebuilt
-/// never count, however many packets they lacked: the report is made when
-/// enough packets are in, so what is still in flight reads as missing (18 % on
-/// the 2026-10-24 Wi-Fi arm, 0.5 % real loss). The share is over all packets
-/// sent, not only those of reported frames.
+/// count their missing data packets only while the RTT is elevated: the report
+/// is made when enough packets are in, so what is still in flight reads as
+/// missing (14 % on the 2026-10-24 Wi-Fi arm, 0.5 % real loss, RTT flat), but
+/// with a queue filling the same share is real loss FEC is absorbing. The
+/// share is over all packets sent, not only those of reported frames.
 pub const LOSS_SHARE_PERCENT: u64 = 5;
 /// E2 needs the share in this many consecutive windows of [`LOSS_WINDOW`].
 pub const LOSS_WINDOWS: u8 = 2;
@@ -596,15 +597,23 @@ impl LinkRate {
         let total = u32::from(status.data) + u32::from(status.parity);
         let received = u32::from(status.received_data) + u32::from(status.received_parity);
         // A block the client rebuilt, or had enough packets to rebuild, is
-        // FEC's job and says nothing about the link. Its report is made the
-        // moment `data` packets are in, so the parity (and, on a path that
-        // reorders, some data) not yet arrived is in flight, not lost: on the
-        // 2026-10-24 Wi-Fi arm (3 +/- 2 ms delay, 0.5 % loss) that read as 18 %
-        // missing and cut the stream to its floor.
+        // FEC's job and says nothing about the link on its own. Its report is
+        // made the moment `data` packets are in, so the parity (and, on a path
+        // that reorders, some data) not yet arrived is in flight, not lost: on
+        // the 2026-10-24 Wi-Fi arm (3 +/- 2 ms delay, 0.5 % loss) that read as
+        // 14 % of the data missing and cut the stream to its floor. While the
+        // RTT is up, a queue is filling: the same share is then loss FEC is
+        // absorbing for now, and the next step up in load breaks it.
         if received >= u32::from(status.data) {
+            let data_missing = u32::from(status.data.saturating_sub(status.received_data));
             self.rebuilt_blocks += 1;
             self.rebuilt_packets += u64::from(total);
-            self.rebuilt_data_missing += u64::from(status.data - status.received_data);
+            self.rebuilt_data_missing += u64::from(data_missing);
+            if data_missing > 0 && self.rtt_elevated() {
+                self.events.missing += u64::from(data_missing);
+                self.events.lost(status.frame);
+                self.ring[status.frame as usize % RING].missing += data_missing;
+            }
             return;
         }
         let missing = total - received;

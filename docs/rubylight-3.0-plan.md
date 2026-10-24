@@ -146,7 +146,7 @@ B6 is the UI rework: the remaining screens move into the console shell from A6 a
 ### rc and 3.0.0
 
 - `docs/hardware-matrix.md` labels every feature Tested, Expected, Experimental or Unsupported. Tested means it ran on our RX 7900 XT with a named Windows build and phone. Other AMD generations stay "Expected" unless someone runs them.
-- A two-hour soak, upgrade from 2.6.x, uninstall, and recovery after reinstalling the virtual display driver.
+- A 30-minute soak (short smokes first; a longer soak only if a smoke shows drift), upgrade from 2.6.x, uninstall, and recovery after reinstalling the virtual display driver.
 - README, site and docs updated. Credits and fork history stay intact.
 
 ## 3.x tracks (not in 3.0)

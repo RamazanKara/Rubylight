@@ -356,7 +356,7 @@ fn an_encoder_at_one_and_a_fifth_of_the_link_cuts_within_two_seconds_and_settles
 /// Modelled here as it is: a random arrival order per block, 0.5 % of packets
 /// lost, a report at the 32nd arrival unless all 32 data packets came first.
 /// One block of the `wifi` arm as the client reports it (see the test below):
-/// data 32 + parity 7 in a random arrival order, `loss_permille` of the packets
+/// data 32 + `parity` in a random arrival order, `loss_permille` of the packets
 /// lost, a report at the 32nd arrival unless all 32 data packets came first.
 /// `queued` more data packets than that were still behind a queue when parity
 /// made up for them. Returns whether the block was reported.
@@ -364,6 +364,7 @@ fn wifi_block(
     seed: &mut u64,
     lr: &mut LinkRate,
     frame: u32,
+    parity_shards: u16,
     loss_permille: u64,
     queued: u16,
     now: Instant,
@@ -374,7 +375,7 @@ fn wifi_block(
         *seed ^= *seed << 17;
         *seed
     };
-    let mut order: Vec<u16> = (0..39).collect();
+    let mut order: Vec<u16> = (0..32 + parity_shards).collect();
     for i in (1..order.len()).rev() {
         order.swap(i, (random() % (i as u64 + 1)) as usize);
     }
@@ -399,18 +400,21 @@ fn wifi_block(
     if data == 32 {
         return false;
     }
-    let (data, parity) = (data.saturating_sub(queued), (parity + queued).min(7));
+    let (data, parity) = (
+        data.saturating_sub(queued),
+        (parity + queued).min(parity_shards),
+    );
     lr.on_status(
         &Status {
             frame,
-            highest_received: 38,
+            highest_received: 31 + parity_shards,
             next_contiguous: 0,
-            missing_before_highest: 39 - data - parity,
+            missing_before_highest: 32 + parity_shards - data - parity,
             data: 32,
-            parity: 7,
+            parity: parity_shards,
             received_data: data,
             received_parity: parity,
-            percentage: 20,
+            percentage: (u32::from(parity_shards) * 100 / 32) as u8,
             block: 0,
             blocks: 1,
         },
@@ -428,7 +432,7 @@ fn the_wifi_arm_with_reordering_and_random_loss_never_cuts() {
     let (mut blocks, mut rebuilt) = (0u32, 0u32);
     rig.run(45_000, |lr, frame, now| {
         blocks += 1;
-        rebuilt += u32::from(wifi_block(&mut seed, lr, frame, 5, 0, now));
+        rebuilt += u32::from(wifi_block(&mut seed, lr, frame, 7, 5, 0, now));
     });
     assert!(rig.changes.is_empty(), "{:?}", rig.changes);
     assert_eq!(rig.kbps, 14_988);
@@ -451,26 +455,38 @@ fn the_wifi_arm_with_reordering_and_random_loss_never_cuts() {
 fn a_short_rtt_excursion_on_the_wifi_arm_is_no_cut_but_a_real_queue_is() {
     // Data packets behind a queue on top of the arm's, per block, while the
     // RTT is up.
-    for extra in [0u16, 3] {
+    // At 20, 30 and 40 % FEC the data a reordering path has not delivered at
+    // report time is up to the parity, 0.18 to 0.31 of the data (review
+    // 2026-10-24: a cap of 0.2 cut 14,988 -> 10,156 at 10, 13 and 16 parity).
+    for (parity, extra) in [
+        (7u16, 0u16),
+        (7, 3),
+        (10, 0),
+        (10, 3),
+        (13, 0),
+        (13, 3),
+        (16, 0),
+        (16, 3),
+    ] {
         let mut rig = Rig::new(14_988);
         rig.rtt_jitter_ms = 8;
         let mut seed = 0x9e37_79b9_7f4a_7c15u64;
         rig.run(20_000, |lr, frame, now| {
-            wifi_block(&mut seed, lr, frame, 5, 0, now);
+            wifi_block(&mut seed, lr, frame, parity, 5, 0, now);
         });
         assert!(rig.changes.is_empty(), "{:?}", rig.changes);
         rig.rtt = Duration::from_millis(60);
         rig.run(1_500, |lr, frame, now| {
-            wifi_block(&mut seed, lr, frame, 5, extra, now);
+            wifi_block(&mut seed, lr, frame, parity, 5, extra, now);
         });
         rig.rtt = Duration::from_millis(20);
         rig.run(20_000, |lr, frame, now| {
-            wifi_block(&mut seed, lr, frame, 5, 0, now);
+            wifi_block(&mut seed, lr, frame, parity, 5, 0, now);
         });
         assert_eq!(
             rig.cuts() > 0,
             extra > 0,
-            "extra {extra}: {:?}",
+            "parity {parity} extra {extra}: {:?}",
             rig.changes
         );
         if extra == 0 {
@@ -510,7 +526,8 @@ fn an_old_spell_of_flat_rtt_loss_does_not_hide_a_queue_later() {
 
 #[test]
 fn a_flat_rtt_share_over_what_reordering_produces_is_not_the_baseline() {
-    // Data 32, parity 16: 12 data packets missing is 0.375 and still rebuilt.
+    // Data 32, parity 16: 14 data packets missing is 0.44, over the 0.35 that
+    // reordering can leave, and still rebuilt.
     fn block(lr: &mut LinkRate, frame: u32, missing: u16, now: Instant) {
         lr.on_status(
             &Status {
@@ -530,10 +547,10 @@ fn a_flat_rtt_share_over_what_reordering_produces_is_not_the_baseline() {
         );
     }
     let mut rig = Rig::new(40_000);
-    rig.run(30_000, |lr, frame, now| block(lr, frame, 12, now));
+    rig.run(30_000, |lr, frame, now| block(lr, frame, 14, now));
     assert!(rig.changes.is_empty(), "{:?}", rig.changes);
     rig.rtt = Duration::from_millis(60);
-    rig.run(10_000, |lr, frame, now| block(lr, frame, 12, now));
+    rig.run(10_000, |lr, frame, now| block(lr, frame, 14, now));
     assert!(rig.cuts() > 0, "{:?}", rig.changes);
 }
 
@@ -1179,6 +1196,36 @@ fn a_standing_overload_after_a_latch_cuts_within_a_second_and_a_half() {
             rig.changes
         );
         assert!(first.1.to_kbps <= 58_988 / 2, "{:?}", first.1);
+    }
+}
+
+/// Review 2026-10-24: a latch that fixed the loss, then residual loss of one
+/// unrecoverable frame (or one request) every 2 s inside the 4.5 s watch, is
+/// not a failed latch: events more than 1.5 s apart are not a pair.
+#[test]
+fn residual_loss_of_one_event_every_two_seconds_after_a_latch_is_not_a_cut() {
+    for request in [false, true] {
+        let mut rig = Rig::new(58_988);
+        rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+        rig.lr.on_latch(rig.now(), true, true);
+        rig.clean(20);
+        let (frame, now) = (rig.frame, rig.now());
+        rig.lr.on_keyframe_sent(frame, now);
+        rig.clean(980);
+        for _ in 0..3 {
+            let (frame, now) = (rig.frame, rig.now());
+            if request {
+                rig.lr.on_keyframe_request(true, now);
+            } else {
+                unrecoverable(&mut rig.lr, frame, now);
+            }
+            rig.clean(2_000);
+        }
+        assert!(
+            rig.changes.is_empty(),
+            "request {request}: {:?}",
+            rig.changes
+        );
     }
 }
 

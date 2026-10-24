@@ -103,6 +103,10 @@ pub const LOSS_MIN_PACKETS: u64 = 100;
 pub const LATCH_WATCH: Duration = Duration::from_secs(4);
 /// Events of a latch watch closer together than this are one burst.
 pub const WATCH_EVENT_GAP: Duration = Duration::from_millis(100);
+/// Two events fail a latch only when they come within this span: a latch that
+/// fixed the loss and a stray frame lost every couple of seconds is not a
+/// failed latch (the r50 arm's requests came 1.2 s apart).
+pub const WATCH_EVENT_SPAN: Duration = Duration::from_millis(1_500);
 /// Frames lost on send (WSAENOBUFS and the like) that cut (E3).
 pub const SEND_LOSS_FRAMES: usize = 3;
 /// Network-classified keyframe requests that cut (E4): from a client that
@@ -127,9 +131,12 @@ const REORDER_FADE: Duration = Duration::from_secs(20);
 /// the RTT is up.
 const REORDER_GAP: Duration = Duration::from_secs(1);
 
-/// What reordering produces at most: the Wi-Fi arm learns 0.18. Over this a
-/// flat-RTT share is loss, and does not raise the baseline.
-const REORDER_MAX_SHARE: f64 = 0.2;
+/// What reordering produces at most, over the block's parity share: a block is
+/// reported when `data` packets are in, so what is still on the way is at most
+/// the parity (0.18 at 20 % FEC, 0.24 at 30 %). The running baseline is held to
+/// the block's parity share plus this, so a flat-RTT share of loss does not
+/// raise it past what a path can reorder. Each block is averaged unclipped.
+const REORDER_MARGIN: f64 = 0.02;
 
 /// How far below the baseline the excess of rebuilt data loss may sink, in
 /// packets, so that a run of clean blocks pays for the next noisy ones.
@@ -682,10 +689,12 @@ impl LinkRate {
                     self.reorder_share *= (-dt.as_secs_f64() / REORDER_FADE.as_secs_f64()).exp();
                 }
             }
+            let cap = f64::from(status.parity) / total.max(1) as f64 + REORDER_MARGIN;
             if !elevated {
                 // What this path reorders, learned while nothing queues.
-                let share = (f64::from(data_missing) / data as f64).min(REORDER_MAX_SHARE);
+                let share = f64::from(data_missing) / data as f64;
                 self.reorder_share += (share - self.reorder_share) / REORDER_BLOCKS;
+                self.reorder_share = self.reorder_share.min(cap);
                 self.excess_credit = 0;
                 self.excess_high = 0;
             }
@@ -696,7 +705,7 @@ impl LinkRate {
             // around the baseline counts nothing however long it goes on, and
             // a standing queue's extra loss adds up.
             let excess = if elevated {
-                let expected = (self.reorder_share * data as f64).round() as i64;
+                let expected = (self.reorder_share.min(cap) * data as f64).round() as i64;
                 let credit = (self.excess_credit + i64::from(data_missing) - expected)
                     .max(-EXCESS_CREDIT_CAP);
                 let counted = (credit - self.excess_high).max(0);
@@ -755,7 +764,8 @@ impl LinkRate {
     }
 
     /// An unrecoverable frame or network request under a latch watch. Two,
-    /// [`WATCH_EVENT_GAP`] or more apart, fail the latch. A frame sent before
+    /// [`WATCH_EVENT_GAP`] or more and [`WATCH_EVENT_SPAN`] or less apart, fail
+    /// the latch. A frame sent before
     /// the latch is not evidence about it.
     fn watch_event(&mut self, frame: Option<u32>, now: Instant) {
         let Some(latched) = self.latch_at.filter(|_| self.watching(now)) else {
@@ -773,11 +783,10 @@ impl LinkRate {
         {
             return;
         }
-        if self
-            .watch_events
-            .iter()
-            .any(|(at, _)| now.saturating_duration_since(*at) >= WATCH_EVENT_GAP)
-        {
+        if self.watch_events.iter().any(|(at, _)| {
+            let apart = now.saturating_duration_since(*at);
+            apart >= WATCH_EVENT_GAP && apart <= WATCH_EVENT_SPAN
+        }) {
             self.events.latch_failed = true;
         }
         if self.watch_events.len() >= EVENT_CAP {

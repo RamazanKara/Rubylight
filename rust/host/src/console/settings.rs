@@ -90,7 +90,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "experimental_packed_444", "Experimental full chroma for Nightjar (restart required)", Bool;
         "max_bitrate", "Maximum bitrate (kbps; 0 has no configured limit)", Number;
         "limit_framerate", "Use the launch frame rate for encoding (off by default: the stream runs at the rate its request asks for)", Bool;
-        "minimum_fps_target", "Minimum frame rate for an unchanged desktop", Number;
+        "minimum_fps_target", "Still-picture resend rate (how often an unchanged desktop is sent again)", Number;
         "wgc_pacing_smoothing", "Smooth capture pacing", Bool;
         "stream_reconfigure", "Follow client size and frame rate changes", Bool;
         "wgc_direct_encoder_input", "Pass GPU capture directly to the encoder", Bool;

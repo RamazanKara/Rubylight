@@ -258,9 +258,57 @@ test('an unset virtual display mode keeps the OS-dependent default without hidin
   const key = 'virtual_display_mode';
   const setting = settings.get(key);
   assert.equal(effective(setting, {}, {}), '');
-  assert.equal(describeDefault(setting).text, 'Automatic (Windows default)');
+  assert.equal(describeDefault(setting).text, 'Default (one for each device; off on Windows 10)');
   assert.deepEqual(computeChanges(settings, { [key]: 'per_client' }, {}), { [key]: 'per_client' });
   assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'disabled' }), { [key]: null });
+});
+
+test('settings for one client or capture quirk stay out of the basic view', () => {
+  // limit_framerate matters only to Artemis Warp, stream_reconfigure only to Rubylight clients.
+  for (const key of ['limit_framerate', 'stream_reconfigure']) assert.equal(settings.get(key).advanced, true, key);
+  assert.equal(settings.get('stream_preset').advanced, false);
+  assert.equal(settings.get('max_bitrate').advanced, false);
+});
+
+test('capture quirks sit together in an advanced troubleshooting group and stay available', () => {
+  const keys = [
+    'capture_poll_interval_us', 'capture_predictive_poll', 'wgc_slot_aligned_publish',
+    'wgc_direct_encoder_input', 'gpu_compute_conversion', 'idd_push_fence_ring',
+  ];
+  for (const key of keys) {
+    assert.equal(settings.get(key).group, 'Capture troubleshooting', key);
+    assert.equal(settings.get(key).advanced, true, key);
+  }
+  const grouped = schema.settings.filter(setting => setting.group === 'Capture troubleshooting');
+  assert.deepEqual(grouped.map(setting => setting.key).sort(), [...keys].sort());
+  assert.equal(settings.get('capture').group, 'Capture');
+});
+
+test('bitrate and pacing controllers say which one wins', () => {
+  // The finer points live behind More; descriptions are capped at two short sentences.
+  const says = (key, pattern) => assert.match(settings.get(key).details, pattern, key);
+  says('link_rate_adaptation', /Adapt bitrate on the host wins[^.]*sets its own bitrate takes over/);
+  says('host_adaptive_bitrate', /replaces[^.]*sets its own bitrate takes over/);
+  says('pacing_max_bitrate_kbps', /turns off Adaptive packet pacing and Slow down after video loss/);
+  says('host_adaptive_pacing', /manual pacing rate or Adapt bitrate on the host turns it off/);
+  says('keyframe_loss_pacing', /manual pacing rate, Adaptive packet pacing or Adapt bitrate on the host turns it off/);
+});
+
+test('the still-picture resend rate is not named like a floor on game frame rate', () => {
+  const setting = settings.get('minimum_fps_target');
+  assert.equal(setting.label, 'Still-picture resend rate');
+  assert.match(setting.description, /unchanged picture/);
+});
+
+test('activating a virtual display is offered only where it changes the stream', () => {
+  // display_session.rs: a virtual display is configured when the mode is not "disabled" or this is on.
+  const activate = settings.get('dd_activate_virtual_display');
+  assert.equal(activate.visibleWhen({}), true, 'unset is off on Windows 10');
+  assert.equal(activate.visibleWhen({ virtual_display_mode: '' }), true);
+  assert.equal(activate.visibleWhen({ virtual_display_mode: 'disabled' }), true);
+  assert.equal(activate.visibleWhen({ virtual_display_mode: 'per_client' }), false);
+  assert.equal(activate.visibleWhen({ virtual_display_mode: 'shared' }), false);
+  assert.ok(activate.inactiveHint);
 });
 
 test('library counts and time limits reject fractions instead of saving values the host would ignore', () => {

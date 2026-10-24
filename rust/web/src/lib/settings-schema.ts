@@ -31,8 +31,6 @@ const basicKeys = new Set([
   'notify_pre_releases',
   'stream_preset',
   'max_bitrate',
-  'limit_framerate',
-  'stream_reconfigure',
   'frame_limiter_enable',
   'frame_limiter_fps_limit',
   'output_name',

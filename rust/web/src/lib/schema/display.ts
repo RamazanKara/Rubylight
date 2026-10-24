@@ -49,13 +49,13 @@ export const settings: Setting[] = [
     label: 'Virtual display',
     description:
       'Whether streams use a virtual display sized for the device instead of a monitor. A device’s or app’s own choice wins.',
-    details: 'Unset, it is one for each device.',
+    details: 'Unset, it is one for each device on Windows 11 and off on Windows 10.',
     category: 'display',
     group: 'Streamed display',
     control: {
       kind: 'select',
       options: [
-        { value: '', label: 'Automatic (Windows default)' },
+        { value: '', label: 'Default (one for each device; off on Windows 10)' },
         { value: 'disabled', label: 'Off, stream a monitor' },
         { value: 'per_client', label: 'One for each device' },
         { value: 'shared', label: 'One shared by all devices' },
@@ -115,6 +115,9 @@ export const settings: Setting[] = [
     group: 'Streamed display',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: 'Set Virtual display to Off to use this setting. While a virtual display is on, streams already use one.',
+    // display_session.rs: configured = mode != "disabled" || this. Unset is disabled on Windows 10.
+    visibleWhen: (values) => ['', 'disabled'].includes(text(values, 'virtual_display_mode', '')),
     advanced: true,
   },
   {

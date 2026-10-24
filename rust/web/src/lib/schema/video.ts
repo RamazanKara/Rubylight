@@ -87,7 +87,7 @@ const video: Setting[] = [
     description:
       'How long screen capture waits before checking again when no new frame is ready. Shorter waits notice new frames sooner and use more CPU time.',
     category: 'video',
-    group: 'Capture',
+    group: 'Capture troubleshooting',
     control: { kind: 'number', min: 100, max: 1000, step: 50, unit: 'µs' },
     default: 500,
     advanced: true,
@@ -100,7 +100,7 @@ const video: Setting[] = [
     details:
       'Needs a compatible Rubylight display driver and compute conversion on AMD. Without them, capture uses the keyed-mutex ring and the console shows a warning. Physical displays and other capture methods are unaffected. End all streams before changing it.',
     category: 'video',
-    group: 'Capture',
+    group: 'Capture troubleshooting',
     control: { kind: 'toggle' },
     default: true,
     visibleWhen: (values) => ['auto', 'idd-push'].includes(capture(values)),
@@ -113,7 +113,7 @@ const video: Setting[] = [
       'With Desktop Duplication, checks for frames more often when the next one is due. Can catch frames sooner in games with a steady frame rate.',
     details: 'The expected time of the next frame comes from the recent frame rhythm.',
     category: 'video',
-    group: 'Capture',
+    group: 'Capture troubleshooting',
     control: { kind: 'toggle' },
     default: false,
     inactiveHint: "Applies to Desktop Duplication, including fallback. Direct driver push and Windows Graphics Capture ignore it.",
@@ -127,7 +127,7 @@ const video: Setting[] = [
       'Holds a new frame until just before the next encode if a newer one could arrive first. Helps when the display refreshes much faster than the stream.',
     details: 'Applies to Windows Graphics Capture. Variable refresh rate (VRR) streams ignore it.',
     category: 'video',
-    group: 'Capture',
+    group: 'Capture troubleshooting',
     control: { kind: 'toggle' },
     default: false,
     inactiveHint: "Only affects Windows Graphics Capture, including fallback. Direct driver push, Desktop Duplication and VRR streams ignore it.",
@@ -141,7 +141,7 @@ const video: Setting[] = [
       'Hands captured frames straight to the encoder on the GPU. Turn off only to troubleshoot an encoder.',
     details: 'When off, frames are copied through system memory, which adds latency and CPU load.',
     category: 'video',
-    group: 'Capture',
+    group: 'Capture troubleshooting',
     control: { kind: 'toggle' },
     default: true,
     advanced: true,
@@ -154,7 +154,7 @@ const video: Setting[] = [
     details:
       'Covers direct driver push, Desktop Duplication and Windows Graphics Capture. Unsupported capture textures fall back to the graphics queue.',
     category: 'video',
-    group: 'Capture',
+    group: 'Capture troubleshooting',
     control: { kind: 'toggle' },
     default: true,
     advanced: true,
@@ -264,9 +264,9 @@ const video: Setting[] = [
   },
   {
     key: 'minimum_fps_target',
-    label: 'Minimum frame rate',
+    label: 'Still-picture resend rate',
     description:
-      'How often an unchanged picture is sent again. Lower values save bandwidth on a still desktop.',
+      'How often an unchanged picture is sent again. Lower values save bandwidth on a still desktop; it does not limit a game’s frame rate.',
     details:
       'Each resend counts toward the stream frame rate, so a value close to it makes late game frames wait. 0 uses a fifth of the stream rate, at least 10; with PyroWave, 0 resends at the full stream rate. Other values are kept between 1 fps and the stream rate.',
     category: 'video',
@@ -324,7 +324,7 @@ const video: Setting[] = [
     description:
       'Lowers the bitrate when a Moonlight device reports video loss, then slowly raises it again while traffic is sustained and latency is stable.',
     details:
-      'Includes error correction and audio in the network budget. Requires observed client feedback; a device that adjusts its own bitrate takes control. H.264, HEVC and AV1 only. Changes apply on the next connection.',
+      'Includes error correction and audio in the network budget. Requires observed client feedback; a device that adjusts its own bitrate takes control. H.264, HEVC and AV1 only. Changes apply on the next connection. It replaces Lower the bitrate when the link cannot carry it, and a device that sets its own bitrate takes over bitrate control.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -391,7 +391,7 @@ const video: Setting[] = [
     description:
       'Spaces out video packets without changing the picture bitrate. 0 paces automatically; reconnect after saving.',
     details:
-      'Automatic pacing lets conventional codecs send up to 800 Mbps on wired routes, or twice the bitrate with FEC headroom on host Wi-Fi. PyroWave starts unmeasured paths near the stream budget and respects the client’s calibrated pace. Positive values are hard limits for PyroWave; conventional codecs retain a 1.1-times-bitrate floor. 120000 means 120 Mbps.',
+      'Automatic pacing lets conventional codecs send up to 800 Mbps on wired routes, or twice the bitrate with FEC headroom on host Wi-Fi. PyroWave starts unmeasured paths near the stream budget and respects the client’s calibrated pace. Positive values are hard limits for PyroWave; conventional codecs retain a 1.1-times-bitrate floor. 120000 means 120 Mbps. A value here turns off Adaptive packet pacing and Slow down after video loss.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, step: 1, unit: 'Kbps' },
@@ -404,7 +404,7 @@ const video: Setting[] = [
     description:
       'Starts with slower packet delivery, then tries faster rates and backs off when the device reports loss.',
     details:
-      'Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default, including for PyroWave. A manual pacing rate or Host adaptive bitrate disables it. Changes apply on the next connection.',
+      'Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default, including for PyroWave. Changes apply on the next connection. A manual pacing rate or Adapt bitrate on the host turns it off.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -417,7 +417,7 @@ const video: Setting[] = [
     description:
       'After a lost keyframe or repeated unrecoverable frames, spaces video packets more evenly for the rest of the stream without changing picture bitrate.',
     details:
-      'Activates after a keyframe the client could not rebuild, a repeated request for the keyframe it was just sent, or three distinct unrecoverable frames within two seconds. Changes the host makes itself (Alt+Tab, a bitrate change, a restarted capture or encoder) do not count. Frames the host could not send whole, such as when the network send buffer fills at a high pacing rate, do: three within two seconds, or one keyframe. Loss that lasted is remembered for this device, address and network adapter for 24 hours, with a fast-rate retry every second eligible reconnect; a lost first keyframe alone is lifted after 10 clean seconds and not remembered. Reset remembered routes in Devices. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Host adaptive bitrate disables it.',
+      'Activates after a keyframe the client could not rebuild, a repeated request for the keyframe it was just sent, or three distinct unrecoverable frames within two seconds. Changes the host makes itself (Alt+Tab, a bitrate change, a restarted capture or encoder) do not count. Frames the host could not send whole, such as when the network send buffer fills at a high pacing rate, do: three within two seconds, or one keyframe. Loss that lasted is remembered for this device, address and network adapter for 24 hours, with a fast-rate retry every second eligible reconnect; a lost first keyframe alone is lifted after 10 clean seconds and not remembered. Reset remembered routes in Devices. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Adapt bitrate on the host turns it off.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -430,7 +430,7 @@ const video: Setting[] = [
     description:
       'Cuts the picture bitrate when the network loses more than error correction can repair, then probes back up. Does nothing on a healthy link.',
     details:
-      'Acts on three unrecoverable frames in two seconds, 5% of packets reported missing for two half-second windows, three frames lost on send, or three network keyframe requests from a client that sends no error-correction status. Each cut aims at 85% of what the link delivered, then the host probes back up in small steps and returns to the requested bitrate after ten clean seconds. Reports for frames sent before a cut took effect are ignored. Off for PyroWave, while Host adaptive bitrate is on, and once the client sets the bitrate itself.',
+      'Acts on three unrecoverable frames in two seconds, 5% of packets reported missing for two half-second windows, three frames lost on send, or three network keyframe requests from a client that sends no error-correction status. Each cut aims at 85% of what the link delivered, then the host probes back up in small steps and returns to the requested bitrate after ten clean seconds. Reports for frames sent before a cut took effect are ignored. Off for PyroWave. Adapt bitrate on the host wins when both are on, and a device that sets its own bitrate takes over bitrate control.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },

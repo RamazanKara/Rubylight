@@ -33,7 +33,7 @@ Use **Review changes** to see pending edits across all categories, including set
 | Audio to stream — `audio_capture_mode` | `system` | Captures the selected playback device. Optional [Game only](#game-only-audio) captures a verified game's process tree. |
 | HEVC / AV1 support — `hevc_mode`, `av1_mode` | `0` | Automatic capability detection; only working profiles are offered. |
 | PyroWave — `pyrowave` | `true` | Offers PyroWave to clients that support it. |
-| Virtual display — `virtual_display_mode` | `per_client` | A display for each device. Requires the virtual display driver when enabled. |
+| Virtual display — `virtual_display_mode` | `per_client` on Windows 11, `disabled` on Windows 10 | A display for each device. Requires the virtual display driver when enabled. |
 | Virtual display layout — `virtual_display_layout` | `exclusive` | Turns other displays off while the virtual display is used. A Remote Monitor follows it while it streams: exclusive turns the other displays off and makes it primary, the primary layouts make it primary, and it keeps the place the remote monitor layout gives it. Choose Extended to use a remote monitor beside your own. A layout you pick for a device under Devices overrides this and the host never replaces it. A device without one of its own keeps the layout you leave a stream's display in, such as Windows' "Show only on 2", and uses it from the next stream; set it back to the host setting to forget that. A layout changed through the clients update API (`/api/clients/update`) counts as set by you; send `virtual_display_layout_set_by_user: true` to mark one without changing it. |
 | Physical display preparation — `dd_configuration_option` | `verify_only` | Requires the selected monitor to be active; resolution, refresh and HDR policies are separate. |
 | Display HDR — `dd_hdr_option` | `auto` | Matches the streamed display's HDR state to the stream. |
@@ -46,6 +46,10 @@ Use **Review changes** to see pending edits across all categories, including set
 | Include pre-releases — `notify_pre_releases` | `false` | Release candidates are offered only when enabled. |
 
 These are defaults for **unset** keys, not a list of values you must copy into a configuration file.
+
+Under **Settings → Video → Advanced**, a collapsed **Capture troubleshooting** group holds the capture options that matter only when a capture or encoder problem needs isolating: `capture_poll_interval_us`, `capture_predictive_poll`, `wgc_slot_aligned_publish`, `wgc_direct_encoder_input`, `gpu_compute_conversion` and `idd_push_fence_ring`. **Use the launch frame rate** (`limit_framerate`) and **Follow client size and frame rate changes** (`stream_reconfigure`) are also under Advanced, as they matter only to Artemis's Warp frame pacing and to Rubylight clients. `minimum_fps_target` is **Still-picture resend rate**: how often an unchanged picture is sent again, not a floor on a game's frame rate.
+
+When several bitrate and pacing controllers are on, **Adapt bitrate on the host** (`host_adaptive_bitrate`) wins over **Lower the bitrate when the link cannot carry it** (`link_rate_adaptation`), and a device that sets its own bitrate takes over from both. A manual **Pacing rate** (`pacing_max_bitrate_kbps`) turns off **Adaptive packet pacing** and **Slow down after video loss**; **Adapt bitrate on the host** turns off both of those too, and **Adaptive packet pacing** turns off **Slow down after video loss**.
 
 ## Capture and video
 
@@ -314,7 +318,7 @@ A device's **Display mode** (`display_mode`, `WIDTHxHEIGHTxREFRESH`) sets its vi
 
 A disconnect leaves the app running but restores its displays by default: `dd_config_revert_on_disconnect=true`, after `dd_config_revert_delay` (default `3000` ms). Exclusive layouts always use that delay, including profiles that explicitly turn restoration off, so the physical monitors do not stay disabled while nobody is streaming. Other layouts can still be kept for reconnection by turning restoration off; `dd_paused_virtual_display_timeout_secs` then controls their lifetime (default `7200` seconds; `0` keeps them until the app closes). Restoration waits for the last stream using a layout. If that layout disabled an original display, the original layout is restored even after a Win+P change; other layouts preserve later user changes. A failed restoration remains in the recovery journal and the next stream retains its original baseline. A device remembers eligible layout changes only at its last stream's disconnect; later local changes during the pause do not become its streaming default. A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Help & diagnostics** provides display restoration and saved-baseline controls.
 
-**Virtual display → Automatic (Windows default)** leaves the choice to the host: one virtual display per device. For **Permanent virtual displays**, an empty field preserves the driver's current count; `0` explicitly removes permanent displays at the next host startup. Resetting this setting is therefore different from entering `0`.
+**Virtual display → Default (one for each device; off on Windows 10)** leaves the choice to the host: one virtual display per device on Windows 11, none on Windows 10. **Activate a virtual display** (`dd_activate_virtual_display`) is shown only while Virtual display is unset or Off, because it has no effect otherwise. For **Permanent virtual displays**, an empty field preserves the driver's current count; `0` explicitly removes permanent displays at the next host startup. Resetting this setting is therefore different from entering `0`.
 
 Under **Settings → Frame limiting**:
 

@@ -40,7 +40,7 @@ fn delays(delays: &[u64]) -> String {
     if delays.is_empty() { return "never".into(); }
     let mut sorted = delays.to_vec();
     sorted.sort_unstable();
-    format!("median {:.2} ms, longest {:.2} ms ({} of the tested presents)", sorted[sorted.len() / 2] as f64 / 1e6, sorted[sorted.len() - 1] as f64 / 1e6, sorted.len())
+    format!("median {:.2} ms, longest {:.2} ms ({} presents that began a scan)", sorted[sorted.len() / 2] as f64 / 1e6, sorted[sorted.len() - 1] as f64 / 1e6, sorted.len())
 }
 
 /// How the stream's window sits on its display, read by the presenter.

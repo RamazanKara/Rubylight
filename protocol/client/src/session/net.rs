@@ -347,6 +347,20 @@ mod tests {
     }
 
     #[test]
+    fn a_pinger_survives_a_closed_port_and_stops_without_waiting_out_the_interval() {
+        // Nothing listens: on loopback the sends draw ICMP port unreachable.
+        let target = UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut pinger = Pinger::start("TestPing", &socket, target, None).unwrap();
+        std::thread::sleep(PING_INTERVAL + Duration::from_millis(200));
+        assert!(!pinger.thread.as_ref().unwrap().is_finished());
+        let stopping = std::time::Instant::now();
+        pinger.stop();
+        assert!(stopping.elapsed() < PING_INTERVAL, "stop waited for the next ping");
+        assert!(pinger.thread.is_none());
+    }
+
+    #[test]
     fn receive_times_out_without_data() {
         let socket = bind_udp(
             Ipv4Addr::LOCALHOST.into(),

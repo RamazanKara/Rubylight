@@ -623,3 +623,76 @@ fn stop_disconnects_the_control_stream() {
     assert_eq!(r.terminated, None);
     assert!(r.setup.is_none() && r.audio_setup.is_none());
 }
+
+/// Vibepollo and Apollo hosts run their video thread for an input-only session too and end it
+/// when no video ping arrives within ten seconds.
+#[test]
+fn input_only_pings_the_video_port_until_stop() {
+    let host = start_host(None);
+    let record = Arc::new(Mutex::new(Record::default()));
+    let make = || {
+        Box::new(Recorder {
+            record: record.clone(),
+            need_idr_at: None,
+        })
+    };
+    let session = Session::start(
+        &HostInfo {
+            address: "127.0.0.1".into(),
+            app_version: "7.1.431.-1".into(),
+            rtsp_session_url: Some(format!("rtsp://127.0.0.1:{}", host.rtsp_port)),
+            server_codec_mode_support: SCM_H264,
+        },
+        SessionConfig {
+            stream: StreamConfig {
+                remote_input_aes_key: KEY,
+                ..Default::default()
+            },
+            location: Location::Local,
+            input_only: true,
+            ..Default::default()
+        },
+        make(),
+        make(),
+        Arc::new(Recorder {
+            record: record.clone(),
+            need_idr_at: None,
+        }),
+        &Interrupt::default(),
+    )
+    .unwrap();
+    // The payload from the RTSP SETUP and a sequence number that counts up.
+    host.video
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut buffer = [0u8; 64];
+    let mut sequences = Vec::new();
+    while sequences.len() < 2 {
+        let (n, _) = host.video.recv_from(&mut buffer).expect("a video ping");
+        assert!(n == 20 && &buffer[..16] == PING, "{:?}", &buffer[..n]);
+        sequences.push(u32::from_be_bytes(buffer[16..20].try_into().unwrap()));
+    }
+    assert_eq!(sequences, [1, 2]);
+    // The session is up and decoder and renderer were never touched.
+    session
+        .input(|q| q.send_keyboard(0x41, true, 0, 0))
+        .unwrap();
+    {
+        let r = record.lock().unwrap();
+        assert!(r.setup.is_none() && r.audio_setup.is_none());
+    }
+    session.stop();
+    until("the disconnect", || {
+        host.control_disconnected.load(Ordering::SeqCst)
+    });
+    // Stop joined the ping thread: whatever was in flight is drained, then it is quiet.
+    host.video
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
+    while host.video.recv_from(&mut buffer).is_ok() {}
+    host.video
+        .set_read_timeout(Some(Duration::from_millis(1200)))
+        .unwrap();
+    assert!(host.video.recv_from(&mut buffer).is_err(), "pings continued after stop");
+    assert_eq!(record.lock().unwrap().terminated, None);
+}

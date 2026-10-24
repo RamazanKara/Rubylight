@@ -355,6 +355,8 @@ struct Parts {
     outcome: Option<RtspOutcome>,
     audio_socket: Option<UdpSocket>,
     audio_pinger: Option<net::Pinger>,
+    /// An input-only session's video pings, with no receive side behind them.
+    video_pinger: Option<net::Pinger>,
     video_shared: Option<Arc<video::VideoShared>>,
     audio_shared: Arc<audio::AudioShared>,
     control: Option<ControlHandle>,
@@ -384,6 +386,9 @@ impl Parts {
             if let Some(decoder) = stream.stop() {
                 self.video_decoder = Some(decoder);
             }
+        }
+        if let Some(mut pinger) = self.video_pinger.take() {
+            pinger.stop();
         }
         if let Some(mut decoder) = self.video_decoder.take() {
             decoder.stop();
@@ -441,6 +446,7 @@ impl Session {
             outcome: None,
             audio_socket: None,
             audio_pinger: None,
+            video_pinger: None,
             video_shared: None,
             audio_shared: Arc::new(audio::AudioShared::default()),
             control: None,
@@ -819,9 +825,27 @@ fn start(
     listener.stage_complete(Stage::ControlStreamStart);
     check_interrupt(Stage::ControlStreamStart)?;
 
-    // Input-only sessions never set up or clean up the decoder and renderer.
+    // Input-only sessions never set up or clean up the decoder and renderer. They still ping
+    // the video port: Vibepollo and Apollo hosts run their video thread regardless and end
+    // the session when the first ping does not arrive within ten seconds.
     listener.stage_starting(Stage::VideoStreamStart);
-    if !config.input_only {
+    if config.input_only {
+        // Pings are best effort: a refused or failed send is ignored, nothing reads replies.
+        match net::bind_udp(local, 0, Qos::Video, config.network_priority, |m| {
+            listener.warn(m)
+        })
+        .and_then(|socket| {
+            net::Pinger::start(
+                "VideoPing",
+                &socket,
+                SocketAddr::new(remote.ip(), outcome.video_port),
+                outcome.video_ping_payload,
+            )
+        }) {
+            Ok(pinger) => parts.video_pinger = Some(pinger),
+            Err(e) => listener.warn(&format!("Could not start the input-only video ping: {e}")),
+        }
+    } else {
         let mut decoder = video_decoder;
         let coded = if stream.experimental_packed_444 {
             rubylight_protocol::packed444::Geometry::new(stream.width as u32, stream.height as u32)

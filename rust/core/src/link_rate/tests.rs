@@ -225,18 +225,69 @@ fn the_same_frame_reported_in_several_blocks_counts_once() {
 }
 
 #[test]
-fn recovered_loss_under_five_percent_never_cuts_but_five_in_two_windows_does() {
-    let mut rig = Rig::new(40_000);
-    rig.run(20_000, |lr, frame, now| repaired(lr, frame, 4, now));
-    assert!(rig.changes.is_empty(), "4 % is repaired by FEC");
+fn recovered_loss_never_cuts_however_many_packets_it_lacked() {
+    // A block is reported the moment `data` packets are in, so the parity still
+    // in flight reads as missing; FEC rebuilt every one of these frames.
+    for lost_parity in [4, 8, 16] {
+        let mut rig = Rig::new(40_000);
+        rig.run(20_000, |lr, frame, now| {
+            repaired(lr, frame, lost_parity, now)
+        });
+        assert!(rig.changes.is_empty(), "{lost_parity}: {:?}", rig.changes);
+        assert_eq!(rig.kbps, 40_000);
+    }
+}
 
+#[test]
+fn an_occasional_failed_frame_is_not_a_cut() {
+    // One frame in sixty fails beyond repair: under three in two seconds, and
+    // under 5 % of the packets sent.
     let mut rig = Rig::new(40_000);
-    // 6 % for one second: two full windows.
-    rig.run(1_400, |lr, frame, now| repaired(lr, frame, 6, now));
-    rig.clean(500);
-    assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
-    assert_eq!(rig.changes[0].1.reason, "fec_loss_share");
-    assert!(rig.changes[0].1.evidence.loss_share >= 0.05);
+    let mut n = 0;
+    rig.run(20_000, |lr, frame, now| {
+        n += 1;
+        if n % 60 == 0 {
+            unrecoverable(lr, frame, now);
+        }
+    });
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+}
+
+/// The 2026-10-24 `wifi` arm (150 Mbit/s, 3 +/- 2 ms delay, 0.5 % loss, HEVC
+/// 1080p60 at 14,988 kbps, 20 % FEC) from `host-samples.jsonl`: about 38 packets
+/// a frame (2,370 in the first 62 frames, 39 with 20 % parity). The delay jitter reorders packets
+/// within a frame, so the client decodes each block when its 32nd packet is in
+/// and reports it with the rest still on the way; a few percent of the frames
+/// also truly lost a packet. The old controller read 18 % missing and cut to
+/// the 2,415 kbps floor within seven seconds (15 changes).
+#[test]
+fn the_wifi_arm_with_reordering_and_random_loss_never_cuts() {
+    let mut rig = Rig::new(14_988);
+    let mut n = 0u32;
+    rig.run(45_000, |lr, frame, now| {
+        n += 1;
+        // Data 32 + parity 7. The block is rebuilt when 32 of the 39 packets
+        // are in: `late` of them parity-first, i.e. data still on the way.
+        let late = 1 + (n * 7 % 7) as u16;
+        lr.on_status(
+            &Status {
+                frame,
+                highest_received: 38,
+                next_contiguous: 0,
+                missing_before_highest: late,
+                data: 32,
+                parity: 7,
+                received_data: 32 - late,
+                received_parity: late,
+                percentage: 20,
+                block: 0,
+                blocks: 1,
+            },
+            now,
+        );
+    });
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+    assert_eq!(rig.kbps, 14_988);
 }
 
 #[test]
@@ -483,6 +534,21 @@ fn it_never_goes_below_the_floor_and_says_so() {
         "{:?}",
         rig.kinds()
     );
+    // The floor line says what the link delivered, not 0 (2026-10-24 logs).
+    let floor = rig
+        .changes
+        .iter()
+        .find(|(_, c)| c.kind == ChangeKind::Floor);
+    let (_, floor) = floor.expect("a floor change");
+    assert!(floor.delivered_kbps > 0, "{floor:?}");
+    assert!(floor.evidence.loss_share > 0., "{floor:?}");
+    let probe = rig
+        .changes
+        .iter()
+        .find(|(_, c)| c.kind == ChangeKind::Probe);
+    if let Some((_, probe)) = probe {
+        assert!(probe.delivered_kbps > 0, "{probe:?}");
+    }
 }
 
 #[test]
@@ -553,6 +619,70 @@ fn a_latch_that_fixes_the_loss_gets_one_fence_before_a_cut() {
     rig.lose_three();
     rig.clean(500);
     assert_eq!(rig.cuts(), 1);
+}
+
+/// The 2026-10-24 `r50-hevc-hi` arm: 75 Mbps requested (58,988 kbps encoder) into
+/// 50 Mbit/s. The start-up keyframes are lost, the loss guard latches at 0.8 s
+/// from the start, and the client, waiting for a keyframe, reports only the
+/// keyframes it asked for, about one every 1.2 to 2 s. Three frames took until
+/// 4.9 s and the stream lost its first 5.8 s; once the latch has had its
+/// fence, one is enough, and the cut comes with the first report after it.
+#[test]
+fn a_latch_that_did_not_help_cuts_on_the_first_unrecoverable_frame_after_it() {
+    let mut rig = Rig::new(58_988);
+    rig.clean(780);
+    rig.lr.on_latch(rig.now(), true, true);
+    let base = rig.base;
+    // Keyframes at 0.9 s (inside the fence), 2.1 s and 4.1 s, each reported
+    // about 100 ms after it was sent.
+    let mut reports = vec![1_000u64, 2_200, 4_200];
+    rig.run(3_000, |lr, frame, now| {
+        let at = now.duration_since(base).as_millis() as u64;
+        if reports.first().is_some_and(|r| at >= *r) {
+            reports.remove(0);
+            unrecoverable(lr, frame, now);
+        }
+    });
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
+    let (at, change) = &rig.changes[0];
+    assert!(*at < 2_500, "cut at {at} ms");
+    assert_eq!(change.reason, "unrecoverable_frames");
+}
+
+#[test]
+fn a_stray_unrecoverable_frame_long_after_a_latch_is_not_a_cut() {
+    let mut rig = Rig::new(40_000);
+    rig.clean(1_000);
+    rig.lr.on_latch(rig.now(), true, true);
+    // The fence and the watch both over: one frame is no longer a cut.
+    rig.clean(500 + LATCH_WATCH.as_millis() as u64 + 500);
+    let mut left = 1;
+    rig.run(PERIOD_MS * 2, |lr, frame, now| {
+        if left > 0 {
+            left -= 1;
+            unrecoverable(lr, frame, now);
+        }
+    });
+    rig.clean(2_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+}
+
+#[test]
+fn a_latch_that_is_not_new_or_was_not_fast_starts_no_watch() {
+    let mut rig = Rig::new(40_000);
+    rig.clean(1_000);
+    rig.lr.on_latch(rig.now(), false, true);
+    rig.lr.on_latch(rig.now(), true, false);
+    rig.clean(1_000);
+    let mut left = 1;
+    rig.run(PERIOD_MS * 2, |lr, frame, now| {
+        if left > 0 {
+            left -= 1;
+            unrecoverable(lr, frame, now);
+        }
+    });
+    rig.clean(2_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
 }
 
 #[test]

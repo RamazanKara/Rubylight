@@ -70,12 +70,12 @@ pub const EVALUATE_EVERY: Duration = Duration::from_millis(100);
 /// Distinct unrecoverable frames in the window that cut the bitrate (E1).
 /// Matches the loss guard's "3 unrecoverable frames in 2 s" (Oct 17).
 pub const UNRECOVERABLE_FRAMES: usize = 3;
-/// Share of the packets the host sent that the FEC reports show missing, and
-/// that cuts (E2). FEC repairs less than this (0.5 % random loss on the Oct 23
-/// Wi-Fi arms gave about 2,400 recovered frames and no cut). The share is over
-/// all packets sent, not only those of reported frames: a stream at the edge
-/// of its link loses a few packets in one frame in ten, which is 5 % of that
-/// frame and 0.5 % of the stream, and FEC rebuilds it.
+/// Share of the packets the host sent that the FEC reports show missing in
+/// blocks the client could not rebuild, and that cuts (E2). Blocks FEC rebuilt
+/// never count, however many packets they lacked: the report is made when
+/// enough packets are in, so what is still in flight reads as missing (18 % on
+/// the 2026-10-24 Wi-Fi arm, 0.5 % real loss). The share is over all packets
+/// sent, not only those of reported frames.
 pub const LOSS_SHARE_PERCENT: u64 = 5;
 /// E2 needs the share in this many consecutive windows of [`LOSS_WINDOW`].
 pub const LOSS_WINDOWS: u8 = 2;
@@ -83,6 +83,13 @@ pub const LOSS_WINDOW: Duration = Duration::from_millis(500);
 /// A window in which the host sent fewer packets than this says nothing: a
 /// quiet stream loses 5 % to a single packet.
 pub const LOSS_MIN_PACKETS: u64 = 100;
+/// After a fast-to-slow pacing latch has had its fence, this long a single
+/// unrecoverable frame is enough (E1 is otherwise [`UNRECOVERABLE_FRAMES`]): the
+/// latch was given its chance and the loss went on. A client waiting for a
+/// keyframe reports little (one lost keyframe per request), so three frames
+/// took 4 s on the 2026-10-24 `r50-hevc-hi` arm (75 Mbps into 50 Mbit/s) and
+/// the stream lost its first 5.8 s.
+pub const LATCH_WATCH: Duration = Duration::from_secs(4);
 /// Frames lost on send (WSAENOBUFS and the like) that cut (E3).
 pub const SEND_LOSS_FRAMES: usize = 3;
 /// Network-classified keyframe requests that cut, only from a client that
@@ -377,6 +384,8 @@ pub struct LinkRate {
     at_ceiling: Option<Instant>,
     near_bad: Option<Instant>,
     fence: Option<Fence>,
+    /// Until when one unrecoverable frame cuts (see [`LATCH_WATCH`]).
+    latch_watch: Option<Instant>,
     last_sent: Option<u32>,
     ring: Box<[Sent]>,
     events: Events,
@@ -424,6 +433,7 @@ impl LinkRate {
             at_ceiling: None,
             near_bad: None,
             fence: None,
+            latch_watch: None,
             last_sent: None,
             ring: Box::default(),
             events: Events::default(),
@@ -557,7 +567,16 @@ impl LinkRate {
         }
         let total = u32::from(status.data) + u32::from(status.parity);
         let received = u32::from(status.received_data) + u32::from(status.received_parity);
-        let missing = total.saturating_sub(received);
+        // A block the client rebuilt, or had enough packets to rebuild, is
+        // FEC's job and says nothing about the link. Its report is made the
+        // moment `data` packets are in, so the parity (and, on a path that
+        // reorders, some data) not yet arrived is in flight, not lost: on the
+        // 2026-10-24 Wi-Fi arm (3 +/- 2 ms delay, 0.5 % loss) that read as 18 %
+        // missing and cut the stream to its floor.
+        if received >= u32::from(status.data) {
+            return;
+        }
+        let missing = total - received;
         if missing > 0 {
             self.events.missing += u64::from(missing);
             self.events.lost(status.frame);
@@ -604,6 +623,7 @@ impl LinkRate {
     pub fn on_latch(&mut self, now: Instant, was_fast: bool, new: bool) {
         if new && was_fast && self.is_active() {
             self.set_fence(now);
+            self.latch_watch = self.fence.map(|f| f.at + LATCH_WATCH);
         }
     }
 
@@ -636,6 +656,7 @@ impl LinkRate {
     }
 
     fn set_fence(&mut self, now: Instant) {
+        self.latch_watch = None;
         let wait = MIN_FENCE.max(self.rtt * 2 + FENCE_MARGIN);
         self.fence = Some(Fence {
             frame: self.last_sent.map(|f| f.wrapping_add(1 + PIPELINE_FRAMES)),
@@ -672,7 +693,7 @@ impl LinkRate {
             self.observe_rtt(now, rtt);
             self.events.roll(now);
             self.events.prune(now);
-            if let Some(why) = self.triggered() {
+            if let Some(why) = self.triggered(now) {
                 self.on_evidence(now, why, fec, period, current_kbps);
             } else if self.state != State::Full {
                 self.advance(now, busy, fec, period);
@@ -732,7 +753,7 @@ impl LinkRate {
         self.budget.expect("active controller has a budget")
     }
 
-    fn triggered(&self) -> Option<Trigger> {
+    fn triggered(&self, now: Instant) -> Option<Trigger> {
         let e = &self.events;
         let evidence = Evidence {
             unrecoverable_frames: e.unrecoverable.len(),
@@ -741,7 +762,9 @@ impl LinkRate {
             loss_windows: e.hot,
             loss_share: 0.,
         };
-        let (reason, share_known) = if evidence.unrecoverable_frames >= UNRECOVERABLE_FRAMES {
+        let watching = self.latch_watch.is_some_and(|until| now < until);
+        let unrecoverable = if watching { 1 } else { UNRECOVERABLE_FRAMES };
+        let (reason, share_known) = if evidence.unrecoverable_frames >= unrecoverable {
             ("unrecoverable_frames", true)
         } else if evidence.loss_windows >= LOSS_WINDOWS {
             ("fec_loss_share", true)
@@ -960,6 +983,10 @@ impl LinkRate {
         if cur <= floor {
             // Nothing left to cut. At the encoder's own minimum the stream is
             // already as low as it goes and has said so.
+            if let Some((sent, share)) = estimate.filter(|_| why.share_known) {
+                evidence.loss_share = share;
+                self.delivered_bps = (sent as f64 * (1. - share)) as u64;
+            }
             if self.state != State::Floor && self.encoder_floor.is_none() {
                 self.state = State::Floor;
                 self.reason = "floor";
@@ -970,7 +997,7 @@ impl LinkRate {
                         reason: why.reason,
                         from_kbps,
                         to_kbps: from_kbps,
-                        delivered_kbps: 0,
+                        delivered_kbps: (self.delivered_bps / 1000) as u32,
                         evidence,
                     },
                 );
@@ -1174,7 +1201,7 @@ impl LinkRate {
                 reason: "probe",
                 from_kbps,
                 to_kbps,
-                delivered_kbps: 0,
+                delivered_kbps: (self.delivered_bps / 1000) as u32,
                 evidence: Evidence::default(),
             },
         );

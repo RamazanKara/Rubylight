@@ -167,6 +167,17 @@ public class DecoderTuningKeysTest {
         assertTrue(MediaCodecHelper.droppedTuningKeys(firstKeys, firstKeys).isEmpty());
     }
 
+    @Test
+    public void hdrStaticInfoIsNotWrittenAsNullBeforeAndroidTen() {
+        // Fire OS 7 (Android 9) OMX decoders may refuse a null entry; a fresh format must stay clean.
+        MediaFormat fresh = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        MediaCodecDecoderRenderer.applyHdrStaticInfo(fresh, null);
+        assertFalse(fresh.containsKey(MediaFormat.KEY_HDR_STATIC_INFO));
+        java.nio.ByteBuffer info = java.nio.ByteBuffer.allocate(25);
+        MediaCodecDecoderRenderer.applyHdrStaticInfo(fresh, info);
+        assertSame(info, fresh.getByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO));
+    }
+
     private static MediaFormat tune(String name, int attempt, boolean performanceHints) {
         MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
         MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name), attempt, true, true, performanceHints, false);

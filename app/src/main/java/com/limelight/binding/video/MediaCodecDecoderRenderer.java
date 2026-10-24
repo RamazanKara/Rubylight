@@ -1411,6 +1411,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return videoFormat;
     }
 
+    // Sets the HDR metadata, or clears a stale copy. A format that never had the key is left alone:
+    // before Android 10 clearing means a null entry, which an older OMX decoder (Fire OS 7) may
+    // refuse in configure(), and Artemis never writes the key without metadata either.
+    static void applyHdrStaticInfo(MediaFormat format, ByteBuffer hdrStaticInfo) {
+        if (hdrStaticInfo != null) {
+            format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, hdrStaticInfo);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            format.removeKey(MediaFormat.KEY_HDR_STATIC_INFO);
+        } else if (format.containsKey(MediaFormat.KEY_HDR_STATIC_INFO)) {
+            format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, null);
+        }
+    }
+
     static ByteBuffer createHdrStaticInfo(byte[] metadata) {
         if (metadata == null || metadata.length < 24) {
             return null;
@@ -1438,15 +1451,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             format.setInteger(MediaFormat.KEY_COLOR_STANDARD, hdr ? MediaFormat.COLOR_STANDARD_BT2020 :
                     getPreferredColorSpace() == MoonBridge.COLORSPACE_REC_601 ?
                             MediaFormat.COLOR_STANDARD_BT601_NTSC : MediaFormat.COLOR_STANDARD_BT709);
-            ByteBuffer hdrStaticInfo = hdr ? createHdrStaticInfo(currentHdrMetadata) : null;
-            if (hdrStaticInfo != null) {
-                format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, hdrStaticInfo);
-            }
-            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                format.removeKey(MediaFormat.KEY_HDR_STATIC_INFO);
-            } else {
-                format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, null);
-            }
+            applyHdrStaticInfo(format, hdr ? createHdrStaticInfo(currentHdrMetadata) : null);
         }
 
         LimeLog.info("Configuring with format: "+format);
@@ -1472,9 +1477,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         reassertLowLatencyParameters(format);
 
         // Vendor parameters are applied at start; echoed or declared values confirm acceptance.
-        inputFormat = videoDecoder.getInputFormat();
-        LimeLog.info("Input format: "+inputFormat);
-        updateDecoderDiagnostics();
+        // These only describe the decoder; a failure here must not count as a rejected configure.
+        try {
+            inputFormat = videoDecoder.getInputFormat();
+            LimeLog.info("Input format: "+inputFormat);
+            updateDecoderDiagnostics();
+        } catch (RuntimeException e) {
+            LimeLog.warning("Decoder diagnostics unavailable: " + e);
+        }
     }
 
     // Some decoders only honour low-latency settings sent after start, so send them again at runtime.

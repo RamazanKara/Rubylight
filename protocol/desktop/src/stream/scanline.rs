@@ -588,7 +588,7 @@ mod tests {
     fn the_window_covers_the_slowest_flip_measured_with_a_millisecond_to_spare() {
         // 60 presents on the 240 Hz VRR display with the host encoding on the same GPU began their
         // scans 0.2-8.8 ms after the present call (p99 8.79 ms).
-        assert!(RESTART_WINDOW_NS >= 8_790_000 + 1_000_000);
+        const { assert!(RESTART_WINDOW_NS >= 8_790_000 + 1_000_000) };
         let beam = measured();
         let late = [at(8_700_000, 2400, true), at(8_790_000, 203, false)];
         assert_eq!(restart(&at(0, 2400, true), &late, &beam), Restart::Began);

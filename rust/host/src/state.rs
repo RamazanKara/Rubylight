@@ -165,7 +165,10 @@ pub struct Host {
     pub controller_sessions: crate::controller_sessions::Pool,
     pub hardware_metrics: Mutex<Option<std::sync::mpsc::SyncSender<crate::telemetry::Request>>>,
     pub pairings: Mutex<Pairings>,
+    /// Pairing requests waiting for a PIN in the console. A request with an
+    /// empty `certificate` is a WebRTC device (see `webrtc::clients`).
     pub pins: Mutex<BTreeMap<String, PendingPin>>,
+    pub webrtc: crate::webrtc::clients::Registry,
     pub otp: Mutex<Option<OneTimePin>>,
     pub web_sessions: Mutex<HashMap<String, WebSession>>,
     pub stop: std::sync::atomic::AtomicBool,
@@ -405,6 +408,7 @@ impl Host {
             hardware_metrics: Mutex::new(None),
             pairings: Mutex::new(Pairings::default()),
             pins: Mutex::new(BTreeMap::new()),
+            webrtc: crate::webrtc::clients::Registry::new(),
             otp: Mutex::new(None),
             web_sessions: Mutex::new(web_sessions),
             stop: std::sync::atomic::AtomicBool::new(false),

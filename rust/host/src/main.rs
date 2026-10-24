@@ -423,6 +423,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         h.clone(),
         media,
     ));
+    // None when the setting is off or the port is taken; the console says which.
+    let webrtc = webrtc::server::start(h.clone(), bind);
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
         web_port = ports.web,
@@ -464,6 +466,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     while !h.sessions.lock().unwrap().idle() && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    drop(webrtc);
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
     h.stop_app();

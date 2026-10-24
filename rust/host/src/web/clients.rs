@@ -27,6 +27,11 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .map(|c| {
                     let mut v = serde_json::to_value(c).unwrap();
                     v.as_object_mut().unwrap().remove("cert");
+                    // The secret of a WebRTC device never leaves the host; the
+                    // console gets the device ID, which marks the transport.
+                    if let Some((client_id, _)) = c.webrtc() {
+                        v["webrtc"] = json!({"clientId": client_id});
+                    }
                     v["connected"] = json!(connected.contains(&c.uuid));
                     v["network_loss_routes"] = loss_routes
                         .get(&c.uuid)
@@ -42,6 +47,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             drop(canceled);
             crate::remote_display::disconnect(h, Some(text("uuid")));
             h.unpair_with_network_history(Some(text("uuid")))?;
+            h.webrtc.clients_changed();
             // The device is gone; its session may linger for the grace period, its Radeon
             // settings do not.
             h.radeon.release_device(text("uuid"));
@@ -52,6 +58,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             drop(canceled);
             crate::remote_display::disconnect(h, None);
             h.unpair_with_network_history(None)?;
+            h.webrtc.clients_changed();
             h.radeon.release_all();
             json!({"status":true})
         }
@@ -106,6 +113,8 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     k.as_str(),
                     "uuid"
                         | "cert"
+                        // The WebRTC credentials are written only by pairing.
+                        | "webrtc"
                         | "perm"
                         | "name"
                         | "enabled"
@@ -146,6 +155,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             next.save(&h.paired_path)?;
             *state = next;
             drop(state);
+            h.webrtc.clients_changed();
             // Other changes apply from the device's next stream; disabling
             // it or removing permissions ends what it is doing now.
             if revoked {
@@ -165,7 +175,13 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true,"requests":pins
                 .iter()
                 .filter(|(_, p)| p.created.elapsed() < Duration::from_secs(300))
-                .map(|(id, p)| json!({"uniqueid":id,"name":p.name,"age_seconds":p.created.elapsed().as_secs()}))
+                .map(|(id, p)| json!({
+                    "uniqueid": id,
+                    "name": p.name,
+                    "age_seconds": p.created.elapsed().as_secs(),
+                    // A WebRTC request has no certificate.
+                    "webrtc": p.certificate.is_empty(),
+                }))
                 .collect::<Vec<_>>()})
         }
         ("POST", "/api/otp") => {

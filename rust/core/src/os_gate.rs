@@ -87,7 +87,7 @@ impl Feature {
                 "Windows draws its capture border and the host cannot remove it"
             }
             Self::WgcUpdateInterval => {
-                "capture frames arrive at Windows' own pace, with no minimum interval to relax"
+                "capture frames arrive at Windows' own pace unless a servicing update added the property (the host still tries it)"
             }
             Self::DuplicateOutput1 => {
                 "Desktop Duplication captures 8-bit SDR only, with no HDR format choice"

@@ -342,8 +342,11 @@ async fn connection(
                             negotiated.yuv444,
                         );
                         tracing::warn!(codec = negotiated.codec, ten_bit = negotiated.ten_bit(), %detail, "refusing stream: requested codec is unavailable");
-                        launch.warnings.set("codec_unavailable", detail);
+                        note_codec_refusal(&launch.warnings, Some(detail));
                     } else {
+                        // A retry that asks for an available codec drops the
+                        // refusal the earlier attempt left on this launch.
+                        note_codec_refusal(&launch.warnings, None);
                         configs
                             .lock()
                             .unwrap()
@@ -428,4 +431,33 @@ async fn connection(
 /// Whether the host takes client microphones on this stream.
 fn takes_mic(config: &butterpollo_core::config::Config, media: &crate::stream::Media) -> bool {
     config.boolean("stream_mic", true) && media.mic.is_some()
+}
+/// Show why a launch was refused for its codec, or drop that refusal once a
+/// later attempt on the same launch asks for something the host has.
+fn note_codec_refusal(warnings: &butterpollo_core::session::Warnings, refusal: Option<String>) {
+    match refusal {
+        Some(detail) => warnings.set("codec_unavailable", detail),
+        None => warnings.clear("codec_unavailable"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use butterpollo_core::session::Warnings;
+
+    #[test]
+    fn a_codec_refusal_clears_when_a_retry_asks_for_an_available_codec() {
+        let warnings = Warnings::default();
+        note_codec_refusal(&warnings, Some("AV1 encoding is not available.".into()));
+        let shown = warnings.snapshot();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].code, "codec_unavailable");
+        assert_eq!(shown[0].message, "AV1 encoding is not available.");
+        note_codec_refusal(&warnings, None);
+        assert!(warnings.snapshot().is_empty());
+        // Clearing with nothing shown is harmless.
+        note_codec_refusal(&warnings, None);
+        assert!(warnings.snapshot().is_empty());
+    }
 }

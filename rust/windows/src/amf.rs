@@ -450,7 +450,7 @@ impl Encoder {
                 // driver branch that predates this SDK.
                 let mut runtime = 0u64;
                 let queried = library
-                    .get::<unsafe extern "C" fn(*mut u64) -> AMF_RESULT>(b"AMFQueryVersion ")
+                    .get::<unsafe extern "C" fn(*mut u64) -> AMF_RESULT>(b"AMFQueryVersion\0")
                     .ok()
                     .filter(|query| query(&mut runtime) == AMF_RESULT_AMF_OK)
                     .map(|_| runtime);
@@ -460,14 +460,22 @@ impl Encoder {
                 let header = butterpollo_core::codec_support::amf_version_text(version);
                 match butterpollo_core::codec_support::amf_retry_version(version, queried) {
                     Some(older) => {
-                        tracing::warn!(
-                            header,
-                            runtime = described,
-                            "AMFInit refused this host's AMF version; retrying with the driver's older runtime version. Update the Radeon driver for full support"
-                        );
+                        // Every encoder open takes this path on such a driver;
+                        // say it once.
+                        static RETRY_LOGGED: std::sync::Once = std::sync::Once::new();
+                        RETRY_LOGGED.call_once(|| {
+                            tracing::warn!(
+                                header,
+                                runtime = described,
+                                "AMFInit refused this host's AMF version; retrying with the driver's older runtime version. Update the Radeon driver for full support"
+                            );
+                        });
                         factory = ptr::null_mut();
                         check(init(older, &mut factory)).with_context(|| {
-                            format!("AMFInit with the driver's AMF runtime {described} (host built for {header})")
+                            format!(
+                                "AMFInit with the driver's AMF runtime {described} (host built for {header}) also failed after the first attempt returned {}",
+                                amf_error_text(first)
+                            )
                         })?;
                     }
                     None => {
@@ -1187,6 +1195,10 @@ impl Encoder {
             d3d11_gpu_priority = ?gpu_priority,
             "AMF encoder settings"
         );
+    }
+    /// The GPU this encoder opened on.
+    pub fn adapter(&self) -> &str {
+        &self._device.display.adapter
     }
     pub fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
         crate::device_loss::DeviceLost::d3d11(&self._device.device).or_else(|| {

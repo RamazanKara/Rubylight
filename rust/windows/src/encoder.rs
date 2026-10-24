@@ -252,6 +252,13 @@ impl Encoder {
             Self::Pyrowave(encoder) => encoder.device_removed(),
         }
     }
+    /// The GPU an AMF encoder opened on, for wording what it cannot do.
+    pub fn adapter(&self) -> Option<&str> {
+        match self {
+            Self::Amf(encoder) => Some(encoder.adapter()),
+            Self::Pyrowave(_) => None,
+        }
+    }
     /// The encoder family, as the encoder setting names it.
     pub fn backend(&self) -> &'static str {
         match self {

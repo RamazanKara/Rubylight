@@ -44,7 +44,8 @@ pub(crate) const STATUS_INSUFFICIENT_RESOURCES: NTSTATUS = status::INSUFFICIENT_
 
 /// IddCx in stub mode requires the driver to export its minimum framework version. `10` is
 /// IddCx 1.10, the truthful floor: the drain loop calls `ReleaseAndAcquireBuffer2` (1.10) and
-/// `SetRealtimeGPUPriority` (1.9), and Windows 11 22H2 ships 1.10. An older framework then
-/// refuses to bind instead of dispatching past its DDI table.
+/// `SetRealtimeGPUPriority` (1.9). Windows 11 22H2 ships 1.9 and 23H2 (build 22631) ships 1.10
+/// (Microsoft's IddCx versions table), so older builds refuse to bind instead of dispatching
+/// past the framework's DDI table.
 #[unsafe(no_mangle)]
 pub static IddMinimumVersionRequired: wdk_sys::ULONG = 10;

@@ -554,6 +554,9 @@ impl Host {
             butterpollo_core::codec_support::Codec,
             butterpollo_core::codec_support::Outcome,
         )> = Vec::new();
+        // The GPU the first encoder opened on, which wording a missing codec
+        // must name: the probe may encode on a card other than the biggest.
+        let mut adapter = String::new();
         // Bits follow moonlight-common-c's SCM_* values. AMF encodes 4:2:0
         // only, so H.264, HEVC and AV1 advertise no 4:4:4 mode.
         for (codec, hdr, bit) in [
@@ -590,6 +593,9 @@ impl Host {
                 config,
             ) {
                 Ok(mut encoder) => {
+                    if adapter.is_empty() {
+                        adapter = encoder.adapter().unwrap_or_default().to_string();
+                    }
                     if codec == 0 {
                         *self.probed_encoder.lock().unwrap() = encoder.backend();
                     }
@@ -631,7 +637,7 @@ impl Host {
                 }
             }
         }
-        self.explain_codecs(&outcomes, flags & STANDARD_CODECS != 0);
+        self.explain_codecs(&adapter, &outcomes, flags & STANDARD_CODECS != 0);
         // Publish standard codecs together before the optional Vulkan
         // probe. A driver/overlay failure in that child cannot kill them.
         self.codecs
@@ -694,33 +700,27 @@ impl Host {
     /// warns "No video encoder available".
     fn explain_codecs(
         &self,
+        adapter: &str,
         outcomes: &[(
             butterpollo_core::codec_support::Codec,
             butterpollo_core::codec_support::Outcome,
         )],
         any_codec: bool,
     ) {
-        let adapter = Self::probe_adapter_name();
-        let missing = butterpollo_core::codec_support::explain_all(&adapter, outcomes);
+        let missing = butterpollo_core::codec_support::explain_all(adapter, outcomes);
         for m in &missing {
-            tracing::warn!(adapter, codec = m.codec.label(), reason = %m.reason, "codec not advertised");
+            // A setting is the user's choice, not a fault.
+            if m.reason.contains("turned off in the host settings") {
+                tracing::info!(adapter, codec = m.codec.label(), reason = %m.reason, "codec not advertised");
+            } else {
+                tracing::warn!(adapter, codec = m.codec.label(), reason = %m.reason, "codec not advertised");
+            }
         }
         match butterpollo_core::codec_support::warning(&missing).filter(|_| any_codec) {
             Some(message) => self.warnings.set("codec_support", message),
             None => self.warnings.clear("codec_support"),
         }
         *self.codec_missing.lock().unwrap() = missing;
-    }
-    /// The AMD adapter the probe encodes on: the one with the most video
-    /// memory, as an unpinned stream picks it. Only used to word reasons.
-    fn probe_adapter_name() -> String {
-        butterpollo_windows::capture::gpus()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|gpu| butterpollo_core::amd_gpu::is_amd(gpu.vendor))
-            .max_by_key(|gpu| gpu.dedicated_memory)
-            .map(|gpu| gpu.name)
-            .unwrap_or_default()
     }
     fn wait_for_codec_retry(&self, retry: &CodecRetry) -> bool {
         use std::sync::atomic::Ordering;

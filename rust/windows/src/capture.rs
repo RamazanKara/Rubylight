@@ -1506,18 +1506,20 @@ impl Wgc {
             let interval = windows::Foundation::TimeSpan {
                 Duration: if high_rate { 10_000 } else { 0 },
             };
-            if let Some(reason) = missing(build, Feature::WgcUpdateInterval) {
-                tracing::info!("{reason}");
-            } else {
-                match session.SetMinUpdateInterval(interval) {
-                    Ok(()) => tracing::info!(
-                        interval_us = interval.Duration / 10,
-                        "WGC minimum update interval configured"
-                    ),
-                    Err(error) => {
+            // Always tried, whatever the build: a Windows servicing update can
+            // bring the property to an older build. Only the log wording
+            // depends on the build.
+            match session.SetMinUpdateInterval(interval) {
+                Ok(()) => tracing::info!(
+                    interval_us = interval.Duration / 10,
+                    "WGC minimum update interval configured"
+                ),
+                Err(error) => match missing(build, Feature::WgcUpdateInterval) {
+                    Some(reason) => tracing::info!(%error, "{reason}"),
+                    None => {
                         tracing::warn!(%error, "WGC minimum update interval unavailable; using the Windows default, which may limit capture fps. Update Windows or disable high-rate capture")
                     }
-                }
+                },
             }
             let capture = Self {
                 gpu,

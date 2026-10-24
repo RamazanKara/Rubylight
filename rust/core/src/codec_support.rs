@@ -165,11 +165,13 @@ impl Codec {
 /// driver's own error explains the gap.
 pub fn expected(engine: Engine, codec: Codec) -> Option<bool> {
     match engine {
-        Engine::Unknown | Engine::Vce => {
+        Engine::Vce => {
             // VCE encodes H.264; HEVC and 10-bit support depend on the part.
-            // The table only documents VCN 2.0 and later.
+            // The table only documents VCN 2.0 and later, but no VCE part has AV1.
             (codec.id == 2).then_some(false)
         }
+        // An unidentified GPU may be anything, including a new one with AV1.
+        Engine::Unknown => None,
         Engine::DecodeOnly => Some(false),
         Engine::Vcn2 | Engine::Vcn3 => Some(codec.id != 2),
         Engine::Vcn4 | Engine::Vcn5 => Some(true),
@@ -222,8 +224,13 @@ pub fn explain(adapter: &str, codec: Codec, outcome: &Outcome) -> Option<Unavail
                     engine.label(),
                 ),
                 None => format!(
-                    "{} encoding is not available: the AMF driver refused it on {adapter}. Driver: {driver}",
-                    codec.label()
+                    "{} encoding is not available: the AMF driver refused it{}. Driver: {driver}",
+                    codec.label(),
+                    if adapter.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" on {adapter}")
+                    },
                 ),
             }
         }
@@ -400,7 +407,14 @@ mod tests {
             let hdr = missing.iter().find(|m| m.codec == HEVC10).unwrap();
             assert!(hdr.reason.contains("AMF driver refused"), "{name}");
             let av1 = missing.iter().find(|m| m.codec == AV1).unwrap();
-            assert!(av1.reason.contains("no AV1 encoder"), "{name}");
+            // Only a known VCE part is told it has no AV1; an unidentified GPU
+            // gets the driver's text, since it may be a new one.
+            if engine(name) == Engine::Vce {
+                assert!(av1.reason.contains("no AV1 encoder"), "{name}");
+            } else {
+                assert!(av1.reason.contains("AMF driver refused"), "{name}");
+                assert_eq!(expected(engine(name), AV1), None, "{name}");
+            }
         }
     }
 

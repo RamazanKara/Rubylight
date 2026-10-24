@@ -22,19 +22,18 @@ class FrameLatencyStats {
     private static final int MAX_COMPLETED = 4096;
     private static final long CALLBACK_TIMEOUT_NS = 5000000000L;
     private static final long FPS_WINDOW_NS = 2000000000L;
-    // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency, 4 host latency,
-    // then the host's queue, encode and send split (only from host timing reports).
-    private static final int STAGES = 8;
+    // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency, 4 host processing
+    // (the video frame header's value, the one Artemis and Moonlight show), 5 to 7 the host's queue,
+    // encode and send split and 8 its present to last packet sent (only from host timing reports).
+    private static final int STAGES = 9;
     private static final int HOST_STAGE = 4;
+    static final int HOST_QUEUE_STAGE = 5;
+    static final int HOST_SEND_STAGE = 7;
+    static final int HOST_SENT_STAGE = 8;
     // Reports that arrive before their frame, and frames finished before their report, are matched
     // within these bounds; a report older than that is dropped.
     private static final int MAX_EARLY_REPORTS = 256;
     private static final int MAX_COMPLETED_SCAN = 512;
-    // Host timing reports replace the frame header's host latency while they keep arriving.
-    private static final long HOST_TIMING_FRESH_NS = 2000000000L;
-    private static final int SOURCE_NONE = 0;
-    private static final int SOURCE_HEADER = 1;
-    private static final int SOURCE_REPORTS = 2;
     // Queued frames Artemis never counts (replaced before display) are forgotten past this many.
     private static final int MAX_ARTEMIS_QUEUED = 1024;
     static final String CSV_HEADER = "frame_number,pts_us,receive_ns,decoder_input_ns,decoder_output_ns," +
@@ -48,7 +47,13 @@ class FrameLatencyStats {
             // Nine columns for joining the row with the host's record (Rubylight's
             // docs/timing-record.md): host microseconds, empty where unknown.
             "rtp_host_us,host_present_us,host_acquired_us,host_submitted_us,host_encoded_us," +
-            "host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us\n";
+            "host_first_sent_us,host_last_sent_us,clock_offset_us,clock_rtt_us," +
+            // The present scheduler and the decoder queue (empty where the frame was not planned):
+            // the vsync it was planned for, the wait before its release, whether it was behind the
+            // game's cadence, frames behind it in the decoder, its input-to-output time above the
+            // ten second minimum, frames in front of the compositor, and why it was dropped.
+            "sched_vsync_ns,sched_hold_ms,sched_late,queue_depth,residency_excess_ms,in_flight," +
+            "drop_reason\n";
 
     /** Reads the host-to-client clock offset and round trip (microseconds) into out[0..1]; false before an exchange. */
     interface ClockOffsetSource {
@@ -63,8 +68,6 @@ class FrameLatencyStats {
     private final int[] counts = new int[STAGES];
     private final int[] positions = new int[STAGES];
     private final LinkedHashMap<Integer, HostTimingReport.Record> earlyReports = new LinkedHashMap<>();
-    private long lastHostTimingNs;
-    private int hostSource = SOURCE_NONE;
     private long csvRowsLost;
     private final boolean vrr;
     private long lastOutputNs;
@@ -121,6 +124,13 @@ class FrameLatencyStats {
         long previousReleaseNs;
         boolean awaitingRender;
         String status;
+        long schedVsyncNs;
+        long schedHoldNs = -1;
+        boolean schedLate;
+        int queueDepth = -1;
+        long residencyExcessNs = -1;
+        int inFlight = -1;
+        String dropReason;
     }
 
     final LatencyProbe latencyProbe = new LatencyProbe();
@@ -153,25 +163,23 @@ class FrameLatencyStats {
         frame.hostProcessingNs = hostProcessingLatency * 100000L;
         pending.put(ptsUs, frame);
         frame.hostTiming = earlyReports.remove(frameNumber);
-        boolean reportsFresh = lastHostTimingNs != 0 && inputNs - lastHostTimingNs < HOST_TIMING_FRESH_NS;
-        if (frame.hostProcessingNs != 0 && !reportsFresh) {
-            useHostSource(SOURCE_HEADER);
+        // Stage 4 is only ever the header's value. Never feed a host timing report into it:
+        // present to last packet sent includes the network send and reads several times higher.
+        if (frame.hostProcessingNs != 0) {
             addDuration(HOST_STAGE, frame.hostProcessingNs, inputNs);
         }
     }
 
     // A host timing report (0x5536), which arrives on the native control thread. Its present to
-    // last-packet-sent time is the host latency; the frame header's value stops at the first
-    // packet. The reports take over the host latency samples for as long as they keep arriving.
+    // last-packet-sent time and the queue, encode and send split get their own stages; they never
+    // touch the host processing stage, which stays the frame header's value.
     synchronized void onHostTiming(HostTimingReport report, long nowNs) {
-        lastHostTimingNs = nowNs;
-        useHostSource(SOURCE_REPORTS);
         for (int i = 0; i < report.size(); i++) {
             HostTimingReport.Record record = report.get(i);
-            addDuration(HOST_STAGE, record.hostUs * 1000L, nowNs);
-            addDuration(HOST_STAGE + 1, record.queueUs * 1000L, nowNs);
-            addDuration(HOST_STAGE + 2, record.encodeUs * 1000L, nowNs);
-            addDuration(HOST_STAGE + 3, record.sendUs * 1000L, nowNs);
+            addDuration(HOST_SENT_STAGE, record.hostUs * 1000L, nowNs);
+            addDuration(HOST_QUEUE_STAGE, record.queueUs * 1000L, nowNs);
+            addDuration(HOST_QUEUE_STAGE + 1, record.encodeUs * 1000L, nowNs);
+            addDuration(HOST_SEND_STAGE, record.sendUs * 1000L, nowNs);
             Frame frame = findFrame(record.frame);
             if (frame != null) {
                 frame.hostTiming = record;
@@ -184,20 +192,6 @@ class FrameLatencyStats {
                 earlyReports.put(record.frame, record);
             }
         }
-    }
-
-    // A window never mixes the two sources of host latency: switching starts it afresh.
-    private void useHostSource(int source) {
-        if (hostSource == source) {
-            return;
-        }
-        if (hostSource != SOURCE_NONE) {
-            for (int stage = HOST_STAGE; stage < STAGES; stage++) {
-                counts[stage] = 0;
-                positions[stage] = 0;
-            }
-        }
-        hostSource = source;
     }
 
     private Frame findFrame(int frameNumber) {
@@ -287,6 +281,39 @@ class FrameLatencyStats {
                 finish(frame, "render_unavailable");
             }
         }
+    }
+
+    /** Input to output time of a still-owned output buffer, or zero when untracked. */
+    synchronized long getInputToOutputNs(int outputIndex) {
+        Frame frame = outputs.get(outputIndex);
+        return frame == null || frame.inputNs <= 0 || frame.outputNs < frame.inputNs ? 0 :
+                frame.outputNs - frame.inputNs;
+    }
+
+    /** Notes where the scheduler planned a still-owned output; call before it is released. */
+    synchronized void onScheduled(int outputIndex, long vsyncNs, long holdNs, boolean late, int inFlight) {
+        Frame frame = outputs.get(outputIndex);
+        if (frame != null) {
+            frame.schedVsyncNs = vsyncNs;
+            frame.schedHoldNs = Math.max(0, holdNs);
+            frame.schedLate = late;
+            frame.inFlight = inFlight;
+        }
+    }
+
+    /** Notes the decoder queue seen by a still-owned output: frames behind it, and its residency excess. */
+    synchronized void onQueueState(int outputIndex, int depth, long excessNs) {
+        Frame frame = outputs.get(outputIndex);
+        if (frame != null) {
+            frame.queueDepth = Math.max(0, depth);
+            frame.residencyExcessNs = Math.max(0, excessNs);
+        }
+    }
+
+    /** Notes why a still-owned output is about to be dropped; call before the release. */
+    synchronized void onDropReason(int outputIndex, String reason) {
+        Frame frame = outputs.get(outputIndex);
+        if (frame != null) frame.dropReason = reason;
     }
 
     /** The local queue timestamp for a still-owned output buffer, or zero when untracked. */
@@ -566,8 +593,18 @@ class FrameLatencyStats {
                     hostTimingColumns(frame.hostTiming) + "," + timestamp(frame.callbackReceivedNs) + "," +
                     duration(frame.renderNs, frame.callbackReceivedNs) +
                     "," + (frame.hostRtpUs < 0 ? "" : Long.toString(frame.hostRtpUs)) +
-                    hostStampColumns(frame.hostTiming) + "," + clockColumns + "\n");
+                    hostStampColumns(frame.hostTiming) + "," + clockColumns + schedulerColumns(frame) + "\n");
         }
+    }
+
+    private static String schedulerColumns(Frame frame) {
+        return "," + timestamp(frame.schedVsyncNs) +
+                "," + (frame.schedHoldNs < 0 ? "" : milliseconds(frame.schedHoldNs)) +
+                "," + (frame.schedHoldNs < 0 ? "" : frame.schedLate ? "1" : "0") +
+                "," + (frame.queueDepth < 0 ? "" : Integer.toString(frame.queueDepth)) +
+                "," + (frame.residencyExcessNs < 0 ? "" : milliseconds(frame.residencyExcessNs)) +
+                "," + (frame.inFlight < 0 ? "" : Integer.toString(frame.inFlight)) +
+                "," + (frame.dropReason == null ? "" : frame.dropReason);
     }
 
     private static String hostTimingColumns(HostTimingReport.Record record) {

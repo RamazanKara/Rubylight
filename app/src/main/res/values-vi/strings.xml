@@ -262,7 +262,7 @@
     <string name="latency_output_render">Chờ hiển thị</string>
     <string name="latency_receive_render">Độ trễ trên thiết bị</string>
     <string name="latency_host_processing">Xử lý trên máy chủ</string>
-    <string name="latency_host_processing_send">Xử lý trên máy chủ + gửi</string>
+    <string name="latency_host_processing_send">Máy chủ đến mạng</string>
     <string name="latency_host_split">Hàng đợi / mã hóa / gửi của máy chủ (TB): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Ưu tiên YUV 4:4:4</string>
     <string name="summary_yuv444">Chữ màu sắc nét hơn khi cả PC và thiết bị này hỗ trợ. HDR được ưu tiên.</string>
@@ -273,6 +273,8 @@
     <string name="summary_vrr">Trên màn hình Android 16 có tần số quét thích ứng, Android khớp tần số quét với stream; các màn hình khác chạy ở tần số cao nhất. Máy chủ hỗ trợ VRR cũng được yêu cầu dùng VRR, tùy theo cài đặt của máy chủ. Khi bật tùy chọn này, nhịp độ khung hình và tần số quét thấp hơn sẽ không được áp dụng.</string>
     <string name="title_host_frame_times">Hiển thị khung hình theo nhịp của PC</string>
     <string name="summary_host_frame_times">Giữ mỗi khung hình vài mili giây để nó hiện ra đúng lúc trò chơi vẽ, thay vì lúc mạng gửi tới. Giảm dao động, nhất là với tần số quét thích ứng. Thay thế cách điều nhịp khung hình. Không dùng với PyroWave.</string>
+    <string name="title_content_rate_frame_rate">Khớp màn hình với tốc độ khung hình của trò chơi</string>
+    <string name="summary_content_rate_frame_rate">Báo cho Android tốc độ khung hình mà trò chơi thật sự chạy, để màn hình có chế độ phù hợp có thể chuyển sang mà không bị đen màn hình. Cần một PC gửi thời điểm khung hình và tùy chọn «Cho phép tần số quét thấp hơn»; chỉ thay đổi tối đa 2 giây một lần. Không dùng với PyroWave hoặc tần số quét thích ứng.</string>
     <string name="title_virtual_display_scale">Tỷ lệ kết xuất trên máy chủ</string>
     <string name="summary_virtual_display_scale">Thay đổi độ phân giải kết xuất của PC, không phải kích thước video được truyền. Để gửi ít điểm ảnh hơn và nâng cấp độ phân giải trên thiết bị này, hãy giảm Độ phân giải stream.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

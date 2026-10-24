@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">ホーム</string>
-    <string name="console_menu_hosts">ホスト</string>
     <string name="console_section_favourites">お気に入り</string>
     <string name="console_section_continue">続きをプレイ</string>
     <string name="console_section_library">ライブラリ</string>
-    <string name="console_section_hosts">ホスト</string>
+    <string name="console_section_hosts">PC</string>
     <string name="console_favourite_add">お気に入りに追加</string>
     <string name="console_favourite_remove">お気に入りから削除</string>
     <string name="console_favourite_description">お気に入り</string>
@@ -17,9 +16,9 @@
     <string name="console_host_saved_games">オフライン。保存済みのゲーム: %1$d</string>
     <string name="console_host_offline">オフライン</string>
     <string name="console_host_no_library">ゲームはまだ読み込まれていません</string>
-    <string name="console_empty_title">ホストがありません</string>
+    <string name="console_empty_title">PC がありません</string>
     <string name="console_empty_body">Nightjar を PC とペアリングすると、ここにゲームが表示されます。</string>
-    <string name="console_empty_open_hosts">ホストを開く</string>
+    <string name="console_empty_open_hosts">PC を開く</string>
     <string name="console_detail_host">ホスト</string>
     <string name="console_detail_profile">ストリーム設定</string>
     <string name="console_detail_status_running">%1$s で実行中</string>

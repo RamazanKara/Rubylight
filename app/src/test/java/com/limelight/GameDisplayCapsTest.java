@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 @RunWith(org.robolectric.RobolectricTestRunner.class)
@@ -65,6 +66,18 @@ public class GameDisplayCapsTest {
         report(game);
         assertEquals("Rotating the same physical dimensions must retain the report", 1, reports.size());
         assertEquals(1000, reports.get(0).maxNits, 0);
+    }
+
+    @Test public void anHlgOnlyOutputIsNotReportedAsAnHdr10Output() {
+        // The request needs HDR10; the report to the host must use the same test.
+        Game game = connectedGame();
+        Display display = game.getWindowManager().getDefaultDisplay();
+        panel(display, 1, 1968, 2184, 60, 1000);
+        Shadows.shadowOf(display).setDisplayHdrCapabilities(display.getDisplayId(), 1000, 500, 0.0005f,
+                Display.HdrCapabilities.HDR_TYPE_HLG);
+        report(game);
+        assertEquals(1, reports.size());
+        assertFalse(reports.get(0).hdr);
     }
 
     @Test public void aFoldWithTheSameLogicalDisplayIdReportsTheNewPanel() {

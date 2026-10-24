@@ -5,6 +5,7 @@
     <string name="overlay_compact_rtt">%1$s ms RTT</string>
     <string name="overlay_compact_loss">%1$s %% pérdida</string>
     <string name="overlay_compact_waiting">Esperando vídeo</string>
+    <string name="link_notice_lowered">El host bajó la tasa de bits a %1$s Mbps: red</string>
     <string name="overlay_health_good">Transmisión buena</string>
     <string name="overlay_health_fair">Transmisión inestable</string>
     <string name="overlay_health_poor">Transmisión mala</string>

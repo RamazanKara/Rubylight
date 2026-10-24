@@ -153,6 +153,10 @@ public final class HostCapabilities {
 
     private static final int JSON_VERSION = 1;
     // hostDisplay arrived in Rubylight 2.2.1.
+    /** Pre-release tags in release order; the 3.0 hosts report "3.0.0-beta.N". */
+    private static final String[] PRE_RELEASE_TAGS = {"-alpha.", "-beta.", "-rc."};
+    /** number() stops at 100000, so a stage's numbers never reach into the next. */
+    private static final int PRE_RELEASE_STAGE = 1000000;
     private static final int[] HOST_DISPLAY_MODES_VERSION = {2, 2, 1, Integer.MAX_VALUE};
 
     private final Evidence evidence;
@@ -289,8 +293,10 @@ public final class HostCapabilities {
     }
 
     /**
-     * "2.2.21" or "2.0.0-rc.19" as {major, minor, patch, rc}, where a release sorts after its
-     * release candidates; null for anything malformed. An optional "+build" suffix is ignored.
+     * "2.2.21", "2.0.0-rc.19" or "3.0.0-beta.1" as {major, minor, patch, pre-release}, where a release
+     * sorts after its pre-releases and alpha, beta and rc sort in that order (the stage is the
+     * thousands of the pre-release number); null for anything malformed. An optional "+build"
+     * suffix is ignored.
      */
     static int[] parseRubylightVersion(String version) {
         if (version == null) {
@@ -306,10 +312,14 @@ public final class HostCapabilities {
             parts[part] = value;
         }
         parts[3] = Integer.MAX_VALUE;
-        if (consume(version, index, "-rc.")) {
-            parts[3] = number(version, index);
-            if (parts[3] <= 0) {
-                return null;
+        for (int stage = 0; stage < PRE_RELEASE_TAGS.length; stage++) {
+            if (consume(version, index, PRE_RELEASE_TAGS[stage])) {
+                int pre = number(version, index);
+                if (pre <= 0) {
+                    return null;
+                }
+                parts[3] = (stage + 1) * PRE_RELEASE_STAGE + pre;
+                break;
             }
         }
         if (consume(version, index, "+")) {

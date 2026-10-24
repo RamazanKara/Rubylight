@@ -11,4 +11,14 @@
     <string name="host_unpair_title">Desparear %1$s?</string>
     <string name="host_unpair_message">O PC esquece este dispositivo e a biblioteca salva é apagada aqui. Você precisará parear novamente para transmitir. O PC continua na lista.</string>
     <string name="host_wake_needs_pairing">Pareie o PC uma vez com ele ligado para poder ligá-lo à distância</string>
+    <string name="settings_category_accessibility">Acessibilidade</string>
+    <string name="title_ui_scale">Tamanho da interface</string>
+    <string name="summary_ui_scale">Ajusta a escala dos menus, listas e caixas de diálogo do app. A transmissão não é redimensionada. O tamanho da fonte do sistema continua valendo por cima. Vale na hora.</string>
+    <string name="title_high_contrast">Alto contraste</string>
+    <string name="summary_high_contrast">Fundo preto, texto e contornos mais fortes e um anel de foco mais grosso em todas as telas do app. A transmissão não muda.</string>
+    <string name="title_reduce_motion">Reduzir movimento</string>
+    <string name="summary_reduce_motion">Seguir o sistema desliga as animações quando a escala de animação do Android é 0. Reduzir troca o zoom do foco e os painéis deslizantes por um anel simples. Completo sempre anima.</string>
+    <string name="reduce_motion_system">Seguir o sistema</string>
+    <string name="reduce_motion_reduce">Reduzir</string>
+    <string name="reduce_motion_full">Completo</string>
 </resources>

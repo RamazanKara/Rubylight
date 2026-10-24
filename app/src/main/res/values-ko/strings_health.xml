@@ -10,7 +10,7 @@
     <string name="health_presentation">표시: 프레임이 표시되는 속도보다 빠르게 전달되어 표시 대기 시간이 길었습니다. 프레임 페이싱 모드와 화면 주사율을 비교해 보세요.</string>
     <string name="health_heat">온도: Android에서 높은 발열 부하를 보고했습니다. 프레임 속도/해상도를 낮추거나 부하가 큰 클라이언트 처리를 끄고 기기를 식히세요.</string>
     <string name="health_evidence">관찰된 최대값:\n프레임 손실: %1$s %%\n디코딩: %2$s ms\n호스트 처리 p95: %3$s ms\n표시 대기 p95: %4$s ms\n이 단계들을 더해도 입력부터 화면까지의 지연 시간이 되지는 않습니다.</string>
-    <string name="health_evidence_send">관찰된 최대값:\n프레임 손실: %1$s %%\n디코딩: %2$s ms\n호스트 처리 + 전송 p95: %3$s ms\n표시 대기 p95: %4$s ms\n이 단계들을 더해도 입력부터 화면까지의 지연 시간이 되지는 않습니다.</string>
+    <string name="health_evidence_send">관찰된 최대값:\n프레임 손실: %1$s %%\n디코딩: %2$s ms\n호스트에서 네트워크까지 p95: %3$s ms\n표시 대기 p95: %4$s ms\n이 단계들을 더해도 입력부터 화면까지의 지연 시간이 되지는 않습니다.</string>
     <string name="health_trial_help">비트레이트 시험은 이 세션에만 적용됩니다. 비슷한 게임 플레이를 30초 더 비교한 후 여기로 돌아와 되돌리세요. 비트레이트를 직접 또는 자동으로 변경하면 시험이 대체됩니다.</string>
     <string name="health_try">비트레이트 낮춰 보기</string>
     <string name="health_undo">비트레이트 시험 되돌리기</string>

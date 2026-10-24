@@ -4,4 +4,6 @@
     <string name="startup_launch_cancelled">Đã hủy khởi chạy.</string>
     <string name="startup_confirmation_timed_out">Hết thời gian xác nhận. Hãy mở lại ô này để thử lại.</string>
     <string name="startup_confirmation_rejected">Phiên trên máy chủ đã thay đổi hoặc xác nhận đã hết hạn. Hãy mở lại ô này.</string>
+    <string name="decoder_setup_rejected">Bộ giải mã video của thiết bị này (%1$s) không thể bắt đầu %2$s ở %3$dx%4$d, %5$d FPS: %6$s. Nguyên nhân không phải do máy chủ. Trong Cài đặt, hãy thử H.264, độ phân giải thấp hơn hoặc tốc độ khung hình thấp hơn. Nếu vẫn xảy ra, hãy dùng “Báo cáo sự cố”.</string>
+    <string name="decoder_setup_none">Thiết bị này không có bộ giải mã video cho %1$s. Hãy chọn codec video khác trong Cài đặt.</string>
 </resources>

@@ -262,7 +262,7 @@
     <string name="latency_output_render">Espera de pantalla</string>
     <string name="latency_receive_render">Latencia del cliente</string>
     <string name="latency_host_processing">Procesamiento del servidor</string>
-    <string name="latency_host_processing_send">Procesamiento del servidor + envío</string>
+    <string name="latency_host_processing_send">Servidor a la red</string>
     <string name="latency_host_split">Cola / codificación / envío del host (media): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Preferir YUV 4:4:4</string>
     <string name="summary_yuv444">Texto en color más nítido si el PC y este dispositivo lo admiten. HDR tiene prioridad.</string>
@@ -273,6 +273,8 @@
     <string name="summary_vrr">En pantallas con Android 16 y frecuencia adaptativa, Android ajusta la frecuencia de actualización a la transmisión; las demás pantallas funcionan a su frecuencia máxima. También se pide a los servidores compatibles con VRR que lo usen, según sus ajustes. Mientras esté activado, el ritmo de fotogramas y la frecuencia de actualización menor no se aplican.</string>
     <string name="title_host_frame_times">Mostrar fotogramas al ritmo del PC</string>
     <string name="summary_host_frame_times">Retiene cada fotograma unos milisegundos para que aparezca cuando el juego lo dibujó, no cuando lo entregó la red. Suaviza las variaciones, sobre todo con frecuencia adaptativa. Sustituye al ritmo de fotogramas. No se usa con PyroWave.</string>
+    <string name="title_content_rate_frame_rate">Ajustar la pantalla a la tasa del juego</string>
+    <string name="summary_content_rate_frame_rate">Indica a Android la tasa de fotogramas real del juego para que una pantalla con un modo adecuado cambie a ella sin quedarse en negro. Requiere un PC que envíe tiempos de fotograma y «Permitir una frecuencia de actualización menor»; cambia como máximo una vez cada 2 segundos. No se usa con PyroWave ni con frecuencia adaptativa.</string>
     <string name="title_virtual_display_scale">Escala de renderizado del servidor</string>
     <string name="summary_virtual_display_scale">Cambia la resolución de renderizado del PC, no el tamaño del vídeo transmitido. Para enviar menos píxeles y escalarlos en este dispositivo, reduce la resolución de transmisión.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

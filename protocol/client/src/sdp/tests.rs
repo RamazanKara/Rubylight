@@ -276,8 +276,8 @@ fn sunshine_pyrowave_with_records_and_pacing_hints() {
                 "x-nv-video[0].videoEncoderSlicesPerFrame:1",
                 "x-nv-vqos[0].bitStreamFormat:3",
                 "x-ss-video[0].pyrowaveFeatures:1",
-                "x-ss-video[0].pyrowaveLinkMbps:2500",
                 "x-ss-video[0].pyrowavePaceMbps:2100",
+                "x-ss-video[0].pyrowaveLinkMbps:2500",
                 "x-nv-video[0].dynamicRangeMode:1",
                 "x-nv-video[0].maxNumReferenceFrames:1",
                 "x-nv-video[0].clientRefreshRateX100:24000",
@@ -291,6 +291,72 @@ fn sunshine_pyrowave_with_records_and_pacing_hints() {
             47998
         )
     );
+}
+
+/// The `a=` line of an attribute, or None when the description lacks it.
+fn attribute<'a>(sdp: &'a str, name: &str) -> Option<&'a str> {
+    let prefix = format!("a={name}:");
+    sdp.lines().find(|l| l.starts_with(&prefix)).map(|l| l.trim_end())
+}
+
+#[test]
+fn link_speed_hint_is_sent_for_every_codec_and_only_pyrowave_gets_the_pace() {
+    const LINK: &str = "x-ss-video[0].pyrowaveLinkMbps";
+    const PACE: &str = "x-ss-video[0].pyrowavePaceMbps";
+    let formats = [
+        (VIDEO_FORMAT_H264, false),
+        (VIDEO_FORMAT_H265, false),
+        (VIDEO_FORMAT_AV1_MAIN8, false),
+        (VIDEO_FORMAT_PYROWAVE, true),
+    ];
+    for (format, pyrowave) in formats {
+        // Wired with a known speed and a calibrated pace.
+        let config =
+            StreamConfig { pyrowave_link_mbps: 2500, pyrowave_pace_mbps: 2100, ..Default::default() };
+        let sdp = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
+        assert_eq!(attribute(&sdp, LINK), Some("a=x-ss-video[0].pyrowaveLinkMbps:2500"), "{format:#x}");
+        assert_eq!(attribute(&sdp, PACE).is_some(), pyrowave, "{format:#x}");
+
+        // Wi-Fi, cellular or an unreadable port reports 0: no hint, as before.
+        let config = StreamConfig { pyrowave_link_mbps: 0, pyrowave_pace_mbps: 0, ..Default::default() };
+        let sdp = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
+        assert_eq!(attribute(&sdp, LINK), None, "{format:#x}");
+        assert_eq!(attribute(&sdp, PACE), None, "{format:#x}");
+    }
+}
+
+#[test]
+fn row_order_is_requested_only_for_pyrowave_with_records_and_the_setting() {
+    const ROW_ORDER: &str = "x-ss-video[0].pyrowaveRowOrder";
+    for (format, records, row_order, sent) in [
+        (VIDEO_FORMAT_PYROWAVE, true, true, true),
+        (VIDEO_FORMAT_PYROWAVE, true, false, false),
+        (VIDEO_FORMAT_PYROWAVE, false, true, false),
+        (VIDEO_FORMAT_H264, true, true, false),
+        (VIDEO_FORMAT_H265, true, true, false),
+    ] {
+        let config = StreamConfig { pyrowave_row_order: row_order, ..Default::default() };
+        let mut p = params(&config, SUNSHINE, "10.0.0.7", format);
+        p.pyrowave_records_enabled = records;
+        let sdp = generate(&p).text;
+        let line = attribute(&sdp, ROW_ORDER);
+        assert_eq!(line, sent.then_some("a=x-ss-video[0].pyrowaveRowOrder:1"), "{format:#x} records={records} row_order={row_order}");
+        // Next to the records key, before the pace hint, and nothing else moves.
+        if sent {
+            let features = sdp.find("pyrowaveFeatures:1").unwrap();
+            assert!(features < sdp.find("pyrowaveRowOrder:1").unwrap());
+        }
+    }
+    // With the request off the description is the same as a client that never heard of it.
+    let off = StreamConfig { pyrowave_row_order: false, ..Default::default() };
+    let on = StreamConfig { pyrowave_row_order: true, ..Default::default() };
+    let mut p = params(&off, SUNSHINE, "10.0.0.7", VIDEO_FORMAT_PYROWAVE);
+    p.pyrowave_records_enabled = true;
+    let without = generate(&p).text;
+    let mut p = params(&on, SUNSHINE, "10.0.0.7", VIDEO_FORMAT_PYROWAVE);
+    p.pyrowave_records_enabled = true;
+    let with = generate(&p).text;
+    assert_eq!(with.replace("a=x-ss-video[0].pyrowaveRowOrder:1 \r\n", ""), without);
 }
 
 #[test]

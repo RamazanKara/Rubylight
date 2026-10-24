@@ -132,6 +132,15 @@ fn display_of(window: *mut SDL_Window) -> Display {
 }
 
 fn main() {
+    // Package checks run without a window: `nightjar --check-pyrowave <report file>`.
+    let mut args = std::env::args_os().skip(1);
+    if args.next().is_some_and(|flag| flag == "--check-pyrowave") {
+        let Some(report) = args.next() else {
+            eprintln!("nightjar: --check-pyrowave needs a report file");
+            std::process::exit(64);
+        };
+        std::process::exit(stream::pyrowave_mode::package_check(std::path::Path::new(&report)));
+    }
     if let Err(e) = run() {
         eprintln!("nightjar: {e}");
         let text = std::ffi::CString::new(e).unwrap_or_default();
@@ -146,6 +155,19 @@ fn main() {
         };
         std::process::exit(1);
     }
+}
+
+/// The renderer's device PyroWave GPU decoding is tied to: the Direct3D 11 device on Windows, the
+/// SDL GPU device (the "gpu" renderer, Vulkan) elsewhere.
+fn renderer_gpu_device(renderer: *mut SDL_Renderer) -> Option<stream::pipeline::GpuDevice> {
+    let (name, property) = if cfg!(windows) {
+        ("direct3d11", SDL_PROP_RENDERER_D3D11_DEVICE_POINTER)
+    } else {
+        ("gpu", SDL_PROP_RENDERER_GPU_DEVICE_POINTER)
+    };
+    if sdl::renderer_name(renderer) != name { return None; }
+    let device = sdl::renderer_pointer(renderer, property);
+    (!device.is_null()).then_some(stream::pipeline::GpuDevice(device))
 }
 
 fn run() -> Result<(), String> {
@@ -228,6 +250,7 @@ fn run() -> Result<(), String> {
     {
         launcher.tearing_supported = true;
     }
+    launcher.gpu_device = renderer_gpu_device(renderer);
     eprintln!(
         "nightjar: renderer {}, display {}x{} at {:.2} Hz, tearing {}",
         sdl::renderer_name(renderer),
@@ -891,6 +914,11 @@ impl App {
         }
     }
 
+    /// The renderer's device, for PyroWave decoding on the GPU.
+    fn gpu_device(&self) -> Option<stream::pipeline::GpuDevice> {
+        renderer_gpu_device(self.renderer)
+    }
+
     fn hardware(&self, settings: &config::Settings) -> Hardware {
         if settings.decoder == DecoderPreference::Software {
             return Hardware::None;
@@ -996,10 +1024,28 @@ impl App {
             self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
             return;
         }
+        let mut gpu_decoder = None;
         if settings.codec.is_pyrowave() {
-            if let Err(reason) = stream::pyrowave_gpu::probe(self.renderer, settings.hdr) {
-                self.launcher.message(tr("PyroWave output unavailable"), trf("{}. Restart Nightjar after selecting PyroWave so it can initialize the GPU renderer.", &[&reason]));
-                return;
+            let gpu_device = self.gpu_device();
+            let probed = stream::pyrowave_mode::availability(
+                settings.pyrowave_decoder,
+                || stream::pyrowave_gpu::probe(self.renderer, settings.hdr),
+                || match gpu_device {
+                    Some(device) => stream::pyrowave_mode::gpu_probe(device.0, settings.hdr),
+                    None => Err(if cfg!(windows) { "PyroWave GPU decoding needs the Direct3D 11 renderer" } else { "PyroWave GPU decoding needs the SDL GPU renderer" }.to_owned()),
+                },
+            );
+            match (probed, settings.pyrowave_decoder) {
+                (Ok(()), config::PyroWaveDecoder::Gpu) => gpu_decoder = gpu_device,
+                (Ok(()), config::PyroWaveDecoder::Cpu) => {}
+                (Err(reason), config::PyroWaveDecoder::Cpu) => {
+                    self.launcher.message(tr("PyroWave output unavailable"), trf("{}. Restart Nightjar after selecting PyroWave so it can initialize the GPU renderer.", &[&reason]));
+                    return;
+                }
+                (Err(reason), config::PyroWaveDecoder::Gpu) => {
+                    self.launcher.message(tr("PyroWave GPU decoding unavailable"), trf("{}. Switch the PyroWave decoder to CPU in the settings, or pick another codec.", &[&reason]));
+                    return;
+                }
             }
         }
         let packed_modes = if settings.experimental_packed_444 {
@@ -1037,12 +1083,13 @@ impl App {
             identity,
             display,
             hardware: self.hardware(&settings),
+            gpu_decoder,
             packed_modes,
             pacing,
             vrr,
             gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
             prepared_controllers: if settings.controllers { self.pads.prepare(settings.controller_motion) } else { String::new() },
-            pyrowave_link_mbps: if self.launcher.network.wifi || self.launcher.network.cellular { 0 } else { self.launcher.network.link_mbps.min(9999) },
+            pyrowave_link_mbps: self.launcher.network.wired_link_mbps(),
             pyrowave_pace_mbps: host.record.pace.as_ref().map_or(0, |pace| pace.for_network(&self.launcher.network, host.info.as_ref().map_or(0, |info| info.pyrowave_host_link_mbps))),
             bitrate_limit_kbps: self.launcher.profiles.bitrate_limit(self.launcher.network.kind(&self.launcher.profiles.home_wifi)),
             microphone_muted: false,
@@ -1373,6 +1420,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                     .collapsible(false).resizable(false).vscroll(true).default_width(440.0)
                     .show(&ctx, |ui| {
+                        gui::follow_focus(ui, &mut s.menu_focus);
                         outcome = session_ui::show(ui, page, &title, &lines, hints);
                     });
             }
@@ -1389,6 +1437,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .collapsible(false).resizable(false).vscroll(true)
                 .show(&ctx, |ui| {
+                    gui::follow_focus(ui, &mut s.menu_focus);
                     ui.label(&title);
                     let back = ui.button(tr("Return to stream"));
                     if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
@@ -1431,7 +1480,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             }
                         }
                         ui.horizontal(|ui| {
-                            ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::DragValue::new(&mut s.bitrate_kbps).range(1..=2_000_000).speed(100).suffix(" kbps"));
+                            ui.add_enabled_ui(!s.adaptive_bitrate && !s.bitrate_busy, |ui| theme::step_value(ui, &mut s.bitrate_kbps, 1..=2_000_000, 1000.0, |d| d.speed(100).suffix(" kbps")));
                             if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new(tr("Apply bitrate"))).clicked() {
                                 s.set_bitrate();
                             }
@@ -1448,11 +1497,11 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         if quality != s.quality_mode { s.set_quality(quality); }
                         ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
                             ui.horizontal(|ui| {
-                                ui.add(egui::DragValue::new(&mut s.requested_mode.width).range(256..=8192).speed(2));
+                                theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
                                 ui.label("×");
-                                ui.add(egui::DragValue::new(&mut s.requested_mode.height).range(256..=8192).speed(2));
+                                theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
                                 let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
-                                if ui.add(egui::DragValue::new(&mut fps).range(10.0..=500.0).suffix(" fps").max_decimals(3)).changed() {
+                                if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
                                     s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
                                 }
                             });

@@ -67,6 +67,35 @@ public class GamePerformanceOverlayTest {
     }
 
     @Test
+    public void aLoweredBitrateShowsInEveryModeUntilTheHostIsBackAtFullRate() {
+        Game game = game();
+        TextView overlay = game.findViewById(R.id.performanceOverlay);
+        String notice = "Host lowered the bitrate to 38 Mbps: network";
+        ReflectionHelpers.setField(game, "compactPerformanceText", com.limelight.binding.video.PerformanceOverlay
+                .compactText(game, 119.94f, 120, 8, 0.14f, 4.6f));
+        game.linkNotice(1, 150_000, 37_500);
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss\n" + notice, overlay.getText().toString());
+        assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss. " + notice,
+                overlay.getContentDescription().toString());
+        setMode(game, "statistics");
+        assertTrue(overlay.getText().toString().endsWith("Decode: 4.0 ms\n" + notice));
+        setMode(game, "debug");
+        assertTrue(overlay.getText().toString().endsWith("p95/p99: 5/6 ms\n" + notice));
+        // The copied report is the measurements, not the notice.
+        ReflectionHelpers.callInstanceMethod(game, "copyPerformanceStats");
+        ClipboardManager clipboard = (ClipboardManager) game.getSystemService(Context.CLIPBOARD_SERVICE);
+        assertEquals("Video\nAV1\n\nDecode\nDriver fallback\np95/p99: 5/6 ms",
+                clipboard.getPrimaryClip().getItemAt(0).getText().toString());
+        game.linkNotice(0, 150_000, 150_000);
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        assertTrue(overlay.getText().toString().endsWith("p95/p99: 5/6 ms"));
+        setMode(game, "compact");
+        assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss", overlay.getText().toString());
+        assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss", overlay.getContentDescription().toString());
+    }
+
+    @Test
     public void copyingFromStatisticsKeepsTheFullMultilineDebugReport() {
         Game game = game();
         ReflectionHelpers.callInstanceMethod(game, "copyPerformanceStats");

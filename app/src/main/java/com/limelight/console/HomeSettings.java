@@ -6,6 +6,8 @@ import android.preference.PreferenceManager;
 
 import com.limelight.PcView;
 import com.limelight.nativeapi.ConsoleRepository;
+import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 
 /** Whether the app opens on Home, and the way back to the classic list of PCs. */
 public final class HomeSettings {
@@ -27,6 +29,14 @@ public final class HomeSettings {
      */
     public static boolean opensOnHome(Context context) {
         return enabled(context) && ConsoleRepository.hasAnyLibrary(context);
+    }
+
+    /**
+     * A PC that was just paired lands on Home when Home is on and the PC offers the native API: its games
+     * are Home's library. Any other PC opens its classic game list, as it always did.
+     */
+    public static boolean landsOnHome(Context context, ComputerDetails computer) {
+        return enabled(context) && computer.caps != null && computer.caps.has(HostCapabilities.Feature.NATIVE_API);
     }
 
     /** The list of PCs, which Home's Hosts and back-to-hosts actions open without redirecting to Home. */

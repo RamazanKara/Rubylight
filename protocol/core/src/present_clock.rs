@@ -20,6 +20,9 @@
 
 use crate::control::ClockSyncReply;
 
+pub mod content_rate;
+use content_rate::ContentRate;
+
 /// Clock sync samples kept, about 8 s at four probes a second.
 const SYNC_SAMPLES: usize = 32;
 /// Most frames the lateness window holds.
@@ -163,6 +166,60 @@ pub struct Schedule {
     pub latency_us: Option<i64>,
 }
 
+/// The display's vsync timeline, for a panel that refreshes on a fixed grid (60, 90, 120 Hz).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Grid {
+    /// Any vsync time, past or future, on the client clock in microseconds.
+    pub anchor_us: i64,
+    /// The time between vsyncs, in microseconds; zero or less means no grid.
+    pub interval_us: i64,
+    /// How long before its vsync a frame is released, in microseconds: the compositor's latch
+    /// deadline plus a margin. A frame ready later than that is released at once.
+    pub lead_us: i64,
+    /// A vsync up to this long before the schedule's present time is taken (the frame is
+    /// shown a little early). Zero rounds the present time up to the next vsync; half an
+    /// interval rounds to the nearest. Never earlier than the first vsync the frame can make.
+    pub slack_us: i64,
+}
+
+/// When to release one frame so it is shown at a chosen vsync; see [`PresentClock::schedule_on_grid`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GridSchedule {
+    /// Client time to release the frame at: `vsync_us - lead_us`, never before it is ready.
+    pub release_us: u64,
+    /// The vsync the frame is meant for.
+    pub vsync_us: u64,
+    /// `vsync_us` as a count of intervals after the grid's anchor (negative before it).
+    pub vsync_index: i64,
+    /// The frame was ready after its present time (the host time plus the delay): it is
+    /// behind the game's cadence.
+    pub late: bool,
+    /// How far past that present time the frame was ready, in microseconds; zero when on time.
+    pub late_by_us: i64,
+    /// The frame has the same vsync as the one scheduled before it and would replace it on
+    /// screen (or lose to it): content faster than the panel.
+    pub shares_vsync: bool,
+    /// How long the frame is held after it is ready (`release_us` minus the ready time).
+    pub hold_us: i64,
+    /// The host's present of this frame to its vsync, when clock sync runs.
+    pub latency_us: Option<i64>,
+}
+
+/// The first vsync at or after `t_us` on the grid through `anchor_us` with the given interval:
+/// its time and its index from the anchor (negative before it). Without an interval (zero or
+/// less) the grid is every instant: `t_us` itself.
+pub fn snap(t_us: i64, anchor_us: i64, interval_us: i64) -> (i64, i64) {
+    if interval_us <= 0 {
+        return (t_us, 0);
+    }
+    let index = ceil_div(t_us - anchor_us, interval_us);
+    (anchor_us + index * interval_us, index)
+}
+
+fn ceil_div(a: i64, b: i64) -> i64 {
+    (a + b - 1).div_euclid(b)
+}
+
 /// Schedules decoded frames by their host timestamps. See the module documentation.
 #[derive(Clone, Debug)]
 pub struct PresentClock {
@@ -182,6 +239,15 @@ pub struct PresentClock {
     /// Frames shown late since the clock started.
     pub late_frames: u64,
     pub frames: u64,
+    /// The vsync the previous grid schedule chose.
+    last_vsync_us: Option<i64>,
+    /// That frame was moved to the vsync after its first possible one.
+    last_bumped: bool,
+    /// A grid schedule was asked for: the delay covers [`GRID_PERCENTILE`], also for the frames
+    /// that are only scheduled (a dropped frame teaches the clock its lateness that way).
+    on_grid: bool,
+    rate: ContentRate,
+    rate_unwrap: Option<(u32, i64)>,
 }
 
 impl Default for PresentClock {
@@ -204,6 +270,11 @@ const WARMUP_US: i64 = 250_000;
 const FALL_TAU_US: i64 = 500_000;
 /// The longest host time step that counts towards the fall.
 const FALL_STEP_MAX_US: i64 = 100_000;
+/// The share of frames, in percent, that should be ready before their present time when frames
+/// go onto a vsync grid. The grid already holds a frame to the next vsync, and a frame ready
+/// after its present time still takes the first vsync it can make, so covering the worst
+/// frames of the window ([`Settings::percentile`]) only adds latency to all the others.
+const GRID_PERCENTILE: u8 = 75;
 
 impl PresentClock {
     pub fn new(settings: Settings) -> Self {
@@ -220,6 +291,11 @@ impl PresentClock {
             last_host_us: None,
             late_frames: 0,
             frames: 0,
+            last_vsync_us: None,
+            last_bumped: false,
+            on_grid: false,
+            rate: ContentRate::new(),
+            rate_unwrap: None,
         }
     }
 
@@ -233,6 +309,10 @@ impl PresentClock {
         self.last_present = None;
         self.start_us = None;
         self.last_host_us = None;
+        self.last_vsync_us = None;
+        self.last_bumped = false;
+        self.rate.reset();
+        self.rate_unwrap = None;
     }
 
     /// The current delay from host present to client present, beyond the clocks' offset.
@@ -268,6 +348,107 @@ impl PresentClock {
 
     /// When to show the frame stamped `rtp` that was ready to present at `ready_us`.
     pub fn schedule(&mut self, rtp: u32, ready_us: u64) -> Schedule {
+        self.schedule_frame(rtp, ready_us).0
+    }
+
+    /// Notes a frame with RTP timestamp `rtp` for the content rate. Call it for every frame in
+    /// presentation order as it arrives, whether or not frames are scheduled.
+    pub fn observe(&mut self, rtp: u32) {
+        let ticks = match self.rate_unwrap {
+            Some((last, ticks)) => {
+                let step = i64::from(rtp.wrapping_sub(last) as i32);
+                if step.abs() > DISCONTINUITY_TICKS {
+                    self.rate.reset();
+                    i64::from(rtp)
+                } else {
+                    ticks + step
+                }
+            }
+            None => i64::from(rtp),
+        };
+        self.rate_unwrap = Some((rtp, ticks));
+        self.rate.observe(ticks * 100 / 9);
+    }
+
+    /// The rate the game presents at, in millihertz, once it held steady for two seconds.
+    pub fn content_rate_mhz(&self) -> Option<u32> {
+        self.rate.rate_mhz()
+    }
+
+    /// When to release the frame stamped `rtp`, ready at `ready_us`, so it is shown at a vsync of
+    /// `grid`. The frame's present time is [`schedule`](Self::schedule)'s (the delay is learned
+    /// the same way); it is then moved onto the grid:
+    ///
+    /// - the vsync is the first one at or after the present time (less `slack_us`), but never
+    ///   before the first vsync at or after the ready time, which is the earliest the panel
+    ///   could show the frame whatever is done; so a frame is never held past the vsync it
+    ///   would have had if released at once, unless the one before it has that vsync;
+    /// - a frame that would share its vsync with the previous one goes to the next vsync if that
+    ///   is one after its first possible one and the previous frame was not moved either,
+    ///   otherwise it shares and says so;
+    /// - release is `lead_us` before the vsync, and at once for a frame ready later than that.
+    ///
+    /// Once a grid was given the delay covers [`GRID_PERCENTILE`] of the window, not
+    /// `Settings::percentile`, for [`schedule`](Self::schedule) too.
+    ///
+    /// Without an interval this is [`schedule`](Self::schedule) with the extra fields.
+    pub fn schedule_on_grid(&mut self, rtp: u32, ready_us: u64, grid: Grid) -> GridSchedule {
+        self.on_grid |= grid.interval_us > 0;
+        let (base, late_by_us, host) = self.schedule_frame(rtp, ready_us);
+        let ready = ready_us as i64;
+        let present = base.present_us as i64;
+        if grid.interval_us <= 0 {
+            return GridSchedule {
+                release_us: base.present_us,
+                vsync_us: base.present_us,
+                vsync_index: 0,
+                late: base.late,
+                late_by_us,
+                shares_vsync: false,
+                hold_us: base.hold_us,
+                latency_us: base.latency_us,
+            };
+        }
+        let interval = grid.interval_us;
+        let first = ceil_div(ready - grid.anchor_us, interval);
+        let mut index = first.max(ceil_div(present - grid.slack_us.max(0) - grid.anchor_us, interval));
+        let mut shares = false;
+        let mut bumped = false;
+        if let Some(last) = self.last_vsync_us {
+            // The previous frame's vsync as an index on this call's grid (the anchor moves).
+            let taken = (last - grid.anchor_us + interval / 2).div_euclid(interval);
+            if index <= taken {
+                if taken == first && !self.last_bumped {
+                    // One vsync past its first possible one is the most a frame is moved, and
+                    // not two frames in a row: content faster than the panel would then run
+                    // one vsync behind for good.
+                    index = first + 1;
+                    bumped = true;
+                } else {
+                    index = taken;
+                    shares = true;
+                }
+            }
+        }
+        let vsync = grid.anchor_us + index * interval;
+        self.last_vsync_us = Some(vsync);
+        self.last_bumped = bumped;
+        let release = (vsync - grid.lead_us.max(0)).max(ready);
+        GridSchedule {
+            release_us: release as u64,
+            vsync_us: vsync as u64,
+            vsync_index: index,
+            late: base.late,
+            late_by_us,
+            shares_vsync: shares,
+            hold_us: release - ready,
+            latency_us: self.offset.offset_at(vsync).map(|offset| vsync - (host + offset)),
+        }
+    }
+
+    /// [`schedule`](Self::schedule), with how far past its present time the frame was ready and
+    /// its host time.
+    fn schedule_frame(&mut self, rtp: u32, ready_us: u64) -> (Schedule, i64, i64) {
         let ready = ready_us as i64;
         let host = self.host_us(rtp);
         let lateness = ready - host;
@@ -285,7 +466,12 @@ impl PresentClock {
             self.window[self.next] = lateness;
             self.next = (self.next + 1) % window;
             self.len = (self.len + 1).min(window);
-            let wanted = self.quantile(self.settings.percentile) + self.settings.margin_us;
+            let percentile = if self.on_grid {
+                GRID_PERCENTILE.min(self.settings.percentile)
+            } else {
+                self.settings.percentile
+            };
+            let wanted = self.quantile(percentile) + self.settings.margin_us;
             let mut delay = match self.delay_us {
                 Some(held) if wanted < held => {
                     let dt = step.clamp(0, FALL_STEP_MAX_US);
@@ -305,18 +491,23 @@ impl PresentClock {
             present = present.max(last + self.settings.min_interval_us);
         }
         let late = present < ready;
+        let late_by = (ready - present).max(0);
         present = present.clamp(ready, ready + self.settings.max_hold_us.max(0));
         self.last_present = Some(present);
         self.frames += 1;
         self.late_frames += u64::from(late);
-        Schedule {
+        let schedule = Schedule {
             present_us: present as u64,
             late,
             hold_us: present - ready,
             latency_us: self.offset.offset_at(present).map(|offset| present - (host + offset)),
-        }
+        };
+        (schedule, late_by, host)
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod grid_tests;

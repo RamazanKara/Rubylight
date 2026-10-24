@@ -50,14 +50,17 @@ public final class PerformanceOverlay {
     }
 
     /**
-     * hostMs is the host's present to last packet sent. When the host's timing reports give the send
-     * stage (sendMs, first to last packet) the host line shows the two apart, so the network send is
-     * not read as processing; with sendMs unavailable (-1) the line keeps the single value.
+     * The "Host processing" line is the average of the video frame header's per-frame processing time,
+     * the same number Artemis and Moonlight show (hostMs). It must stay that: users compare it with
+     * those clients, and the host timing reports' present to last packet sent includes the network
+     * send, so it reads several times higher. Do not feed a report value into hostMs, do not split
+     * hostMs by the send, and do not rename the line. A report's present to sent (hostToNetworkMs,
+     * -1 without reports) gets its own line below under its own label.
      */
     @SuppressWarnings("deprecation")
     public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
                                                float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
-                                               float hostMs, float sendMs, float decodeMs, float displayMs,
+                                               float hostMs, float hostToNetworkMs, float decodeMs, float displayMs,
                                                boolean submissionOnly) {
         Locale locale = context.getResources().getConfiguration().locale;
         String frames = context.getString(R.string.stats_frame_rates,
@@ -66,10 +69,10 @@ public final class PerformanceOverlay {
                 measurement(locale, videoMbps, "%.1f"), measurement(locale, frameLossPercent, "%.2f"));
         String network = context.getString(R.string.stats_network,
                 measurement(locale, networkMs, "%.0f"), measurement(locale, varianceMs, "%.0f"));
-        String host = available(hostMs) && available(sendMs) ?
-                context.getString(R.string.stats_host_split,
-                        measurement(locale, Math.max(0, hostMs - sendMs), "%.2f"), measurement(locale, sendMs, "%.2f")) :
-                context.getString(R.string.stats_host, measurement(locale, hostMs, "%.2f"));
+        String host = context.getString(R.string.stats_host, measurement(locale, hostMs, "%.1f"));
+        if (available(hostToNetworkMs)) {
+            host += "\n" + context.getString(R.string.stats_host_network, measurement(locale, hostToNetworkMs, "%.1f"));
+        }
         String client = context.getString(submissionOnly ? R.string.stats_decode_submission : R.string.stats_client,
                 measurement(locale, decodeMs, "%.2f"), measurement(locale, displayMs, "%.2f"));
         SpannableString text = new SpannableString(stream + '\n' + frames + '\n' + throughput + '\n' + network + '\n' + host + '\n' + client);
@@ -153,6 +156,13 @@ public final class PerformanceOverlay {
         return context.getString(label) + ": " + compactText.subSequence(2, compactText.length());
     }
 
+    /** The compact line's description, with the host's lowered-bitrate notice after it when there is one. */
+    public static String describeCompact(Context context, CharSequence compactText, LinkNoticeStatus status) {
+        String description = describeCompact(context, compactText);
+        if (description == null || status == null) return description;
+        return description + ". " + linkNoticeText(context, status);
+    }
+
     public static CharSequence debugText(Context context, String video, String network, String decode) {
         SpannableStringBuilder text = new SpannableStringBuilder();
         appendSection(text, context.getString(R.string.overlay_video), video);
@@ -171,6 +181,23 @@ public final class PerformanceOverlay {
         int start = text.length();
         for (String note : notes) text.append('\n').append(note);
         text.setSpan(new ForegroundColorSpan(0xffc1c4d2), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return text;
+    }
+
+    /** "Host lowered the bitrate to 9 Mbps: network", the line the overlay shows while the host holds it down. */
+    public static String linkNoticeText(Context context, LinkNoticeStatus status) {
+        Locale locale = context.getResources().getConfiguration().locale;
+        return context.getString(R.string.link_notice_lowered, status.currentMbps(locale));
+    }
+
+    /** The overlay with the host's lowered-bitrate notice as a last line in amber; the overlay itself when there is none. */
+    public static CharSequence withLinkNotice(Context context, CharSequence base, LinkNoticeStatus status) {
+        if (status == null) return base;
+        SpannableStringBuilder text = new SpannableStringBuilder(base);
+        int start = text.length();
+        text.append('\n').append(linkNoticeText(context, status));
+        text.setSpan(new ForegroundColorSpan(healthColor(Health.FAIR)), start, text.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }
 

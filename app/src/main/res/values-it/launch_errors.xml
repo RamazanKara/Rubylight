@@ -4,4 +4,6 @@
     <string name="startup_launch_cancelled">Avvio annullato.</string>
     <string name="startup_confirmation_timed_out">Conferma scaduta. Avvia di nuovo il riquadro per riprovare.</string>
     <string name="startup_confirmation_rejected">La sessione dell’host è cambiata o la conferma è scaduta. Avvia di nuovo il riquadro.</string>
+    <string name="decoder_setup_rejected">Il decoder video di questo dispositivo (%1$s) non è riuscito ad avviare %2$s a %3$dx%4$d e %5$d FPS: %6$s. La causa non è l’host. Nelle impostazioni prova H.264, una risoluzione più bassa o una frequenza di fotogrammi più bassa. Se il problema continua, usa «Segnala un problema».</string>
+    <string name="decoder_setup_none">Questo dispositivo non ha un decoder video per %1$s. Scegli un altro codec video nelle impostazioni.</string>
 </resources>

@@ -36,13 +36,27 @@ public final class ActionSheet extends BottomSheetDialog {
         }
     };
 
+    private final DpadEchoFilter dpadEchoes = new DpadEchoFilter();
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        return dpadEchoes.drop(event) || super.dispatchKeyEvent(event);
+    }
+
+    /** Releases that arrive while another window has focus never reach this one. */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        if (!hasFocus) dpadEchoes.reset();
+        super.onWindowFocusChanged(hasFocus);
+    }
+
     public ActionSheet(Context context, CharSequence title) {
         super(context);
         if (context instanceof android.app.Activity) setOwnerActivity((android.app.Activity) context);
         context = getContext();
         television = (context.getResources().getConfiguration().uiMode &
                 android.content.res.Configuration.UI_MODE_TYPE_MASK) == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
-        if (television) getWindow().setWindowAnimations(R.style.TvSheetAnimation);
+        if (television && !Motion.reduced(context)) getWindow().setWindowAnimations(R.style.TvSheetAnimation);
         spacing = Math.round(8 * context.getResources().getDisplayMetrics().density);
         body = new LinearLayout(context);
         body.setOrientation(LinearLayout.VERTICAL);
@@ -352,7 +366,7 @@ public final class ActionSheet extends BottomSheetDialog {
     public void styleRow(MaterialButton button) {
         if (television) {
             button.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.card_stroke));
-            button.setStateListAnimator(android.animation.AnimatorInflater.loadStateListAnimator(getContext(), R.animator.tv_control_focus));
+            button.setStateListAnimator(Motion.controlFocus(getContext()));
         }
     }
 

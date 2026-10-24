@@ -25,10 +25,13 @@ import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.touch.TouchContext;
 import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.CrashListener;
+import com.limelight.binding.video.DecoderSetupFailure;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.DisplayRefreshDiagnostics;
+import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.LatencyProbe;
+import com.limelight.binding.video.LinkNoticeStatus;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
@@ -64,6 +67,7 @@ import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.binding.input.keyboard.PcKeyboardController;
+import com.limelight.binding.input.keyboard.PcKeyboardEngine;
 import com.limelight.ui.DesktopControlsPanel;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
@@ -204,6 +208,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private PcKeyboardOverlay pcKeyboard;
     // Controller keys the on-screen PC keyboard took on their way down, so their release goes to it too.
     private final android.util.SparseBooleanArray pcKeyboardKeys = new android.util.SparseBooleanArray();
+    // The pad whose stick or hat is steering the on-screen keyboard, or -1.
+    private int pcKeyboardAxisDevice = -1;
     private final InputManager.InputDeviceListener pcKeyboardDeviceListener = new InputManager.InputDeviceListener() {
         @Override public void onInputDeviceAdded(int deviceId) { }
         @Override public void onInputDeviceChanged(int deviceId) { }
@@ -421,6 +427,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             };
     // Whether this stream asked for HDR (setting on, HDR10 display and decoder).
     private boolean streamHdr;
+    private HdrPolicy.Status lastHdrStatus = HdrPolicy.Status.QUIET;
     private DisplayCapsReporter displayCapsReporter;
 
     // Asks a host that sends per-frame timing reports (0x5536) for them, once per connection.
@@ -432,6 +439,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         MoonBridge.sendHostTimingRequest(true);
+    }
+
+    // Asks a host that announces link notices (0x5538) to say when it lowers the video bitrate
+    // because of the network, once per connection. The overlay then shows it until the host is
+    // back at the requested rate. The C engine does not support it.
+    private void requestLinkNotice() {
+        linkNotice = null;
+        if (conn == null || !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_LINK_NOTICE)) {
+            return;
+        }
+        MoonBridge.sendLinkNoticeRequest(true);
     }
 
     // Reports the output's HDR capabilities to Rubylight 2.2.0+ hosts. Keep luminance fixed on
@@ -448,15 +466,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // getHdrCapabilities() returns null on some devices (Lenovo Mirage Solo, Android 8.0).
             Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
             if (hdrCaps != null) {
-                int[] hdrTypes = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ?
-                        display.getMode().getSupportedHdrTypes() : hdrCaps.getSupportedHdrTypes();
-                for (int hdrType : hdrTypes) {
-                    if (hdrType == Display.HdrCapabilities.HDR_TYPE_HDR10 ||
-                            hdrType == Display.HdrCapabilities.HDR_TYPE_HLG) {
-                        displayHdr = true;
-                        break;
-                    }
-                }
+                // The same HDR10 test as the request: HLG alone does not make this an HDR10 output.
+                displayHdr = HdrPolicy.displayRefusal(display, true) == HdrPolicy.Refusal.NONE;
                 maxNits = hdrCaps.getDesiredMaxLuminance();
                 maxAverageNits = hdrCaps.getDesiredMaxAverageLuminance();
                 minNits = hdrCaps.getDesiredMinLuminance();
@@ -486,6 +497,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final DisplayRefreshDiagnostics displayRefreshDiagnostics = new DisplayRefreshDiagnostics();
     // The last successful vote made by this activity, not a measurement of the display's rate.
     private Float appSurfaceFrameRateVote;
+    // Follows the content rate measured from the host's frame times (checkbox_content_rate_frame_rate).
+    private final com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote contentRateVote =
+            new com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote();
+    // Whether the vote above allowed only seamless switches (the content rate vote, and every vote on API 30).
+    private boolean appSurfaceSeamlessOnly;
+    // Tells why the screen did not follow the vote (see RefreshSwitchDiagnosis); created once connected.
+    private com.limelight.binding.video.RefreshSwitchMonitor refreshSwitchMonitor;
+    private final Runnable pollRefreshSwitch = new Runnable() {
+        @Override public void run() {
+            if (!connected || isFinishing()) return;
+            checkRefreshSwitch();
+            checkHdrStatus();
+            bitrateHandler.postDelayed(this, 1000);
+        }
+    };
+    private final Runnable pollContentRateVote = new Runnable() {
+        @Override public void run() {
+            if (!connected || isFinishing()) return;
+            voteContentRate();
+            bitrateHandler.postDelayed(this, 1000);
+        }
+    };
     private PendingIntent pipDisconnectIntent;
     private final BroadcastReceiver pipReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -526,6 +559,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private CharSequence debugPerformanceText = "";
     private CharSequence statisticsPerformanceText = "";
     private CharSequence compactPerformanceText = "";
+    // What the host last said about holding the bitrate down for the network; null when it has not.
+    private LinkNoticeStatus linkNotice;
     // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
     private String overlayMode = PerformanceOverlay.MODE_COMPACT;
     private TextView streamMenuHint;
@@ -834,29 +869,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Check if the user has enabled HDR
         boolean willStreamHdr = false;
         if (mediaStream && prefConfig.enableHdr) {
-            // Start our HDR checklist
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                Display display = getVideoDisplay();
-                Display.HdrCapabilities hdrCaps = getVideoDisplay().getHdrCapabilities();
-
-                // We must now ensure our display is compatible with HDR10
-                if (hdrCaps != null) {
-                    // getHdrCapabilities() returns null on Lenovo Lenovo Mirage Solo (vega), Android 8.0
-                    for (int hdrType : hdrCaps.getSupportedHdrTypes()) {
-                        if (hdrType == Display.HdrCapabilities.HDR_TYPE_HDR10) {
-                            willStreamHdr = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (!willStreamHdr) {
-                    hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_display_unsupported);
-                }
-            }
-            else {
-                hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_android_unsupported);
-            }
+            HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(getVideoDisplay(), true);
+            willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
+            if (!willStreamHdr) refuseHdr(refusal);
         }
 
         // Check if the user has enabled performance stats overlay
@@ -908,10 +923,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         });
 
         // Don't stream HDR if the decoder can't support it
-        if (willStreamHdr && !decoderRenderer.isHevcMain10Hdr10Supported() && !decoderRenderer.isAv1Main10Supported() &&
-                !decoderRenderer.isPyroWaveSupported()) {
-            willStreamHdr = false;
-            hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_decoder_unsupported);
+        if (willStreamHdr) {
+            HdrPolicy.Refusal refusal = HdrPolicy.decoderRefusal(decoderRenderer.isHevcMain10Hdr10Supported(),
+                    decoderRenderer.isAv1Main10Supported(), decoderRenderer.isPyroWaveSupported());
+            if (refusal != HdrPolicy.Refusal.NONE) {
+                willStreamHdr = false;
+                refuseHdr(refusal);
+            }
         }
         streamHdr = willStreamHdr;
 
@@ -1671,8 +1689,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 Build.VERSION.SDK_INT, prefConfig.vrr, arrSupported);
         logDisplayRefreshPolicy(display, arrSupported);
         if (prefConfig.vrr) {
+            com.limelight.binding.video.DisplayFrameRatePolicy.ArrState arr =
+                    com.limelight.binding.video.DisplayFrameRatePolicy.arrState(Build.VERSION.SDK_INT, true, arrSupported);
             LimeLog.info(useArr ? "VRR: ARR (Android automatic policy)" :
-                    "VRR: max Hz (ARR unavailable)");
+                    "VRR: max Hz (ARR unavailable: " + arr + ")");
+            // Asked for and not granted: the status line says why, in place of a silent fallback.
+            if (arr == com.limelight.binding.video.DisplayFrameRatePolicy.ArrState.ANDROID_TOO_OLD) {
+                messages.note(getString(R.string.stream_vrr_old_android));
+            } else if (arr == com.limelight.binding.video.DisplayFrameRatePolicy.ArrState.PANEL_WITHOUT_ARR) {
+                messages.note(getString(R.string.stream_vrr_no_arr));
+            }
         }
 
         if (useArr && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
@@ -3084,9 +3110,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (text.length() == 0) {
             text = compact ? "● " + getString(R.string.overlay_compact_waiting) : getString(R.string.stats_waiting);
         }
+        text = PerformanceOverlay.withLinkNotice(this, text, linkNotice);
         performanceOverlayView.setText(text);
         performanceOverlayView.setContentDescription(compact ?
-                PerformanceOverlay.describeCompact(this, compactPerformanceText) : null);
+                PerformanceOverlay.describeCompact(this, compactPerformanceText, linkNotice) : null);
     }
 
     // The on-screen gamepad, its layout button, per-game buttons and the key toolbar stay uncovered.
@@ -4175,6 +4202,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     // events until the modifiers come up
                     specialKeyCode = androidKeyCode;
                     waitingForAllModifiersUp = true;
+                    breakLoneModifierTap();
                     return true;
 
                 default:
@@ -4185,6 +4213,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Not a special combo
         return false;
+    }
+
+    // The host has already seen Ctrl, Alt and Shift go down for a client-side combo like Ctrl+Alt+Shift+K, and
+    // sees them go up. Windows reads Alt or Ctrl+Shift going up with nothing between as a tap (the menu bar,
+    // the input language switch), so put a key it ignores between them.
+    private void breakLoneModifierTap() {
+        if (!grabbedInput || !connected || conn == null || !conn.canSendInput()) return;
+        short neutral = (short) (0x8000 | PcKeyboardEngine.NEUTRAL_VK);
+        byte modifiers = getModifierState();
+        sendKeyboardInput(neutral, KeyboardPacket.KEY_DOWN, modifiers, (byte) 0);
+        sendKeyboardInput(neutral, KeyboardPacket.KEY_UP, modifiers, (byte) 0);
     }
 
     // We cannot simply use modifierFlags for all key event processing, because
@@ -4272,7 +4311,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public boolean handleKeyDown(KeyEvent event) {
         if (handleRemoteMenuKey(event)) return true;
-        if (isPcKeyboardVisible() && handlePcKeyboardKey(event)) return true;
+        // A key the keyboard took keeps being the keyboard's after it closed, so its repeats stay away from the game.
+        if ((isPcKeyboardVisible() || pcKeyboardKeys.get(event.getKeyCode())) && handlePcKeyboardKey(event)) return true;
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -4533,9 +4573,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 PcKeyboardController.Pad pad = padForFlag(flag);
                 if (pad != null) runOnUiThread(() -> padToPcKeyboard(pad, down));
             }
-            @Override public void stick(float x, float y) {
+            @Override public void stick(int controllerId, float x, float y) {
+                // USB-driver pads have no Android device id; a negative one cannot clash with a real device.
                 runOnUiThread(() -> {
-                    if (isPcKeyboardVisible()) pcKeyboard.controller().stick(x, y, SystemClock.uptimeMillis());
+                    if (isPcKeyboardVisible()) steerPcKeyboard(-2 - controllerId, x, y, SystemClock.uptimeMillis());
                 });
             }
         });
@@ -4553,6 +4594,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void hidePcKeyboard() {
         if (pcKeyboard == null || pcKeyboard.getVisibility() != View.VISIBLE) return;
         pcKeyboard.releaseInputs();
+        pcKeyboardAxisDevice = -1;
         pcKeyboard.setVisibility(View.GONE);
         if (controllerHandler != null) controllerHandler.setPadCapture(null);
         if (grabbedInput && !cursorVisible && !isKeyboardOverlayVisible() && inputCaptureProvider != null) {
@@ -4634,6 +4676,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // A release of a key the keyboard took stays with it, even if it just closed. A new press
             // is the game's, so an old entry for the same key must not swallow its release.
             if (down) {
+                // Held past the key repeat after the keyboard closed (B closes it): the host never saw the
+                // press, so it must not see the repeats, and the release stays with the keyboard.
+                if (event.getRepeatCount() > 0 && pcKeyboardKeys.get(keyCode)) return true;
                 pcKeyboardKeys.delete(keyCode);
                 return false;
             }
@@ -4645,6 +4690,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int mapped = remote || controllerHandler == null ? ControllerButtonMap.UNMAPPED : controllerHandler.userMappedKey(event);
         PcKeyboardController.Pad pad = mapped == ControllerButtonMap.UNMAPPED
                 ? padForKey(keyCode, prefConfig.flipFaceButtons) : padForKey(mapped, false);
+        // A pad's own Back (a handheld's Back key, or a pad that sends Back for B) closes the keyboard like B:
+        // Android's TV rules name both as Back, and swallowing it would leave the pad with no way out.
+        if (pad == null && !remote && (mapped == ControllerButtonMap.UNMAPPED ? keyCode : mapped) == KeyEvent.KEYCODE_BACK) {
+            pad = PcKeyboardController.Pad.B;
+        }
         if (pad == null) return !remote;
         if (down) {
             pcKeyboardKeys.put(keyCode, true);
@@ -4668,15 +4718,39 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     /** A controller went away: its held buttons would never come up, so the keyboard lets go of them. */
     private void releasePcKeyboardPads() {
         pcKeyboardKeys.clear();
+        pcKeyboardAxisDevice = -1;
         if (pcKeyboard != null) pcKeyboard.controller().releasePads(SystemClock.uptimeMillis());
     }
 
+    /**
+     * The hat and the left stick steer the keyboard like the D-pad keys; both name the same direction,
+     * so a pad that reports its D-pad as keys and as a hat moves once. Only one pad steers at a time:
+     * a second pad resting at centre must not cancel a direction held on the first.
+     */
     private void handlePcKeyboardMotion(MotionEvent event) {
-        if (event.getActionMasked() != MotionEvent.ACTION_MOVE) return;
+        int action = event.getActionMasked();
+        int device = event.getDeviceId();
+        if (action == MotionEvent.ACTION_CANCEL) {
+            if (device == pcKeyboardAxisDevice) pcKeyboard.controller().stick(0, 0, event.getEventTime());
+            pcKeyboardAxisDevice = -1;
+            return;
+        }
+        if (action != MotionEvent.ACTION_MOVE) return;
         float hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X), hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y);
         float x = hatX != 0 ? hatX : event.getAxisValue(MotionEvent.AXIS_X);
         float y = hatY != 0 ? hatY : event.getAxisValue(MotionEvent.AXIS_Y);
-        pcKeyboard.controller().stick(x, y, event.getEventTime());
+        steerPcKeyboard(device, x, y, event.getEventTime());
+    }
+
+    /** The one place a stick or hat reaches the keyboard, for Android pads and USB-driver pads alike. */
+    private void steerPcKeyboard(int source, float x, float y, long time) {
+        PcKeyboardController keyboard = pcKeyboard.controller();
+        if (pcKeyboardAxisDevice != -1 && pcKeyboardAxisDevice != source
+                && PcKeyboardController.stickDirection(x, y, null) == null) {
+            return;
+        }
+        keyboard.stick(x, y, time);
+        pcKeyboardAxisDevice = keyboard.stickActive() ? source : -1;
     }
 
     private void toggleKeyboardOverlay() {
@@ -5619,6 +5693,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         adaptiveBitrate = null;
         qualityAutoBitrate = false;
         bitrateHandler.removeCallbacks(sampleStreamHealth);
+        bitrateHandler.removeCallbacks(pollContentRateVote);
+        stopRefreshSwitchPolling();
         if (wifiDiagnostics != null) wifiDiagnostics.stop();
         pyroWaveBitrate = null;
         displayCapsReporter = null;
@@ -5690,11 +5766,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         messages.alert(getResources().getText(R.string.video_decoder_init_failed), Toast.LENGTH_LONG);
                     }
 
-                    String dialogText = connectionErrorMessage != null ? connectionErrorMessage :
-                            getString(errorCode == 0 ? R.string.startup_connection_failed :
-                                    R.string.startup_host_error, errorCode);
+                    // A decoder that rejected the stream is this device's failure, not the host's, and
+                    // no port or host advice applies to it.
+                    DecoderSetupFailure decoderFailure = decoderRenderer == null ? null : decoderRenderer.getSetupFailure();
+                    boolean decoderFailed = isDecoderStageFailure(decoderFailure, stage);
+                    String dialogText = startupFailureText(Game.this, decoderFailure, stage, connectionErrorMessage, errorCode);
 
-                    if (portFlags != 0) {
+                    if (portFlags != 0 && !decoderFailed) {
                         dialogText += "\n\n" + getResources().getString(R.string.check_ports_msg) + "\n" +
                                 MoonBridge.stringifyPortFlags(portFlags, "\n");
                     }
@@ -5712,6 +5790,24 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
             }
         });
+    }
+
+    /** A recorded decoder setup failure at a video stage: this device's failure, not the host's. */
+    public static boolean isDecoderStageFailure(DecoderSetupFailure decoderFailure, String stage) {
+        return decoderFailure != null && stage.contains("video");
+    }
+
+    /** The stream dialog's text for a failed stage: the decoder's reason, else the connection error, else the host's. */
+    public static String startupFailureText(Context context, DecoderSetupFailure decoderFailure, String stage,
+                                            String connectionErrorMessage, int errorCode) {
+        if (isDecoderStageFailure(decoderFailure, stage)) {
+            return decoderFailure.message(context);
+        }
+        if (connectionErrorMessage != null) {
+            return connectionErrorMessage;
+        }
+        return context.getString(errorCode == 0 ? R.string.startup_connection_failed :
+                R.string.startup_host_error, errorCode);
     }
 
     static String terminationDescription(int errorCode) {
@@ -5913,6 +6009,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 getIntent().removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
                 bitrateHandler.removeCallbacks(sampleStreamHealth);
                 bitrateHandler.postDelayed(sampleStreamHealth, 1000);
+                bitrateHandler.removeCallbacks(pollContentRateVote);
+                if (prefConfig.contentRateFrameRate) bitrateHandler.postDelayed(pollContentRateVote, 1000);
+                startRefreshSwitchPolling();
                 if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
                 wifiDiagnostics.start();
                 connectedAt = SystemClock.elapsedRealtime();
@@ -5934,6 +6033,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 startReconfigureTracking();
                 requestHostTiming();
+                requestLinkNotice();
                 updateHostCursorShapes();
                 if (!conn.canSendInput()) {
                     if (gameTouchControls != null) gameTouchControls.hideForPip(true);
@@ -6081,7 +6181,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         });
     }
 
-    // A lasting fact about this PC or device: the status line, and a message once per PC.
+    // The reason HDR was left off although the setting is on: the status line each stream
+    // and a message once per PC (notice does both).
+    private void refuseHdr(HdrPolicy.Refusal refusal) {
+        int text;
+        switch (refusal) {
+            case ANDROID_TOO_OLD: text = R.string.stream_hdr_android_unsupported; break;
+            case MODE_WITHOUT_HDR10: text = R.string.stream_hdr_mode_unsupported; break;
+            case DECODER_WITHOUT_HDR10: text = R.string.stream_hdr_decoder_unsupported; break;
+            case DISPLAY_WITHOUT_HDR10: text = R.string.stream_hdr_display_unsupported; break;
+            default: return;
+        }
+        LimeLog.warning("HDR requested but not used: " + refusal);
+        hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, text);
+    }
+
     private void hostNotice(HostNotices.Notice notice, int text) {
         messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), notice, getString(text));
     }
@@ -6114,6 +6228,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void setControllerLED(short controllerNumber, byte r, byte g, byte b) {
         controllerHandler.handleSetControllerLED(controllerNumber, r, g, b);
+    }
+
+    @Override
+    public void linkNotice(int state, int ceilingKbps, int currentKbps) {
+        LinkNoticeStatus status = LinkNoticeStatus.parse(state, ceilingKbps, currentKbps);
+        runOnUiThread(() -> {
+            linkNotice = status;
+            if (performanceOverlayView != null) updatePerformanceOverlay();
+        });
     }
 
     @Override
@@ -6218,6 +6341,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
 
+        applySurfaceFrameRate(surface, baseSurfaceFrameRate(), Surface.CHANGE_FRAME_RATE_ALWAYS);
+        // The base vote replaced any content rate vote; make it again.
+        contentRateVote.invalidate();
+        logDisplayRefreshPolicy(getVideoDisplay());
+    }
+
+    // The vote for the stream before the content rate is known, or when it is not followed.
+    private float baseSurfaceFrameRate() {
         float desiredFrameRate;
 
         // Android will pick the lowest matching refresh rate for a given frame rate value, so we want
@@ -6238,22 +6369,110 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // frame rate evenly divides into, which ensures the lowest possible display latency.
             desiredFrameRate = desiredRefreshRate;
         }
+        return desiredFrameRate;
+    }
 
+    private void applySurfaceFrameRate(Surface surface, float frameRate, int changeStrategy) {
         // Tell the OS about our frame rate to allow it to adapt the display refresh rate appropriately
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // We want to change frame rate even if it's not seamless, since prepareDisplayForRendering()
-            // will not set the display mode on S+ if it only differs by the refresh rate. It depends
-            // on us to trigger the frame rate switch here.
-            surface.setFrameRate(desiredFrameRate,
+            // The stream's own vote changes the rate even if it's not seamless, since
+            // prepareDisplayForRendering() will not set the display mode on S+ if it only differs
+            // by the refresh rate. It depends on us to trigger the frame rate switch here.
+            surface.setFrameRate(frameRate,
                     Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                    Surface.CHANGE_FRAME_RATE_ALWAYS);
-            appSurfaceFrameRateVote = desiredFrameRate;
+                    changeStrategy);
+            appSurfaceFrameRateVote = frameRate;
+            appSurfaceSeamlessOnly = changeStrategy == Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS;
         }
         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            surface.setFrameRate(desiredFrameRate,
+            // No strategy on API 30: the two-argument vote only ever switches seamlessly.
+            surface.setFrameRate(frameRate,
                     Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
-            appSurfaceFrameRateVote = desiredFrameRate;
+            appSurfaceFrameRateVote = frameRate;
+            appSurfaceSeamlessOnly = true;
         }
+    }
+
+    private void startRefreshSwitchPolling() {
+        if (refreshSwitchMonitor == null) {
+            refreshSwitchMonitor = new com.limelight.binding.video.RefreshSwitchMonitor(this);
+        }
+        bitrateHandler.removeCallbacks(pollRefreshSwitch);
+        bitrateHandler.postDelayed(pollRefreshSwitch, 1000);
+    }
+
+    private void stopRefreshSwitchPolling() {
+        bitrateHandler.removeCallbacks(pollRefreshSwitch);
+        messages.status("refresh", null);
+        messages.status("hdr", null);
+    }
+
+    // When the screen has stayed off the rate voted for, says why on the overlay's status line.
+    private void checkRefreshSwitch() {
+        if (refreshSwitchMonitor == null) return;
+        String text = refreshSwitchMonitor.poll(SystemClock.uptimeMillis(), getVideoDisplay(),
+                surfaceCreated && !useArr ? appSurfaceFrameRateVote : null, appSurfaceSeamlessOnly);
+        if (messages.status("refresh", text)) updatePerformanceOverlay();
+    }
+
+    // HDR was granted and then not delivered: say so on the status line for as long as it lasts,
+    // and log it. A refusal before the stream is already noted by refuseHdr, not repeated here.
+    private void checkHdrStatus() {
+        String text = null;
+        if (streamHdr && decoderRenderer != null) {
+            int format = decoderRenderer.getActiveVideoFormat();
+            HdrPolicy.Status status = format == 0 ? HdrPolicy.Status.WAITING : HdrPolicy.status(true,
+                    (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, decoderRenderer.getHostHdrReport(),
+                    decoderRenderer.getHdrMetadataState(), decoderRenderer.getDecodedTransfer());
+            int res = hdrStatusText(status);
+            if (res != 0) text = getString(res);
+            if (status != lastHdrStatus) {
+                lastHdrStatus = status;
+                if (res != 0) LimeLog.warning("HDR requested but " + status);
+            }
+        }
+        if (messages.status("hdr", text)) updatePerformanceOverlay();
+    }
+
+    static int hdrStatusText(HdrPolicy.Status status) {
+        switch (status) {
+            case NOT_NEGOTIATED: return R.string.stream_hdr_not_negotiated;
+            case HOST_SDR: return R.string.stream_hdr_host_sdr;
+            case NO_METADATA: return R.string.stream_hdr_no_metadata;
+            case OUTPUT_NOT_PQ: return R.string.stream_hdr_output_not_pq;
+            default: return 0;
+        }
+    }
+
+    private boolean followsContentRate() {
+        return com.limelight.binding.video.DisplayFrameRatePolicy.followsContentRate(Build.VERSION.SDK_INT,
+                prefConfig.contentRateFrameRate,
+                MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_CLOCK_SYNC),
+                useArr, prefConfig.vrr, prefConfig.useTextureView);
+    }
+
+    // Moves the surface's frame rate vote to the rate the game presents at once that held steady,
+    // seamless modes only, so a vote never blanks the screen during the stream.
+    private void voteContentRate() {
+        if (!surfaceCreated || videoSurface == null || !videoSurface.isValid() || decoderRenderer == null ||
+                !followsContentRate()) {
+            return;
+        }
+        long now = SystemClock.uptimeMillis();
+        int contentMilliHz = decoderRenderer.getContentRateMilliHz();
+        if (contentRateVote.withdraw(now, contentMilliHz)) {
+            // The game no longer holds a rate: back to the vote the stream would make.
+            applySurfaceFrameRate(videoSurface, baseSurfaceFrameRate(), Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+            LimeLog.info("Content frame rate vote withdrawn");
+            logDisplayRefreshPolicy(getVideoDisplay());
+            return;
+        }
+        float contentHz = contentRateVote.next(now, contentMilliHz);
+        if (contentHz <= 0) return;
+        float vote = com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
+                baseSurfaceFrameRate(), mayReduceRefreshRate(), panelMaxRefreshRate);
+        applySurfaceFrameRate(videoSurface, vote, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+        LimeLog.info("Content frame rate vote: " + vote + " Hz (game at " + contentHz + " Hz)");
         logDisplayRefreshPolicy(getVideoDisplay());
     }
 
@@ -6432,6 +6651,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Sticky modifiers and held keys of the PC keyboard go up with everything else.
         if (pcKeyboard != null) pcKeyboard.releaseInputs();
         pcKeyboardKeys.clear();
+        pcKeyboardAxisDevice = -1;
         synchronized (pressedKeys) {
             for (Map.Entry<Short, Byte> key : pressedKeys.entrySet()) {
                 conn.sendKeyboardInput(key.getKey(), KeyboardPacket.KEY_UP, (byte) 0, key.getValue());

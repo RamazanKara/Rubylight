@@ -23,6 +23,36 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
         return DemoConsole.repository(this);
     }
 
+    private boolean optionsOpened;
+
+    @Override protected void onResume() {
+        super.onResume();
+        // Once: coming back from the PC settings the sheet is not wanted again.
+        if (!optionsOpened && "options".equals(getIntent().getStringExtra("state"))) {
+            optionsOpened = true;
+            openOptions(0);
+        }
+    }
+
+    /** Presses the three dots on the Living-room PC's card once Home has painted it. */
+    private void openOptions(int attempt) {
+        androidx.recyclerview.widget.RecyclerView list = findViewById(R.id.console_list);
+        for (int i = 0; i < list.getChildCount(); i++) {
+            android.view.View card = list.getChildAt(i);
+            android.widget.TextView title = card.findViewById(R.id.console_title);
+            android.view.View more = card.findViewById(R.id.console_more);
+            if (more != null && title != null && "Living-room PC".contentEquals(title.getText())) {
+                more.performClick();
+                return;
+            }
+        }
+        // A short screen leaves the PCs row below the fold, where it is not laid out: scroll to it.
+        if (attempt == 3 && list.getAdapter() != null && list.getAdapter().getItemCount() > 0) {
+            list.scrollToPosition(list.getAdapter().getItemCount() - 1);
+        }
+        if (attempt < 30) list.postDelayed(() -> openOptions(attempt + 1), 300);
+    }
+
     @Override protected Class<? extends GameDetailActivity> detailActivity() {
         return DemoGameDetail.class;
     }

@@ -5,6 +5,7 @@
     <string name="overlay_compact_rtt">RTT %1$s мс</string>
     <string name="overlay_compact_loss">Потери %1$s%%</string>
     <string name="overlay_compact_waiting">Ожидание видео</string>
+    <string name="link_notice_lowered">Хост снизил битрейт до %1$s Мбит/с: сеть</string>
     <string name="overlay_health_good">Трансляция стабильна</string>
     <string name="overlay_health_fair">Трансляция с перебоями</string>
     <string name="overlay_health_poor">Трансляция плохая</string>

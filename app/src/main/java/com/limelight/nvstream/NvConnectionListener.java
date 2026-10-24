@@ -31,6 +31,12 @@ public interface NvConnectionListener {
     default void controllerHaptics(short controllerNumber, int sequence, byte[] pcm) {}
     default void cursorShape(byte[] message) {}
 
+    /**
+     * The host's notice that it holds the video bitrate below the requested one because of the
+     * network (state 1 limited, 2 floor), or is back at it (state 0). Bitrates in kbps.
+     */
+    default void linkNotice(int state, int ceilingKbps, int currentKbps) {}
+
     default void setAdaptiveTriggers(short controllerNumber, byte eventFlags, byte typeLeft,
                                      byte typeRight, byte[] left, byte[] right) {}
 }

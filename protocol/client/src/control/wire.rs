@@ -38,6 +38,7 @@ pub mod ptype {
     pub const RECONFIGURE: u16 = rubylight_protocol::control::RECONFIGURE_MESSAGE_TYPE;
     pub const HOST_TIMING: u16 = rubylight_protocol::control::HOST_TIMING_MESSAGE_TYPE;
     pub const CLOCK_SYNC: u16 = rubylight_protocol::control::CLOCK_SYNC_MESSAGE_TYPE;
+    pub const LINK_NOTICE: u16 = rubylight_protocol::control::LINK_NOTICE_MESSAGE_TYPE;
     pub const CURSOR_SHAPE_REQUEST: u16 = 0x5540;
     pub const CURSOR_SHAPE: u16 = 0x5541;
 }

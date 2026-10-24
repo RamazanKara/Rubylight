@@ -43,7 +43,9 @@ import com.limelight.R;
 import com.limelight.RemoteSetupActivity;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.computers.HostActions;
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.computers.HostNames;
 import com.limelight.computers.IdentityManager;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
@@ -100,6 +102,24 @@ public class HostStreamSettings extends NightjarActivity {
     // The PC as the computer manager last saw it; only its name and saved capabilities until it answers.
     ComputerDetails computer;
     private boolean managerBound;
+    // The computer manager once bound; Rename, Unpair and Remove go through it.
+    private ComputerManagerService.ComputerManagerBinder manager;
+    private boolean foreground;
+    private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
+        @Override public ComputerManagerService.ComputerManagerBinder binder() { return manager; }
+        @Override public boolean isForeground() { return foreground; }
+        @Override public void onPaired(ComputerDetails details) { }
+        @Override public void onRemoved(ComputerDetails details) {
+            // Nothing is left to set for a PC that is gone.
+            finish();
+        }
+        @Override public void onRenamed(ComputerDetails details) {
+            showName();
+        }
+        @Override public void onWakeSent(ComputerDetails details) { }
+        @Override public void pausePolling() { }
+        @Override public void resumePolling() { }
+    });
     private PyroWaveBandwidthTest connectionTest;
     private PyroWavePaceCalibration paceCalibration;
     private Uri exportRomsTree;
@@ -116,10 +136,11 @@ public class HostStreamSettings extends NightjarActivity {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             if (!(binder instanceof ComputerManagerService.ComputerManagerBinder)) return;
-            ComputerManagerService.ComputerManagerBinder manager = (ComputerManagerService.ComputerManagerBinder) binder;
+            ComputerManagerService.ComputerManagerBinder bound = (ComputerManagerService.ComputerManagerBinder) binder;
+            manager = bound;
             new Thread(() -> {
-                if (!manager.waitForReady()) return;
-                ComputerDetails known = manager.getComputer(hostUuid);
+                if (!bound.waitForReady()) return;
+                ComputerDetails known = bound.getComputer(hostUuid);
                 if (known == null) return;
                 ComputerDetails copy = new ComputerDetails(known);
                 runOnUiThread(() -> {
@@ -177,6 +198,7 @@ public class HostStreamSettings extends NightjarActivity {
         computer = new ComputerDetails();
         computer.uuid = hostUuid;
         computer.name = getIntent().getStringExtra("host_name");
+        computer.alias = HostNames.get(this, hostUuid);
         computer.caps = caps;
         PreferenceConfiguration.migratePcProfilesToOverrides(this);
         StreamLayers.Input input = PreferenceConfiguration.layerInput(this, PreferenceConfiguration.readPreferences(this),
@@ -211,11 +233,11 @@ public class HostStreamSettings extends NightjarActivity {
         setContentView(R.layout.activity_host_stream_settings);
         // The PC is the page: its name is the title, the host software and version the subtitle.
         // A profile or a game names the page the same way.
-        String title = mode == Mode.PROFILE ? profiles.name(profileId) : mode == Mode.GAME ? appName : computer.name;
+        String title = mode == Mode.PROFILE ? profiles.name(profileId) : mode == Mode.GAME ? appName : computer.displayName();
         setTitle(title);
         MaterialToolbar toolbar = TopAppBar.configure(this, R.id.host_profile_toolbar, title, R.menu.host_profile);
         toolbar.setSubtitle(mode == Mode.PROFILE ? getString(R.string.profiles_subtitle) :
-                mode == Mode.GAME ? getString(R.string.game_settings_subtitle, computer.name) : caps.familyLabel(this));
+                mode == Mode.GAME ? getString(R.string.game_settings_subtitle, computer.displayName()) : caps.familyLabel(this));
         TopAppBar.setUpNavigation(toolbar, R.id.host_profile_back, v -> leaveSettings());
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -313,8 +335,15 @@ public class HostStreamSettings extends NightjarActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        foreground = true;
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
+        foreground = false;
         if (paceCalibration != null) {
             paceCalibration.cancel();
             paceCalibration = null;
@@ -328,6 +357,7 @@ public class HostStreamSettings extends NightjarActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        hostActions.destroy();
         if (managerBound) {
             unbindService(managerConnection);
             managerBound = false;
@@ -336,7 +366,9 @@ public class HostStreamSettings extends NightjarActivity {
 
     /** The PC as the computer manager knows it: its state, addresses and what its host reported last. */
     void showComputer(ComputerDetails details) {
+        details.alias = HostNames.get(this, hostUuid);
         computer = details;
+        showName();
         if (details.caps.isKnown()) {
             caps = details.caps;
             ((MaterialToolbar) findViewById(R.id.host_profile_toolbar)).setSubtitle(caps.familyLabel(this));
@@ -344,6 +376,18 @@ public class HostStreamSettings extends NightjarActivity {
         SettingsFragment fragment = (SettingsFragment) getFragmentManager().findFragmentById(R.id.host_profile_settings);
         if (fragment != null && fragment.activity != null) {
             fragment.showActions();
+        }
+    }
+
+    /** The title is the name this device gives the PC: the alias while one is set, else the PC's own name. */
+    private void showName() {
+        if (mode == Mode.PROFILE) return;
+        MaterialToolbar toolbar = findViewById(R.id.host_profile_toolbar);
+        if (mode == Mode.GAME) {
+            toolbar.setSubtitle(getString(R.string.game_settings_subtitle, computer.displayName()));
+        } else {
+            setTitle(computer.displayName());
+            toolbar.setTitle(computer.displayName());
         }
     }
 
@@ -786,6 +830,12 @@ public class HostStreamSettings extends NightjarActivity {
             if (pc.caps.family() == HostCapabilities.Family.GAMESTREAM) {
                 row(host, "gamestream_eol", R.string.pcview_menu_eol, () -> HelpLauncher.launchGameStreamEolFaq(screen));
             }
+            // The same three actions as the PC's options on the list and on Home.
+            row(host, "rename", R.string.host_menu_rename, () -> screen.hostActions.rename(screen.computer));
+            if (online && pc.pairState == PairingManager.PairState.PAIRED) {
+                row(host, "unpair", R.string.pcview_menu_unpair_pc, () -> screen.hostActions.confirmUnpair(screen.computer));
+            }
+            row(host, "remove", R.string.pcview_menu_delete_pc, () -> screen.hostActions.confirmRemove(screen.computer));
         }
 
         private String onOff(boolean value) {
@@ -1058,7 +1108,7 @@ public class HostStreamSettings extends NightjarActivity {
 
         private void showDisplay() {
             AlertDialog picker = HostDisplaySettings.create(activity, activity.hostUuid,
-                    activity.getIntent().getStringExtra("host_name"), this::updateSummaries);
+                    activity.computer.displayName(), this::updateSummaries);
             showEditor("display", picker);
             HostDisplaySettings.bindHelp(activity, picker);
         }

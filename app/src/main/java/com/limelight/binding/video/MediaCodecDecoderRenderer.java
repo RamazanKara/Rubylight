@@ -62,8 +62,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private final ArrayList<byte[]> spsBuffers = new ArrayList<>();
     private final ArrayList<byte[]> ppsBuffers = new ArrayList<>();
     private boolean submittedCsd;
-    private byte[] currentHdrMetadata;
-    private Boolean currentHdrMode;
+    private volatile byte[] currentHdrMetadata;
+    private volatile Boolean currentHdrMode;
 
     private int nextInputBufferIndex = -1;
     private ByteBuffer nextInputBuffer;
@@ -71,6 +71,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private Context context;
     private Activity activity;
     private MediaCodec videoDecoder;
+    private boolean lowLatencyKeysExperimental;
     private Thread rendererThread;
     private boolean needsSpsBitstreamFixup, isExynos4;
     private boolean adaptivePlayback, directSubmit, fusedIdrFrame;
@@ -79,6 +80,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private byte optimalSlicesPerFrame;
     private boolean refFrameInvalidationActive;
     private int initialWidth, initialHeight;
+    // Why the last setup() failed, for the stream dialog; null when it did not. The last codec
+    // exception stays here too, because configure() is retried and only the final one matters.
+    private volatile DecoderSetupFailure setupFailure;
+    private Throwable lastConfigureError;
     private Packed444 packing;
     private boolean packingFailed;
     // Mid-stream reconfigure (0x5532): the adaptive-playback maximum, which grows when a larger
@@ -128,7 +133,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int codecRecoveryAttempts = 0;
 
     private MediaFormat inputFormat;
-    private MediaFormat outputFormat;
+    private volatile MediaFormat outputFormat;
     private MediaFormat configuredFormat;
 
     private boolean needsBaselineSpsHack;
@@ -169,6 +174,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Conventional decode follows Artemis; PyroWave follows Moonlight X's CPU submission metric.
     // Both use every frame received in the last two one-second windows as the denominator.
     private volatile float shownDecodeTimeMs = -1;
+    // The statistics overlay's Host processing: the frame header's average over the last two windows,
+    // computed exactly as Artemis and Moonlight do. -1 until a frame carried one.
+    private volatile float shownHostProcessingMs = -1;
     private final PyroWaveSubmissionTiming pyroWaveSubmissionTiming = new PyroWaveSubmissionTiming();
     private ThermalMonitor thermalMonitor;
     private volatile int thermalLevel = ThermalMonitor.NORMAL;
@@ -177,6 +185,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Releases MediaCodec frames at the host's frame times when that setting is on.
     private final HostFrameClock hostFrameClock = new HostFrameClock();
     private volatile boolean hostFrameTimes;
+    // Follow the content rate for Game's frame rate vote (host frame times, scheduled or not).
+    private volatile boolean trackContentRate;
+    // With host frame times, frames go onto the panel's vsync grid, late ones give way to newer
+    // ones, and the decoder queue and the compositor's queue are kept short (PresentScheduler,
+    // DecoderQueuePolicy.Residency and InFlight). All of it runs on the renderer thread, except
+    // the in-flight count, which the frame-rendered listener also writes.
+    private final PresentScheduler presentScheduler = new PresentScheduler(hostFrameClock);
+    private final PresentScheduler.Plan presentPlan = new PresentScheduler.Plan();
+    private final DecoderQueuePolicy.Residency residency = new DecoderQueuePolicy.Residency();
+    private final DecoderQueuePolicy.InFlight inFlight = new DecoderQueuePolicy.InFlight();
+    private volatile boolean frameRenderedListenerSet;
+    // Why the catch-up loop wants to drop the output it holds; see wantsCatchUp.
+    private String catchUpReason;
+    // The output the scheduler is holding, which a newer output may replace.
+    private int heldIndex;
+    private long heldPtsUs;
     private HandlerThread latencyThread;
     private Handler latencyHandler;
     private final AtomicBoolean phaseFlushQueued = new AtomicBoolean();
@@ -191,8 +215,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     };
     private BufferedWriter latencyCsv;
     private volatile String latencyOverlay = "";
-    private volatile double[][] latencySummary = new double[8][4];
+    private volatile double[][] latencySummary = new double[9][4];
     private volatile String decoderDiagnostics = "";
+    // Tuning keys of the configure attempt in progress, and those an earlier attempt asked for that it no longer has.
+    private volatile List<String> lowLatencyKeysApplied = new ArrayList<>();
+    private volatile List<String> lowLatencyKeysDropped = new ArrayList<>();
     // Private file name kept from earlier releases so the last stream's timings survive updates.
     public static final String LATENCY_CSV_NAME = "butterpollo-latency.csv";
     public static final String LATENCY_CSV_EXPORT_NAME = "nightjar-latency.csv";
@@ -247,15 +274,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     static String formatLatencyOverlay(Context context, double[][] summary, float decodeAverageMs, boolean pyroWave) {
-        // With host timing reports the row runs to the last packet sent, so it says it includes the send.
-        boolean hostReports = summary.length > 7 && summary[7][0] > 0;
+        // Host processing is always the frame header's value, like Artemis and Moonlight show it. With
+        // host timing reports a second row follows, present to last packet sent, which says it includes the send.
+        boolean hostReports = summary.length > FrameLatencyStats.HOST_SENT_STAGE && summary[FrameLatencyStats.HOST_SENT_STAGE][0] > 0;
         int[] labels = { R.string.latency_receive_render, R.string.latency_queue_wait,
                 pyroWave ? R.string.latency_pyrowave_completed_decode : R.string.latency_input_output, R.string.latency_output_render,
-                hostReports ? R.string.latency_host_processing_send : R.string.latency_host_processing };
-        int[] stages = {3, 0, 1, 2, 4};
+                R.string.latency_host_processing, R.string.latency_host_processing_send };
+        int[] stages = {3, 0, 1, 2, 4, FrameLatencyStats.HOST_SENT_STAGE};
         StringBuilder text = new StringBuilder(context.getString(R.string.latency_header, FrameLatencyStats.WINDOW_SIZE));
         for (int line = 0; line < labels.length; line++) {
             int stage = stages[line];
+            if (stage == FrameLatencyStats.HOST_SENT_STAGE && !hostReports) {
+                continue;
+            }
             if (stage == 4) {
                 text.append("\n\n").append(context.getString(R.string.overlay_host));
             }
@@ -303,11 +334,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         long nowNs = System.nanoTime();
         double[][] timing = frameLatencyStats.summarizeRecent(nowNs, 2_000_000_000L);
         float[] rates = frameLatencyStats.getFrameRates(nowNs);
+        // The stream doctor judges the host by its present to last packet sent when the host reports it,
+        // otherwise by the frame header's processing time. The statistics overlay never does this.
+        boolean hostReports = timing[FrameLatencyStats.HOST_SENT_STAGE][0] > 0;
+        int hostStage = hostReports ? FrameLatencyStats.HOST_SENT_STAGE : 4;
+        float hostP95Ms = timing[hostStage][0] > 0 ? (float) timing[hostStage][2] : -1;
         return new com.limelight.utils.StreamHealth.Sample(nowMs, hasRecentVideoFrames(nowMs), fps,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
-                jitterMs, getDecodeTimeMs(), timing[4][0] > 0 ? (float) timing[4][2] : -1,
+                jitterMs, getDecodeTimeMs(), hostP95Ms,
                 timing[2][0] > 0 ? (float) timing[2][2] : -1, rates[0], rates[1], rates[2], getThermalLevel(),
-                timing[7][0] > 0);
+                hostReports);
     }
 
     public LatencyProbe getLatencyProbe() {
@@ -384,8 +420,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int numSpsIn;
     private int numPpsIn;
     private int numVpsIn;
-    private int numFramesIn;
-    private int numFramesOut;
+    // Written by the decoder-input and renderer threads, read by both; decoderDepthBase is set
+    // where codec recovery has quiesced them.
+    private volatile int numFramesIn;
+    private volatile int numFramesOut;
+    private volatile int decoderDepthBase;
 
     private MediaCodecInfo findAvcDecoder() {
         MediaCodecInfo decoder = prefs.enableYuv444 ?
@@ -704,6 +743,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     public int getStreamFrameRateMilliHz() {
         return streamFrameRateMilliHz;
+    }
+
+    /** The rate the game presents at in millihertz once steady (see HostFrameClock); else 0. */
+    public int getContentRateMilliHz() {
+        return hostFrameClock.contentRateMilliHz();
     }
 
     public com.limelight.nvstream.DecodeTiming takeDecodeTiming(int fps) {
@@ -1272,11 +1316,32 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private boolean packedHdrAvailable() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false;
-        Display.HdrCapabilities capabilities = outputDisplay.getHdrCapabilities();
-        if (capabilities != null) for (int type : capabilities.getSupportedHdrTypes()) {
-            if (type == Display.HdrCapabilities.HDR_TYPE_HDR10) return true;
+        return HdrPolicy.hasHdr10(HdrPolicy.displayHdrTypes(outputDisplay));
+    }
+
+    /** The host's last HDR report, null until it has sent one. */
+    public Boolean getHostHdrReport() {
+        return currentHdrMode;
+    }
+
+    public HdrPolicy.Metadata getHdrMetadataState() {
+        return HdrPolicy.metadata(currentHdrMetadata);
+    }
+
+    /**
+     * The colour transfer the decoder reports for its output, or null when there is none to judge:
+     * before the first frame, on the PyroWave and packed paths (their output is not the codec's),
+     * or when the decoder leaves the key out.
+     */
+    public Integer getDecodedTransfer() {
+        MediaFormat format = outputFormat;
+        if (format == null || packing != null || upscaler != null ||
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ||
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.N ||
+                !format.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
+            return null;
         }
-        return false;
+        return format.getInteger(MediaFormat.KEY_COLOR_TRANSFER);
     }
 
     @Override
@@ -1395,6 +1460,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return videoFormat;
     }
 
+    // Sets the HDR metadata, or clears a stale copy. A format that never had the key is left alone:
+    // before Android 10 clearing means a null entry, which an older OMX decoder (Fire OS 7) may
+    // refuse in configure(), and Artemis never writes the key without metadata either.
+    static void applyHdrStaticInfo(MediaFormat format, ByteBuffer hdrStaticInfo) {
+        if (hdrStaticInfo != null) {
+            format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, hdrStaticInfo);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            format.removeKey(MediaFormat.KEY_HDR_STATIC_INFO);
+        } else if (format.containsKey(MediaFormat.KEY_HDR_STATIC_INFO)) {
+            format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, null);
+        }
+    }
+
     static ByteBuffer createHdrStaticInfo(byte[] metadata) {
         if (metadata == null || metadata.length < 24) {
             return null;
@@ -1422,15 +1500,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             format.setInteger(MediaFormat.KEY_COLOR_STANDARD, hdr ? MediaFormat.COLOR_STANDARD_BT2020 :
                     getPreferredColorSpace() == MoonBridge.COLORSPACE_REC_601 ?
                             MediaFormat.COLOR_STANDARD_BT601_NTSC : MediaFormat.COLOR_STANDARD_BT709);
-            ByteBuffer hdrStaticInfo = hdr ? createHdrStaticInfo(currentHdrMetadata) : null;
-            if (hdrStaticInfo != null) {
-                format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, hdrStaticInfo);
-            }
-            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                format.removeKey(MediaFormat.KEY_HDR_STATIC_INFO);
-            } else {
-                format.setByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO, null);
-            }
+            applyHdrStaticInfo(format, hdr ? createHdrStaticInfo(currentHdrMetadata) : null);
         }
 
         LimeLog.info("Configuring with format: "+format);
@@ -1464,9 +1534,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         reassertLowLatencyParameters(format);
 
         // Vendor parameters are applied at start; echoed or declared values confirm acceptance.
-        inputFormat = videoDecoder.getInputFormat();
-        LimeLog.info("Input format: "+inputFormat);
-        updateDecoderDiagnostics();
+        // These only describe the decoder; a failure here must not count as a rejected configure.
+        try {
+            inputFormat = videoDecoder.getInputFormat();
+            LimeLog.info("Input format: "+inputFormat);
+            updateDecoderDiagnostics();
+        } catch (RuntimeException e) {
+            LimeLog.warning("Decoder diagnostics unavailable: " + e);
+            decoderDiagnostics = "";
+        }
     }
 
     // Some decoders only honour low-latency settings sent after start, so send them again at runtime.
@@ -1524,8 +1600,25 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         decoderDiagnostics += '\n' + context.getString(R.string.perf_overlay_phone_hints,
                 context.getString(prefs.phonePerformanceHints ? R.string.stream_enabled : R.string.stream_disabled));
         LimeLog.info(decoderDiagnostics);
+        // Report text only (not the overlay): the raw key names are for bug reports.
+        String keyReport = (videoDecoder == null || (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) ? "" :
+                "\nTuning keys applied: " + describeKeys(lowLatencyKeysApplied) +
+                "\nTuning keys dropped after rejected configures: " + describeKeys(lowLatencyKeysDropped) +
+                        (lowLatencyKeysExperimental
+                                ? "\nExperimental: vendor keys not run on this hardware" : "");
         ProblemReport.setDecoderDiagnostics(initialWidth + "x" + initialHeight + " @ " + refreshRate + " FPS\n" +
-                decoderDiagnostics);
+                decoderDiagnostics + keyReport);
+    }
+
+    private static String describeKeys(List<String> keys) {
+        return keys.isEmpty() ? "none" : String.join(", ", keys);
+    }
+
+    // The stack trace only reached logcat; the problem report keeps what the codec said.
+    private void noteConfigureError(MediaCodecInfo decoder, MediaFormat format, Exception e) {
+        e.printStackTrace();
+        lastConfigureError = e;
+        LimeLog.warning("Decoder " + decoder.getName() + " rejected " + format + ": " + DecoderSetupFailure.describe(e));
     }
 
     private boolean tryConfigureDecoder(MediaCodecInfo selectedDecoderInfo, MediaFormat format, boolean throwOnCodecError) {
@@ -1536,17 +1629,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.info("Using codec " + selectedDecoderInfo.getName() + " for hardware decoding " + format.getString(MediaFormat.KEY_MIME));
             configured = true;
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            noteConfigureError(selectedDecoderInfo, format, e);
             if (throwOnCodecError) {
                 throw e;
             }
         } catch (IllegalStateException e) {
-            e.printStackTrace();
+            noteConfigureError(selectedDecoderInfo, format, e);
             if (throwOnCodecError) {
                 throw e;
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            noteConfigureError(selectedDecoderInfo, format, e);
             if (throwOnCodecError) {
                 throw new RuntimeException(e);
             }
@@ -1559,6 +1652,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return configured;
     }
 
+    /** Why the last setup() failed, or null. Stage failures from the decoder carry only a code. */
+    public DecoderSetupFailure getSetupFailure() {
+        return setupFailure;
+    }
+
     public int initializeDecoder(boolean throwOnCodecError) {
         String mimeType;
         MediaCodecInfo selectedDecoderInfo;
@@ -1569,6 +1667,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             if (avcDecoder == null) {
                 LimeLog.severe("No available AVC decoder!");
+                setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.NO_DECODER, null, mimeType,
+                        initialWidth, initialHeight, refreshRate, null);
                 return -1;
             }
 
@@ -1606,6 +1706,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             if (hevcDecoder == null) {
                 LimeLog.severe("No available HEVC decoder!");
+                setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.NO_DECODER, null, mimeType,
+                        initialWidth, initialHeight, refreshRate, null);
                 return -2;
             }
 
@@ -1617,6 +1719,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             if (av1Decoder == null) {
                 LimeLog.severe("No available AV1 decoder!");
+                setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.NO_DECODER, null, mimeType,
+                        initialWidth, initialHeight, refreshRate, null);
                 return -2;
             }
 
@@ -1632,6 +1736,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
 
         boolean retryWithoutUpscaling = false;
+        List<String> firstTryKeys = null;
         for (int tryNumber = 0;; tryNumber++) {
             LimeLog.info("Decoder configuration try: "+tryNumber);
 
@@ -1640,6 +1745,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // This will try low latency options until we find one that works (or we give up).
             boolean newFormat = MediaCodecHelper.setDecoderLowLatencyOptions(mediaFormat, selectedDecoderInfo, tryNumber,
                     prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.disableHevcLowLatency);
+
+            // Each rejected configure drops keys on the next try; keep a record of which ones went.
+            List<String> vendorParams = MediaCodecHelper.getIntegerVendorParameters(selectedDecoderInfo.getName());
+            List<String> triedKeys = MediaCodecHelper.requestedTuningKeys(mediaFormat, vendorParams);
+            if (firstTryKeys == null) {
+                firstTryKeys = triedKeys;
+            }
+            lowLatencyKeysDropped = MediaCodecHelper.droppedTuningKeys(firstTryKeys, triedKeys);
+            lowLatencyKeysApplied = triedKeys;
 
             // Throw the underlying codec exception on the last attempt if the caller requested it
             if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat, !newFormat && upscaler == null && throwOnCodecError)) {
@@ -1653,6 +1767,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     notifyUpscalingFallback();
                 }
                 // Success!
+                lowLatencyKeysExperimental = MediaCodecHelper.isExperimentalVendorDecoder(selectedDecoderInfo.getName());
+                LimeLog.info("Decoder " + selectedDecoderInfo.getName() +
+                        (lowLatencyKeysExperimental ? " (Experimental: vendor keys not run on this hardware)" : "") +
+                        " tuning keys applied: " +
+                        describeKeys(lowLatencyKeysApplied) + "; dropped after rejected configures: " +
+                        describeKeys(lowLatencyKeysDropped));
                 break;
             }
 
@@ -1665,6 +1785,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     continue;
                 }
                 // We couldn't even configure a decoder without any low latency options
+                setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.REJECTED, selectedDecoderInfo.getName(),
+                        mimeType, initialWidth, initialHeight, refreshRate, lastConfigureError);
+                LimeLog.severe("Decoder setup failed: " + setupFailure);
                 return -5;
             }
         }
@@ -1680,8 +1803,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 public void onFrameRendered(MediaCodec mediaCodec, long presentationTimeUs, long renderTimeNanos) {
                     // Callbacks may be batched; their timestamp, not delivery time, measures rendering.
                     frameLatencyStats.onFrameRendered(presentationTimeUs, renderTimeNanos, System.nanoTime());
+                    inFlight.onRendered(presentationTimeUs);
                 }
             }, latencyHandler);
+            frameRenderedListenerSet = true;
         }
     }
 
@@ -1692,6 +1817,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (stopping) {
                 return -1;
             }
+            setupFailure = null;
+            lastConfigureError = null;
             this.initialWidth = width;
             this.initialHeight = height;
             this.maxDecodeWidth = this.expectedWidth = this.streamWidth = width;
@@ -1822,7 +1949,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 pacingFrameRateMilliHz = 0;
                 outputBufferQueueLimit = 1;
                 frameLatencyStats.discardPending("codec_reset");
-                if (hostFrameTimes) hostFrameClock.reset();
+                // Frames inside the codec are gone; the scheduler counts from here.
+                decoderDepthBase = numFramesIn - numFramesOut;
+                if (hostFrameTimes) {
+                    hostFrameClock.reset();
+                    presentScheduler.reset();
+                    residency.reset();
+                    inFlight.reset();
+                }
 
                 // If we just need a flush, do so now with all threads quiesced.
                 if (codecRecoveryType.get() == CR_RECOVERY_TYPE_FLUSH) {
@@ -2097,6 +2231,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private void reportPhaseSlack(long readyNs) {
         // Adaptive refresh has no fixed latch; an upscaled frame is not display-ready yet.
         if (stopping || !outputVsyncAvailable || upscaler != null) return;
+        // The scheduler places frames by the host's frame times; a host that also retimed its
+        // captures from this report would be a second controller on the same signal.
+        if (FramePacingPolicy.schedulesFrames(hostFrameTimes, prefs.framePacing)) return;
         long slackNs, intervalNs;
         synchronized (vsyncMonitor) {
             if (outputHasArrSupport) return;
@@ -2229,6 +2366,121 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         });
     }
 
+    private void onOutputFormatChanged() {
+        LimeLog.info("Output format changed");
+        outputFormat = videoDecoder.getOutputFormat();
+        LimeLog.info("New output format: " + outputFormat);
+        checkUpscalingOutputFormat();
+        updateShownSize();
+    }
+
+    /** How often the game presents: the measured content rate once steady, else the stream's. */
+    private long contentIntervalNs() {
+        int milliHz = hostFrameClock.contentRateMilliHz();
+        return milliHz >= 1000 ? 1_000_000_000_000L / milliHz : FramePacingPolicy.frameIntervalNs(streamFrameRateMilliHz);
+    }
+
+    /** Feeds the residency governor with the output at index and logs the queue it saw. */
+    private void noteResidency(int index) {
+        long excessNs = residency.onOutput(frameLatencyStats.getInputToOutputNs(index), System.nanoTime());
+        residency.track(excessNs, contentIntervalNs());
+        frameLatencyStats.onQueueState(index, DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase), excessNs);
+    }
+
+    /**
+     * Whether the output at index, held while a newer one may be waiting, should be dropped for it,
+     * and why (catchUpReason): older than the age budget, or the decoder holds a surplus.
+     */
+    private boolean wantsCatchUp(int index, int drained, boolean scheduled) {
+        if (FramePacingPolicy.shouldDrainOutput(hostFrameTimes ?
+                        PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS : prefs.framePacing,
+                frameLatencyStats.getEnqueueTimeNsForOutput(index), System.nanoTime(),
+                streamFrameRateMilliHz, drained)) {
+            catchUpReason = "catch_up";
+            return true;
+        }
+        if (scheduled && drained < FramePacingPolicy.MAX_OUTPUT_DRAIN &&
+                residency.shouldDrop(DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase))) {
+            catchUpReason = "governor";
+            return true;
+        }
+        return false;
+    }
+
+    private final ScheduledRelease scheduledRelease =
+            new ScheduledRelease(presentScheduler, inFlight, new ReleasePort());
+
+    /** The scheduled release's view of the codec, the clock and the display. */
+    private final class ReleasePort implements ScheduledRelease.Port {
+        private BufferInfo info = new BufferInfo();
+
+        @Override public long nanoTime() {
+            return System.nanoTime();
+        }
+
+        @Override public void timing(ScheduledRelease.Timing out) {
+            synchronized (vsyncMonitor) {
+                out.grid = outputVsyncAvailable && upscaler == null && !outputHasArrSupport &&
+                        vsyncTimeNs != 0 && vsyncIntervalNs > 0;
+                out.vsyncNs = vsyncTimeNs;
+                out.intervalNs = vsyncIntervalNs;
+                out.deadlineNs = vsyncPresentationDeadlineNs;
+            }
+        }
+
+        @Override public long heldPtsUs() {
+            return heldPtsUs;
+        }
+
+        /** The caller has checked that the held frame may be dropped (the previous one was shown). */
+        @Override public boolean replaceHeld(String reason, long basisNs) {
+            int newer = videoDecoder.dequeueOutputBuffer(info, 0);
+            if (newer == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                onOutputFormatChanged();
+                return false;
+            }
+            if (newer < 0) return false;
+            long nowNs = System.nanoTime();
+            frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
+            frameLatencyStats.onDropReason(heldIndex, reason);
+            frameLatencyStats.onOutputReleased(heldIndex, nowNs, false,
+                    upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+            videoDecoder.releaseOutputBuffer(heldIndex, false);
+            numFramesOut++;
+            heldIndex = newer;
+            heldPtsUs = info.presentationTimeUs;
+            noteResidency(heldIndex);
+            return true;
+        }
+
+        @Override public long fallbackPresentNs(long codecPtsUs, long basisNs) {
+            return hostFrameClock.presentNs(codecPtsUs, basisNs);
+        }
+
+        @Override public void release(long releaseNs, long dueNs, boolean planned, long holdNs, boolean late,
+                                      int inFlightCount) {
+            long nowNs = System.nanoTime();
+            frameLatencyStats.onScheduled(heldIndex, planned ? dueNs : 0, holdNs, late, inFlightCount);
+            frameLatencyStats.onOutputReleased(heldIndex, nowNs, true,
+                    upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+            releaseOutputFrame(heldIndex, releaseNs);
+        }
+    }
+
+    /**
+     * Releases the decoded output at index (codec timestamp ptsUs) with host frame times. On a
+     * fixed-refresh panel the frame is planned onto the vsync grid (PresentScheduler); with
+     * adaptive refresh, an upscaler or no vsync sample yet it is released at the clock's time.
+     * See ScheduledRelease for when a newer output replaces it. Returns the codec timestamp of
+     * the frame that was released.
+     */
+    private long releaseScheduled(int index, long ptsUs, boolean droppedBefore) {
+        heldIndex = index;
+        heldPtsUs = ptsUs;
+        boolean renderCallbacks = upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
+        return scheduledRelease.run(droppedBefore, contentIntervalNs(), renderCallbacks && frameRenderedListenerSet);
+    }
+
     private void startRendererThread()
     {
         rendererThread = new Thread() {
@@ -2269,47 +2521,60 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     // after a backlog exceeds the age budget, then resume normal order.
                                     // All frames have already been decoded, preserving codec references.
                                     int drained = 0;
+                                    boolean scheduled = FramePacingPolicy.schedulesFrames(
+                                            hostFrameTimes, prefs.framePacing);
+                                    if (scheduled) noteResidency(lastIndex);
                                     while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
                                             FramePacingPolicy.hasOutputDrainTimeRemaining(
                                                     SystemClock.elapsedRealtimeNanos() - outputDrainStartNs,
                                                     streamFrameRateMilliHz) &&
-                                            FramePacingPolicy.shouldDrainOutput(hostFrameTimes ?
-                                                            PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS : prefs.framePacing,
-                                                    frameLatencyStats.getEnqueueTimeNsForOutput(lastIndex),
-                                                    System.nanoTime(), streamFrameRateMilliHz, drained) &&
+                                            wantsCatchUp(lastIndex, drained, scheduled) &&
                                             (outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
                                         frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, System.nanoTime());
+                                        frameLatencyStats.onDropReason(lastIndex, catchUpReason);
                                         frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false,
                                                 upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
                                         videoDecoder.releaseOutputBuffer(lastIndex, false);
+                                        if (scheduled && "governor".equals(catchUpReason)) {
+                                            residency.onDropped();
+                                            presentScheduler.onGovernorDropped();
+                                        }
 
                                         numFramesOut++;
 
                                         lastIndex = outIndex;
                                         lastPtsUs = info.presentationTimeUs;
                                         drained++;
+                                        if (scheduled) noteResidency(lastIndex);
                                     }
 
-                                    frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
-                                            upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
-                                    if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
-                                            prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
-                                        // Retain the ordinary smooth-mode presentation behavior after
-                                        // replacing any stale decoded outputs above.
-                                        releaseOutputFrame(lastIndex, 0);
-                                    }
-                                    else if (hostFrameTimes) {
-                                        // Held until the host's frame time plus the jitter delay; the
-                                        // compositor shows it at that time, or replaces it if a later
-                                        // frame is due first.
-                                        releaseOutputFrame(lastIndex, hostFrameClock.presentNs(lastPtsUs, System.nanoTime()));
+                                    if (scheduled) {
+                                        // Not released as one of the frames dropped above: the scheduler
+                                        // decides when, and whether a newer output replaces it.
+                                        lastPtsUs = releaseScheduled(lastIndex, lastPtsUs, drained > 0);
                                     }
                                     else {
-                                        // Use a PTS that will cause this frame to be dropped if another comes in within
-                                        // the same V-sync period. "Now" lets the compositor take it at its very next
-                                        // latch; a computed vsync target that errs late (a conservative deadline, a
-                                        // drifting phase estimate) holds frames back a whole refresh.
-                                        releaseOutputFrame(lastIndex, System.nanoTime());
+                                        frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
+                                                upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                                        if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
+                                                prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
+                                            // Retain the ordinary smooth-mode presentation behavior after
+                                            // replacing any stale decoded outputs above.
+                                            releaseOutputFrame(lastIndex, 0);
+                                        }
+                                        else if (hostFrameTimes) {
+                                            // Held until the host's frame time plus the jitter delay; the
+                                            // compositor shows it at that time, or replaces it if a later
+                                            // frame is due first.
+                                            releaseOutputFrame(lastIndex, hostFrameClock.presentNs(lastPtsUs, System.nanoTime()));
+                                        }
+                                        else {
+                                            // Use a PTS that will cause this frame to be dropped if another comes in within
+                                            // the same V-sync period. "Now" lets the compositor take it at its very next
+                                            // latch; a computed vsync target that errs late (a conservative deadline, a
+                                            // drifting phase estimate) holds frames back a whole refresh.
+                                            releaseOutputFrame(lastIndex, System.nanoTime());
+                                        }
                                     }
                                     // Artemis counts the frame it presents, once it has been released.
                                     frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
@@ -2348,11 +2613,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 }
                             }
                             if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                                LimeLog.info("Output format changed");
-                                outputFormat = videoDecoder.getOutputFormat();
-                                LimeLog.info("New output format: " + outputFormat);
-                                checkUpscalingOutputFormat();
-                                updateShownSize();
+                                onOutputFormatChanged();
                             }
                         } catch (IllegalStateException e) {
                             handleDecoderException(e);
@@ -2456,8 +2717,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         hostFrameTimes = prefs.hostFrameTimes;
         // A host that announced clock sync is probed for the timing CSV; frames are scheduled by
         // the clock only with host frame times on.
+        trackContentRate = prefs.contentRateFrameRate && hostAnnouncesClockSync();
+        // The content rate also sizes the scheduler's late and residency thresholds.
         hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes,
-                hostAnnouncesClockSync());
+                hostAnnouncesClockSync(), trackContentRate || hostFrameTimes);
         startRendererThread();
         startChoreographerThread();
     }
@@ -2818,6 +3081,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             String hostFrameLine = hostFrameTimes && mediaCodec ? hostFrameClock.overlayLine() : null;
             if (hostFrameLine != null) decode.append('\n').append(hostFrameLine);
+            String schedulerLine = hostFrameTimes && mediaCodec ? presentScheduler.overlayLine() : null;
+            if (schedulerLine != null) decode.append('\n').append(schedulerLine);
             decode.append('\n').append(upscalingStats());
             decode.append('\n').append(thermalStats());
             decode.append('\n').append(latencyOverlay);
@@ -2825,12 +3090,30 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
                     PerformanceOverlay.statisticsText(context, stream, frameRates[2],
                             frameRates[0], receivedVideoMbps, fps.lossPercent,
-                            networkMs, varianceMs, PerformanceOverlay.average(timings, 4),
-                            PerformanceOverlay.average(timings, 7), shownDecodeTimeMs,
+                            networkMs, varianceMs, shownHostProcessingMs,
+                            PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
                             frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2), !mediaCodec),
                     PerformanceOverlay.compactText(context, frameRates[2], frameRates[0], networkMs,
                             fps.lossPercent, decodeTimeMs));
         }
+    }
+
+    /**
+     * Adds a frame's header processing time (100 us units, 0 when the host sent none) to the window the
+     * statistics overlay's Host processing averages, the way Artemis and Moonlight do. Every path of
+     * submitDecodeUnit calls this, early returns included, and host timing reports never do.
+     */
+    static void recordHostProcessing(VideoStats window, char frameHostProcessingLatency) {
+        if (frameHostProcessingLatency != 0) {
+            if (window.minHostProcessingLatency != 0) {
+                window.minHostProcessingLatency = (char) Math.min(window.minHostProcessingLatency, frameHostProcessingLatency);
+            } else {
+                window.minHostProcessingLatency = frameHostProcessingLatency;
+            }
+            window.framesWithHostProcessingLatency += 1;
+        }
+        window.maxHostProcessingLatency = (char) Math.max(window.maxHostProcessingLatency, frameHostProcessingLatency);
+        window.totalHostProcessingLatency += frameHostProcessingLatency;
     }
 
     @SuppressWarnings("deprecation")
@@ -2901,6 +3184,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // PyroWave can measure real zero whole milliseconds while carrying the sub-ms remainder
             // into the next window. GPU completion is not a prerequisite for that CPU measurement.
             shownDecodeTimeMs = lastTwo.getWindowDecoderLatencyMs(pyroWave || decodeTimeMs >= 0);
+            shownHostProcessingMs = lastTwo.getHostProcessingMs();
             networkFrameLossPercent = activeWindowVideoStats.totalFrames == 0 ? 0 :
                     (float) activeWindowVideoStats.framesLost / activeWindowVideoStats.totalFrames * 100;
             overlayFps = lastTwo.getFps();
@@ -2914,6 +3198,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         receivedVideoBytes.addAndGet(decodeUnitLength);
 
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            // Before any return below: the statistics overlay's Host processing needs every frame.
+            recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency);
             long inputNs = System.nanoTime();
             pyroWaveQueueDelayTotal += Math.max(0, inputNs - enqueueTimeNs) / 1000000.0f;
             pyroWaveQueueSamples++;
@@ -3179,16 +3465,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
         }
 
-        if (frameHostProcessingLatency != 0) {
-            if (activeWindowVideoStats.minHostProcessingLatency != 0) {
-                activeWindowVideoStats.minHostProcessingLatency = (char) Math.min(activeWindowVideoStats.minHostProcessingLatency, frameHostProcessingLatency);
-            } else {
-                activeWindowVideoStats.minHostProcessingLatency = frameHostProcessingLatency;
-            }
-            activeWindowVideoStats.framesWithHostProcessingLatency += 1;
-        }
-        activeWindowVideoStats.maxHostProcessingLatency = (char) Math.max(activeWindowVideoStats.maxHostProcessingLatency, frameHostProcessingLatency);
-        activeWindowVideoStats.totalHostProcessingLatency += frameHostProcessingLatency;
+        recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency);
 
         activeWindowVideoStats.totalFramesReceived++;
         frameLatencyStats.onFrameReceived(receiveTimeNs);
@@ -3246,7 +3523,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         nextInputBuffer.put(decodeUnitData, 0, decodeUnitLength);
 
         // Before queuing: the decoder may hand the frame back before queueInputBuffer returns.
-        if (hostFrameTimes) hostFrameClock.onQueued(timestampUs, presentationTimeUs);
+        if (hostFrameTimes || trackContentRate) hostFrameClock.onQueued(timestampUs, presentationTimeUs);
         if (!queueNextInputBuffer(timestampUs, codecFlags, frameNumber, receiveTimeNs, enqueueTimeNs, frameHostProcessingLatency,
                 presentationTimeUs)) {
             return MoonBridge.DR_NEED_IDR;

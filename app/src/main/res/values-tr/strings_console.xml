@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">Ana sayfa</string>
-    <string name="console_menu_hosts">Ana bilgisayarlar</string>
     <string name="console_section_favourites">Favoriler</string>
     <string name="console_section_continue">Oynamaya devam et</string>
     <string name="console_section_library">Kitaplık</string>
-    <string name="console_section_hosts">Ana bilgisayarlar</string>
+    <string name="console_section_hosts">Bilgisayarlar</string>
     <string name="console_favourite_add">Favorilere ekle</string>
     <string name="console_favourite_remove">Favorilerden kaldır</string>
     <string name="console_favourite_description">Favori</string>
@@ -17,9 +16,9 @@
     <string name="console_host_saved_games">Çevrimdışı. Kayıtlı oyunlar: %1$d</string>
     <string name="console_host_offline">Çevrimdışı</string>
     <string name="console_host_no_library">Oyunlar henüz yüklenmedi</string>
-    <string name="console_empty_title">Henüz ana bilgisayar yok</string>
+    <string name="console_empty_title">Henüz bilgisayar yok</string>
     <string name="console_empty_body">Oyunlarını burada görmek için Nightjar’ı bir bilgisayarla eşleştir.</string>
-    <string name="console_empty_open_hosts">Ana bilgisayarları aç</string>
+    <string name="console_empty_open_hosts">Bilgisayarları aç</string>
     <string name="console_detail_host">Ana bilgisayar</string>
     <string name="console_detail_profile">Yayın ayarları</string>
     <string name="console_detail_status_running">%1$s üzerinde çalışıyor</string>

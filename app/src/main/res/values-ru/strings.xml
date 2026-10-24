@@ -262,7 +262,7 @@
     <string name="latency_output_render">Ожидание вывода</string>
     <string name="latency_receive_render">Задержка клиента</string>
     <string name="latency_host_processing">Обработка на хосте</string>
-    <string name="latency_host_processing_send">Обработка на хосте + отправка</string>
+    <string name="latency_host_processing_send">Хост до сети</string>
     <string name="latency_host_split">Очередь / кодирование / отправка хоста (сред.): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Предпочитать YUV 4:4:4</string>
     <string name="summary_yuv444">Более чёткий цветной текст, если ПК и это устройство поддерживают его. HDR имеет приоритет.</string>
@@ -273,6 +273,8 @@
     <string name="summary_vrr">На экранах Android 16 с адаптивной частотой Android подстраивает частоту обновления под трансляцию; другие экраны работают на максимальной частоте. Хостам с поддержкой VRR также отправляется запрос использовать его, в зависимости от их настроек. Пока функция включена, синхронизация кадров и пониженная частота обновления не действуют.</string>
     <string name="title_host_frame_times">Показывать кадры в ритме ПК</string>
     <string name="summary_host_frame_times">Задерживает каждый кадр на несколько миллисекунд, чтобы он появился тогда, когда игра его нарисовала, а не когда его доставила сеть. Сглаживает колебания, особенно с адаптивной частотой. Заменяет темп кадров. Не используется с PyroWave.</string>
+    <string name="title_content_rate_frame_rate">Подстраивать экран под частоту кадров игры</string>
+    <string name="summary_content_rate_frame_rate">Сообщает Android, с какой частотой кадров на самом деле работает игра, чтобы экран с подходящим режимом мог переключиться на нее без чёрного экрана. Нужен ПК, который передает время кадров, и параметр «Разрешить пониженную частоту обновления»; меняется не чаще раза в 2 секунды. Не используется с PyroWave и адаптивной частотой.</string>
     <string name="title_virtual_display_scale">Масштаб рендеринга на хосте</string>
     <string name="summary_virtual_display_scale">Меняет разрешение рендеринга на ПК, а не размер передаваемого видео. Чтобы передавать меньше пикселей и масштабировать на этом устройстве, снизьте разрешение трансляции.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

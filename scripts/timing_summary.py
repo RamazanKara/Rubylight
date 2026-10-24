@@ -6,12 +6,15 @@ usage: timing_summary.py [--discard SECONDS] [--keep [--metric NAME]] VARIANT:GR
 A leg is one CSV (VARIANT is A or B, GROUP is the bitrate or other condition it ran under). The
 first SECONDS (default 5) of each leg are dropped by `decoder_output_ns`. Prints each leg and the
 legs of a variant pooled per group. A `<csv minus .csv>.log` next to a leg adds its session-end
-lines (counters and stage split). With --keep, prints the protocol's keep rule for B against A per
+lines (counters and stage split). A `<csv minus .csv>.presentmon.csv` (the harness's PresentMon capture
+of the client) adds its PresentMode counts, and a leg CSV with a race_reason column adds the beam race
+verdicts it recorded. With --keep, prints the protocol's keep rule for B against A per
 group on --metric (default input_to_output_ms): both B legs beat both A legs on p50, the pooled p95
 is not worse, receive_to_present_ms p95 is at most 0.5 ms worse, shown fps at most 0.5 lower.
 Exit code 1 when the rule says revert.
 """
 import argparse
+import collections
 import csv
 import math
 import os
@@ -132,6 +135,29 @@ def log_lines(csv_path):
         return ["  " + line.strip() for line in handle if LOG_LINES.match(line)]
 
 
+def counts_line(label, counts):
+    total = sum(counts.values())
+    cells = ", ".join(f"{name} {n} ({100 * n / total:.0f}%)" for name, n in counts.most_common())
+    return f"  {label}: {cells}"
+
+
+def present_modes(csv_path):
+    """Lines for the PresentMon capture next to a leg: the PresentMode of every present the client
+    made ("Hardware: Independent Flip", "Composed: Flip", ...), most frequent first."""
+    path = os.path.splitext(csv_path)[0] + ".presentmon.csv"
+    if not os.path.exists(path):
+        return []
+    with open(path, newline="", errors="replace") as handle:
+        modes = collections.Counter(r.get("PresentMode") or "(none)" for r in csv.DictReader(handle))
+    return [counts_line("PresentMon present modes", modes)] if modes else ["  PresentMon present modes: no presents captured"]
+
+
+def race_reasons(rows):
+    """Lines for the beam race verdicts a leg's race_reason column recorded (empty while checking)."""
+    reasons = collections.Counter(r["race_reason"] for r in rows if r.get("race_reason"))
+    return [counts_line("beam race verdicts", reasons)] if reasons else []
+
+
 def parse_leg(argument):
     parts = argument.split(":", 2)
     if len(parts) != 3 or not parts[0] or not parts[1]:
@@ -152,7 +178,7 @@ def main(argv=None):
         rows = load_leg(path, args.discard)
         groups.setdefault(group, {}).setdefault(variant, []).append(rows)
         print("\n".join(describe(f"{variant} @ {group}  {os.path.basename(path)}", summarize(rows))))
-        print("\n".join(log_lines(path)))
+        print("\n".join(log_lines(path) + race_reasons(rows) + present_modes(path)))
     ok = True
     for group, variants in groups.items():
         print()

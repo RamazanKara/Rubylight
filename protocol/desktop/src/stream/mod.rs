@@ -17,13 +17,19 @@ mod quality;
 mod touch;
 mod upscale;
 mod phase;
-mod pyrowave;
+pub mod scanline;
+pub mod race;
+pub mod race_probe;
+pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
+pub mod pyrowave_mode;
 mod stage_times;
 #[cfg(windows)]
 mod d3d11;
-#[cfg(windows)]
+pub mod gpu_planes;
 mod pyrowave_sdk;
+#[cfg(unix)]
+mod planes_gpu;
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::Ordering;
@@ -36,7 +42,7 @@ use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, Lau
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, Session, SessionConfig, Stage};
-use rubylight_protocol::control::{HostTimingRequest, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
+use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::present_clock::ClockOffset;
 use sdl3_sys::everything::*;
 
@@ -70,6 +76,8 @@ pub struct LaunchPlan {
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
     pub hardware: Hardware,
+    /// The renderer's Direct3D 11 device when PyroWave decodes on the GPU (`pyrowave_decoder`).
+    pub gpu_decoder: Option<pipeline::GpuDevice>,
     pub packed_modes: u8,
     pub pacing: PacingMode,
     pub vrr: bool,
@@ -92,6 +100,8 @@ pub struct Facts {
     pub bitrate_kbps: i32,
     pub format: u32,
     pub host_timing: bool,
+    /// The host says when it lowers the video bitrate because of the network (0x5538).
+    pub link_notice: bool,
     pub clock_sync: bool,
     pub display_caps: bool,
     pub cursor_shapes: bool,
@@ -104,6 +114,18 @@ pub struct Facts {
     /// PyroWave decodes blocks while a frame arrives (`Settings::early_decode`, or the
     /// `NIGHTJAR_EARLY_DECODE` override) on this stream.
     pub early_decode: bool,
+    /// Early decode was asked for on a PyroWave stream but the host sent no records, so the
+    /// frames arrive whole; the overlay and the log say so.
+    pub early_without_records: bool,
+    /// The picture is decoded in slices as its bands complete (`Settings::beam_race`).
+    pub beam_race: bool,
+    /// Why the beam race setting did nothing on this stream, if it was on and did not run.
+    pub beam_race_off: Option<&'static str>,
+    /// The slices a frame is decoded in when the beam race is on (0 when not).
+    pub race_slices: u32,
+    /// The pace the host sends the picture at (Mbps), the raced presenter's first guess at when
+    /// slices are ready.
+    pub pace_mbps: u32,
     pub app_name: String,
     pub host_name: String,
 }
@@ -407,6 +429,14 @@ fn early_line(now: (u64, u64), last: (u64, u64), secs: f64) -> String {
         &[&format!("{:.0}", now.0.saturating_sub(last.0) as f64 / secs), &now.1.saturating_sub(last.1), &now.1])
 }
 
+/// The overlay's line while the host holds the bitrate down for the network: whole Mbps from 10,
+/// one decimal below, as Nightjar Android says it.
+fn link_notice_line(notice: &LinkNotice) -> String {
+    let mbps = f64::from(notice.current_kbps) / 1000.0;
+    let mbps = if mbps >= 10.0 { format!("{mbps:.0}") } else { format!("{mbps:.1}") };
+    trf("Host lowered the bitrate to {} Mbps: network", &[&mbps])
+}
+
 /// The line logged when any session ends: what the decoder was given, and the frames lost
 /// before the picture (over the decoder queue, or replaced by a newer one before they were due).
 fn video_summary(submitted: u64, queue_overflows: u64, replaced: u64) -> String {
@@ -419,6 +449,172 @@ fn video_summary(submitted: u64, queue_overflows: u64, replaced: u64) -> String 
 fn early_summary(early_frames: u64, fallbacks: u64, chunk_us: u64, chunks_dropped: u64) -> String {
     format!("nightjar: early decode: {early_frames} frames decoded ahead, {fallbacks} fell back to the whole frame, \
         {chunks_dropped} chunks dropped, {:.1} ms of decoding done while frames arrived", chunk_us as f64 / 1000.0)
+}
+
+/// The beam race in one line (overlay and session end): frames decoded in slices as they arrived,
+/// the slice decodes made, and the frames that were not in row order and decoded whole. A host
+/// that never sends row order says so instead of showing zeros.
+fn race_line(frames: u64, slices: u64, unordered: u64) -> String {
+    let mut line = format!("{frames} frames in {slices} slices, {unordered} not in row order");
+    if frames == 0 && unordered > 0 {
+        line.push_str(" (the host is not sending the row order)");
+    }
+    line
+}
+
+/// What early decode does on a stream. `NoRecords` is the failure the earlier measurements
+/// hit unseen: a host whose version did not parse never offered records, so no chunk ever came.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EarlyState {
+    Off,
+    On,
+    NoRecords,
+}
+
+const EARLY_NO_RECORDS: &str = "nightjar: early decode is on but the host sent no PyroWave records \
+    (its version did not offer them, or the client did not ask), so frames are decoded whole";
+
+fn early_state(requested: bool, pyrowave: bool, records: bool) -> EarlyState {
+    match (requested && pyrowave, records) {
+        (false, _) => EarlyState::Off,
+        (true, true) => EarlyState::On,
+        (true, false) => EarlyState::NoRecords,
+    }
+}
+
+/// What the beam race setting does on a stream: the client asks the host for the row order and
+/// decodes the picture in slices as its bands complete. `NotWired` is the setting on a link that
+/// is not known to be wired (the host's row order is for wired links), `NoGpuDecoder` the setting
+/// when the stream decodes PyroWave on the CPU (only the GPU decoder slices a frame). Both are
+/// reported, not silent, and neither asks the host for the row order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BeamRace {
+    Off,
+    On,
+    NotWired,
+    NoGpuDecoder,
+}
+
+impl BeamRace {
+    /// Why the setting did nothing, for the overlay.
+    fn reason(self) -> Option<&'static str> {
+        match self {
+            Self::NotWired => Some("off, the link is not a known wired one"),
+            Self::NoGpuDecoder => Some("off, PyroWave is decoded on the CPU"),
+            Self::Off | Self::On => None,
+        }
+    }
+}
+
+/// Everything the beam race setting asks of a stream, in one place: the row order from the host,
+/// early decode (the slices are decoded from chunks) and the slice count. All of it is off
+/// unless the decision is `On`, so a stream without the setting asks the host for nothing, starts
+/// no scan line probe and decodes whole frames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RaceRequest {
+    row_order: bool,
+    early_decode: bool,
+    slices: u32,
+}
+
+fn race_request(beam: BeamRace, early_setting: bool, height: u32) -> RaceRequest {
+    let on = beam == BeamRace::On;
+    RaceRequest { row_order: on, early_decode: early_setting || on, slices: if on { beam_slices(height) } else { 0 } }
+}
+
+/// Whether the race runs on the stream (the presenter probes the display, follows the slices and
+/// races them): slices were asked for, and early decode has the records they come from. This is
+/// the one bool the presenter checks; false makes it all a no-op.
+fn race_runs(slices: u32, early: EarlyState) -> bool {
+    slices > 0 && early == EarlyState::On
+}
+
+const BEAM_RACE_NO_GPU: &str = "nightjar: beam race is on but PyroWave is decoded on the CPU, so the host is not asked \
+    for the row order and frames are decoded whole";
+
+const BEAM_RACE_NOT_WIRED: &str = "nightjar: beam race is on but the link is not a known wired one, so the host is not asked \
+    for the row order and frames are decoded whole";
+
+/// An on or off switch in an environment variable: `1`, `true`, `yes` or `on`, and `0`, `false`,
+/// `no` or `off` (any case). Anything else is not a switch.
+fn flag_value(text: &str) -> Option<bool> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+/// The switch `name` names, if it is set. A value that is not a switch is said so on stderr and
+/// ignored, never taken as on or off.
+fn env_flag(name: &str) -> Option<bool> {
+    let text = std::env::var(name).ok()?;
+    let value = flag_value(&text);
+    if value.is_none() {
+        eprintln!("nightjar: {name}={text:?} is not 1, true, yes, on, 0, false, no or off, so it is ignored");
+    }
+    value
+}
+
+/// The setting, unless `NIGHTJAR_BEAM_RACE` says on (whatever the link; for measurement runs) or
+/// off. Needs the GPU decoder whatever asked.
+fn beam_race(setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
+    beam_race_for(env_flag("NIGHTJAR_BEAM_RACE"), setting, link_mbps, gpu_decoder)
+}
+
+fn beam_race_for(forced: Option<bool>, setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
+    match forced {
+        Some(false) => BeamRace::Off,
+        Some(true) if gpu_decoder => BeamRace::On,
+        Some(true) => BeamRace::NoGpuDecoder,
+        _ if !setting => BeamRace::Off,
+        _ if !gpu_decoder => BeamRace::NoGpuDecoder,
+        _ if link_mbps == 0 => BeamRace::NotWired,
+        _ => BeamRace::On,
+    }
+}
+
+/// Most slices per frame: a frame has a present for each batch of slices and one for the picture,
+/// and the timing CSV has room for `PRESENTS` of them.
+const MAX_RACE_SLICES: u32 = crate::timing_csv::PRESENTS as u32 - 1;
+
+/// Slices per frame: 4, or 3 at 4K where each slice decode costs more (`NIGHTJAR_BEAM_RACE_SLICES`
+/// overrides, for measurement runs, up to `MAX_RACE_SLICES`).
+fn beam_slices(height: u32) -> u32 {
+    let default = if height >= 2000 { 3 } else { 4 };
+    match std::env::var("NIGHTJAR_BEAM_RACE_SLICES") {
+        Ok(text) => slices_override(&text).unwrap_or_else(|| {
+            eprintln!("nightjar: NIGHTJAR_BEAM_RACE_SLICES={text:?} is not a number from 1 to {MAX_RACE_SLICES}, so {default} slices are used");
+            default
+        }),
+        Err(_) => default,
+    }
+}
+
+fn slices_override(text: &str) -> Option<u32> {
+    text.trim().parse().ok().filter(|n| (1..=MAX_RACE_SLICES).contains(n))
+}
+
+/// A network hint the stream sends the host, unless the variable names another value (measurement
+/// runs on loopback, where the real link is not the one under test). A value that is not a number
+/// is said so on stderr and ignored.
+fn hint_override(name: &str, value: u32) -> u32 {
+    let Ok(text) = std::env::var(name) else { return value };
+    text.trim().parse().unwrap_or_else(|_| {
+        eprintln!("nightjar: {name}={text:?} is not a number, so it is ignored");
+        value
+    })
+}
+
+/// `Auto` (moonlight-common-c's choice from the address), unless `NIGHTJAR_STREAM_LOCATION` is
+/// `local` or `remote`: loopback counts as remote there and gets 1024 byte packets, which is not
+/// the packet size of a wired LAN stream, so measurement runs on loopback say `local`.
+fn location_override() -> Location {
+    match std::env::var("NIGHTJAR_STREAM_LOCATION").as_deref() {
+        Ok("local") => Location::Local,
+        Ok("remote") => Location::Remote,
+        _ => Location::Auto,
+    }
 }
 
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
@@ -515,6 +711,16 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         .info
         .capabilities
         .trusted_codec_mode_support(plan.info.server_codec_mode_support);
+    let link_mbps = hint_override("NIGHTJAR_PYROWAVE_LINK_MBPS", plan.pyrowave_link_mbps);
+    let pace_mbps = hint_override("NIGHTJAR_PYROWAVE_PACE_MBPS", plan.pyrowave_pace_mbps);
+    let beam = beam_race(settings.beam_race, link_mbps, plan.gpu_decoder.is_some());
+    match beam {
+        BeamRace::NotWired => eprintln!("{BEAM_RACE_NOT_WIRED}"),
+        BeamRace::NoGpuDecoder => eprintln!("{BEAM_RACE_NO_GPU}"),
+        BeamRace::On => eprintln!("nightjar: beam race is on (experimental): asking the host for the row order"),
+        BeamRace::Off => {}
+    }
+    let race_ask = race_request(beam, early_decode(settings.early_decode), height);
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let stream = StreamConfig {
@@ -540,9 +746,10 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
-        pyrowave_link_mbps: plan.pyrowave_link_mbps as i32,
-        pyrowave_pace_mbps: plan.pyrowave_pace_mbps as i32,
+        pyrowave_link_mbps: link_mbps as i32,
+        pyrowave_pace_mbps: pace_mbps as i32,
         pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
+        pyrowave_row_order: race_ask.row_order,
         encryption_flags: ENCFLG_ALL,
         remote_input_aes_key: ri_key,
         remote_input_aes_iv: iv,
@@ -556,17 +763,18 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         rtsp_session_url: launched.rtsp_session_url,
         server_codec_mode_support: if scm != 0 { scm } else { SCM_H264 },
     };
-    let early = early_decode(settings.early_decode);
+    // The slices are decoded from chunks, so the beam race needs early decode.
+    let (early, slices) = (race_ask.early_decode, race_ask.slices);
     let session = Session::start(
         &host,
         SessionConfig {
             stream,
-            location: Location::Auto,
+            location: location_override(),
             network_grace: Duration::from_millis(u64::from(settings.network_grace_ms)),
             input_only: role == AppRole::InputOnly,
             ..Default::default()
         },
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early)),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone())),
         Arc::new(pipeline::Events { shared }),
         interrupt,
@@ -581,6 +789,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         bitrate_kbps: outcome.config.bitrate_kbps,
         format: outcome.negotiated_video_format,
         host_timing: outcome.host_control_messages.contains(&HOST_TIMING_MESSAGE_TYPE),
+        link_notice: outcome.host_control_messages.contains(&LINK_NOTICE_MESSAGE_TYPE),
         clock_sync: outcome.host_control_messages.contains(&CLOCK_SYNC_MESSAGE_TYPE),
         display_caps: outcome.host_control_messages.contains(&rubylight_protocol::control::DISPLAY_CAPS_MESSAGE_TYPE),
         cursor_shapes: plan.info.capabilities.has(Feature::CursorShape) && outcome.host_control_messages.contains(&0x5540),
@@ -594,10 +803,21 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         touch: outcome.sunshine_feature_flags & nightjar_core::control::negotiation::feature::PEN_TOUCH_EVENTS != 0
             && role != AppRole::RemoteMonitor,
         phase_lock: outcome.host_control_messages.contains(&rubylight_protocol::phase_lock::REPORT_MESSAGE_TYPE),
-        early_decode: early && outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+        early_decode: early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+            outcome.pyrowave_records_enabled) == EarlyState::On,
+        early_without_records: early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+            outcome.pyrowave_records_enabled) == EarlyState::NoRecords,
+        beam_race_off: beam.reason(),
+        race_slices: slices,
+        pace_mbps,
+        beam_race: race_runs(slices, early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+            outcome.pyrowave_records_enabled)),
         app_name: plan.app.name.clone(),
         host_name: plan.host_name.clone(),
     };
+    if facts.early_without_records {
+        eprintln!("{EARLY_NO_RECORDS}");
+    }
     Ok((session, facts))
 }
 
@@ -630,6 +850,8 @@ struct Window {
     hold_us: i64,
     latency_us: i64,
     latency_n: u32,
+    /// The header's processing times (100 us units) and the frames that carried one, over this
+    /// window and the one before it, filled in by `HostAverage` when the overlay is built.
     host_latency: u64,
     host_latency_n: u32,
     network_us: u64,
@@ -637,6 +859,53 @@ struct Window {
     timing_host_us: u64,
     timing_encode_us: u64,
     timing_n: u32,
+}
+
+/// Artemis and Moonlight average the header's processing time over the frames received in the last
+/// two statistics windows, whether or not they were shown. This keeps the per-window deltas of the
+/// receive-side counters and sums the previous window with the current one.
+#[derive(Default)]
+struct HostAverage {
+    seen: (u64, u64),
+    previous: (u64, u64),
+}
+
+impl HostAverage {
+    /// `total` and `frames` are the running counters; returns the two-window sum.
+    fn update(&mut self, total: u64, frames: u64) -> (u64, u32) {
+        let current = (total.saturating_sub(self.seen.0), frames.saturating_sub(self.seen.1));
+        self.seen = (total, frames);
+        let sum = (self.previous.0 + current.0, self.previous.1 + current.1);
+        self.previous = current;
+        (sum.0, u32::try_from(sum.1).unwrap_or(u32::MAX))
+    }
+}
+
+/// The overlay's host lines. "Host processing" is the average of the video frame header's per-frame
+/// processing time, the same number Artemis and Moonlight show. It must stay that: users compare it
+/// with those clients. The host timing reports' present to last packet sent includes the network
+/// send and reads several times higher, so it only ever goes under its own "Host to network" label,
+/// and a report never replaces or feeds the "Host processing" value.
+fn host_lines(w: &Window) -> Vec<(String, String)> {
+    let avg = |sum: f64, n: u32| if n > 0 { sum / f64::from(n) } else { 0.0 };
+    let mut lines = Vec::new();
+    if w.host_latency_n > 0 {
+        lines.push((
+            "Host processing".into(),
+            format!("{:.1} ms", avg(w.host_latency as f64, w.host_latency_n) / 10.0),
+        ));
+    }
+    if w.timing_n > 0 {
+        lines.push((
+            "Host to network".into(),
+            format!(
+                "{:.1} ms present to send, {:.1} ms encode",
+                avg(w.timing_host_us as f64, w.timing_n) / 1000.0,
+                avg(w.timing_encode_us as f64, w.timing_n) / 1000.0
+            ),
+        ));
+    }
+    lines
 }
 
 #[derive(Default, Clone)]
@@ -661,6 +930,19 @@ impl RtpClock {
     }
 }
 
+/// What the raced presenter guesses of a stream's slice times before it has seen a frame.
+fn seeded_predictor(facts: &Facts) -> race::Predictor {
+    let frame_bytes = f64::from(facts.bitrate_kbps.max(1)) * 1000.0 / 8.0 / f64::from(facts.fps.max(1));
+    race::Predictor::seeded(facts.race_slices, facts.height.max(1) as u32, frame_bytes, facts.pace_mbps)
+}
+
+/// A present of the texture: when the call was issued and returned (us), and the beam around it.
+struct Flipped {
+    issued_us: u64,
+    returned_us: u64,
+    scan: Option<race_probe::ScanReport>,
+}
+
 pub struct Streaming {
     pub session: Session,
     pub shared: Arc<Shared>,
@@ -670,8 +952,25 @@ pub struct Streaming {
     upscaler: Option<upscale::Upscaler>,
     upscale_failed: bool,
     phase: phase::Phase,
+    /// Whether racing the display's beam can work here, once the beam race is on and a picture is shown.
+    race_probe: Option<race_probe::RaceProbe>,
+    /// The picture on the display's beam, while racing it is possible (see `sync_race`).
+    race_scan: Option<race::Scan>,
+    /// The frame in flight under the raced presenter, and what it plans from.
+    racer: race::Racer<gpu_planes::Pin>,
+    predictor: Option<race::Predictor>,
+    latency: race::Latency,
+    /// The user's margin ahead of the beam in ms, 0 for the automatic one.
+    race_margin_ms: u32,
+    /// False under `NIGHTJAR_BEAM_RACE_PRESENT=0`: the display is probed and the picture's age at the
+    /// middle row is recorded, but whole pictures are presented (the A side of an A/B run).
+    race_present: bool,
+    /// The stream's setup as the last frame showed it, which slice draws need before a frame has.
+    race_setup: Option<session::VideoSetup>,
     pub overlay_visible: bool,
     pub overlay: Overlay,
+    /// What the host last said about holding the bitrate down for the network; `None` while it has not.
+    link_notice: Option<LinkNotice>,
     pub exit: Option<Exit>,
     pub toast: Option<(String, Instant)>,
     pub host_id: u64,
@@ -703,6 +1002,8 @@ pub struct Streaming {
     pub export_statistics: bool,
     statistics: VecDeque<String>,
     pub menu_visible: bool,
+    /// The widget that had keyboard focus in the controls last frame, to scroll to when it moves.
+    pub menu_focus: Option<egui::Id>,
     /// The open "Session and graphics" page; its worker runs only while this is Some.
     pub session_page: Option<crate::session_page::Page>,
     session_link: String,
@@ -721,6 +1022,7 @@ pub struct Streaming {
     last_probe: Instant,
     window: Window,
     last_counters: (u64, u64, u64, u64, u64, u64),
+    host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
     last_video: (u64, u64),
@@ -749,6 +1051,9 @@ impl Streaming {
         if facts.host_timing {
             let _ = session.send(ClientMessage::HostTimingRequest(HostTimingRequest { enabled: true }));
         }
+        if facts.link_notice {
+            let _ = session.send(ClientMessage::LinkNoticeRequest(LinkNoticeRequest { enabled: true }));
+        }
         let settings = connecting.settings.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
@@ -769,17 +1074,27 @@ impl Streaming {
         let quality_mode = if facts.reconfigure { settings.adaptive_quality } else { QualityMode::Off };
         let quality_policy = (quality_mode != QualityMode::Off).then(|| quality::Quality::new(
             quality_mode, mode, settings.quality_min_short_edge, settings.quality_min_fps, 0));
+        let backlog = connecting.shared.pacer_backlog.clone();
         Self {
             session,
             shared: connecting.shared,
             facts,
-            pacer: Pacer::new(connecting.pacing, min_interval),
+            pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog),
             texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear),
             upscaler: None,
             upscale_failed: false,
             phase: phase::Phase::default(),
+            race_probe: None,
+            race_scan: None,
+            racer: race::Racer::default(),
+            predictor: None,
+            latency: race::Latency::default(),
+            race_margin_ms: hint_override("NIGHTJAR_BEAM_RACE_MARGIN_MS", settings.beam_race_margin_ms),
+            race_present: env_flag("NIGHTJAR_BEAM_RACE_PRESENT").unwrap_or(true),
+            race_setup: None,
             overlay_visible: settings.overlay,
             overlay: Overlay::default(),
+            link_notice: None,
             exit: None,
             toast: None,
             host_id: connecting.host_id,
@@ -812,6 +1127,7 @@ impl Streaming {
             export_statistics: false,
             statistics: VecDeque::new(),
             menu_visible: false,
+            menu_focus: None,
             session_page: None,
             session_link: String::new(),
             session_page_requested: false,
@@ -826,6 +1142,7 @@ impl Streaming {
             last_probe: Instant::now(),
             window: Window::default(),
             last_counters: (0, 0, 0, 0, 0, 0),
+            host_average: HostAverage::default(),
             last_early: (0, 0),
             last_video: (0, 0),
             started: Instant::now(),
@@ -998,7 +1315,7 @@ impl Streaming {
         self.export_statistics = false;
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
         let path = directory.join(format!("nightjar-{stamp}.csv"));
-        let mut csv = String::from("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_ms,latency_ms,bitrate_kbps\n");
+        let mut csv = String::from("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_to_network_ms,latency_ms,bitrate_kbps\n");
         for row in &self.statistics { csv.push_str(row); }
         match std::fs::create_dir_all(directory).and_then(|_| std::fs::write(&path, csv)) {
             Ok(()) => self.show_toast(trf("Statistics saved to {}", &[&path.display()])),
@@ -1058,6 +1375,9 @@ impl Streaming {
                     self.exit.get_or_insert(Exit::Terminated(code));
                 }
                 Notice::DecoderFallback(text) => self.show_toast(text),
+                Notice::DecoderFailed(text) => {
+                    self.exit.get_or_insert(Exit::Ended(Some(text)));
+                }
                 Notice::MicrophoneFailed(text) => {
                     self.microphone = None;
                     self.microphone_muted = true;
@@ -1188,6 +1508,9 @@ impl Streaming {
                         self.timings.pop_front();
                     }
                 }
+            }
+            ControlEvent::LinkNotice(notice) => {
+                self.link_notice = (notice.state != LinkState::Full).then_some(notice);
             }
             ControlEvent::ClockSync { reply, received } => {
                 let receive_us = session::now_us().saturating_sub(received.elapsed().as_micros() as u64);
@@ -1395,10 +1718,14 @@ impl Streaming {
                 }
             }
         }
+        // Frames first: the slices of every frame taken here were queued before the frame was.
         let frames: Vec<_> = lock(&self.shared.frames).drain(..).collect();
+        // With the race off nothing queues a slice, and nothing here takes the lock.
+        let slices: Vec<_> = if self.facts.beam_race { lock(&self.shared.slices).drain(..).collect() } else { Vec::new() };
         for decoded in frames {
-            if decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0 {
-                let info = decoded.frame.info();
+            if decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 { self.race_setup = Some(decoded.setup); }
+            if let Some(frame) = decoded.picture.frame().filter(|_| decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0) {
+                let info = frame.info();
                 self.facts.width = info.width;
                 self.facts.height = info.height;
                 if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == info.width && i32::from(mode.height) == info.height) {
@@ -1415,6 +1742,7 @@ impl Streaming {
             self.last_arrival = Some((decoded.rtp, decoded.receive_us));
             self.pacer.accept(decoded);
         }
+        self.observe_slices(slices);
         if self.pending_mode.is_some_and(|(_, at)| at.elapsed() >= Duration::from_secs(5)) {
             self.pending_mode = None;
             self.quality_policy = None;
@@ -1429,7 +1757,12 @@ impl Streaming {
 
     /// How long the loop may sleep before the next picture is due.
     pub fn wait(&self) -> Wait {
-        match self.pacer.next_due() {
+        let racing = if self.pacer.mode == PacingMode::BeamRace { self.racer.due_us() } else { None };
+        let due = match (self.pacer.next_due(), racing) {
+            (Some(picture), Some(slice)) => Some(picture.min(slice)),
+            (picture, slice) => picture.or(slice),
+        };
+        match due {
             Some(due) => {
                 let now = session::now_us();
                 if due <= now {
@@ -1442,46 +1775,82 @@ impl Streaming {
         }
     }
 
-    /// Shows the due picture, if any. Returns whether something was drawn.
-    pub fn present(
-        &mut self,
-        renderer: *mut SDL_Renderer,
-        mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
-    ) -> bool {
-        if self.texture.is_hdr() && !crate::sdl::hdr_available(renderer) {
-            self.texture.destroy();
-            self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
-            self.needs_redraw = true;
+    /// Works out whether the display allows racing slices and, if so, how the picture sits on its
+    /// beam; switches the pacing between `Immediate` and `BeamRace` when that changes.
+    fn sync_race(&mut self, renderer: *mut SDL_Renderer) {
+        if !self.facts.beam_race { return; }
+        let timing = self.race_probe.as_ref().and_then(race_probe::RaceProbe::racing);
+        let size = self.texture.size();
+        self.race_scan = timing.filter(|_| size.0 > 0 && size.1 > 0).map(|(beam, delta_ns)| {
+            let (mut w, mut h) = (0, 0);
+            // SAFETY: the live renderer belongs to the presenting thread.
+            unsafe { SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h) };
+            let dst = viewport(size, (w, h), self.settings.video_scaling, self.settings.align_video_top);
+            race::Scan::for_picture(&beam, delta_ns, size.1 as u32, dst.y.max(0.0) as u32, dst.h as u32)
+        });
+        match (self.pacer.mode, self.race_scan.is_some() && self.race_present) {
+            (PacingMode::Immediate, true) => {
+                self.pacer.mode = PacingMode::BeamRace;
+                eprintln!("nightjar: beam race: presenting slices ahead of the beam");
+            }
+            (PacingMode::BeamRace, false) => {
+                self.pacer.mode = PacingMode::Immediate;
+                // The slices it held let go of their plane sets now, not at the next frame.
+                self.racer.reset();
+                eprintln!("nightjar: beam race: the display no longer allows racing, presenting whole pictures");
+            }
+            _ => {}
         }
+    }
+
+    /// Takes the slices the decoder finished since the last call into the racer.
+    fn observe_slices(&mut self, slices: Vec<pyrowave::SliceReady>) {
+        // Anything the racer does not take is dropped here, which lets go of its plane set.
+        let (Some(scan), PacingMode::BeamRace, Some(_)) = (self.race_scan, self.pacer.mode, self.race_setup) else { return };
+        let margin = self.latency.margin_us(self.race_margin_ms);
         let now = session::now_us();
-        let (picture, dropped) = self.pacer.take_due(now);
-        self.window.dropped_pacing += dropped;
-        self.shared.counters.replaced.fetch_add(u64::from(dropped), Ordering::Relaxed);
-        let has_picture = picture.is_some();
-        if !has_picture && !self.needs_redraw {
-            return false;
+        let facts = &self.facts;
+        let predictor = self.predictor.get_or_insert_with(|| seeded_predictor(facts));
+        for ready in slices {
+            self.racer.observe(ready.seq, ready.band, ready.pin, now, &scan, predictor, &self.latency, margin);
         }
-        let begin = session::now_us();
-        if let Some(p) = &picture {
-            if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync && self.focused && !self.menu_visible {
-                let timing = phase::timing(renderer, self.plan.display.refresh_hz);
-                if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing) {
-                    let _ = self.session.send(ClientMessage::PhaseLockReport(report));
-                }
-            } else { self.phase.reset(); }
-            if !self.texture.upload(renderer, &p.decoded) {
-                if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
-                    self.exit = Some(Exit::Ended(Some("PyroWave GPU reconstruction failed.".into())));
-                } else if p.decoded.setup.chroma_packing != 0 {
-                    self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
-                } else {
-                    self.show_toast(trf("Cannot show {} pictures", &[&p.decoded.frame.format_name()]));
-                }
-            }
-            if !self.first_frame {
-                self.first_frame = true;
+    }
+
+    /// Presents the slices of the frame being received that are due: the first at the planned
+    /// scan start, the others as they are ready. Returns whether it presented.
+    #[cfg(windows)]
+    fn present_slices(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), now: u64) -> bool {
+        if self.pacer.mode != PacingMode::BeamRace { return false; }
+        let (Some(scan), Some(setup)) = (self.race_scan, self.race_setup) else { return false };
+        // The picture is decoded already: its own present shows the rows, a slice present first
+        // would only keep it waiting (a present costs 0.4 ms of this thread).
+        if self.pacer.front_race().is_some_and(|(seq, due)| seq != 0 && seq == self.racer.seq() && due <= now) { return false; }
+        let batch = self.racer.take(now);
+        if batch.is_empty() { return false; }
+        for run in race::runs(batch.iter().map(|(band, pin)| (*band, pin.set()))) {
+            let Some(rows) = race::scissor(run.first_row, run.end_row, setup.height as u32) else { continue };
+            if !self.texture.upload_slice(renderer, setup, &batch[run.last].1, run.fence_value, rows) {
+                let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
+                self.exit = Some(Exit::Ended(Some(reason)));
+                return true;
             }
         }
+        let flipped = self.render_flip(renderer, draw_overlay, true);
+        self.needs_redraw = false;
+        self.racer.presented(flipped.issued_us, &scan);
+        for (band, _) in &batch {
+            self.latency.record(self.racer.presentable_us(band.ready_us), flipped.issued_us, flipped.returned_us, flipped.returned_us);
+        }
+        true
+    }
+
+    #[cfg(not(windows))]
+    fn present_slices(&mut self, _renderer: *mut SDL_Renderer, _draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), _now: u64) -> bool {
+        false
+    }
+
+    /// Draws the texture and the overlay and presents. `probe` reads the beam around the present.
+    fn render_flip(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), probe: bool) -> Flipped {
         // SAFETY: drawing on a live renderer.
         unsafe {
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -1515,20 +1884,96 @@ impl Streaming {
             }
         }
         draw_overlay(self, renderer);
+        // The beam race probe reads the scan line around the present (nothing when the race is off).
+        if self.facts.beam_race && probe && self.race_probe.is_none() {
+            self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps)));
+        }
+        let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
+        let issued_us = session::now_us();
         // SAFETY: a live renderer.
         unsafe { SDL_RenderPresent(renderer) };
-        let presented = session::now_us();
+        let returned_us = session::now_us();
+        let mode_tears = self.pacer.mode != PacingMode::Vsync;
+        let fps = f64::from(self.facts.fps);
+        let scan = self.race_probe.as_mut().filter(|_| probe).map(|probe| {
+            probe.after_present(renderer, beam_before, mode_tears, fps);
+            probe.report(beam_before)
+        });
+        Flipped { issued_us, returned_us, scan }
+    }
+
+    /// Shows the due picture, if any. Returns whether something was drawn.
+    pub fn present(
+        &mut self,
+        renderer: *mut SDL_Renderer,
+        mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
+    ) -> bool {
+        if self.texture.is_hdr() && !crate::sdl::hdr_available(renderer) {
+            self.texture.destroy();
+            self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
+            self.needs_redraw = true;
+        }
+        self.sync_race(renderer);
+        // The slices of a frame still being received go out ahead of the beam.
+        let sliced = self.present_slices(renderer, &mut draw_overlay, session::now_us());
+        let now = session::now_us();
+        let (picture, mut dropped) = self.pacer.take_due(now);
+        // A newer frame's slices are on the screen: this older picture would step it back a frame.
+        let picture = picture.filter(|p| {
+            let older = self.racer.newer_on_screen(p.decoded.race_seq);
+            dropped += u32::from(older);
+            !older
+        });
+        self.window.dropped_pacing += dropped;
+        self.shared.counters.replaced.fetch_add(u64::from(dropped), Ordering::Relaxed);
+        let has_picture = picture.is_some();
+        if !has_picture && !self.needs_redraw {
+            return sliced;
+        }
+        let begin = session::now_us();
+        // Whether the frame is under the racer, and which rows of it are left to draw.
+        let mut raced = false;
+        let mut rows = None;
+        if let Some(p) = &picture {
+            if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync && self.focused && !self.menu_visible {
+                let timing = phase::timing(renderer, self.plan.display.refresh_hz);
+                if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing) {
+                    let _ = self.session.send(ClientMessage::PhaseLockReport(report));
+                }
+            } else { self.phase.reset(); }
+            if let (PacingMode::BeamRace, Some(scan), true) = (self.pacer.mode, self.race_scan, p.decoded.race_seq != 0) {
+                raced = true;
+                let first_row = p.decoded.bands.last().map_or(0, |band| band.first_row);
+                if let race::Final::Rows(first, end) = self.racer.finish(p.decoded.race_seq, first_row, begin, &scan, &self.latency) {
+                    rows = race::scissor(first, end, p.decoded.setup.height as u32);
+                }
+            }
+            if !self.texture.upload(renderer, &p.decoded, rows) {
+                if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+                    let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
+                    self.exit = Some(Exit::Ended(Some(reason)));
+                } else if p.decoded.setup.chroma_packing != 0 {
+                    self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
+                } else {
+                    self.show_toast(trf("Cannot show {} pictures", &[&p.decoded.picture.format_name()]));
+                }
+            }
+            if !self.first_frame {
+                self.first_frame = true;
+            }
+        }
+        let flipped = self.render_flip(renderer, &mut draw_overlay, has_picture);
+        let presented = flipped.returned_us;
+        let scan = flipped.scan;
+        let flip = if self.timing_csv.is_some() && picture.is_some() { phase::present_stats(renderer) } else { Default::default() };
         self.needs_redraw = false;
         if let Some(p) = picture {
+            let timeline = self.finish_frame(&p.decoded, raced, flipped.issued_us, flipped.returned_us);
             let w = &mut self.window;
             w.shown += 1;
             w.render_us += presented - begin;
             w.hold_us += p.hold_us;
             w.late += u32::from(p.late);
-            if p.decoded.host_latency != 0 {
-                w.host_latency += u64::from(p.decoded.host_latency);
-                w.host_latency_n += 1;
-            }
             w.network_us += p.decoded.enqueue_us.saturating_sub(p.decoded.receive_us);
             w.network_n += 1;
             if let Some(csv) = &self.timing_csv {
@@ -1546,6 +1991,12 @@ impl Streaming {
                     clock: self.offset.offset_at(d.enqueue_us as i64).zip(self.offset.rtt_us()),
                     early: d.early,
                     first_block_us: d.first_block_us,
+                    race: d.race,
+                    scan: scan.unwrap_or_default(),
+                    presented: timeline,
+                    due_us: p.present_us,
+                    begin_us: begin,
+                    flip,
                 });
             }
             let host_us = self.rtp_clock.host_us(p.decoded.rtp);
@@ -1558,6 +2009,49 @@ impl Streaming {
             }
         }
         true
+    }
+
+    /// A frame is on the screen: closes it in the racer, teaches the predictor its slice times and
+    /// gives the timing CSV what the beam race columns need (empty with the race off).
+    fn finish_frame(&mut self, decoded: &pipeline::Decoded, raced: bool, issued_us: u64, returned_us: u64) -> crate::timing_csv::Presented {
+        let mut timeline = crate::timing_csv::Presented::default();
+        if !self.facts.beam_race { return timeline; }
+        if decoded.bands.len() >= 2 {
+            let facts = &self.facts;
+            self.predictor.get_or_insert_with(|| seeded_predictor(facts)).learn(&decoded.bands);
+        }
+        let mut presents = vec![issued_us];
+        // The picture's own present costs what a slice's does, whether or not the frame was raced.
+        self.latency.record_call(issued_us, returned_us, returned_us);
+        if let (true, Some(scan)) = (raced, self.race_scan) {
+            // Only the frame the racer follows: a picture of an older frame closes nothing.
+            if let Some(record) = self.racer.close(decoded.race_seq, issued_us, &scan) {
+                timeline.late_slices = Some(record.late);
+                presents = record.presents_us;
+            }
+        }
+        timeline.set_presents(&presents);
+        if let Some(scan) = self.race_scan {
+            let first = presents.first().copied().unwrap_or(issued_us);
+            timeline.scan_start_us = scan.reaches_us(first, 0);
+            timeline.mid_row_age_ns = race::mid_row_age_ns(&scan, first, &decoded.bands);
+        }
+        timeline
+    }
+
+    /// The overlay's value for the raced presenter: what it did, and why it did not when it did not.
+    fn raced_line(&self) -> String {
+        let totals = self.racer.totals;
+        match self.pacer.mode {
+            PacingMode::BeamRace => {
+                let mut line = format!("{} raced, {} whole, {} late slices in {} frames", totals.raced, totals.whole, totals.late_slices, totals.late_frames);
+                if totals.abandoned > 0 { line.push_str(&format!(", {} never finished", totals.abandoned)); }
+                if let Some(skip) = totals.last_skip { line.push_str(&format!("; last whole: {}", skip.label())); }
+                line
+            }
+            _ if self.race_probe.as_ref().is_some_and(|probe| probe.racing().is_some()) => format!("off, pacing is {}", self.pacer.mode.label()),
+            _ => "off until the display check passes".into(),
+        }
     }
 
     /// Recomputes the overlay text once a second. Returns whether it changed.
@@ -1595,7 +2089,9 @@ impl Streaming {
         } else {
             0.0
         };
-        let w = std::mem::take(&mut self.window);
+        let mut w = std::mem::take(&mut self.window);
+        (w.host_latency, w.host_latency_n) = self.host_average.update(
+            c.host_latency_total.load(Ordering::Relaxed), c.host_latency_frames.load(Ordering::Relaxed));
         let avg = |sum: f64, n: u32| if n > 0 { sum / f64::from(n) } else { 0.0 };
         let measured = |sum: f64, n: u32| if n > 0 { format!("{:.3}", sum / f64::from(n) / 1000.0) } else { String::new() };
         self.statistics.push_back(format!("{},{:.3},{:.3},{:.3},{loss:.3},{},{decode_ms:.3},{},{},{},{}\n",
@@ -1649,10 +2145,26 @@ impl Streaming {
             "Decode".into(),
             format!("{decode_ms:.2} ms{}", if now.3 > last.3 { ", errors" } else { "" }),
         ));
+        if self.facts.early_without_records {
+            lines.push(("Early decode".into(), "off, the host sent no PyroWave records".into()));
+        }
         if self.facts.early_decode {
             let early = (c.early_frames.load(Ordering::Relaxed), c.early_fallbacks.load(Ordering::Relaxed));
             let last_early = std::mem::replace(&mut self.last_early, early);
             lines.push(("Early decode".into(), early_line(early, last_early, secs)));
+        }
+        if let Some(reason) = self.facts.beam_race_off {
+            lines.push(("Beam race".into(), reason.into()));
+        }
+        if let Some(probe) = &self.race_probe {
+            lines.push(("Beam race".into(), probe.line()));
+        }
+        if self.facts.beam_race {
+            lines.push(("Race slices".into(), race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
+                c.race_unordered.load(Ordering::Relaxed))));
+        }
+        if self.facts.beam_race {
+            lines.push(("Raced presenter".into(), self.raced_line()));
         }
         lines.push((
             "Render".into(),
@@ -1676,21 +2188,7 @@ impl Streaming {
         if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync {
             lines.push(("Phase lock".into(), self.phase.lead_us.map_or_else(|| "Waiting for display timing".into(), |lead| format!("{:.2} ms lead", f64::from(lead) / 1000.0))));
         }
-        if w.timing_n > 0 {
-            lines.push((
-                "Host".into(),
-                format!(
-                    "{:.1} ms present to send, {:.1} ms encode",
-                    avg(w.timing_host_us as f64, w.timing_n) / 1000.0,
-                    avg(w.timing_encode_us as f64, w.timing_n) / 1000.0
-                ),
-            ));
-        } else if w.host_latency_n > 0 {
-            lines.push((
-                "Host".into(),
-                format!("{:.1} ms processing", avg(w.host_latency as f64, w.host_latency_n) / 10.0),
-            ));
-        }
+        lines.extend(host_lines(&w));
         if w.latency_n > 0 {
             lines.push((
                 "Latency".into(),
@@ -1723,6 +2221,9 @@ impl Streaming {
         lines.push(("Audio".into(), audio));
         lines.push(("Bitrate".into(), format!("{:.1} Mbps{}", f64::from(self.facts.bitrate_kbps) / 1000.0,
             if self.adaptive_bitrate { ", automatic" } else { "" })));
+        if let Some(notice) = &self.link_notice {
+            lines.push(("Notice".into(), link_notice_line(notice)));
+        }
         self.overlay = Overlay { lines };
         let timing = std::mem::take(&mut *lock(&self.shared.decode_window));
         let recent = decoded > 0 && self.last_arrival.is_some_and(|(_, at)| session::now_us().saturating_sub(at) < 500_000);
@@ -2079,6 +2580,9 @@ impl Streaming {
         pads.reset();
         self.upscaler = None;
         self.texture.destroy();
+        if self.facts.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+            eprintln!("nightjar: decoder {}", lock(&self.shared.decoder_name));
+        }
         if let Some(summary) = self.texture.pyrowave_stages.summary() {
             eprintln!("nightjar: PyroWave presenter stages {summary} (CPU submit time)");
         }
@@ -2090,6 +2594,18 @@ impl Streaming {
             eprintln!("{}", early_summary(c.early_frames.load(Ordering::Relaxed), c.early_fallbacks.load(Ordering::Relaxed),
                 c.early_us_total.load(Ordering::Relaxed), stats.early_chunks_dropped));
         }
+        if self.facts.beam_race {
+            let c = &self.shared.counters;
+            eprintln!("nightjar: beam race: {}", race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
+                c.race_unordered.load(Ordering::Relaxed)));
+            eprintln!("nightjar: beam race: presenter, {}", self.raced_line());
+            eprintln!("nightjar: beam race: present timing, wake {} us, call p50 {} us p95 {} us (slowest {} us), spread {} us, margin {} us ahead of the beam",
+                self.latency.wake_us(), self.latency.call_us(), self.latency.call_p95_us(), self.latency.slowest_call_us(), self.latency.spread_us(),
+                self.latency.margin_us(self.race_margin_ms));
+            let skipped = self.racer.totals.skipped;
+            eprintln!("nightjar: beam race: frames not raced: {} with under 1 ms to gain, {} not in slices, {} with the first slice missed",
+                skipped[0], skipped[1], skipped[2]);
+        }
         self.session.stop();
     }
 }
@@ -2097,6 +2613,84 @@ impl Streaming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn early_decode_without_records_is_reported_not_silent() {
+        assert_eq!(early_state(false, true, true), EarlyState::Off);
+        assert_eq!(early_state(true, false, false), EarlyState::Off);
+        assert_eq!(early_state(true, true, true), EarlyState::On);
+        // The 0-frames-decoded-ahead runs: asked for, PyroWave, but the host never offered records.
+        assert_eq!(early_state(true, true, false), EarlyState::NoRecords);
+    }
+
+    #[test]
+    fn beam_race_line_names_a_host_that_sends_no_row_order() {
+        assert_eq!(race_line(100, 300, 0), "100 frames in 300 slices, 0 not in row order");
+        assert!(race_line(0, 0, 7).contains("not sending the row order"));
+        assert!(!race_line(90, 270, 10).contains("not sending"));
+    }
+
+    #[test]
+    fn beam_race_needs_the_setting_and_a_wired_link() {
+        // The environment override is for measurement runs; these cases are the settings.
+        if std::env::var_os("NIGHTJAR_BEAM_RACE").is_some() { return; }
+        assert_eq!(beam_race(false, 1000, true), BeamRace::Off);
+        assert_eq!(beam_race(true, 1000, true), BeamRace::On);
+        assert_eq!(beam_race(true, 0, true), BeamRace::NotWired);
+    }
+
+    #[test]
+    fn beam_race_needs_the_gpu_decoder_and_says_why_it_is_off() {
+        // The forced value is the measurement override; the GPU decoder is needed either way.
+        assert_eq!(beam_race_for(None, true, 1000, false), BeamRace::NoGpuDecoder);
+        assert_eq!(beam_race_for(Some(true), false, 0, false), BeamRace::NoGpuDecoder);
+        assert_eq!(beam_race_for(Some(true), false, 0, true), BeamRace::On);
+        assert_eq!(beam_race_for(Some(false), true, 1000, true), BeamRace::Off);
+        assert_eq!(beam_race_for(None, false, 1000, false), BeamRace::Off, "the setting off says nothing");
+        assert!(BeamRace::NoGpuDecoder.reason().unwrap().contains("CPU"));
+        assert!(BeamRace::NotWired.reason().unwrap().contains("wired"));
+        assert_eq!((BeamRace::On.reason(), BeamRace::Off.reason()), (None, None));
+    }
+
+    #[test]
+    fn the_environment_switches_take_a_few_spellings_and_refuse_the_rest() {
+        for on in ["1", "true", "TRUE", "yes", "On", " 1 "] { assert_eq!(flag_value(on), Some(true), "{on:?}"); }
+        for off in ["0", "false", "No", "OFF"] { assert_eq!(flag_value(off), Some(false), "{off:?}"); }
+        // Not a switch: said on stderr by `env_flag` and ignored, so the setting decides.
+        for junk in ["", "2", "ture", "enable", "1 0"] { assert_eq!(flag_value(junk), None, "{junk:?}"); }
+        assert_eq!(slices_override("4"), Some(4));
+        assert_eq!(slices_override("7"), Some(MAX_RACE_SLICES));
+        for bad in ["0", "8", "16", "four", "-1", ""] { assert_eq!(slices_override(bad), None, "{bad:?}"); }
+        assert_eq!(beam_race_for(None, false, 1000, true), BeamRace::Off, "a refused value leaves the setting in charge");
+    }
+
+    #[test]
+    fn the_beam_race_off_asks_for_nothing() {
+        // Whatever turned it off (the setting, `NIGHTJAR_BEAM_RACE=0`, a link or decoder that cannot race):
+        // no row order from the host, no slices (so no probe, no slice handoff), early decode as the user set it.
+        for beam in [BeamRace::Off, BeamRace::NotWired, BeamRace::NoGpuDecoder] {
+            for early in [false, true] {
+                assert_eq!(race_request(beam, early, 1080), RaceRequest { row_order: false, early_decode: early, slices: 0 }, "{beam:?}");
+            }
+        }
+        for early in [EarlyState::Off, EarlyState::On, EarlyState::NoRecords] {
+            assert!(!race_runs(0, early), "no slices asked for: the presenter never probes or follows a slice ({early:?})");
+        }
+        assert!(race_runs(4, EarlyState::On));
+        assert!(!race_runs(4, EarlyState::NoRecords), "asked for, but the host sends no records to slice");
+        let on = race_request(BeamRace::On, false, 1080);
+        assert!(on.row_order && on.early_decode && on.slices > 0, "on asks for all of it: {on:?}");
+        // The default settings never turn it on, on any link.
+        assert!(!crate::config::Settings::default().beam_race);
+        assert_eq!(beam_race_for(None, false, 1000, true), BeamRace::Off);
+    }
+
+    #[test]
+    fn beam_slices_are_four_or_three_at_4k() {
+        if std::env::var_os("NIGHTJAR_BEAM_RACE_SLICES").is_some() { return; }
+        assert_eq!(beam_slices(1080), 4);
+        assert_eq!(beam_slices(2160), 3);
+    }
 
     fn display() -> Display {
         Display {
@@ -2166,9 +2760,62 @@ mod tests {
     }
 
     #[test]
+    fn the_link_notice_line_says_the_lowered_bitrate() {
+        use rubylight_protocol::control::LinkReason;
+        let notice = |current_kbps| LinkNotice {
+            state: LinkState::Limited,
+            reason: LinkReason::Network,
+            ceiling_kbps: 150_000,
+            current_kbps,
+        };
+        assert_eq!(link_notice_line(&notice(37_500)), "Host lowered the bitrate to 38 Mbps: network");
+        assert_eq!(link_notice_line(&notice(9_900)), "Host lowered the bitrate to 9.9 Mbps: network");
+        crate::strings::set(crate::strings::Lang::De);
+        assert_eq!(link_notice_line(&notice(4_500)), "Host hat die Bitrate auf 4.5 Mbit/s gesenkt: Netzwerk");
+    }
+
+    #[test]
     fn terminations_read_well() {
         assert!(termination_text(0).is_none());
         assert!(termination_text(-100).unwrap().contains("UDP"));
+    }
+}
+
+#[cfg(test)]
+mod host_line_tests {
+    use super::*;
+
+    #[test]
+    fn host_processing_averages_received_frames_over_two_windows_like_artemis() {
+        let mut average = HostAverage::default();
+        // First second: 60 frames of 0.5 ms (5 units). Nothing earlier to add.
+        assert_eq!(average.update(300, 60), (300, 60));
+        // Second second: 60 frames of 1.0 ms. The overlay sums both seconds.
+        assert_eq!(average.update(900, 120), (900, 120));
+        // Third second: only the last two seconds count, the first has dropped out.
+        assert_eq!(average.update(1200, 180), (900, 120));
+        // A window without frames carrying a header value leaves the previous one standing.
+        assert_eq!(average.update(1200, 180), (300, 60));
+        assert_eq!(average.update(1200, 180), (0, 0));
+        let w = Window { host_latency: 900, host_latency_n: 120, ..Default::default() };
+        assert_eq!(host_lines(&w), vec![("Host processing".to_owned(), "0.8 ms".to_owned())]);
+    }
+
+    #[test]
+    fn host_processing_is_the_header_average_and_a_host_report_never_changes_it() {
+        // Header values are in 100 us units: 3 frames of 5, 5 and 5 are 0.5 ms.
+        let header = Window { host_latency: 15, host_latency_n: 3, ..Default::default() };
+        let lines = host_lines(&header);
+        assert_eq!(lines, vec![("Host processing".to_owned(), "0.5 ms".to_owned())]);
+        // Reports say 5.0 ms present to send: a separate line, the processing line is unchanged.
+        let both = Window { timing_host_us: 15_000, timing_encode_us: 1_200, timing_n: 3, ..header };
+        let lines = host_lines(&both);
+        assert_eq!(lines[0], ("Host processing".to_owned(), "0.5 ms".to_owned()));
+        assert_eq!(lines[1].0, "Host to network");
+        assert_eq!(lines[1].1, "5.0 ms present to send, 0.4 ms encode");
+        // Reports alone never produce a "Host processing" line.
+        let reports = Window { timing_host_us: 15_000, timing_encode_us: 1_200, timing_n: 3, ..Default::default() };
+        assert!(host_lines(&reports).iter().all(|(label, _)| label != "Host processing"));
     }
 }
 

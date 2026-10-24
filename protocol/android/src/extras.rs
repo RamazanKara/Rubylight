@@ -10,6 +10,7 @@ use nightjar_core::sdp::AudioConfiguration;
 use nightjar_core::session::Location;
 use rubylight_protocol::control::DisplayCaps;
 use rubylight_protocol::phase_lock::{self, SlackWindow};
+use rubylight_protocol::present_clock::{Grid, GridSchedule};
 
 /// `LI_ERR_UNSUPPORTED`: the Java side falls back (touch to mouse, for example).
 pub const LI_ERR_UNSUPPORTED: i32 = -5501;
@@ -158,6 +159,41 @@ pub fn controller_audio_message(kind: i32, payload: &[u8]) -> Option<ClientMessa
 /// (`floor(rtp * 1000 / 90)`), as `android_present_clock.c` recovers it.
 pub fn rtp_from_presentation_us(us: u64) -> u32 {
     (us * 9).div_ceil(100) as u32
+}
+
+/// The vsync grid of `presentClockScheduleOnGrid` in microseconds, from `System.nanoTime()`
+/// values (as `android_present_clock.c`).
+pub fn grid_from_ns(anchor_ns: i64, interval_ns: i64, lead_ns: i64, slack_ns: i64) -> Grid {
+    Grid {
+        anchor_us: anchor_ns.div_euclid(1000),
+        interval_us: (interval_ns + 500).div_euclid(1000),
+        lead_us: lead_ns.div_euclid(1000),
+        slack_us: slack_ns.div_euclid(1000),
+    }
+}
+
+/// `presentClockScheduleOnGrid`'s out array: release time (ns), vsync (ns), vsync index, flags
+/// (1 late, 2 shares the previous frame's vsync), hold (us), host-to-vsync latency (us, -1 without
+/// clock sync) and how late the frame was (us). A frame that is not held keeps the ready time's
+/// sub-microsecond part, so it is not released early.
+pub fn grid_schedule_to_ns(
+    s: &GridSchedule,
+    ready_ns: i64,
+    anchor_ns: i64,
+    interval_ns: i64,
+    lead_ns: i64,
+) -> [i64; 7] {
+    let vsync_ns = anchor_ns + s.vsync_index * interval_ns;
+    let release_ns = if s.hold_us == 0 { ready_ns } else { (vsync_ns - lead_ns).max(ready_ns) };
+    [
+        release_ns,
+        vsync_ns,
+        s.vsync_index,
+        i64::from(s.late) | (i64::from(s.shares_vsync) << 1),
+        s.hold_us,
+        s.latency_us.unwrap_or(-1),
+        s.late_by_us,
+    ]
 }
 
 /// Phase lock reports (`android_control.c`): frame slack is collected on the render path;
@@ -406,5 +442,60 @@ mod tests {
     fn microphone_frames_are_opus_sizes() {
         assert!(valid_microphone_frame(960));
         assert!(!valid_microphone_frame(1000));
+    }
+
+    #[test]
+    fn the_grid_is_converted_from_nanoseconds() {
+        let grid = grid_from_ns(5_000_123_456, 16_666_667, 4_000_000, 8_333_333);
+        assert_eq!(grid.anchor_us, 5_000_123);
+        assert_eq!(grid.interval_us, 16_667, "rounded to the nearest microsecond");
+        assert_eq!(grid.lead_us, 4_000);
+        assert_eq!(grid.slack_us, 8_333);
+        assert_eq!(grid_from_ns(0, 8_333_333, 0, 0).interval_us, 8_333);
+        assert_eq!(grid_from_ns(0, 8_333_500, 0, 0).interval_us, 8_334);
+    }
+
+    #[test]
+    fn a_grid_schedule_is_reported_in_nanoseconds() {
+        use rubylight_protocol::present_clock::PresentClock;
+        let mut clock = PresentClock::default();
+        let (anchor_ns, interval_ns, lead_ns) = (10_000_000_000i64, 16_666_667i64, 4_000_000i64);
+        let grid = grid_from_ns(anchor_ns, interval_ns, lead_ns, 0);
+        // Ready 8 ms after the anchor's vsync: the next vsync is 8.67 ms away, release 4.67 ms
+        // after ready.
+        let ready_ns = anchor_ns + 8_000_000;
+        let s = clock.schedule_on_grid(0, (ready_ns / 1000) as u64, grid);
+        let out = grid_schedule_to_ns(&s, ready_ns, anchor_ns, interval_ns, lead_ns);
+        assert_eq!(out[1], anchor_ns + interval_ns, "the next vsync");
+        assert_eq!(out[2], 1);
+        assert_eq!(out[0], out[1] - lead_ns, "released a lead before it");
+        assert_eq!(out[3], 0);
+        assert!((out[4] - (out[0] - ready_ns) / 1000).abs() <= 1, "the hold, to rounding");
+        assert_eq!(out[5], -1, "no clock sync");
+        assert_eq!(out[6], 0);
+        // Ready 2 ms before the next vsync, inside the lead: released at the ready time, to the
+        // nanosecond.
+        let ready_ns = anchor_ns + 2 * interval_ns - 2_000_123;
+        let grid = grid_from_ns(anchor_ns + interval_ns, interval_ns, lead_ns, 0);
+        let s = clock.schedule_on_grid(1_500, (ready_ns / 1000) as u64, grid);
+        let out = grid_schedule_to_ns(&s, ready_ns, anchor_ns + interval_ns, interval_ns, lead_ns);
+        assert_eq!(out[0], ready_ns);
+        assert_eq!(out[4], 0);
+    }
+
+    #[test]
+    fn grid_flags_carry_late_and_shared() {
+        let s = GridSchedule {
+            release_us: 5_000,
+            vsync_us: 9_000,
+            vsync_index: 2,
+            late: true,
+            late_by_us: 700,
+            shares_vsync: true,
+            hold_us: 100,
+            latency_us: Some(33),
+        };
+        let out = grid_schedule_to_ns(&s, 4_900_000, 0, 4_500_000, 4_000_000);
+        assert_eq!(out, [5_000_000, 9_000_000, 2, 3, 100, 33, 700]);
     }
 }

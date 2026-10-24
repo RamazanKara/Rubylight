@@ -48,6 +48,13 @@ final class FramePacingPolicy {
                 (requestedMilliHz + 500) / 1000 == negotiatedFps ? requestedMilliHz : negotiatedFps * 1000;
     }
 
+    /** Whether the present scheduler places frames: host frame times in latency mode only. */
+    static boolean schedulesFrames(boolean hostFrameTimes, int framePacing) {
+        return hostFrameTimes && framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED &&
+                framePacing != PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS &&
+                framePacing != PreferenceConfiguration.FRAME_PACING_CAP_FPS;
+    }
+
     static boolean shouldDrainOutput(int mode, long enqueueNs, long nowNs, int fpsMilliHz, int drained) {
         if (drained >= MAX_OUTPUT_DRAIN) return false;
         if (dropQueuedFrames(mode)) return true;

@@ -65,6 +65,9 @@ public class SettingsKeysTest {
             "performance_overlay_mode", // Game and the overlay
             com.limelight.ui.AppTheme.OLED_BLACK, // AppTheme, including activities opened directly
             com.limelight.ui.AppTheme.ALWAYS_DARK,
+            com.limelight.ui.AppTheme.HIGH_CONTRAST, // AppTheme and the contrast overlay
+            com.limelight.ui.AppTheme.UI_SCALE, // NightjarActivity.attachBaseContext
+            com.limelight.ui.Motion.REDUCE_MOTION, // Motion
             com.limelight.update.UpdatePrefs.AUTO_CHECK_PREF_STRING, // UpdatePrefs
             com.limelight.console.HomeSettings.PREF_KEY)); // PcView and the console Home
 
@@ -108,6 +111,18 @@ public class SettingsKeysTest {
     }
 
     @Test
+    public void accessibilityKeysAreSettingsWithTheirDefaults() throws Exception {
+        Map<String, String> keys = keysInXml();
+        for (String key : new String[] {com.limelight.ui.AppTheme.UI_SCALE, com.limelight.ui.AppTheme.HIGH_CONTRAST,
+                com.limelight.ui.Motion.REDUCE_MOTION}) {
+            assertTrue("Missing: " + key, keys.containsKey(key));
+        }
+        assertEquals("list_ui_scale", com.limelight.ui.AppTheme.UI_SCALE);
+        assertEquals("checkbox_high_contrast", com.limelight.ui.AppTheme.HIGH_CONTRAST);
+        assertEquals("list_reduce_motion", com.limelight.ui.Motion.REDUCE_MOTION);
+    }
+
+    @Test
     public void everyKeyFromBeforeTheRestructureIsStillASetting() throws Exception {
         Map<String, String> keys = keysInXml();
         for (String key : KEYS_BEFORE) {
@@ -143,6 +158,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_enable_hdr", new Read(false, true, c -> c.enableHdr));
         reads.put("checkbox_vrr", new Read(false, true, c -> c.vrr));
         reads.put("checkbox_host_frame_times", new Read(false, true, c -> c.hostFrameTimes));
+        reads.put("checkbox_content_rate_frame_rate", new Read(false, true, c -> c.contentRateFrameRate));
         reads.put("frame_pacing", new Read("latency", "balanced", c -> c.framePacing));
         reads.put("checkbox_reduce_refresh_rate", new Read(false, true, c -> c.reduceRefreshRate));
         reads.put("upscaling_mode", new Read("off", "fsr1", c -> c.upscalingMode));

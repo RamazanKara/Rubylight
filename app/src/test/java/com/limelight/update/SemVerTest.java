@@ -45,6 +45,16 @@ public class SemVerTest {
     }
 
     @Test
+    public void the_3_0_release_candidate_orders_between_0_8_and_3_0() {
+        assertEquals("3.0.0-rc.1", SemVer.normalize("v3.0.0-rc.1"));
+        assertTrue(SemVer.isNewer("v3.0.0-rc.1", "0.8.0"));
+        assertFalse(SemVer.isNewer("0.8.0", "3.0.0-rc.1"));
+        assertFalse(SemVer.isNewer("0.8.1", "3.0.0-rc.1"));
+        assertTrue(SemVer.isNewer("3.0.0-rc.2", "3.0.0-rc.1"));
+        assertTrue(SemVer.isNewer("3.0.0", "3.0.0-rc.1"));
+    }
+
+    @Test
     public void build_metadata_does_not_count() {
         assertEquals(0, SemVer.parse("1.2.3+abc").compareTo(SemVer.parse("1.2.3+xyz")));
     }

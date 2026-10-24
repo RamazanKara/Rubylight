@@ -21,6 +21,12 @@ impl Network {
         else { Kind::Wifi }
     }
 
+    /// The link speed sent to the host as the pacing hint, for every codec: 0 on Wi-Fi or
+    /// cellular, where the adapter speed says nothing about the path.
+    pub fn wired_link_mbps(&self) -> u32 {
+        if self.wifi || self.cellular { 0 } else { self.link_mbps.min(9999) }
+    }
+
     pub fn description(&self, home: &[String]) -> String {
         if let Some(error) = &self.error { return format!("Network details unavailable: {error}"); }
         let name = match self.kind(home) {
@@ -108,4 +114,19 @@ fn read() -> Result<Network, String> {
         Ok(network)
     };
     read().map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_hint_is_the_wired_speed_and_zero_on_wireless() {
+        let wired = Network { link_mbps: 2500, ..Default::default() };
+        assert_eq!(wired.wired_link_mbps(), 2500);
+        assert_eq!(Network { link_mbps: 40_000, ..wired.clone() }.wired_link_mbps(), 9999);
+        assert_eq!(Network { wifi: true, ..wired.clone() }.wired_link_mbps(), 0);
+        assert_eq!(Network { cellular: true, ..wired.clone() }.wired_link_mbps(), 0);
+        assert_eq!(Network::default().wired_link_mbps(), 0);
+    }
 }

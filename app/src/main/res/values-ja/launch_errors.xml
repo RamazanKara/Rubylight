@@ -4,4 +4,6 @@
     <string name="startup_launch_cancelled">起動をキャンセルしました。</string>
     <string name="startup_confirmation_timed_out">確認がタイムアウトしました。もう一度タイルから起動してください。</string>
     <string name="startup_confirmation_rejected">ホストのセッションが変わったか、確認の期限が切れました。もう一度タイルから起動してください。</string>
+    <string name="decoder_setup_rejected">この端末のビデオデコーダー（%1$s）が %2$s（%3$dx%4$d、%5$d FPS）を開始できませんでした: %6$s。原因はホストではありません。設定で H.264、低い解像度、または低いフレームレートを試してください。それでも解決しない場合は「問題を報告」を使ってください。</string>
+    <string name="decoder_setup_none">この端末には %1$s 用のビデオデコーダーがありません。設定で別のビデオコーデックを選んでください。</string>
 </resources>

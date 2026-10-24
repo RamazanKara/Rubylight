@@ -121,6 +121,20 @@ pub fn tap(key: Key) -> [Event; 2] {
     [event(true), event(false)]
 }
 
+/// Scrolls the enclosing scroll area to the keyboard-focused widget when focus moves. egui
+/// does not do this itself, so on a gamepad the stream menu's lower rows took focus out of sight.
+/// Call it first in the scroll area's content, with the id it returned last time.
+pub fn follow_focus(ui: &mut egui::Ui, last: &mut Option<egui::Id>) {
+    let focused = ui.ctx().memory(|m| m.focused());
+    if focused == *last {
+        return;
+    }
+    *last = focused;
+    if let Some(rect) = focused.and_then(|id| ui.ctx().read_response(id)).map(|r| r.rect) {
+        ui.scroll_to_rect(rect, None);
+    }
+}
+
 impl Gui {
     pub fn new() -> Self {
         let ctx = egui::Context::default();
@@ -482,5 +496,46 @@ mod tests {
         for key in [Key::Equals, Key::Plus, Key::Minus, Key::Num0] {
             assert_eq!(zoom_after_ctrl(&gui.ctx, key), 1.0, "{key:?}");
         }
+    }
+
+    #[test]
+    fn follow_focus_scrolls_to_the_row_that_arrow_keys_reach() {
+        let ctx = egui::Context::default();
+        let mut last: Option<egui::Id> = None;
+        let mut frame = |events: Vec<Event>| -> f32 {
+            let mut offset = 0.0;
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))),
+                events,
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let out = egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
+                    follow_focus(ui, &mut last);
+                    for i in 0..30 {
+                        let row = ui.button(format!("Row {i}"));
+                        if i == 0 && !ui.ctx().memory(|m| m.focused().is_some()) {
+                            row.request_focus();
+                        }
+                    }
+                });
+                offset = out.state.clamped_offset().y;
+            });
+            // Nothing paints here; epaint asserts (debug builds) that texture uploads are not dropped.
+            output.textures_delta.clear();
+            offset
+        };
+        frame(vec![]);
+        let offset = frame(vec![]);
+        assert_eq!(offset, 0.0, "the first row starts in view");
+        let mut offset = offset;
+        for _ in 0..25 {
+            for pressed in [true, false] {
+                frame(vec![Event::Key { key: Key::ArrowDown, physical_key: None, pressed, repeat: false, modifiers: Modifiers::NONE }]);
+            }
+            frame(vec![]);
+            offset = frame(vec![]);
+        }
+        assert!(offset > 100.0, "the scroll area followed focus down to row 25, offset {offset}");
     }
 }

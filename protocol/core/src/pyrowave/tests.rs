@@ -333,9 +333,12 @@ fn container_validates_everything_before_pushing() {
     assert!(!push_container(&trailing, |_| true));
 }
 
+/// The pushes made and the records given early.
+type Pushes = (Vec<Vec<u8>>, Vec<(u32, Vec<u8>)>);
+
 /// Feeds `data` (a container) to `records` a few packets at a time, as a client taking records
 /// while the frame arrives would, and returns the pushes and the records given early.
-fn incremental(records: &mut Records, data: &[u8], per_feed: usize) -> Option<(Vec<Vec<u8>>, Vec<(u32, Vec<u8>)>)> {
+fn incremental(records: &mut Records, data: &[u8], per_feed: usize) -> Option<Pushes> {
     assert_eq!(le32(data, 0), 0);
     let mut early = Vec::new();
     let mut offset = 4;

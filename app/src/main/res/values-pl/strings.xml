@@ -262,7 +262,7 @@
     <string name="latency_output_render">Oczekiwanie na wyświetlenie</string>
     <string name="latency_receive_render">Opóźnienie urządzenia</string>
     <string name="latency_host_processing">Przetwarzanie na hoście</string>
-    <string name="latency_host_processing_send">Przetwarzanie na hoście + wysyłanie</string>
+    <string name="latency_host_processing_send">Host do sieci</string>
     <string name="latency_host_split">Kolejka / kodowanie / wysyłanie hosta (śr.): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Preferuj YUV 4:4:4</string>
     <string name="summary_yuv444">Ostrzejszy kolorowy tekst, gdy komputer i to urządzenie to obsługują. HDR ma pierwszeństwo.</string>
@@ -273,6 +273,8 @@
     <string name="summary_vrr">Na ekranach z Androidem 16 i adaptacyjnym odświeżaniem Android dopasowuje częstotliwość odświeżania do strumienia; inne ekrany działają z najwyższą częstotliwością. Hosty obsługujące VRR też są proszone o jego użycie, zależnie od ich ustawień. Gdy ta opcja jest włączona, tempo klatek i niższa częstotliwość odświeżania nie mają zastosowania.</string>
     <string name="title_host_frame_times">Pokazuj klatki w rytmie komputera</string>
     <string name="summary_host_frame_times">Przytrzymuje każdą klatkę kilka milisekund, aby pojawiła się wtedy, gdy gra ją narysowała, a nie gdy dostarczyła ją sieć. Wygładza wahania, zwłaszcza przy adaptacyjnym odświeżaniu. Zastępuje tempo klatek. Nie działa z PyroWave.</string>
+    <string name="title_content_rate_frame_rate">Dopasuj ekran do liczby klatek gry</string>
+    <string name="summary_content_rate_frame_rate">Informuje Androida, z jaką liczbą klatek gra naprawdę działa, aby ekran z pasującym trybem mógł się na nią przełączyć bez czarnego ekranu. Wymaga komputera wysyłającego czasy klatek oraz opcji „Zezwalaj na niższe odświeżanie”; zmienia się najwyżej raz na 2 sekundy. Nie działa z PyroWave ani z adaptacyjnym odświeżaniem.</string>
     <string name="title_virtual_display_scale">Skala renderowania hosta</string>
     <string name="summary_virtual_display_scale">Zmienia rozdzielczość renderowania komputera, a nie rozmiar przesyłanego wideo. Aby wysyłać mniej pikseli i skalować na tym urządzeniu, obniż rozdzielczość strumienia.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

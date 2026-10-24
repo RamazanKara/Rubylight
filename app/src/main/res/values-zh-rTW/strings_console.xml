@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">首頁</string>
-    <string name="console_menu_hosts">主機</string>
     <string name="console_section_favourites">我的最愛</string>
     <string name="console_section_continue">繼續遊戲</string>
     <string name="console_section_library">遊戲庫</string>
-    <string name="console_section_hosts">主機</string>
+    <string name="console_section_hosts">電腦</string>
     <string name="console_favourite_add">加入我的最愛</string>
     <string name="console_favourite_remove">從我的最愛移除</string>
     <string name="console_favourite_description">我的最愛</string>
@@ -17,9 +16,9 @@
     <string name="console_host_saved_games">已離線。已儲存的遊戲：%1$d</string>
     <string name="console_host_offline">已離線</string>
     <string name="console_host_no_library">遊戲尚未載入</string>
-    <string name="console_empty_title">還沒有主機</string>
+    <string name="console_empty_title">還沒有電腦</string>
     <string name="console_empty_body">將 Nightjar 與 PC 配對後，即可在此查看其遊戲。</string>
-    <string name="console_empty_open_hosts">開啟主機</string>
+    <string name="console_empty_open_hosts">開啟電腦</string>
     <string name="console_detail_host">主機</string>
     <string name="console_detail_profile">串流設定</string>
     <string name="console_detail_status_running">在 %1$s 上執行中</string>

@@ -306,7 +306,7 @@
     <string name="latency_output_render">Display wait</string>
     <string name="latency_receive_render">Client latency</string>
     <string name="latency_host_processing">Host processing</string>
-    <string name="latency_host_processing_send">Host processing + send</string>
+    <string name="latency_host_processing_send">Host to network</string>
     <string name="latency_host_split">Host queue / encode / send (avg): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Prefer YUV 4:4:4</string>
     <string name="summary_yuv444">Sharper colored text when the PC and this device support it. HDR takes priority.</string>
@@ -317,6 +317,8 @@
     <string name="summary_vrr">On Android 16 screens with adaptive refresh, Android matches the refresh rate to the stream; other screens run at their highest rate. Hosts that support VRR are asked to use it too, depending on their settings. While this is on, frame pacing and a lower refresh rate don’t apply.</string>
     <string name="title_host_frame_times">Show frames at the PC\'s frame times</string>
     <string name="summary_host_frame_times">Hold each frame a few milliseconds so it appears when the game drew it, instead of when the network delivered it. Evens out jitter, especially with adaptive refresh. Replaces frame pacing. Not used with PyroWave.</string>
+    <string name="title_content_rate_frame_rate">Match the screen to the game\'s frame rate</string>
+    <string name="summary_content_rate_frame_rate">Tells Android the frame rate the game really runs at, so a screen with a matching refresh mode can switch to it without a blank screen. Needs a PC that sends frame times and Allow lower refresh rate; changes at most once every 2 seconds. Not used with PyroWave or adaptive refresh.</string>
     <string name="title_virtual_display_scale">Host render scale</string>
     <string name="summary_virtual_display_scale">Changes the PC’s render resolution, not the transmitted video size. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

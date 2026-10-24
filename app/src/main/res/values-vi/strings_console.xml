@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">Trang chủ</string>
-    <string name="console_menu_hosts">Máy chủ</string>
     <string name="console_section_favourites">Yêu thích</string>
     <string name="console_section_continue">Chơi tiếp</string>
     <string name="console_section_library">Thư viện</string>
-    <string name="console_section_hosts">Máy chủ</string>
+    <string name="console_section_hosts">PC</string>
     <string name="console_favourite_add">Thêm vào yêu thích</string>
     <string name="console_favourite_remove">Xóa khỏi yêu thích</string>
     <string name="console_favourite_description">Yêu thích</string>
@@ -17,9 +16,9 @@
     <string name="console_host_saved_games">Ngoại tuyến. Trò chơi đã lưu: %1$d</string>
     <string name="console_host_offline">Ngoại tuyến</string>
     <string name="console_host_no_library">Chưa tải trò chơi</string>
-    <string name="console_empty_title">Chưa có máy chủ</string>
+    <string name="console_empty_title">Chưa có PC</string>
     <string name="console_empty_body">Ghép đôi Nightjar với một PC để xem các trò chơi của PC tại đây.</string>
-    <string name="console_empty_open_hosts">Mở danh sách máy chủ</string>
+    <string name="console_empty_open_hosts">Mở danh sách PC</string>
     <string name="console_detail_host">Máy chủ</string>
     <string name="console_detail_profile">Cài đặt luồng</string>
     <string name="console_detail_status_running">Đang chạy trên %1$s</string>

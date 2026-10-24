@@ -4,4 +4,6 @@
     <string name="startup_launch_cancelled">Inicio cancelado.</string>
     <string name="startup_confirmation_timed_out">Se ha agotado el tiempo de confirmación. Vuelve a iniciar el icono para reintentarlo.</string>
     <string name="startup_confirmation_rejected">La sesión del servidor ha cambiado o la confirmación ha caducado. Vuelve a iniciar el icono.</string>
+    <string name="decoder_setup_rejected">El decodificador de vídeo de este dispositivo (%1$s) no pudo iniciar %2$s a %3$dx%4$d y %5$d FPS: %6$s. La causa no es el host. En Ajustes, prueba H.264, una resolución más baja o menos fotogramas por segundo. Si sigue ocurriendo, usa «Informar de un problema».</string>
+    <string name="decoder_setup_none">Este dispositivo no tiene un decodificador de vídeo para %1$s. Elige otro códec de vídeo en Ajustes.</string>
 </resources>

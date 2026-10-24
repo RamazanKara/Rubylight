@@ -4,4 +4,6 @@
     <string name="startup_launch_cancelled">Başlatma iptal edildi.</string>
     <string name="startup_confirmation_timed_out">Onay zaman aşımına uğradı. Tekrar denemek için kutucuğu yeniden başlatın.</string>
     <string name="startup_confirmation_rejected">Ana bilgisayar oturumu değişti veya onayın süresi doldu. Kutucuğu yeniden başlatın.</string>
+    <string name="decoder_setup_rejected">Bu cihazın video kod çözücüsü (%1$s), %2$s biçimini %3$dx%4$d ve %5$d FPS ile başlatamadı: %6$s. Sorunun nedeni ana makine değil. Ayarlar’da H.264, daha düşük bir çözünürlük veya daha düşük bir kare hızı deneyin. Sorun sürerse “Sorun bildir” seçeneğini kullanın.</string>
+    <string name="decoder_setup_none">Bu cihazda %1$s için video kod çözücü yok. Ayarlar’dan başka bir video kodeği seçin.</string>
 </resources>

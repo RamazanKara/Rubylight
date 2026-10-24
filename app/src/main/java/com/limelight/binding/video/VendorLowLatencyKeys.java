@@ -13,6 +13,17 @@ import java.util.Map;
 final class VendorLowLatencyKeys {
     // Known keys and the value that enables the low-latency behaviour.
     static final Map<String, Integer> KNOWN;
+    // Keys sent to NVIDIA decoders by name, declared or not.
+    static final Map<String, Integer> TEGRA;
+    // The whole MediaTek preset, set on MediaTek decoders by name. Experimental: no MediaTek device here.
+    static final Map<String, Integer> MEDIATEK;
+    // MediaTek switches whose presence on a decoder shows it handles low-latency streams (reference
+    // frame invalidation); they are detected for HEVC RFI only, never set. Delay and timeout
+    // knobs (buffer.fetch.timeout.ms, the output delay frame counts) are no evidence of that.
+    static final String[] MEDIATEK_DETECT_ONLY = {
+            "vendor.mtk.vdec.low-latency.strict.enable", "vendor.mtk.vdec.early.output.enable",
+            "vendor.mtk.vdec.no.reorder.enable", "vendor.mtk.vdec.disable.reorder",
+            "vendor.mtk.vdec.no.clock.adjust"};
 
     static {
         Map<String, Integer> known = new LinkedHashMap<>();
@@ -32,12 +43,48 @@ final class VendorLowLatencyKeys {
         // MediaTek Codec2.
         known.put("vendor.mtk.vdec.low-latency.mode", 1);
         known.put("vendor.mtk.vdec.low-latency.mode.value", 1);
-        known.put("vendor.mtk.vdec.cpu.boost.mode", 1);
-        known.put("vendor.mtk.vdec.cpu.boost.mode.value", 1);
+        // The boost level is 2 ("moderate") as in the derflacco fork; Artemis sends 1.
+        known.put("vendor.mtk.vdec.cpu.boost.mode", 2);
+        known.put("vendor.mtk.vdec.cpu.boost.mode.value", 2);
+        // Keep the clocks up and let the app pace output; both from Artemis's MediaTek preset.
+        known.put("vendor.mtk.vdec.dvfs.mode", 2);
+        known.put("vendor.mtk.vdec.dvfs.level", 2);
+        known.put("vendor.mtk.vdec.disable-idle", 1);
+        known.put("vendor.mtk.vdec.vsync.adjust.enable", 0);
         // NVIDIA Tegra.
         known.put("vendor.nvidia.disable-output-reorder", 1);
         known.put("vendor.nvidia.disable-output-reorder.value", 1);
         KNOWN = Collections.unmodifiableMap(known);
+
+        // Tegra (Shield) decoders take these at configure time without listing them, so they are
+        // set by decoder name. Artemis sets the same four.
+        Map<String, Integer> tegra = new LinkedHashMap<>();
+        tegra.put("media.low-latency.enable", 1);
+        tegra.put("vendor.low-latency.enable", 1);
+        tegra.put("disable-output-reorder", 1);
+        tegra.put("vendor.nvidia.disable-output-reorder", 1);
+        TEGRA = Collections.unmodifiableMap(tegra);
+
+        // The MediaTek preset of Artemis (ClassicOldSong) with the values of the derflacco
+        // moonlight-noir fork (GPL-3.0): moderate boost, light prebuffering, short queues, output
+        // paced by the app, only NVOP skipped, nothing dropped.
+        Map<String, Integer> mtk = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> entry : known.entrySet()) {
+            if (entry.getKey().startsWith("vendor.mtk.")) {
+                mtk.put(entry.getKey(), entry.getValue());
+            }
+        }
+        mtk.put("vendor.mtk.vdec.preload.frame.count", 1);
+        mtk.put("vendor.mtk.vdec.buffer.fetch.timeout.ms", 4);
+        mtk.put("vendor.mtk.vdec.bq.guard.interval.time", 4);
+        mtk.put("vendor.mtk.vdec.input.max.queue.depth", 3);
+        mtk.put("vendor.mtk.vdec.output.max.queue.depth", 3);
+        mtk.put("vendor.mtk.vdec.pq", 0);
+        mtk.put("vendor.mtk.vdec.nvop.skip", 1);
+        mtk.put("vendor.mtk.vdec.skip.mode", 0);
+        mtk.put("vendor.mtk.vdec.drop.nonref.frame", 0);
+        mtk.put("vendor.mtk.vdec.frame-drop.policy", 0);
+        MEDIATEK = Collections.unmodifiableMap(mtk);
     }
 
     private VendorLowLatencyKeys() {}
@@ -70,6 +117,20 @@ final class VendorLowLatencyKeys {
             }
         }
         return keys;
+    }
+
+    /** The whole MediaTek preset, set by name whether or not the decoder lists it. */
+    static Map<String, Integer> mediaTekKeys() {
+        return MEDIATEK;
+    }
+
+    static boolean isMediaTekDetectOnly(Collection<String> integerParams) {
+        for (String key : MEDIATEK_DETECT_ONLY) {
+            if (containsIgnoreCase(integerParams, key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static boolean isKnown(String key) {

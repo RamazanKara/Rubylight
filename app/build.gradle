@@ -28,8 +28,8 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "0.8.0"
-        versionCode = 351
+        versionName "3.0.0"
+        versionCode = 352
 
         resValue "string", "app_name", brandName
         buildConfigField "String", "BRAND_NAME", "\"${brandName}\""
@@ -140,7 +140,8 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix ".debug"
+            // -PdebugIdSuffix=.n5 installs a side-by-side debug copy; the default stays ".debug".
+            applicationIdSuffix project.findProperty("debugIdSuffix") ?: ".debug"
             resValue "string", "app_label", "${brandName} (Debug)"
             resValue "string", "app_label_root", "${brandName} (Root Debug)"
         }

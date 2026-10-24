@@ -23,10 +23,11 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/native-api");
-const NAMES: [&str; 6] = [
+const NAMES: [&str; 7] = [
     "capabilities",
     "library",
     "session",
+    "session_launcher",
     "radeon",
     "settings_write",
     "error",

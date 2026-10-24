@@ -12,4 +12,19 @@
     <string name="host_unpair_title">Unpair %1$s?</string>
     <string name="host_unpair_message">The PC forgets this device and its saved library is cleared here. You will need to pair again to stream. The PC stays in the list.</string>
     <string name="host_wake_needs_pairing">Pair once while the PC is on to enable Wake</string>
+    <!-- Accessibility: interface size, high contrast and reduced motion. -->
+    <string name="settings_category_accessibility">Accessibility</string>
+    <string name="title_ui_scale">Interface size</string>
+    <string name="summary_ui_scale">Scales the menus, lists and dialogs of the app. The stream is not scaled. The system font size still applies on top. Takes effect at once.</string>
+    <string name="title_high_contrast">High contrast</string>
+    <string name="summary_high_contrast">A black background, stronger text and outlines, and a thicker focus ring on every screen of the app. The stream is not changed.</string>
+    <string name="title_reduce_motion">Reduce motion</string>
+    <string name="summary_reduce_motion">Follow system turns animation off when Android’s animation scale is 0. Reduce replaces the focus zoom and the sliding sheets with a plain ring. Full always animates.</string>
+    <string name="reduce_motion_system">Follow system</string>
+    <string name="reduce_motion_reduce">Reduce</string>
+    <string name="reduce_motion_full">Full</string>
+    <string-array name="ui_scale_names" translatable="false"><item>85%</item><item>100%</item><item>115%</item><item>130%</item><item>150%</item></string-array>
+    <string-array name="ui_scale_values" translatable="false"><item>85</item><item>100</item><item>115</item><item>130</item><item>150</item></string-array>
+    <string-array name="reduce_motion_names"><item>@string/reduce_motion_system</item><item>@string/reduce_motion_reduce</item><item>@string/reduce_motion_full</item></string-array>
+    <string-array name="reduce_motion_values" translatable="false"><item>system</item><item>reduce</item><item>full</item></string-array>
 </resources>

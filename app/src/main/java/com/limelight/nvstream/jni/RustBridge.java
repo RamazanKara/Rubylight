@@ -109,6 +109,7 @@ final class RustBridge {
     static native int sendMicrophonePcm(short[] pcm, int samples);
     static native boolean requestReconfigure(int width, int height, int fpsMillihz);
     static native boolean sendHostTimingRequest(boolean enabled);
+    static native boolean sendLinkNoticeRequest(boolean enabled);
     static native boolean sendClockSyncProbe();
     static native void presentClockStart(int minIntervalUs);
     static native void presentClockStop();
@@ -116,6 +117,10 @@ final class RustBridge {
     static native boolean presentClockSchedule(long hostUs, long readyNs, long[] out);
     static native boolean presentClockStats(long[] out);
     static native boolean presentClockOffset(long[] out);
+    static native boolean presentClockScheduleOnGrid(long hostUs, long readyNs, long anchorNs, long intervalNs,
+            long leadNs, long slackNs, long[] out);
+    static native void presentClockObserve(long hostUs);
+    static native int presentClockContentRate();
     static native boolean sendCursorShapeRequest(boolean enabled);
     static native boolean sendControllerAudio(int kind, byte[] payload);
 }

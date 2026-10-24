@@ -252,8 +252,8 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "butterpollo-core"
-version = "3.0.0-alpha.1"
-source = "git+https://github.com/RamazanKara/Rubylight?rev=89376b879abd6621a87e6abf693550d5e45e025d#89376b879abd6621a87e6abf693550d5e45e025d"
+version = "3.0.0-beta.1"
+source = "git+https://github.com/RamazanKara/Rubylight?rev=682aa119bc181d94652b65009f471eb5015e3c8a#682aa119bc181d94652b65009f471eb5015e3c8a"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -271,7 +271,7 @@ dependencies = [
  "ring",
  "rsa",
  "rubylight-native-api",
- "rubylight-protocol 0.1.0 (git+https://github.com/RamazanKara/rubylight-android?rev=9bd9b9bd8a2336f26725b7a4fea2227a264f0b71)",
+ "rubylight-protocol 0.1.0 (git+https://github.com/RamazanKara/rubylight-android?rev=9dee5f2b1d297175ff8449e4808739be4104287a)",
  "serde",
  "serde_json",
  "sha2",
@@ -1747,7 +1747,7 @@ dependencies = [
 [[package]]
 name = "rubylight-native-api"
 version = "1.0.0"
-source = "git+https://github.com/RamazanKara/Rubylight?rev=89376b879abd6621a87e6abf693550d5e45e025d#89376b879abd6621a87e6abf693550d5e45e025d"
+source = "git+https://github.com/RamazanKara/Rubylight?rev=682aa119bc181d94652b65009f471eb5015e3c8a#682aa119bc181d94652b65009f471eb5015e3c8a"
 dependencies = [
  "serde",
 ]
@@ -1759,7 +1759,7 @@ version = "0.1.0"
 [[package]]
 name = "rubylight-protocol"
 version = "0.1.0"
-source = "git+https://github.com/RamazanKara/rubylight-android?rev=9bd9b9bd8a2336f26725b7a4fea2227a264f0b71#9bd9b9bd8a2336f26725b7a4fea2227a264f0b71"
+source = "git+https://github.com/RamazanKara/rubylight-android?rev=9dee5f2b1d297175ff8449e4808739be4104287a#9dee5f2b1d297175ff8449e4808739be4104287a"
 
 [[package]]
 name = "rubylight-protocol-ffi"

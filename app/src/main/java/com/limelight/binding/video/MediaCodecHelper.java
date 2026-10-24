@@ -44,6 +44,8 @@ public class MediaCodecHelper {
     private static final List<String> refFrameInvalidationHevcPrefixes;
     private static final List<String> useFourSlicesPrefixes;
     private static final List<String> qualcommDecoderPrefixes;
+    private static final List<String> tegraDecoderPrefixes;
+    private static final List<String> mediaTekDecoderPrefixes;
     private static final List<String> kirinDecoderPrefixes;
     private static final List<String> exynosDecoderPrefixes;
     private static final List<String> amlogicDecoderPrefixes;
@@ -222,6 +224,22 @@ public class MediaCodecHelper {
 
         qualcommDecoderPrefixes.add("omx.qcom");
         qualcommDecoderPrefixes.add("c2.qti");
+        // Artemis also lists c2.qcom, the Codec2 name some older Qualcomm builds use.
+        qualcommDecoderPrefixes.add("c2.qcom");
+    }
+
+    static {
+        tegraDecoderPrefixes = new LinkedList<>();
+
+        tegraDecoderPrefixes.add("omx.nvidia");
+        tegraDecoderPrefixes.add("c2.nvidia");
+    }
+
+    static {
+        mediaTekDecoderPrefixes = new LinkedList<>();
+
+        mediaTekDecoderPrefixes.add("omx.mtk");
+        mediaTekDecoderPrefixes.add("c2.mtk");
     }
 
     static {
@@ -298,6 +316,32 @@ public class MediaCodecHelper {
         return getAdrenoRendererModelNumber(glRenderer) >= 400;
     }
 
+    /**
+     * Decoders whose vendor keys follow Artemis and the derflacco fork but were never run on
+     * MediaTek, NVIDIA or Amlogic hardware by us; the stream log marks them Experimental.
+     */
+    static boolean isExperimentalVendorDecoder(String decoderName) {
+        return isDecoderInList(mediaTekDecoderPrefixes, decoderName)
+                || isDecoderInList(tegraDecoderPrefixes, decoderName)
+                || isDecoderInList(amlogicDecoderPrefixes, decoderName)
+                || decoderName.toLowerCase(java.util.Locale.ROOT).startsWith("c2.qcom");
+    }
+
+    /**
+     * Reference frame invalidation for MediaTek (AVC and HEVC) and for HEVC on Snapdragon decoders
+     * named c2.qcom, as in the derflacco fork (moonlight-noir, GPL-3.0). Experimental: we have no
+     * MediaTek or c2.qcom device to run it on. Gated like the other
+     * Codec2-era entries, by the GLES 3 check in initialize().
+     */
+    static void addMediaTekAndQcomRefFrameInvalidation() {
+        LimeLog.info("Added omx.mtk/c2.mtk and c2.qcom to reference frame invalidation support list");
+        for (String prefix : new String[] {"omx.mtk", "c2.mtk"}) {
+            refFrameInvalidationAvcPrefixes.add(prefix);
+            refFrameInvalidationHevcPrefixes.add(prefix);
+        }
+        refFrameInvalidationHevcPrefixes.add("c2.qcom");
+    }
+
     public static synchronized void initialize(Context context, String glRenderer) {
         if (initialized) {
             return;
@@ -366,6 +410,7 @@ public class MediaCodecHelper {
                 refFrameInvalidationHevcPrefixes.add("omx.qcom");
                 refFrameInvalidationAvcPrefixes.add("c2.qti");
                 refFrameInvalidationHevcPrefixes.add("c2.qti");
+                addMediaTekAndQcomRefFrameInvalidation();
             }
 
             // Qualcomm's early HEVC decoders break hard on our HEVC stream. The best check to
@@ -501,6 +546,18 @@ public class MediaCodecHelper {
         return false;
     }
 
+    // MediaTek switches from the derflacco fork (moonlight-noir) that mark a decoder as able to
+    // handle HEVC RFI. Only used for that; the AV1 whitelist keeps asking the known switches.
+    // Experimental: not run on MediaTek hardware.
+    private static boolean decoderSupportsMediaTekRfiSwitch(String decoderName) {
+        List<String> params = getIntegerVendorParameters(decoderName);
+        if (params != null && VendorLowLatencyKeys.isMediaTekDetectOnly(params)) {
+            LimeLog.info(decoderName + " supports a MediaTek low latency option");
+            return true;
+        }
+        return false;
+    }
+
     private static boolean decoderSupportsMaxOperatingRate(String decoderName) {
         // Operate at maximum rate to lower latency as much as possible on
         // some Qualcomm platforms. We could also set KEY_PRIORITY to 0 (realtime)
@@ -545,9 +602,11 @@ public class MediaCodecHelper {
         // This is opt-in on any device, independent of decoder performance hints.
         boolean disableLowLatency = disableHevcLowLatency && "video/hevc".equals(videoFormat.getString(MediaFormat.KEY_MIME));
         boolean useVendorOptions = vendorLowLatency && !disableLowLatency;
-        if (lowLatency && !disableLowLatency && tryNumber < 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (lowLatency && !disableLowLatency && tryNumber < 1) {
             // Official Android 11+ low latency option (KEY_LOW_LATENCY). Many decoders honour it
             // without advertising FEATURE_LowLatency, and decoders that don't know it ignore it.
+            // Artemis (ClassicOldSong) sends it on every Android version, because some vendor
+            // builds read the "low-latency" key before Android 11; older frameworks ignore it.
             // Vendor keys stay on as well: on Snapdragon 8 Gen 2 and newer the standard flag alone
             // leaves the output fence in place, which costs several milliseconds per frame.
             videoFormat.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
@@ -578,7 +637,15 @@ public class MediaCodecHelper {
 
         // Without low-latency flags, fall back to an untuned format after the first rejected hint.
         if (performanceHints && tryNumber < (disableLowLatency ? 1 : 3)) {
-            if (MediaCodecHelper.decoderSupportsMaxOperatingRate(decoderInfo.getName())) {
+            // Experimental: Artemis asks Tegra decoders for the top operating rate, and the derflacco fork
+            // (moonlight-noir, GPL-3.0) MediaTek decoders too. They get the rate only, like Snapdragon:
+            // the real-time priority next to a rate the decoder cannot meet is the pair that crashes
+            // decoders after start(), outside the fallback ladder, so it is not sent to them (the fork
+            // does send it to MediaTek).
+            boolean rateOnly = useVendorOptions && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                    (isDecoderInList(tegraDecoderPrefixes, decoderInfo.getName()) ||
+                            isDecoderInList(mediaTekDecoderPrefixes, decoderInfo.getName()));
+            if (rateOnly || MediaCodecHelper.decoderSupportsMaxOperatingRate(decoderInfo.getName())) {
                 videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE);
                 setNewOption = true;
             }
@@ -594,6 +661,30 @@ public class MediaCodecHelper {
         //
         // MediaCodec vendor extension support was introduced in Android 8.0:
         // https://cs.android.com/android/_/android/platform/frameworks/av/+/01c10f8cdcd58d1e7025f426a72e6e75ba5d7fc2
+        // NVIDIA Tegra decoders take their keys by name whether or not they list them (Artemis does
+        // the same). They go first so the fallback tries drop them like every other vendor key.
+        // Experimental: we have no Shield to run the keys on.
+        if (useVendorOptions && tryNumber < 4 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                isDecoderInList(tegraDecoderPrefixes, decoderInfo.getName())) {
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.TEGRA.entrySet()) {
+                videoFormat.setInteger(key.getKey(), key.getValue());
+            }
+            setNewOption = true;
+        }
+
+        // MediaTek decoders take the whole preset by name (Artemis and the derflacco fork do the
+        // same), declared or not. The preset leaves after the second try, so the plain vendor
+        // switches below get a try of their own. Android 8 and newer, like Tegra: older builds
+        // (Fire OS 5 OMX.MTK on 5.1) have no vendor key support.
+        // Experimental: we have no MediaTek device to run the preset on.
+        if (useVendorOptions && tryNumber < 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                isDecoderInList(mediaTekDecoderPrefixes, decoderInfo.getName())) {
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.mediaTekKeys().entrySet()) {
+                videoFormat.setInteger(key.getKey(), key.getValue());
+            }
+            setNewOption = true;
+        }
+
         List<String> vendorParams = useVendorOptions ? getIntegerVendorParameters(decoderInfo.getName()) : null;
         if (vendorParams != null && !vendorParams.isEmpty() && tryNumber < 5) {
             // Android 12+: set exactly the low-latency keys this decoder declares. The full set goes
@@ -669,6 +760,20 @@ public class MediaCodecHelper {
             }
         }
 
+        // Snapdragon extras from the derflacco fork: frame drop on, and on the old OMX decoders a
+        // smaller output delay. The first tries only, so a decoder that rejects them falls back.
+        // The fork also sets picture-order to 0 after the keys above; on the Snapdragon 8 Gen 2
+        // (c2.qti.hevc.decoder.low_latency) that made the decoder produce no output at all
+        // (28 frames in, none out, DecoderHungException after 5 s), so it is not ported.
+        if (useVendorOptions && tryNumber < 3 && isDecoderInList(qualcommDecoderPrefixes, decoderInfo.getName())) {
+            videoFormat.setInteger("vendor.qti-ext-dec-frame-drop.enable", 1);
+            if (decoderInfo.getName().toLowerCase(Locale.ROOT).startsWith("omx.qcom")) {
+                videoFormat.setInteger("vendor.qti-ext-dec-dpb-output-delay.enable", 0);
+                videoFormat.setInteger("vendor.qti-ext-dec-picture-type.enable", 0);
+            }
+            setNewOption = true;
+        }
+
         return setNewOption;
     }
 
@@ -679,17 +784,7 @@ public class MediaCodecHelper {
      */
     static String[] getDecoderLowLatencyOptions(MediaFormat requested, MediaFormat accepted,
                                                 List<String> vendorParams, boolean featureLowLatency) {
-        List<String> keys = new ArrayList<>(VendorLowLatencyKeys.KNOWN.keySet());
-        keys.add(0, MediaFormat.KEY_LOW_LATENCY);
-        keys.add(1, "vdec-lowlatency");
-        keys.add("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-rdy");
-        if (vendorParams != null) {
-            for (String param : vendorParams) {
-                if (!keys.contains(param)) {
-                    keys.add(param);
-                }
-            }
-        }
+        List<String> keys = tuningKeyNames(vendorParams);
         List<String> confirmed = new ArrayList<>();
         List<String> unconfirmed = new ArrayList<>();
         boolean android = false, vendor = false;
@@ -713,6 +808,59 @@ public class MediaCodecHelper {
         String mode = android && vendor ? "android+vendor" : android ? "android" : vendor ? "vendor" : "off";
         return new String[] { confirmed.isEmpty() ? "none" : String.join(", ", confirmed),
                 unconfirmed.isEmpty() ? "none" : String.join(", ", unconfirmed), mode };
+    }
+
+    /** Every format key this class can set for decoder tuning, plus the decoder's own vendor parameters. */
+    private static List<String> tuningKeyNames(List<String> vendorParams) {
+        List<String> keys = new ArrayList<>(VendorLowLatencyKeys.KNOWN.keySet());
+        keys.add(0, MediaFormat.KEY_LOW_LATENCY);
+        keys.add(1, "vdec-lowlatency");
+        keys.add("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-rdy");
+        for (String key : VendorLowLatencyKeys.TEGRA.keySet()) {
+            if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        for (String key : VendorLowLatencyKeys.MEDIATEK.keySet()) {
+            if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        for (String key : new String[] {"vendor.qti-ext-dec-frame-drop.enable", "vendor.qti-ext-dec-dpb-output-delay.enable",
+                "vendor.qti-ext-dec-picture-type.enable"}) {
+            if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        if (vendorParams != null) {
+            for (String param : vendorParams) {
+                if (!keys.contains(param)) {
+                    keys.add(param);
+                }
+            }
+        }
+        return keys;
+    }
+
+    /** The tuning keys a format asks for, as "key=value" in a fixed order. */
+    static List<String> requestedTuningKeys(MediaFormat format, List<String> vendorParams) {
+        List<String> keys = tuningKeyNames(vendorParams);
+        keys.add(MediaFormat.KEY_OPERATING_RATE);
+        keys.add(MediaFormat.KEY_PRIORITY);
+        List<String> requested = new ArrayList<>();
+        for (String key : keys) {
+            if (format.containsKey(key)) {
+                requested.add(key + "=" + format.getInteger(key));
+            }
+        }
+        return requested;
+    }
+
+    /** Keys the first configure attempt asked for that the format finally configured no longer carries. */
+    static List<String> droppedTuningKeys(List<String> firstTry, List<String> configured) {
+        List<String> dropped = new ArrayList<>(firstTry);
+        dropped.removeAll(configured);
+        return dropped;
     }
 
     public static boolean decoderSupportsFusedIdrFrame(MediaCodecInfo decoderInfo, String mimeType) {
@@ -808,7 +956,8 @@ public class MediaCodecHelper {
         // we will use that as an indication that it can handle HEVC RFI without excessively
         // buffering frames.
         if ((lowLatency && decoderSupportsAndroidRLowLatency(decoderInfo, "video/hevc")) ||
-                (vendorLowLatency && decoderSupportsKnownVendorLowLatencyOption(decoderInfo.getName()))) {
+                (vendorLowLatency && (decoderSupportsKnownVendorLowLatencyOption(decoderInfo.getName()) ||
+                        decoderSupportsMediaTekRfiSwitch(decoderInfo.getName())))) {
             LimeLog.info("Enabling HEVC RFI based on low latency option support");
             return true;
         }

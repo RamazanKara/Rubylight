@@ -87,6 +87,34 @@ void rp_present_clock_free(RpPresentClock *clock);
 // Feeds a 0x5537 reply received at client_receive_us; returns its round trip or -1.
 int64_t rp_present_clock_sync(RpPresentClock *clock, const uint8_t *data, size_t length, uint64_t client_receive_us);
 RpPresentSchedule rp_present_clock_schedule(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us);
+
+// The same onto a display's vsync grid (fixed refresh rate): vsyncs are at anchor_us plus whole
+// multiples of interval_us; a frame is released lead_us before its vsync (at once when it is
+// ready later) and a vsync up to slack_us before the schedule's present time may be taken.
+typedef struct RpPresentGrid {
+    int64_t anchor_us;
+    int64_t interval_us;
+    int64_t lead_us;
+    int64_t slack_us;
+} RpPresentGrid;
+
+typedef struct RpPresentGridSchedule {
+    uint64_t release_us;  // release the frame at this time, never before it is ready
+    uint64_t vsync_us;    // the vsync it is meant for
+    int64_t vsync_index;  // vsync_us in intervals after the anchor
+    int64_t late_by_us;   // how far past its present time (host time plus delay) it was ready
+    int64_t hold_us;      // release_us minus the ready time
+    int64_t latency_us;   // host present to the vsync, -1 without clock sync
+    bool late;
+    bool shares_vsync;    // the same vsync as the frame before: content faster than the panel
+} RpPresentGridSchedule;
+
+RpPresentGridSchedule rp_present_clock_schedule_on_grid(RpPresentClock *clock, uint32_t rtp, uint64_t ready_us,
+                                                       const RpPresentGrid *grid);
+// Notes every frame's RTP timestamp, in order, for the content rate.
+void rp_present_clock_observe(RpPresentClock *clock, uint32_t rtp);
+// The rate the game presents at in millihertz once it held steady for two seconds, else 0.
+uint32_t rp_present_clock_content_rate(const RpPresentClock *clock);
 void rp_present_clock_reset(RpPresentClock *clock);
 void rp_present_clock_stats(const RpPresentClock *clock, uint64_t *frames, uint64_t *late, int64_t *rtt_us);
 // The offset (client = host + offset) at client time local_us and its exchange's round trip, in

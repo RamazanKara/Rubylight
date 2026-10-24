@@ -4,7 +4,7 @@ The desktop client: a Moonlight-protocol game-streaming client on the shared Rus
 (`nightjar-core`). Like the Android app it works with Sunshine, Apollo, Vibepollo, Rubylight
 and GeForce Experience; host-specific extras follow the host's capabilities.
 
-Status: first version (milestone 1). It pairs, lists and launches apps, and streams with
+Status: Experimental. It pairs, lists and launches apps, and streams with
 hardware decoding, VRR pacing, audio, keyboard, mouse and controllers. See
 [What works](#what-works) for the details and the gaps.
 
@@ -39,6 +39,13 @@ the import tables, system libraries left out) into `dist/`, so it runs on a PC w
 With `-FfmpegDir <prefix>` the exe is built against the decode-only FFmpeg that
 `ffmpeg-decode-only.sh <ffmpeg 8 source> <prefix>` builds in an MSYS2 UCRT64 shell (libavcodec
 and libavutil with the H.264, HEVC and AV1 decoders, their D3D11VA paths and dav1d).
+The script also checks that no import is left outside the zip or Windows itself (the Visual C++ runtime counts as
+missing), then starts the unpacked exe with only the Windows folders on `PATH`. `-Version` names the zip after a release
+version; the release workflow builds it that way (`nightjar-desktop-<version>-windows-x86_64.zip`), and
+`package-linux.sh -v` does the same for the Linux tar.gz.
+`nightjar --check-pyrowave <file>` (no window; the packaging scripts run it on the unpacked package) writes whether the SDK
+library beside the executable loads (`load:`) and whether a decoder builds on this PC's GPU (`probe:`) and exits 0, 2 (loaded,
+no usable GPU) or 1 (did not load).
 
 ### Linux
 
@@ -57,6 +64,16 @@ headers above decide which SDL backends are compiled in.
 The crate is a member of the `protocol/` workspace but not a default member, so
 `cargo test` there and `build-android.sh` stay the engine's; test it with
 `cargo test -p nightjar-desktop` and `cargo clippy -p nightjar-desktop --all-targets`.
+
+PyroWave GPU decoding (`pyrowave_decoder = Gpu`, [docs/pyrowave-decode.md](../../docs/pyrowave-decode.md))
+loads `libpyrowave-shared.so` from beside the executable and needs a Vulkan 1.3 device. Build the
+library with `scripts/build-pyrowave-sdk.sh` (git, cmake 3.27 or newer, ninja, a C++ compiler and `libvulkan-dev`;
+it needs the Rubylight host's checkout for its patches, see the script's header) and set `NIGHTJAR_PYROWAVE_SDK` to that folder
+to run from `cargo`, or use `package-linux.sh -s <folder>`, which checks the library against
+`pyrowave-sdk.pin` and packs a tar.gz with it, its `build-info.txt`, its licences and the list of
+system libraries the executable needs. `Gpu` is the default; without the library (a source build)
+PyroWave is not offered and the settings say why, until the decoder is switched to CPU. The client
+never switches to the CPU decoder by itself.
 
 ## Design
 
@@ -107,6 +124,14 @@ Why this combination:
 - Statistics: clock sync (0x5537) every 250 ms gives the host-to-client clock offset, so
   the overlay shows the PC-frame-to-display latency; host timing (0x5536) gives the host's
   present-to-send and encode times when the host offers them.
+  The overlay's Host processing is the video frame header's per-frame time averaged over the
+  frames received in the last two seconds, as Artemis and Moonlight show it; the host's
+  present-to-send is a separate Host to network line. The statistics CSV column `host_to_network_ms`
+  (named `host_ms` before) is that present-to-send, not host processing.
+
+  When the host announces link notices (0x5538) the client asks for them, and the overlay adds a
+  "Notice" line, "Host lowered the bitrate to X Mbps: network", while the host holds the
+  bitrate down for the network; it clears when the host is back at the requested rate.
 
 ### Files
 

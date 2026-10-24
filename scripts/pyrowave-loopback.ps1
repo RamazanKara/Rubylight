@@ -5,6 +5,14 @@
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <parent nightjar.exe> -ClientB <candidate nightjar.exe>
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe>            # baseline stage split only
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <a.exe> -ClientB <b.exe> -Codec Hevc -Bitrates 0
+#   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe> -ClientB <nightjar.exe> -DecoderA Cpu -DecoderB Gpu -Width 2560 -Height 1440
+#   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe> -DecoderA Gpu -ExtraA @{ beam_race = $true; window_mode = 'Borderless'; vrr = $false; vsync = $false } -PresentMon <PresentMon.exe>
+#
+# -PresentMon captures the client's presents with PresentMon 2.x (console build, needs this shell to be
+# elevated) into <leg>.presentmon.csv next to the leg's timing CSV; the summary counts its PresentMode
+# ("Hardware: Independent Flip" is a direct flip to the display, "Composed: Flip" went through the
+# desktop compositor). Without -CaptureVisible the client window is excluded from the host's capture
+# (WDA_EXCLUDEFROMCAPTURE), which may itself force composition: run once with -CaptureVisible to compare.
 #
 # Needs release builds (the MSYS2 UCRT64 runtime DLLs are put on PATH). Takes
 # C:\src\butterpollo-release\GPU-LOCK (waits while another agent holds it) and refuses to start
@@ -16,6 +24,12 @@ param(
     [int[]]$Bitrates = @(133000, 300000),   # 0 is the client's default for the resolution
     [ValidateSet('PyroWave', 'Hevc', 'H264', 'Av1')][string]$Codec = 'PyroWave',
     [int]$Seconds = 60,
+    [int]$Width = 1920,
+    [int]$Height = 1080,
+    [int]$Fps = 60,
+    [ValidateSet('Cpu', 'Gpu')][string]$DecoderA = 'Cpu',   # the pyrowave_decoder setting of the A and B legs
+    [ValidateSet('Cpu', 'Gpu')][string]$DecoderB = 'Cpu',
+    [int]$Port = 48123,
     [string]$Order,
     [string]$Out = ("C:\src\nj-pwd-out\" + (Get-Date -Format 'yyyyMMdd-HHmmss')),
     [string]$HostExe = 'C:\Program Files\Rubylight\butterpollo.exe',
@@ -23,8 +37,12 @@ param(
     [string]$ClientProfile = 'C:\tests\njdecode-client',
     [string]$Agent = 'nightjar-pyrowave-decode',
     [string]$Metric = 'decode_to_present_ms',
+    [hashtable]$ExtraA = @{},   # more settings.json keys for the A legs (for example @{ present_at_host_times = $false })
+    [hashtable]$ExtraB = @{},   # and for the B legs
     [switch]$EarlyDecode,
+    [switch]$KeepLock,   # the lock is already this agent's ("<Agent> ..."): use it and leave it for the next run
     [switch]$CaptureVisible,   # leave the client window in the host's capture (a feedback loop)
+    [string]$PresentMon = $env:NIGHTJAR_PRESENTMON,   # PresentMon 2.x console exe: capture the client's presents per leg
     [string]$DumpDir,
     [int]$ClientX = 3560,
     [int]$ClientY = 300
@@ -32,9 +50,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $Lock = 'C:\src\butterpollo-release\GPU-LOCK'
 $Pin = '1234'
-$Port = 48123
 if (-not $Order) { $Order = if ($ClientB) { 'ABBA' } else { 'A' } }
 if ($Order -match 'B' -and -not $ClientB) { throw 'Order names B but -ClientB is missing' }
+if ($PresentMon -and -not (Test-Path $PresentMon)) { throw "PresentMon not found at $PresentMon" }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
 # --- Idle check and GPU lock ----------------------------------------------------------------
@@ -56,6 +74,7 @@ try {
 # The lock is created, not checked then written, so two agents cannot both get it.
 $deadline = (Get-Date).AddMinutes(60)
 while ($true) {
+    if ($KeepLock -and (Test-Path $Lock) -and ((Get-Content $Lock -Raw) -like "$Agent *")) { break }
     try {
         $stream = [IO.File]::Open($Lock, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
         $writer = [IO.StreamWriter]::new($stream)
@@ -76,11 +95,15 @@ try {
     }
 } catch { }
 
-$hostProcess = $null; $anim = $null
+$hostProcess = $null; $anim = $null; $meter = $null
 try {
+    # A PresentMon session a killed run left behind keeps tracing; the lock is ours, so every nightjar-* session is stale.
+    if ($PresentMon) {
+        foreach ($stale in (logman query -ets 2>$null | ForEach-Object { if ($_ -match '^(nightjar-\S+)') { $Matches[1] } })) { logman stop $stale -ets *> $null }
+    }
     # --- Host profile, kept between runs so the pairing stays -------------------------------
     New-Item -ItemType Directory -Force "$HostProfile\record" | Out-Null
-    @('port = 48123', 'encoder = amf', 'capture = wgc',
+    @("port = $Port", 'encoder = amf', 'capture = wgc',
       'virtual_display_layout = extended', 'virtual_display_mode = disabled',
       'dd_configuration_option = disabled', 'dd_resolution_option = disabled',
       'dd_refresh_rate_option = disabled', 'dd_hdr_option = disabled', 'dd_always_restore_from_golden = false',
@@ -110,9 +133,11 @@ try {
     # --- Client side ------------------------------------------------------------------------
     New-Item -ItemType Directory -Force $ClientProfile | Out-Null
     $env:PATH = 'C:\msys64\ucrt64\bin;' + $env:PATH
-    function Set-ClientSettings([int]$Kbps) {
-        (@{ width = 1920; height = 1080; fps = 60; bitrate_kbps = $Kbps; adaptive_bitrate = $false; codec = $Codec;
-            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false } | ConvertTo-Json -Compress) |
+    function Set-ClientSettings([int]$Kbps, [string]$Decoder = 'Cpu', [hashtable]$Extra = @{}) {
+        $settings = @{ width = $Width; height = $Height; fps = $Fps; bitrate_kbps = $Kbps; pyrowave_decoder = $Decoder; adaptive_bitrate = $false; codec = $Codec;
+            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false }
+        foreach ($key in $Extra.Keys) { $settings[$key] = $Extra[$key] }
+        ($settings | ConvertTo-Json -Compress) |
             Set-Content "$ClientProfile\settings.json"
     }
     function Start-Client([string]$Exe, [string]$Name, [int]$StreamSeconds, [bool]$Early) {
@@ -130,6 +155,13 @@ try {
         $started = Start-Process $Exe -PassThru -RedirectStandardError "$Out\$Name.log" -RedirectStandardOutput "$Out\$Name.stdout.log"
         $null = $started.Handle  # without a cached handle ExitCode reads empty after the exit
         $started
+    }
+    # PresentMon follows the client process by exe name and ends with it; the timer is a backstop.
+    function Start-PresentMon([string]$Exe, [string]$Name, [int]$StreamSeconds) {
+        $session = "nightjar-$Name"
+        Start-Process $PresentMon -PassThru -WindowStyle Hidden -RedirectStandardOutput "$Out\$Name.presentmon.stdout.log" -RedirectStandardError "$Out\$Name.presentmon.stderr.log" -ArgumentList `
+            '--process_name', (Split-Path $Exe -Leaf), '--output_file', "`"$Out\$Name.presentmon.csv`"", '--no_console_stats', '--session_name', $session,
+            '--stop_existing_session', '--terminate_on_proc_exit', '--timed', ($StreamSeconds + 60), '--terminate_after_timed'
     }
     function Move-ClientWindow($Process) {
         Add-Type -Namespace Win -Name Native -ErrorAction SilentlyContinue -MemberDefinition '[DllImport("user32.dll")] public static extern bool MoveWindow(System.IntPtr h, int x, int y, int w, int hh, bool r);'
@@ -179,19 +211,25 @@ try {
         $n++; $variant = [string]$leg[0]; $kbps = [int]$leg[1]; $group = if ($kbps -eq 0) { 'default' } else { [string][math]::Round($kbps / 1000) }
         $name = '{0:00}-{1}-{2}' -f $n, $variant, $group
         $exe = if ($variant -eq 'B') { $ClientB } else { $ClientA }
-        Set-ClientSettings $kbps
+        Set-ClientSettings $kbps $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }) $(if ($variant -eq 'B') { $ExtraB } else { $ExtraA })
         $hostLines = (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
-        Write-Host "leg $name ($Seconds s at $kbps kbps)"
+        Write-Host "leg $name ($Seconds s at $kbps kbps, ${Width}x${Height}@$Fps, decoder $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }))"
         $p = Start-Client $exe $name $Seconds $EarlyDecode.IsPresent
-        Move-ClientWindow $p
+        $extra = if ($variant -eq 'B') { $ExtraB } else { $ExtraA }
+        # A fullscreen leg stays where it is; only a window is put at the corner of the second display.
+        if (-not $extra.ContainsKey('window_mode') -or $extra['window_mode'] -eq 'Windowed') { Move-ClientWindow $p }
+        $meter = if ($PresentMon) { Start-PresentMon $exe $name $Seconds }
         $ended = $p.WaitForExit(($Seconds + 120) * 1000)
         if (-not $ended) { $p.Kill() }
+        if ($meter -and -not $meter.WaitForExit(20000)) { Stop-Process -Id $meter.Id -Force; Write-Host "leg ${name}: PresentMon did not end by itself" }
         # A hang is looked for first: a leg that stalls or fails because the encoder hung is exit 3, not 2.
         $hostText = (Get-Content $hostLog -ErrorAction SilentlyContinue | Select-Object -Skip $hostLines) -join "`n"
         if ($hostText -match '(?i)gpu hang|encoder hang|device removed') {
             Write-Host "leg ${name}: AMD encoder hang suspected, stopping (exit 3). Do not retry; see $hostLog"; exit 3
         }
         if (-not $ended) { Write-Host "leg $name did not end"; exit 2 }
+        # After the hang check: a hung leg has no presents to capture, and that is exit 3, not 2.
+        if ($meter -and -not (Test-Path "$Out\$name.presentmon.csv")) { Write-Host "leg ${name}: PresentMon wrote no CSV; see $Out\$name.presentmon.stderr.log"; exit 2 }
         $sent = [regex]::Matches($hostText, 'sent_mbps=([0-9.]+)') | ForEach-Object { [double]$_.Groups[1].Value } | Sort-Object
         $sentMedian = if ($sent.Count) { $sent[[int][math]::Floor(($sent.Count - 1) / 2)] } else { [double]::NaN }
         "$name host sent_mbps median $([math]::Round($sentMedian, 1)) over $($sent.Count) timing lines" | Tee-Object -FilePath "$Out\sent_mbps.txt" -Append | Write-Host
@@ -206,7 +244,8 @@ try {
     Get-Content "$Out\summary.txt"
     Write-Host "results in $Out"
 } finally {
+    if ($meter -and -not $meter.HasExited) { Stop-Process -Id $meter.Id -Force }
     if ($anim -and -not $anim.HasExited) { Stop-Process -Id $anim.Id -Force }
     if ($hostProcess -and -not $hostProcess.HasExited) { Stop-Process -Id $hostProcess.Id -Force }
-    if ((Test-Path $Lock) -and ((Get-Content $Lock -Raw) -like "$Agent *")) { Remove-Item $Lock -Force }
+    if (-not $KeepLock -and (Test-Path $Lock) -and ((Get-Content $Lock -Raw) -like "$Agent *")) { Remove-Item $Lock -Force }
 }

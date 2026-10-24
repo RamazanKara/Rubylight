@@ -7,8 +7,10 @@ import android.widget.Toast;
 import com.limelight.computers.HostNotices;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -23,6 +25,7 @@ public final class StreamMessages {
 
     private final Context context;
     private final Set<String> notes = new LinkedHashSet<>();
+    private final Map<String, String> statuses = new LinkedHashMap<>();
     private Toast current;
     private CharSequence currentText;
     private long visibleUntil;
@@ -64,8 +67,20 @@ public final class StreamMessages {
         if (text != null && text.length() != 0) notes.add(text.toString());
     }
 
+    /**
+     * A fact for the overlay's status line that can stop being true, such as a screen that did not
+     * follow the frame rate vote. One line per key; null or empty text removes it. Returns whether
+     * the line changed.
+     */
+    public boolean status(String key, CharSequence text) {
+        if (text == null || text.length() == 0) return statuses.remove(key) != null;
+        return !text.toString().equals(statuses.put(key, text.toString()));
+    }
+
     public List<String> notes() {
-        return new ArrayList<>(notes);
+        List<String> all = new ArrayList<>(notes);
+        all.addAll(statuses.values());
+        return all;
     }
 
     public boolean showing() {

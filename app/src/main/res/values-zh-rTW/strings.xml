@@ -262,7 +262,7 @@
     <string name="latency_output_render">顯示等待</string>
     <string name="latency_receive_render">用戶端延遲</string>
     <string name="latency_host_processing">主機處理</string>
-    <string name="latency_host_processing_send">主機處理 + 傳送</string>
+    <string name="latency_host_processing_send">主機到網路</string>
     <string name="latency_host_split">主機排隊 / 編碼 / 傳送（平均）: %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">優先使用 YUV 4:4:4</string>
     <string name="summary_yuv444">在電腦和這部裝置都支援時，彩色文字會更清晰。HDR 優先。</string>
@@ -273,6 +273,8 @@
     <string name="summary_vrr">在支援自動調整更新率的 Android 16 螢幕上，Android 會讓更新率配合串流；其他螢幕則以最高更新率執行。支援 VRR 的主機也會依其設定被要求使用 VRR。開啟此功能時，影格調步和較低更新率將不會套用。</string>
     <string name="title_host_frame_times">依電腦的影格時間顯示畫面</string>
     <string name="summary_host_frame_times">將每個影格保留幾毫秒，讓它在遊戲繪製的時刻顯示，而不是在網路送達時顯示。可平滑抖動，在自適應更新率下效果更好。會取代影格節奏設定。PyroWave 不使用此功能。</string>
+    <string name="title_content_rate_frame_rate">讓螢幕符合遊戲影格率</string>
+    <string name="summary_content_rate_frame_rate">將遊戲實際執行的影格率告知 Android，讓具有相符更新模式的螢幕可切換到該模式而不會黑屏。需要會傳送影格時間的電腦，並須開啟「允許較低的更新率」；最多每 2 秒變更一次。不適用於 PyroWave 與自動調整更新率。</string>
     <string name="title_virtual_display_scale">主機轉譯比例</string>
     <string name="summary_virtual_display_scale">變更電腦的轉譯解析度，而非傳輸的視訊大小。如要傳送較少像素並在這部裝置上升頻，請降低串流解析度。</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

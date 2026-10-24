@@ -35,7 +35,7 @@ public class PerformanceOverlayTest {
                 "Displayed: 59.9 FPS · Received: 60.0 FPS\n" +
                 "Video payload: 20.4 Mbps · Loss: 0.14%\n" +
                 "Network RTT: 8 ms (±1 ms)\n" +
-                "Host processing: 2.10 ms\n" +
+                "Host processing: 2.1 ms\n" +
                 "Decode: 4.60 ms · Display wait: 1.20 ms", text);
         assertFalse(text.contains("13 ms"));
     }
@@ -84,7 +84,7 @@ public class PerformanceOverlayTest {
                 59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
         assertTrue(text.contains("Angezeigt: 59,9 FPS"));
         assertTrue(text.contains("Videodaten: 20,4 Mbit/s · Verlust: 0,14%"));
-        assertTrue(text.contains("Host-Verarbeitung: 2,10 ms"));
+        assertTrue(text.contains("Host-Verarbeitung: 2,1 ms"));
     }
 
     @Test
@@ -107,7 +107,7 @@ public class PerformanceOverlayTest {
                 PerformanceOverlay.average(summary, 7), stats.takeDecodeTimeMs(),
                 PerformanceOverlay.average(summary, 2), false).toString();
         assertTrue(text.contains("Displayed: 30.0 FPS"));
-        assertTrue(text.contains("Host processing: 2.10 ms"));
+        assertTrue(text.contains("Host processing: 2.1 ms"));
         assertTrue(text.contains("Decode: 4.00 ms · Display wait: 4.00 ms"));
     }
 
@@ -128,7 +128,7 @@ public class PerformanceOverlayTest {
         }
     }
 
-    private static HostTimingReport hostReport(long hostUs, long queueUs, long encodeUs, long sendUs) {
+    static HostTimingReport hostReport(long hostUs, long queueUs, long encodeUs, long sendUs) {
         long[] fields = {1, hostUs, queueUs, encodeUs, sendUs};
         byte[] data = new byte[4 + 20];
         data[0] = 1;
@@ -139,41 +139,60 @@ public class PerformanceOverlayTest {
         return HostTimingReport.parse(data);
     }
 
+    // Regression: the overlay's "Host processing" once showed the host timing reports' present to
+    // last packet sent (4.92 ms on a REDMAGIC tablet) where Artemis showed the header's 0.5 ms.
     @Test
-    public void hostTimingReportsShowHostWorkAndSendApart() {
+    public void aHostTimingReportNeverChangesTheHostProcessingLine() {
         FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 1000000000L, 1000000000L, 1000000000L, (char) 5);
         stats.onHostTiming(hostReport(4900, 100, 600, 4200), 1000000000L);
         double[][] summary = stats.summarize();
-        String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
-                120, 120, 450, 0, 8, 1, PerformanceOverlay.average(summary, 4), PerformanceOverlay.average(summary, 7),
+        float header = PerformanceOverlay.average(summary, 4);
+        String without = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
+                120, 120, 450, 0, 8, 1, header, -1, 1, 1, false).toString();
+        String with = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
+                120, 120, 450, 0, 8, 1, header, PerformanceOverlay.average(summary, FrameLatencyStats.HOST_SENT_STAGE),
                 1, 1, false).toString();
-        assertTrue(text, text.contains("Host processing: 0.70 ms + send 4.20 ms"));
+        assertTrue(with, with.contains("Host processing: 0.5 ms\n"));
+        assertTrue(with, with.contains("Host to network: 4.9 ms\n"));
+        assertFalse(with, with.contains("send"));
+        // Same Host processing line with and without a report; only the extra line differs.
+        assertTrue(without, without.contains("Host processing: 0.5 ms\n"));
+        assertFalse(without, without.contains("Host to network"));
+        assertEquals(without.replace("Host processing: 0.5 ms\n", "Host processing: 0.5 ms\nHost to network: 4.9 ms\n"), with);
         String german = PerformanceOverlay.statisticsText(context(Locale.GERMANY), "1280×720 · PyroWave · SDR",
-                120, 120, 450, 0, 8, 1, 4.9f, 4.2f, 1, 1, false).toString();
-        assertTrue(german, german.contains("Host-Verarbeitung: 0,70 ms + Senden 4,20 ms"));
+                120, 120, 450, 0, 8, 1, 0.5f, 4.9f, 1, 1, false).toString();
+        assertTrue(german, german.contains("Host-Verarbeitung: 0,5 ms\nHost bis Netzwerk: 4,9 ms"));
     }
 
     @Test
-    public void hostWorkNeverGoesNegativeWhenSendRoundsAboveTheTotal() {
-        String text = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
-                4.2f, 4.2000005f, 1, 1, false).toString();
-        assertTrue(text, text.contains("Host processing: 0.00 ms + send 4.20 ms"));
+    public void hostProcessingIsTheHeaderAverageLikeArtemisComputesIt() {
+        // Artemis: total of the frames' 100 us values over the frames that carried one, divided by 10.
+        VideoStats window = new VideoStats();
+        window.totalHostProcessingLatency = 5 + 6 + 4;
+        window.framesWithHostProcessingLatency = 3;
+        assertEquals(0.5f, window.getHostProcessingMs(), 0.00001f);
+        VideoStats lastTwo = new VideoStats();
+        lastTwo.add(window);
+        VideoStats next = new VideoStats();
+        next.totalHostProcessingLatency = 30;
+        next.framesWithHostProcessingLatency = 3;
+        lastTwo.add(next);
+        assertEquals(0.75f, lastTwo.getHostProcessingMs(), 0.00001f);
+        assertEquals(-1, new VideoStats().getHostProcessingMs(), 0);
     }
 
     @Test
-    public void withoutTheSendStageTheHostLineStaysASingleValue() {
-        // The frame header's host latency has no send stage; so does a report-free summary.
-        FrameLatencyStats stats = new FrameLatencyStats();
-        stats.onDecoderInput(1, 1, 1000000000L, 1000000000L, 1000000000L, (char) 21);
-        double[][] summary = stats.summarize();
-        assertEquals(-1, PerformanceOverlay.average(summary, 7), 0);
-        String text = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
-                PerformanceOverlay.average(summary, 4), PerformanceOverlay.average(summary, 7), 1, 1, false).toString();
-        assertTrue(text, text.contains("Host processing: 2.10 ms\n"));
-        assertFalse(text.contains("send"));
-        String noHost = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1,
-                -1, 4.2f, 1, 1, false).toString();
-        assertTrue(noHost, noHost.contains("Host processing: — ms\n"));
+    public void theDebugRowsKeepHostProcessingAndPutThePresentToSentUnderItsOwnLabel() {
+        double[][] summary = new double[9][4];
+        summary[4] = new double[] {600, 0.5, 1, 1.5};
+        String header = MediaCodecDecoderRenderer.formatLatencyOverlay(context(Locale.US), summary, -1);
+        assertTrue(header, header.contains("Host processing: 0.50 / 1.00 / 1.50 (n=600)"));
+        assertFalse(header, header.contains("+ send"));
+        summary[FrameLatencyStats.HOST_SENT_STAGE] = new double[] {600, 5, 6, 7};
+        String reports = MediaCodecDecoderRenderer.formatLatencyOverlay(context(Locale.US), summary, -1);
+        assertTrue(reports, reports.contains("Host processing: 0.50 / 1.00 / 1.50 (n=600)"));
+        assertTrue(reports, reports.contains("Host to network: 5.00 / 6.00 / 7.00 (n=600)"));
     }
 
     @Test
@@ -206,6 +225,41 @@ public class PerformanceOverlayTest {
         assertEquals(0xff69db7c, dotColor(text));
         assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss",
                 PerformanceOverlay.describeCompact(context(Locale.US), text));
+    }
+
+    @Test
+    public void aLoweredBitrateIsAmberLastLineInEveryModeAndNothingWithoutANotice() {
+        Context context = context(Locale.US);
+        LinkNoticeStatus status = LinkNoticeStatus.parse(LinkNoticeStatus.STATE_LIMITED, 150_000, 37_500);
+        CharSequence compact = PerformanceOverlay.compactText(context, 119.94f, 120, 8, 0.14f, 4.6f);
+        CharSequence with = PerformanceOverlay.withLinkNotice(context, compact, status);
+        assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss\nHost lowered the bitrate to 38 Mbps: network", with.toString());
+        assertEquals(0xff69db7c, dotColor(with));
+        android.text.Spanned spanned = (android.text.Spanned) with;
+        android.text.style.ForegroundColorSpan[] amber = spanned.getSpans(compact.length(), with.length(),
+                android.text.style.ForegroundColorSpan.class);
+        assertEquals(1, amber.length);
+        assertEquals(0xffffc857, amber[0].getForegroundColor());
+        assertEquals(compact.length(), spanned.getSpanStart(amber[0]));
+        assertSame(compact, PerformanceOverlay.withLinkNotice(context, compact, null));
+        String statistics = PerformanceOverlay.statisticsText(context, "AV1", 60, 60, 20, 0, 8, 1, 2, -1, 4, 1, false).toString();
+        assertTrue(PerformanceOverlay.withLinkNotice(context, statistics, status).toString()
+                .endsWith("Decode: 4.00 ms · Display wait: 1.00 ms\nHost lowered the bitrate to 38 Mbps: network"));
+    }
+
+    @Test
+    public void theNoticeSaysMbpsInTheUsersLocaleAndTheCompactDescriptionCarriesIt() {
+        LinkNoticeStatus floor = LinkNoticeStatus.parse(LinkNoticeStatus.STATE_FLOOR, 150_000, 4_500);
+        assertEquals("Host lowered the bitrate to 4.5 Mbps: network",
+                PerformanceOverlay.linkNoticeText(context(Locale.US), floor));
+        assertEquals("Host hat die Bitrate auf 4,5 Mbit/s gesenkt: Netzwerk",
+                PerformanceOverlay.linkNoticeText(context(Locale.GERMANY), floor));
+        CharSequence compact = PerformanceOverlay.compactText(context(Locale.US), 119.94f, 120, 8, 0.14f, 4.6f);
+        assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss. Host lowered the bitrate to 4.5 Mbps: network",
+                PerformanceOverlay.describeCompact(context(Locale.US), compact, floor));
+        assertEquals(PerformanceOverlay.describeCompact(context(Locale.US), compact),
+                PerformanceOverlay.describeCompact(context(Locale.US), compact, null));
+        assertNull(PerformanceOverlay.describeCompact(context(Locale.US), "", floor));
     }
 
     @Test

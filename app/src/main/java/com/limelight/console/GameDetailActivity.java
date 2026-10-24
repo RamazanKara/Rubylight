@@ -18,6 +18,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.ui.NightjarActivity;
+import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
@@ -111,6 +112,10 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
         TopAppBar.setUpNavigation(TopAppBar.configure(this, R.id.detail_toolbar, titleExtra == null ? "" : titleExtra, 0),
                 View.NO_ID, v -> getOnBackPressedDispatcher().onBackPressed());
+        // A game's page belongs to Home: Home in the bar is the page it came from, so it closes this one. The
+        // other two replace Home's stack the way they do from Home itself.
+        ShellBar.install(this, ShellBar.Destination.HOME);
+        findViewById(R.id.shell_home).setOnClickListener(v -> finish());
         loading = findViewById(R.id.detail_loading);
         cover = findViewById(R.id.detail_cover);
         coverText = findViewById(R.id.detail_cover_text);

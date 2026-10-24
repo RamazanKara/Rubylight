@@ -289,7 +289,7 @@ mod tests {
                 }
                 assert_eq!(
                     packed[layout.layered_sample(1, u32::from(base) * 2 + 1, 0)],
-                    (maximum + 1) / 2
+                    maximum.div_ceil(2)
                 );
             }
         }

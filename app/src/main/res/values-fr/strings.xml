@@ -262,7 +262,7 @@
     <string name="latency_output_render">Attente d’affichage</string>
     <string name="latency_receive_render">Latence client</string>
     <string name="latency_host_processing">Traitement de l’hôte</string>
-    <string name="latency_host_processing_send">Traitement de l’hôte + envoi</string>
+    <string name="latency_host_processing_send">Hôte vers le réseau</string>
     <string name="latency_host_split">File d\'attente / encodage / envoi hôte (moy.): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Privilégier YUV 4:4:4</string>
     <string name="summary_yuv444">Texte en couleur plus net si le PC et cet appareil le prennent en charge. Le HDR est prioritaire.</string>
@@ -273,6 +273,8 @@
     <string name="summary_vrr">Sur les écrans Android 16 à rafraîchissement adaptatif, Android adapte la fréquence de rafraîchissement au stream ; les autres écrans tournent à leur fréquence maximale. Les hôtes compatibles VRR sont aussi invités à l’utiliser, selon leurs paramètres. Tant que cette option est activée, le frame pacing et la réduction de la fréquence de rafraîchissement ne s’appliquent pas.</string>
     <string name="title_host_frame_times">Afficher les images au rythme du PC</string>
     <string name="summary_host_frame_times">Retient chaque image quelques millisecondes pour qu’elle apparaisse quand le jeu l’a dessinée, et non quand le réseau l’a livrée. Lisse les variations, surtout avec le rafraîchissement adaptatif. Remplace le rythme d’images. Non utilisé avec PyroWave.</string>
+    <string name="title_content_rate_frame_rate">Adapter l’écran à la cadence du jeu</string>
+    <string name="summary_content_rate_frame_rate">Indique à Android la cadence réelle du jeu, pour qu’un écran doté d’un mode correspondant puisse y passer sans écran noir. Nécessite un PC qui envoie les temps d’image et « Autoriser un rafraîchissement réduit » ; change au plus une fois toutes les 2 secondes. Non utilisé avec PyroWave ni avec le rafraîchissement adaptatif.</string>
     <string name="title_virtual_display_scale">Échelle de rendu de l’hôte</string>
     <string name="summary_virtual_display_scale">Modifie la résolution de rendu du PC, pas la taille de la vidéo transmise. Pour envoyer moins de pixels et mettre à l’échelle sur cet appareil, baissez la résolution du stream.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

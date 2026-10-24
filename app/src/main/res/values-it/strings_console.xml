@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">Home</string>
-    <string name="console_menu_hosts">Host</string>
     <string name="console_section_favourites">Preferiti</string>
     <string name="console_section_continue">Continua a giocare</string>
     <string name="console_section_library">Libreria</string>
-    <string name="console_section_hosts">Host</string>
+    <string name="console_section_hosts">PC</string>
     <string name="console_favourite_add">Aggiungi ai preferiti</string>
     <string name="console_favourite_remove">Rimuovi dai preferiti</string>
     <string name="console_favourite_description">Preferito</string>
@@ -17,9 +16,9 @@
     <string name="console_host_saved_games">Offline. Giochi salvati: %1$d</string>
     <string name="console_host_offline">Offline</string>
     <string name="console_host_no_library">Giochi non ancora caricati</string>
-    <string name="console_empty_title">Ancora nessun host</string>
+    <string name="console_empty_title">Ancora nessun PC</string>
     <string name="console_empty_body">Associa Nightjar a un PC per vedere qui i suoi giochi.</string>
-    <string name="console_empty_open_hosts">Apri gli host</string>
+    <string name="console_empty_open_hosts">Apri i PC</string>
     <string name="console_detail_host">Host</string>
     <string name="console_detail_profile">Impostazioni dello stream</string>
     <string name="console_detail_status_running">In esecuzione su %1$s</string>

@@ -1,0 +1,16 @@
+<resources>
+    <string name="refresh_diag_no_mode">La transmisión quiere %1$s Hz, pero esta pantalla solo ofrece %2$s Hz y funciona a %3$s Hz.</string>
+    <string name="refresh_diag_not_seamless">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el cambio dejaría la imagen en negro un instante (modos: %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">La pantalla se mantiene en %2$s Hz en lugar de los %1$s Hz solicitados: el cambio dejaría la imagen en negro un instante y Android solo lo hace si se permite «Ajustar la frecuencia de fotogramas del contenido» en los ajustes de pantalla (modos: %3$s Hz).</string>
+    <string name="refresh_diag_user_limit">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el ajuste de frecuencia de actualización de Android permite hasta %3$s Hz.</string>
+    <string name="refresh_diag_battery_saver">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el ahorro de batería la limita.</string>
+    <string name="refresh_diag_thermal">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el dispositivo está caliente y la limita a 60 Hz.</string>
+    <string name="refresh_diag_unexplained">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos. Android no da ningún motivo (modos: %3$s Hz).</string>
+    <string name="stream_vrr_old_android">La frecuencia variable necesita Android 16, así que la pantalla funciona a su frecuencia máxima.</string>
+    <string name="stream_vrr_no_arr">Esta pantalla no tiene frecuencia de actualización adaptable, así que funciona a su frecuencia máxima.</string>
+    <string name="stream_hdr_mode_unsupported">Este modo de pantalla no puede mostrar HDR, así que la transmisión es en SDR.</string>
+    <string name="stream_hdr_not_negotiated">Se pidió HDR, pero el PC no envió vídeo HDR, así que la transmisión es en SDR.</string>
+    <string name="stream_hdr_host_sdr">Se pidió HDR, pero el PC indica SDR. Activa HDR en Windows para la pantalla transmitida.</string>
+    <string name="stream_hdr_no_metadata">HDR está activo, pero el PC no envió datos de masterización, así que el brillo puede verse mal.</string>
+    <string name="stream_hdr_output_not_pq">HDR está activo, pero el decodificador de este dispositivo indica una salida sin HDR, así que los colores pueden verse apagados.</string>
+</resources>

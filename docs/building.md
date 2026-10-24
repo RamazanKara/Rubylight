@@ -125,7 +125,33 @@ Or use the artifact helper, which runs release lint and both flavors' unit tests
 
 The Linux helper is `bash scripts/build-release.sh`. Both helpers lint and build the universal non-root APK, legacy root APK, and non-root bundle with all four default ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`), then print SHA-256 hashes and byte sizes for all three artifacts. They stop on validation/build failure and do not publish. Single-ABI builds are for explicit device testing, not the default downloadable release. Preserve `app/build/outputs/mapping/nonRootRelease/mapping.txt` and native debug symbols for the matching release.
 
-Releases are built and published from a local machine with `gh release create` using the retained release key. Test prereleases carry a debug-signed arm64 APK, `nightjar-arm64-debug.apk`, with the separate debug package ID and are never marked Latest.
+Releases are built and signed by [`release.yml`](../.github/workflows/release.yml) when a `v*` tag is pushed (see below); a local `gh release create` with the retained release key still works. Test prereleases carry a debug-signed arm64 APK, `nightjar-arm64-debug.apk`, with the separate debug package ID and are never marked Latest.
+
+### Releasing from CI
+
+Pushing a tag such as `v0.8.1` builds the non-root APK, the root APK and the non-root bundle with the release key, checks that all three are signed by the Nightjar certificate (SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`) and that the app IDs are `com.butterpollo.client` and `com.butterpollo.client.root` (the bundle's ID is not checked), and uploads `nightjar-<version>.apk`, `-root.apk`, `.aab`, `-mapping.txt`, `-native-debug-symbols.zip` (both of the non-root build, for reading crash traces), the desktop client as `nightjar-desktop-<version>-windows-x86_64.zip` and `nightjar-desktop-<version>-linux-x86_64.tar.gz` (built by the `desktop-windows` and `desktop-linux` jobs with `protocol/desktop/package-windows.ps1` and `package-linux.sh`; the release job waits for both, so a failed desktop build publishes nothing; both build the PyroWave SDK (`scripts/build-pyrowave-sdk.*`, pinned by `protocol/desktop/pyrowave-sdk.pin`; patch 0002 and the Windows build script come from the public Rubylight repo at the `RUBYLIGHT_SHA` in `release.yml`) and bundle it, and check that the unpacked package loads it) and `SHA256SUMS-<version>.txt` (it covers every file) to the release for the tag. CI replaces assets only on a draft release; on a published release it refuses to overwrite an asset that is already there and fails. The tag must equal `v` plus `versionName` in `app/build.gradle`. A tag with a `-` suffix publishes a prerelease that is not marked Latest. If the release does not exist yet, the workflow creates it with a short placeholder text; replace it with `gh release edit <tag> --notes-file <file>`. The job does not run tests, so tag a commit whose `android.yml` run on main is green.
+
+It needs four repository secrets (Settings, Secrets and variables, Actions) and fails with a message naming any that is missing:
+
+| Secret | Value |
+| --- | --- |
+| `NIGHTJAR_KEYSTORE_B64` | the release keystore file, base64-encoded |
+| `NIGHTJAR_KEYSTORE_PASSWORD` | `storePassword` from `keystore.properties` |
+| `NIGHTJAR_KEY_ALIAS` | `keyAlias` from `keystore.properties` |
+| `NIGHTJAR_KEY_PASSWORD` | `keyPassword` from `keystore.properties` |
+
+Set them with the GitHub CLI so no value lands in the shell history: pipe the keystore in from a file, and let `gh secret set` prompt for the rest.
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\release-keystore")) | gh secret set NIGHTJAR_KEYSTORE_B64 -R RamazanKara/nightjar
+gh secret set NIGHTJAR_KEYSTORE_PASSWORD -R RamazanKara/nightjar   # prompts
+gh secret set NIGHTJAR_KEY_ALIAS -R RamazanKara/nightjar           # prompts
+gh secret set NIGHTJAR_KEY_PASSWORD -R RamazanKara/nightjar        # prompts
+```
+
+The workflow passes them to Gradle as the `BP_*` variables above, so local builds and `keystore.properties` are unchanged, and it deletes the decoded keystore as soon as the build is verified.
+
+**Dry run first.** Before the first real tag (and after changing the secrets or the workflow), start the workflow by hand from main: `gh workflow run release.yml -R RamazanKara/nightjar -f dry_run=true`, or Actions, Release, Run workflow. It checks the secrets, decodes the keystore, builds, verifies the signatures and app IDs and deletes the keystore, but publishes nothing. Only a tag push (or a manual run on a tag with `dry_run` off) publishes.
 
 ## Documentation checks
 

@@ -474,6 +474,7 @@ impl ControlSession {
             ptype::CONTROLLER_AUDIO_CONTROL if extensions => events::controller_audio_control(p),
             ptype::HOST_TIMING if extensions => events::host_timing(p),
             ptype::CLOCK_SYNC if extensions => events::clock_sync(p, now),
+            ptype::LINK_NOTICE if extensions => events::link_notice(p),
             ptype::CURSOR_SHAPE if extensions && self.cursor_shapes => {
                 Some(events::cursor_shape(p))
             }
@@ -491,7 +492,8 @@ mod tests {
     use crate::control::negotiation::encryption;
     use butterpollo_core::packet;
     use rubylight_protocol::control::{
-        ClockSyncReply, DisplayCaps, HostTiming, HostTimingExtra, HOST_TIMING_EXTENDED_MAX_RECORDS,
+        ClockSyncReply, DisplayCaps, HostTiming, HostTimingExtra, LinkNotice, LinkNoticeRequest,
+        LinkReason, LinkState, HOST_TIMING_EXTENDED_MAX_RECORDS,
     };
 
     const KEY: Key = *b"0011223344556677";
@@ -502,7 +504,7 @@ mod tests {
             feature_flags: 3,
             encryption_enabled: encryption::CONTROL_V2,
             control_messages: vec![
-                0x5530, 0x5531, 0x5532, 0x5534, 0x5535, 0x5536, 0x5537, 0x5540,
+                0x5530, 0x5531, 0x5532, 0x5534, 0x5535, 0x5536, 0x5537, 0x5538, 0x5540,
             ],
         }
     }
@@ -625,6 +627,81 @@ mod tests {
         assert_eq!(fec.len(), FEC_STATUS_QUEUE_BOUND);
         assert!(fec.iter().all(|m| m.1 == Delivery::Unsequenced));
         assert_eq!(sent.last().unwrap().2, 0x0200);
+    }
+
+    #[test]
+    fn link_notices_are_requested_and_heard() {
+        let mut s = session(SessionOptions::default());
+        let t0 = Instant::now();
+        s.start(t0);
+        host_reads(&mut s);
+        let limited = LinkNotice {
+            state: LinkState::Limited,
+            reason: LinkReason::Network,
+            ceiling_kbps: 150_000,
+            current_kbps: 75_000,
+        };
+        s.send(ClientMessage::LinkNoticeRequest(LinkNoticeRequest {
+            enabled: true,
+        }))
+        .unwrap();
+        let sent = host_reads(&mut s);
+        assert_eq!(sent.len(), 1);
+        assert_eq!((sent[0].0, sent[0].1, sent[0].2), (0, Delivery::Reliable, 0x5538));
+        assert_eq!(
+            LinkNoticeRequest::decode(&sent[0].3),
+            Some(LinkNoticeRequest { enabled: true })
+        );
+
+        let mut seq = 0;
+        let mut feed = |s: &mut ControlSession, payload: &[u8]| {
+            seq += 1;
+            s.handle_datagram(t0, &from_host(seq, 0x5538, payload))
+                .unwrap();
+        };
+        feed(&mut s, &limited.encode());
+        // Fields a newer host appends are skipped; nonsense, runts and giants are dropped.
+        let mut longer = limited.encode().to_vec();
+        longer.extend_from_slice(&[9; 8]);
+        feed(&mut s, &longer);
+        let mut full = limited.encode();
+        full[1] = 0;
+        feed(&mut s, &full);
+        feed(&mut s, &limited.encode()[..11]);
+        feed(&mut s, &[0; 300]);
+        let mut zero = limited.encode();
+        zero[8..12].fill(0);
+        feed(&mut s, &zero);
+        let cleared = LinkNotice {
+            state: LinkState::Full,
+            reason: LinkReason::None,
+            ..limited
+        };
+        feed(&mut s, &cleared.encode());
+        assert_eq!(
+            s.take_events(),
+            [
+                ControlEvent::LinkNotice(limited),
+                ControlEvent::LinkNotice(limited),
+                ControlEvent::LinkNotice(cleared),
+            ]
+        );
+
+        // A host that did not announce 0x5538 is not asked.
+        let mut bare = ControlSession::new(
+            HostCapabilities {
+                control_messages: vec![0x5536],
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        );
+        assert_eq!(
+            bare.send(ClientMessage::LinkNoticeRequest(LinkNoticeRequest {
+                enabled: true
+            })),
+            Err(SendError::Unsupported)
+        );
     }
 
     #[test]

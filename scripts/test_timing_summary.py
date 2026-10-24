@@ -95,6 +95,34 @@ class LegTests(unittest.TestCase):
         self.assertIn("133: REVERT", out.getvalue())
         self.assertIn("pooled over 2 legs", out.getvalue())
 
+    def test_presentmon_modes_and_race_verdicts_are_counted_next_to_a_leg(self):
+        self.write("c1", [10.0] * 50)
+        base = self.path("c1")
+        self.assertEqual(ts.present_modes(base + ".csv"), [])  # no capture, no line
+        with open(base + ".presentmon.csv", "w", newline="") as handle:
+            handle.write("Application,PresentMode,FrameTime\n")
+            for mode in ["Hardware: Independent Flip"] * 3 + ["Composed: Flip"]:
+                handle.write(f"nightjar.exe,{mode},4.1\n")
+        self.assertEqual(
+            ts.present_modes(base + ".csv"),
+            ["  PresentMon present modes: Hardware: Independent Flip 3 (75%), Composed: Flip 1 (25%)"],
+        )
+        with open(base + ".presentmon.csv", "w", newline="") as handle:
+            handle.write("Application,PresentMode\n")
+        self.assertEqual(ts.present_modes(base + ".csv"), ["  PresentMon present modes: no presents captured"])
+        rows = [{"race_reason": "on"}] * 2 + [{"race_reason": ""}, {"race_reason": "no VRR scan restart"}]
+        self.assertEqual(ts.race_reasons(rows), ["  beam race verdicts: on 2 (67%), no VRR scan restart 1 (33%)"])
+        self.assertEqual(ts.race_reasons([{"race_reason": ""}, {}]), [])
+        # main prints both under the leg.
+        import contextlib
+        import io
+        with open(base + ".presentmon.csv", "w", newline="") as handle:
+            handle.write("Application,PresentMode\n" + "nightjar.exe,Hardware: Independent Flip\n" * 2)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ts.main(["--discard", "0", f"A:60:{base}.csv"])
+        self.assertIn("PresentMon present modes: Hardware: Independent Flip 2 (100%)", out.getvalue())
+
     def test_a_bad_leg_argument_is_an_error(self):
         with self.assertRaises(ValueError):
             ts.parse_leg("A:only-two-parts")

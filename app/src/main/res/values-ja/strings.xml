@@ -262,7 +262,7 @@
     <string name="latency_output_render">表示待ち</string>
     <string name="latency_receive_render">クライアントの遅延</string>
     <string name="latency_host_processing">ホストの処理</string>
-    <string name="latency_host_processing_send">ホストの処理 + 送信</string>
+    <string name="latency_host_processing_send">ホストからネットワーク</string>
     <string name="latency_host_split">ホストのキュー / エンコード / 送信（平均）: %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">YUV 4:4:4 を優先</string>
     <string name="summary_yuv444">PC とこのデバイスが対応している場合、色付きの文字がよりくっきり表示されます。HDR が優先されます。</string>
@@ -273,6 +273,8 @@
     <string name="summary_vrr">可変リフレッシュレート対応の Android 16 の画面では、Android がリフレッシュレートをストリームに合わせます。それ以外の画面は最高レートで動作します。VRR に対応したホストにも、その設定に応じて VRR の使用を要求します。オンの間は、フレームペーシングとリフレッシュレートの低減は適用されません。</string>
     <string name="title_host_frame_times">PCのフレームタイミングで表示</string>
     <string name="summary_host_frame_times">各フレームを数ミリ秒保持し、ネットワークが届けた時点ではなくゲームが描画した時点で表示します。特に可変リフレッシュレートで揺らぎを抑えます。フレームペーシングの代わりに使われます。PyroWaveでは使われません。</string>
+    <string name="title_content_rate_frame_rate">画面をゲームのフレームレートに合わせる</string>
+    <string name="summary_content_rate_frame_rate">ゲームが実際に動作しているフレームレートを Android に伝え、対応するモードを持つ画面が、画面が真っ暗にならずにそのモードへ切り替えられるようにします。フレームタイミングを送信する PC と「低いリフレッシュレートを許可」が必要です。変更は 2 秒に 1 回までです。PyroWave と可変リフレッシュレートでは使用されません。</string>
     <string name="title_virtual_display_scale">ホストのレンダリング倍率</string>
     <string name="summary_virtual_display_scale">PC のレンダリング解像度を変更します。送信される映像のサイズは変わりません。送信するピクセル数を減らしてこのデバイスでアップスケーリングするには、ストリーム解像度を下げてください。</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f（n=%4$d）</string>

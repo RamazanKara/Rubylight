@@ -67,7 +67,7 @@ For a GameSir G8+ MFi, use its green **Xbox mode** for direct USB input and rumb
 
 ### Switch Pro over USB
 
-**Untested on hardware.** This driver was written from the published protocol notes and has not yet been tried with a real controller. If it misbehaves, turn it off; Android's own input path keeps working.
+**Experimental.** This driver was written from the published protocol notes and has not yet been tried with a real controller. If it misbehaves, turn it off; Android's own input path keeps working.
 
 Android reads a Switch Pro Controller through its own input path; what that offers for motion, rumble and the Capture button depends on the device and Android version. For the direct USB driver:
 
@@ -168,13 +168,13 @@ While the keyboard is open, controllers and TV remotes steer it and the game get
 | --- | --- |
 | D-pad or left stick | Move focus between keys (the focused key has a white outline). Holding repeats the move. |
 | A (OK on a TV remote, Select) | Press the focused key. Hold to repeat. Modifier keys arm, lock and release. |
-| B | Close the keyboard. |
+| B (or the controller's own Back) | Close the keyboard. |
 | X | Backspace |
 | Y | Space |
 | LB / RB | Toggle Shift / Ctrl |
 | Start | Enter |
 
-With **Flip face buttons** on, A/B and X/Y swap here as they do in games, and a button you remapped for that controller in the button map does what its target does here (a disabled button does nothing). A TV remote uses the D-pad and OK. This works for Android-mapped and USB-driver controllers alike.
+With **Flip face buttons** on, A/B and X/Y swap here as they do in games, and a button you remapped for that controller in the button map does what its target does here (a disabled button does nothing). A TV remote uses the D-pad and OK. A controller that reports its D-pad as keys and as a hat moves the selection once. USB and Bluetooth controller behaviour is researched but not yet tried on real pads; see [USB and Bluetooth pads in the menus and the PC keyboard](gamepad-navigation.md). This works for Android-mapped and USB-driver controllers alike.
 
 ### Keyboard options
 

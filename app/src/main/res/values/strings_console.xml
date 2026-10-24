@@ -2,11 +2,10 @@
 <resources>
     <!-- Home (the console screens): games to continue, the library across hosts and the hosts; the game detail. -->
     <string name="console_title">Home</string>
-    <string name="console_menu_hosts">Hosts</string>
     <string name="console_section_favourites">Favourites</string>
     <string name="console_section_continue">Continue playing</string>
     <string name="console_section_library">Library</string>
-    <string name="console_section_hosts">Hosts</string>
+    <string name="console_section_hosts">PCs</string>
     <string name="console_favourite_add">Add to favourites</string>
     <string name="console_favourite_remove">Remove from favourites</string>
     <string name="console_favourite_description">Favourite</string>
@@ -18,9 +17,9 @@
     <string name="console_host_saved_games">Offline. Saved games: %1$d</string>
     <string name="console_host_offline">Offline</string>
     <string name="console_host_no_library">Games not loaded yet</string>
-    <string name="console_empty_title">No hosts yet</string>
+    <string name="console_empty_title">No PCs yet</string>
     <string name="console_empty_body">Pair Nightjar with a PC to see its games here.</string>
-    <string name="console_empty_open_hosts">Open hosts</string>
+    <string name="console_empty_open_hosts">Open PCs</string>
     <string name="console_detail_host">Host</string>
     <string name="console_detail_profile">Stream settings</string>
     <string name="console_detail_status_running">Running on %1$s</string>

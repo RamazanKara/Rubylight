@@ -38,6 +38,14 @@ pub const CLOCK_SYNC_MESSAGE_TYPE: u16 = 0x5537;
 pub const CLOCK_SYNC_REQUEST_BYTES: usize = 16;
 /// Encoded size of [`ClockSyncReply`].
 pub const CLOCK_SYNC_REPLY_BYTES: usize = 32;
+/// Control-stream message type of link notices, both ways: a client sends a
+/// [`LinkNoticeRequest`], and the host then sends a [`LinkNotice`] when it changes the video
+/// bitrate to follow the network.
+pub const LINK_NOTICE_MESSAGE_TYPE: u16 = 0x5538;
+/// Encoded size of [`LinkNoticeRequest`].
+pub const LINK_NOTICE_REQUEST_BYTES: usize = 4;
+/// Encoded size of [`LinkNotice`].
+pub const LINK_NOTICE_BYTES: usize = 12;
 
 use alloc::vec::Vec;
 
@@ -265,6 +273,140 @@ impl HostTimingRequest {
     }
 }
 
+/// A client's request for [`LinkNotice`]s (client to host), sent once the stream starts. A
+/// host that does not know the id ignores it, and a host never sends a notice to a client that
+/// did not ask, so stock Moonlight clients never see the message.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LinkNoticeRequest {
+    pub enabled: bool,
+}
+
+impl LinkNoticeRequest {
+    const ENABLED_FLAG: u8 = 1;
+
+    /// Little-endian wire form: version, flags, reserved.
+    pub fn encode(&self) -> [u8; LINK_NOTICE_REQUEST_BYTES] {
+        let mut out = [0; LINK_NOTICE_REQUEST_BYTES];
+        out[0] = VERSION;
+        out[1] = if self.enabled { Self::ENABLED_FLAG } else { 0 };
+        out
+    }
+
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < LINK_NOTICE_REQUEST_BYTES || data[0] != VERSION {
+            return None;
+        }
+        Some(Self {
+            enabled: data[1] & Self::ENABLED_FLAG != 0,
+        })
+    }
+}
+
+/// Where the host's video bitrate stands against the one the client asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkState {
+    /// At the requested bitrate. The client clears its notice.
+    Full,
+    /// Below it, and probing back up as the link allows.
+    Limited,
+    /// At the lowest bitrate the host uses, and the network still loses video.
+    Floor,
+}
+
+impl LinkState {
+    fn wire(self) -> u8 {
+        match self {
+            Self::Full => 0,
+            Self::Limited => 1,
+            Self::Floor => 2,
+        }
+    }
+
+    fn from_wire(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(Self::Full),
+            1 => Some(Self::Limited),
+            2 => Some(Self::Floor),
+            _ => None,
+        }
+    }
+}
+
+/// Why the host holds the bitrate down.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkReason {
+    /// Nothing: the bitrate is at the requested one.
+    None,
+    /// The network between the host and this device lost video at the requested bitrate.
+    Network,
+}
+
+impl LinkReason {
+    fn wire(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Network => 1,
+        }
+    }
+
+    fn from_wire(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(Self::None),
+            1 => Some(Self::Network),
+            _ => None,
+        }
+    }
+}
+
+/// The host lowered, raised or restored the video bitrate to follow the network (host to
+/// client). Sent only to a client that sent a [`LinkNoticeRequest`], on each change and at
+/// most once a second; the newest wins when changes come faster.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LinkNotice {
+    pub state: LinkState,
+    pub reason: LinkReason,
+    /// The video bitrate the client asked for, as the encoder is given it, in kbps.
+    pub ceiling_kbps: u32,
+    /// The encoder bitrate now, in kbps.
+    pub current_kbps: u32,
+}
+
+impl LinkNotice {
+    /// Whether the host holds the bitrate below the requested one.
+    pub fn limited(&self) -> bool {
+        self.state != LinkState::Full
+    }
+
+    /// Little-endian wire form: version, state, reason, reserved, ceiling, current.
+    pub fn encode(&self) -> [u8; LINK_NOTICE_BYTES] {
+        let mut out = [0; LINK_NOTICE_BYTES];
+        out[0] = VERSION;
+        out[1] = self.state.wire();
+        out[2] = self.reason.wire();
+        out[4..8].copy_from_slice(&self.ceiling_kbps.to_le_bytes());
+        out[8..12].copy_from_slice(&self.current_kbps.to_le_bytes());
+        out
+    }
+
+    /// Parses a notice. An unknown version, state or reason, a zero bitrate, a limited state
+    /// without a reason or a full one with a reason rejects it; bytes past the 12 are ignored.
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < LINK_NOTICE_BYTES || data[0] != VERSION {
+            return None;
+        }
+        let notice = Self {
+            state: LinkState::from_wire(data[1])?,
+            reason: LinkReason::from_wire(data[2])?,
+            ceiling_kbps: u32_at(data, 4),
+            current_kbps: u32_at(data, 8),
+        };
+        let consistent = notice.ceiling_kbps != 0
+            && notice.current_kbps != 0
+            && (notice.state == LinkState::Full) == (notice.reason == LinkReason::None);
+        consistent.then_some(notice)
+    }
+}
+
 /// Absolute and split stage times for one [`HostTiming`] record, appended after the v1
 /// records of a report. They let a client place every host stage on the host media clock:
 /// capture present is `presented_at_us`, acquired is that plus `capture_us`, submit is
@@ -434,6 +576,89 @@ impl HostTiming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn link_notice_requests_round_trip() {
+        for enabled in [true, false] {
+            let request = LinkNoticeRequest { enabled };
+            let bytes = request.encode();
+            assert_eq!(bytes.len(), LINK_NOTICE_REQUEST_BYTES);
+            assert_eq!(LinkNoticeRequest::decode(&bytes), Some(request));
+        }
+        assert_eq!(LINK_NOTICE_MESSAGE_TYPE, 0x5538);
+        assert_eq!(LinkNoticeRequest { enabled: true }.encode(), [1, 1, 0, 0]);
+        assert_eq!(LinkNoticeRequest::decode(&[1, 1, 0]), None);
+        assert_eq!(LinkNoticeRequest::decode(&[2, 1, 0, 0]), None);
+        let mut longer = LinkNoticeRequest { enabled: true }.encode().to_vec();
+        longer.extend_from_slice(&[9; 4]);
+        assert_eq!(
+            LinkNoticeRequest::decode(&longer),
+            Some(LinkNoticeRequest { enabled: true })
+        );
+    }
+
+    #[test]
+    fn link_notices_round_trip_and_reject_nonsense() {
+        let limited = LinkNotice {
+            state: LinkState::Limited,
+            reason: LinkReason::Network,
+            ceiling_kbps: 14_988,
+            current_kbps: 9_100,
+        };
+        let bytes = limited.encode();
+        assert_eq!(bytes.len(), LINK_NOTICE_BYTES);
+        assert_eq!(bytes, [1, 1, 1, 0, 0x8c, 0x3a, 0, 0, 0x8c, 0x23, 0, 0]);
+        assert_eq!(LinkNotice::decode(&bytes), Some(limited));
+        assert!(limited.limited());
+        let full = LinkNotice {
+            state: LinkState::Full,
+            reason: LinkReason::None,
+            ceiling_kbps: 14_988,
+            current_kbps: 14_988,
+        };
+        assert_eq!(LinkNotice::decode(&full.encode()), Some(full));
+        assert!(!full.limited());
+        let floor = LinkNotice {
+            state: LinkState::Floor,
+            reason: LinkReason::Network,
+            ceiling_kbps: 40_000,
+            current_kbps: 2_000,
+        };
+        assert_eq!(LinkNotice::decode(&floor.encode()), Some(floor));
+
+        let mut longer = bytes.to_vec();
+        longer.extend_from_slice(&[0xff; 4]);
+        assert_eq!(
+            LinkNotice::decode(&longer),
+            Some(limited),
+            "newer hosts may append fields"
+        );
+        assert_eq!(LinkNotice::decode(&bytes[..LINK_NOTICE_BYTES - 1]), None);
+        let edit = |at: usize, value: u8| {
+            let mut changed = bytes;
+            changed[at] = value;
+            LinkNotice::decode(&changed)
+        };
+        assert_eq!(edit(0, 2), None, "unknown version");
+        assert_eq!(edit(1, 3), None, "unknown state");
+        assert_eq!(edit(2, 2), None, "unknown reason");
+        assert_eq!(edit(2, 0), None, "limited without a reason");
+        let mut with_reason = full.encode();
+        with_reason[2] = 1;
+        assert_eq!(LinkNotice::decode(&with_reason), None, "full with a reason");
+        for zero in [
+            LinkNotice {
+                ceiling_kbps: 0,
+                ..limited
+            },
+            LinkNotice {
+                current_kbps: 0,
+                ..limited
+            },
+        ] {
+            assert_eq!(LinkNotice::decode(&zero.encode()), None, "{zero:?}");
+        }
+    }
 
     #[test]
     fn display_caps_round_trip_and_reject_nonsense() {

@@ -26,7 +26,7 @@ use jni::JNIEnv;
 use nightjar_core::control::ClientMessage;
 use nightjar_core::input::InputQueue;
 use nightjar_core::session::{HostInfo, SessionConfig};
-use rubylight_protocol::control::{HostTimingRequest, Reconfigure};
+use rubylight_protocol::control::{HostTimingRequest, LinkNoticeRequest, Reconfigure};
 
 use crate::extras::input_result;
 
@@ -575,6 +575,19 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendHostTiming
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendLinkNoticeRequest(
+    _: JNIEnv,
+    _: JClass,
+    enabled: jboolean,
+) -> jboolean {
+    jbool(engine::send(ClientMessage::LinkNoticeRequest(
+        LinkNoticeRequest {
+            enabled: enabled == JNI_TRUE,
+        },
+    )))
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendClockSyncProbe(
     _: JNIEnv,
     _: JClass,
@@ -642,6 +655,57 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_presentClockSc
         i64::from(s.late),
     ];
     jbool(env.set_long_array_region(&out, 0, &values).is_ok())
+}
+
+/// out: release time (ns), vsync (ns), vsync index, flags (1 late, 2 shares the previous frame's
+/// vsync), hold (us), host-to-vsync latency (us, -1 without clock sync), how late (us); see
+/// `extras::grid_schedule_to_ns`.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_presentClockScheduleOnGrid(
+    env: JNIEnv,
+    _: JClass,
+    host_us: jlong,
+    ready_ns: jlong,
+    anchor_ns: jlong,
+    interval_ns: jlong,
+    lead_ns: jlong,
+    slack_ns: jlong,
+    out: JLongArray,
+) -> jboolean {
+    if host_us < 0 || ready_ns <= 0 || interval_ns <= 0 || env.get_array_length(&out).unwrap_or(0) < 7 {
+        return JNI_FALSE;
+    }
+    let grid = extras::grid_from_ns(anchor_ns, interval_ns, lead_ns, slack_ns);
+    let Some(s) = engine::present_clock_schedule_on_grid(
+        extras::rtp_from_presentation_us(host_us as u64),
+        ready_ns as u64 / 1000,
+        grid,
+    ) else {
+        return JNI_FALSE;
+    };
+    let values = extras::grid_schedule_to_ns(&s, ready_ns, anchor_ns, interval_ns, lead_ns);
+    jbool(env.set_long_array_region(&out, 0, &values).is_ok())
+}
+
+/// A frame's host time (us) for the content rate.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_presentClockObserve(
+    _: JNIEnv,
+    _: JClass,
+    host_us: jlong,
+) {
+    if host_us >= 0 {
+        engine::present_clock_observe(extras::rtp_from_presentation_us(host_us as u64));
+    }
+}
+
+/// The content rate in millihertz, 0 until it held steady for two seconds.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_presentClockContentRate(
+    _: JNIEnv,
+    _: JClass,
+) -> jint {
+    engine::present_clock_content_rate().min(i32::MAX as u32) as jint
 }
 
 /// out: frames scheduled, frames late, clock sync round trip (us, -1 without).

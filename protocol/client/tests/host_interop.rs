@@ -229,6 +229,28 @@ fn every_configuration_negotiates_as_intended_on_the_host() {
     }
 }
 
+/// The host reads the row order request, and sends records by the same step table the client
+/// uses to follow them.
+#[test]
+fn row_order_is_requested_from_the_host_and_both_sides_share_the_step_table() {
+    for (format, row_order, expected) in [
+        (VIDEO_FORMAT_PYROWAVE, true, true),
+        (VIDEO_FORMAT_PYROWAVE, false, false),
+        (VIDEO_FORMAT_H264, true, false),
+    ] {
+        let config = StreamConfig { pyrowave_row_order: row_order, ..Default::default() };
+        let n = host_rtsp::Negotiated::from_sdp(sdp_for(&config, SUNSHINE, format, 7, 0).as_bytes()).unwrap();
+        assert_eq!(n.pyrowave_row_order, expected, "{format:#x} row_order={row_order}");
+    }
+    for (width, height, chroma444) in [(1920, 1080, false), (1920, 1080, true), (3840, 2160, false), (3840, 2160, true), (1280, 720, false), (1000, 500, true), (640, 480, false)] {
+        assert_eq!(
+            rubylight_protocol::pyrowave::rows::row_steps(width, height, chroma444),
+            butterpollo_core::pyrowave::row_steps(width, height, chroma444),
+            "{width}x{height} 444={chroma444}"
+        );
+    }
+}
+
 #[test]
 fn fractional_rates_and_microphone_encryption_reach_the_host() {
     let config = StreamConfig {

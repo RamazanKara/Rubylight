@@ -524,6 +524,8 @@ mod tests {
             game_running: true,
             since_unix_ms: None,
             suspended_until_unix_ms: None,
+            launcher: None,
+            radeon_profile: None,
             actions: actions.iter().map(|&(id, allowed, reason)| Action { id, allowed, reason }).collect(),
         }
     }
@@ -922,8 +924,9 @@ mod tests {
     #[ignore = "needs a paired Rubylight host; see the doc comment"]
     fn live_host_answers_the_page() {
         use nightjar_core::http::ClientIdentity;
-        let dir = std::env::var("NIGHTJAR_LIVE_CONFIG").expect("NIGHTJAR_LIVE_CONFIG");
-        let address = std::env::var("NIGHTJAR_LIVE_ADDRESS").expect("NIGHTJAR_LIVE_ADDRESS");
+        let Some(dir) = crate::sdl::test_input("NIGHTJAR_LIVE_CONFIG", "the paired host's config directory") else { return };
+        let Some(address) = crate::sdl::test_input("NIGHTJAR_LIVE_ADDRESS", "the host's address") else { return };
+        let (dir, address) = (dir.to_string_lossy().into_owned(), address.to_string_lossy().into_owned());
         let store = crate::config::Store::at(dir.into()).unwrap();
         let saved = store.identity().expect("a saved identity");
         let identity = Arc::new(ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem).unwrap());

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The ring of a filled amber button: the body text colour, because amber on amber would not show and it stands out from the surface around the button. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="?attr/colorOnSurface" />
+    <item android:state_hovered="true" android:color="?attr/colorOnSurface" />
+    <item android:color="@android:color/transparent" />
+</selector>

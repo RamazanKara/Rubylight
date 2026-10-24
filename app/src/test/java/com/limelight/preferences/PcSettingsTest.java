@@ -298,4 +298,97 @@ public class PcSettingsTest {
             controller.pause().stop().destroy();
         }
     }
+
+    private static com.limelight.computers.ComputerManagerService.ComputerManagerBinder manager(
+            List<String> renamed, List<ComputerDetails> removed) {
+        return new com.limelight.computers.ComputerManagerService().new ComputerManagerBinder() {
+            @Override public boolean isPersistent() { return false; }
+            @Override public void startPolling(com.limelight.computers.ComputerManagerListener listener) { }
+            @Override public void stopPolling() { }
+            @Override public void renameComputer(String uuid, String alias) { renamed.add(uuid + "=" + alias); }
+            @Override public void removeComputer(ComputerDetails computer) { removed.add(computer); }
+            @Override public void invalidateStateForComputer(String uuid) { }
+            @Override public String getUniqueId() { return null; }
+            @Override public void waitForPollingStopped() { }
+        };
+    }
+
+    @Test
+    public void theNameGivenWithRenameIsThePageTitle() {
+        com.limelight.computers.HostNames.set(app, "renamed-pc", "Study");
+        ActivityController<HostStreamSettings> controller = open("renamed-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            MaterialToolbar toolbar = screen.findViewById(R.id.host_profile_toolbar);
+            assertEquals("Study", toolbar.getTitle().toString());
+            // The manager's copy has the PC's own name; the alias still wins.
+            screen.showComputer(pc("renamed-pc", TestHosts.rubylight(), true));
+            assertEquals("Study", toolbar.getTitle().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void renameFromThePageStoresTheNameAndRetitlesIt() {
+        List<String> renamed = new ArrayList<>();
+        ActivityController<HostStreamSettings> controller = open("rename-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            org.robolectric.util.ReflectionHelpers.setField(screen, "manager", manager(renamed, new ArrayList<>()));
+            click(row(screen, "rename"));
+            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+            android.widget.EditText name = dialog.findViewById(R.id.rename_name);
+            assertEquals("Den PC", name.getText().toString());
+            name.setText("Attic");
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(List.of("rename-pc=Attic"), renamed);
+            MaterialToolbar toolbar = screen.findViewById(R.id.host_profile_toolbar);
+            assertEquals("Attic", toolbar.getTitle().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void removeFromThePageAsksThenRemovesAndLeaves() {
+        List<ComputerDetails> removed = new ArrayList<>();
+        ActivityController<HostStreamSettings> controller = open("remove-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            org.robolectric.util.ReflectionHelpers.setField(screen, "manager", manager(new ArrayList<>(), removed));
+            click(row(screen, "remove"));
+            assertTrue("it asks first", removed.isEmpty());
+            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(1, removed.size());
+            assertEquals("remove-pc", removed.get(0).uuid);
+            assertTrue(screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void unpairIsOfferedForAPairedPcThatAnswers() {
+        ActivityController<HostStreamSettings> controller = open("unpair-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            assertNull("nothing is known about the PC yet", row(screen, "unpair"));
+            screen.showComputer(pc("unpair-pc", TestHosts.rubylight(), false));
+            assertNull("an offline PC cannot be asked to forget this device", row(screen, "unpair"));
+            screen.showComputer(pc("unpair-pc", TestHosts.rubylight(), true));
+            assertNotNull(row(screen, "unpair"));
+            ComputerDetails unpaired = pc("unpair-pc", TestHosts.rubylight(), true);
+            unpaired.pairState = PairingManager.PairState.NOT_PAIRED;
+            screen.showComputer(unpaired);
+            assertNull(row(screen, "unpair"));
+            assertNotNull("Rename and Remove stay", row(screen, "rename"));
+            assertNotNull(row(screen, "remove"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

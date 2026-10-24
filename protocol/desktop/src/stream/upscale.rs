@@ -133,6 +133,7 @@ mod tests {
     #[test]
     #[ignore = "requires a D3D11 or Vulkan display"]
     fn gpu_scalers_preserve_flat_colors_and_release_targets() {
+        if crate::sdl::skip_without_display() { return; }
         unsafe {
             assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
             #[cfg(windows)]

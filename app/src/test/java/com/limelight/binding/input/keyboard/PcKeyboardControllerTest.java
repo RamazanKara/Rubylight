@@ -121,18 +121,30 @@ public class PcKeyboardControllerTest {
     }
 
     @Test
-    public void aTouchHidesTheSelectionAndTheNextPadInputOnlyShowsIt() {
+    public void aTouchHidesTheSelectionAndTheNextPadInputShowsItAndActs() {
         assertTrue(controller.isFocusVisible());
         controller.touchDown(controller.layout().key("Q"), 7, 0);
         controller.touchUp(7);
         assertFalse(controller.isFocusVisible());
+        assertEquals("the selection follows the finger", "Q", focused());
         events.clear();
         controller.pad(Pad.RIGHT, true, 10);
         controller.pad(Pad.RIGHT, false, 11);
         assertTrue(controller.isFocusVisible());
-        assertEquals("a first press moves nothing", "G", focused());
+        assertEquals("the first press already moved from the touched key", "W", focused());
+    }
+
+    @Test
+    public void theFirstAPressAfterTouchTypesTheTouchedKey() {
+        controller.touchDown(controller.layout().key("Q"), 7, 0);
+        controller.touchUp(7);
+        events.clear();
         controller.pad(Pad.A, true, 20);
-        assertEquals(List.of("47+"), events);
+        controller.pad(Pad.A, false, 21);
+        assertTrue(controller.isFocusVisible());
+        assertEquals(2, events.size());
+        assertEquals("the touched Q goes down", "51+", events.get(0));
+        assertEquals("the touched Q comes up", "51-", events.get(1));
     }
 
     @Test
@@ -163,5 +175,18 @@ public class PcKeyboardControllerTest {
         assertEquals(List.of("57+", "57-"), events);
         assertEquals("DE", controller.layout().id.toUpperCase());
         assertEquals("G", focused());
+    }
+
+    @Test
+    public void releasingThePadsAlsoLetsGoOfAHeldStickOrHat() {
+        controller.stick(1, 0, 0);
+        assertTrue(controller.stickActive());
+        assertTrue(controller.needsTick());
+        controller.releasePads(100);
+        assertFalse(controller.stickActive());
+        assertFalse("The release never comes once the pad is gone", controller.needsTick());
+        String before = focused();
+        controller.tick(10_000);
+        assertEquals(before, focused());
     }
 }

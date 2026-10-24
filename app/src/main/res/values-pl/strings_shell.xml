@@ -11,4 +11,14 @@
     <string name="host_unpair_title">Usunąć parowanie z %1$s?</string>
     <string name="host_unpair_message">Komputer zapomni to urządzenie, a zapisana biblioteka zostanie tu wyczyszczona. Aby strumieniować, trzeba będzie sparować ponownie. Komputer zostaje na liście.</string>
     <string name="host_wake_needs_pairing">Sparuj komputer raz, gdy jest włączony, aby móc go wybudzać</string>
+    <string name="settings_category_accessibility">Ułatwienia dostępu</string>
+    <string name="title_ui_scale">Rozmiar interfejsu</string>
+    <string name="summary_ui_scale">Skaluje menu, listy i okna dialogowe aplikacji. Strumień nie jest skalowany. Rozmiar czcionki systemu nadal obowiązuje dodatkowo. Działa od razu.</string>
+    <string name="title_high_contrast">Wysoki kontrast</string>
+    <string name="summary_high_contrast">Czarne tło, wyraźniejszy tekst i obrysy oraz grubsza ramka fokusa na każdym ekranie aplikacji. Strumień się nie zmienia.</string>
+    <string name="title_reduce_motion">Ogranicz ruch</string>
+    <string name="summary_reduce_motion">Zgodnie z systemem wyłącza animacje, gdy skala animacji Androida wynosi 0. Ogranicz zastępuje powiększanie fokusu i wysuwane panele zwykłą ramką. Pełny zawsze animuje.</string>
+    <string name="reduce_motion_system">Zgodnie z systemem</string>
+    <string name="reduce_motion_reduce">Ogranicz</string>
+    <string name="reduce_motion_full">Pełny</string>
 </resources>

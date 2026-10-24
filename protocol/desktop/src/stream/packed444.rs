@@ -565,7 +565,7 @@ mod tests {
                     panic!("no hardware fixture frame")
                 };
                 let mut decoded = Decoded {
-                    frame,
+                    picture: crate::media::Picture::Frame(frame),
                     setup: nightjar_core::session::VideoSetup {
                         format,
                         width: 128,
@@ -586,6 +586,9 @@ mod tests {
                     host_latency: 0,
                     early: 0,
                     first_block_us: 0,
+                    race: Default::default(),
+                    bands: Vec::new(),
+                    race_seq: 0,
                 };
                 let ten_bit = format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
                 let mut parameters = [128, 64, 128, 64, u32::from(ten_bit), 1, 1, 0, 1.0f32.to_bits(), 0, 0, 0];
@@ -597,15 +600,15 @@ mod tests {
                     parameters[7] = u32::from(hdr);
                     parameters[9] = u32::from(packing);
                     let mut direct_hdr = hdr.then(|| Reconstruction::new(renderer, ptr::null_mut(), &parameters).unwrap());
-                    if let Some(direct) = &mut direct_hdr { assert!(direct.upload(&decoded.frame)); }
+                    if let Some(direct) = &mut direct_hdr { assert!(direct.upload(decoded.picture.frame().unwrap())); }
                     for matrix in 0..=2 {
                         decoded.setup.color_range = range;
                         decoded.setup.color_space = matrix;
                         parameters[5] = range as u32;
                         parameters[6] = matrix as u32;
-                        assert!(reference.draw(renderer, target, &decoded.frame, &parameters));
+                        assert!(reference.draw(renderer, target, decoded.picture.frame().unwrap(), &parameters));
                         if !hdr {
-                            assert!(video.upload(renderer, &decoded));
+                            assert!(video.upload(renderer, &decoded, None));
                             assert!(video.texture.is_null(), "direct presentation allocated an intermediate RGB texture");
                         }
                         for (width, height) in [(128, 64), (240, 160), (99, 59)] {
@@ -685,7 +688,7 @@ mod tests {
                                 max_content_light_level: peak,
                                 ..Default::default()
                             }));
-                            assert!(video.upload(renderer, &decoded));
+                            assert!(video.upload(renderer, &decoded, None));
                             assert_eq!(video.texture.is_null(), direct && peak == 320 && available == 16.0);
                             assert!(video.draw(renderer, &viewport((128, 64), (99, 59), crate::config::VideoScaling::Fit, false)));
                             assert!(SDL_RenderPresent(renderer));
@@ -705,6 +708,7 @@ mod tests {
     #[test]
     #[ignore = "requires an HEVC/AV1 hardware decoder and a D3D11 or Vulkan display"]
     fn packed_decode_and_gpu_reconstruction() {
+        if crate::sdl::skip_without_display() { return; }
         // SAFETY: This test owns SDL and all its resources on one thread.
         unsafe {
             assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());

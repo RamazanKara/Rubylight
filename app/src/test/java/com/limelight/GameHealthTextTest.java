@@ -28,7 +28,7 @@ public class GameHealthTextTest {
     @Test
     public void hostEvidenceNamesTheSendOnlyWhenTheHostTimingReportsMeasuredIt() {
         String withSend = evidence(true);
-        assertTrue(withSend, withSend.contains("Host processing + send p95: 5.0 ms"));
+        assertTrue(withSend, withSend.contains("Host to network p95: 5.0 ms"));
         String withoutSend = evidence(false);
         assertTrue(withoutSend, withoutSend.contains("Host processing p95: 5.0 ms"));
         assertFalse(withoutSend.contains("send"));

@@ -11,4 +11,14 @@
     <string name="host_unpair_title">Dissocier %1$s ?</string>
     <string name="host_unpair_message">Le PC oublie cet appareil et sa bibliothèque enregistrée est effacée ici. Vous devrez l’associer de nouveau pour diffuser. Le PC reste dans la liste.</string>
     <string name="host_wake_needs_pairing">Associez le PC une fois, allumé, pour pouvoir le réveiller</string>
+    <string name="settings_category_accessibility">Accessibilité</string>
+    <string name="title_ui_scale">Taille de l’interface</string>
+    <string name="summary_ui_scale">Agrandit ou réduit les menus, les listes et les boîtes de dialogue de l’appli. Le flux n’est pas redimensionné. La taille de police du système s’applique en plus. Effet immédiat.</string>
+    <string name="title_high_contrast">Contraste élevé</string>
+    <string name="summary_high_contrast">Fond noir, texte et contours plus marqués, et anneau de focus plus épais sur tous les écrans de l’appli. Le flux ne change pas.</string>
+    <string name="title_reduce_motion">Réduire les animations</string>
+    <string name="summary_reduce_motion">Suivre le système coupe les animations quand l’échelle d’animation d’Android est à 0. Réduire remplace le zoom du focus et les panneaux coulissants par un simple anneau. Complet anime toujours.</string>
+    <string name="reduce_motion_system">Suivre le système</string>
+    <string name="reduce_motion_reduce">Réduire</string>
+    <string name="reduce_motion_full">Complet</string>
 </resources>

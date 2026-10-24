@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use nightjar_core::control::{haptics, ConnectionStatus, ControlEvent};
 use nightjar_core::session::{Listener, Stage};
-use rubylight_protocol::control::{HostTiming, HostTimingExtra};
+use rubylight_protocol::control::{HostTiming, HostTimingExtra, LinkNotice, LinkState};
 
 use crate::bridge::{self, Bridge};
 use crate::extras::{cursor_shape_message, hdr_metadata_bytes};
@@ -42,6 +42,18 @@ impl Events {
             Ok(())
         });
     }
+}
+
+/// The arguments of `bridgeClLinkNotice(state, ceilingKbps, currentKbps)`: the state as the
+/// wire has it (0 full, 1 limited, 2 floor) and both bitrates in kbps.
+fn link_notice_args(notice: &LinkNotice) -> (i32, i32, i32) {
+    let state = match notice.state {
+        LinkState::Full => 0,
+        LinkState::Limited => 1,
+        LinkState::Floor => 2,
+    };
+    let kbps = |value: u32| i32::try_from(value).unwrap_or(i32::MAX);
+    (state, kbps(notice.ceiling_kbps), kbps(notice.current_kbps))
 }
 
 /// An extension no record can fit (`capture_us + convert_us` above any `queue_us`), which Java
@@ -226,6 +238,17 @@ impl Listener for Events {
             ControlEvent::HostTiming(records) => {
                 self.bytes_callback(m.host_timing, None, &host_timing_payload(&records));
             }
+            ControlEvent::LinkNotice(notice) => {
+                let (state, ceiling_kbps, current_kbps) = link_notice_args(&notice);
+                b.post(
+                    m.link_notice,
+                    &[
+                        bridge::int(state),
+                        bridge::int(ceiling_kbps),
+                        bridge::int(current_kbps),
+                    ],
+                );
+            }
             ControlEvent::ClockSync { reply, received } => {
                 engine::clock_sync(&reply, platform::monotonic_us_at(received));
             }
@@ -275,6 +298,34 @@ mod tests {
         capture_us: 100,
         convert_us: 150,
     };
+
+    #[test]
+    fn a_link_notice_reaches_java_as_state_and_bitrates() {
+        use rubylight_protocol::control::LinkReason;
+        let notice = |state, reason| LinkNotice {
+            state,
+            reason,
+            ceiling_kbps: 150_000,
+            current_kbps: 75_000,
+        };
+        assert_eq!(
+            link_notice_args(&notice(LinkState::Full, LinkReason::None)),
+            (0, 150_000, 75_000)
+        );
+        assert_eq!(
+            link_notice_args(&notice(LinkState::Limited, LinkReason::Network)),
+            (1, 150_000, 75_000)
+        );
+        assert_eq!(
+            link_notice_args(&notice(LinkState::Floor, LinkReason::Network)).0,
+            2
+        );
+        let huge = LinkNotice {
+            ceiling_kbps: u32::MAX,
+            ..notice(LinkState::Limited, LinkReason::Network)
+        };
+        assert_eq!(link_notice_args(&huge).1, i32::MAX);
+    }
 
     #[test]
     fn host_timing_extension_reaches_java() {

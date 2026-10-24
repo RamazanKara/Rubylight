@@ -1,5 +1,6 @@
 package com.limelight.binding.video;
 
+import com.limelight.preferences.PreferenceConfiguration;
 import org.junit.Test;
 import static com.limelight.preferences.PreferenceConfiguration.*;
 import static org.junit.Assert.*;
@@ -160,4 +161,12 @@ public class FramePacingPolicyTest {
         }
     }
 
+
+    @Test public void onlyLatencyModeWithHostFrameTimesIsScheduled() {
+        assertTrue(FramePacingPolicy.schedulesFrames(true, PreferenceConfiguration.FRAME_PACING_MIN_LATENCY));
+        assertFalse(FramePacingPolicy.schedulesFrames(false, PreferenceConfiguration.FRAME_PACING_MIN_LATENCY));
+        assertFalse(FramePacingPolicy.schedulesFrames(true, PreferenceConfiguration.FRAME_PACING_BALANCED));
+        assertFalse(FramePacingPolicy.schedulesFrames(true, PreferenceConfiguration.FRAME_PACING_CAP_FPS));
+        assertFalse(FramePacingPolicy.schedulesFrames(true, PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS));
+    }
 }

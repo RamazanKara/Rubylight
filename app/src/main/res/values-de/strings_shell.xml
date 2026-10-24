@@ -11,4 +11,14 @@
     <string name="host_unpair_title">Kopplung mit %1$s aufheben?</string>
     <string name="host_unpair_message">Der PC vergisst dieses Gerät, und die gespeicherte Bibliothek wird hier gelöscht. Zum Streamen musst du erneut koppeln. Der PC bleibt in der Liste.</string>
     <string name="host_wake_needs_pairing">Koppele den PC einmal, solange er eingeschaltet ist, um ihn aufwecken zu können</string>
+    <string name="settings_category_accessibility">Bedienungshilfen</string>
+    <string name="title_ui_scale">Anzeigegröße</string>
+    <string name="summary_ui_scale">Skaliert Menüs, Listen und Dialoge der App. Der Stream wird nicht skaliert. Die Schriftgröße des Systems gilt zusätzlich. Wirkt sofort.</string>
+    <string name="title_high_contrast">Hoher Kontrast</string>
+    <string name="summary_high_contrast">Schwarzer Hintergrund, kräftigere Texte und Umrandungen und ein dickerer Fokusrahmen auf jedem Bildschirm der App. Der Stream bleibt unverändert.</string>
+    <string name="title_reduce_motion">Bewegung reduzieren</string>
+    <string name="summary_reduce_motion">„Systemeinstellung“ schaltet Animationen aus, wenn die Animationsskala von Android 0 ist. „Reduziert“ ersetzt den Fokus-Zoom und gleitende Menüs durch einen schlichten Rahmen. „Voll“ animiert immer.</string>
+    <string name="reduce_motion_system">Systemeinstellung</string>
+    <string name="reduce_motion_reduce">Reduziert</string>
+    <string name="reduce_motion_full">Voll</string>
 </resources>

@@ -81,12 +81,14 @@ Copy-Item (Join-Path $prefix 'share\licenses\pyrowave') "$Out\licenses" -Recurse
 # The DLL carries the MinGW runtime statically (it imports no libwinpthread or libstdc++ DLL), and
 # the licences of those libraries ask for their notices to travel with it.
 $runtime = @{
-    'LICENSE.winpthreads'            = 'ucrt64\share\licenses\winpthreads\COPYING'
-    'LICENSE.gcc-runtime-exception'  = 'ucrt64\share\licenses\gcc-libs\COPYING.RUNTIME'
+    'LICENSE.winpthreads'            = @('ucrt64\share\licenses\winpthreads\COPYING', 'ucrt64\share\licenses\libwinpthread\COPYING')
+    # gcc 16.2 split gcc-libs into libgcc, libstdc++ and others; older MSYS2 still has gcc-libs.
+    'LICENSE.gcc-runtime-exception'  = @('ucrt64\share\licenses\libgcc\COPYING.RUNTIME', 'ucrt64\share\licenses\gcc-libs\COPYING.RUNTIME', 'ucrt64\share\licenses\gcc\COPYING.RUNTIME')
 }
 foreach ($name in $runtime.Keys) {
-    $source = Join-Path $msys $runtime[$name]
-    if (-not (Test-Path $source)) { throw "$source is missing; install the MSYS2 package that owns it (mingw-w64-ucrt-x86_64-winpthreads, mingw-w64-ucrt-x86_64-gcc-libs)" }
+    $candidates = @($runtime[$name] | ForEach-Object { Join-Path $msys $_ })
+    $source = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $source) { throw "none of $($candidates -join ', ') exists; install the MSYS2 package that owns it (mingw-w64-ucrt-x86_64-winpthreads, mingw-w64-ucrt-x86_64-libgcc or -gcc-libs)" }
     Copy-Item $source "$Out\licenses\$name"
 }
 $sha = (Get-FileHash (Join-Path $Out 'libpyrowave-shared-1.dll') -Algorithm SHA256).Hash.ToLowerInvariant()

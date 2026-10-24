@@ -314,6 +314,23 @@ pub(crate) mod tests {
         assert_eq!(info.trusted_codec_mode_support(), 8_457_985);
     }
 
+    /// The 3.0 hosts report "3.0.0-beta.N". Their version did not parse, so the host counted as an
+    /// old one without records and no stream asked for them (early decode saw nothing, silently).
+    #[test]
+    fn a_3_0_beta_host_has_records_and_the_features_of_its_version() {
+        for version in ["3.0.0-beta.1", "3.0.0-alpha.3", "3.0.0", "3.1.0-rc.2"] {
+            let reply = RUBYLIGHT.replace("<RustHostVersion>2.2.21", &format!("<RustHostVersion>{version}"));
+            let caps = ServerInfo::parse(&reply, 47989).unwrap().capabilities;
+            assert_eq!(caps.host_version(), Some(version));
+            for feature in [Feature::PyroWave, Feature::PyroWaveRecords] {
+                assert!(caps.has(feature), "{version}: {feature:?}");
+            }
+        }
+        // A host older than records still does not get them.
+        let old = RUBYLIGHT.replace("<RustHostVersion>2.2.21", "<RustHostVersion>1.9.0");
+        assert!(!ServerInfo::parse(&old, 47989).unwrap().capabilities.has(Feature::PyroWaveRecords));
+    }
+
     #[test]
     fn native_api_version_decides_the_native_api() {
         let native = |reply: &str| ServerInfo::parse(reply, 47989).unwrap().capabilities.availability(Feature::NativeApi);

@@ -240,6 +240,14 @@ Without a link, `cargo test -p nightjar-desktop --release --bin nightjar -- --ig
 --nocapture cpu_costs_of_a_pyrowave_frame` prints the CPU pieces early decode moves: entropy
 decode time per megabyte of blocks, the plane clear and the half conversion of a 1080p frame.
 
+## Step 3 and 4, built
+
+The host's row order (`pyrowaveRowOrder`) and the client's slice decodes are in: with the
+`beam_race` setting on, the first quarter of a 1080p frame is decoded 1.65 ms (p50) after its first
+packet while the frame takes 6.48 ms to arrive (loopback, 399 Mbps, 3589 frames, all row ordered).
+[beam-racing.md](beam-racing.md) has the design, the measurements and what is still open. The list
+below is the plan as it stood before that.
+
 ## Next steps (not part of this change)
 
 - Step 3 on the host: send rows with their coarse data first behind a new RTSP hint

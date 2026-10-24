@@ -37,5 +37,8 @@ msys=$(cygpath -u "${MSYSTEM_PREFIX:-/ucrt64}")
 cp -r "$msys/include/opus" "$prefix/include/"
 cp "$msys/lib/libopus.dll.a" "$prefix/lib/"
 cp "$msys/bin/libopus-0.dll" "$prefix/bin/"
-cp "$msys/bin/libdav1d-7.dll" "$prefix/bin/"
+# The DLL's soname number changes with dav1d's ABI (libdav1d-7.dll today), so find it.
+dav1d=$(ls "$msys"/bin/libdav1d-*.dll 2>/dev/null | head -n 1)
+[ -n "$dav1d" ] || { echo "no libdav1d-*.dll in $msys/bin (pacman -S mingw-w64-ucrt-x86_64-dav1d)" >&2; exit 1; }
+cp "$dav1d" "$prefix/bin/"
 rm -rf "$build"

@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="console_title">홈</string>
-    <string name="console_menu_hosts">호스트</string>
     <string name="console_section_favourites">즐겨찾기</string>
     <string name="console_section_continue">이어서 플레이</string>
     <string name="console_section_library">라이브러리</string>
-    <string name="console_section_hosts">호스트</string>
+    <string name="console_section_hosts">PC</string>
     <string name="console_favourite_add">즐겨찾기에 추가</string>
     <string name="console_favourite_remove">즐겨찾기에서 삭제</string>
     <string name="console_favourite_description">즐겨찾기</string>
@@ -17,9 +16,9 @@
     <string name="console_host_saved_games">오프라인. 저장된 게임: %1$d</string>
     <string name="console_host_offline">오프라인</string>
     <string name="console_host_no_library">게임을 아직 불러오지 않았습니다</string>
-    <string name="console_empty_title">아직 호스트가 없습니다</string>
+    <string name="console_empty_title">아직 PC가 없습니다</string>
     <string name="console_empty_body">Nightjar를 PC와 페어링하면 여기에 게임이 표시됩니다.</string>
-    <string name="console_empty_open_hosts">호스트 열기</string>
+    <string name="console_empty_open_hosts">PC 열기</string>
     <string name="console_detail_host">호스트</string>
     <string name="console_detail_profile">스트림 설정</string>
     <string name="console_detail_status_running">%1$s에서 실행 중</string>

@@ -11,4 +11,14 @@
     <string name="host_unpair_title">¿Desvincular %1$s?</string>
     <string name="host_unpair_message">El PC olvida este dispositivo y aquí se borra su biblioteca guardada. Tendrás que volver a vincularlo para transmitir. El PC sigue en la lista.</string>
     <string name="host_wake_needs_pairing">Vincula el PC una vez mientras esté encendido para poder activarlo</string>
+    <string name="settings_category_accessibility">Accesibilidad</string>
+    <string name="title_ui_scale">Tamaño de la interfaz</string>
+    <string name="summary_ui_scale">Escala los menús, las listas y los diálogos de la app. La transmisión no se escala. El tamaño de fuente del sistema se aplica además. Se aplica al instante.</string>
+    <string name="title_high_contrast">Contraste alto</string>
+    <string name="summary_high_contrast">Fondo negro, texto y contornos más marcados y un anillo de foco más grueso en todas las pantallas de la app. La transmisión no cambia.</string>
+    <string name="title_reduce_motion">Reducir movimiento</string>
+    <string name="summary_reduce_motion">Según el sistema desactiva las animaciones cuando la escala de animación de Android es 0. Reducir sustituye el zoom del foco y los paneles deslizantes por un anillo simple. Completo anima siempre.</string>
+    <string name="reduce_motion_system">Según el sistema</string>
+    <string name="reduce_motion_reduce">Reducir</string>
+    <string name="reduce_motion_full">Completo</string>
 </resources>

@@ -77,6 +77,27 @@ pub enum DecoderPreference {
     Software,
 }
 
+/// Where PyroWave frames are reconstructed: on the CPU with the Rust decoder, or on the GPU
+/// by the PyroWave library's Vulkan decoder (docs/pyrowave-decode.md). `Gpu` never falls back
+/// to the CPU: when the library or the adapter cannot do it, PyroWave is not offered and the
+/// reason is shown. The default is `Gpu` on Windows and Linux (the ABBAs in docs/pyrowave-decode.md:
+/// lower `receive_to_present_ms` at p50 and p95 and no lower fps on every leg). A Linux client
+/// without `libpyrowave-shared.so` (a source build; `package-linux.sh -s` ships it) fails the probe
+/// like a Windows one without the DLL: PyroWave is not offered, with the reason and the way out
+/// (switch to `Cpu`); every other codec works.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PyroWaveDecoder {
+    Cpu,
+    #[default]
+    Gpu,
+}
+
+impl PyroWaveDecoder {
+    pub fn label(self) -> &'static str {
+        match self { Self::Cpu => en("CPU"), Self::Gpu => en("GPU") }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QualityMode {
     #[default]
@@ -135,7 +156,10 @@ pub struct Settings {
     pub align_video_top: bool,
     /// The display has variable refresh (G-Sync, FreeSync, HDMI VRR).
     pub vrr: bool,
-    /// With VRR: show each frame at the PC's frame time plus a steady delay.
+    /// With VRR: show each frame at the PC's frame time plus a steady delay. Off by default: on a
+    /// 240 Hz tearing display it held PyroWave frames about 7 ms (receive_to_present p50 10.4 ms
+    /// against 3.2 ms shown immediately) and its present intervals were less even
+    /// (docs/pyrowave-decode.md, "The wait between decoded and shown").
     pub present_at_host_times: bool,
     /// Without VRR: wait for the display's refresh (no tearing).
     pub vsync: bool,
@@ -164,6 +188,21 @@ pub struct Settings {
     /// instead of when the frame is complete. Off by default until measured on the wired
     /// client (docs/early-decode.md). `NIGHTJAR_EARLY_DECODE=1` or `0` overrides it.
     pub early_decode: bool,
+    /// EXPERIMENTAL. PyroWave on a wired link: ask the host to send the picture's records in row
+    /// order and present the picture in slices ahead of the display's beam (docs/beam-racing.md).
+    /// Implies early decode. Off by default, and off costs nothing: no row order is requested, no
+    /// scan line probe runs, frames decode whole. It missed its default-on gate on loopback (it
+    /// helps the median picture age at a low pace, not the p95, and `receive_to_present` is worse
+    /// at a high pace; docs/pyrowave-decode.md). When it cannot run it says why in the log and the
+    /// stats overlay. `NIGHTJAR_BEAM_RACE=1` or `0` overrides it.
+    pub beam_race: bool,
+    /// How far ahead of the display's beam a slice must be presented when the beam race is on, in
+    /// ms; 0 works it out from how the presents vary (docs/beam-racing.md). `NIGHTJAR_BEAM_RACE_MARGIN_MS`
+    /// overrides it.
+    pub beam_race_margin_ms: u32,
+    /// PyroWave: reconstruct on the GPU with the PyroWave library (the default, where it measured
+    /// better on every leg, docs/pyrowave-decode.md) or on the CPU.
+    pub pyrowave_decoder: PyroWaveDecoder,
     pub microphone: bool,
     pub cursor_shapes: bool,
     pub network_grace_ms: u32,
@@ -269,7 +308,7 @@ impl Default for Settings {
             video_scaling: VideoScaling::Fit,
             align_video_top: false,
             vrr: true,
-            present_at_host_times: true,
+            present_at_host_times: false,
             vsync: true,
             overlay: false,
             mouse_mode: MouseMode::Capture,
@@ -290,6 +329,9 @@ impl Default for Settings {
             background_controllers: false,
             decoder: DecoderPreference::Auto,
             early_decode: false,
+            beam_race: false,
+            beam_race_margin_ms: 0,
+            pyrowave_decoder: PyroWaveDecoder::default(),
             microphone: false,
             cursor_shapes: true,
             network_grace_ms: 3000,
@@ -1050,6 +1092,33 @@ mod tests {
     }
 
     #[test]
+    fn beam_race_is_off_unless_the_file_says_otherwise() {
+        assert!(!Settings::default().beam_race);
+        let old: Settings = serde_json::from_str("{\"early_decode\": true}").unwrap();
+        assert!(!old.beam_race, "a settings file from before the beam race keeps it off");
+        let on: Settings = serde_json::from_str("{\"beam_race\": true}").unwrap();
+        assert!(on.beam_race);
+        assert_eq!(old.beam_race_margin_ms, 0, "the margin is automatic unless the file sets one");
+        let margin: Settings = serde_json::from_str("{\"beam_race_margin_ms\": 2}").unwrap();
+        assert_eq!(margin.beam_race_margin_ms, 2);
+    }
+
+    #[test]
+    fn pyrowave_decoder_defaults_to_the_gpu_and_reads_from_the_file() {
+        let default = PyroWaveDecoder::Gpu;
+        assert_eq!(Settings::default().pyrowave_decoder, default);
+        let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
+        assert_eq!(old.pyrowave_decoder, default, "an older file gets the default");
+        let cpu: Settings = serde_json::from_str("{\"pyrowave_decoder\": \"Cpu\"}").unwrap();
+        assert_eq!(cpu.pyrowave_decoder, PyroWaveDecoder::Cpu, "a saved CPU choice stays");
+        let gpu: Settings = serde_json::from_str("{\"pyrowave_decoder\": \"Gpu\"}").unwrap();
+        assert_eq!(gpu.pyrowave_decoder, PyroWaveDecoder::Gpu);
+        let mut overrides = Overrides::default();
+        overrides.0.insert("pyrowave_decoder".into(), serde_json::json!("Gpu"));
+        assert_eq!(overrides.apply(&Settings::default()).pyrowave_decoder, PyroWaveDecoder::Gpu);
+    }
+
+    #[test]
     fn files_round_trip() {
         let dir = std::env::temp_dir().join(format!("nightjar-config-{}", std::process::id()));
         let store = Store::at(dir.clone()).unwrap();
@@ -1091,7 +1160,7 @@ mod tests {
         // A settings file from an older version keeps the new fields' defaults.
         std::fs::write(dir.join("settings.json"), r#"{"fps": 90}"#).unwrap();
         assert_eq!(store.settings().fps, 90);
-        assert!(store.settings().present_at_host_times);
+        assert!(!store.settings().present_at_host_times);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -61,6 +61,19 @@ float3 linearRgb(float3 samples) {
                   dot(rgb, float3(-0.124550, 1.132900, -0.008349)),
                   dot(rgb, float3(-0.018151, -0.100579, 1.118730)));
 }
+#ifdef VULKAN
+float3 storedHalf(float3 x) { return x; }
+#else
+// The wavelet passes keep their samples in half-float targets, ten stores per frame. Direct3D 11
+// on the RX 7900 XT cuts the extra mantissa bits off instead of rounding (measured: the dark
+// parts of a picture came out 0.34 code too bright, white parts 0.1 too dark), and ten cuts add
+// up. Rounding to the 11 significant bits of a half here (Veltkamp's split) makes the cut exact.
+float3 storedHalf(float3 x) {
+    precise float3 c = x * 8193.0;
+    precise float3 high = c - (c - x);
+    return high;
+}
+#endif
 float4 fragment(float4 position : SV_Position) : SV_Target {
     int2 p = int2(position.xy);
     float3 original = source.Load(int3(p, 0)).rgb;
@@ -69,11 +82,41 @@ float4 fragment(float4 position : SV_Position) : SV_Target {
         if (any(p >= size)) return float4(original, 1);
         float3 result = operation == 0 ? inverse(p.y, p.x, size.y) : inverse(p.x, p.y, size.x);
         if ((flags & 32) == 0 && level == 0) result.gb = original.gb;
-        return float4(result, 1);
+        return float4(storedHalf(result), 1);
     }
     if ((flags & 32) == 0) {
         float2 uv = clamp((position.xy * 0.5), 0.5, float2(width, height) * 0.5 - 0.5) / float2(paddedWidth, paddedHeight);
         original.gb = source.SampleLevel(sampleLinear, uv, 0).gb;
     }
     return float4(linearRgb(original), 1);
+}
+// The GPU decoder's planes: R8 or R16 UNORM textures holding code / maximum, converted to the
+// same linear RGB as the CPU path (the planes are final, so no wavelet passes are left). The
+// Vulkan build is a module of its own (pyrowave-planes.spv, see docs/pyrowave-decode.md): the planes take
+// SDL's sampler slots 0 to 2 and glslang gives each texture its own sampler.
+#ifdef VULKAN
+Texture2D<float> planeY : register(t0, space2);
+Texture2D<float> planeCb : register(t1, space2);
+Texture2D<float> planeCr : register(t2, space2);
+#else
+Texture2D<float> planeY : register(t1);
+Texture2D<float> planeCb : register(t2);
+Texture2D<float> planeCr : register(t3);
+#endif
+float4 planes(float4 position : SV_Position) : SV_Target {
+    int3 p = int3(int2(position.xy), 0);
+    float3 samples;
+    samples.x = planeY.Load(p);
+    if ((flags & 32) != 0) {
+        samples.y = planeCb.Load(p);
+        samples.z = planeCr.Load(p);
+    } else {
+        // Chroma is half size: sample it where the CPU path does.
+        uint2 size;
+        planeCb.GetDimensions(size.x, size.y);
+        float2 uv = clamp(position.xy * 0.5, 0.5, float2(width, height) * 0.5 - 0.5) / float2(size);
+        samples.y = planeCb.SampleLevel(sampleLinear, uv, 0);
+        samples.z = planeCr.SampleLevel(sampleLinear, uv, 0);
+    }
+    return float4(linearRgb(samples - 0.5), 1);
 }

@@ -46,6 +46,11 @@ Stage timers (printed at session end as `PyroWave decode stages` and `PyroWave p
 | upload | presenter | `SDL_UpdateTexture` of the coefficient frame |
 | passes | presenter | CPU time to submit the 11 wavelet passes (not GPU time) |
 
+With the GPU decoder (`pyrowave_decoder = Gpu`, docs/pyrowave-decode.md) the decode line reads
+`clear`, `push` (records into the SDK), `submit` and `gpu` (the SDK's own pass timing) instead, and
+the presenter's `upload` is 0: the planes are already on the GPU. `scripts/pyrowave-loopback.ps1`
+takes `-DecoderA/-DecoderB Cpu|Gpu`, `-Width/-Height/-Fps` and `-Port` for those runs.
+
 `NIGHTJAR_PYROWAVE_DUMP=<dir>` writes the first 120 real envelopes; the ignored test
 `cpu_costs_of_a_pyrowave_frame` reads them back through `NIGHTJAR_PYROWAVE_FRAMES`.
 
@@ -164,8 +169,9 @@ p95 near 54.5 ms, while `input_to_output_ms` was 6 ms and `queue_wait_ms` tiny. 
 not a measurement artefact, and it comes from the present clock, not from the swap chain.
 
 - The stream runs with pacing `HostTimes` (the log line `streaming ... pacing HostTimes`). That is
-  the default on any display that reports tearing support (`vrr` and `present_at_host_times` are
-  both on by default), so it is the default for VRR displays. SDL vsync is off in this mode, so no
+  the mode when `vrr` and `present_at_host_times` are both on. Since the measurement in
+  docs/pyrowave-decode.md ("The wait between decoded and shown") `present_at_host_times` is off by
+  default and VRR displays present immediately; the numbers below are from when it was the default. SDL vsync is off in this mode, so no
   vsync queue or swap chain frame latency is involved.
 - `PresentClock` (`protocol/core/src/present_clock.rs`) shows each frame at its host timestamp plus
   a delay. The delay is the 97th percentile of how late recent frames were, plus 0.5 ms. It rises at

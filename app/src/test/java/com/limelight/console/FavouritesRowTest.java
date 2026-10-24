@@ -84,7 +84,7 @@ public class FavouritesRowTest {
     }
 
     @Test
-    public void aLongPressOnAGameCardOpensItsMenuAndAHostCardHasNone() throws Exception {
+    public void aLongPressOnAGameCardOpensItsMenuAndAHostCardOpensTheHostOptions() throws Exception {
         rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
         List<RecordedMenu> menus = new ArrayList<>();
         ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(menus));
@@ -102,11 +102,12 @@ public class FavouritesRowTest {
         assertTrue(card.itemView.getContentDescription().toString()
                 .endsWith(context.getString(R.string.console_favourite_description)));
 
-        // The same holder, recycled for a host card, no longer reacts to a long press.
+        // A host card has no game menu; its long press opens the PC's options instead.
         RecyclerView.ViewHolder host = adapter.onCreateViewHolder(parent, ConsoleHomeAdapter.HOST);
         adapter.onBindViewHolder(host, adapter.getItemCount() - 1);
-        assertFalse(host.itemView.isLongClickable());
+        assertTrue(host.itemView.performLongClick());
         assertEquals(1, menus.size());
+        assertEquals(1, hostOptions.size());
     }
 
     private static final class RecordedMenu {
@@ -134,10 +135,15 @@ public class FavouritesRowTest {
 
             @Override public void onHost(HomeModel.HostCard card) {
             }
+
+            @Override public void onHostOptions(HomeModel.HostCard card) {
+                hostOptions.add(card.uuid);
+            }
         };
     }
 
     private final List<String> toggles = new ArrayList<>();
+    private final List<String> hostOptions = new ArrayList<>();
 
     /** A view group hands key events to its own listener only while it has focus, so give the card its focus. */
     private static void focus(FrameLayout parent, android.view.View card) {

@@ -46,8 +46,13 @@ impl<const N: usize> Stages<N> {
 
     /// `name p50/p95` in milliseconds per stage, or None before the first frame.
     pub fn summary(&self) -> Option<String> {
+        self.summary_of(N)
+    }
+
+    /// The summary of the first `shown` stages, for a session where the later ones never ran.
+    pub fn summary_of(&self, shown: usize) -> Option<String> {
         if self.frames() == 0 { return None; }
-        let parts: Vec<String> = self.names.iter().zip(&self.counts).map(|(name, counts)| {
+        let parts: Vec<String> = self.names.iter().zip(&self.counts).take(shown).map(|(name, counts)| {
             let at = |p| percentile(counts, self.frames, p) as f64 / 1000.0;
             format!("{name} {:.2}/{:.2}", at(50), at(95))
         }).collect();
@@ -80,6 +85,15 @@ mod tests {
         let at = |p| percentile(&counts, 101, p);
         assert_eq!((at(50), at(95), at(99)), (510, 960, 1000));
         assert_eq!(percentile(&counts, 0, 50), 0);
+    }
+
+    #[test]
+    fn a_summary_can_leave_out_the_last_stages() {
+        let mut stages = Stages::new(["a", "b", "c"]);
+        stages.frame = [1500, 0, 0];
+        stages.commit();
+        assert_eq!(stages.summary_of(2).unwrap(), "(ms p50/p95 over 1 frames): a 1.50/1.50, b 0.00/0.00");
+        assert!(stages.summary().unwrap().ends_with("c 0.00/0.00"));
     }
 
     #[test]

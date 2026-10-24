@@ -181,7 +181,8 @@ fn flag(value: &str) -> Option<bool> {
     }
 }
 
-/// "2.2.21" or "2.0.0-rc.19" as [major, minor, patch, rc], a release after its candidates.
+/// "2.2.21", "2.0.0-rc.19" or "3.0.0-beta.1" as [major, minor, patch, pre-release], a release
+/// after its pre-releases, which rank alpha, beta, rc (the stage in the millions of the last part).
 pub fn parse_rubylight_version(version: &str) -> Option<[u32; 4]> {
     let mut rest = version;
     let number = |rest: &mut &str| -> Option<u32> {
@@ -200,9 +201,15 @@ pub fn parse_rubylight_version(version: &str) -> Option<[u32; 4]> {
             rest = rest.strip_prefix('.')?;
         }
     }
-    if let Some(after) = rest.strip_prefix("-rc.") {
+    // The 3.0 hosts report "3.0.0-beta.N". The number stops at 100000, below one stage.
+    const STAGE: u32 = 1_000_000;
+    if let Some((stage, after)) = ["-alpha.", "-beta.", "-rc."]
+        .iter()
+        .enumerate()
+        .find_map(|(stage, tag)| rest.strip_prefix(tag).map(|after| (stage as u32 + 1, after)))
+    {
         rest = after;
-        parts[3] = number(&mut rest).filter(|&rc| rc > 0)?;
+        parts[3] = stage * STAGE + number(&mut rest).filter(|&pre| pre > 0)?;
     }
     if let Some(build) = rest.strip_prefix('+') {
         let len = build
@@ -660,12 +667,19 @@ mod tests {
             parse_rubylight_version("2.2.21"),
             Some([2, 2, 21, u32::MAX])
         );
-        assert_eq!(parse_rubylight_version("2.0.0-rc.19"), Some([2, 0, 0, 19]));
+        assert_eq!(parse_rubylight_version("2.0.0-rc.19"), Some([2, 0, 0, 3_000_019]));
+        assert_eq!(parse_rubylight_version("3.0.0-beta.1"), Some([3, 0, 0, 2_000_001]));
+        assert_eq!(parse_rubylight_version("3.0.0-alpha.2+abc.1"), Some([3, 0, 0, 1_000_002]));
+        // alpha < beta < rc < release, whatever the numbers.
+        let ascending = ["3.0.0-alpha.1", "3.0.0-alpha.99", "3.0.0-beta.1", "3.0.0-beta.12", "3.0.0-rc.1", "3.0.0-rc.30", "3.0.0"];
+        for pair in ascending.windows(2) {
+            assert!(parse_rubylight_version(pair[0]).unwrap() < parse_rubylight_version(pair[1]).unwrap(), "{pair:?}");
+        }
         assert_eq!(
             parse_rubylight_version("2.2.1+abc.1"),
             Some([2, 2, 1, u32::MAX])
         );
-        for bad in ["", "2.2", "02.1.1", "2.2.1-rc.0", "2.2.1+", "2.2.1x"] {
+        for bad in ["", "2.2", "02.1.1", "2.2.1-rc.0", "2.2.1+", "2.2.1x", "3.0.0-beta", "3.0.0-beta.0", "3.0.0-gamma.1"] {
             assert_eq!(parse_rubylight_version(bad), None, "{bad}");
         }
         assert!(parse_rubylight_version("2.2.1").unwrap() >= HOST_DISPLAY_MODES_VERSION);

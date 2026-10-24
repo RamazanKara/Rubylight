@@ -11,4 +11,14 @@
     <string name="host_unpair_title">Скасувати сполучення з %1$s?</string>
     <string name="host_unpair_message">ПК забуде цей пристрій, а збережену бібліотеку тут буде очищено. Для трансляції потрібно буде сполучити знову. ПК залишиться в списку.</string>
     <string name="host_wake_needs_pairing">Сполучіть ПК один раз, поки він увімкнений, щоб його можна було пробудити</string>
+    <string name="settings_category_accessibility">Спеціальні можливості</string>
+    <string name="title_ui_scale">Розмір інтерфейсу</string>
+    <string name="summary_ui_scale">Масштабує меню, списки й діалоги застосунку. Трансляція не масштабується. Розмір шрифту системи застосовується додатково. Діє одразу.</string>
+    <string name="title_high_contrast">Висока контрастність</string>
+    <string name="summary_high_contrast">Чорне тло, чіткіші текст і контури та товща рамка фокуса на всіх екранах застосунку. Трансляція не змінюється.</string>
+    <string name="title_reduce_motion">Зменшити анімацію</string>
+    <string name="summary_reduce_motion">«Як у системі» вимикає анімацію, коли масштаб анімації Android дорівнює 0. «Зменшити» замінює збільшення фокуса й висувні панелі простою рамкою. «Повна» анімує завжди.</string>
+    <string name="reduce_motion_system">Як у системі</string>
+    <string name="reduce_motion_reduce">Зменшити</string>
+    <string name="reduce_motion_full">Повна</string>
 </resources>

@@ -4,8 +4,9 @@
 use std::time::Instant;
 
 use rubylight_protocol::control::{
-    ClockSyncReply, HostTiming, HostTimingExtra, HOST_TIMING_EXTRA_BYTES, HOST_TIMING_HEADER_BYTES,
-    HOST_TIMING_MAX_RECORDS, HOST_TIMING_RECORD_BYTES,
+    ClockSyncReply, HostTiming, HostTimingExtra, LinkNotice, HOST_TIMING_EXTRA_BYTES,
+    HOST_TIMING_HEADER_BYTES, HOST_TIMING_MAX_RECORDS, HOST_TIMING_RECORD_BYTES,
+    LINK_NOTICE_BYTES,
 };
 
 use super::haptics::{self, Pcm};
@@ -224,6 +225,9 @@ pub enum ControlEvent {
         reply: ClockSyncReply,
         received: Instant,
     },
+    /// The host lowered, raised or restored the video bitrate for the network (0x5538), sent
+    /// only after a [`ClientMessage::LinkNoticeRequest`](super::messages::ClientMessage).
+    LinkNotice(LinkNotice),
     /// A cursor shape (0x5541), while shapes are requested.
     CursorShape(CursorShape),
     /// A cursor shape message that broke a rule of the format.
@@ -390,6 +394,15 @@ pub(crate) fn clock_sync(p: &[u8], received: Instant) -> Option<ControlEvent> {
         return None;
     }
     ClockSyncReply::decode(p).map(|reply| ControlEvent::ClockSync { reply, received })
+}
+
+/// A link notice: 12 bytes, and a newer host may append fields. Anything over 256 bytes is not
+/// one, and a notice that breaks the format's rules is dropped.
+pub(crate) fn link_notice(p: &[u8]) -> Option<ControlEvent> {
+    if !(LINK_NOTICE_BYTES..=256).contains(&p.len()) {
+        return None;
+    }
+    LinkNotice::decode(p).map(ControlEvent::LinkNotice)
 }
 
 pub(crate) fn cursor_shape(p: &[u8]) -> ControlEvent {

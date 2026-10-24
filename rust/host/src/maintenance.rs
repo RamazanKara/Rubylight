@@ -87,19 +87,7 @@ pub fn trigger_update(h: &Shared, tell: bool) {
         }
         .await;
         let mut state = h.updates.lock().unwrap();
-        state["checking"] = json!(false);
-        state["checked_at"] = json!(now());
-        state["check_failed"] = json!(result.is_err());
-        // Consecutive failures drive the retry back-off; a success resets them.
-        let failures = if result.is_err() {
-            state["check_failures"]
-                .as_u64()
-                .unwrap_or(0)
-                .saturating_add(1)
-        } else {
-            0
-        };
-        state["check_failures"] = json!(failures);
+        record_check(&mut state, &result);
         match result {
             Ok(releases) => {
                 let current = env!("CARGO_PKG_VERSION");
@@ -121,7 +109,6 @@ pub fn trigger_update(h: &Shared, tell: bool) {
                 state["update_available"] = json!(latest.is_some());
                 state["latest_version"] = json!(latest);
                 state["releases"] = json!(releases);
-                state["check_error"] = Value::Null;
                 drop(state);
                 tracing::info!(current, latest = ?latest, "release check succeeded");
                 if tell && latest.is_none() {
@@ -136,14 +123,11 @@ pub fn trigger_update(h: &Shared, tell: bool) {
                     }
                     let automatic = h.config.read().unwrap().boolean("auto_update", false);
                     if automatic && let Err(error) = crate::updater::queue(&h, true, false) {
-                        tracing::warn!(%error, "automatic update could not be queued");
+                        tracing::warn!(error = %format!("{error:#}"), "automatic update could not be queued");
                     }
                 }
             }
             Err(error) => {
-                // The chain names the cause (DNS, timeout, TLS); the top
-                // message alone is "error sending request".
-                state["check_error"] = json!(format!("{error:#}"));
                 tracing::warn!(error = %format!("{error:#}"), "release check failed");
                 if tell {
                     butterpollo_windows::tray::notify(
@@ -154,6 +138,28 @@ pub fn trigger_update(h: &Shared, tell: bool) {
             }
         }
     });
+}
+/// Note the outcome of a release check in the update state.
+fn record_check(state: &mut Value, result: &Result<Vec<Value>>) {
+    state["checking"] = json!(false);
+    state["checked_at"] = json!(now());
+    state["check_failed"] = json!(result.is_err());
+    // Consecutive failures drive the retry back-off; a success resets them.
+    let failures = if result.is_err() {
+        state["check_failures"]
+            .as_u64()
+            .unwrap_or(0)
+            .saturating_add(1)
+    } else {
+        0
+    };
+    state["check_failures"] = json!(failures);
+    state["check_error"] = match result {
+        Ok(_) => Value::Null,
+        // The chain names the cause (DNS, timeout, TLS); the top message
+        // alone is "error sending request".
+        Err(error) => json!(format!("{error:#}")),
+    };
 }
 /// Tell the user about a new version once, as Vibepollo does; false when
 /// it was told before.
@@ -449,6 +455,29 @@ pub fn integration_status(h: &Shared) -> Value {
 mod tests {
     use super::*;
     use butterpollo_core::config::Config;
+
+    #[test]
+    fn consecutive_failed_checks_are_counted_and_a_success_resets_them() {
+        let mut state = json!({"checking":true,"check_failed":false,"releases":[]});
+        let failed: Result<Vec<Value>> =
+            Err(anyhow::anyhow!("connection refused")).context("error sending request");
+        record_check(&mut state, &failed);
+        assert_eq!(state["check_failures"], 1);
+        record_check(&mut state, &failed);
+        assert_eq!(state["check_failures"], 2);
+        assert_eq!(state["check_failed"], true);
+        assert_eq!(state["checking"], false);
+        assert!(state["checked_at"].as_u64().unwrap() > 0);
+        // The cause is kept, not just the top message.
+        assert_eq!(
+            state["check_error"],
+            "error sending request: connection refused"
+        );
+        record_check(&mut state, &Ok(Vec::new()));
+        assert_eq!(state["check_failures"], 0);
+        assert_eq!(state["check_failed"], false);
+        assert!(state["check_error"].is_null());
+    }
 
     #[test]
     fn release_metadata_keeps_notes_and_verified_installer_fields() {

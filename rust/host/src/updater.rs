@@ -157,6 +157,8 @@ pub fn status(h: &Shared) -> Value {
 
 /// The floor for the update check interval, as the console enforces it.
 const MIN_CHECK_INTERVAL: i64 = 3600;
+/// How far the clock may step back (time sync) before it counts as set back.
+const CLOCK_SLACK: u64 = 300;
 /// After a failed check (typically the network is not back yet after the PC
 /// woke from sleep) try again soon, not after a whole interval; repeated
 /// failures back off (2 min, 4, 8, ...) up to the interval.
@@ -175,8 +177,9 @@ pub fn next_check_at(interval: i64, checked_at: u64, failures: u64, now: u64) ->
     if interval <= 0 {
         return None;
     }
-    // Never checked, or the clock was set back past the last check.
-    if checked_at == 0 || checked_at > now {
+    // Never checked, or the clock was set back well past the last check; a
+    // step of a few minutes (time sync) must not trigger a check.
+    if checked_at == 0 || checked_at > now + CLOCK_SLACK {
         return Some(0);
     }
     let interval = interval.max(MIN_CHECK_INTERVAL) as u64;
@@ -198,10 +201,7 @@ fn next_check(h: &Shared) -> Option<u64> {
     next_check_at(
         interval,
         state["checked_at"].as_u64().unwrap_or(0),
-        // Older state files only carry the flag.
-        state["check_failures"]
-            .as_u64()
-            .unwrap_or(u64::from(state["check_failed"] == true)),
+        state["check_failures"].as_u64().unwrap_or(0),
         now(),
     )
 }
@@ -792,6 +792,13 @@ mod tests {
         assert!(next_check_at(day, t - 3 * 86400, 0, t).unwrap() <= t);
         // A clock set back must not postpone the check by the difference.
         assert_eq!(next_check_at(day, t + 5000, 0, t), Some(0));
+        // A step of a second or two (time sync) is not a clock set back.
+        assert_eq!(next_check_at(day, t + 1, 0, t), Some(t + 1 + day as u64));
+        assert_eq!(
+            next_check_at(day, t + 300, 0, t),
+            Some(t + 300 + day as u64)
+        );
+        assert_eq!(next_check_at(day, t + 301, 0, t), Some(0));
         // A failed check (network not back after sleep) is retried within
         // minutes, not after a whole interval.
         let retry = next_check_at(day, t - 10, 1, t).unwrap();
@@ -839,7 +846,7 @@ mod tests {
         // minutes ago is retried even with a daily interval.
         set_interval(h, "86400");
         *h.updates.lock().unwrap() =
-            json!({"checking":false,"check_failed":true,"checked_at":t - 10});
+            json!({"checking":false,"check_failed":true,"check_failures":1,"checked_at":t - 10});
         assert!(!check_due(h));
         h.updates.lock().unwrap()["checked_at"] = json!(t - 600);
         assert!(check_due(h));

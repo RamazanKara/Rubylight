@@ -371,6 +371,7 @@
       "issue": 23,
       "added": "2026-10-23",
       "name": "OPPO Reno 10 Pro+",
+      "note": "Slower than the Snapdragon 870 phone (#25); being looked into.",
       "results": {
         "format": "nightjar-device-results",
         "version": 1,
@@ -580,6 +581,7 @@
       "issue": 26,
       "added": "2026-10-24",
       "name": "Samsung Galaxy A37",
+      "note": "No change from 0.8.0. 3.1.0 sends more Exynos keys; retest pending.",
       "results": {
         "format": "nightjar-device-results",
         "version": 1,

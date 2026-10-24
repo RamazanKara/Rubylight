@@ -3,10 +3,15 @@
 // documented fields are published.
 //
 //   node scripts/add-device-results.mjs <results.txt | -> --issue <number> [--name "Device name"]
-//       [--data site/data/device-results.json] [--date YYYY-MM-DD] [--dry-run]
+//       [--data site/data/device-results.json] [--docs docs/devices.md] [--replace]
+//       [--date YYYY-MM-DD] [--dry-run]
+// --docs also regenerates the measured table in that file; --replace updates an issue that is
+// already in the table instead of failing. The Device results workflow
+// (.github/workflows/device-results.yml) does this automatically; this is the manual fallback.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { applyToDocs } from './device-docs.mjs';
 
 export const FORMAT = 'nightjar-device-results';
 export const VERSION = 1;
@@ -192,7 +197,20 @@ export function emptyTable() {
 }
 
 /** Adds validated results to the table data; throws on duplicates or a bad name, issue or date. */
-export function addEntry(table, results, { issue, name, added }) {
+export function addEntry(table, results, args) {
+  upsertEntry(table, results, args, false);
+  return table;
+}
+
+/**
+ * Like addEntry, but an issue that is already in the table has its name and results replaced
+ * (the original `added` date stays). Returns 'added', 'updated' or 'unchanged'.
+ */
+export function replaceEntry(table, results, args) {
+  return upsertEntry(table, results, args, true);
+}
+
+function upsertEntry(table, results, { issue, name, added }, replace) {
   if (!isObject(table) || table.format !== TABLE_FORMAT || table.version !== 1 || !Array.isArray(table.entries)) {
     throw new Error('the data file is not a ' + TABLE_FORMAT + ' version 1 file');
   }
@@ -204,11 +222,20 @@ export function addEntry(table, results, { issue, name, added }) {
     const problems = label ? textProblems(label) : ['empty'];
     if (problems.length) throw new Error('--name: ' + problems.join(', '));
   }
-  if (table.entries.some(entry => entry.issue === issue)) throw new Error('issue #' + issue + ' is already in the table');
+  const existing = table.entries.find(entry => entry.issue === issue);
+  if (existing && !replace) throw new Error('issue #' + issue + ' is already in the table');
   const same = JSON.stringify(results);
-  if (table.entries.some(entry => JSON.stringify(entry.results) === same)) throw new Error('these exact results are already in the table');
-  table.entries.push({ issue, added, name: label, results });
-  return table;
+  if (table.entries.some(entry => entry !== existing && JSON.stringify(entry.results) === same)) {
+    throw new Error('these exact results are already in the table' + (existing ? ' under another issue' : ''));
+  }
+  if (!existing) {
+    table.entries.push({ issue, added, name: label, results });
+    return 'added';
+  }
+  if (JSON.stringify(existing.results) === same && (existing.name ?? null) === (label ?? existing.name ?? null)) return 'unchanged';
+  if (label !== null) existing.name = label;
+  existing.results = results;
+  return 'updated';
 }
 
 function options(args) {
@@ -219,11 +246,13 @@ function options(args) {
     else if (arg === '--name') parsed.name = args[++i];
     else if (arg === '--data') parsed.data = args[++i];
     else if (arg === '--date') parsed.added = args[++i];
+    else if (arg === '--docs') parsed.docs = args[++i];
+    else if (arg === '--replace') parsed.replace = true;
     else if (arg === '--dry-run') parsed.dryRun = true;
     else if (parsed.input === undefined) parsed.input = arg;
     else throw new Error('unexpected argument ' + arg);
   }
-  if (parsed.input === undefined) throw new Error('usage: add-device-results.mjs <results.txt | -> --issue <number> [--name "Device name"] [--data file] [--date YYYY-MM-DD] [--dry-run]');
+  if (parsed.input === undefined) throw new Error('usage: add-device-results.mjs <results.txt | -> --issue <number> [--name "Device name"] [--data file] [--docs docs/devices.md] [--replace] [--date YYYY-MM-DD] [--dry-run]');
   return parsed;
 }
 
@@ -234,13 +263,17 @@ export function main(args, root = process.cwd()) {
   for (const field of dropped) console.warn('Dropped unknown field ' + field);
   if (errors.length) throw new Error('the results do not pass the checks:\n  ' + errors.join('\n  '));
   const dataFile = resolve(root, opts.data);
-  const table = addEntry(JSON.parse(readFileSync(dataFile, 'utf8')), results, opts);
+  const table = JSON.parse(readFileSync(dataFile, 'utf8'));
+  const action = opts.replace ? replaceEntry(table, results, opts) : (addEntry(table, results, opts), 'added');
   const output = JSON.stringify(table, null, 2) + '\n';
+  const docsFile = opts.docs ? resolve(root, opts.docs) : null;
+  const docs = docsFile ? applyToDocs(readFileSync(docsFile, 'utf8'), table) : null;
   if (opts.dryRun) {
-    process.stdout.write(JSON.stringify(table.entries[table.entries.length - 1], null, 2) + '\n');
+    process.stdout.write(JSON.stringify(table.entries.find(entry => entry.issue === opts.issue), null, 2) + '\n');
   } else {
     writeFileSync(dataFile, output);
-    console.log('Added issue #' + opts.issue + ' to ' + opts.data + ' (' + table.entries.length + ' entries).');
+    if (docsFile) writeFileSync(docsFile, docs);
+    console.log(action[0].toUpperCase() + action.slice(1) + ' issue #' + opts.issue + ' in ' + opts.data + ' (' + table.entries.length + ' entries).');
   }
   return table;
 }

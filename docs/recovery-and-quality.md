@@ -18,7 +18,7 @@ Android 0.4.9 preserves microphone mute for the current session through automati
 
 ## Choosing automatic quality
 
-**Settings → Video → Also lower resolution or frame rate**, under Automatic bitrate, is off by default. Choose the mode, then the minimum short edge and FPS, which appear once it is on. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.
+**Settings → Video → Lower resolution or frame rate when needed**, next to Automatic bitrate, is off by default. Choose the mode, then the minimum short edge and FPS, which appear once it is on. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.
 
 | Mode | Behavior |
 | --- | --- |

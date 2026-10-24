@@ -97,7 +97,7 @@ Choose **Settings → Display & image → Client-side upscaling** or override it
 | Off (default) | Direct output without FSR/SGSR reconstruction. |
 | Smooth | Bilinear scaling through GLES for MediaCodec or Vulkan for PyroWave. |
 | Sharp (FSR) | AMD FSR 1.0: EASU reconstruction followed by RCAS sharpening. |
-| Sharp, Snapdragon (SGSR) | Qualcomm SGSR 1:'s single-pass spatial reconstruction. |
+| Sharp, Snapdragon (SGSR) | Qualcomm SGSR 1: single-pass spatial reconstruction. |
 
 MediaCodec GPU upscaling requires lower-resolution SDR video, GLES 3.0 and the required external-image support. Native/larger input, HDR and 10-bit use direct output. Under GPU overload or after a resize, this path switches to direct output for the rest of the session; reconnect to retry.
 

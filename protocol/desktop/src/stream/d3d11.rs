@@ -185,8 +185,10 @@ impl PlanesPass {
         // Noted before the draw is queued, so a decode that starts while it is recorded waits for it.
         pin.read_until(value);
         let planes = pin.planes().clone();
-        self.record(&planes, pin.set(), fence_value, parameters, deadline, Some(rows))?;
-        self.signal(&planes, value)
+        let recorded = self.record(&planes, pin.set(), fence_value, parameters, deadline, Some(rows));
+        // Signalled also when the draw was not recorded: the value is noted, and a decode into the
+        // set waits for it.
+        after_slice_draw(recorded, || self.signal(&planes, value))
     }
 
     fn signal(&self, planes: &Planes, value: u64) -> Result<(), String> {
@@ -202,7 +204,6 @@ impl PlanesPass {
         self.retarget(planes);
         fence_ready_within(planes.decode_fence(), fence_value, deadline)?;
         let views = self.views(planes, set).map_err(|e| format!("cannot read the PyroWave planes: {e}"))?;
-        let (top, bottom) = rows.map_or((0, self.size.1), |(first, end)| (first.min(self.size.1), end.min(self.size.1)));
         // SAFETY: The immediate context belongs to this (the presenting) thread; the deferred
         // context records the draw so SDL's cached immediate-context state is restored.
         unsafe {
@@ -211,8 +212,13 @@ impl PlanesPass {
             c.ClearState();
             c.UpdateSubresource(self.constants[0].as_ref().unwrap(), 0, None, parameters.as_ptr().cast(), 0, 0);
             c.OMSetRenderTargets(Some(&self.target), None);
-            c.RSSetState(&self.raster);
-            c.RSSetScissorRects(Some(&[windows::Win32::Foundation::RECT { left: 0, top: top as i32, right: self.size.0 as i32, bottom: bottom as i32 }]));
+            // A whole picture draws with the default state `ClearState` left (no scissor); only a
+            // slice scissors to its rows.
+            if let Some((first, end)) = rows {
+                let (top, bottom) = (first.min(self.size.1), end.min(self.size.1));
+                c.RSSetState(&self.raster);
+                c.RSSetScissorRects(Some(&[windows::Win32::Foundation::RECT { left: 0, top: top as i32, right: self.size.0 as i32, bottom: bottom as i32 }]));
+            }
             c.RSSetViewports(Some(&[D3D11_VIEWPORT { Width: self.size.0 as f32, Height: self.size.1 as f32,
                 MinDepth: 0.0, MaxDepth: 1.0, ..Default::default() }]));
             c.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -236,6 +242,13 @@ pub(crate) fn hand_back(lease: &Lease, value: u64, signal: impl FnOnce() -> Resu
     let signalled = signal();
     lease.release_after(value);
     signalled
+}
+
+/// The end of a slice's draw: the reuse fence is signalled whether or not the draw was recorded,
+/// and the error of the draw, if any, is the one reported.
+pub(crate) fn after_slice_draw(recorded: Result<(), String>, signal: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    let signalled = signal();
+    recorded.and(signalled)
 }
 
 pub struct Packed {
@@ -467,5 +480,24 @@ impl Packed {
                 .ExecuteCommandList(commands.as_ref().unwrap(), true);
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::after_slice_draw;
+    use std::cell::Cell;
+
+    #[test]
+    fn a_slice_draw_that_was_not_recorded_still_signals_the_reuse_fence() {
+        let signals = Cell::new(0);
+        let signal = || { signals.set(signals.get() + 1); Ok(()) };
+        let result = after_slice_draw(Err("cannot read the PyroWave planes".into()), signal);
+        assert_eq!(signals.get(), 1, "a decode into the set waits for the value the slice noted");
+        assert_eq!(result.unwrap_err(), "cannot read the PyroWave planes", "and the draw's error is the one reported");
+        assert!(after_slice_draw(Ok(()), signal).is_ok());
+        assert_eq!(signals.get(), 2);
+        let result = after_slice_draw(Ok(()), || Err("device removed".into()));
+        assert_eq!(result.unwrap_err(), "device removed");
     }
 }

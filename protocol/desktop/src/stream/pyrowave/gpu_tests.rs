@@ -255,6 +255,30 @@ fn frame_picture(rig: &Rig, gpu: &mut Pyrowave, packets: &[(u32, Vec<u8>)], earl
     (present(rig, &mut texture, &decoded(output, setup)), source)
 }
 
+/// With the beam race off the stream decodes early chunks as before: no slice is decoded, queued
+/// or handed over, the frame carries no slice data, and the plane set's reuse wait is not consulted.
+#[test]
+#[ignore = "needs the PyroWave SDK, a GPU and a display"]
+fn gpu_early_chunks_with_the_beam_race_off_decode_no_slices() {
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    let case = fixture_case(0);
+    let packets = host_packets(&bitstream(case.bin));
+    let mut gpu = gpu_decoder(&rig, &case, 2);
+    for round in 0..2 {
+        for (i, (flags, payload)) in packets.iter().enumerate() {
+            gpu.chunk(i == 0, *flags, payload);
+            assert!(gpu.take_slices().is_empty(), "round {round}: a slice was queued by chunk {i}");
+        }
+        let output = gpu.frame(&envelope(&packets), &mut || false).unwrap_or_else(|e| panic!("GPU decode: {e:?}"));
+        assert_eq!(gpu.source(), Source::Early, "round {round}: the chunks were decoded ahead");
+        assert!(output.bands.is_empty() && output.race_seq == 0, "round {round}: the frame carries slice data");
+        assert_eq!(output.race.slices, 0);
+    }
+    let Pyrowave::Gpu(stream) = &gpu else { unreachable!() };
+    assert!(stream.race.is_none(), "no race state was ever created");
+}
+
 #[test]
 #[ignore = "needs the PyroWave SDK, a GPU and a display"]
 fn gpu_early_chunks_give_the_whole_frames_picture_with_and_without_lost_packets() {

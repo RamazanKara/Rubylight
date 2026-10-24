@@ -914,7 +914,15 @@ impl GpuStream {
             }
         }
         let Some((lease, after)) = &race.lease else { return };
-        // The slices already drawn from the set (by the presenter) are waited for as well.
+        // The slices already drawn from the set (by the presenter) are waited for as well. A slice
+        // that is ready but not drawn yet is not: this decode rewrites its rows while the draw may read
+        // them. That is safe because the rewrite is the same bytes. A slice's rows depend only on
+        // the records of the steps it was cut at, all of which this prefix has, so every decode of
+        // the frame from that slice on gives those rows the final decode's values (the ignored GPU
+        // test `a_slice_decode_is_exact_on_its_rows_on_real_row_ordered_frames` holds each slice
+        // to them); the SDK's output planes are written by its last inverse wavelet pass (not
+        // checked beyond that test, so a bit-exact rewrite is what this relies on). The rows
+        // below the slice, which this decode does change, are outside the draw's scissor.
         let wait = (*after).max(planes.wait_for(lease.set()));
         match gpu.decode(lease.set(), wait).and_then(|fence| gpu.wait(fence, GPU_DECODE_TIMEOUT).map(|()| fence)) {
             Ok(fence_value) => {
@@ -995,8 +1003,8 @@ impl GpuStream {
         let step = Instant::now();
         #[cfg(windows)]
         let fence_value = {
-            // Draws of the frame's slices from this set come first.
-            let after = after.max(self.planes.wait_for(lease.set()));
+            // Draws of the frame's slices from this set come first (none without the race).
+            let after = if self.race.is_some() { after.max(self.planes.wait_for(lease.set())) } else { after };
             let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
             self.stages.add(GPU_SUBMIT, step);
             let step = Instant::now();

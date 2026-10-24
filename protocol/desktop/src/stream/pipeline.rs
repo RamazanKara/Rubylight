@@ -742,6 +742,22 @@ mod tests {
     }
 
     #[test]
+    fn chunks_through_a_decoder_with_the_beam_race_off_queue_no_slice_and_wake_nobody() {
+        let woken = Arc::new(AtomicU64::new(0));
+        let counter = woken.clone();
+        let shared = Shared::new(Arc::new(move || { counter.fetch_add(1, Ordering::Relaxed); }), 8);
+        let mut decoder = Decoder::new(shared.clone(), Hardware::None).with_early_decode(true);
+        decoder.pyrowave = Some(super::super::pyrowave::Pyrowave::cpu(256, 128, false).expect("the CPU decoder"));
+        let packet = [0u8; 64];
+        for n in 0..8 {
+            decoder.chunk(n == 0, 0, &packet);
+        }
+        assert!(lock(&shared.slices).is_empty(), "no slice is queued for the presenter");
+        assert_eq!(woken.load(Ordering::Relaxed), 0, "and the presenter is not woken for one");
+        assert!(decoder.pyrowave.as_mut().unwrap().take_slices().is_empty());
+    }
+
+    #[test]
     fn a_gpu_device_failure_ends_the_stream_with_its_message() {
         let (mut decoder, shared) = decoder();
         let status = decoder.failed(Failure::Device("PyroWave GPU decode failed: device removed".into()));

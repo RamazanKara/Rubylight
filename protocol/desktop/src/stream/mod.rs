@@ -522,23 +522,51 @@ fn race_request(beam: BeamRace, early_setting: bool, height: u32) -> RaceRequest
     RaceRequest { row_order: on, early_decode: early_setting || on, slices: if on { beam_slices(height) } else { 0 } }
 }
 
+/// Whether the race runs on the stream (the presenter probes the display, follows the slices and
+/// races them): slices were asked for, and early decode has the records they come from. This is
+/// the one bool the presenter checks; false makes it all a no-op.
+fn race_runs(slices: u32, early: EarlyState) -> bool {
+    slices > 0 && early == EarlyState::On
+}
+
 const BEAM_RACE_NO_GPU: &str = "nightjar: beam race is on but PyroWave is decoded on the CPU, so the host is not asked \
     for the row order and frames are decoded whole";
 
 const BEAM_RACE_NOT_WIRED: &str = "nightjar: beam race is on but the link is not a known wired one, so the host is not asked \
     for the row order and frames are decoded whole";
 
-/// The setting, unless `NIGHTJAR_BEAM_RACE` is `1` (on, whatever the link; for measurement
-/// runs) or `0`. Needs the GPU decoder whatever asked.
-fn beam_race(setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
-    beam_race_for(std::env::var("NIGHTJAR_BEAM_RACE").ok().as_deref(), setting, link_mbps, gpu_decoder)
+/// An on or off switch in an environment variable: `1`, `true`, `yes` or `on`, and `0`, `false`,
+/// `no` or `off` (any case). Anything else is not a switch.
+fn flag_value(text: &str) -> Option<bool> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
-fn beam_race_for(forced: Option<&str>, setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
+/// The switch `name` names, if it is set. A value that is not a switch is said so on stderr and
+/// ignored, never taken as on or off.
+fn env_flag(name: &str) -> Option<bool> {
+    let text = std::env::var(name).ok()?;
+    let value = flag_value(&text);
+    if value.is_none() {
+        eprintln!("nightjar: {name}={text:?} is not 1, true, yes, on, 0, false, no or off, so it is ignored");
+    }
+    value
+}
+
+/// The setting, unless `NIGHTJAR_BEAM_RACE` says on (whatever the link; for measurement runs) or
+/// off. Needs the GPU decoder whatever asked.
+fn beam_race(setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
+    beam_race_for(env_flag("NIGHTJAR_BEAM_RACE"), setting, link_mbps, gpu_decoder)
+}
+
+fn beam_race_for(forced: Option<bool>, setting: bool, link_mbps: u32, gpu_decoder: bool) -> BeamRace {
     match forced {
-        Some("0") => BeamRace::Off,
-        Some("1") if gpu_decoder => BeamRace::On,
-        Some("1") => BeamRace::NoGpuDecoder,
+        Some(false) => BeamRace::Off,
+        Some(true) if gpu_decoder => BeamRace::On,
+        Some(true) => BeamRace::NoGpuDecoder,
         _ if !setting => BeamRace::Off,
         _ if !gpu_decoder => BeamRace::NoGpuDecoder,
         _ if link_mbps == 0 => BeamRace::NotWired,
@@ -546,17 +574,36 @@ fn beam_race_for(forced: Option<&str>, setting: bool, link_mbps: u32, gpu_decode
     }
 }
 
+/// Most slices per frame: a frame has a present for each batch of slices and one for the picture,
+/// and the timing CSV has room for `PRESENTS` of them.
+const MAX_RACE_SLICES: u32 = crate::timing_csv::PRESENTS as u32 - 1;
+
 /// Slices per frame: 4, or 3 at 4K where each slice decode costs more (`NIGHTJAR_BEAM_RACE_SLICES`
-/// overrides, for measurement runs).
+/// overrides, for measurement runs, up to `MAX_RACE_SLICES`).
 fn beam_slices(height: u32) -> u32 {
-    std::env::var("NIGHTJAR_BEAM_RACE_SLICES").ok().and_then(|v| v.parse().ok()).filter(|n| (1..=16).contains(n))
-        .unwrap_or(if height >= 2000 { 3 } else { 4 })
+    let default = if height >= 2000 { 3 } else { 4 };
+    match std::env::var("NIGHTJAR_BEAM_RACE_SLICES") {
+        Ok(text) => slices_override(&text).unwrap_or_else(|| {
+            eprintln!("nightjar: NIGHTJAR_BEAM_RACE_SLICES={text:?} is not a number from 1 to {MAX_RACE_SLICES}, so {default} slices are used");
+            default
+        }),
+        Err(_) => default,
+    }
+}
+
+fn slices_override(text: &str) -> Option<u32> {
+    text.trim().parse().ok().filter(|n| (1..=MAX_RACE_SLICES).contains(n))
 }
 
 /// A network hint the stream sends the host, unless the variable names another value (measurement
-/// runs on loopback, where the real link is not the one under test).
+/// runs on loopback, where the real link is not the one under test). A value that is not a number
+/// is said so on stderr and ignored.
 fn hint_override(name: &str, value: u32) -> u32 {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(value)
+    let Ok(text) = std::env::var(name) else { return value };
+    text.trim().parse().unwrap_or_else(|_| {
+        eprintln!("nightjar: {name}={text:?} is not a number, so it is ignored");
+        value
+    })
 }
 
 /// `Auto` (moonlight-common-c's choice from the address), unless `NIGHTJAR_STREAM_LOCATION` is
@@ -763,8 +810,8 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         beam_race_off: beam.reason(),
         race_slices: slices,
         pace_mbps,
-        beam_race: slices > 0 && early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
-            outcome.pyrowave_records_enabled) == EarlyState::On,
+        beam_race: race_runs(slices, early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
+            outcome.pyrowave_records_enabled)),
         app_name: plan.app.name.clone(),
         host_name: plan.host_name.clone(),
     };
@@ -1043,7 +1090,7 @@ impl Streaming {
             predictor: None,
             latency: race::Latency::default(),
             race_margin_ms: hint_override("NIGHTJAR_BEAM_RACE_MARGIN_MS", settings.beam_race_margin_ms),
-            race_present: std::env::var("NIGHTJAR_BEAM_RACE_PRESENT").as_deref() != Ok("0"),
+            race_present: env_flag("NIGHTJAR_BEAM_RACE_PRESENT").unwrap_or(true),
             race_setup: None,
             overlay_visible: settings.overlay,
             overlay: Overlay::default(),
@@ -1673,7 +1720,8 @@ impl Streaming {
         }
         // Frames first: the slices of every frame taken here were queued before the frame was.
         let frames: Vec<_> = lock(&self.shared.frames).drain(..).collect();
-        let slices: Vec<_> = lock(&self.shared.slices).drain(..).collect();
+        // With the race off nothing queues a slice, and nothing here takes the lock.
+        let slices: Vec<_> = if self.facts.beam_race { lock(&self.shared.slices).drain(..).collect() } else { Vec::new() };
         for decoded in frames {
             if decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 { self.race_setup = Some(decoded.setup); }
             if let Some(frame) = decoded.picture.frame().filter(|_| decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0) {
@@ -1747,6 +1795,8 @@ impl Streaming {
             }
             (PacingMode::BeamRace, false) => {
                 self.pacer.mode = PacingMode::Immediate;
+                // The slices it held let go of their plane sets now, not at the next frame.
+                self.racer.reset();
                 eprintln!("nightjar: beam race: the display no longer allows racing, presenting whole pictures");
             }
             _ => {}
@@ -1867,7 +1917,13 @@ impl Streaming {
         // The slices of a frame still being received go out ahead of the beam.
         let sliced = self.present_slices(renderer, &mut draw_overlay, session::now_us());
         let now = session::now_us();
-        let (picture, dropped) = self.pacer.take_due(now);
+        let (picture, mut dropped) = self.pacer.take_due(now);
+        // A newer frame's slices are on the screen: this older picture would step it back a frame.
+        let picture = picture.filter(|p| {
+            let older = self.racer.newer_on_screen(p.decoded.race_seq);
+            dropped += u32::from(older);
+            !older
+        });
         self.window.dropped_pacing += dropped;
         self.shared.counters.replaced.fetch_add(u64::from(dropped), Ordering::Relaxed);
         let has_picture = picture.is_some();
@@ -1968,10 +2024,11 @@ impl Streaming {
         // The picture's own present costs what a slice's does, whether or not the frame was raced.
         self.latency.record_call(issued_us, returned_us, returned_us);
         if let (true, Some(scan)) = (raced, self.race_scan) {
-            self.racer.presented(issued_us, &scan);
-            let record = self.racer.done();
-            timeline.late_slices = Some(record.late);
-            presents = record.presents_us;
+            // Only the frame the racer follows: a picture of an older frame closes nothing.
+            if let Some(record) = self.racer.close(decoded.race_seq, issued_us, &scan) {
+                timeline.late_slices = Some(record.late);
+                presents = record.presents_us;
+            }
         }
         timeline.set_presents(&presents);
         if let Some(scan) = self.race_scan {
@@ -2586,13 +2643,25 @@ mod tests {
     fn beam_race_needs_the_gpu_decoder_and_says_why_it_is_off() {
         // The forced value is the measurement override; the GPU decoder is needed either way.
         assert_eq!(beam_race_for(None, true, 1000, false), BeamRace::NoGpuDecoder);
-        assert_eq!(beam_race_for(Some("1"), false, 0, false), BeamRace::NoGpuDecoder);
-        assert_eq!(beam_race_for(Some("1"), false, 0, true), BeamRace::On);
-        assert_eq!(beam_race_for(Some("0"), true, 1000, true), BeamRace::Off);
+        assert_eq!(beam_race_for(Some(true), false, 0, false), BeamRace::NoGpuDecoder);
+        assert_eq!(beam_race_for(Some(true), false, 0, true), BeamRace::On);
+        assert_eq!(beam_race_for(Some(false), true, 1000, true), BeamRace::Off);
         assert_eq!(beam_race_for(None, false, 1000, false), BeamRace::Off, "the setting off says nothing");
         assert!(BeamRace::NoGpuDecoder.reason().unwrap().contains("CPU"));
         assert!(BeamRace::NotWired.reason().unwrap().contains("wired"));
         assert_eq!((BeamRace::On.reason(), BeamRace::Off.reason()), (None, None));
+    }
+
+    #[test]
+    fn the_environment_switches_take_a_few_spellings_and_refuse_the_rest() {
+        for on in ["1", "true", "TRUE", "yes", "On", " 1 "] { assert_eq!(flag_value(on), Some(true), "{on:?}"); }
+        for off in ["0", "false", "No", "OFF"] { assert_eq!(flag_value(off), Some(false), "{off:?}"); }
+        // Not a switch: said on stderr by `env_flag` and ignored, so the setting decides.
+        for junk in ["", "2", "ture", "enable", "1 0"] { assert_eq!(flag_value(junk), None, "{junk:?}"); }
+        assert_eq!(slices_override("4"), Some(4));
+        assert_eq!(slices_override("7"), Some(MAX_RACE_SLICES));
+        for bad in ["0", "8", "16", "four", "-1", ""] { assert_eq!(slices_override(bad), None, "{bad:?}"); }
+        assert_eq!(beam_race_for(None, false, 1000, true), BeamRace::Off, "a refused value leaves the setting in charge");
     }
 
     #[test]
@@ -2604,6 +2673,11 @@ mod tests {
                 assert_eq!(race_request(beam, early, 1080), RaceRequest { row_order: false, early_decode: early, slices: 0 }, "{beam:?}");
             }
         }
+        for early in [EarlyState::Off, EarlyState::On, EarlyState::NoRecords] {
+            assert!(!race_runs(0, early), "no slices asked for: the presenter never probes or follows a slice ({early:?})");
+        }
+        assert!(race_runs(4, EarlyState::On));
+        assert!(!race_runs(4, EarlyState::NoRecords), "asked for, but the host sends no records to slice");
         let on = race_request(BeamRace::On, false, 1080);
         assert!(on.row_order && on.early_decode && on.slices > 0, "on asks for all of it: {on:?}");
         // The default settings never turn it on, on any link.

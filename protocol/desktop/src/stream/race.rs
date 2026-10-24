@@ -396,12 +396,14 @@ pub struct Racer<T> {
     last_scan_end_us: u64,
     ready: Vec<BandReady>,
     record: Record,
+    /// The newest frame with rows on the screen from a present of the racer (0 before the first).
+    shown_seq: u64,
     pub totals: Totals,
 }
 
 impl<T> Default for Racer<T> {
     fn default() -> Self {
-        Self { seq: 0, state: State::Fresh, queued: Vec::new(), covered: 0, plan: None, start_us: 0, due_start_us: 0, last_scan_end_us: 0, ready: Vec::new(), record: Record::default(), totals: Totals::default() }
+        Self { seq: 0, state: State::Fresh, queued: Vec::new(), covered: 0, plan: None, start_us: 0, due_start_us: 0, last_scan_end_us: 0, ready: Vec::new(), record: Record::default(), shown_seq: 0, totals: Totals::default() }
     }
 }
 
@@ -501,8 +503,37 @@ impl<T> Racer<T> {
         ready_us.max(self.due_start_us)
     }
 
+    /// Whether rows of a frame newer than `seq` are on the screen: a picture of `seq` (0 for a frame
+    /// that was not sliced, which says nothing of its age) shown now would step the image back.
+    pub fn newer_on_screen(&self, seq: u64) -> bool {
+        seq != 0 && seq < self.shown_seq
+    }
+
+    /// Lets go of the frame in flight (the slices it holds) and waits for the next. The frame's
+    /// older slices stay dropped; the totals stay.
+    pub fn reset(&mut self) {
+        if matches!(self.state, State::Waiting | State::Scanning | State::Held) { self.totals.abandoned += 1; }
+        self.state = State::Fresh;
+        self.plan = None;
+        self.queued.clear();
+        self.covered = 0;
+        self.start_us = 0;
+        self.due_start_us = 0;
+        self.ready.clear();
+        self.record = Record::default();
+    }
+
+    /// The picture of frame `seq` is on the screen, presented at `issued_us`: closes the frame the
+    /// racer follows and returns its record. A picture of any other frame closes nothing.
+    pub fn close(&mut self, seq: u64, issued_us: u64, scan: &Scan) -> Option<Record> {
+        if seq != self.seq { return None; }
+        self.presented(issued_us, scan);
+        Some(self.done())
+    }
+
     /// A present of the frame was issued and returned.
     pub fn presented(&mut self, issued_us: u64, scan: &Scan) {
+        self.shown_seq = self.shown_seq.max(self.seq);
         self.record.presents_us.push(issued_us);
         if self.record.presents_us.len() == 1 { self.last_scan_end_us = scan.ends_us(issued_us); }
     }
@@ -887,6 +918,53 @@ mod tests {
         let early = frame(start + 500, 12_000);
         racer.observe(2, early[0], 0, start + 600, &scan, &predictor, &latency, 1100);
         if let Some(due) = racer.due_us() { assert!(due >= scan.ends_us(start), "the scan has not ended: {due}"); }
+    }
+
+    #[test]
+    fn a_picture_of_an_older_frame_does_not_step_the_image_back_or_close_the_newer_frame() {
+        let (scan, latency) = (scan(), quiet());
+        let predictor = learned(12_000);
+        let mut racer = Racer::<u8>::default();
+        let (older, newer) = (frame(50_000, 12_000), frame(66_000, 12_000));
+        racer.observe(1, older[0], 0, 50_100, &scan, &predictor, &latency, 1100);
+        // The slices of frame 2 arrive and are presented before the final decode of frame 1 is shown.
+        racer.observe(2, newer[0], 1, 66_100, &scan, &predictor, &latency, 1100);
+        assert!(!racer.newer_on_screen(1), "queued is not on the screen yet");
+        let start = racer.due_us().unwrap();
+        assert_eq!(racer.take(start).len(), 1);
+        racer.presented(start, &scan);
+        assert!(racer.newer_on_screen(1), "slices of frame 2 are on the screen: frame 1's picture is dropped");
+        assert!(!racer.newer_on_screen(2) && !racer.newer_on_screen(3), "the frame itself and newer ones are shown");
+        assert!(!racer.newer_on_screen(0), "a picture that was not sliced says nothing of its age");
+        // Were it shown anyway, it must not close frame 2.
+        assert_eq!(racer.close(1, start + 50, &scan), None);
+        assert_eq!(racer.finish(1, 810, start + 60, &scan, &latency), Final::Whole);
+        racer.observe(2, newer[1], 2, start + 200, &scan, &predictor, &latency, 1100);
+        assert_eq!(racer.take(start + 200).len(), 1, "frame 2 goes on");
+        let record = racer.close(2, start + 900, &scan).expect("frame 2's picture closes it");
+        assert!(record.raced);
+        assert!(racer.newer_on_screen(1), "and frame 1 stays behind it");
+        assert_eq!(racer.totals.raced, 1);
+    }
+
+    #[test]
+    fn resetting_the_racer_lets_go_of_the_slices_it_holds() {
+        use std::rc::Rc;
+        let (scan, latency) = (scan(), quiet());
+        let predictor = learned(12_000);
+        let mut racer = Racer::<Rc<()>>::default();
+        let held = Rc::new(());
+        let bands = frame(50_000, 12_000);
+        racer.observe(1, bands[0], held.clone(), 50_100, &scan, &predictor, &latency, 1100);
+        assert_eq!(Rc::strong_count(&held), 2, "the racer holds the slice");
+        racer.reset();
+        assert_eq!(Rc::strong_count(&held), 1, "reset drops it");
+        assert_eq!((racer.due_us(), racer.totals.abandoned), (None, 1));
+        // Slices of the frame it dropped stay dropped, and the next frame starts afresh.
+        racer.observe(1, bands[1], held.clone(), 51_000, &scan, &predictor, &latency, 1100);
+        assert_eq!(Rc::strong_count(&held), 1);
+        racer.observe(2, bands[0], held.clone(), 70_000, &scan, &predictor, &latency, 1100);
+        assert!(racer.due_us().is_some());
     }
 
     #[test]

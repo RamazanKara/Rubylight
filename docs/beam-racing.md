@@ -3,7 +3,7 @@
 Experimental and opt-in. It missed its default-on gate on loopback (the numbers and the decision are
 in [pyrowave-decode.md](pyrowave-decode.md#beam-racing-measured-opt-in-helps-the-median-at-low-pace-not-p95-worse-receive_to_present-at-high-pace));
 the wired NUC legs are untested. Turn it on with the `beam_race` setting or `NIGHTJAR_BEAM_RACE=1`.
-`NIGHTJAR_BEAM_RACE=0` forces it off. `beam_race_margin_ms` (`NIGHTJAR_BEAM_RACE_MARGIN_MS`),
+`NIGHTJAR_BEAM_RACE=0` forces it off. The switches take `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off` in any case; any other value is reported on stderr and ignored, and so is a margin that is not a number. `NIGHTJAR_BEAM_RACE_SLICES` is 1 to 7 (a frame's presents are kept in 8 timing columns). `beam_race_margin_ms` (`NIGHTJAR_BEAM_RACE_MARGIN_MS`),
 `NIGHTJAR_BEAM_RACE_SLICES` and `NIGHTJAR_BEAM_RACE_PRESENT=0` (probe and slices, whole presents) are
 for measurement runs.
 
@@ -189,9 +189,18 @@ above are still there) and presents it.
   whose first slice was not the picture's first, or that was not row ordered, is presented whole with
   the reason on the overlay. The final decode of a raced frame draws only the rows after the last
   slice presented.
-- The decode of a plane set must not overwrite rows a draw still reads: the presenter pins the set
-  of each slice it is handed (`gpu_planes::Pin`), the draw signals the set's reuse fence, and the
-  next decode into the set waits for it (`Planes::wait_for`).
+- The decode of a plane set must not change rows a draw still reads. The presenter pins the set of
+  each slice it is handed (`gpu_planes::Pin`), the draw signals the set's reuse fence, and the next
+  decode into the set (the final one, or the next frame's) waits for the draws issued so far
+  (`Planes::wait_for`). The decode of the next slice into the same set does not wait for a draw not
+  issued yet, and does not need to: it rewrites the earlier slice's rows with the bytes they have
+  already, because those rows depend only on records the earlier prefix had (the exactness test
+  above), and the rows it changes are outside the earlier draw's scissor. With the race off none
+  of this runs: the decode waits for nothing it did not before, and a whole picture draws with the
+  default rasterizer state, no scissor.
+- A picture older than a frame whose slices are on the screen is dropped (counted as replaced), so
+  the image never steps back a frame. Only the frame the racer follows is closed by its picture.
+  When the display stops allowing racing the racer lets go of the slices it holds.
 - The stream rows are the display's rows scaled to the window (`Scan::for_picture`); a letterboxed
   picture adds its top offset to the delay.
 
@@ -226,8 +235,8 @@ The raced frame shows its middle row 0.64 ms (median) earlier, and its last rows
 whole reaches the screen 0.5 ms after a whole-picture present does (the extra slice draws and the
 rows-only final), so the race trades the bottom for the top. At 1080p and pace 900 the slices of a
 frame arrive over 6.5 ms and the scan takes 4.1 ms, which is why the gain is about 1 ms.
-The `SDL_RenderPresent` call is the only present path (raw `Present1(0, ALLOW_TEARING)` on SDL's
-swap chain was not tried; brief 4).
+The `SDL_RenderPresent` call is the only present path. A raw `Present1(0, ALLOW_TEARING)` on SDL's
+swap chain was tried in brief 4 and did not move the numbers (see `pyrowave-decode.md`).
 
 Known limits. A texture re-created or resized between the slices and the final decode leaves the top
 rows black for that frame. The first frame is presented whole (the stream's setup is not known before

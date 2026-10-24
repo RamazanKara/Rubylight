@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0-rc.1 installer is named `rubylight-setup-3.0.0-rc.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Simpler settings in the console.** Clearer names and help (for example "Still-picture resend rate"), fewer settings in the basic view, and the capture troubleshooting settings folded away with a count of the ones you changed. The virtual display default now says that it depends on the Windows version, and Activate a virtual display stays visible while it is on.
+
 ## New in 3.0.0-rc.1
 
 - **A virtual display that Windows lists under another adapter now comes up.** On the Ryzen 7 8845HS laptop (Radeon 780M) Windows lists the virtual display under the render adapter with another target id than the one the driver reports. The host never found it and failed with "Windows kept it switched off" although the display was on. It now finds the display under either adapter, and a display Windows brought up cloned with the laptop panel is moved to a source of its own, so the stream mode never touches the panel; if Windows refuses, the launch fails and says why. The host also follows the display when Windows lists it under a new adapter after switching it off and on. The error now says why switching it on failed. Found by the display self-test; checked with a real stream on that laptop (IDD push capture on the virtual display, panel unchanged).

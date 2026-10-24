@@ -381,6 +381,15 @@ pub struct Totals {
     pub skipped: [u64; 3],
 }
 
+/// The next frame sequence number. It counts across decoders: a rebuilt `GpuStream` (or a new
+/// slice setting) must not restart at 1, because the racer drops slices and pictures that are
+/// older than the newest frame it has seen, and would freeze the video on the restart.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn next_seq() -> u64 {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+}
+
 /// The raced presenter's state for the frame in flight. `T` is what a slice carries to the draw
 /// (the plane set it is read from).
 pub struct Racer<T> {
@@ -586,6 +595,20 @@ impl<T> Racer<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_numbers_only_grow_so_a_rebuilt_decoder_cannot_look_older_than_the_screen() {
+        // Two decoders' frames, interleaved the way a rebuild would: the second never restarts at 1,
+        // which `newer_on_screen` would read as an older picture and drop for ever.
+        let first: Vec<u64> = (0..5).map(|_| next_seq()).collect();
+        let second: Vec<u64> = (0..5).map(|_| next_seq()).collect();
+        assert!(first.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(first.last() < second.first());
+        let mut racer = Racer::<u8> { seq: *first.last().unwrap(), ..Racer::default() };
+        racer.presented(1_000, &scan());
+        assert!(racer.newer_on_screen(first[0]));
+        assert!(!racer.newer_on_screen(second[0]));
+    }
 
     /// 1080 rows, 3.2 us per row (3.46 ms a scan), the first row 800 us after a present.
     fn scan() -> Scan { Scan { rows: 1080, row_ns: 3200.0, delta_us: 800 } }

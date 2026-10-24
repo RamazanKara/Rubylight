@@ -195,7 +195,10 @@ above are still there) and presents it.
   (`Planes::wait_for`). The decode of the next slice into the same set does not wait for a draw not
   issued yet, and does not need to: it rewrites the earlier slice's rows with the bytes they have
   already, because those rows depend only on records the earlier prefix had (the exactness test
-  above), and the rows it changes are outside the earlier draw's scissor. With the race off none
+  above), and the rows it changes are outside the earlier draw's scissor. A set that holds a
+  slice is acquired from `QUEUE_FAMILY_EXTERNAL` (`decode_again`), which makes the SDK record
+  GENERAL to GENERAL; acquiring from `QUEUE_FAMILY_IGNORED` records UNDEFINED to GENERAL and would let
+  the driver discard the held rows. With the race off none
   of this runs: the decode waits for nothing it did not before, and a whole picture draws with the
   default rasterizer state, no scissor.
 - A picture older than a frame whose slices are on the screen is dropped (counted as replaced), so

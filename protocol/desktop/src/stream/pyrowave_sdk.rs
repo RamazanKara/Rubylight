@@ -608,8 +608,21 @@ impl GpuDecoder {
     /// must already be queued (and flushed) on the D3D11 side, or the decode waits for ever.
     /// Missing blocks decode as zero, so a partial frame blurs and never corrupts.
     pub fn decode(&mut self, slot: usize, after: u64) -> Result<u64, String> {
+        self.submit(slot, after, QUEUE_FAMILY_IGNORED)
+    }
+
+    /// Like `decode`, for a set that already holds an earlier decode of the same frame (a slice,
+    /// which the presenter may still be drawing). The planes are acquired from `QUEUE_FAMILY_EXTERNAL`,
+    /// so the SDK records GENERAL to GENERAL and the driver keeps the contents; with IGNORED it
+    /// records UNDEFINED to GENERAL, which lets the driver discard them. It pairs with the release
+    /// the previous decode of the set made.
+    pub fn decode_again(&mut self, slot: usize, after: u64) -> Result<u64, String> {
+        self.submit(slot, after, QUEUE_FAMILY_EXTERNAL)
+    }
+
+    fn submit(&mut self, slot: usize, after: u64, acquire_family: u32) -> Result<u64, String> {
         let slot = self.slots.get(slot).ok_or_else(|| format!("plane set {slot} does not exist"))?;
-        let acquire_images = slot.images.map(|image| GpuExternalReference { image, queue_family_index: QUEUE_FAMILY_IGNORED });
+        let acquire_images = slot.images.map(|image| GpuExternalReference { image, queue_family_index: acquire_family });
         let release_images = slot.images.map(|image| GpuExternalReference { image, queue_family_index: QUEUE_FAMILY_EXTERNAL });
         // SAFETY: Both operations and the buffers are live locals for the call; the semaphores are
         // the imported fences'. A null semaphore means no wait.

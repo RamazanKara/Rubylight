@@ -750,7 +750,7 @@ struct Race {
     ordered_run: u32,
     /// This frame may be sliced (the last frames were in order).
     slicing: bool,
-    /// The frame in flight, counted from 1 (slices and the frame's `Output` carry it).
+    /// The frame in flight (`race::next_seq`: it grows across decoders; slices and the frame's `Output` carry it).
     seq: u64,
     /// Slices decoded and not yet taken by the decoder thread.
     events: Vec<SliceReady>,
@@ -760,7 +760,7 @@ struct Race {
 impl Race {
     fn begin_frame(&mut self) {
         self.plan.begin_frame();
-        self.seq += 1;
+        self.seq = super::race::next_seq();
         self.events.clear();
         self.header_pushed = false;
         self.lease = None;
@@ -916,15 +916,19 @@ impl GpuStream {
         let Some((lease, after)) = &race.lease else { return };
         // The slices already drawn from the set (by the presenter) are waited for as well. A slice
         // that is ready but not drawn yet is not: this decode rewrites its rows while the draw may read
-        // them. That is safe because the rewrite is the same bytes. A slice's rows depend only on
-        // the records of the steps it was cut at, all of which this prefix has, so every decode of
+        // them. That is safe for two reasons. The rewrite is the same bytes: a slice's rows depend only
+        // on the records of the steps it was cut at, all of which this prefix has, so every decode of
         // the frame from that slice on gives those rows the final decode's values (the ignored GPU
         // test `a_slice_decode_is_exact_on_its_rows_on_real_row_ordered_frames` holds each slice
-        // to them); the SDK's output planes are written by its last inverse wavelet pass (not
-        // checked beyond that test, so a bit-exact rewrite is what this relies on). The rows
-        // below the slice, which this decode does change, are outside the draw's scissor.
+        // to them; this relies on the SDK's output planes being written by its last inverse wavelet
+        // pass, which that test checks only through the values). And the set is acquired from
+        // `QUEUE_FAMILY_EXTERNAL` once it holds a slice (`decode_again`): the SDK then records GENERAL
+        // to GENERAL, where acquiring from IGNORED records UNDEFINED to GENERAL and lets the
+        // driver discard the held rows. The rows below the slice, which this decode does change, are
+        // outside the draw's scissor.
         let wait = (*after).max(planes.wait_for(lease.set()));
-        match gpu.decode(lease.set(), wait).and_then(|fence| gpu.wait(fence, GPU_DECODE_TIMEOUT).map(|()| fence)) {
+        let decoded = if race.bands.is_empty() { gpu.decode(lease.set(), wait) } else { gpu.decode_again(lease.set(), wait) };
+        match decoded.and_then(|fence| gpu.wait(fence, GPU_DECODE_TIMEOUT).map(|()| fence)) {
             Ok(fence_value) => {
                 let band = BandReady {
                     slice: due.slice as u8, first_row: due.first_row, end_row: due.end_row, fence_value, ready_us: nightjar_core::session::now_us(),
@@ -1005,7 +1009,9 @@ impl GpuStream {
         let fence_value = {
             // Draws of the frame's slices from this set come first (none without the race).
             let after = if self.race.is_some() { after.max(self.planes.wait_for(lease.set())) } else { after };
-            let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+            // The set of a sliced frame holds its slices (see `decode_due_slice`); a set that holds nothing is overwritten.
+            let decoded = if sliced { self.gpu.decode_again(lease.set(), after) } else { self.gpu.decode(lease.set(), after) };
+            let fence_value = decoded.map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
             self.stages.add(GPU_SUBMIT, step);
             let step = Instant::now();
             self.gpu.wait(fence_value, GPU_DECODE_TIMEOUT).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;

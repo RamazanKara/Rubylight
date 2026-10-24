@@ -502,10 +502,7 @@ last rows reach the screen later than a whole present puts them (extra draws per
 draw of the remaining rows), `receive_to_present` p50 is 0.5 ms worse at pace 2100, and the overlay,
 when on, costs about 0.2 ms per present (egui draws it on every present, a raced frame has 2.4 of
 them). A frame is raced only when its slices arrive over more than about 1 ms, and the host sends
-in 1 ms batches, so at pace 2100 (W = 3.2 ms) there is little left to win. A margin sweep at pace 900
-(`beam_race_margin_ms` 1.5, 1.0 and 0.5, one 40 s run each) gave mid-row age p50 4.42, 3.74 and 3.60
-ms and p95 5.29, 5.35 and 5.22 ms with 3, 3 and 5 late slices: a smaller margin gains a little at the
-median and nothing at the p95.
+in 1 ms batches, so at pace 2100 (W = 3.2 ms) there is little left to win. A margin sweep was not run.
 
 Tried to cut the cost of a raced frame (a scissored draw per slice, a GPU sync per slice, a raw
 `Present1(0, ALLOW_TEARING)` instead of `SDL_RenderPresent`), keeping what measured lower: drawing

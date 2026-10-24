@@ -182,7 +182,7 @@ on the GPU about 1.65 ms after the frame's first packet, while the frame takes 6
 this does not show: a presented-picture gain (the present path still shows whole frames), Wi-Fi, or
 loss. Loopback counts as a remote link, so without `NIGHTJAR_STREAM_LOCATION=local` the host drops row
 order for the 1024 byte packets (a row-ordered frame is about 20% larger there, about 3% at 1360
-bytes) and says so with a warning. Details in Nightjar `docs/beam-racing.md`.
+bytes) and says so with a warning. The presented-picture gain was measured later and missed its default-on gate; see [the gate entry](#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate) below. The client keeps it as an experimental opt-in.
 
 ## October 23: PyroWave desktop decode stage split (brief 1)
 
@@ -7688,6 +7688,46 @@ Measured on the RX 7900 XT (240 Hz physical display), HEVC, 2560x720, 60 fps str
 The individual runs agree: the 120 Hz cadence error p99 was 8.72 and 9.57 (A) against 8.64 and 9.02 (B); the 240 Hz one 4.83 and 4.58 (A) against 4.83 and 1.08 (B), so the 240 Hz p99 gain comes from one of the two B runs and is not claimed. Median age falls by 4.4 ms and present-to-sent by 3.5 ms at 120 Hz, by 2.3 and 1.9 ms at 240 Hz; the 60 Hz game and the shown fps do not move. The 120 Hz game keeps a 3.7 ms age p95: a predicted frame that does not arrive inside the budget is still claimed late. Kept.
 
 Not measured: the 1000 Hz virtual display. An isolated host can only create that display as SYSTEM in the console session, and no harness for it exists here (`e2e.py` captures the physical display with `virtual_display_mode = disabled`). That the 1000 Hz case is unchanged rests on the floor: below 2 ms the pacer takes the same branch as with prediction off, which the unit test asserts.
+
+## October 24: beam-raced PyroWave gate (B10 step 4, opt-in, missed its default-on gate)
+
+Nightjar desktop, loopback to an isolated Rubylight host on this PC (RX 7900 XT), 1080p60 PyroWave 4:2:0
+at 399 Mbps, release builds, borderless fullscreen on the 5120x1440 240 Hz VRR display, `beam_race` on,
+`NIGHTJAR_STREAM_LOCATION=local`. The raced presenter presents each decoded slice before the display's
+beam reaches its rows; the whole side is the same build with `NIGHTJAR_BEAM_RACE_PRESENT=0`. The
+display's scan is S = 4.17 ms over 1440 rows, and a tearing present restarts it after a median 0.91 ms.
+Short form of the gate: 60 s legs in ABBA order, two runs a side, the first 300 frames of each run
+dropped. The age is the mid-row age: when the beam reaches the picture's middle row minus when the
+slice holding that row was ready. The keep rule asks for a median and p95 gain of at least
+min(W/2, S/2), where W is the frame's time on the wire at the pace (7.4 ms at pace 900, 3.17 ms at 2100),
+and `receive_to_present` p95 no worse, late slices under 1%, no composed presents and no hang.
+
+| Leg | Required | Age p50 whole / raced (gain) | Age p95 whole / raced (gain) | `receive_to_present` p95 whole / raced | Late slices | Frames raced |
+|---|---|---|---|---|---|---|
+| 1: pace 900 | 2.08 ms | 5.32 / 3.93 (1.40) | 5.98 / 5.33 (0.65) | 8.64 / 8.61 | 0.061% | 5301 of 6578 |
+| 2: pace 2100 | 1.58 ms | 4.18 / 3.47 (0.71) | 4.79 / 4.19 (0.60) | 4.59 / 5.19 | 0.000% | 6344 of 6582 |
+| 5: pace 900, 0.1% loss, one run a side | (leg 1's) | 5.30 / 3.91 (1.39) | 5.88 / 5.45 (0.44) | 8.33 / 8.53 | 0.015% | 2646 of 3292 |
+
+All runs exited 0, with no dropped frames, no decoder errors and no hang; PresentMon saw the same
+few composed presents on both sides. The rule fails on legs 1 and 2 (the median gain is 67% and 45% of
+what it asks for, the p95 gain less), and on leg 2 `receive_to_present` is 0.60 ms worse at p95,
+so it does not become the default. The race gains about 1.4 ms at the middle row
+at pace 900 and nothing at the bottom: the last rows reach the screen later than a whole-picture present
+puts them (a raced frame has 2.4 presents, the overlay costs about 0.2 ms each). A margin sweep at pace
+900 (1.5, 1.0 and 0.5 ms) gave age p50 4.42, 3.74 and 3.60 ms and p95 5.29, 5.35 and 5.22 ms: a smaller
+margin moves the median and not the p95. Merging a set's consecutive slices into one draw helped a little;
+a raw `Present1` and skipping the flush did not move the numbers.
+
+Caveats, both of which make the loopback read worse than a separate client would: the host's encoder and
+the client's decoder and present share one GPU, and the host sends in batches of about 1 ms, so slices
+arrive in steps. The wired separate-PC legs (the NUC at 1 GbE and 2.5 GbE, legs 3 and 4) and a windowed
+leg were not run, so the wired case, which the idea is for, is untested. No claim beyond this PC's loopback.
+The Nightjar desktop client keeps all of it (row-order request, scan line probe, slice decodes, raced
+presenter) behind one experimental setting, `beam_race` (`NIGHTJAR_BEAM_RACE=1`), off by default; off, it
+asks for no row order, starts no probe and decodes whole frames, and on a stream that cannot race it
+says why in the log and on the stats overlay. The host's row order (`pyrowaveRowOrder`) stays in
+`rust/core` behind the RTSP key, default off. Record: Nightjar `docs/pyrowave-decode.md`, "Beam racing:
+measured, opt-in", and `docs/beam-racing.md`.
 
 ## Hardware covered
 

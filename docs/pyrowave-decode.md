@@ -216,12 +216,22 @@ pyrowave_sdk::tests`.
 - **Setting.** `pyrowave_decoder` in the settings file and the settings screen, with the probe
   result cached in the background for the settings screen. The overlay and the session summary
   name the decoder ("PyroWave (GPU decode, SDK)" or "PyroWave (Rust, GPU wavelets)").
-- **Known open issue: the GPU picture is darker.** On real 8-bit frames the GPU picture is 0.29
-  of a code darker than the CPU decoder's on average (signed mean -1.12e-3 in encoded RGB, the same
-  on every one of the 24 dumped 1080p frames; the fixtures show none). The cause is suspected in
-  the SDK's 8-bit plane store (R8) and has not been isolated. It is not fixed: the real-frames
-  test bounds the signed mean at 0.4 code (`REAL_MEAN_LIMIT`) so a larger offset or gain error
-  still fails, and the fixtures keep 0.25 code.
+- **Fixed: the CPU path's picture was 0.28 code too bright, not the GPU's too dark.** On real 8-bit
+  frames the GPU picture used to measure 0.29 of a code darker than the CPU path's (signed mean
+  -1.12e-3 in encoded RGB, the same on all 24 dumped 1080p frames). Isolated against the CPU decoder's
+  own float planes run through the same YCbCr matrix: the SDK's R8 planes are right (mean +0.01 code
+  from the floats, nearest-rounded) and the GPU picture is within -0.015 code; the CPU path was +0.28
+  code, +0.34 in the black parts, -0.1 in white. Its wavelet passes keep samples in half-float
+  targets (ten stores per frame) and Direct3D 11 on the RX 7900 XT cut the mantissa instead of
+  rounding it. Simulating ten toward-zero stores on the f32 reconstruction reproduces it; round to
+  nearest does not. `storedHalf` in `pyrowave.hlsl` (Direct3D only; the Vulkan module is unchanged)
+  rounds to the 11 significant bits of a half before the store, so the cut loses nothing. Now the CPU
+  path is -0.006 and the GPU picture -0.014 code from the floats, and the two pictures differ by
+  -3.8e-5 (0.01 code) on real frames, max 1.5 codes, rms 0.0007 to 0.001. Regression tests:
+  `both_pictures_match_the_float_planes_on_average_on_dumped_real_frames` (0.1 code),
+  `REAL_MEAN_LIMIT` (0.1 code) and `MEAN_LIMIT` (0.05 code) in `stream/pyrowave/gpu_tests.rs`. Not
+  measured: Intel or NVIDIA GPUs (the cut may be AMD's; rounding twice is exact), and Vulkan, which
+  rounds to nearest by specification.
 - **Accuracy.** The GPU picture against the CPU picture, encoded RGB, SDR 4:2:0 and 4:4:4
   fixtures, 24 real 1080p frames from `NIGHTJAR_PYROWAVE_DUMP`: 10-bit planes max 0.0038 (0.98
   codes), rms 0.0007, inside the brief's bound (max under 1/255, rms under 0.001). 8-bit planes

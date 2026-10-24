@@ -139,15 +139,15 @@ fn bounds(ten: bool) -> (f32, f64) {
 }
 
 /// The most the GPU picture may be brighter or darker than the CPU one on average (encoded RGB):
-/// a quarter of a code. A plane scale that is off (a constant gain) or a rounding that all goes one
-/// way shows here long before it shows in the largest difference.
-const MEAN_LIMIT: f64 = 0.25 / 255.0;
+/// a twentieth of a code (they measure under 0.003). A plane scale that is off (a constant gain) or a
+/// rounding that all goes one way shows here long before it shows in the largest difference.
+const MEAN_LIMIT: f64 = 0.05 / 255.0;
 
-/// The same on real 8-bit frames: the SDK stores 8-bit planes as R8 and the GPU pictures come out
-/// 0.29 of a code darker than the CPU decoder's (measured, -1.12e-3 on every one of the 24 frames,
-/// the same sign each time; a bias in the SDK's 8-bit plane store is likely, not isolated). A gain or offset error
-/// of half a code or more still fails.
-const REAL_MEAN_LIMIT: f64 = 0.4 / 255.0;
+/// The same on real 8-bit frames. The GPU pictures used to come out 0.29 of a code darker than the
+/// CPU path's (-1.12e-3 on every one of 24 frames): the SDK's R8 planes are right (0.01 code from the
+/// CPU decoder's floats), the CPU path's half-float wavelet stores were cut toward zero, and the
+/// dark parts of the picture came out 0.34 code too bright (`storedHalf` in pyrowave.hlsl).
+const REAL_MEAN_LIMIT: f64 = 0.1 / 255.0;
 
 /// Largest, root-mean-square and signed mean (GPU minus CPU) difference of the colour channels, as
 /// encoded 0..1 values.
@@ -642,4 +642,73 @@ fn a_slice_decode_is_exact_on_its_rows_on_real_row_ordered_frames() {
     }
     println!("{sliced_frames} frames with {slices} slice decodes, every one exact on its rows against the whole decode, and the final decodes byte-identical ({width}x{height} 444={full})");
     assert!(slices > 0, "no slice came due: are the dumped frames row-ordered?");
+}
+
+/// The encoded RGB the shader should make of the CPU decoder's own float planes (limited range,
+/// BT.709, 4:2:0, chroma bilinear where the shader samples it).
+fn reference_rgb(cpu: &Decoder, width: usize, height: usize) -> Vec<f32> {
+    let (cw, ch) = (width.div_ceil(2), height.div_ceil(2));
+    let chroma = |plane: usize, tx: i64, ty: i64| f64::from(cpu.sample(plane, (tx.clamp(0, cw as i64 - 1) as usize) << 1, (ty.clamp(0, ch as i64 - 1) as usize) << 1));
+    let bilinear = |plane: usize, x: usize, y: usize| {
+        let fx = ((x as f64 + 0.5) * 0.5).clamp(0.5, width as f64 * 0.5 - 0.5) - 0.5;
+        let fy = ((y as f64 + 0.5) * 0.5).clamp(0.5, height as f64 * 0.5 - 0.5) - 0.5;
+        let (x0, y0) = (fx.floor(), fy.floor());
+        let (ax, ay) = (fx - x0, fy - y0);
+        let (x0, y0) = (x0 as i64, y0 as i64);
+        (chroma(plane, x0, y0) * (1.0 - ax) + chroma(plane, x0 + 1, y0) * ax) * (1.0 - ay) + (chroma(plane, x0, y0 + 1) * (1.0 - ax) + chroma(plane, x0 + 1, y0 + 1) * ax) * ay
+    };
+    let mut out = Vec::with_capacity(width * height * 4);
+    for y in 0..height {
+        for x in 0..width {
+            let yy = (f64::from(cpu.sample(0, x, y)) * 255.0 - 16.0) / 219.0;
+            let u = (bilinear(1, x, y) * 255.0 - 128.0) / 224.0;
+            let v = (bilinear(2, x, y) * 255.0 - 128.0) / 224.0;
+            let r = yy + 2.0 * (1.0 - 0.2126) * v;
+            let b = yy + 2.0 * (1.0 - 0.0722) * u;
+            let g = (yy - 0.2126 * r - 0.0722 * b) / 0.7152;
+            out.extend_from_slice(&[r.clamp(0.0, 1.0) as f32, g.clamp(0.0, 1.0) as f32, b.clamp(0.0, 1.0) as f32, 1.0]);
+        }
+    }
+    out
+}
+
+/// The most either picture may be brighter or darker than the CPU decoder's own float planes on
+/// average, in codes (encoded RGB): the wavelet passes' half-float stores must neither cut nor round
+/// one way (Direct3D 11 cut them toward zero before `storedHalf`: +0.28 code on dark frames).
+const FLOAT_PLANES_MEAN_LIMIT: f64 = 0.1;
+
+#[test]
+#[ignore = "needs the PyroWave SDK, a GPU, a display and NIGHTJAR_PYROWAVE_FRAMES"]
+fn both_pictures_match_the_float_planes_on_average_on_dumped_real_frames() {
+    let Some(dir) = crate::sdl::test_input("NIGHTJAR_PYROWAVE_FRAMES", "a NIGHTJAR_PYROWAVE_DUMP directory") else { return };
+    let _lock = gpu_lock();
+    let frames = super::tests::dumped_frames(std::path::Path::new(&dir));
+    let (width, height, full, _) = frames[0];
+    assert!(!full, "the reference is 4:2:0");
+    let rig = Rig::new();
+    let case = Case { bin: &[], width, height, full, ten: false };
+    let mut gpu = gpu_decoder(&rig, &case, 2);
+    let mut cpu_path = Pyrowave::cpu(width, height, full).unwrap();
+    let setup = setup(width, height, full, false, 0);
+    let (mut cpu_texture, mut gpu_texture) = (VideoTexture::default(), VideoTexture::default());
+    for (n, (_, _, _, data)) in frames.iter().enumerate().take(4) {
+        let mut float_planes = Decoder::new(width, height, full).unwrap();
+        float_planes.decode(data).unwrap();
+        let reference = reference_rgb(&float_planes, width, height);
+        let cpu_out = cpu_path.frame(data, &mut || false).unwrap();
+        let gpu_out = gpu.frame(data, &mut || false).unwrap();
+        let a = present(&rig, &mut cpu_texture, &decoded(cpu_out, setup));
+        let b = present(&rig, &mut gpu_texture, &decoded(gpu_out, setup));
+        let mean = |picture: &[f32]| {
+            let (mut sum, mut n) = (0.0f64, 0usize);
+            for (p, r) in picture.chunks(4).zip(reference.chunks(4)) {
+                for k in 0..3 { sum += f64::from(encode(p[k]) - r[k]); n += 1; }
+            }
+            sum / n as f64 * 255.0
+        };
+        let (cpu_mean, gpu_mean) = (mean(&a), mean(&b));
+        println!("frame {n}: mean against the float planes, in codes: cpu path {cpu_mean:+.3}, gpu path {gpu_mean:+.3}");
+        assert!(cpu_mean.abs() < FLOAT_PLANES_MEAN_LIMIT, "frame {n}: the CPU path is {cpu_mean:+.3} codes off the float planes on average");
+        assert!(gpu_mean.abs() < FLOAT_PLANES_MEAN_LIMIT, "frame {n}: the GPU path is {gpu_mean:+.3} codes off the float planes on average");
+    }
 }

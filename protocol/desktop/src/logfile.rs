@@ -3,18 +3,27 @@
 //! stderr into a pipe; this module is the file side and has no OS code).
 //!
 //! - At start `nightjar.log` becomes `nightjar.prev.log` (the older prev is replaced) and a new
-//!   `nightjar.log` is created, so the last two runs are kept.
+//!   `nightjar.log` is created, so the last two runs are kept. If the old file cannot be moved
+//!   (a viewer holds the prev file, a second instance runs) the current file is truncated instead
+//!   and one line on stderr says so.
 //! - A file is capped at [`CAP`]. When a run writes more, the file is rotated the same way and the
 //!   run goes on in a fresh `nightjar.log`, so the newest output is always kept and the folder
 //!   stays under twice the cap. (That mid-run rotation also replaces the previous run's prev file.)
+//!   If that rotation fails the file keeps growing and is tried again after another cap.
 //! - Every line gets a UTC wall-clock prefix with milliseconds. The stamp is taken when the
-//!   logger thread reads a chunk, not when the line was written, which is within a few
+//!   reader thread reads a chunk, not when the line was written, which is within a few
 //!   milliseconds. `\r\n` is stored as `\n`; a line that is still open when a chunk ends gets no
 //!   second stamp from the next chunk.
+//! - Two threads: the reader ([`pump_reader`]) only reads the pipe and forwards to the real
+//!   stderr, the writer ([`pump_writer`]) does the file work. A bounded channel joins them and
+//!   never blocks the reader, so a stalled disk loses log lines (counted, and said so in the
+//!   log once the disk recovers) instead of blocking `eprintln!` on the stream threads.
 
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::mpsc::{Receiver, SyncSender};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Size at which a log file is rotated.
@@ -33,24 +42,54 @@ pub fn open_folder() -> Result<(), String> {
     let dir = logs_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let opener = if cfg!(windows) { "explorer" } else { "xdg-open" };
-    // Explorer exits with 1 even when it worked, so the child is not waited for.
-    std::process::Command::new(opener).arg(&dir).spawn().map(drop).map_err(|e| format!("{opener}: {e}"))
+    // Explorer exits with 1 even when it worked, so the child is not waited for. It must not
+    // inherit our stderr, which is the log pipe: its output would land in the log and the pipe
+    // would stay open after we leave.
+    std::process::Command::new(opener)
+        .arg(&dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(drop)
+        .map_err(|e| format!("{opener}: {e}"))
 }
 
-/// Make `nightjar.log` the new `nightjar.prev.log` and create an empty `nightjar.log`.
-pub fn rotate(dir: &Path) -> io::Result<File> {
-    std::fs::create_dir_all(dir)?;
+/// Move `nightjar.log` to `nightjar.prev.log`, replacing the old prev.
+fn move_current(dir: &Path) -> io::Result<()> {
     let current = dir.join(CURRENT);
-    if current.exists() {
-        // rename replaces an existing prev on Unix; Windows needs it out of the way first.
-        let prev = dir.join(PREV);
-        match std::fs::remove_file(&prev) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
-            _ => {}
-        }
-        std::fs::rename(&current, &prev)?;
+    if !current.exists() {
+        return Ok(());
     }
-    File::create(current)
+    // rename replaces an existing prev on Unix; Windows needs it out of the way first.
+    let prev = dir.join(PREV);
+    match std::fs::remove_file(&prev) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    std::fs::rename(&current, &prev)
+}
+
+/// A new `nightjar.log`, and what went wrong on the way if the old one could not be moved.
+pub struct Rotation {
+    pub file: File,
+    pub warning: Option<String>,
+}
+
+/// Make `nightjar.log` the new `nightjar.prev.log` and create an empty `nightjar.log`. If the
+/// old file cannot be moved, `nightjar.log` is truncated instead (or appended to, if even that
+/// fails) and the warning says so: a short log is better than none.
+pub fn rotate(dir: &Path) -> io::Result<Rotation> {
+    std::fs::create_dir_all(dir)?;
+    match move_current(dir) {
+        Ok(()) => Ok(Rotation { file: File::create(dir.join(CURRENT))?, warning: None }),
+        Err(e) => {
+            let warning = format!("could not move {CURRENT} to {PREV} ({e}), the earlier log is overwritten");
+            let current = dir.join(CURRENT);
+            let file = File::create(&current).or_else(|_| std::fs::OpenOptions::new().append(true).create(true).open(&current))?;
+            Ok(Rotation { file, warning: Some(warning) })
+        }
+    }
 }
 
 /// `2026-10-25T14:03:07.123Z ` (UTC, trailing space).
@@ -134,27 +173,80 @@ impl Stamper {
     }
 }
 
+/// Decodes UTF-8 that arrives in arbitrary chunks (for a console that wants UTF-16): an
+/// incomplete sequence at the end of a chunk waits for the next one, bad bytes become U+FFFD.
+#[derive(Default)]
+pub struct Utf8Carry {
+    pending: Vec<u8>,
+}
+
+impl Utf8Carry {
+    pub fn push(&mut self, bytes: &[u8]) -> String {
+        self.pending.extend_from_slice(bytes);
+        let mut out = String::new();
+        let mut rest = &self.pending[..];
+        loop {
+            match std::str::from_utf8(rest) {
+                Ok(text) => {
+                    out.push_str(text);
+                    rest = &[];
+                    break;
+                }
+                Err(e) => {
+                    let (good, bad) = rest.split_at(e.valid_up_to());
+                    out.push_str(std::str::from_utf8(good).unwrap_or_default());
+                    match e.error_len() {
+                        Some(len) => {
+                            out.push('\u{FFFD}');
+                            rest = &bad[len..];
+                        }
+                        // Cut off by the end of the chunk: keep it for the next one.
+                        None => {
+                            rest = bad;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        let keep = rest.to_vec();
+        self.pending = keep;
+        out
+    }
+}
+
 /// The open `nightjar.log`: stamps what it is given, rotates at the cap.
 pub struct LogFile {
     dir: PathBuf,
     cap: u64,
+    /// Size at which the next rotation is tried (a failed one moves it on by another cap).
+    limit: u64,
     file: BufWriter<File>,
     written: u64,
     stamper: Stamper,
     scratch: Vec<u8>,
+    warnings: Vec<String>,
 }
 
 impl LogFile {
     /// Rotate the files in `dir` and open the new current one.
     pub fn open(dir: &Path, cap: u64) -> io::Result<Self> {
+        let rotation = rotate(dir)?;
         Ok(Self {
             dir: dir.to_path_buf(),
             cap,
-            file: BufWriter::new(rotate(dir)?),
+            limit: cap,
+            file: BufWriter::new(rotation.file),
             written: 0,
             stamper: Stamper::default(),
             scratch: Vec::new(),
+            warnings: rotation.warning.into_iter().collect(),
         })
+    }
+
+    /// Problems that did not stop the log and are for the user's stderr, once.
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.warnings)
     }
 
     /// Stamp and write one chunk read from the pipe (not flushed; see [`LogFile::flush`]).
@@ -162,22 +254,42 @@ impl LogFile {
         let stamp = timestamp(now);
         self.scratch.clear();
         self.stamper.push(chunk, &stamp, &mut self.scratch);
-        if self.written > 0 && self.written + self.scratch.len() as u64 > self.cap {
+        if self.written > 0 && self.written + self.scratch.len() as u64 > self.limit {
             self.file.flush()?;
             // std opens files with delete sharing, so the open file can be renamed.
-            self.file = BufWriter::new(rotate(&self.dir)?);
-            let note = format!("{stamp}log continued, the part before is {PREV}
-");
-            self.file.write_all(note.as_bytes())?;
-            self.written = note.len() as u64;
-            // The chunk may have been cut mid-line; the new file starts with a stamp anyway.
-            self.stamper.restart();
-            self.scratch.clear();
-            self.stamper.push(chunk, &stamp, &mut self.scratch);
+            match move_current(&self.dir).and_then(|()| File::create(self.dir.join(CURRENT))) {
+                Ok(file) => {
+                    self.file = BufWriter::new(file);
+                    self.limit = self.cap;
+                    self.stamper.restart();
+                    let note = format!("{stamp}log continued, the part before is {PREV}\n");
+                    self.file.write_all(note.as_bytes())?;
+                    self.written = note.len() as u64;
+                    // The chunk may have been cut mid-line; the new file starts with a stamp anyway.
+                    self.scratch.clear();
+                    self.stamper.push(chunk, &stamp, &mut self.scratch);
+                }
+                Err(e) => {
+                    // Keep appending to the file that is open, and try again after another cap.
+                    self.limit = self.written + self.cap;
+                    self.warnings.push(format!("could not rotate {CURRENT} ({e}), it keeps growing"));
+                }
+            }
         }
         self.file.write_all(&self.scratch)?;
         self.written += self.scratch.len() as u64;
         Ok(())
+    }
+
+    /// A line of the log's own (not from the pipe), on a line of its own.
+    pub fn note(&mut self, text: &str, now: SystemTime) -> io::Result<()> {
+        let mut line = String::new();
+        if !self.stamper.at_line_start {
+            line.push('\n');
+        }
+        line.push_str(text);
+        line.push('\n');
+        self.write_chunk(line.as_bytes(), now)
     }
 
     pub fn flush(&mut self) -> io::Result<()> {
@@ -185,24 +297,60 @@ impl LogFile {
     }
 }
 
-/// The logger thread's loop: `read` fills the buffer and returns the byte count (0 = closed),
-/// `forward` passes the same bytes on to the real stderr, unchanged. A file error is reported once
-/// through `forward` and stops the file side; forwarding goes on.
-pub fn pump(mut read: impl FnMut(&mut [u8]) -> usize, mut forward: impl FnMut(&[u8]), mut log: LogFile) {
+/// One read from the pipe, on its way to the file writer.
+pub struct Chunk {
+    pub at: SystemTime,
+    pub bytes: Vec<u8>,
+    /// Bytes read before this chunk that the reader had to drop because the channel was full.
+    pub lost: usize,
+}
+
+/// The reader thread's loop: `read` fills the buffer and returns the byte count (0 = closed),
+/// `forward` passes the same bytes on to the real stderr, unchanged, and the chunk goes to the
+/// file writer with `try_send`. It never waits for the file: if the writer is behind (a stalled
+/// disk) the chunk is dropped and counted, so the pipe keeps draining and `eprintln!` on the
+/// stream threads never blocks on the disk. The next chunk that fits carries the count.
+pub fn pump_reader(mut read: impl FnMut(&mut [u8]) -> usize, mut forward: impl FnMut(&[u8]), files: SyncSender<Chunk>) {
     let mut buffer = [0u8; 16 * 1024];
-    let mut healthy = true;
+    let mut lost = 0;
     loop {
         let n = read(&mut buffer);
         if n == 0 {
             break;
         }
-        let chunk = &buffer[..n];
-        forward(chunk);
-        if healthy {
-            if let Err(e) = log.write_chunk(chunk, SystemTime::now()).and_then(|()| log.flush()) {
-                healthy = false;
-                forward(format!("nightjar: log file stopped: {e}\n").as_bytes());
-            }
+        forward(&buffer[..n]);
+        match files.try_send(Chunk { at: SystemTime::now(), bytes: buffer[..n].to_vec(), lost }) {
+            Ok(()) => lost = 0,
+            Err(_) => lost += n,
+        }
+    }
+}
+
+/// The file writer thread's loop, until the reader hangs up. A file error is reported once
+/// through `warn` and stops the file side; chunks keep being taken so the channel does not fill
+/// for that reason.
+pub fn pump_writer(chunks: Receiver<Chunk>, mut log: LogFile, mut warn: impl FnMut(&str)) {
+    fn write(log: &mut LogFile, chunk: &Chunk) -> io::Result<()> {
+        if chunk.lost > 0 {
+            log.note(&format!("{} bytes of log output were dropped, the disk was too slow", chunk.lost), chunk.at)?;
+        }
+        log.write_chunk(&chunk.bytes, chunk.at)?;
+        log.flush()
+    }
+    for text in log.take_warnings() {
+        warn(&text);
+    }
+    let mut healthy = true;
+    for chunk in chunks.iter() {
+        if !healthy {
+            continue;
+        }
+        if let Err(e) = write(&mut log, &chunk) {
+            healthy = false;
+            warn(&format!("log file stopped: {e}"));
+        }
+        for text in log.take_warnings() {
+            warn(&text);
         }
     }
     let _ = log.flush();
@@ -211,6 +359,7 @@ pub fn pump(mut read: impl FnMut(&mut [u8]) -> usize, mut forward: impl FnMut(&[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::sync_channel;
     use std::time::Duration;
 
     fn temp(name: &str) -> PathBuf {
@@ -266,9 +415,26 @@ mod tests {
     }
 
     #[test]
+    fn utf8_split_over_chunks_is_decoded_whole() {
+        let bytes = "Größe ä€😀\n".as_bytes();
+        // Every split point, including inside the 2, 3 and 4 byte sequences.
+        for cut in 0..=bytes.len() {
+            let mut carry = Utf8Carry::default();
+            let text = carry.push(&bytes[..cut]) + &carry.push(&bytes[cut..]);
+            assert_eq!(text, "Größe ä€😀\n", "cut at {cut}");
+        }
+        // Bad bytes do not stop the decoding or get stuck in the carry.
+        let mut carry = Utf8Carry::default();
+        assert_eq!(carry.push(b"a\xffb\xc3"), "a\u{FFFD}b");
+        assert_eq!(carry.push(b"\xa4c"), "äc");
+        assert_eq!(carry.push(b"\xe2\x82"), "");
+        assert_eq!(carry.push(b"x"), "\u{FFFD}x");
+    }
+
+    #[test]
     fn rotation_moves_current_to_prev_and_replaces_the_old_prev() {
         let dir = temp("rotate");
-        assert!(rotate(&dir).is_ok());
+        assert!(rotate(&dir).unwrap().warning.is_none());
         assert!(dir.join(CURRENT).exists() && !dir.join(PREV).exists());
         std::fs::write(dir.join(CURRENT), "first run").unwrap();
         rotate(&dir).unwrap();
@@ -286,6 +452,22 @@ mod tests {
         rotate(&dir).unwrap();
         assert!(dir.join(CURRENT).exists());
         let _ = std::fs::remove_dir_all(dir.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn a_prev_file_that_cannot_be_replaced_does_not_stop_the_log() {
+        let dir = temp("stuck");
+        // A folder where the prev file goes: removing it as a file fails, as a locked file does.
+        std::fs::create_dir_all(dir.join(PREV)).unwrap();
+        std::fs::write(dir.join(CURRENT), "old run, long enough to see it truncated").unwrap();
+        let mut log = LogFile::open(&dir, CAP).unwrap();
+        let warnings = log.take_warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("overwritten"));
+        log.write_chunk(b"new run\n", UNIX_EPOCH).unwrap();
+        log.flush().unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join(CURRENT)).unwrap(), "1970-01-01T00:00:00.000Z new run\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -321,6 +503,24 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_rotation_in_a_run_keeps_appending_and_says_so_once_per_try() {
+        let dir = temp("cap-stuck");
+        let mut log = LogFile::open(&dir, 300).unwrap();
+        std::fs::create_dir_all(dir.join(PREV)).unwrap();
+        for i in 0..40 {
+            log.write_chunk(format!("line number {i:03}\n").as_bytes(), UNIX_EPOCH).unwrap();
+        }
+        log.flush().unwrap();
+        let text = std::fs::read_to_string(dir.join(CURRENT)).unwrap();
+        assert_eq!(text.lines().count(), 40, "nothing is lost");
+        // About 1500 bytes in 300-byte steps: a handful of tries, not one per line.
+        let warnings = log.take_warnings();
+        assert!((2..=8).contains(&warnings.len()), "{warnings:?}");
+        assert!(warnings[0].contains("keeps growing"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_chunk_cut_mid_line_over_the_cap_starts_the_new_file_with_a_stamp() {
         let dir = temp("cap-mid");
         let mut log = LogFile::open(&dir, 200).unwrap();
@@ -345,13 +545,14 @@ mod tests {
     }
 
     #[test]
-    fn pump_forwards_raw_bytes_and_logs_stamped_lines() {
+    fn the_pump_forwards_raw_bytes_and_logs_stamped_lines() {
         let dir = temp("pump");
         let log = LogFile::open(&dir, CAP).unwrap();
+        let (files, chunks) = sync_channel(8);
         let mut input: Vec<&[u8]> = vec![b"hello wor", b"ld\r\nbye\n"];
         input.reverse();
         let mut forwarded = Vec::new();
-        pump(
+        pump_reader(
             |buffer| match input.pop() {
                 Some(chunk) => {
                     buffer[..chunk.len()].copy_from_slice(chunk);
@@ -360,13 +561,77 @@ mod tests {
                 None => 0,
             },
             |bytes| forwarded.extend_from_slice(bytes),
-            log,
+            files,
         );
+        let mut warnings = Vec::new();
+        pump_writer(chunks, log, |text| warnings.push(text.to_owned()));
         assert_eq!(forwarded, b"hello world\r\nbye\n");
+        assert!(warnings.is_empty());
         let text = std::fs::read_to_string(dir.join(CURRENT)).unwrap();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 2);
         assert!(lines[0].ends_with("Z hello world") && lines[1].ends_with("Z bye"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_reader_never_waits_for_a_writer_that_is_behind() {
+        // Room for one chunk. The writer takes nothing until the third read: the second chunk is
+        // dropped but still forwarded, and the third (which fits again) carries the loss.
+        let (files, chunks) = sync_channel(1);
+        let script: [&[u8]; 3] = [b"first\n", b"second\n", b"third\n"];
+        let mut reads = 0;
+        let mut forwarded = Vec::new();
+        let mut taken: Vec<Chunk> = Vec::new();
+        pump_reader(
+            |buffer| {
+                if reads == 2 {
+                    taken.extend(chunks.try_iter());
+                }
+                let Some(chunk) = script.get(reads) else { return 0 };
+                reads += 1;
+                buffer[..chunk.len()].copy_from_slice(chunk);
+                chunk.len()
+            },
+            |bytes| forwarded.extend_from_slice(bytes),
+            files,
+        );
+        assert_eq!(forwarded, b"first\nsecond\nthird\n");
+        taken.extend(chunks.try_iter());
+        let seen: Vec<(&[u8], usize)> = taken.iter().map(|c| (&c.bytes[..], c.lost)).collect();
+        assert_eq!(seen, vec![(&b"first\n"[..], 0), (&b"third\n"[..], b"second\n".len())]);
+    }
+
+    #[test]
+    fn the_chunk_after_a_drop_carries_the_count_and_the_log_says_so() {
+        let dir = temp("pump-lost");
+        let log = LogFile::open(&dir, CAP).unwrap();
+        let (files, chunks) = sync_channel(1);
+        let at = UNIX_EPOCH;
+        // What pump_reader leaves behind after a stall: a chunk that fits and, after two dropped
+        // ones (13 bytes), the next one that does.
+        files.send(Chunk { at, bytes: b"before\n".to_vec(), lost: 0 }).unwrap();
+        let writer = std::thread::spawn(move || pump_writer(chunks, log, |_| {}));
+        files.send(Chunk { at, bytes: b"after\n".to_vec(), lost: 13 }).unwrap();
+        drop(files);
+        writer.join().unwrap();
+        let text = std::fs::read_to_string(dir.join(CURRENT)).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert!(lines[0].ends_with("Z before"));
+        assert!(lines[1].ends_with("Z 13 bytes of log output were dropped, the disk was too slow"));
+        assert!(lines[2].ends_with("Z after"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_log_note_starts_a_line_of_its_own() {
+        let dir = temp("note");
+        let mut log = LogFile::open(&dir, CAP).unwrap();
+        log.write_chunk(b"half a li", UNIX_EPOCH).unwrap();
+        log.note("noted", UNIX_EPOCH).unwrap();
+        log.flush().unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join(CURRENT)).unwrap(), "1970-01-01T00:00:00.000Z half a li\n1970-01-01T00:00:00.000Z noted\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

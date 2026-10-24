@@ -36,6 +36,13 @@ public final class ActionSheet extends BottomSheetDialog {
         }
     };
 
+    private final DpadEchoFilter dpadEchoes = new DpadEchoFilter();
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        return dpadEchoes.drop(event) || super.dispatchKeyEvent(event);
+    }
+
     public ActionSheet(Context context, CharSequence title) {
         super(context);
         if (context instanceof android.app.Activity) setOwnerActivity((android.app.Activity) context);

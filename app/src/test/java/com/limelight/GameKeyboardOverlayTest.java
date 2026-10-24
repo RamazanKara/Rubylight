@@ -197,7 +197,7 @@ public class GameKeyboardOverlayTest {
         }
     }
 
-    private static Game pcKeyboardGame(RecordingConnection connection) {
+    static Game pcKeyboardGame(RecordingConnection connection) {
         Game game = game(connection);
         game.setTheme(R.style.AppTheme);
         PreferenceConfiguration prefs = new PreferenceConfiguration();
@@ -215,18 +215,18 @@ public class GameKeyboardOverlayTest {
         return game;
     }
 
-    private static boolean pcKeyboardVisible(Game game) {
+    static boolean pcKeyboardVisible(Game game) {
         return (boolean) ReflectionHelpers.callInstanceMethod(game, "isPcKeyboardVisible");
     }
 
-    private static PcKeyboardController pcKeyboardController(Game game) {
+    static PcKeyboardController pcKeyboardController(Game game) {
         PcKeyboardOverlay overlay = ReflectionHelpers.getField(game, "pcKeyboard");
         return overlay.controller();
     }
 
-    private static final int PAD_ID = 12;
+    static final int PAD_ID = 12;
 
-    private static InputDevice gamepad() {
+    static InputDevice gamepad() {
         InputDevice device = ShadowInputDevice.makeInputDeviceNamed("Pad");
         ReflectionHelpers.setField(device, "mId", PAD_ID);
         ReflectionHelpers.setField(device, "mSources", InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_DPAD);
@@ -235,27 +235,27 @@ public class GameKeyboardOverlayTest {
         return device;
     }
 
-    private static KeyEvent padEvent(int action, int keyCode, InputDevice device, int deviceId) {
+    static KeyEvent padEvent(int action, int keyCode, InputDevice device, int deviceId) {
         KeyEvent event = new KeyEvent(0, 0, action, keyCode, 0, 0, deviceId, 0, 0, InputDevice.SOURCE_GAMEPAD);
         shadowOf(event).setDevice(device);
         return event;
     }
 
-    private static boolean padKey(Game game, int action, int keyCode) {
+    static boolean padKey(Game game, int action, int keyCode) {
         KeyEvent event = padEvent(action, keyCode, gamepad(), PAD_ID);
         return action == KeyEvent.ACTION_DOWN ? game.handleKeyDown(event) : game.handleKeyUp(event);
     }
 
-    private static boolean takenByPcKeyboard(Game game, KeyEvent event) {
+    static boolean takenByPcKeyboard(Game game, KeyEvent event) {
         return (boolean) ReflectionHelpers.callInstanceMethod(game, "handlePcKeyboardKey",
                 ReflectionHelpers.ClassParameter.from(KeyEvent.class, event));
     }
 
-    private static android.util.SparseBooleanArray heldPadKeys(Game game) {
+    static android.util.SparseBooleanArray heldPadKeys(Game game) {
         return ReflectionHelpers.getField(game, "pcKeyboardKeys");
     }
 
-    private static int[] lastKey(RecordingConnection connection) {
+    static int[] lastKey(RecordingConnection connection) {
         return connection.keys.get(connection.keys.size() - 1);
     }
 
@@ -512,7 +512,7 @@ public class GameKeyboardOverlayTest {
         boolean visible() { return isCursorVisible; }
     }
 
-    private static Game game(RecordingConnection connection) {
+    static Game game(RecordingConnection connection) {
         Game game = Robolectric.buildActivity(Game.class).get();
         ReflectionHelpers.setField(game, "conn", connection);
         ReflectionHelpers.setField(game, "keyboardTranslator", new KeyboardTranslator());
@@ -527,7 +527,7 @@ public class GameKeyboardOverlayTest {
                 ReflectionHelpers.ClassParameter.from(int[].class, keys));
     }
 
-    private static class RecordingConnection extends NvConnection {
+    static class RecordingConnection extends NvConnection {
         final List<int[]> keys = new ArrayList<>();
         final List<String> text = new ArrayList<>();
         boolean inputAllowed = true;

@@ -7713,9 +7713,8 @@ few composed presents on both sides. The rule fails on legs 1 and 2 (the median 
 what it asks for, the p95 gain less), and on leg 2 `receive_to_present` is 0.60 ms worse at p95,
 so it does not become the default. The race gains about 1.4 ms at the middle row
 at pace 900 and nothing at the bottom: the last rows reach the screen later than a whole-picture present
-puts them (a raced frame has 2.4 presents, the overlay costs about 0.2 ms each). A margin sweep at pace
-900 (1.5, 1.0 and 0.5 ms) gave age p50 4.42, 3.74 and 3.60 ms and p95 5.29, 5.35 and 5.22 ms: a smaller
-margin moves the median and not the p95. Merging a set's consecutive slices into one draw helped a little;
+puts them (a raced frame has 2.4 presents, the overlay costs about 0.2 ms each). A margin sweep was not run.
+Merging a set's consecutive slices into one draw helped a little;
 a raw `Present1` and skipping the flush did not move the numbers.
 
 Caveats, both of which make the loopback read worse than a separate client would: the host's encoder and

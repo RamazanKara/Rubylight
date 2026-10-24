@@ -85,10 +85,12 @@ What str0m needs from us:
   `sdp.rs` rewrites the text both ways:
   - offer: `a=rtpmap:<pt> multiopus/48000/<6|8>` and
     `a=fmtp:<pt> channel_mapping=<m>;num_streams=<s>;coupled_streams=<c>;minptime=10;useinbandfec=0`,
-    with the mapping, stream and coupled counts taken from `OpusLayout::select`, the same layout the
-    GameStream encoder uses;
-  - answer: `multiopus/48000/<n>` back to `opus/48000/2` before str0m parses it, after checking that the
-    answer kept the channel count and mapping.
+    with libwebrtc's own layouts (5.1 `0,4,1,2,3,5`, 4 streams, 2 coupled; 7.1 `0,6,1,2,3,4,5,7`, 5
+    streams, 3 coupled);
+  - answer: libwebrtc answers with its own parameters, so the host takes the answer's stream count,
+    coupled count and mapping when they are valid for the channel count, rewrites the line to
+    `opus/48000/2` before str0m parses it, and configures the Opus encoder with exactly that layout
+    (`OpusLayout` with a custom layout). A changed channel count or an invalid layout is an error.
 
   str0m's Opus packetizer passes a payload through untouched, so a multistream packet goes out as is.
   Only Chromium-based receivers decode `multiopus`. A client that answers without it gets an error,
@@ -163,10 +165,10 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   - Stereo uses the protocol's fmtp
     (`minptime=20;maxaveragebitrate=128000;stereo=1;sprop-stereo=1;useinbandfec=0`) unless B2 shows a
     receiver rejecting 5 ms packets under it.
-  - 5.1 and 7.1 (extension) use Opus multistream with the layout and bitrate GameStream's surround
-    uses (`OpusLayout::select`), sent as `multiopus` (see Library). Capture follows the GameStream
-    surround path, including its upmix and channel order, so the channel mapping in the fmtp is the
-    one the encoder used.
+  - 5.1 and 7.1 (extension) use Opus multistream with the layout the answer negotiated and the
+    bitrate GameStream's surround uses for that stream count, sent as `multiopus` (see Library).
+    Capture follows the GameStream surround path, including its upmix and channel order. The encoder
+    and the receiver use the same mapping, so each capture channel arrives on its own output channel.
   - The video budget subtracts the audio bitrate of the chosen layout.
 - **Input.**
   - `gamepad-connected` becomes `Input::Arrival` with the Xbox type; `gamepad-disconnected` clears the
@@ -345,8 +347,8 @@ itself, HDR decode inside a browser), it is hardened and fake-tested, and stays 
   - The AV1 fmtp matches the mode, and HDR offers carry the colour-space extension, which is never
     sent.
   - The multiopus rewrite: the offer has the right rtpmap and fmtp for 6 and 8 channels, the answer
-    goes back to `opus/48000/2`, and an answer that drops `multiopus` or changes the mapping is
-    rejected.
+    goes back to `opus/48000/2`, a Chrome-shaped answer yields its layout for the encoder, and an
+    answer that drops `multiopus`, changes the channel count or carries an invalid layout is rejected.
   - Answer validation rejects a changed codec or profile.
   - Loopback between two in-memory str0m peers: an H.264, HEVC and AV1 access unit goes through RTP
     and back byte-identical (AV1 without its temporal delimiter), with the marker bit on the last

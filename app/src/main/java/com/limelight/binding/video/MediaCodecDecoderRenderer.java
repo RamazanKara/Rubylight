@@ -71,6 +71,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private Context context;
     private Activity activity;
     private MediaCodec videoDecoder;
+    private boolean lowLatencyKeysExperimental;
     private Thread rendererThread;
     private boolean needsSpsBitstreamFixup, isExynos4;
     private boolean adaptivePlayback, directSubmit, fusedIdrFrame;
@@ -1545,7 +1546,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // Report text only (not the overlay): the raw key names are for bug reports.
         String keyReport = (videoDecoder == null || (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) ? "" :
                 "\nTuning keys applied: " + describeKeys(lowLatencyKeysApplied) +
-                "\nTuning keys dropped after rejected configures: " + describeKeys(lowLatencyKeysDropped);
+                "\nTuning keys dropped after rejected configures: " + describeKeys(lowLatencyKeysDropped) +
+                        (lowLatencyKeysExperimental
+                                ? "\nExperimental: vendor keys not run on this hardware" : "");
         ProblemReport.setDecoderDiagnostics(initialWidth + "x" + initialHeight + " @ " + refreshRate + " FPS\n" +
                 decoderDiagnostics + keyReport);
     }
@@ -1707,7 +1710,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     notifyUpscalingFallback();
                 }
                 // Success!
-                LimeLog.info("Decoder " + selectedDecoderInfo.getName() + " tuning keys applied: " +
+                lowLatencyKeysExperimental = MediaCodecHelper.isExperimentalVendorDecoder(selectedDecoderInfo.getName());
+                LimeLog.info("Decoder " + selectedDecoderInfo.getName() +
+                        (lowLatencyKeysExperimental ? " (Experimental: vendor keys not run on this hardware)" : "") +
+                        " tuning keys applied: " +
                         describeKeys(lowLatencyKeysApplied) + "; dropped after rejected configures: " +
                         describeKeys(lowLatencyKeysDropped));
                 break;

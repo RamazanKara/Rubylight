@@ -316,6 +316,31 @@ public class MediaCodecHelper {
         return getAdrenoRendererModelNumber(glRenderer) >= 400;
     }
 
+    /**
+     * Decoders whose vendor keys follow Artemis and the derflacco fork but were never run on
+     * MediaTek, NVIDIA or Amlogic hardware by us; the stream log marks them Experimental.
+     */
+    static boolean isExperimentalVendorDecoder(String decoderName) {
+        return isDecoderInList(mediaTekDecoderPrefixes, decoderName)
+                || isDecoderInList(tegraDecoderPrefixes, decoderName)
+                || isDecoderInList(amlogicDecoderPrefixes, decoderName);
+    }
+
+    /**
+     * Reference frame invalidation for MediaTek (AVC and HEVC) and for HEVC on Snapdragon decoders
+     * named c2.qcom, as in the derflacco fork (moonlight-noir, GPL-3.0). Experimental: we have no
+     * MediaTek or c2.qcom device to run it on. Gated like the other
+     * Codec2-era entries, by the GLES 3 check in initialize().
+     */
+    static void addMediaTekAndQcomRefFrameInvalidation() {
+        LimeLog.info("Added omx.mtk/c2.mtk and c2.qcom to reference frame invalidation support list");
+        for (String prefix : new String[] {"omx.mtk", "c2.mtk"}) {
+            refFrameInvalidationAvcPrefixes.add(prefix);
+            refFrameInvalidationHevcPrefixes.add(prefix);
+        }
+        refFrameInvalidationHevcPrefixes.add("c2.qcom");
+    }
+
     public static synchronized void initialize(Context context, String glRenderer) {
         if (initialized) {
             return;
@@ -384,6 +409,7 @@ public class MediaCodecHelper {
                 refFrameInvalidationHevcPrefixes.add("omx.qcom");
                 refFrameInvalidationAvcPrefixes.add("c2.qti");
                 refFrameInvalidationHevcPrefixes.add("c2.qti");
+                addMediaTekAndQcomRefFrameInvalidation();
             }
 
             // Qualcomm's early HEVC decoders break hard on our HEVC stream. The best check to
@@ -516,6 +542,12 @@ public class MediaCodecHelper {
                 return true;
             }
         }
+        // MediaTek switches from the derflacco fork (moonlight-noir) that mark a low-latency decoder.
+        // Experimental: not run on MediaTek hardware.
+        if (VendorLowLatencyKeys.isMediaTekDetectOnly(params)) {
+            LimeLog.info(decoderName + " supports a MediaTek low latency option");
+            return true;
+        }
         return false;
     }
 
@@ -616,11 +648,27 @@ public class MediaCodecHelper {
         // https://cs.android.com/android/_/android/platform/frameworks/av/+/01c10f8cdcd58d1e7025f426a72e6e75ba5d7fc2
         // NVIDIA Tegra decoders take their keys by name whether or not they list them (Artemis does
         // the same). They go first so the fallback tries drop them like every other vendor key.
+        // Experimental: we have no Shield to run the keys on.
         if (useVendorOptions && tryNumber < 4 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 isDecoderInList(tegraDecoderPrefixes, decoderInfo.getName())) {
             for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.TEGRA.entrySet()) {
                 videoFormat.setInteger(key.getKey(), key.getValue());
             }
+            // The derflacco fork also asks Tegra decoders for the top rate and real-time priority.
+            videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE);
+            videoFormat.setInteger(MediaFormat.KEY_PRIORITY, 0);
+            setNewOption = true;
+        }
+
+        // MediaTek decoders take the whole preset by name (Artemis and the derflacco fork do the
+        // same), declared or not, together with the top rate and real-time priority.
+        // Experimental: we have no MediaTek device to run the preset on.
+        if (useVendorOptions && tryNumber < 4 && isDecoderInList(mediaTekDecoderPrefixes, decoderInfo.getName())) {
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.mediaTekKeys().entrySet()) {
+                videoFormat.setInteger(key.getKey(), key.getValue());
+            }
+            videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE);
+            videoFormat.setInteger(MediaFormat.KEY_PRIORITY, 0);
             setNewOption = true;
         }
 
@@ -673,16 +721,6 @@ public class MediaCodecHelper {
                     videoFormat.setInteger("vendor.qti-ext-output-fence.fence_type", 1);
                 }
             }
-            else if (isDecoderInList(mediaTekDecoderPrefixes, decoderInfo.getName())) {
-                if (tryNumber < 4) {
-                    // MediaTek boost and low-latency keys, from Artemis's preset. Codec2 builds with
-                    // Android 12 take the branch above and only get the ones they declare.
-                    for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.mediaTekKeys().entrySet()) {
-                        videoFormat.setInteger(key.getKey(), key.getValue());
-                    }
-                    setNewOption = true;
-                }
-            }
             else if (isDecoderInList(kirinDecoderPrefixes, decoderInfo.getName())) {
                 if (tryNumber < 4) {
                     // Kirin low latency options
@@ -707,6 +745,20 @@ public class MediaCodecHelper {
                     setNewOption = true;
                 }
             }
+        }
+
+        // Snapdragon extras from the derflacco fork: frame drop on, and on the old OMX decoders a
+        // smaller output delay. The first tries only, so a decoder that rejects them falls back.
+        // The fork also sets picture-order to 0 after the keys above; on the Snapdragon 8 Gen 2
+        // (c2.qti.hevc.decoder.low_latency) that made the decoder produce no output at all
+        // (28 frames in, none out, DecoderHungException after 5 s), so it is not ported.
+        if (useVendorOptions && tryNumber < 3 && isDecoderInList(qualcommDecoderPrefixes, decoderInfo.getName())) {
+            videoFormat.setInteger("vendor.qti-ext-dec-frame-drop.enable", 1);
+            if (decoderInfo.getName().toLowerCase(Locale.ROOT).startsWith("omx.qcom")) {
+                videoFormat.setInteger("vendor.qti-ext-dec-dpb-output-delay.enable", 0);
+                videoFormat.setInteger("vendor.qti-ext-dec-picture-type.enable", 0);
+            }
+            setNewOption = true;
         }
 
         return setNewOption;
@@ -752,6 +804,17 @@ public class MediaCodecHelper {
         keys.add(1, "vdec-lowlatency");
         keys.add("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-rdy");
         for (String key : VendorLowLatencyKeys.TEGRA.keySet()) {
+            if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        for (String key : VendorLowLatencyKeys.MEDIATEK.keySet()) {
+            if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        for (String key : new String[] {"vendor.qti-ext-dec-frame-drop.enable", "vendor.qti-ext-dec-dpb-output-delay.enable",
+                "vendor.qti-ext-dec-picture-type.enable"}) {
             if (!keys.contains(key)) {
                 keys.add(key);
             }

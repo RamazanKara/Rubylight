@@ -23,7 +23,8 @@ import static org.junit.Assert.*;
 
 /**
  * Which decoder tuning keys each decoder name gets. The vendor sets follow Artemis (ClassicOldSong's
- * Moonlight fork, GPL-3.0); every key goes only to the decoders it belongs to.
+ * Moonlight fork, GPL-3.0) and the derflacco fork moonlight-noir (GPL-3.0); every key goes only to
+ * the decoders it belongs to.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, application = Application.class)
@@ -39,7 +40,9 @@ public class DecoderTuningKeysTest {
     private static final String[] MTK_KEYS = {
             "vendor.mtk.vdec.low-latency.mode", "vendor.mtk.vdec.cpu.boost.mode", "vendor.mtk.vdec.cpu.boost.mode.value",
             "vendor.mtk.vdec.dvfs.mode", "vendor.mtk.vdec.dvfs.level", "vendor.mtk.vdec.disable-idle",
-            "vendor.mtk.vdec.vsync.adjust.enable"};
+            "vendor.mtk.vdec.vsync.adjust.enable", "vendor.mtk.vdec.preload.frame.count", "vendor.mtk.vdec.input.max.queue.depth",
+            "vendor.mtk.vdec.output.max.queue.depth", "vendor.mtk.vdec.bq.guard.interval.time", "vendor.mtk.vdec.pq",
+            "vendor.mtk.vdec.skip.mode", "vendor.mtk.vdec.drop.nonref.frame"};
 
     @Before
     public void setUp() {
@@ -70,7 +73,6 @@ public class DecoderTuningKeysTest {
             assertAbsent(name, format, QTI_KEYS);
             assertAbsent(name, format, MTK_KEYS);
             assertEquals(name, name.startsWith("OMX"), format.containsKey("vdec-lowlatency"));
-            assertFalse(name, format.containsKey(MediaFormat.KEY_OPERATING_RATE));
         }
     }
 
@@ -88,34 +90,84 @@ public class DecoderTuningKeysTest {
     }
 
     @Test
-    public void mediaTekDecodersWithoutDeclaredParametersGetTheWholeSetByName() {
+    public void mediaTekDecodersGetTheWholePresetByName() {
         for (String name : new String[] {"c2.mtk.hevc.decoder", "OMX.MTK.VIDEO.DECODER.HEVC"}) {
             MediaFormat format = tune(name, 0, false);
             assertKeys(name, format, MTK_KEYS);
             assertEquals(name, 0, format.getInteger("vendor.mtk.vdec.vsync.adjust.enable"));
+            assertEquals(name, 2, format.getInteger("vendor.mtk.vdec.dvfs.level"));
+            assertEquals(name, 4, format.getInteger("vendor.mtk.vdec.buffer.fetch.timeout.ms"));
+            assertEquals(name, 0, format.getInteger("vendor.mtk.vdec.pq"));
+            assertEquals(name, Short.MAX_VALUE, format.getInteger(MediaFormat.KEY_OPERATING_RATE));
+            assertEquals(name, 0, format.getInteger(MediaFormat.KEY_PRIORITY));
             assertEquals(name, name.startsWith("OMX"), format.containsKey("vdec-lowlatency"));
             assertAbsent(name, format, QTI_KEYS);
             assertAbsent(name, format, TEGRA_KEYS);
-            assertFalse(name, format.containsKey(MediaFormat.KEY_OPERATING_RATE));
+            assertAbsent(name, format, "vendor.mtk.vdec.ultra-low-latency");
         }
     }
 
     @Test
-    public void mediaTekKeysThatBoostClocksDropOutOnTheFallbackTries() {
+    public void mediaTekPresetDropsOutOnTheFallbackTries() {
         MediaFormat last = tune("c2.mtk.hevc.decoder", 4, false);
         assertAbsent("try 4", last, MTK_KEYS);
+        assertFalse(last.containsKey(MediaFormat.KEY_OPERATING_RATE));
+        assertAbsent("vendor switch off", tuneWithoutVendorKeys("c2.mtk.hevc.decoder"), MTK_KEYS);
     }
 
     @Test
     @Config(sdk = 34)
-    public void androidTwelveSendsOnlyTheMediaTekKeysTheDecoderDeclares() {
-        MediaCodecInfo decoder = decoder("c2.mtk.hevc.decoder", "vendor.mtk.vdec.low-latency.mode",
-                "vendor.mtk.vdec.disable-idle", "vendor.mtk.vdec.unrelated.value");
+    public void androidTwelveSendsTheMediaTekPresetEvenWhenTheDecoderListsLess() {
+        MediaCodecInfo decoder = decoder("c2.mtk.hevc.decoder", "vendor.mtk.vdec.low-latency.mode");
         MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
         assertTrue(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, 0, true, true, false, false));
-        assertKeys("declared", format, "vendor.mtk.vdec.low-latency.mode", "vendor.mtk.vdec.disable-idle");
-        assertAbsent("undeclared", format, "vendor.mtk.vdec.dvfs.mode", "vendor.mtk.vdec.dvfs.level",
-                "vendor.mtk.vdec.vsync.adjust.enable", "vendor.mtk.vdec.unrelated.value");
+        assertKeys("preset", format, MTK_KEYS);
+        assertKeys("preset", format, "vendor.mtk.vdec.nvop.skip", "vendor.mtk.vdec.frame-drop.policy");
+    }
+
+    @Test
+    public void snapdragonDecodersGetTheForkExtrasOnTheFirstTriesOnly() {
+        for (String name : new String[] {"c2.qti.hevc.decoder.low_latency", "OMX.qcom.video.decoder.hevc"}) {
+            MediaFormat first = tune(name, 0, false);
+            // The fork's picture-order 0 left the Snapdragon 8 Gen 2 decoder without output.
+            assertEquals(name, 1, first.getInteger("vendor.qti-ext-dec-picture-order.enable"));
+            assertEquals(name, 1, first.getInteger("vendor.qti-ext-dec-frame-drop.enable"));
+            assertEquals(name, name.startsWith("OMX"), first.containsKey("vendor.qti-ext-dec-dpb-output-delay.enable"));
+            assertEquals(name, name.startsWith("OMX"), first.containsKey("vendor.qti-ext-dec-picture-type.enable"));
+            MediaFormat third = tune(name, 3, false);
+            assertAbsent(name, third, "vendor.qti-ext-dec-frame-drop.enable", "vendor.qti-ext-dec-dpb-output-delay.enable",
+                    "vendor.qti-ext-dec-picture-type.enable");
+        }
+        assertAbsent("mtk", tune("c2.mtk.hevc.decoder", 0, false), "vendor.qti-ext-dec-frame-drop.enable");
+        assertAbsent("exynos", tune("c2.exynos.hevc.decoder", 0, false), "vendor.qti-ext-dec-frame-drop.enable");
+    }
+
+    @Test
+    public void tegraDecodersAlsoGetTheTopRateAndRealTimePriority() {
+        MediaFormat format = tune("OMX.Nvidia.h265.decode", 0, false);
+        assertEquals(Short.MAX_VALUE, format.getInteger(MediaFormat.KEY_OPERATING_RATE));
+        assertEquals(0, format.getInteger(MediaFormat.KEY_PRIORITY));
+    }
+
+    @Test
+    public void referenceFrameInvalidationCoversMediaTekAndCodec2Snapdragon() {
+        MediaCodecHelper.addMediaTekAndQcomRefFrameInvalidation();
+        for (String name : new String[] {"c2.mtk.avc.decoder", "OMX.MTK.VIDEO.DECODER.AVC"}) {
+            assertTrue(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationAvc(name, 1080));
+        }
+        for (String name : new String[] {"c2.mtk.hevc.decoder", "OMX.MTK.VIDEO.DECODER.HEVC", "c2.qcom.hevc.decoder"}) {
+            assertTrue(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder(name), false, false, false));
+        }
+        assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationAvc("c2.acme.avc.decoder", 1080));
+        assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder("c2.acme.hevc.decoder"), false, false, false));
+    }
+
+    @Test
+    @Config(sdk = 34)
+    public void aMediaTekSwitchFromTheForkMarksAReferenceInvalidationDecoder() {
+        MediaCodecInfo decoder = decoder("c2.acme.hevc.decoder", "vendor.mtk.vdec.early.output.enable");
+        assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, true, false));
+        assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, false, false));
     }
 
     @Test
@@ -158,12 +210,12 @@ public class DecoderTuningKeysTest {
         MediaFormat last = tune("c2.mtk.hevc.decoder", 4, false);
         List<String> firstKeys = MediaCodecHelper.requestedTuningKeys(first, null);
         List<String> lastKeys = MediaCodecHelper.requestedTuningKeys(last, null);
-        assertTrue(firstKeys.contains("vendor.mtk.vdec.dvfs.mode=1"));
+        assertTrue(firstKeys.contains("vendor.mtk.vdec.dvfs.mode=2"));
         assertTrue(firstKeys.contains("vendor.mtk.vdec.vsync.adjust.enable=0"));
         assertTrue(firstKeys.contains("low-latency=1"));
         assertTrue(lastKeys.isEmpty());
         List<String> dropped = MediaCodecHelper.droppedTuningKeys(firstKeys, lastKeys);
-        assertTrue(dropped.contains("vendor.mtk.vdec.dvfs.mode=1"));
+        assertTrue(dropped.contains("vendor.mtk.vdec.dvfs.mode=2"));
         assertTrue(MediaCodecHelper.droppedTuningKeys(firstKeys, firstKeys).isEmpty());
     }
 
@@ -176,6 +228,12 @@ public class DecoderTuningKeysTest {
         java.nio.ByteBuffer info = java.nio.ByteBuffer.allocate(25);
         MediaCodecDecoderRenderer.applyHdrStaticInfo(fresh, info);
         assertSame(info, fresh.getByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO));
+    }
+
+    private static MediaFormat tuneWithoutVendorKeys(String name) {
+        MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name), 0, true, false, false, false);
+        return format;
     }
 
     private static MediaFormat tune(String name, int attempt, boolean performanceHints) {
@@ -194,6 +252,16 @@ public class DecoderTuningKeysTest {
         for (String key : keys) {
             assertFalse(label + " should not have " + key, format.containsKey(key));
         }
+    }
+
+    @Test
+    public void experimentalLabelCoversVendorsWeCannotRun() {
+        assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("c2.mtk.hevc.decoder"));
+        assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.MTK.VIDEO.DECODER.HEVC"));
+        assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.Nvidia.h264.decode"));
+        assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.amlogic.hevc.decoder.awesome"));
+        assertFalse(MediaCodecHelper.isExperimentalVendorDecoder("c2.qti.hevc.decoder.low_latency"));
+        assertFalse(MediaCodecHelper.isExperimentalVendorDecoder("c2.android.hevc.decoder"));
     }
 
     private static MediaCodecInfo decoder(String name, String... declaredVendorParameters) {

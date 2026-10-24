@@ -191,7 +191,7 @@
     <string name="title_quick_resume">Hızlı sürdürme</string>
     <string name="summary_quick_resume">Oyun çalıştıran bir bilgisayara dokunmak, kitaplığını açmak yerine sizi doğrudan oyuna geri götürür.</string>
     <string name="title_checkbox_enable_sops">Oyun optimizasyonu ipucu</string>
-    <string name="summary_checkbox_enable_sops">Bilgisayara, bu yayın için bir oyunun ayarlarını optimize edip edemeyeceğini bildirir. Rubylight bu seçimi yalnızca bilgisayarda çalıştırdığınız komutlara SUNSHINE_CLIENT_ENABLE_SOPS olarak iletir. Diğer ana bilgisayarlar oyun ayarlarını kendileri değiştirebilir.</string>
+    <string name="summary_checkbox_enable_sops">Bilgisayara, bu yayın için bir oyunun ayarlarını optimize edip edemeyeceğini bildirir. Bunu ne yapacağı ana bilgisayara bağlıdır: bazıları oyunun ayarlarını kendisi değiştirir, bazıları ise seçimi yalnızca bilgisayarda çalıştırdığınız komutlara iletir.</string>
     <string name="title_checkbox_host_audio">Sesi ana bilgisayarda çal</string>
     <string name="title_unlock_fps">Tüm kare hızlarını göster</string>
     <string name="title_checkbox_reduce_refresh_rate">Daha düşük yenileme hızına izin ver</string>

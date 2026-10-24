@@ -191,7 +191,7 @@
     <string name="title_quick_resume">Reanudación rápida</string>
     <string name="summary_quick_resume">Al tocar un PC que está ejecutando un juego, vuelves directamente al juego en lugar de abrir su biblioteca.</string>
     <string name="title_checkbox_enable_sops">Sugerencia de optimización de juegos</string>
-    <string name="summary_checkbox_enable_sops">Indica al PC si puede optimizar los ajustes de un juego para esta transmisión. Rubylight solo pasa la elección, como SUNSHINE_CLIENT_ENABLE_SOPS, a los comandos que ejecutes en el PC. Otros servidores pueden cambiar por sí mismos los ajustes del juego.</string>
+    <string name="summary_checkbox_enable_sops">Indica al PC si puede optimizar los ajustes de un juego para esta transmisión. Lo que haga con ello depende del host: algunos cambian por sí mismos los ajustes del juego y otros solo pasan la elección a los comandos que ejecutes en el PC.</string>
     <string name="title_checkbox_host_audio">Reproducir audio en el PC servidor</string>
     <string name="title_unlock_fps">Mostrar todas las velocidades de fotogramas</string>
     <string name="title_checkbox_reduce_refresh_rate">Permitir una frecuencia de actualización menor</string>

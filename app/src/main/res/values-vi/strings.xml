@@ -191,7 +191,7 @@
     <string name="title_quick_resume">Tiếp tục nhanh</string>
     <string name="summary_quick_resume">Chạm vào PC đang chạy trò chơi sẽ đưa bạn thẳng vào lại trò chơi thay vì mở thư viện của PC đó.</string>
     <string name="title_checkbox_enable_sops">Gợi ý tối ưu hóa trò chơi</string>
-    <string name="summary_checkbox_enable_sops">Cho PC biết có được tối ưu hóa cài đặt của trò chơi cho stream này hay không. Rubylight chỉ chuyển lựa chọn này, dưới dạng SUNSHINE_CLIENT_ENABLE_SOPS, cho các lệnh bạn chạy trên PC. Các máy chủ khác có thể tự thay đổi cài đặt trò chơi.</string>
+    <string name="summary_checkbox_enable_sops">Cho PC biết có được tối ưu cài đặt của game cho stream này hay không. PC xử lý thế nào tùy vào host: có host tự đổi cài đặt game, có host chỉ chuyển lựa chọn cho các lệnh bạn chạy trên PC.</string>
     <string name="title_checkbox_host_audio">Phát âm thanh trên PC chủ</string>
     <string name="title_unlock_fps">Hiện mọi tốc độ khung hình</string>
     <string name="title_checkbox_reduce_refresh_rate">Cho phép tần số quét thấp hơn</string>

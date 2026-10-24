@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="fps_show_supported">Nur unterstützte Bildraten anzeigen</string>
-    <string name="title_adaptive_quality_setting">Auch Auflösung oder Bildrate senken</string>
+    <string name="title_adaptive_quality_setting">Auflösung oder Bildrate bei Bedarf senken</string>
     <string name="summary_adaptive_quality_setting">Wenn Netzwerk, langsames Dekodieren oder Hitze den Stream ausbremsen, werden Auflösung oder Bildrate gesenkt und später wieder angehoben. Gilt nicht für PyroWave.</string>
     <string name="title_low_latency_customize">Anpassen</string>
     <string name="low_latency_customize_closed">Wählen, welche Teile der Latenzoptimierung aktiv sind</string>
     <string name="low_latency_customize_open">Einzelne Schalter ausblenden</string>
     <string name="settings_category_compatibility">Kompatibilität</string>
-    <string name="summary_sops_short">An Befehle auf dem PC weitergegeben</string>
+    <string name="summary_sops_short">Der PC darf die Spieleinstellungen anpassen</string>
+    <string name="theme_high_contrast_note">Hoher Kontrast hält die App schwarz</string>
     <string name="title_performance_overlay">Leistungsanzeige</string>
     <string name="overlay_off">Aus</string>
     <string name="title_theme">Design</string>

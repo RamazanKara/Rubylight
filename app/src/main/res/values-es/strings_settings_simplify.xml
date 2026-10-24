@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="fps_show_supported">Mostrar solo las velocidades de fotogramas compatibles</string>
-    <string name="title_adaptive_quality_setting">Reducir también la resolución o la velocidad de fotogramas</string>
+    <string name="title_adaptive_quality_setting">Reducir la resolución o la velocidad de fotogramas si hace falta</string>
     <string name="summary_adaptive_quality_setting">Cuando la red, una decodificación lenta o el calor impiden que la transmisión vaya bien, reduce la resolución o la velocidad de fotogramas y las vuelve a subir al recuperarse. No se aplica a PyroWave.</string>
     <string name="title_low_latency_customize">Personalizar</string>
     <string name="low_latency_customize_closed">Elige qué partes de la baja latencia están activas</string>
     <string name="low_latency_customize_open">Ocultar los interruptores individuales</string>
     <string name="settings_category_compatibility">Compatibilidad</string>
-    <string name="summary_sops_short">Se pasa a los comandos del PC</string>
+    <string name="summary_sops_short">Permite que el PC ajuste la configuración del juego</string>
+    <string name="theme_high_contrast_note">El contraste alto mantiene la app en negro</string>
     <string name="title_performance_overlay">Superposición de rendimiento</string>
     <string name="overlay_off">Desactivada</string>
     <string name="title_theme">Tema</string>

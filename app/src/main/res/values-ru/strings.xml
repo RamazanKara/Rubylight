@@ -191,7 +191,7 @@
     <string name="title_quick_resume">Быстрое продолжение</string>
     <string name="summary_quick_resume">Нажатие на ПК, на котором запущена игра, сразу возвращает в игру вместо открытия библиотеки.</string>
     <string name="title_checkbox_enable_sops">Подсказка об оптимизации игр</string>
-    <string name="summary_checkbox_enable_sops">Сообщает ПК, можно ли оптимизировать настройки игры для этой трансляции. Rubylight только передаёт этот выбор как SUNSHINE_CLIENT_ENABLE_SOPS командам, которые вы запускаете на ПК. Другие хосты могут менять настройки игры сами.</string>
+    <string name="summary_checkbox_enable_sops">Сообщает ПК, можно ли оптимизировать настройки игры для этой трансляции. Что он с этим сделает, зависит от хоста: одни сами меняют настройки игры, другие лишь передают выбор командам, которые вы запускаете на ПК.</string>
     <string name="title_checkbox_host_audio">Воспроизводить звук на ПК</string>
     <string name="title_unlock_fps">Показывать все частоты кадров</string>
     <string name="title_checkbox_reduce_refresh_rate">Разрешить пониженную частоту обновления</string>

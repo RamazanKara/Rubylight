@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="fps_show_supported">Chỉ hiện các tốc độ khung hình được hỗ trợ</string>
-    <string name="title_adaptive_quality_setting">Cũng giảm độ phân giải hoặc tốc độ khung hình</string>
+    <string name="title_adaptive_quality_setting">Giảm độ phân giải hoặc tốc độ khung hình khi cần</string>
     <string name="summary_adaptive_quality_setting">Khi mạng, giải mã chậm hoặc nhiệt độ cao khiến stream chạy không tốt, giảm độ phân giải hoặc tốc độ khung hình rồi tăng lại khi ổn định. Không áp dụng cho PyroWave.</string>
     <string name="title_low_latency_customize">Tùy chỉnh</string>
     <string name="low_latency_customize_closed">Chọn các phần độ trễ thấp được bật</string>
     <string name="low_latency_customize_open">Ẩn các công tắc riêng lẻ</string>
     <string name="settings_category_compatibility">Tương thích</string>
-    <string name="summary_sops_short">Chuyển cho các lệnh trên PC</string>
+    <string name="summary_sops_short">Cho phép PC điều chỉnh cài đặt của game</string>
+    <string name="theme_high_contrast_note">Độ tương phản cao giữ ứng dụng màu đen</string>
     <string name="title_performance_overlay">Lớp phủ hiệu năng</string>
     <string name="overlay_off">Tắt</string>
     <string name="title_theme">Giao diện</string>

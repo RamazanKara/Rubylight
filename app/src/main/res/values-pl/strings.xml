@@ -191,7 +191,7 @@
     <string name="title_quick_resume">Szybkie wznawianie</string>
     <string name="summary_quick_resume">Dotknięcie komputera, na którym działa gra, od razu przenosi do gry zamiast otwierać jego bibliotekę.</string>
     <string name="title_checkbox_enable_sops">Wskazówka optymalizacji gier</string>
-    <string name="summary_checkbox_enable_sops">Informuje komputer, czy może optymalizować ustawienia gry na potrzeby tego strumienia. Rubylight przekazuje wybór tylko poleceniom uruchamianym na komputerze, jako SUNSHINE_CLIENT_ENABLE_SOPS. Inne hosty mogą same zmieniać ustawienia gry.</string>
+    <string name="summary_checkbox_enable_sops">Informuje komputer, czy może optymalizować ustawienia gry na potrzeby tego strumienia. Co z tym zrobi, zależy od hosta: niektóre same zmieniają ustawienia gry, inne tylko przekazują wybór poleceniom uruchamianym na komputerze.</string>
     <string name="title_checkbox_host_audio">Odtwarzaj dźwięk na komputerze</string>
     <string name="title_unlock_fps">Pokaż wszystkie liczby klatek</string>
     <string name="title_checkbox_reduce_refresh_rate">Zezwalaj na niższe odświeżanie</string>

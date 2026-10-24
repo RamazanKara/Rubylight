@@ -191,7 +191,7 @@
     <string name="title_quick_resume">クイック再開</string>
     <string name="summary_quick_resume">ゲームを実行中の PC をタップすると、ライブラリを開かずにそのままゲームに戻ります。</string>
     <string name="title_checkbox_enable_sops">ゲーム最適化のヒント</string>
-    <string name="summary_checkbox_enable_sops">このストリームでゲームの設定を最適化してよいかを PC に伝えます。Rubylight は、この選択を SUNSHINE_CLIENT_ENABLE_SOPS として PC で実行するコマンドに渡すだけです。ほかのホストは、ゲームの設定を自分で変更する場合があります。</string>
+    <string name="summary_checkbox_enable_sops">このストリーム向けにゲームの設定を最適化してよいかを PC に伝えます。PC がどう扱うかはホストによって異なり、ゲームの設定を自分で変更するものもあれば、PC で実行するコマンドに選択を渡すだけのものもあります。</string>
     <string name="title_checkbox_host_audio">ホスト PC で音声を再生</string>
     <string name="title_unlock_fps">すべてのフレームレートを表示</string>
     <string name="title_checkbox_reduce_refresh_rate">低いリフレッシュレートを許可</string>

@@ -191,7 +191,7 @@
     <string name="title_quick_resume">빠른 재개</string>
     <string name="summary_quick_resume">게임이 실행 중인 PC를 탭하면 라이브러리를 여는 대신 바로 게임으로 돌아갑니다.</string>
     <string name="title_checkbox_enable_sops">게임 최적화 힌트</string>
-    <string name="summary_checkbox_enable_sops">이 스트림에서 PC가 게임 설정을 최적화해도 되는지 알려 줍니다. Rubylight는 이 선택을 SUNSHINE_CLIENT_ENABLE_SOPS로 PC에서 실행하는 명령에만 전달합니다. 다른 호스트는 게임 설정을 직접 바꿀 수 있습니다.</string>
+    <string name="summary_checkbox_enable_sops">이 스트림을 위해 PC가 게임 설정을 최적화해도 되는지 알립니다. PC가 이를 어떻게 처리하는지는 호스트에 따라 다릅니다. 게임 설정을 직접 바꾸는 호스트도 있고, PC에서 실행하는 명령에 선택만 전달하는 호스트도 있습니다.</string>
     <string name="title_checkbox_host_audio">호스트 PC에서 오디오 재생</string>
     <string name="title_unlock_fps">모든 프레임 속도 표시</string>
     <string name="title_checkbox_reduce_refresh_rate">낮은 주사율 허용</string>

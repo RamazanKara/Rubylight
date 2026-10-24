@@ -191,7 +191,7 @@
     <string name="title_quick_resume">快速继续</string>
     <string name="summary_quick_resume">点按正在运行游戏的电脑会直接回到游戏，而不是打开它的游戏库。</string>
     <string name="title_checkbox_enable_sops">游戏优化提示</string>
-    <string name="summary_checkbox_enable_sops">告知电脑是否可以为本次串流优化游戏设置。Rubylight 只会把这个选择以 SUNSHINE_CLIENT_ENABLE_SOPS 的形式传给你在电脑上运行的命令。其他主机可能会自行更改游戏设置。</string>
+    <string name="summary_checkbox_enable_sops">告知电脑是否可以为此串流优化游戏设置。电脑如何处理取决于主机：有的会自行更改游戏设置，有的只会把选择传给你在电脑上运行的命令。</string>
     <string name="title_checkbox_host_audio">在主机电脑上播放音频</string>
     <string name="title_unlock_fps">显示所有帧率</string>
     <string name="title_checkbox_reduce_refresh_rate">允许降低刷新率</string>

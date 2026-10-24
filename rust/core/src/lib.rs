@@ -93,3 +93,4 @@ pub mod update_recovery;
 pub mod usbip;
 pub mod version;
 pub mod virtual_output;
+pub mod webrtc;

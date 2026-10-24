@@ -51,6 +51,7 @@ pub mod keyframe_loss;
 pub mod launcher_prompt;
 pub mod library;
 pub mod link_control;
+pub mod link_notice;
 pub mod link_rate;
 pub mod logfile;
 pub mod lossless;

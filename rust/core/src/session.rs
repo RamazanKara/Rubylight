@@ -87,6 +87,26 @@ struct LinkReport {
     log_info: bool,
 }
 
+/// What a client that asked for notices (0x5538) is told about a change.
+fn link_notice(report: &LinkReport) -> crate::link_notice::LinkNotice {
+    use crate::link_notice::{LinkNotice, LinkReason, LinkState};
+    use crate::link_rate::ChangeKind;
+    let (state, reason) = match report.change.kind {
+        ChangeKind::Full => (LinkState::Full, LinkReason::None),
+        ChangeKind::Floor | ChangeKind::EncoderFloor => (LinkState::Floor, LinkReason::Network),
+        ChangeKind::StepDown | ChangeKind::Probe | ChangeKind::ProbeFailed => {
+            (LinkState::Limited, LinkReason::Network)
+        }
+    };
+    let current_kbps = report.change.to_kbps.max(1);
+    LinkNotice {
+        state,
+        reason,
+        ceiling_kbps: report.ceiling_kbps.max(current_kbps),
+        current_kbps,
+    }
+}
+
 /// A bitrate for a sentence: "15 Mbps", "4.5 Mbps".
 fn mbps(kbps: u32) -> String {
     if kbps >= 10_000 {
@@ -359,6 +379,124 @@ mod tests {
             s.tick_link_rate(end + Duration::from_millis(300), Duration::from_millis(10)),
             None
         );
+    }
+    fn ask_for_notices(s: &Session) {
+        use crate::link_notice::LinkNoticeRequest;
+        assert_eq!(
+            s.link_notices
+                .lock()
+                .unwrap()
+                .on_request(&LinkNoticeRequest { enabled: true }.encode()),
+            Some(true)
+        );
+    }
+    fn notice_at(s: &Session, at: Instant) -> Option<crate::link_notice::LinkNotice> {
+        let bytes = s.link_notices.lock().unwrap().take(at)?;
+        Some(crate::link_notice::LinkNotice::decode(&bytes).expect("the host sends valid notices"))
+    }
+    #[test]
+    fn a_client_that_asked_is_told_when_the_bitrate_is_lowered_and_when_it_is_back() {
+        use crate::link_notice::{LinkReason, LinkState};
+        let (s, end) = link_session(60, true);
+        ask_for_notices(&s);
+        let at = end + Duration::from_millis(200);
+        assert_eq!(notice_at(&s, at), None, "nothing to say at the full rate");
+        lose_frames(&s, 50..=54);
+        let (_, to) = s
+            .tick_link_rate(at, Duration::from_millis(10))
+            .expect("the controller lowers the bitrate");
+        let notice = notice_at(&s, at).expect("the step down is announced");
+        assert_eq!(notice.state, LinkState::Limited);
+        assert_eq!(notice.reason, LinkReason::Network);
+        assert_eq!((notice.ceiling_kbps, notice.current_kbps), (20_000, to));
+        assert_eq!(notice_at(&s, at + Duration::from_millis(8)), None, "once");
+        // A reconfigure puts the requested bitrate back and the client hears it.
+        s.rebuild_link_rate(&s.config, true, 0);
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 20_000);
+        let notice = notice_at(&s, at + Duration::from_secs(1)).expect("the return is announced");
+        assert_eq!(notice.state, LinkState::Full);
+        assert_eq!(notice.reason, LinkReason::None);
+        assert_eq!((notice.ceiling_kbps, notice.current_kbps), (20_000, 20_000));
+    }
+    #[test]
+    fn a_client_that_did_not_ask_is_told_nothing() {
+        let (s, end) = link_session(60, true);
+        lose_frames(&s, 50..=54);
+        let at = end + Duration::from_millis(200);
+        s.tick_link_rate(at, Duration::from_millis(10))
+            .expect("the controller lowers the bitrate");
+        assert_eq!(notice_at(&s, at), None);
+        assert_eq!(notice_at(&s, at + Duration::from_secs(5)), None);
+    }
+    #[test]
+    fn a_client_that_takes_the_bitrate_over_is_told_it_is_no_longer_lowered() {
+        use crate::link_notice::LinkState;
+        let (s, end) = link_session(60, true);
+        ask_for_notices(&s);
+        lose_frames(&s, 50..=54);
+        let at = end + Duration::from_millis(200);
+        s.tick_link_rate(at, Duration::from_millis(10)).unwrap();
+        assert_eq!(notice_at(&s, at).unwrap().state, LinkState::Limited);
+        s.set_client_bitrate(12_000);
+        let notice = notice_at(&s, at + Duration::from_secs(1)).expect("cleared");
+        assert_eq!(notice.state, LinkState::Full);
+        assert_eq!((notice.ceiling_kbps, notice.current_kbps), (12_000, 12_000));
+    }
+    #[test]
+    fn every_controller_change_has_its_notice() {
+        use crate::link_notice::{LinkReason, LinkState};
+        use crate::link_rate::{Change, ChangeKind, Evidence};
+        for (kind, state, reason) in [
+            (
+                ChangeKind::StepDown,
+                LinkState::Limited,
+                LinkReason::Network,
+            ),
+            (ChangeKind::Probe, LinkState::Limited, LinkReason::Network),
+            (
+                ChangeKind::ProbeFailed,
+                LinkState::Limited,
+                LinkReason::Network,
+            ),
+            (ChangeKind::Floor, LinkState::Floor, LinkReason::Network),
+            (
+                ChangeKind::EncoderFloor,
+                LinkState::Floor,
+                LinkReason::Network,
+            ),
+            (ChangeKind::Full, LinkState::Full, LinkReason::None),
+        ] {
+            let to_kbps = if kind == ChangeKind::Full {
+                20_000
+            } else {
+                5_000
+            };
+            let notice = link_notice(&LinkReport {
+                change: Change {
+                    kind,
+                    reason: "test",
+                    from_kbps: 10_000,
+                    to_kbps,
+                    delivered_kbps: 0,
+                    evidence: Evidence::default(),
+                },
+                was_limited: true,
+                ceiling_kbps: 20_000,
+                loss_share: 0.,
+                lowest_kbps: 5_000,
+                log_info: false,
+            });
+            assert_eq!(
+                (
+                    notice.state,
+                    notice.reason,
+                    notice.ceiling_kbps,
+                    notice.current_kbps
+                ),
+                (state, reason, 20_000, to_kbps),
+                "{kind:?}"
+            );
+        }
     }
     #[test]
     fn a_healthy_session_keeps_its_bitrate_and_has_no_warning() {
@@ -2177,6 +2315,9 @@ pub struct Session<P = (), A = ()> {
     pub hdr_source: std::sync::Mutex<crate::display_caps::HdrSource>,
     /// Per-picture present-to-sent reports for a client that asked (0x5536).
     pub host_timings: std::sync::Mutex<crate::host_timing::HostTimings>,
+    /// Tells a client that asked (0x5538) when the host holds the bitrate down for the
+    /// network; fed by `tick_link_rate`, sent by the control loop.
+    pub link_notices: std::sync::Mutex<crate::link_notice::LinkNotices>,
     /// Zero of the video stream's RTP clock, set when its sender starts; clock sync
     /// replies (0x5537) are on this clock.
     pub media_epoch: std::sync::RwLock<Option<Instant>>,
@@ -2241,6 +2382,7 @@ impl<P, A> Session<P, A> {
             hdr_metadata: Default::default(),
             hdr_source: Default::default(),
             host_timings: Default::default(),
+            link_notices: Default::default(),
             media_epoch: Default::default(),
             timing_record: Default::default(),
         })
@@ -2447,6 +2589,7 @@ impl<P, A> Session<P, A> {
         }
         self.launch.warnings.clear("host_bitrate_budget");
         self.launch.warnings.clear(LINK_WARNING);
+        self.link_notices.lock().unwrap().note_full(kbps);
     }
     pub fn adaptive_pacing_bps(&self, configured_bps: u64) -> u64 {
         let limit = self.adaptive_video_pacing_bps.load(Ordering::Acquire);
@@ -2475,7 +2618,12 @@ impl<P, A> Session<P, A> {
         self.link_sent
             .set_live(rate.state() != crate::link_rate::State::Off);
         *link = crate::link_control::LinkControl::new(rate, self.link_sent.head());
+        drop(link);
         self.launch.warnings.clear(LINK_WARNING);
+        self.link_notices
+            .lock()
+            .unwrap()
+            .note_full(self.bitrate.load(Ordering::Acquire));
     }
     /// A frame the video sender sent: its wire frame number, packets (data and
     /// parity) and wire bytes. Lock-free, so any sender path may call it.
@@ -2573,6 +2721,7 @@ impl<P, A> Session<P, A> {
             .map(|change| note_link_change(&mut link, now, change));
         drop(link);
         if let Some(report) = report {
+            self.link_notices.lock().unwrap().note(link_notice(&report));
             self.announce_link_change(report);
         }
         (applied != current).then_some((current, applied))

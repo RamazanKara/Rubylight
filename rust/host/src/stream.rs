@@ -3404,6 +3404,19 @@ impl Media {
                                     ),
                                 }
                             }
+                            butterpollo_core::link_notice::LINK_NOTICE_MESSAGE_TYPE => {
+                                match s.link_notices.lock().unwrap().on_request(&payload) {
+                                    Some(enabled) => tracing::info!(
+                                        client = %s.launch.client.name,
+                                        enabled,
+                                        "link notices"
+                                    ),
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        "invalid link notice request"
+                                    ),
+                                }
+                            }
                             butterpollo_core::display_caps::DISPLAY_CAPS_MESSAGE_TYPE => {
                                 match s.record_display_caps(&payload) {
                                     Some(update) if update.changed => {
@@ -3607,6 +3620,28 @@ impl Media {
                     }
                     if poll_feedback {
                         s.tick_link_rate(Instant::now(), host.peer(*peer_id).round_trip_time());
+                    }
+                    // The bitrate notice for a client that asked (0x5538): reliable, so
+                    // the overlay is not left stale, and at most one a second.
+                    let notice = s.link_notices.lock().unwrap().take(Instant::now());
+                    if let Some(notice) = notice {
+                        match p.encrypt(
+                            &s,
+                            butterpollo_core::link_notice::LINK_NOTICE_MESSAGE_TYPE,
+                            &notice,
+                        ) {
+                            Ok(message) => {
+                                if let Err(e) = host
+                                    .peer_mut(*peer_id)
+                                    .send(0, &Packet::new(message, PacketKind::Reliable))
+                                {
+                                    tracing::warn!(error = %e, "link notice not sent");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %format!("{e:#}"), "link notice not encrypted");
+                            }
+                        }
                     }
                     // Made before input comes; after a failure, again when it
                     // does. Making it with the first input held that input up.

@@ -37,6 +37,7 @@ Each message travels on the control stream like Moonlight's client-to-host contr
 | `0x5532` | Reconfigure | `control::Reconfigure` | Changes the stream's resolution or frame rate without reconnecting ([below](#0x5532-reconfigure)). |
 | `0x5536` | Host timing | `control::HostTimingRequest` | Sends reports of where each new picture's time went on the host, after its last packet left ([below](#0x5536-host-timing)). |
 | `0x5537` | Clock sync | `control::ClockSyncRequest` | Answers at once with a `control::ClockSyncReply` on the video RTP clock ([below](#0x5537-clock-sync)). |
+| `0x5538` | Link notice | `control::LinkNoticeRequest`, `control::LinkNotice` | Tells the client when it lowers the video bitrate for the network, and when it is back ([below](#0x5538-link-notice)). |
 
 ## 0x5536 host timing
 
@@ -75,6 +76,25 @@ An extended report carries at most 17 records (616 bytes). The limit is not the 
 A client probes the host's video clock, NTP style, to map frame timestamps to its own clock. Rubylight's VRR presentation (`present_clock` in rubylight-protocol) needs no shared clock to schedule frames; clock sync adds the host-present-to-client-present latency.
 
 The request is 16 bytes: version `1`, three reserved bytes, a 32-bit sequence number and the client's send time as 64-bit microseconds of its own monotonic clock. The host answers each request with 32 bytes on the same message type, unreliably: version, three reserved bytes, the sequence, the client's time unchanged, then the times the host received the request and sent the reply. Host times are microseconds on the video stream's RTP clock: a frame stamped at `t` µs carries the RTP timestamp `t × 90 / 1000` modulo 2³². The host does not answer before the video stream starts. Four probes a second are plenty; the client keeps the exchanges with the shortest round trips (`present_clock::ClockOffset`).
+
+## 0x5538 link notice
+
+When the link-rate controller lowers the video bitrate because the network between the host and the device lost video, the picture gets softer and nothing else tells the player why. A client that asks hears about it and can say so in its overlay. Without the request the host sends nothing, so stock Moonlight clients never see the message.
+
+The request (client to host) is 4 bytes: version `1`, a flags byte (bit 0 turns notices on, `0` off) and two reserved bytes. Send it once the stream starts, to a host that lists `0x5538` in `a=x-rl-control`. A client that asks while the host is already below the requested bitrate gets the standing notice at once.
+
+The notice (host to client) is 12 bytes, sent reliably:
+
+| Bytes | Field | Value |
+| --- | --- | --- |
+| 0 | version | `1` |
+| 1 | state | `0` full (the requested bitrate), `1` limited (lowered, probing back up), `2` floor (at the lowest bitrate the host uses, and the network still loses video) |
+| 2 | reason | `0` none (only with state `0`), `1` network |
+| 3 | reserved | 0 |
+| 4�7 | ceiling | the video bitrate the client asked for, as the encoder is given it, in kbps |
+| 8�11 | current | the encoder bitrate now, in kbps |
+
+The host sends one on each change of the controller's state or bitrate: a step down, a probe up, a failed probe, a floor, and the return to full. It sends at most one a second; when changes come faster, the newest follows when the second is up, and a return to full is never dropped. It also sends the return to full when a reconfigure (`0x5532`) rebuilds the controller or the client takes over the bitrate itself (`/bitrate`). The first notice a client gets is never state `0`; it assumes full. A client clears its notice on state `0`. A payload that is shorter, has another version, state or reason, has a zero bitrate, or pairs state `0` with a reason or another state with none is ignored. The notice is off the video send path and adds no latency to it. `LinkNotice::decode` in rubylight-protocol parses it.
 
 ## 0x5531 display luminance
 

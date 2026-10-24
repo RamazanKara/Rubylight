@@ -638,12 +638,19 @@ impl rusty_enet::Socket for LossySocket {
         }
     }
 }
+/// Link notice payloads with the time each arrived.
+type Notices = Arc<Mutex<Vec<(Instant, Vec<u8>)>>>;
+
 struct Client {
     control_down: Arc<AtomicBool>,
     video_down: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     frames: Arc<AtomicUsize>,
     reason: Arc<AtomicU32>,
+    /// Link notices (0x5538) the host sent, with their arrival times.
+    notices: Notices,
+    /// Plain control messages for the worker to send, reliable.
+    outbox: Arc<Mutex<Vec<Vec<u8>>>>,
     worker: Option<thread::JoinHandle<Result<()>>>,
 }
 impl Client {
@@ -653,6 +660,8 @@ impl Client {
         let stop = Arc::new(AtomicBool::new(false));
         let frames = Arc::new(AtomicUsize::new(0));
         let reason = Arc::new(AtomicU32::new(0));
+        let notices = Arc::new(Mutex::new(Vec::new()));
+        let outbox = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let mut host = Host::new(
             LossySocket {
                 socket: udp(),
@@ -674,6 +683,7 @@ impl Client {
             frames.clone(),
             reason.clone(),
         );
+        let (worker_notices, worker_outbox) = (notices.clone(), outbox.clone());
         let worker = thread::spawn(move || -> Result<()> {
             let mut next_ping = Instant::now();
             let mut buffer = [0; 2048];
@@ -691,7 +701,17 @@ impl Client {
                                 Ordering::Release,
                             );
                         }
+                        if kind == butterpollo_core::link_notice::LINK_NOTICE_MESSAGE_TYPE {
+                            worker_notices
+                                .lock()
+                                .unwrap()
+                                .push((Instant::now(), payload));
+                        }
                     }
+                }
+                for message in std::mem::take(&mut *worker_outbox.lock().unwrap()) {
+                    host.peer_mut(peer_id)
+                        .send(0, &Packet::new(message, PacketKind::Reliable))?;
                 }
                 if Instant::now() >= next_ping {
                     if host.peer(peer_id).connected() {
@@ -736,8 +756,17 @@ impl Client {
             stop,
             frames,
             reason,
+            notices,
+            outbox,
             worker: Some(worker),
         })
+    }
+    /// Sends a plain control message of `kind` (the host takes unencrypted ones in
+    /// these streams).
+    fn send_control(&self, kind: u16, payload: &[u8]) {
+        let mut message = kind.to_le_bytes().to_vec();
+        message.extend_from_slice(payload);
+        self.outbox.lock().unwrap().push(message);
     }
     fn network(&self, down: bool) {
         self.control_down.store(down, Ordering::Release);
@@ -1142,6 +1171,76 @@ async fn network_drop_10s_survives_15s_timeout() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn network_drop_40s_times_out_then_resumes() -> Result<()> {
     network_drop(40, 10_000, false).await
+}
+
+/// A client hears of a lowered bitrate (0x5538) only after it asks, at most once a
+/// second, newest first, and hears the return to the requested rate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn link_notices_reach_only_a_client_that_asks() -> Result<()> {
+    use butterpollo_core::link_notice::{
+        LINK_NOTICE_MESSAGE_TYPE, LinkNotice, LinkNoticeRequest, LinkReason, LinkState,
+    };
+    let limited = |current_kbps| LinkNotice {
+        state: LinkState::Limited,
+        reason: LinkReason::Network,
+        ceiling_kbps: 100_000,
+        current_kbps,
+    };
+    let heard = |client: &Client| -> Vec<(Instant, LinkNotice)> {
+        client
+            .notices
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(at, payload)| (*at, LinkNotice::decode(payload).expect("a valid notice")))
+            .collect()
+    };
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+
+    // Nobody asked: a lowered bitrate is the host's business.
+    session.link_notices.lock().unwrap().note(limited(75_000));
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(
+        heard(&client).is_empty(),
+        "a notice went to a client that did not ask"
+    );
+
+    // Asking brings the standing limit at once.
+    client.send_control(
+        LINK_NOTICE_MESSAGE_TYPE,
+        &LinkNoticeRequest { enabled: true }.encode(),
+    );
+    until("the standing limit arrives", WAIT, || {
+        heard(&client).len() == 1
+    })
+    .await;
+    assert_eq!(heard(&client)[0].1, limited(75_000));
+
+    // Three changes in a burst: the newest alone follows, a second after the first.
+    for kbps in [60_000, 50_000, 40_000] {
+        session.link_notices.lock().unwrap().note(limited(kbps));
+    }
+    until("the newest arrives", WAIT * 2, || heard(&client).len() == 2).await;
+    let notices = heard(&client);
+    assert_eq!(notices[1].1, limited(40_000));
+    assert!(
+        notices[1].0.duration_since(notices[0].0) >= Duration::from_millis(900),
+        "{:?} between notices",
+        notices[1].0.duration_since(notices[0].0)
+    );
+
+    // The return to the requested rate clears it, and nothing else follows.
+    session.link_notices.lock().unwrap().note_full(100_000);
+    until("the clear arrives", WAIT * 2, || heard(&client).len() == 3).await;
+    let clear = heard(&client)[2].1;
+    assert_eq!(clear.state, LinkState::Full);
+    assert_eq!(clear.reason, LinkReason::None);
+    tokio::time::sleep(Duration::from_millis(1300)).await;
+    assert_eq!(heard(&client).len(), 3);
+    h.end(&session, client).await?;
+    h.finish().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

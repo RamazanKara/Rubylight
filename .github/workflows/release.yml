@@ -101,10 +101,16 @@ jobs:
         run: |
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
           aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)
+          # apksigner prints "Signer #1 certificate SHA-256 digest: <hex>" or, on
+          # the runner, "V2 Signer: certificate SHA-256 digest: <hex>" (one line
+          # per scheme: V2, V3, V3.1). Reduce them to the distinct digests; the
+          # result must be exactly the expected one, so no line at all fails too.
+          digests_of() { sed -n 's/^.*certificate SHA-256 digest: *//p' | tr -d '\r' | tr 'A-F' 'a-f' | sort -u; }
           check() { # apk, application ID
-            "$apksigner" verify --print-certs "$1" | tee certs.txt | grep -i 'certificate SHA-256'
-            digests=$(sed -n 's/^Signer #[0-9]* certificate SHA-256 digest: //p' certs.txt)
+            "$apksigner" verify --print-certs "$1" | tee certs.txt | { grep -i 'certificate SHA-256' || true; }
+            digests=$(digests_of < certs.txt)
             if [ "$digests" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::$1 is signed by '$digests', not by the Nightjar release certificate"
               echo "::error::$1 is not signed by the Nightjar release certificate"
               exit 1
             fi
@@ -119,9 +125,11 @@ jobs:
           # The bundle is signed like a jar. aapt2 cannot read its application ID;
           # it comes from the same nonRoot variant as the checked APK.
           bundle=app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab
-          fingerprints=$(keytool -printcert -jarfile "$bundle" | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
+          # keytool prints "<tab> SHA256: AA:BB:..." under "Certificate fingerprints:".
+          keytool -printcert -jarfile "$bundle" | tee certs.txt | { grep -E 'SHA256: ' || true; }
+          fingerprints=$(sed -n 's/^[[:space:]]*SHA256: *//p' certs.txt | tr -d ':\r' | tr 'A-F' 'a-f' | sort -u)
           if [ "$fingerprints" != "$EXPECTED_CERT_SHA256" ]; then
-            echo "::error::$bundle is not signed by the Nightjar release certificate"
+            echo "::error::$bundle is signed by '$fingerprints', not by the Nightjar release certificate"
             exit 1
           fi
       # Nothing after the build needs the key.

@@ -824,6 +824,21 @@ pub fn kill(names: &[&str]) {
         );
     }
 }
+/// Whether a process with this executable name runs. A process list that
+/// cannot be read counts as running.
+pub fn process_running(name: &str) -> bool {
+    run(
+        "tasklist.exe",
+        &["/NH", "/FO", "CSV", "/FI", &format!("IMAGENAME eq {name}")],
+        Duration::from_secs(20),
+    )
+    .map_or(true, |(code, output)| {
+        code != 0
+            || output
+                .to_ascii_lowercase()
+                .contains(&format!("\"{}\"", name.to_ascii_lowercase()))
+    })
+}
 pub fn system32(program: &str) -> String {
     let windows = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
     format!("{windows}\\System32\\{program}")

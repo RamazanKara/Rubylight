@@ -1008,15 +1008,7 @@ fn run_drivers(
 ) -> bool {
     let mut restart_needed = false;
     if display {
-        let before = notes.len();
-        let restart = rubylight_display_driver(install, progress, notes);
-        restart_needed |= restart;
-        // Rubylight's own driver replaced libvirtualdisplay. The old one goes
-        // once the new device runs; where Windows refused the new driver or
-        // its install failed, nothing uses the old one and it stays.
-        if libvirtualdisplay_replaced(notes.len() > before, restart) {
-            restart_needed |= remove_libvirtualdisplay(install, progress, notes);
-        }
+        restart_needed |= display_step(install, progress, notes).0;
     }
     if gamepad && install.join("drivers\\gamepad\\install.ps1").is_file() {
         progress.set("Installing the virtual gamepad driver…");
@@ -1040,6 +1032,21 @@ fn run_drivers(
     restart_needed
 }
 
+/// Rubylight's display driver, then the removal of libvirtualdisplay it
+/// replaces. Returns whether Windows must restart and how many notes the
+/// driver's own step added (the removal's come after them).
+fn display_step(install: &Path, progress: &Progress, notes: &mut Vec<String>) -> (bool, usize) {
+    let before = notes.len();
+    let mut restart_needed = rubylight_display_driver(install, progress, notes);
+    let display_notes = notes.len() - before;
+    // Rubylight's own driver replaced libvirtualdisplay. The old one goes
+    // once the new device runs; where Windows refused the new driver or
+    // its install failed, nothing uses the old one and it stays.
+    if libvirtualdisplay_replaced(display_notes > 0, restart_needed) {
+        restart_needed |= remove_libvirtualdisplay(install, progress, notes);
+    }
+    (restart_needed, display_notes)
+}
 /// The installer of Rubylight's own display driver in a package.
 pub(crate) const RUBYLIGHT_DISPLAY_SCRIPT: &str = "drivers\\rubylight-display\\install-local.ps1";
 /// Removes the libvirtualdisplay driver earlier versions installed.
@@ -1136,8 +1143,11 @@ fn driver_result(code: i32, output: &str, notes: &mut Vec<String>, name: &str) -
             "Run setup again with USB audio and haptics selected; the setup log has the details."
         } else if name == LIBVIRTUALDISPLAY {
             "Setup tries again when it next runs; the setup log has the details."
+        } else if name == "virtual gamepad" {
+            "Run setup again; the setup log has the details."
         } else {
-            "Rubylight tries again when its service starts; the setup log has the details."
+            // The service looks for the display driver every minute.
+            "The Rubylight service tries again within a day, or run \"butterpollo-setup.exe --repair-drivers --now\" in an administrator shell; the setup log has the details."
         };
         notes.push(match reason {
             Some(reason) => format!(
@@ -1182,7 +1192,7 @@ fn driver_lock(wait: Duration) -> Option<std::fs::File> {
 }
 const REPAIR_RECORD: &str = "driver-repair.json";
 /// What the log tells a person when the service's repair was held back.
-const REPAIR_BY_HAND: &str = "To try again now, run \"uninstall.exe --repair-drivers\" from the Rubylight folder in an administrator shell.";
+const REPAIR_BY_HAND: &str = "To try again now, run \"butterpollo-setup.exe --repair-drivers --now\" from the Rubylight folder in an administrator shell.";
 /// A new installation may repair the display driver again, unless it was
 /// installed with --no-display-driver.
 fn remember_driver_choice(profile: &Path, display_driver: bool) {
@@ -1200,11 +1210,14 @@ fn remember_driver_choice(profile: &Path, display_driver: bool) {
 /// it missing, and Artemis then reports the "SudoVDA" driver as not
 /// installed. Sets the display driver up again from this installation, at
 /// most once a day per version and never during a stream; the driver script
-/// restarts the service. The daily limit and the --no-display-driver choice
-/// bind only the service's `automatic` runs: a person who runs the repair has
-/// asked for it, so an automatic attempt that failed cannot lock it out for
-/// the day. Returns whether Windows must restart.
-pub fn repair_drivers(progress: &Progress, automatic: bool) -> Result<bool> {
+/// restarts the service. By default (the service's run) the daily limit and
+/// the --no-display-driver choice apply and only a positive idle answer from
+/// the host lets it go on. `--now`, `by_hand`, is a person asking: neither
+/// limit applies, so a failed automatic attempt cannot lock them out for the
+/// day, and a host that hides its counts (a LAN bind_address) does not stop
+/// them; a stream still does.
+/// Returns whether Windows must restart.
+pub fn repair_drivers(progress: &Progress, by_hand: bool) -> Result<bool> {
     let exe = std::env::current_exe()?;
     let install = system::win32_path(exe.parent().context("setup folder unavailable")?)?;
     let profile = profile();
@@ -1217,7 +1230,7 @@ pub fn repair_drivers(progress: &Progress, automatic: bool) -> Result<bool> {
         std::fs::read(&record).ok().as_deref(),
         version,
         now,
-        automatic,
+        by_hand,
     ) {
         line(format!(
             "not repairing the display driver: {reason}. {REPAIR_BY_HAND}"
@@ -1227,20 +1240,52 @@ pub fn repair_drivers(progress: &Progress, automatic: bool) -> Result<bool> {
     // Setup or an update that is installing the drivers right now restarts
     // the service when done, and the service checks again.
     let Some(_turn) = driver_lock(Duration::ZERO) else {
-        return Ok(false);
+        return when_locked(by_hand);
     };
-    ensure_idle(probe(&profile), false)?;
+    let address = probe(&profile);
+    if let Err(error) = ensure_idle_positive(
+        &serverinfo(address),
+        || system::process_running("butterpollo.exe"),
+        by_hand,
+    ) {
+        if by_hand {
+            return Err(error);
+        }
+        line(format!(
+            "not repairing the display driver now: {error:#}. The service asks again later. {REPAIR_BY_HAND}"
+        ));
+        return Ok(false);
+    }
     std::fs::write(
         &record,
         serde_json::to_vec(&serde_json::json!({"version": version, "unix": now}))?,
     )?;
     let mut notes = Vec::new();
     // Automatic display repair never installs an optional USB/IP driver.
-    let restart = run_drivers(&install, true, false, false, progress, &mut notes);
-    for note in notes {
+    let (restart, display_notes) = display_step(&install, progress, &mut notes);
+    for note in &notes {
         line(format!("note: {note}"));
     }
+    display_failed(&notes, display_notes)?;
     Ok(restart)
+}
+/// Another setup holds the driver lock. It restarts the service when done and
+/// the service checks again, so the service's run ends quietly; a person who
+/// asked is told nothing was repaired.
+fn when_locked(by_hand: bool) -> Result<bool> {
+    if by_hand {
+        bail!("Setup is installing the drivers right now; try again when it finishes.");
+    }
+    Ok(false)
+}
+/// A note about the display step is a step that failed or was refused: say so
+/// rather than "done". The first `display_notes` notes are that step's; a
+/// warning about removing the old libvirtualdisplay stays a plain note.
+fn display_failed(notes: &[String], display_notes: usize) -> Result<()> {
+    if display_notes > 0 {
+        bail!("{}", notes[..display_notes.min(notes.len())].join("\n"));
+    }
+    Ok(())
 }
 /// Whether setup ran with --no-display-driver.
 pub(crate) fn display_driver_declined() -> bool {
@@ -1253,9 +1298,9 @@ fn repair_skipped(
     record: Option<&[u8]>,
     version: &str,
     now: u64,
-    automatic: bool,
+    by_hand: bool,
 ) -> Option<&'static str> {
-    if !automatic {
+    if by_hand {
         return None;
     }
     let record: serde_json::Value = serde_json::from_slice(record?).ok()?;
@@ -1406,23 +1451,57 @@ fn serverinfo(address: SocketAddr) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&response).into_owned())
 }
 
+const IDLE_FIELDS: [&str; 3] = [
+    "RustHostSessionCount",
+    "RustHostPendingSessionCount",
+    "RustHostApplicationActive",
+];
+fn host_count(response: &str, field: &str) -> Option<u32> {
+    response
+        .split_once(&format!("<{field}>"))
+        .and_then(|(_, value)| value.split_once(&format!("</{field}>")))
+        .and_then(|(value, _)| value.trim().parse::<u32>().ok())
+}
 fn check_idle(response: &str) -> Result<()> {
-    for field in [
-        "RustHostSessionCount",
-        "RustHostPendingSessionCount",
-        "RustHostApplicationActive",
-    ] {
-        let count = response
-            .split_once(&format!("<{field}>"))
-            .and_then(|(_, value)| value.split_once(&format!("</{field}>")))
-            .and_then(|(value, _)| value.trim().parse::<u32>().ok());
-        if count.is_some_and(|count| count != 0) {
+    for field in IDLE_FIELDS {
+        if host_count(response, field).is_some_and(|count| count != 0) {
             bail!(
                 "Disconnect all streams and close games started from Moonlight before installing, then run setup again. Nothing has been changed."
             );
         }
     }
     Ok(())
+}
+/// The repair's idle check: proceeds only on a positive idle answer, every
+/// count present and 0. A host that does not answer, or answers with blank
+/// counts (it blanks them for a caller that is not on loopback), may be
+/// streaming and counts as busy. Only a host process that is not running at
+/// all leaves nothing to interrupt. `host_running` says whether one is.
+/// `blank_ok` is for a person who asked (`--now`): a host on a LAN
+/// bind_address blanks its counts for every caller, this PC included, and
+/// would otherwise never be repairable. Counts that are there still count.
+fn ensure_idle_positive(
+    answer: &std::io::Result<String>,
+    host_running: impl FnOnce() -> bool,
+    blank_ok: bool,
+) -> Result<()> {
+    match answer {
+        Ok(response) => {
+            check_idle(response)?;
+            if !blank_ok
+                && IDLE_FIELDS
+                    .iter()
+                    .any(|field| host_count(response, field).is_none())
+            {
+                bail!("the host does not report whether it is streaming");
+            }
+            Ok(())
+        }
+        Err(error) if host_running() => {
+            bail!("the host is running but does not answer ({error})")
+        }
+        Err(_) => Ok(()),
+    }
 }
 /// Wait until the host answers serverinfo at `address` as a Rust host.
 pub(crate) fn wait_ready(address: SocketAddr, version: Option<&str>) -> Result<()> {
@@ -1642,7 +1721,7 @@ mod tests {
         assert_eq!(
             notes,
             [
-                "The Rubylight display driver could not be set up: pnputil /add-driver failed with exit code 5 Rubylight tries again when its service starts; the setup log has the details."
+                "The Rubylight display driver could not be set up: pnputil /add-driver failed with exit code 5 The Rubylight service tries again within a day, or run \"butterpollo-setup.exe --repair-drivers --now\" in an administrator shell; the setup log has the details."
             ]
         );
         let mut notes = Vec::new();
@@ -1659,15 +1738,16 @@ mod tests {
         let day = 86_400;
         let record = |text: &str| Some(text.as_bytes().to_vec());
         let skipped =
-            |text: Option<Vec<u8>>, now| repair_skipped(text.as_deref(), "2.0.0-rc.27", now, true);
-        // A person running the repair is never held back by an automatic
-        // attempt that failed earlier the same day, nor by a declined choice.
+            |text: Option<Vec<u8>>, now| repair_skipped(text.as_deref(), "2.0.0-rc.27", now, false);
+        // A person running the repair (--now) is never held back by an
+        // automatic attempt that failed earlier the same day, nor by a
+        // declined choice. The default, which the service runs, is limited.
         for text in [
             r#"{"version":"2.0.0-rc.27","unix":86400}"#,
             r#"{"declined":true}"#,
         ] {
             assert_eq!(
-                repair_skipped(Some(text.as_bytes()), "2.0.0-rc.27", day + 60, false),
+                repair_skipped(Some(text.as_bytes()), "2.0.0-rc.27", day + 60, true),
                 None
             );
         }
@@ -1684,6 +1764,69 @@ mod tests {
             None
         );
         assert!(skipped(record(r#"{"declined":true}"#), day).is_some());
+    }
+    #[test]
+    fn the_unattended_repair_needs_a_positive_idle_answer() {
+        let idle = |counts: [&str; 3]| {
+            Ok(format!(
+                "<RustHostSessionCount>{}</RustHostSessionCount><RustHostPendingSessionCount>{}</RustHostPendingSessionCount><RustHostApplicationActive>{}</RustHostApplicationActive>",
+                counts[0], counts[1], counts[2]
+            ))
+        };
+        let refused = |answer: std::io::Result<String>, running| {
+            ensure_idle_positive(&answer, || running, false).is_err()
+        };
+        assert!(!refused(idle(["0", "0", "0"]), true));
+        // A stream, a queued launch or a running app.
+        assert!(refused(idle(["1", "0", "0"]), true));
+        assert!(refused(idle(["0", "1", "0"]), true));
+        assert!(refused(idle(["0", "0", "1"]), true));
+        // A LAN caller sees blank counts, an old host none: it may stream.
+        assert!(refused(idle(["", "", ""]), false));
+        assert!(refused(idle(["0", "0", ""]), false));
+        assert!(refused(Ok("<root/>".into()), false));
+        assert!(refused(Ok(String::new()), false));
+        // No answer: busy while a host process runs, idle when none does.
+        let silent = || Err(std::io::Error::from(std::io::ErrorKind::TimedOut));
+        assert!(refused(silent(), true));
+        assert!(!refused(silent(), false));
+        // --now refuses the same streams and a host that runs but is silent,
+        // but takes blank counts (a LAN bind_address blanks them for this
+        // PC too), which would otherwise leave that host unrepairable.
+        let by_hand = |answer: std::io::Result<String>, running| {
+            ensure_idle_positive(&answer, || running, true).is_err()
+        };
+        assert!(by_hand(idle(["1", "0", "0"]), true));
+        assert!(by_hand(idle(["0", "0", "1"]), true));
+        assert!(by_hand(silent(), true));
+        assert!(!by_hand(silent(), false));
+        assert!(!by_hand(idle(["0", "0", "0"]), true));
+        assert!(!by_hand(idle(["", "", ""]), true));
+    }
+    #[test]
+    fn a_repair_that_finds_the_driver_lock_taken_does_not_report_success() {
+        // The service's run waits for the service to be restarted and asks
+        // again; a person is told nothing was repaired.
+        assert!(!when_locked(false).unwrap());
+        let error = when_locked(true).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "Setup is installing the drivers right now; try again when it finishes."
+        );
+    }
+    #[test]
+    fn only_the_display_drivers_own_notes_fail_the_repair() {
+        let notes = [
+            "The virtual display driver could not be set up: pnputil failed".to_owned(),
+            "The old libvirtualdisplay driver could not be removed: busy".to_owned(),
+        ];
+        // The display step added the first one: that is the failure.
+        let error = display_failed(&notes, 1).unwrap_err().to_string();
+        assert!(error.contains("could not be set up"), "{error}");
+        assert!(!error.contains("libvirtualdisplay"), "{error}");
+        // Only the removal warned: the driver is repaired, the note stays.
+        assert!(display_failed(&notes[1..], 0).is_ok());
+        assert!(display_failed(&[], 0).is_ok());
     }
     #[test]
     fn setup_refuses_streams_pending_connections_and_apps() {

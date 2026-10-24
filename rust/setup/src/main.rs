@@ -7,7 +7,7 @@
 //!                       [--no-display-driver] [--usbip-driver | --no-usbip-driver]
 //!                       [--no-start] [--end-streams]
 //! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
-//! rubylight-setup.exe --repair-drivers [--automatic] (the service runs this one with --automatic)
+//! rubylight-setup.exe --repair-drivers [--now] (the service runs it without --now)
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 #[allow(dead_code)]
@@ -52,9 +52,10 @@ struct Arguments {
     remove_drivers: bool,
     /// The service found no virtual display driver: set it up again.
     repair_drivers: bool,
-    /// With --repair-drivers: the service asked, so the once-a-day limit and
-    /// the --no-display-driver choice apply. Run by hand, the repair always runs.
-    automatic: bool,
+    /// With --repair-drivers: a person asks. The repair shows its progress and
+    /// result and ignores the once-a-day limit and the --no-display-driver
+    /// choice, which bind the service's plain `--repair-drivers`.
+    now: bool,
     /// Diagnostics: write what setup found to this file and exit.
     detect: Option<PathBuf>,
     /// Diagnostics: unpack and verify the package into this folder and exit.
@@ -87,7 +88,7 @@ fn arguments() -> Result<Arguments, String> {
             "--factory-reset" => parsed.factory_reset = true,
             "--remove-drivers" => parsed.remove_drivers = true,
             "--repair-drivers" => parsed.repair_drivers = true,
-            "--automatic" => parsed.automatic = true,
+            "--now" => parsed.now = true,
             "--detect" => {
                 parsed.detect = Some(PathBuf::from(args.next().ok_or("--detect needs a file")?))
             }
@@ -102,7 +103,9 @@ fn arguments() -> Result<Arguments, String> {
     Ok(parsed)
 }
 const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--usbip-driver | --no-usbip-driver] [--no-start] [--end-streams]\n\
-rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\n\
+rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\
+rubylight-setup.exe --repair-drivers [--now]\n\n\
+--repair-drivers sets the virtual display driver up again from this installation. The Rubylight service runs it by itself, at most once a day per version, never during a stream and never after --no-display-driver. --now is for a person: it shows progress and the result and ignores those limits, though it still refuses while a stream runs.\n\n\
 A quiet setup refuses to install while Rubylight is streaming; --end-streams ends the stream instead, and the client can reconnect once setup has finished.\n\n\
 --usbip-driver installs the bundled Steam Deck and DualSense USB audio and haptics driver. It is optional, off by default, and its choice is kept for updates. --no-usbip-driver skips it without removing a shared driver.\n\n\
 Rubylight 3.0 needs an AMD Radeon GPU with its AMF video encoder; setup explains and stops on any other PC. NVIDIA and Intel graphics stay on Rubylight 2.6.x.\n\n\
@@ -171,13 +174,24 @@ fn main() {
         }
         failed(args.quiet, "This PC cannot run Rubylight 3.0", &error)
     } else if args.repair_drivers {
-        let automatic = args.automatic;
-        match ui::progress(TITLE, "Repairing the drivers", true, move |progress| {
-            install::repair_drivers(&progress, automatic)
+        // The service runs it unattended and quiet; a person sees progress
+        // and the result.
+        let by_hand = args.now;
+        match ui::progress(TITLE, "Repairing the drivers", !by_hand, move |progress| {
+            install::repair_drivers(&progress, by_hand)
         }) {
-            Ok(true) => 3010,
-            Ok(false) => 0,
-            Err(error) => failed(true, "The drivers could not be repaired", &error),
+            Ok(restart) => {
+                if by_hand {
+                    let text = if restart {
+                        "The display driver was set up again. Windows must restart to finish."
+                    } else {
+                        "The display driver was set up again."
+                    };
+                    ui::finished(TITLE, "The drivers are repaired", text, true, None);
+                }
+                if restart { 3010 } else { 0 }
+            }
+            Err(error) => failed(!by_hand, "The drivers could not be repaired", &error),
         }
     } else if args.update {
         match args.install_dir.as_ref() {

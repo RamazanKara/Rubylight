@@ -488,7 +488,8 @@ impl BeamRace {
     }
 }
 
-const BEAM_RACE_NO_GPU: &str = "nightjar: beam race is on but PyroWave is decoded on the CPU, so the host is not asked     for the row order and frames are decoded whole";
+const BEAM_RACE_NO_GPU: &str = "nightjar: beam race is on but PyroWave is decoded on the CPU, so the host is not asked \
+    for the row order and frames are decoded whole";
 
 const BEAM_RACE_NOT_WIRED: &str = "nightjar: beam race is on but the link is not a known wired one, so the host is not asked \
     for the row order and frames are decoded whole";

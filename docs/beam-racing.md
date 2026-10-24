@@ -40,8 +40,11 @@ seen to finish) on the decoded picture. The presenter does not use them yet.
 A frame that arrives out of row order (a host that does not send it, or loss that reorders
 more than one packet) has `row_ordered` false, is never sliced from the first violation on, and
 decodes whole. The overlay and the session summary count those, and say so when no frame has
-been in order. A slice decoded before the first violation was seen is a prefix of the order
-only as far as that frame went; the final decode fixes the picture, the flag fixes the count.
+been in order. One late record is tolerated as ordered (the host's packing can cause it), but a
+slice decoded before it came lacks it: such a frame drops its slices, decodes whole, and counts
+as unordered, which starts the run of ordered frames over. A late record before the first slice
+costs nothing and still counts as ordered. Slices are therefore only ever reported for frames
+with no late record at all, and the final decode fixes the rest of the picture.
 
 ## Measured
 

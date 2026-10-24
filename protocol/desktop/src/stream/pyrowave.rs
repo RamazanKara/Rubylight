@@ -747,18 +747,24 @@ impl Race {
 
     /// The final decode is the last slice; what the frame's slices were. A frame that was not
     /// received as chunks, or not in row order, has no slices: slices decoded before its order
-    /// broke are not exact, so the one entry is the final decode of the whole picture.
+    /// broke are not exact, so the one entry is the final decode of the whole picture. The same
+    /// goes for the one late record `ordered` tolerates, when a slice was decoded before it came:
+    /// that slice lacks the record, and the frame counts as unordered, ending the run of ordered
+    /// frames. A late record before the first slice costs nothing and still counts as ordered.
     fn finish(&mut self, fence_value: u64, ready_us: u64, chunks: bool) -> (RaceReport, Vec<BandReady>) {
-        let ordered = chunks && self.plan.report().ordered();
+        let report = self.plan.report();
+        let ordered = chunks && report.ordered();
+        let sliced = ordered && report.violations == 0;
+        let fell_back = ordered && !sliced && !self.bands.is_empty();
         if chunks {
-            self.ordered_run = if ordered { (self.ordered_run + 1).min(ORDERED_FRAMES_TO_RESUME) } else { 0 };
+            self.ordered_run = if ordered && !fell_back { (self.ordered_run + 1).min(ORDERED_FRAMES_TO_RESUME) } else { 0 };
         }
-        let (first_row, end_row) = if ordered { self.plan.rest() } else { self.plan.whole() };
-        if !ordered { self.bands.clear(); }
+        let (first_row, end_row) = if sliced { self.plan.rest() } else { self.plan.whole() };
+        if !sliced { self.bands.clear(); }
         self.bands.push(BandReady { slice: self.bands.len() as u8, first_row, end_row, fence_value, ready_us });
         let bands = std::mem::take(&mut self.bands);
         if !chunks { return (RaceReport::default(), bands); }
-        let flag = if ordered { RaceReport::ORDERED } else { RaceReport::UNORDERED };
+        let flag = if ordered && !fell_back { RaceReport::ORDERED } else { RaceReport::UNORDERED };
         (RaceReport { slices: bands.len() as u8, first_ready_us: bands[0].ready_us, last_ready_us: ready_us, ordered: flag }, bands)
     }
 }
@@ -1235,6 +1241,32 @@ mod tests {
         assert!(dues[2].1.end_row < height);
     }
 
+    /// The order of a row-ordered frame with its first record (step 0) delivered `late` packets
+    /// after the packet slice 0 comes due in.
+    fn order_with_a_late_record(width: u32, height: u32, late: usize) -> Vec<u32> {
+        let ordered = row_order(width, height);
+        let mut plan = SlicePlan::new(width, height, false, 4);
+        let first_due = run_plan(&mut plan, &ordered, 40)[0].0;
+        let mut order = ordered;
+        let record = order.remove(0);
+        order.insert((first_due + late) * 40, record);
+        order
+    }
+
+    #[test]
+    fn one_record_two_packets_late_after_slice_zero_stops_slicing_and_is_not_exact() {
+        let (width, height) = (1920u32, 1080u32);
+        let order = order_with_a_late_record(width, height, 2);
+        let mut plan = SlicePlan::new(width, height, false, 4);
+        let dues = run_plan(&mut plan, &order, 40);
+        // The frame is still ordered by the counter's tolerance (one violation) ...
+        assert_eq!(plan.report().violations, 1, "{:?}", plan.report());
+        assert!(plan.report().ordered(), "{:?}", plan.report());
+        // ... but slice 0 came due before the record that belongs in it, and no slice follows.
+        assert_eq!(dues.len(), 1, "{dues:?}");
+        assert_eq!(dues[0].1.slice, 0);
+    }
+
     #[test]
     fn an_index_ordered_frame_is_reported_unordered_and_stops_slicing() {
         let (width, height) = (1920u32, 1080u32);
@@ -1360,6 +1392,44 @@ mod tests {
         for _ in 0..ORDERED_FRAMES_TO_RESUME - 1 { race_frame(&mut race, &ordered, true); }
         assert_eq!(race_frame(&mut race, &ordered, true).1.len(), 1, "one frame short of the run");
         assert_eq!(race_frame(&mut race, &ordered, true).1.len(), 4);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_late_record_after_a_slice_falls_the_frame_back_to_one_whole_decode() {
+        let (width, height) = (1920u32, 1080u32);
+        let late = order_with_a_late_record(width, height, 2);
+        let mut race = race(width, height);
+        let (report, bands) = race_frame(&mut race, &late, true);
+        assert_eq!(report.ordered, RaceReport::UNORDERED, "slice 0 lacks the late record");
+        assert_eq!((report.slices, bands.len()), (1, 1));
+        assert_eq!((bands[0].first_row, bands[0].end_row), (0, height));
+        // The run of ordered frames starts over: the next ordered frame is not sliced.
+        let (report, bands) = race_frame(&mut race, &row_order(width, height), true);
+        assert_eq!((report.ordered, bands.len()), (RaceReport::ORDERED, 1));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_late_record_before_any_slice_still_counts_as_ordered() {
+        let (width, height) = (1920u32, 1080u32);
+        // A step 0 record delivered three packets after the cursor left step 0, but before slice 0
+        // is due: late, with no slice yet to lack it.
+        let steps = rubylight_protocol::pyrowave::rows::row_steps(width, height, false);
+        let mut order = row_order(width, height);
+        let left_step_0 = order.iter().position(|&i| steps[i as usize] > steps[order[0] as usize]).unwrap() / 40;
+        let first_due = run_plan(&mut SlicePlan::new(width, height, false, 4), &order, 40)[0].0;
+        assert!(left_step_0 + 3 < first_due, "{left_step_0} {first_due}");
+        let record = order.remove(0);
+        order.insert((left_step_0 + 3) * 40, record);
+        let mut race = race(width, height);
+        let (report, bands) = race_frame(&mut race, &order, true);
+        assert_eq!(race.plan.report().violations, 1);
+        assert_eq!(report.ordered, RaceReport::ORDERED);
+        // Slicing stopped at the violation, so the one entry is the whole picture.
+        assert_eq!((bands.len(), bands[0].first_row, bands[0].end_row), (1, 0, height));
+        let (report, bands) = race_frame(&mut race, &row_order(width, height), true);
+        assert_eq!((report.ordered, bands.len()), (RaceReport::ORDERED, 4), "the run was not reset");
     }
 
     #[cfg(windows)]

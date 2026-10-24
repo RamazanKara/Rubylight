@@ -90,6 +90,10 @@ public class PresentSchedulerTest {
         int worstExtraVsyncs;
 
         Run(double panelHz, double contentFps) {
+            this(panelHz, contentFps, DEADLINE_NS);
+        }
+
+        Run(double panelHz, double contentFps, long deadlineNs) {
             vsyncIntervalNs = (long) (1e9 / panelHz);
             clock.start((float) panelHz, true, false);
             long contentNs = (long) (1e9 / contentFps);
@@ -104,8 +108,8 @@ public class PresentSchedulerTest {
                 long hostUs = hostBaseUs + i * contentNs / 1000;
                 long readyNs = hostUs * 1000 + model.offsetNs + arrivalNs;
                 clock.onQueued(i + 1, hostUs);
-                assertTrue(scheduler.plan(i + 1, readyNs, vsyncAnchorNs, vsyncIntervalNs, DEADLINE_NS, plan));
-                long first = ceilDiv(readyNs + DEADLINE_NS - vsyncAnchorNs, vsyncIntervalNs);
+                assertTrue(scheduler.plan(i + 1, readyNs, vsyncAnchorNs, vsyncIntervalNs, deadlineNs, plan));
+                long first = ceilDiv(readyNs + deadlineNs - vsyncAnchorNs, vsyncIntervalNs);
                 long index = (plan.vsyncNs - vsyncAnchorNs) / vsyncIntervalNs;
                 assertEquals("on the grid", 0, (plan.vsyncNs - vsyncAnchorNs) % vsyncIntervalNs);
                 assertTrue("never before the first vsync it can make", index >= first);
@@ -129,6 +133,21 @@ public class PresentSchedulerTest {
     @Test public void sixtyFpsOnA60HzPanelTakesTheFirstVsyncEveryTime() {
         Run run = new Run(60, 60);
         assertEquals(600, run.frames);
+        assertEquals("no frame moved past its first vsync", 0, run.worstExtraVsyncs);
+        assertEquals(0, run.shared);
+    }
+
+    // The Retroid's panel reports presentation deadlines of 16.67 ms at 60 Hz and 11.33 ms at 120 Hz (a
+    // buffer queued that long before a vsync is shown at it; SurfaceFlinger's own latency log agrees).
+    // The plan must aim at the first vsync that deadline allows, never the one after it.
+    @Test public void sixtyFpsOnA120HzPanelWithAnElevenMsDeadlineTakesTheFirstVsyncItCanMake() {
+        Run run = new Run(120, 60, 11_333_333L);
+        assertEquals("no frame moved past its first vsync", 0, run.worstExtraVsyncs);
+        assertEquals(0, run.shared);
+    }
+
+    @Test public void sixtyFpsOnA60HzPanelWithAFullIntervalDeadlineTakesTheFirstVsyncItCanMake() {
+        Run run = new Run(60, 60, 16_666_666L);
         assertEquals("no frame moved past its first vsync", 0, run.worstExtraVsyncs);
         assertEquals(0, run.shared);
     }

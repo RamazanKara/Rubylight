@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">PC này không báo cáo tốc độ bit của stream. Tốc độ bit tự động bị tắt cho stream này.</string>
     <string name="stream_auto_bitrate_status">Tốc độ bit tự động: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Máy chủ đang bận. Hãy thử lại sau giây lát.</string>
-    <string name="title_auto_bitrate_min">Tốc độ bit tự động tối thiểu</string>
-    <string name="summary_auto_bitrate_min">Tốc độ bit bộ mã hóa thấp nhất mà tốc độ bit tự động hạ xuống. Mặc định là 2 Mbps. Giá trị cao hơn tốc độ bit bộ mã hóa lúc luồng bắt đầu sẽ giữ tốc độ bit bắt đầu đó làm mức sàn. Không dùng với PyroWave.</string>
-    <string name="auto_bitrate_min_default">Mặc định (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">Tốc độ bit tự động tối đa</string>
-    <string name="summary_auto_bitrate_max">Tốc độ bit bộ mã hóa cao nhất mà tốc độ bit tự động dùng. Luồng bắt đầu với tốc độ bit bộ mã hóa cao hơn sẽ được hạ xuống mức này. Không giới hạn giữ nguyên tốc độ bit bộ mã hóa lúc luồng bắt đầu. Không dùng với PyroWave.</string>
-    <string name="auto_bitrate_max_default">Không giới hạn</string>
+    <string name="title_auto_bitrate">Tốc độ bit tự động</string>
+    <string name="dialog_auto_bitrate">Giảm tốc độ bit khi kết nối hoặc thiết bị không theo kịp, rồi tăng lại khi ổn định. Không bao giờ vượt quá tốc độ bit video. Đây là mặc định cho mọi PC; menu stream có thể đổi riêng cho một PC.</string>
 </resources>

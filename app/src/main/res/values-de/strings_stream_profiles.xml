@@ -118,7 +118,7 @@
     <string name="game_preset_smoothness">Flüssigkeit</string>
     <string name="game_preset_smoothness_summary">Setzt das flüssigste Frame-Pacing, das Bilder zurückhält und die Verzögerung erhöht, und schaltet die adaptive Bildwiederholrate für dieses Spiel aus. Die Bitrate bleibt unverändert.</string>
     <string name="game_preset_quality">Qualität</string>
-    <string name="game_preset_quality_summary" formatted="false">Setzt die Bitrate auf 150 % der Bitrate des PCs, oder der Haupteinstellungen, wenn der PC keine hat, höchstens bis zum Host-Limit und zum Maximum der automatischen Bitrate. Frame-Pacing und adaptive Bildwiederholrate bleiben unverändert; bei schwacher Verbindung können die größeren Bilder die Verzögerung erhöhen.</string>
+    <string name="game_preset_quality_summary" formatted="false">Setzt die Bitrate auf 150 % der Bitrate des PCs, oder der Haupteinstellungen, wenn der PC keine hat, höchstens bis zum Host-Limit. Frame-Pacing und adaptive Bildwiederholrate bleiben unverändert; bei schwacher Verbindung können die größeren Bilder die Verzögerung erhöhen.</string>
     <string name="game_preset_custom">Benutzerdefiniert</string>
     <string name="game_preset_custom_summary">Deine eigenen Werte, unten eingestellt.</string>
 </resources>

@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">Ten komputer nie podaje szybkości transmisji strumienia. Automatyczna szybkość transmisji jest wyłączona dla tego strumienia.</string>
     <string name="stream_auto_bitrate_status">Automatyczna szybkość transmisji: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host jest zajęty. Spróbuj ponownie za chwilę.</string>
-    <string name="title_auto_bitrate_min">Minimalny automatyczny bitrate</string>
-    <string name="summary_auto_bitrate_min">Najniższy bitrate enkodera, do którego schodzi automatyczny bitrate. Domyślnie 2 Mb/s. Wartość wyższa niż bitrate enkodera, od którego startuje strumień, zostawia ten bitrate startowy jako dolną granicę. Nie dotyczy PyroWave.</string>
-    <string name="auto_bitrate_min_default">Domyślny (2 Mb/s)</string>
-    <string name="title_auto_bitrate_max">Maksymalny automatyczny bitrate</string>
-    <string name="summary_auto_bitrate_max">Najwyższy bitrate enkodera używany przez automatyczny bitrate. Strumień startujący z wyższym bitratem enkodera jest do niego obniżany. Brak limitu zostawia bitrate enkodera, od którego startuje strumień. Nie dotyczy PyroWave.</string>
-    <string name="auto_bitrate_max_default">Bez limitu</string>
+    <string name="title_auto_bitrate">Automatyczna szybkość transmisji</string>
+    <string name="dialog_auto_bitrate">Obniża szybkość transmisji, gdy połączenie lub urządzenie nie nadąża, i podnosi ją z powrotem, gdy sytuacja się poprawi. Nigdy nie przekracza szybkości transmisji wideo. To ustawienie domyślne dla wszystkich komputerów; menu strumienia może je zmienić dla jednego komputera.</string>
 </resources>

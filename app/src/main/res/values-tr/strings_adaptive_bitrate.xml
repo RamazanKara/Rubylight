@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">Bu bilgisayar yayın bit hızını bildirmiyor. Bu yayın için otomatik bit hızı kapalı.</string>
     <string name="stream_auto_bitrate_status">Otomatik bit hızı: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Ana bilgisayar meşgul. Birazdan tekrar deneyin.</string>
-    <string name="title_auto_bitrate_min">Otomatik bit hızı alt sınırı</string>
-    <string name="summary_auto_bitrate_min">Otomatik bit hızının inebileceği en düşük kodlayıcı bit hızı. Varsayılan 2 Mbps. Akışın başladığı kodlayıcı bit hızından yüksek bir değer, bu başlangıç bit hızını alt sınır olarak bırakır. PyroWave ile kullanılmaz.</string>
-    <string name="auto_bitrate_min_default">Varsayılan (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">Otomatik bit hızı üst sınırı</string>
-    <string name="summary_auto_bitrate_max">Otomatik bit hızının kullandığı en yüksek kodlayıcı bit hızı. Bunun üzerinde bir kodlayıcı bit hızıyla başlayan akış bu değere indirilir. Sınırsız, akışın başladığı kodlayıcı bit hızını korur. PyroWave ile kullanılmaz.</string>
-    <string name="auto_bitrate_max_default">Sınırsız</string>
+    <string name="title_auto_bitrate">Otomatik bit hızı</string>
+    <string name="dialog_auto_bitrate">Bağlantı veya cihaz yetişemediğinde bit hızını düşürür, durum düzelince tekrar yükseltir. Video bit hızını asla aşmaz. Tüm bilgisayarlar için varsayılandır; yayın menüsünden tek bir bilgisayar için değiştirilebilir.</string>
 </resources>

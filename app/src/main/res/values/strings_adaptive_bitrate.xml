@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">This PC does not report its stream bitrate. Automatic bitrate is off for this stream.</string>
     <string name="stream_auto_bitrate_status">Automatic bitrate: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host busy. Try again in a moment.</string>
-    <string name="title_auto_bitrate_min">Automatic bitrate minimum</string>
-    <string name="summary_auto_bitrate_min">Lowest encoder bitrate that automatic bitrate steps down to. Built-in uses 2 Mbps. A value above the encoder bitrate the stream starts at keeps that starting bitrate as the floor. Not used with PyroWave.</string>
-    <string name="auto_bitrate_min_default">Built-in (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">Automatic bitrate maximum</string>
-    <string name="summary_auto_bitrate_max">Highest encoder bitrate that automatic bitrate uses. A stream whose encoder bitrate starts above it is lowered to it. No limit keeps the encoder bitrate the stream starts at. Not used with PyroWave.</string>
-    <string name="auto_bitrate_max_default">No limit</string>
+    <string name="title_auto_bitrate">Automatic bitrate</string>
+    <string name="dialog_auto_bitrate">Lowers the bitrate when your connection or device can\'t keep up, and raises it again when things recover. It never goes above the Video bitrate. This is the default for every PC; the stream menu can change it for one PC.</string>
 </resources>

@@ -116,7 +116,7 @@
     <string name="game_preset_smoothness">滑らかさ重視</string>
     <string name="game_preset_smoothness_summary">最もなめらかなフレームペーシング（フレームを保持するため遅延が増えます）に設定し、このゲームの可変リフレッシュをオフにします。ビットレートは変わりません。</string>
     <string name="game_preset_quality">画質重視</string>
-    <string name="game_preset_quality_summary" formatted="false">ビットレートを PC の値（PC に値がなければメイン設定の値）の 150% に設定します。上限はホストの上限と自動ビットレートの最大値です。フレームペーシングと可変リフレッシュは変わりません。回線が弱いと、大きくなったフレームで遅延が増えることがあります。</string>
+    <string name="game_preset_quality_summary" formatted="false">ビットレートを PC の値（PC に値がなければメイン設定の値）の 150% に設定します。上限はホストの上限です。フレームペーシングと可変リフレッシュは変わりません。回線が弱いと、大きくなったフレームで遅延が増えることがあります。</string>
     <string name="game_preset_custom">カスタム</string>
     <string name="game_preset_custom_summary">下で設定した独自の値です。</string>
 </resources>

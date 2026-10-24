@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">Este PC no informa de la tasa de bits de la transmisión. La tasa de bits automática está desactivada en esta transmisión.</string>
     <string name="stream_auto_bitrate_status">Tasa de bits automática: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">El servidor está ocupado. Vuelve a intentarlo en un momento.</string>
-    <string name="title_auto_bitrate_min">Mínimo de la tasa de bits automática</string>
-    <string name="summary_auto_bitrate_min">Tasa de bits del codificador más baja a la que baja la tasa automática. Por defecto son 2 Mbps. Un valor superior a la tasa del codificador con la que empieza el stream mantiene esa tasa inicial como mínimo. No se usa con PyroWave.</string>
-    <string name="auto_bitrate_min_default">Predeterminado (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">Máximo de la tasa de bits automática</string>
-    <string name="summary_auto_bitrate_max">Tasa de bits del codificador más alta que usa la tasa automática. Si el stream empieza con una tasa del codificador superior, se reduce a este valor. Sin límite mantiene la tasa del codificador con la que empieza el stream. No se usa con PyroWave.</string>
-    <string name="auto_bitrate_max_default">Sin límite</string>
+    <string name="title_auto_bitrate">Tasa de bits automática</string>
+    <string name="dialog_auto_bitrate">Baja la tasa de bits cuando la conexión o el dispositivo no dan abasto y la vuelve a subir cuando mejora. Nunca supera la tasa de bits del vídeo. Es el valor predeterminado para todos los PC; el menú de la transmisión puede cambiarlo para un solo PC.</string>
 </resources>

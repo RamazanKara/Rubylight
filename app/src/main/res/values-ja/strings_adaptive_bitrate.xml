@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">この PC はストリームのビットレートを報告しません。このストリームでは自動ビットレートはオフです。</string>
     <string name="stream_auto_bitrate_status">自動ビットレート: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">ホストがビジー状態です。しばらくしてからもう一度お試しください。</string>
-    <string name="title_auto_bitrate_min">自動ビットレートの下限</string>
-    <string name="summary_auto_bitrate_min">自動ビットレートが下げる最低のエンコーダービットレートです。標準は 2 Mbps です。ストリーム開始時のエンコーダービットレートより高い値にすると、その開始時のビットレートが下限になります。PyroWave では使われません。</string>
-    <string name="auto_bitrate_min_default">標準 (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">自動ビットレートの上限</string>
-    <string name="summary_auto_bitrate_max">自動ビットレートが使う最高のエンコーダービットレートです。これより高いエンコーダービットレートで始まったストリームはこの値まで下げられます。制限なしの場合は、ストリーム開始時のエンコーダービットレートのままです。PyroWave では使われません。</string>
-    <string name="auto_bitrate_max_default">制限なし</string>
+    <string name="title_auto_bitrate">自動ビットレート</string>
+    <string name="dialog_auto_bitrate">回線や端末が追いつかないときはビットレートを下げ、安定したら元に戻します。映像のビットレートを超えることはありません。これはすべての PC の既定値で、ストリームメニューから PC ごとに変更できます。</string>
 </resources>

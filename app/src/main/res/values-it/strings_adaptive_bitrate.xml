@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">Questo PC non comunica il bitrate dello stream. Il bitrate automatico è disattivato per questo stream.</string>
     <string name="stream_auto_bitrate_status">Bitrate automatico: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host occupato. Riprova tra poco.</string>
-    <string name="title_auto_bitrate_min">Bitrate automatico minimo</string>
-    <string name="summary_auto_bitrate_min">Bitrate dell’encoder più basso a cui scende il bitrate automatico. Predefinito: 2 Mbps. Un valore superiore al bitrate dell’encoder con cui parte lo stream mantiene quel bitrate iniziale come minimo. Non usato con PyroWave.</string>
-    <string name="auto_bitrate_min_default">Predefinito (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">Bitrate automatico massimo</string>
-    <string name="summary_auto_bitrate_max">Bitrate dell’encoder più alto usato dal bitrate automatico. Se lo stream parte con un bitrate dell’encoder più alto, viene abbassato a questo valore. Nessun limite mantiene il bitrate dell’encoder con cui parte lo stream. Non usato con PyroWave.</string>
-    <string name="auto_bitrate_max_default">Nessun limite</string>
+    <string name="title_auto_bitrate">Bitrate automatico</string>
+    <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione o il dispositivo non reggono e lo rialza quando la situazione migliora. Non supera mai il bitrate video. È il valore predefinito per tutti i PC; il menu dello streaming può cambiarlo per un solo PC.</string>
 </resources>

@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">這部電腦不會回報串流位元速率。此串流已關閉自動位元速率。</string>
     <string name="stream_auto_bitrate_status">自動位元速率：%1$.1f Mbps</string>
     <string name="stream_bitrate_busy">主機忙碌中，請稍後再試。</string>
-    <string name="title_auto_bitrate_min">自動位元率下限</string>
-    <string name="summary_auto_bitrate_min">自動位元率會降到的最低編碼器位元率。預設為 2 Mbps。高於串流起始編碼器位元率的值會讓該起始位元率作為下限。PyroWave 不使用。</string>
-    <string name="auto_bitrate_min_default">預設 (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">自動位元率上限</string>
-    <string name="summary_auto_bitrate_max">自動位元率使用的最高編碼器位元率。以更高的編碼器位元率起始的串流會被降到此值。無限制則維持串流起始的編碼器位元率。PyroWave 不使用。</string>
-    <string name="auto_bitrate_max_default">無限制</string>
+    <string name="title_auto_bitrate">自動位元速率</string>
+    <string name="dialog_auto_bitrate">連線或裝置跟不上時降低位元速率，恢復後再提高。不會超過視訊位元速率。這是所有電腦的預設值；可在串流選單中為單台電腦變更。</string>
 </resources>

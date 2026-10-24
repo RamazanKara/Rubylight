@@ -1515,6 +1515,11 @@ public class StreamSettings extends NightjarActivity {
                 findPreference("checkbox_drop_late_frames").setEnabled("balanced".equals(value));
                 return true;
             });
+            findPreference(AutoBitrateChoice.SETTINGS_KEY).setOnPreferenceChangeListener((preference, value) -> {
+                // Every PC follows the switch again, including PCs that chose otherwise in the stream menu.
+                AutoBitrateChoice.clearPcChoices(getActivity());
+                return true;
+            });
             ListPreference quality = (ListPreference) findPreference("adaptive_quality_mode");
             quality.setOnPreferenceChangeListener((preference, value) -> {
                 // The minimums only apply while automatic quality runs.

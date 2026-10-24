@@ -116,7 +116,7 @@
     <string name="game_preset_smoothness">流畅</string>
     <string name="game_preset_smoothness_summary">将帧调度设为最流畅（会暂存帧并增加延迟），并为这个游戏关闭自适应刷新率。码率不变。</string>
     <string name="game_preset_quality">画质</string>
-    <string name="game_preset_quality_summary" formatted="false">将码率设为电脑码率的 150%（电脑未设置时取主设置的码率），上限为主机限制和自动码率的最大值。帧调度和自适应刷新率不变；连接较弱时，更大的帧可能增加延迟。</string>
+    <string name="game_preset_quality_summary" formatted="false">将码率设为电脑码率的 150%（电脑未设置时取主设置的码率），上限为主机限制。帧调度和自适应刷新率不变；连接较弱时，更大的帧可能增加延迟。</string>
     <string name="game_preset_custom">自定义</string>
     <string name="game_preset_custom_summary">你在下方设置的自定义值。</string>
 </resources>

@@ -118,7 +118,7 @@
     <string name="game_preset_smoothness">Fluidité</string>
     <string name="game_preset_smoothness_summary">Règle le frame pacing le plus fluide, qui retient les images et ajoute du délai, et désactive le rafraîchissement adaptatif pour ce jeu. Le débit ne change pas.</string>
     <string name="game_preset_quality">Qualité</string>
-    <string name="game_preset_quality_summary" formatted="false">Règle le débit à 150 % de celui du PC, ou des réglages principaux si le PC n’en a pas, jusqu’à la limite de l’hôte et au maximum du débit automatique. Le frame pacing et le rafraîchissement adaptatif ne changent pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
+    <string name="game_preset_quality_summary" formatted="false">Règle le débit à 150 % de celui du PC, ou des réglages principaux si le PC n’en a pas, jusqu’à la limite de l’hôte. Le frame pacing et le rafraîchissement adaptatif ne changent pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
     <string name="game_preset_custom">Personnalisé</string>
     <string name="game_preset_custom_summary">Vos propres valeurs, réglées ci-dessous.</string>
 </resources>

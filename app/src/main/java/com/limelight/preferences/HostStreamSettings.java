@@ -316,9 +316,7 @@ public class HostStreamSettings extends NightjarActivity {
                 // An unreadable PC layer is reported where it is edited; the main settings serve as base.
             }
         }
-        boolean autoBitrate = getSharedPreferences("AdaptiveBitrate", MODE_PRIVATE).getBoolean(hostUuid, false);
-        return GameProfilePreset.qualityBitrate(GameProfilePreset.baseBitrate(main.bitrate, pc), autoBitrate,
-                main.autoBitrateMaxKbps);
+        return GameProfilePreset.qualityBitrate(GameProfilePreset.baseBitrate(main.bitrate, pc));
     }
 
     private void applyWithScreen(HostStreamProfile values, PreferenceConfiguration config) {

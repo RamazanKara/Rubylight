@@ -59,6 +59,7 @@ import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.AppQuitOnLeave;
+import com.limelight.preferences.AutoBitrateChoice;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
@@ -3937,13 +3938,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private String adaptiveBitratePreferences() {
         return (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ?
-                "PyroWaveBitrate" : "AdaptiveBitrate";
+                AutoBitrateChoice.PYROWAVE_STORE : AutoBitrateChoice.CODEC_STORE;
     }
 
     private void setAdaptiveBitrateEnabled(boolean enabled, boolean remember) {
         if (remember) {
-            getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE).edit()
-                    .putBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), enabled).apply();
+            AutoBitrateChoice.setForPc(this, adaptiveBitratePreferences(),
+                    getIntent().getStringExtra(EXTRA_PC_UUID), enabled);
             // The person chose it themselves; Automatic quality no longer owns it.
             qualityAutoBitrate = false;
         }
@@ -4000,9 +4001,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             adaptiveBitrateClaimFailures = 0;
                             long now = SystemClock.uptimeMillis();
                             if (details != null) {
+                                // The bitrate the stream started at (the bitrate setting, after profiles) is the ceiling;
+                                // no minimum or maximum, so the built-in floor applies.
                                 int ceiling = Math.max(details.initialEncoderBitrateKbps, applied);
                                 if (controller != null) adaptiveBitrate = new AdaptiveBitrateController(ceiling, applied, streamFps, now,
-                                        prefConfig.autoBitrateMinKbps, prefConfig.autoBitrateMaxKbps,
+                                        0, 0,
                                         prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
                                 if (pyroController != null) pyroWaveBitrate = new PyroWaveBitrateController(ceiling, applied, streamFps, now);
                             } else {
@@ -6051,8 +6054,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
                 currentBitrate = prefConfig.bitrate;
                 warnIfBelowPyroWaveFloor(currentBitrate);
-                if (supportsAdaptiveBitrate() && getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE)
-                        .getBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), false)) {
+                if (supportsAdaptiveBitrate() && AutoBitrateChoice.isOn(Game.this, adaptiveBitratePreferences(),
+                        getIntent().getStringExtra(EXTRA_PC_UUID))) {
                     setAdaptiveBitrateEnabled(true, false);
                 }
                 startAdaptiveQuality();

@@ -6,7 +6,7 @@ import static org.junit.Assert.*;
 
 public class GameProfilePresetTest {
     private static final int BASE = 20000;
-    private static final int QUALITY = GameProfilePreset.qualityBitrate(BASE, false, 0);
+    private static final int QUALITY = GameProfilePreset.qualityBitrate(BASE);
 
     private static GameProfilePreset afterSaving(GameProfilePreset preset, HostStreamProfile own) {
         preset.apply(own, QUALITY);
@@ -84,26 +84,12 @@ public class GameProfilePresetTest {
 
     @Test
     public void qualityIsAHalfMoreAndNeverBeyondTheMaximumTheHostAndTheSliderTake() {
-        assertEquals(30000, GameProfilePreset.qualityBitrate(20000, false, 0));
+        assertEquals(30000, GameProfilePreset.qualityBitrate(20000));
         assertEquals(HostStreamProfile.MAX_BITRATE_KBPS,
-                GameProfilePreset.qualityBitrate(HostStreamProfile.MAX_BITRATE_KBPS, false, 0));
+                GameProfilePreset.qualityBitrate(HostStreamProfile.MAX_BITRATE_KBPS));
         assertEquals(HostStreamProfile.MAX_BITRATE_KBPS,
-                GameProfilePreset.qualityBitrate(1_900_000, false, 0));
-        assertEquals("Never below the slider's minimum", 500, GameProfilePreset.qualityBitrate(100, false, 0));
-    }
-
-    @Test
-    public void qualityStaysWithinTheAutomaticBitrateMaximumOnlyWhileAutomaticBitrateIsOn() {
-        assertEquals("Automatic bitrate on: capped at its maximum", 25000,
-                GameProfilePreset.qualityBitrate(20000, true, 25000));
-        assertEquals("Automatic bitrate off: its maximum does not count", 30000,
-                GameProfilePreset.qualityBitrate(20000, false, 25000));
-        assertEquals("No maximum set", 30000, GameProfilePreset.qualityBitrate(20000, true, 0));
-        assertEquals("A maximum above the wish changes nothing", 30000,
-                GameProfilePreset.qualityBitrate(20000, true, 80000));
-        HostStreamProfile own = new HostStreamProfile();
-        GameProfilePreset.QUALITY.apply(own, GameProfilePreset.qualityBitrate(20000, true, 25000));
-        assertEquals(GameProfilePreset.QUALITY, GameProfilePreset.of(own, GameProfilePreset.qualityBitrate(20000, true, 25000)));
+                GameProfilePreset.qualityBitrate(1_900_000));
+        assertEquals("Never below the slider's minimum", 500, GameProfilePreset.qualityBitrate(100));
     }
 
     @Test

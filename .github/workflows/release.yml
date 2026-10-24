@@ -172,6 +172,10 @@ jobs:
       FFMPEG_VERSION: 8.1.2
       FFMPEG_SHA256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
     steps:
+      # Check out with LF endings: the PyroWave patches are compared byte for byte with the
+      # host's copies and applied with git, and the runner's Git defaults to autocrlf=true.
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false

@@ -132,8 +132,8 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     let _ = std::fs::remove_file(start_menu_link());
     let _ = std::fs::remove_file(legacy_start_menu_link());
     system::delete_key(HKEY_LOCAL_MACHINE, &format!("{UNINSTALL}\\Butterpollo"));
-    remove_package(&install);
-    remove_leftover_folders(&install);
+    let touched = remove_package(&install);
+    remove_leftover_folders(&install, &touched);
     if options.factory_reset {
         progress.set("Deleting settings and paired devices…");
         let _ = std::fs::remove_dir_all(profile().parent().unwrap_or(&profile()));
@@ -233,8 +233,9 @@ fn remove_empty_folders(folder: &Path) {
 /// Delete what the installer put in `install`: the manifest's files, the
 /// manifest, the uninstaller and driver folders carried over from Vibepollo.
 /// Anything else stays, and so does every folder that is not empty then: the
-/// install folder may also hold the user's own files.
-fn remove_package(install: &Path) {
+/// install folder may also hold the user's own files. Returns the folders that
+/// held a package file.
+fn remove_package(install: &Path) -> BTreeSet<PathBuf> {
     let mut folders = BTreeSet::new();
     let mut remove = |path: PathBuf| {
         folders.extend(
@@ -268,16 +269,24 @@ fn remove_package(install: &Path) {
     for folder in folders.iter().rev() {
         let _ = std::fs::remove_dir(folder);
     }
+    folders
 }
 /// Folders earlier versions shipped that are Rubylight's alone, with whatever
 /// an update left in them: the Intel VPL (libvpl) licenses of 2.6.x.
 const LEGACY_FOLDERS: [&str; 1] = ["licenses\\libvpl"];
 /// What `remove_package` leaves of the install folder besides the user's own
-/// files: folders no longer in any manifest (an update deletes the files a new
-/// version stops shipping, not their folders, and 3.0 stopped shipping
-/// libvpl's) and empty folders of any kind. Everything stays inside `install`:
-/// a link is removed itself, never followed.
-fn remove_leftover_folders(install: &Path) {
+/// files: the legacy folders no manifest lists any more (an update deletes the
+/// files a new version stops shipping, not their folders, and 3.0 stopped
+/// shipping libvpl's), and the folders that were `touched` (held a package
+/// file) or hold a legacy folder, once they are empty. Other empty folders are
+/// the user's, in a folder they may have chosen themselves (D:\Games), and stay,
+/// as does everything when `install` is a drive root. Everything stays inside
+/// `install`: a link is removed itself, never followed.
+fn remove_leftover_folders(install: &Path, touched: &BTreeSet<PathBuf>) {
+    if install.parent().is_none() {
+        return;
+    }
+    let mut folders = touched.clone();
     for legacy in LEGACY_FOLDERS {
         // Every step must be a real folder: a junction at `licenses` would
         // lead the removal out of the install folder.
@@ -288,9 +297,18 @@ fn remove_leftover_folders(install: &Path) {
         });
         if real {
             let _ = std::fs::remove_dir_all(&folder);
+            folders.extend(
+                folder
+                    .ancestors()
+                    .take_while(|folder| *folder != install && folder.starts_with(install))
+                    .map(Path::to_path_buf),
+            );
         }
     }
-    remove_empty_folders(install);
+    // Deepest first, so a parent is empty by the time it comes up.
+    for folder in folders.iter().rev() {
+        let _ = std::fs::remove_dir(folder);
+    }
 }
 fn files_in(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
@@ -322,6 +340,15 @@ mod tests {
         write(&root.join("uninstall.exe"), "stub");
         write(&root.join("drivers\\display\\install.ps1"), "script");
         write(&root.join("drivers\\display\\driver.inf"), "inf");
+    }
+    /// A package that also ships licenses\README.txt, as 3.0 does.
+    fn licensed_package(root: &Path) {
+        package(root);
+        write(
+            &root.join("manifest.json"),
+            r#"[{"path":"butterpollo.exe","sha256":""},{"path":"assets/web/index.html","sha256":""},{"path":"licenses/README.txt","sha256":""}]"#,
+        );
+        write(&root.join("licenses\\README.txt"), "ours");
     }
     #[test]
     fn only_a_folder_holding_the_package_counts_as_an_installation() {
@@ -439,20 +466,40 @@ mod tests {
         // and left the folders, so the uninstaller found them behind.
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("Rubylight");
-        package(&root);
+        licensed_package(&root);
         std::fs::create_dir_all(root.join("licenses\\libvpl\\third-party\\empty")).unwrap();
-        std::fs::create_dir_all(root.join("licenses\\other\\empty")).unwrap();
-        std::fs::create_dir_all(root.join("vulkan-layer")).unwrap();
         // A libvpl file an update could not delete is Rubylight's too.
         write(&root.join("licenses\\libvpl\\LICENSE"), "intel");
         write(&root.join("licenses\\libvpl\\x\\y.txt"), "intel");
-        remove_package(&root);
-        remove_leftover_folders(&root);
-        assert!(
-            !root.exists(),
-            "{:?}",
-            std::fs::read_dir(&root).map(|d| d.count())
-        );
+        let touched = remove_package(&root);
+        remove_leftover_folders(&root, &touched);
+        assert!(!root.join("licenses").exists());
+        // Nothing else is left, so the uninstaller's final rd removes it.
+        std::fs::remove_dir(&root).unwrap();
+    }
+    #[test]
+    fn empty_folders_of_the_user_survive_the_uninstall() {
+        // The install folder may be one the user chose, with empty folders of
+        // their own in it, and not every folder in it is one of ours.
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Games");
+        licensed_package(&root);
+        std::fs::create_dir_all(root.join("licenses\\libvpl")).unwrap();
+        std::fs::create_dir_all(root.join("licenses\\mine\\empty")).unwrap();
+        std::fs::create_dir_all(root.join("saves\\empty")).unwrap();
+        std::fs::create_dir_all(root.join("vulkan-layer")).unwrap();
+        let touched = remove_package(&root);
+        remove_leftover_folders(&root, &touched);
+        assert!(!root.join("licenses\\libvpl").exists());
+        assert!(root.join("licenses\\mine").is_dir());
+        for kept in ["licenses\\mine\\empty", "saves\\empty", "vulkan-layer"] {
+            assert!(root.join(kept).is_dir(), "{kept} was removed");
+        }
+        // A drive root is never swept.
+        let drive = Path::new("C:\\");
+        assert!(drive.parent().is_none());
+        remove_leftover_folders(drive, &BTreeSet::from([PathBuf::from("C:\\Windows")]));
+        assert!(drive.join("Windows").is_dir());
     }
     #[test]
     fn leftover_folders_keep_the_users_files_and_never_follow_a_link_out() {
@@ -461,7 +508,7 @@ mod tests {
         package(&root);
         write(&root.join("notes.txt"), "mine");
         write(&root.join("licenses\\mine\\note.txt"), "mine");
-        std::fs::create_dir_all(root.join("licenses\\stale\\deeper")).unwrap();
+        std::fs::create_dir_all(root.join("licenses\\libvpl\\deeper")).unwrap();
         // An empty tree and a file outside, reachable by a junction inside.
         let outside = temp.path().join("outside");
         write(&outside.join("libvpl\\keep.txt"), "not ours");
@@ -476,11 +523,11 @@ mod tests {
             assert!(made.status.success(), "{made:?}");
         };
         link(&root.join("through"), &outside);
-        remove_package(&root);
-        remove_leftover_folders(&root);
+        let touched = remove_package(&root);
+        remove_leftover_folders(&root, &touched);
         assert!(root.join("notes.txt").exists());
         assert!(root.join("licenses\\mine\\note.txt").exists());
-        assert!(!root.join("licenses\\stale").exists());
+        assert!(!root.join("licenses\\libvpl").exists());
         assert!(outside.join("libvpl\\keep.txt").exists());
         assert!(outside.join("empty").exists());
         // A junction named licenses, standing where the legacy folder's
@@ -488,8 +535,8 @@ mod tests {
         let other = temp.path().join("Other");
         package(&other);
         link(&other.join("licenses"), &outside);
-        remove_package(&other);
-        remove_leftover_folders(&other);
+        let touched = remove_package(&other);
+        remove_leftover_folders(&other, &touched);
         assert!(outside.join("libvpl\\keep.txt").exists());
         assert!(outside.join("empty").exists());
     }

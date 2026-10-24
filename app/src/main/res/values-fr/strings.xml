@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Garder uniquement l’image la plus récente</string>
     <string name="summary_drop_late_frames">Ignore les images que l’écran ne peut plus afficher à temps. S’applique avec le frame pacing Équilibré.</string>
     <string name="title_texture_view">Vue vidéo de compatibilité</string>
-    <string name="summary_texture_view">Essayez en cas de vidéo noire ou qui scintille. Non utilisé avec le HDR ou PyroWave.</string>
+    <string name="summary_texture_view">Essayez en cas de vidéo noire ou qui scintille. Non utilisé avec le HDR, le SDR 10 bits ou PyroWave.</string>
     <string name="title_unbatched_input">Souris et stylet instantanés</string>
     <string name="summary_unbatched_input">Envoie immédiatement les mouvements de la souris et du stylet.</string>
     <string name="title_network_priority">Prioriser le trafic du stream</string>

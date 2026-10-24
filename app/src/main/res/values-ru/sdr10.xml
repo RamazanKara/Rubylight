@@ -9,4 +9,6 @@
     <string name="stream_sdr10_reason_pyrowave">выбран PyroWave, а его 10-битный вывод предназначен только для HDR.</string>
     <string name="stream_sdr10_reason_packed">упакованный 4:4:4 использует собственную обработку 10 бит.</string>
     <string name="upscaling_tenbit_short">Не используется с 10 бит</string>
+    <string name="stream_sdr10_reason_yuv444">включён 4:4:4, а ПК передаёт либо 4:4:4, либо 10 бит, но не оба сразу.</string>
+    <string name="upscaling_tenbit">Для 10 бит используется прямой вывод, чтобы сохранить точность.</string>
 </resources>

@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Chỉ giữ khung hình mới nhất</string>
     <string name="summary_drop_late_frames">Bỏ qua các khung hình mà màn hình không còn hiển thị kịp. Áp dụng với nhịp độ khung hình Cân bằng.</string>
     <string name="title_texture_view">Chế độ xem video tương thích</string>
-    <string name="summary_texture_view">Hãy thử nếu video bị đen hoặc nhấp nháy. Không dùng với HDR hoặc PyroWave.</string>
+    <string name="summary_texture_view">Hãy thử nếu video bị đen hoặc nhấp nháy. Không dùng với HDR, SDR 10-bit hoặc PyroWave.</string>
     <string name="title_unbatched_input">Đầu vào chuột và bút tức thì</string>
     <string name="summary_unbatched_input">Gửi chuyển động chuột và bút ngay lập tức.</string>
     <string name="title_network_priority">Ưu tiên lưu lượng stream</string>

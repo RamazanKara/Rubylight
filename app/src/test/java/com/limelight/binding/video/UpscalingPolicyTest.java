@@ -26,6 +26,15 @@ public class UpscalingPolicyTest {
         assertEquals(SGSR1, UpscalingPolicy.Mode.fromPreference("sgsr1"));
     }
 
+    @Test
+    public void tenBitSdrIsNamedAsTenBitAndRealHdrStaysHdr() {
+        assertEquals(TEN_BIT, UpscalingPolicy.colorReason(HDR, false, true));
+        assertEquals(HDR, UpscalingPolicy.colorReason(HDR, true, true));
+        assertEquals(HDR, UpscalingPolicy.colorReason(HDR, false, false));
+        assertEquals(NONE, UpscalingPolicy.colorReason(NONE, false, true));
+        assertEquals(PYROWAVE, UpscalingPolicy.colorReason(PYROWAVE, false, true));
+    }
+
     private UpscalingPolicy.Reason decision(UpscalingPolicy.Mode mode, int width, int height,
                                             int outputWidth, int outputHeight, boolean hdr,
                                             boolean pyroWave, boolean supported) {

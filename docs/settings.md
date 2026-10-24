@@ -201,7 +201,7 @@ These tables include every preference, including actions, grouped as the Setting
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
 | Boost GPU performance for PyroWave<br>`checkbox_gpu_max_clocks` | Off | On; Off | Off by default. Optionally request higher Adreno GPU clocks during PyroWave streaming to reduce decode time; this can increase power use and heat. Thermal protection remains active. Installs that already stored a choice keep it. Shown on Adreno devices only. |
-| Compatibility video view<br>`checkbox_texture_view` | Off | On; Off | Try for black or flickering video or misplaced output. Adds composition work and is disabled for HDR and PyroWave. |
+| Compatibility video view<br>`checkbox_texture_view` | Off | On; Off | Try for black or flickering video or misplaced output. Adds composition work and is disabled for HDR, 10-bit color (SDR) and PyroWave. |
 | Render through OpenGL<br>`checkbox_gl_render` | Off | On; Off | Enable only for a frame-generation overlay that needs to hook OpenGL. It changes frame pacing, adds latency and shows fewer numbers in the latency overlay; leave it off otherwise. |
 | Force full-range video<br>`checkbox_full_range` | Off | On; Off | Use when the host and display both send full-range color, for full shadow and highlight detail. |
 

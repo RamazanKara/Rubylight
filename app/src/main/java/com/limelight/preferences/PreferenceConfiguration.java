@@ -696,7 +696,7 @@ public class PreferenceConfiguration {
             config.reduceRefreshRate = !config.vrr && prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
             if (config.hostFrameTimes) config.framePacing = FRAME_PACING_MIN_LATENCY;
             config.enableHdr &= !isShieldAtvFirmwareWithBrokenHdr();
-            config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
+            config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit &&
                     config.videoFormat != FormatOption.FORCE_PYROWAVE;
         }
         // Forcing PyroWave on a PC without it would still cost TextureView and keep HDR looking
@@ -706,7 +706,7 @@ public class PreferenceConfiguration {
             config.pyroWaveUnavailable = true;
             config.videoFormat = codecWithoutPyroWave(allPcsFormat);
             config.useTextureView = PreferenceManager.getDefaultSharedPreferences(context)
-                    .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr;
+                    .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit;
         }
         config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
         return config;
@@ -1190,8 +1190,8 @@ public class PreferenceConfiguration {
             prefs.edit().remove("checkbox_pyrowave_front_buffer").apply();
         }
         config.dropLateFrames = prefs.getBoolean(DROP_LATE_FRAMES_PREF_STRING, true);
-        // SurfaceView preserves HDR metadata and avoids TextureView's extra composition step.
-        config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
+        // SurfaceView preserves HDR metadata (and 10-bit output: a SurfaceTexture takes 8-bit) and avoids TextureView's extra composition step.
+        config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit &&
                 config.videoFormat != FormatOption.FORCE_PYROWAVE;
         config.unbatchedInput = prefs.getBoolean(UNBATCHED_INPUT_PREF_STRING, true);
         config.networkPriority = prefs.getBoolean(NETWORK_PRIORITY_PREF_STRING, true);

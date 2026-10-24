@@ -9,7 +9,32 @@ import static org.junit.Assert.*;
 public class Sdr10PolicyTest {
     private static Refusal refusal(boolean media, boolean enabled, boolean hdr, boolean hevc, boolean av1,
                                    boolean pyroWave, boolean packed) {
-        return Sdr10Policy.refusal(media, enabled, hdr, hevc, av1, pyroWave, packed);
+        return Sdr10Policy.refusal(media, enabled, hdr, hevc, av1, pyroWave, packed, false);
+    }
+
+    @Test
+    public void nativeFullChromaWinsAndIsSaid() {
+        Refusal r = Sdr10Policy.refusal(true, true, false, true, true, false, false, true);
+        assertEquals(Refusal.YUV444, r);
+        assertEquals(0, Sdr10Policy.formats(r, true, true));
+        assertTrue(Sdr10Policy.worthSaying(r));
+        // The setting being off, or HDR being streamed, still says nothing about it.
+        assertEquals(Refusal.SETTING_OFF, Sdr10Policy.refusal(true, false, false, true, true, false, false, true));
+        assertEquals(Refusal.HDR_STREAM, Sdr10Policy.refusal(true, true, true, true, true, false, false, true));
+    }
+
+    @Test
+    public void theDecoderChoiceChangesOnlyWhenTenBitSdrCanBeOffered() {
+        assertTrue(Sdr10Policy.decoderChoiceMayChange(true, false, false, false));
+        assertFalse(Sdr10Policy.decoderChoiceMayChange(false, false, false, false));
+        assertFalse(Sdr10Policy.decoderChoiceMayChange(true, true, false, false));
+        assertFalse(Sdr10Policy.decoderChoiceMayChange(true, false, true, false));
+        assertFalse(Sdr10Policy.decoderChoiceMayChange(true, false, false, true));
+        // A choice made for 10-bit is kept only if something decodes Main10 and 4:4:4 is not in play.
+        assertTrue(Sdr10Policy.decoderChoiceApplies(true, false, false));
+        assertTrue(Sdr10Policy.decoderChoiceApplies(false, true, false));
+        assertFalse(Sdr10Policy.decoderChoiceApplies(false, false, false));
+        assertFalse(Sdr10Policy.decoderChoiceApplies(true, true, true));
     }
 
     @Test

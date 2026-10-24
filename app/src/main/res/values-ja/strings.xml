@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">最新のフレームのみ表示</string>
     <string name="summary_drop_late_frames">画面に間に合わないフレームをスキップします。フレームペーシングが [バランス] のときに適用されます。</string>
     <string name="title_texture_view">互換性の高い映像表示</string>
-    <string name="summary_texture_view">映像が黒い、またはちらつく場合にお試しください。HDR と PyroWave では使用されません。</string>
+    <string name="summary_texture_view">映像が黒い、またはちらつく場合にお試しください。HDR、10 ビット SDR、PyroWave では使用されません。</string>
     <string name="title_unbatched_input">マウスとペンの即時入力</string>
     <string name="summary_unbatched_input">マウスとペンの動きをすぐに送信します。</string>
     <string name="title_network_priority">ストリームの通信を優先</string>

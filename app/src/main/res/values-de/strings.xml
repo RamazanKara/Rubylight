@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Nur neueste Frames behalten</string>
     <string name="summary_drop_late_frames">Überspringt Frames, die nicht mehr rechtzeitig angezeigt werden können. Gilt mit dem Frame-Pacing „Ausgewogen“.</string>
     <string name="title_texture_view">Alternative Videoanzeige</string>
-    <string name="summary_texture_view">Probiere dies bei schwarzem oder flackerndem Bild. Nicht mit HDR oder PyroWave.</string>
+    <string name="summary_texture_view">Probiere dies bei schwarzem oder flackerndem Bild. Nicht mit HDR, 10-Bit-SDR oder PyroWave.</string>
     <string name="title_unbatched_input">Maus und Stift ohne Wartezeit</string>
     <string name="summary_unbatched_input">Sende Maus- und Stiftbewegungen sofort.</string>
     <string name="title_network_priority">Stream-Daten bevorzugen</string>

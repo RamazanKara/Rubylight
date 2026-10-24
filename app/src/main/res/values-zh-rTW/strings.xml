@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">只保留最新的影格</string>
     <string name="summary_drop_late_frames">略過螢幕已無法及時顯示的影格。適用於「平衡」影格調步。</string>
     <string name="title_texture_view">相容性視訊檢視</string>
-    <string name="summary_texture_view">如果影像全黑或閃爍，請嘗試此選項。使用 HDR 或 PyroWave 時不會使用。</string>
+    <string name="summary_texture_view">如果影像全黑或閃爍，請嘗試此選項。使用 HDR、10 位元 SDR 或 PyroWave 時不會使用。</string>
     <string name="title_unbatched_input">即時滑鼠和觸控筆輸入</string>
     <string name="summary_unbatched_input">立即傳送滑鼠和觸控筆的移動。</string>
     <string name="title_network_priority">優先處理串流流量</string>

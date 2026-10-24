@@ -339,7 +339,7 @@
     <string name="title_drop_late_frames">Keep only the newest frame</string>
     <string name="summary_drop_late_frames">Skip frames the screen can no longer show in time. Applies with Balanced frame pacing.</string>
     <string name="title_texture_view">Compatibility video view</string>
-    <string name="summary_texture_view">Try this for black or flickering video. Not used with HDR or PyroWave.</string>
+    <string name="summary_texture_view">Try this for black or flickering video. Not used with HDR, 10-bit SDR or PyroWave.</string>
     <string name="title_unbatched_input">Instant mouse and pen input</string>
     <string name="summary_unbatched_input">Send mouse and pen movements immediately.</string>
     <string name="title_network_priority">Prioritize stream traffic</string>

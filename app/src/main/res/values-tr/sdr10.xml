@@ -9,4 +9,6 @@
     <string name="stream_sdr10_reason_pyrowave">PyroWave seçili ve 10 bit çıkışı yalnızca HDR içindir.</string>
     <string name="stream_sdr10_reason_packed">paketlenmiş 4:4:4 kendi 10 bit işlemesini kullanır.</string>
     <string name="upscaling_tenbit_short">10 bit ile kullanılmaz</string>
+    <string name="stream_sdr10_reason_yuv444">4:4:4 açık ve PC 4:4:4 veya 10 bit sunar, ikisini birden değil.</string>
+    <string name="upscaling_tenbit">10 bit, hassasiyeti korumak için doğrudan çıkışı kullanır.</string>
 </resources>

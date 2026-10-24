@@ -9,4 +9,6 @@
     <string name="stream_sdr10_reason_pyrowave">已選擇 PyroWave，其 10 位元輸出僅用於 HDR。</string>
     <string name="stream_sdr10_reason_packed">封裝的 4:4:4 使用自己的 10 位元處理。</string>
     <string name="upscaling_tenbit_short">不與 10 位元同時使用</string>
+    <string name="stream_sdr10_reason_yuv444">已開啟 4:4:4，而電腦只能提供 4:4:4 或 10 位元其中之一。</string>
+    <string name="upscaling_tenbit">10 位元會維持直接輸出，以保留精確度。</string>
 </resources>

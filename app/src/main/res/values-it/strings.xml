@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Mantieni solo il frame più recente</string>
     <string name="summary_drop_late_frames">Salta i frame che lo schermo non può più mostrare in tempo. Si applica con il frame pacing Bilanciato.</string>
     <string name="title_texture_view">Vista video di compatibilità</string>
-    <string name="summary_texture_view">Prova questa opzione se il video è nero o sfarfalla. Non usata con HDR o PyroWave.</string>
+    <string name="summary_texture_view">Prova questa opzione se il video è nero o sfarfalla. Non usata con HDR, SDR a 10 bit o PyroWave.</string>
     <string name="title_unbatched_input">Input istantaneo di mouse e penna</string>
     <string name="summary_unbatched_input">Invia subito i movimenti di mouse e penna.</string>
     <string name="title_network_priority">Dai priorità al traffico dello stream</string>

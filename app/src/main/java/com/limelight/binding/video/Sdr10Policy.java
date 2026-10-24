@@ -25,22 +25,40 @@ public final class Sdr10Policy {
         /** PyroWave is chosen, and its 10-bit output is the HDR10 path. */
         PYROWAVE,
         /** The experimental packed 4:4:4 path has its own 10-bit handling. */
-        PACKED_444
+        PACKED_444,
+        /** Native 4:4:4 is on and offered; the PC takes 4:4:4 or 10-bit, not both, and 4:4:4 wins. */
+        YUV444
     }
 
     public static Refusal refusal(boolean mediaStream, boolean enabled, boolean hdrGranted, boolean hevcMain10,
-                                  boolean av1Main10, boolean pyroWaveChosen, boolean packed444) {
+                                  boolean av1Main10, boolean pyroWaveChosen, boolean packed444, boolean yuv444) {
         if (!enabled) return Refusal.SETTING_OFF;
         if (!mediaStream) return Refusal.NO_VIDEO;
         if (hdrGranted) return Refusal.HDR_STREAM;
         if (pyroWaveChosen) return Refusal.PYROWAVE;
         if (packed444) return Refusal.PACKED_444;
+        if (yuv444) return Refusal.YUV444;
         return hevcMain10 || av1Main10 ? Refusal.NONE : Refusal.NO_MAIN10;
     }
 
     /** Whether the user should be told why an enabled setting is not used for this stream. */
     public static boolean worthSaying(Refusal refusal) {
-        return refusal == Refusal.NO_MAIN10 || refusal == Refusal.PYROWAVE || refusal == Refusal.PACKED_444;
+        return refusal == Refusal.NO_MAIN10 || refusal == Refusal.PYROWAVE || refusal == Refusal.PACKED_444 ||
+                refusal == Refusal.YUV444;
+    }
+
+    /** Whether the setting could change which decoders are used: only for a stream that may offer it. */
+    public static boolean decoderChoiceMayChange(boolean enabled, boolean hdrRequested, boolean pyroWaveChosen,
+                                                 boolean packed444) {
+        return enabled && !hdrRequested && !pyroWaveChosen && !packed444;
+    }
+
+    /**
+     * Whether the decoders chosen for 10-bit SDR are kept: one of them decodes Main10 and 4:4:4 is not
+     * in play. Otherwise the choice is the one made with the setting off.
+     */
+    public static boolean decoderChoiceApplies(boolean hevcMain10, boolean av1Main10, boolean yuv444) {
+        return (hevcMain10 || av1Main10) && !yuv444;
     }
 
     /** The 10-bit formats to offer in addition to the 8-bit ones: 0 unless the refusal is NONE. */

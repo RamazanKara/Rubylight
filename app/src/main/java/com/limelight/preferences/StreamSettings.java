@@ -1610,16 +1610,21 @@ public class StreamSettings extends NightjarActivity {
             });
             ListPreference codec = (ListPreference) findPreference("video_format");
             SwitchPreference hdr = (SwitchPreference) findPreference("checkbox_enable_hdr");
+            SwitchPreference sdr10 = (SwitchPreference) findPreference("checkbox_enable_sdr_10bit");
             Preference texture = findPreference("checkbox_texture_view");
-            texture.setEnabled(!hdr.isChecked() && !"forcepyrowave".equals(codec.getValue()));
+            texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(codec.getValue()));
             codec.setOnPreferenceChangeListener((preference, value) -> {
-                texture.setEnabled(!hdr.isChecked() && !"forcepyrowave".equals(value));
+                texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(value));
                 updateCodecSummary(codec, (String) value, hdr.isChecked());
                 return true;
             });
             hdr.setOnPreferenceChangeListener((preference, value) -> {
-                texture.setEnabled(!(Boolean) value && !"forcepyrowave".equals(codec.getValue()));
+                texture.setEnabled(!(Boolean) value && !sdr10.isChecked() && !"forcepyrowave".equals(codec.getValue()));
                 updateCodecSummary(codec, codec.getValue(), (Boolean) value);
+                return true;
+            });
+            sdr10.setOnPreferenceChangeListener((preference, value) -> {
+                texture.setEnabled(!hdr.isChecked() && !(Boolean) value && !"forcepyrowave".equals(codec.getValue()));
                 return true;
             });
             findPreference("about_app").setSummary(getString(R.string.settings_version, BuildConfig.VERSION_NAME));

@@ -113,7 +113,7 @@ ADVICE = {
     "checkbox_drop_late_frames": "Enable with Balanced pacing to discard older queued outputs. Favors response over smoothness. Shown beside Frame pacing only while it is Balanced.",
     "checkbox_unbatched_input": "Enable to bypass display-rate input batching. High-rate input can increase CPU and network load.",
     "checkbox_network_priority": "Enable to compare scheduling under load. Requests streaming thread priority on this device.",
-    "checkbox_texture_view": "Try for black or flickering video or misplaced output. Adds composition work and is disabled for HDR and PyroWave.",
+    "checkbox_texture_view": "Try for black or flickering video or misplaced output. Adds composition work and is disabled for HDR, 10-bit color (SDR) and PyroWave.",
     "checkbox_reduce_refresh_rate": "Enable to allow a lower screen refresh for power savings.",
     "checkbox_full_range": "Use when the host and display both send full-range color, for full shadow and highlight detail.",
     "checkbox_usb_driver": "Leave on for built-in Xbox USB support. Android requests USB access when needed.",

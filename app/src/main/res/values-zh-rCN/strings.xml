@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">仅保留最新的帧</string>
     <string name="summary_drop_late_frames">跳过屏幕已无法及时显示的帧。在“平衡”帧速调节下适用。</string>
     <string name="title_texture_view">兼容视频视图</string>
-    <string name="summary_texture_view">如果视频黑屏或闪烁，请尝试此项。HDR 或 PyroWave 下不使用。</string>
+    <string name="summary_texture_view">如果视频黑屏或闪烁，请尝试此项。HDR、10 位 SDR 或 PyroWave 下不使用。</string>
     <string name="title_unbatched_input">即时鼠标和触控笔输入</string>
     <string name="summary_unbatched_input">立即发送鼠标和触控笔的移动。</string>
     <string name="title_network_priority">优先处理串流流量</string>

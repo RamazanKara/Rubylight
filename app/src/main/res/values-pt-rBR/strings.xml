@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Manter só o quadro mais recente</string>
     <string name="summary_drop_late_frames">Descarta quadros que a tela não consegue mais exibir a tempo. Vale com o ritmo de quadros Equilibrado.</string>
     <string name="title_texture_view">Visualização de vídeo compatível</string>
-    <string name="summary_texture_view">Experimente se o vídeo ficar preto ou piscando. Não é usado com HDR nem PyroWave.</string>
+    <string name="summary_texture_view">Experimente se o vídeo ficar preto ou piscando. Não é usado com HDR, SDR de 10 bits nem PyroWave.</string>
     <string name="title_unbatched_input">Entrada instantânea de mouse e caneta</string>
     <string name="summary_unbatched_input">Envia os movimentos do mouse e da caneta imediatamente.</string>
     <string name="title_network_priority">Priorizar tráfego da transmissão</string>

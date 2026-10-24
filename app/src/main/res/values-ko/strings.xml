@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">최신 프레임만 유지</string>
     <string name="summary_drop_late_frames">화면에 제때 표시할 수 없는 프레임을 건너뜁니다. 균형 프레임 페이싱에서 적용됩니다.</string>
     <string name="title_texture_view">호환성 비디오 뷰</string>
-    <string name="summary_texture_view">영상이 검게 나오거나 깜박일 때 사용해 보세요. HDR 또는 PyroWave에서는 사용되지 않습니다.</string>
+    <string name="summary_texture_view">영상이 검게 나오거나 깜박일 때 사용해 보세요. HDR, 10비트 SDR 또는 PyroWave에서는 사용되지 않습니다.</string>
     <string name="title_unbatched_input">즉시 마우스 및 펜 입력</string>
     <string name="summary_unbatched_input">마우스와 펜 움직임을 즉시 전송합니다.</string>
     <string name="title_network_priority">스트림 트래픽 우선 처리</string>

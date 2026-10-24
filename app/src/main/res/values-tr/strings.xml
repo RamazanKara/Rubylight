@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Yalnızca en yeni kareyi tut</string>
     <string name="summary_drop_late_frames">Ekranın artık zamanında gösteremeyeceği kareleri atlar. Dengeli kare zamanlama ile geçerlidir.</string>
     <string name="title_texture_view">Uyumluluk video görünümü</string>
-    <string name="summary_texture_view">Siyah veya titreyen video için bunu deneyin. HDR veya PyroWave ile kullanılmaz.</string>
+    <string name="summary_texture_view">Siyah veya titreyen video için bunu deneyin. HDR, 10 bit SDR veya PyroWave ile kullanılmaz.</string>
     <string name="title_unbatched_input">Anında fare ve kalem girişi</string>
     <string name="summary_unbatched_input">Fare ve kalem hareketlerini hemen gönderir.</string>
     <string name="title_network_priority">Yayın trafiğine öncelik ver</string>

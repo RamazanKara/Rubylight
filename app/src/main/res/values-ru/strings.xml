@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Оставлять только новейший кадр</string>
     <string name="summary_drop_late_frames">Пропускать кадры, которые экран уже не успеет показать вовремя. Действует при сбалансированной синхронизации кадров.</string>
     <string name="title_texture_view">Совместимый режим видео</string>
-    <string name="summary_texture_view">Попробуйте, если видео чёрное или мерцает. Не используется с HDR и PyroWave.</string>
+    <string name="summary_texture_view">Попробуйте, если видео чёрное или мерцает. Не используется с HDR, 10-битным SDR и PyroWave.</string>
     <string name="title_unbatched_input">Мгновенный ввод мыши и пера</string>
     <string name="summary_unbatched_input">Отправлять движения мыши и пера сразу.</string>
     <string name="title_network_priority">Приоритет трафика трансляции</string>

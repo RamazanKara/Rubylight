@@ -1287,6 +1287,9 @@ public class NvHTTP {
         HostCapabilities caps = context.hostCaps;
         NvApp.Role role = context.streamConfig.getApp().getRole();
         boolean inputOnly = role == NvApp.Role.INPUT_ONLY;
+        // 10-bit SDR says hdrMode=0 outright: hosts that infer it from an absent value would read a
+        // plain resume as HDR. A stream that ended up 8-bit still sends nothing, as before.
+        boolean tenBitSdr = context.streamConfig.isSdr10Bit() && context.negotiated10Bit;
         int gamepads = role == NvApp.Role.REMOTE_MONITOR ? 0 : context.streamConfig.getAttachedGamepadMask();
         // Using an FPS value over 60 causes SOPS to default to 720p60,
         // so force it to 0 to ensure the correct resolution is set. We
@@ -1338,7 +1341,7 @@ public class NvHTTP {
             "&additionalStates=1&sops=" + (enableSops ? 1 : 0) +
             "&rikey="+bytesToHex(context.riKey.getEncoded()) +
             "&rikeyid="+context.riKeyId +
-            (!enableHdr || inputOnly ? "" : "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0") +
+            (inputOnly ? "" : !enableHdr ? (tenBitSdr ? "&hdrMode=0" : "") : "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0") +
             "&localAudioPlayMode=" + (context.streamConfig.getPlayLocalAudio() ? 1 : 0) +
             "&surroundAudioInfo=" + context.streamConfig.getAudioConfiguration().getSurroundAudioInfo() +
             (context.preparedControllers.isEmpty() ? "" : "&rlControllers=" + context.preparedControllers) +

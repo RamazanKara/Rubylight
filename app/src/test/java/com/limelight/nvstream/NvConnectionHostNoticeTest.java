@@ -98,21 +98,29 @@ public class NvConnectionHostNoticeTest {
         int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10;
         String notAccepted = RuntimeEnvironment.getApplication().getString(R.string.startup_sdr10_not_accepted);
         String hdrUnavailable = RuntimeEnvironment.getApplication().getString(R.string.startup_hdr_unavailable);
-        // The PC takes 10-bit: no message, and the launch is not an HDR launch.
+        // The PC takes 10-bit: no message, and the launch is not an HDR launch but says hdrMode=0.
         assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
         assertFalse(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        assertTrue(NvConnectionRecoveryTest.FakeHost.lastQuery, hdrMode(NvConnectionRecoveryTest.FakeHost.lastQuery, "0"));
         // The same offer as HDR does ask for it.
         assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, false));
         assertTrue(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        assertTrue(hdrMode(NvConnectionRecoveryTest.FakeHost.lastQuery, "1"));
         // A PC with no 10-bit codec streams 8-bit: said once, as 10-bit and not as HDR.
         String eightBit = SUNSHINE.replace("<ServerCodecModeSupport>197377", "<ServerCodecModeSupport>257");
         assertEquals(Collections.singletonList(notAccepted), stream(eightBit, false, offered, true));
         assertFalse(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        // ...and a plain 8-bit stream sends no hdrMode at all, as before.
+        assertFalse(NvConnectionRecoveryTest.FakeHost.lastQuery, NvConnectionRecoveryTest.FakeHost.lastQuery.contains("hdrMode"));
         assertEquals(Collections.emptyList(), stream(eightBit, false, offered, true));
         // Gaining 10-bit re-arms the notice.
         assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
         assertEquals(Collections.singletonList(notAccepted), stream(eightBit, false, offered, true));
         assertNotEquals(notAccepted, hdrUnavailable);
+    }
+
+    private static boolean hdrMode(String query, String value) {
+        return query.contains("&hdrMode=" + value + "&") || query.endsWith("&hdrMode=" + value);
     }
 
     @Test

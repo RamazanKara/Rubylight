@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Conservar solo el fotograma más reciente</string>
     <string name="summary_drop_late_frames">Omite los fotogramas que la pantalla ya no puede mostrar a tiempo. Se aplica con el ritmo de fotogramas Equilibrado.</string>
     <string name="title_texture_view">Vista de vídeo de compatibilidad</string>
-    <string name="summary_texture_view">Pruébala si el vídeo se ve negro o parpadea. No se usa con HDR ni con PyroWave.</string>
+    <string name="summary_texture_view">Pruébala si el vídeo se ve negro o parpadea. No se usa con HDR, SDR de 10 bits ni PyroWave.</string>
     <string name="title_unbatched_input">Entrada instantánea de ratón y lápiz</string>
     <string name="summary_unbatched_input">Envía los movimientos del ratón y del lápiz de inmediato.</string>
     <string name="title_network_priority">Priorizar el tráfico de la transmisión</string>

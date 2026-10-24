@@ -295,7 +295,7 @@
     <string name="title_drop_late_frames">Zachowuj tylko najnowszą klatkę</string>
     <string name="summary_drop_late_frames">Pomija klatki, których ekran nie zdąży już wyświetlić. Działa ze zrównoważonym tempem klatek.</string>
     <string name="title_texture_view">Zgodny widok wideo</string>
-    <string name="summary_texture_view">Wypróbuj przy czarnym lub migającym obrazie. Nieużywane z HDR ani PyroWave.</string>
+    <string name="summary_texture_view">Wypróbuj przy czarnym lub migającym obrazie. Nieużywane z HDR, 10-bitowym SDR ani PyroWave.</string>
     <string name="title_unbatched_input">Natychmiastowe sterowanie myszą i rysikiem</string>
     <string name="summary_unbatched_input">Wysyła ruchy myszy i rysika natychmiast.</string>
     <string name="title_network_priority">Priorytet dla ruchu strumienia</string>

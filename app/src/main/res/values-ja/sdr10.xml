@@ -9,4 +9,6 @@
     <string name="stream_sdr10_reason_pyrowave">PyroWave が選択されており、その 10 ビット出力は HDR 専用です。</string>
     <string name="stream_sdr10_reason_packed">パック形式の 4:4:4 は独自の 10 ビット処理を使用します。</string>
     <string name="upscaling_tenbit_short">10 ビットでは使用されません</string>
+    <string name="stream_sdr10_reason_yuv444">4:4:4 が有効で、PC は 4:4:4 か 10 ビットのどちらか一方のみ使えます。</string>
+    <string name="upscaling_tenbit">10 ビットでは、精度を保つため直接出力のままにします。</string>
 </resources>

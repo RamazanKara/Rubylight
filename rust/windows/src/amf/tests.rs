@@ -1726,3 +1726,20 @@ fn native_reference_recovery_decodes_after_dropping_the_invalidated_packets() ->
     eprintln!("{}", serde_json::to_string(&reports)?);
     Ok(())
 }
+
+#[test]
+fn amf_errors_name_the_result_and_say_when_the_hardware_cannot() {
+    let text = super::amf_error_text(AMF_RESULT_AMF_NOT_SUPPORTED);
+    assert!(text.starts_with("AMF error AMF_NOT_SUPPORTED ("), "{text}");
+    assert!(text.contains("no encoder for the request"), "{text}");
+    let text = super::amf_error_text(AMF_RESULT_AMF_ENCODER_NOT_PRESENT);
+    assert!(text.contains("AMF_ENCODER_NOT_PRESENT"), "{text}");
+    assert!(text.contains("no encoder for the request"), "{text}");
+    // A code without a name keeps the number, as before.
+    assert_eq!(super::amf_error_text(9999), "AMF error 9999");
+    assert_eq!(
+        super::check(AMF_RESULT_AMF_FAIL).unwrap_err().to_string(),
+        "AMF error AMF_FAIL (1)"
+    );
+    assert!(super::check(AMF_RESULT_AMF_OK).is_ok());
+}

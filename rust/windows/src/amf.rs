@@ -45,9 +45,60 @@ fn timed<T>(call: &'static str, run: impl FnOnce() -> T) -> T {
     }
     result
 }
+/// The SDK name of an AMF result, empty for a code this host does not name.
+pub(crate) fn result_name(n: AMF_RESULT) -> &'static str {
+    match n {
+        AMF_RESULT_AMF_OK => "AMF_OK",
+        AMF_RESULT_AMF_FAIL => "AMF_FAIL",
+        AMF_RESULT_AMF_UNEXPECTED => "AMF_UNEXPECTED",
+        AMF_RESULT_AMF_ACCESS_DENIED => "AMF_ACCESS_DENIED",
+        AMF_RESULT_AMF_INVALID_ARG => "AMF_INVALID_ARG",
+        AMF_RESULT_AMF_OUT_OF_RANGE => "AMF_OUT_OF_RANGE",
+        AMF_RESULT_AMF_OUT_OF_MEMORY => "AMF_OUT_OF_MEMORY",
+        AMF_RESULT_AMF_INVALID_POINTER => "AMF_INVALID_POINTER",
+        AMF_RESULT_AMF_NO_INTERFACE => "AMF_NO_INTERFACE",
+        AMF_RESULT_AMF_NOT_IMPLEMENTED => "AMF_NOT_IMPLEMENTED",
+        AMF_RESULT_AMF_NOT_SUPPORTED => "AMF_NOT_SUPPORTED",
+        AMF_RESULT_AMF_NOT_FOUND => "AMF_NOT_FOUND",
+        AMF_RESULT_AMF_ALREADY_INITIALIZED => "AMF_ALREADY_INITIALIZED",
+        AMF_RESULT_AMF_NOT_INITIALIZED => "AMF_NOT_INITIALIZED",
+        AMF_RESULT_AMF_INVALID_FORMAT => "AMF_INVALID_FORMAT",
+        AMF_RESULT_AMF_WRONG_STATE => "AMF_WRONG_STATE",
+        AMF_RESULT_AMF_NO_DEVICE => "AMF_NO_DEVICE",
+        AMF_RESULT_AMF_DIRECTX_FAILED => "AMF_DIRECTX_FAILED",
+        AMF_RESULT_AMF_INVALID_DATA_TYPE => "AMF_INVALID_DATA_TYPE",
+        AMF_RESULT_AMF_INVALID_RESOLUTION => "AMF_INVALID_RESOLUTION",
+        AMF_RESULT_AMF_CODEC_NOT_SUPPORTED => "AMF_CODEC_NOT_SUPPORTED",
+        AMF_RESULT_AMF_SURFACE_FORMAT_NOT_SUPPORTED => "AMF_SURFACE_FORMAT_NOT_SUPPORTED",
+        AMF_RESULT_AMF_ENCODER_NOT_PRESENT => "AMF_ENCODER_NOT_PRESENT",
+        _ => "",
+    }
+}
+/// What a result that says "this hardware cannot" means to the user.
+fn result_hint(n: AMF_RESULT) -> &'static str {
+    match n {
+        AMF_RESULT_AMF_NOT_SUPPORTED
+        | AMF_RESULT_AMF_CODEC_NOT_SUPPORTED
+        | AMF_RESULT_AMF_ENCODER_NOT_PRESENT => {
+            " (this GPU or driver has no encoder for the request)"
+        }
+        AMF_RESULT_AMF_NO_DEVICE | AMF_RESULT_AMF_DIRECTX_FAILED => {
+            " (the driver could not use this graphics device)"
+        }
+        AMF_RESULT_AMF_INVALID_RESOLUTION => " (size or frame rate beyond the encoder's limit)",
+        AMF_RESULT_AMF_SURFACE_FORMAT_NOT_SUPPORTED => " (input format not supported)",
+        _ => "",
+    }
+}
+pub(crate) fn amf_error_text(n: AMF_RESULT) -> String {
+    match result_name(n) {
+        "" => format!("AMF error {n}"),
+        name => format!("AMF error {name} ({n}){}", result_hint(n)),
+    }
+}
 pub(crate) fn check(n: AMF_RESULT) -> Result<()> {
     if n != AMF_RESULT_AMF_OK {
-        bail!("AMF error {n}");
+        bail!("{}", amf_error_text(n));
     }
     Ok(())
 }
@@ -391,7 +442,41 @@ impl Encoder {
                 | ((AMF_VERSION_MINOR as u64) << 32)
                 | ((AMF_VERSION_RELEASE as u64) << 16)
                 | AMF_VERSION_BUILD_NUM as u64;
-            check(init(version, &mut factory))?;
+            let first = init(version, &mut factory);
+            if first != AMF_RESULT_AMF_OK {
+                // The runtime refuses a header newer than itself. Name both
+                // versions, and retry with the runtime's own when it is an
+                // older release of the same major version, as on a Radeon
+                // driver branch that predates this SDK.
+                let mut runtime = 0u64;
+                let queried = library
+                    .get::<unsafe extern "C" fn(*mut u64) -> AMF_RESULT>(b"AMFQueryVersion ")
+                    .ok()
+                    .filter(|query| query(&mut runtime) == AMF_RESULT_AMF_OK)
+                    .map(|_| runtime);
+                let described = queried
+                    .map(butterpollo_core::codec_support::amf_version_text)
+                    .unwrap_or_else(|| "unknown".into());
+                let header = butterpollo_core::codec_support::amf_version_text(version);
+                match butterpollo_core::codec_support::amf_retry_version(version, queried) {
+                    Some(older) => {
+                        tracing::warn!(
+                            header,
+                            runtime = described,
+                            "AMFInit refused this host's AMF version; retrying with the driver's older runtime version. Update the Radeon driver for full support"
+                        );
+                        factory = ptr::null_mut();
+                        check(init(older, &mut factory)).with_context(|| {
+                            format!("AMFInit with the driver's AMF runtime {described} (host built for {header})")
+                        })?;
+                    }
+                    None => {
+                        return Err(anyhow::anyhow!(amf_error_text(first))).with_context(|| {
+                            format!("AMFInit (host built for AMF {header}, driver runtime {described}); update the Radeon driver")
+                        });
+                    }
+                }
+            }
             if factory.is_null() {
                 bail!("AMF returned no factory");
             }

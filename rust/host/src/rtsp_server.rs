@@ -333,6 +333,16 @@ async fn connection(
                     } else if (negotiated.ten_bit() && negotiated.codec == 0) || flags & bit == 0 {
                         code = 406;
                         reason = "Requested codec is unavailable";
+                        // The RTSP reason line is fixed text: put the cause in
+                        // the log and in the launch warning the console shows.
+                        let detail = butterpollo_core::codec_support::refusal_for(
+                            &h.codec_missing.lock().unwrap(),
+                            negotiated.codec,
+                            negotiated.ten_bit(),
+                            negotiated.yuv444,
+                        );
+                        tracing::warn!(codec = negotiated.codec, ten_bit = negotiated.ten_bit(), %detail, "refusing stream: requested codec is unavailable");
+                        launch.warnings.set("codec_unavailable", detail);
                     } else {
                         configs
                             .lock()

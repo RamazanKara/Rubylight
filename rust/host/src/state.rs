@@ -192,6 +192,8 @@ pub struct Host {
     pub serverinfo_cache: Mutex<crate::nvhttp::ServerInfoCache>,
     /// The encoder family the capability probe selected for H.264.
     pub probed_encoder: Mutex<&'static str>,
+    /// Why each codec the last probe pass did not advertise is missing.
+    pub codec_missing: Mutex<Vec<butterpollo_core::codec_support::Unavailable>>,
     /// Which session changed Radeon settings, and when they go back.
     pub radeon: crate::radeon_session::Radeon,
     /// The Radeon profile applied for the owner's game and a launcher prompt, for the session.
@@ -427,6 +429,7 @@ impl Host {
             metadata: Mutex::new(None),
             serverinfo_cache: Mutex::new(Default::default()),
             probed_encoder: Mutex::new(""),
+            codec_missing: Mutex::new(Vec::new()),
             radeon: crate::radeon_session::Radeon::default(),
             notes: crate::session_notes::SessionNotes::default(),
         }))
@@ -547,6 +550,10 @@ impl Host {
             pixel: butterpollo_windows::capture::Pixel::Bgra8,
         };
         let mut flags = 0u32;
+        let mut outcomes: Vec<(
+            butterpollo_core::codec_support::Codec,
+            butterpollo_core::codec_support::Outcome,
+        )> = Vec::new();
         // Bits follow moonlight-common-c's SCM_* values. AMF encodes 4:2:0
         // only, so H.264, HEVC and AV1 advertise no 4:4:4 mode.
         for (codec, hdr, bit) in [
@@ -557,7 +564,9 @@ impl Host {
             (2, true, 0x20000),
         ] {
             let mode = config.integer(if codec == 1 { "hevc_mode" } else { "av1_mode" }, 0);
+            let probed = butterpollo_core::codec_support::Codec { id: codec, hdr };
             if matches!(codec, 1 | 2) && (mode == 1 || (hdr && mode == 2)) {
+                outcomes.push((probed, butterpollo_core::codec_support::Outcome::Disabled));
                 continue;
             }
             if self.stop.load(std::sync::atomic::Ordering::Acquire) {
@@ -584,10 +593,14 @@ impl Host {
                     if codec == 0 {
                         *self.probed_encoder.lock().unwrap() = encoder.backend();
                     }
+                    let mut outcome = butterpollo_core::codec_support::Outcome::Failed(
+                        "the encoder produced no packets".into(),
+                    );
                     for frame in 0..8 {
                         match encoder.encode(&image, frame == 0, negotiated.bitrate_kbps) {
                             Ok(packets) if !packets.is_empty() => {
                                 flags |= bit;
+                                outcome = butterpollo_core::codec_support::Outcome::Available;
                                 self.codecs
                                     .store(flags | pyrowave, std::sync::atomic::Ordering::Release);
                                 if encoder.supports_invalidation() {
@@ -598,18 +611,27 @@ impl Host {
                             Err(error) => {
                                 first_error.get_or_insert_with(|| format!("{error:#}"));
                                 tracing::debug!(%error, codec, hdr, "encoder capability probe failed");
+                                outcome = butterpollo_core::codec_support::Outcome::Failed(
+                                    format!("{error:#}"),
+                                );
                                 break;
                             }
                             _ => std::thread::sleep(Duration::from_millis(5)),
                         }
                     }
+                    outcomes.push((probed, outcome));
                 }
                 Err(error) => {
                     first_error.get_or_insert_with(|| format!("{error:#}"));
                     tracing::debug!(%error, codec, hdr, "encoder capability initialization failed");
+                    outcomes.push((
+                        probed,
+                        butterpollo_core::codec_support::Outcome::Failed(format!("{error:#}")),
+                    ));
                 }
             }
         }
+        self.explain_codecs(&outcomes, flags & STANDARD_CODECS != 0);
         // Publish standard codecs together before the optional Vulkan
         // probe. A driver/overlay failure in that child cannot kill them.
         self.codecs
@@ -665,6 +687,40 @@ impl Host {
             }
         }
         Ok(Some((flags, first_error, retry_pyrowave)))
+    }
+    /// Say why each missing codec is missing, once per pass: a log line per
+    /// codec, the reason kept for a refused launch, and a console warning when
+    /// another standard codec works. With none working, `CodecRetry` already
+    /// warns "No video encoder available".
+    fn explain_codecs(
+        &self,
+        outcomes: &[(
+            butterpollo_core::codec_support::Codec,
+            butterpollo_core::codec_support::Outcome,
+        )],
+        any_codec: bool,
+    ) {
+        let adapter = Self::probe_adapter_name();
+        let missing = butterpollo_core::codec_support::explain_all(&adapter, outcomes);
+        for m in &missing {
+            tracing::warn!(adapter, codec = m.codec.label(), reason = %m.reason, "codec not advertised");
+        }
+        match butterpollo_core::codec_support::warning(&missing).filter(|_| any_codec) {
+            Some(message) => self.warnings.set("codec_support", message),
+            None => self.warnings.clear("codec_support"),
+        }
+        *self.codec_missing.lock().unwrap() = missing;
+    }
+    /// The AMD adapter the probe encodes on: the one with the most video
+    /// memory, as an unpinned stream picks it. Only used to word reasons.
+    fn probe_adapter_name() -> String {
+        butterpollo_windows::capture::gpus()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|gpu| butterpollo_core::amd_gpu::is_amd(gpu.vendor))
+            .max_by_key(|gpu| gpu.dedicated_memory)
+            .map(|gpu| gpu.name)
+            .unwrap_or_default()
     }
     fn wait_for_codec_retry(&self, retry: &CodecRetry) -> bool {
         use std::sync::atomic::Ordering;

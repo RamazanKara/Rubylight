@@ -87,4 +87,30 @@ mod tests {
         );
         assert_eq!(Metadata::display(500., 0., 1000.).full_frame_nits, 500);
     }
+
+    /// What `IDXGIOutput6::GetDesc1` reports for physical panels: an EDID
+    /// without a luminance block gives zeros, which keep the 1000-nit default
+    /// instead of advertising a 0-nit or 1-nit display to the client.
+    #[test]
+    fn physical_panel_luminance_reports_are_usable_or_default() {
+        // HDR400 panel: 400 peak, 0.1 nit black, 400 sustained.
+        let hdr400 = Metadata::display(400., 0.1, 400.);
+        assert_eq!(
+            (hdr400.maximum_nits, hdr400.minimum, hdr400.full_frame_nits),
+            (400, 1000, 400)
+        );
+        // OLED: perfect black stays zero.
+        assert_eq!(Metadata::display(1000., 0., 250.).minimum, 0);
+        // No luminance block in the EDID: peak and full-frame unknown.
+        let unknown = Metadata::display(0., 0., 0.);
+        assert_eq!(unknown.maximum_nits, 1000);
+        assert_eq!(unknown.full_frame_nits, 0);
+        // Mini-LED claims past the 16-bit wire range are clamped, not wrapped.
+        assert_eq!(
+            Metadata::display(100_000., 0.0001, 5000.).maximum_nits,
+            u16::MAX
+        );
+        // A full-frame figure above the peak is a driver error: cap it.
+        assert_eq!(Metadata::display(600., 0.05, 900.).full_frame_nits, 600);
+    }
 }

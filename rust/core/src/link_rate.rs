@@ -147,6 +147,14 @@ pub const MAX_HOLD: Duration = Duration::from_secs(8);
 /// 0.9, but a 60 s wait keeps a recovered link at 90 % of its old rate that
 /// long; 30 s is the middle.
 pub const KNEE_MAX_HOLD: Duration = Duration::from_secs(30);
+/// A failure with a queue standing in the path (the RTT elevated) keeps probes
+/// under the knee this long, at least, and a cut from a rate the stream
+/// climbed to goes only [`KNEE_BACKOFF_PERCENT`] of it when it has no
+/// estimate. r50-hevc-hi (50 Mbit/s, 50 ms queue, 59 Mbps asked) cut to
+/// 70 % from every standing queue and climbed back into the next one, a
+/// sawtooth with a freeze at each tooth.
+pub const KNEE_QUIET: Duration = Duration::from_secs(20);
+pub const KNEE_BACKOFF_PERCENT: u64 = 85;
 pub const KNEE_PERCENT: u64 = 5;
 /// A step down from within this share of the bad rate is a knee failure too.
 pub const KNEE_CUT_PERCENT: u64 = 90;
@@ -993,11 +1001,20 @@ impl LinkRate {
                 Some(bad) if knee => bad.min(failed),
                 _ => failed,
             });
+            // A second failure at the knee goes back to under it, not to a rate
+            // a step above the first.
+            let back_to = match self.bad {
+                Some(bad) if knee => back_to
+                    .min((bad * KNEE_CAP_PERCENT).div_ceil(100))
+                    .max(self.encoder_floor.unwrap_or(0)),
+                _ => back_to,
+            };
             self.good = back_to;
             self.current = back_to;
             self.hold = (self.hold * 2).min(MAX_HOLD);
             self.next_probe = Some(now + self.hold);
             self.knee_failed(now, knee);
+            self.long_knee(now);
             self.failed_probes += 1;
             self.at_ceiling = None;
             self.near_bad = None;
@@ -1115,6 +1132,9 @@ impl LinkRate {
             cur * MIN_CUT_PERCENT / 100
         };
         let estimate = estimate.filter(|_| why.share_known);
+        // A queue standing at a rate the stream climbed to after an earlier
+        // cut: the link edge is just under it, not far below.
+        let climbing = self.state == State::Limited && self.bad.is_some() && self.rtt_elevated();
         let target = match estimate {
             Some((sent, share)) => {
                 evidence.loss_share = share;
@@ -1131,6 +1151,8 @@ impl LinkRate {
                 // another 1.6 s; go as deep as a cut may, and probe back.
                 let percent = if why.latch_failed {
                     MIN_CUT_PERCENT
+                } else if climbing {
+                    KNEE_BACKOFF_PERCENT
                 } else {
                     UNKNOWN_SHARE_PERCENT
                 };
@@ -1157,6 +1179,9 @@ impl LinkRate {
         };
         self.next_probe = Some(now + self.hold.max(self.fence_wait()));
         self.knee_failed(now, knee);
+        if self.rtt_elevated() {
+            self.long_knee(now);
+        }
         self.at_ceiling = None;
         self.near_bad = None;
         self.steps_down += 1;
@@ -1188,6 +1213,14 @@ impl LinkRate {
             self.knee = HOLD;
             self.knee_until = None;
         }
+    }
+
+    /// A probe that failed, or a cut with a queue standing in the path, found
+    /// the link's edge: keep probes under it for a long quiet hold, then let
+    /// a small step past it show whether the link improved.
+    fn long_knee(&mut self, now: Instant) {
+        self.knee = self.knee.max(KNEE_QUIET);
+        self.knee_until = Some(now + self.knee);
     }
 
     /// The bad rate is gone (passed or forgotten): probe freely again.

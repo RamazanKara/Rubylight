@@ -1375,7 +1375,7 @@ fn an_encoder_that_follows_its_bitrate_never_gets_an_encoder_floor() {
 }
 
 #[test]
-fn a_link_that_drops_to_an_eighth_recovers_within_twenty_seconds() {
+fn a_link_that_drops_to_an_eighth_recovers_within_twenty_five_seconds() {
     // 80 -> 10 -> 80 Mbit/s at a 40 Mbit/s request; the link returns at 40 s.
     for (feedback, queue, spread) in [
         (2., 50., 0.05),
@@ -1403,7 +1403,9 @@ fn a_link_that_drops_to_an_eighth_recovers_within_twenty_seconds() {
             sim.frame_loss(3., 75.)
         );
         let back = sim.reaches(40., 36_000).expect("back to 90 %");
-        assert!(back <= 60., "{what}: 90 % at {back:.1} s");
+        // The last probe that failed on the dip keeps probes under its rate
+        // for the quiet hold (KNEE_QUIET), and a step at a time past it.
+        assert!(back <= 65., "{what}: 90 % at {back:.1} s");
         assert!(sim.cuts() <= 2, "{what}: {} cuts", sim.cuts());
     }
 }
@@ -1478,5 +1480,67 @@ fn a_healthy_link_never_changes_anything() {
             assert!(sim.frame_loss(0., 75.) <= allowed, "{name} fb {feedback}");
             assert!(sim.kbps_log.iter().all(|(_, k)| *k == kbps), "{name}");
         }
+    }
+}
+
+/// The 2026-10-24 `r50-hevc-hi` arm (50 Mbit/s, 50 ms queue, 59 Mbps asked): a
+/// probe that failed at the link's edge was followed by climbs back to the
+/// same edge, a freeze at each, 6 to 9 of them in a run.
+#[test]
+fn probes_stop_under_the_rate_that_failed_for_the_quiet_hold() {
+    for (feedback, spread) in [(20., 0.05), (20., 1.), (80., 0.05), (80., 1.)] {
+        let mut sim = Sim::new(q(Link::constant(50.), 50.), 60_000, feedback);
+        sim.spread = spread;
+        sim.run(60.);
+        let what = format!("fb {feedback}, sp {spread}");
+        let (at, failed) = sim
+            .changes
+            .iter()
+            .find(|(_, c)| c.kind == ChangeKind::ProbeFailed)
+            .map(|(t, c)| (*t, c.from_kbps))
+            .unwrap_or_else(|| panic!("{what}: no probe failed: {:?}", sim.changes));
+        // For the quiet hold nothing goes back to the rate that failed.
+        let top = sim
+            .kbps_log
+            .iter()
+            .filter(|(t, _)| *t > at + 1. && *t < at + 19.)
+            .map(|(_, k)| *k)
+            .max()
+            .unwrap();
+        assert!(top < failed, "{what}: {top} kbps again after {failed}");
+        let failures: Vec<_> = sim
+            .changes
+            .iter()
+            .filter(|(t, c)| {
+                *t > 2. && matches!(c.kind, ChangeKind::ProbeFailed | ChangeKind::StepDown)
+            })
+            .map(|(t, c)| (*t, c.kind))
+            .collect();
+        assert!(failures.len() <= 3, "{what}: {failures:?}");
+        assert!(
+            sim.frame_loss(3., 60.) < 0.02,
+            "{what}: {}",
+            sim.frame_loss(3., 60.)
+        );
+    }
+}
+
+#[test]
+fn a_link_that_improves_clears_the_knee_and_the_rate_climbs_back() {
+    // 50 Mbit/s for 15 s, then 150: the probe that failed at 50 keeps the
+    // stream under it for the quiet hold, and one small step past it, then the
+    // usual climb, finds the room.
+    for feedback in [20., 80.] {
+        let link = Link::new(|t| if t < 15. { 50e6 } else { 150e6 });
+        let mut sim = Sim::new(q(link, 50.), 60_000, feedback);
+        sim.run(75.);
+        let what = format!("fb {feedback}");
+        let back = sim.reaches(15., 54_000).unwrap_or(f64::MAX);
+        assert!(back <= 15. + 20. + 12., "{what}: 90 % at {back:.1} s");
+        assert!(
+            sim.frame_loss(40., 75.) < 0.005,
+            "{what}: {}",
+            sim.frame_loss(40., 75.)
+        );
     }
 }

@@ -377,6 +377,22 @@ class LinkCompare(unittest.TestCase):
         paced = self.run_dict(pacing_kbps_series=[[0, 0], [1, 30000]])
         self.assertEqual(self.failed(self.judge2('hz-r1000-hevc-20', a, [paced] * 2)), ['pacing'])
 
+    def test_a_field_new_on_one_side_of_the_pacing_line_is_not_a_difference(self):
+        old = 'network pacing selected pacing_bps=800000000 wire_budget_bps=20173441 link_bps=2500000000 configured_kbps=0'
+        new = 'network pacing selected pacing_bps=800000000 wire_budget_bps=20173441 link_bps=2500000000 client_link_mbps=0 configured_kbps=0'
+        a = [self.run_dict(pacing_selected=[old])] * 2
+        row = self.judge2('hz-r1000-hevc-20', a, [self.run_dict(pacing_selected=[new])] * 2)
+        self.assertTrue(row['pacing_equal'])
+        self.assertEqual(row['verdict'], 'PASS', row['checks'])
+        # The pacing values themselves still count, and so does the number of lines.
+        for text in (new.replace('pacing_bps=800000000', 'pacing_bps=30000000'),
+                     new.replace('link_bps=2500000000', 'link_bps=1000000000'),
+                     new.replace('wire_budget_bps=20173441', 'wire_budget_bps=1')):
+            row = self.judge2('hz-r1000-hevc-20', a, [self.run_dict(pacing_selected=[text])] * 2)
+            self.assertEqual(self.failed(row), ['pacing'], text)
+        row = self.judge2('hz-r1000-hevc-20', a, [self.run_dict(pacing_selected=[new, new])] * 2)
+        self.assertEqual(self.failed(row), ['pacing'])
+
     def test_loss_worse_than_the_baseline_fails(self):
         row = self.judge2('hz-r300-hevc-80', [self.run_dict(lost=0.0)] * 2, [self.run_dict(lost=0.2)] * 2)
         self.assertEqual(self.failed(row), ['loss'])

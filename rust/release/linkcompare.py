@@ -222,6 +222,33 @@ def changes_of(run):
     return c.get('adaptive_bitrate', 0) + c.get('link_rate', 0)
 
 
+# What "network pacing selected" decides; other fields on the line (client_link_mbps,
+# configured_kbps, ...) come and go between versions and say nothing about the pacing.
+PACING_KEYS = ('pacing_bps', 'wire_budget_bps', 'link_bps')
+
+
+def pacing_fields(line):
+    """The key=value fields of a "network pacing selected" log line."""
+    return dict(re.findall(r'(\w+)=(\S+)', line))
+
+
+def pacing_selected_equal(a, b):
+    """The same pacing lines, judged on PACING_KEYS present on both sides; a field that only one
+    side has (new in a later version) is ignored."""
+    a, b = a or [], b or []
+    if len(a) != len(b):
+        return False
+    for x, y in zip(a, b):
+        fx, fy = pacing_fields(x), pacing_fields(y)
+        common = [k for k in PACING_KEYS if k in fx and k in fy]
+        if not common:
+            if x != y:
+                return False
+        elif any(fx[k] != fy[k] for k in common):
+            return False
+    return True
+
+
 def pacing_values(run):
     return sorted({v for _, v in run.get('pacing_kbps_series') or [] if v})
 
@@ -280,7 +307,7 @@ def judge(name, a_runs, b_runs, repeats=DEFAULT_REPEATS):
     seen_b = [r.get('encoder_kbps_seen') for r in b_runs]
     row['bitrate_equal'] = all(len(s or []) == 1 for s in seen_a + seen_b) and all(s == seen_a[0] for s in seen_a + seen_b) \
         and all(changes_of(r) == 0 for r in b_runs)
-    row['pacing_equal'] = all((r.get('pacing_selected') or []) == (a_runs[0].get('pacing_selected') or []) for r in a_runs + b_runs) \
+    row['pacing_equal'] = all(pacing_selected_equal(r.get('pacing_selected'), a_runs[0].get('pacing_selected')) for r in a_runs + b_runs) \
         and all(pacing_values(r) == pacing_values(a_runs[0]) for r in a_runs + b_runs)
     row['changes'] = max(changes_of(r) for r in b_runs)
 

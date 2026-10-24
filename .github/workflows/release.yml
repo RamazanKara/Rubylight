@@ -33,12 +33,45 @@ defaults:
     shell: bash # -e -o pipefail
 
 jobs:
+  preflight:
+    # Seconds, not an hour: a tag that does not match versionName fails here, before the
+    # desktop builds start. The release job checks it again next to the signing steps.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          sparse-checkout: app/build.gradle
+          sparse-checkout-cone-mode: false
+      - name: Check the tag against the app version
+        id: version
+        run: |
+          version=$(sed -n 's/^ *versionName "\(.*\)"$/\1/p' app/build.gradle | head -n 1)
+          if [ -z "$version" ]; then
+            echo "::error::no versionName in app/build.gradle"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match versionName \"$version\" in app/build.gradle"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   desktop-linux:
     # The Linux desktop client: protocol/desktop/package-linux.sh builds it (SDL3 from
     # source, linked statically) and packs nightjar-desktop-<version>-linux-x86_64.tar.gz.
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
     env:
+      VERSION: ${{ needs.preflight.outputs.version }}
       # The Rubylight commit whose rust/codec-patches/pyrowave and rust/tools/build_pyrowave.sh
       # the PyroWave SDK build reads (patch 0002); a bump is a deliberate commit here.
       RUBYLIGHT_SHA: 957ace5a9cdb14b5f39cffbe662f0df1dcb41caf
@@ -46,14 +79,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Read the app version
-        run: |
-          version=$(sed -n 's/^ *versionName "\(.*\)"$/\1/p' app/build.gradle | head -n 1)
-          if [ -z "$version" ]; then
-            echo "::error::no versionName in app/build.gradle"
-            exit 1
-          fi
-          echo "VERSION=$version" >> "$GITHUB_ENV"
       # patch 0002 and the Windows build script live in the public Rubylight repo; the SDK build
       # (scripts/build-pyrowave-sdk.*, protocol/desktop/pyrowave-sdk.pin) needs only those files.
       - name: Rubylight host files for the PyroWave SDK
@@ -76,10 +101,13 @@ jobs:
             wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
             libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev \
             libvulkan-dev
-      # A tag run only reads caches that runs on the default branch saved, so run
-      # this workflow by hand on main (dry run) now and then to keep them warm.
+      # Dry runs on main use and save the build caches. A tag run (the release itself) neither
+      # restores nor saves the target, FFmpeg or SDK caches: it rebuilds them, so nothing a
+      # branch run cached can end up in a published package. Only the downloaded crates
+      # (~/.cargo/registry, checked by Cargo.lock) are restored.
       - name: PyroWave SDK cache
         id: sdk-cache
+        if: github.ref_type != 'tag'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -90,14 +118,24 @@ jobs:
       - name: Build the PyroWave SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: bash scripts/build-pyrowave-sdk.sh -o "$GITHUB_WORKSPACE/pyrowave-sdk" -H "$GITHUB_WORKSPACE/rubylight-host"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Rust version
+        id: rustc
+        run: echo "version=$(rustc -V | tr ' ()' '---')" >> "$GITHUB_OUTPUT"
+      - name: Cargo registry cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            protocol/target
-          key: desktop-linux-${{ hashFiles('protocol/Cargo.lock') }}
-          restore-keys: desktop-linux-
+          key: cargo-registry-linux-${{ hashFiles('protocol/Cargo.lock') }}
+          restore-keys: cargo-registry-linux-
+      - name: Cargo target cache
+        if: github.ref_type != 'tag'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: protocol/target
+          key: desktop-linux-${{ steps.rustc.outputs.version }}-${{ hashFiles('protocol/Cargo.lock') }}
+          restore-keys: desktop-linux-${{ steps.rustc.outputs.version }}-
       # package-linux.sh checks the SDK against the pin, then runs the unpacked archive as
       # `nightjar --check-pyrowave`: the library must load (a runner has no Vulkan device).
       - name: Build and package
@@ -121,9 +159,13 @@ jobs:
     # decode-only FFmpeg (protocol/desktop/ffmpeg-decode-only.sh), so the zip holds a few
     # DLLs instead of MSYS2's 80. package-windows.ps1 walks the import tables, fails when a
     # non-system DLL would be missing from the zip, and starts the unpacked exe once.
+    needs: preflight
     runs-on: windows-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
     env:
+      VERSION: ${{ needs.preflight.outputs.version }}
       # The Rubylight commit whose rust/codec-patches/pyrowave and rust/tools/build_pyrowave.sh
       # the PyroWave SDK build reads (patch 0002); a bump is a deliberate commit here.
       RUBYLIGHT_SHA: 957ace5a9cdb14b5f39cffbe662f0df1dcb41caf
@@ -133,14 +175,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Read the app version
-        run: |
-          version=$(sed -n 's/^ *versionName "\(.*\)"$/\1/p' app/build.gradle | head -n 1)
-          if [ -z "$version" ]; then
-            echo "::error::no versionName in app/build.gradle"
-            exit 1
-          fi
-          echo "VERSION=$version" >> "$GITHUB_ENV"
       # patch 0002 and the Windows build script live in the public Rubylight repo; the SDK build
       # (scripts/build-pyrowave-sdk.*, protocol/desktop/pyrowave-sdk.pin) needs only those files.
       - name: Rubylight host files for the PyroWave SDK
@@ -160,20 +194,26 @@ jobs:
           rustup default stable-x86_64-pc-windows-gnu
       - name: MSYS2 packages
         # The runner image's own MSYS2: package-windows.ps1 looks in C:\msys64\ucrt64\bin.
+        # A full upgrade (never -Sy alone, which mixes new package lists with old libraries);
+        # the first run can stop after updating pacman itself, so it runs twice.
         run: |
-          /c/msys64/usr/bin/pacman.exe -Sy --noconfirm --needed make git \
+          /c/msys64/usr/bin/pacman.exe -Syu --noconfirm
+          /c/msys64/usr/bin/pacman.exe -Syu --noconfirm --needed make git \
             mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake \
             mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf \
             mingw-w64-ucrt-x86_64-sdl3 mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-dav1d \
             mingw-w64-ucrt-x86_64-winpthreads
-      # A tag run only reads caches that runs on the default branch saved, so run
-      # this workflow by hand on main (dry run) now and then to keep them warm.
+      # Dry runs on main use and save the build caches. A tag run (the release itself) neither
+      # restores nor saves the target, FFmpeg or SDK caches: it rebuilds them, so nothing a
+      # branch run cached can end up in a published package. Only the downloaded crates
+      # (~/.cargo/registry, checked by Cargo.lock) are restored.
       - name: Decode-only FFmpeg cache
         id: ffmpeg-cache
+        if: github.ref_type != 'tag'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ffprefix
-          key: ffmpeg-decode-only-${{ env.FFMPEG_VERSION }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh') }}
+          key: ffmpeg-decode-only-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh') }}
       - name: Build the decode-only FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: |
@@ -185,6 +225,7 @@ jobs:
           /c/msys64/usr/bin/bash.exe -l -c 'bash protocol/desktop/ffmpeg-decode-only.sh "$(pwd)/ffmpeg-'"$FFMPEG_VERSION"'" "$(pwd)/ffprefix"'
       - name: PyroWave SDK cache
         id: sdk-cache
+        if: github.ref_type != 'tag'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -199,14 +240,24 @@ jobs:
           ./scripts/build-pyrowave-sdk.ps1
           -Out "$env:GITHUB_WORKSPACE\pyrowave-sdk"
           -HostRepo "$env:GITHUB_WORKSPACE\rubylight-host"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Rust version
+        id: rustc
+        run: echo "version=$(rustc -V | tr ' ()' '---')" >> "$GITHUB_OUTPUT"
+      - name: Cargo registry cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            protocol/target
-          key: desktop-windows-${{ hashFiles('protocol/Cargo.lock') }}
-          restore-keys: desktop-windows-
+          key: cargo-registry-windows-${{ hashFiles('protocol/Cargo.lock') }}
+          restore-keys: cargo-registry-windows-
+      - name: Cargo target cache
+        if: github.ref_type != 'tag'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: protocol/target
+          key: desktop-windows-${{ steps.rustc.outputs.version }}-${{ hashFiles('protocol/Cargo.lock') }}
+          restore-keys: desktop-windows-${{ steps.rustc.outputs.version }}-
       # package-windows.ps1 checks the SDK against the pin, adds its DLL to the import walk, and
       # runs the unpacked exe as `nightjar.exe --check-pyrowave` with only the Windows folders on
       # PATH: the DLL must load (a runner has no GPU, so building a decoder is not required).
@@ -385,7 +436,7 @@ jobs:
             if [ "${#flags[@]}" != 0 ]; then gh release edit "$GITHUB_REF_NAME" "${flags[@]}"; fi
           else
             gh release create "$GITHUB_REF_NAME" out/* --verify-tag --title "Nightjar $VERSION" \
-              --notes "Signed by CI with the Nightjar release key. SHA-256 hashes are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
+              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows zip, Linux tar.gz) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
           fi
           echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
       - name: Dry run result

@@ -25,7 +25,14 @@ pub fn availability(
 /// lines to `report` and returns the exit code: 0 when both pass, 2 when only the probe failed
 /// (no usable GPU, as on a CI runner), 1 when the library did not load.
 pub fn package_check(report: &std::path::Path) -> i32 {
-    let load = super::pyrowave_sdk::Api::load().map(drop);
+    let dir = super::pyrowave_sdk::dll_path().and_then(|dll| dll.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
+    package_check_at(&dir, report)
+}
+
+/// `package_check` looking for the library in `dir` (the executable's folder in the real check;
+/// the probe, which only runs once the library loaded, always uses the executable's folder).
+fn package_check_at(dir: &std::path::Path, report: &std::path::Path) -> i32 {
+    let load = super::pyrowave_sdk::Api::load_from(&dir.join(super::pyrowave_sdk::DLL_NAME)).map(drop);
     let probe = match &load {
         Ok(()) => {
             #[cfg(windows)]
@@ -192,12 +199,14 @@ mod tests {
     }
 
     #[test]
-    fn the_package_check_reports_a_library_that_is_not_next_to_the_executable() {
-        // The test executable sits in target/<profile>/deps, where no SDK library is.
-        let report = std::env::temp_dir().join(format!("nightjar-package-check-{}.txt", std::process::id()));
-        let code = package_check(&report);
+    fn the_package_check_reports_a_folder_without_the_library() {
+        // An empty folder, not the test executable's: ignored GPU tests may leave an SDK copy there.
+        let dir = std::env::temp_dir().join(format!("nightjar-package-check-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let report = dir.join("report.txt");
+        let code = package_check_at(&dir, &report);
         let text = std::fs::read_to_string(&report).unwrap();
-        let _ = std::fs::remove_file(&report);
+        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(code, 1, "{text}");
         assert!(text.starts_with("load: ") && text.contains("not found next to the executable"), "{text}");
         assert!(text.contains("probe: skipped"), "{text}");

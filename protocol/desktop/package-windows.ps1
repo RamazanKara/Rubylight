@@ -151,7 +151,8 @@ try {
     $process = Start-Process -FilePath (Join-Path $unpacked 'nightjar.exe') -WorkingDirectory $unpacked -PassThru
     if ($process.WaitForExit(6000)) {
         if ($process.ExitCode -in -1073741515, -1073741511) { throw ('nightjar.exe from the zip does not start: exit code 0x{0:X8} (a DLL or an export is missing)' -f $process.ExitCode) }
-        Write-Warning ('nightjar.exe from the zip exited with {0} within 6 s (no missing DLL)' -f $process.ExitCode)
+        if ($process.ExitCode -ne 0) { throw ('nightjar.exe from the zip exited with {0} (0x{0:X8}) within 6 s' -f $process.ExitCode) }
+        Write-Warning 'nightjar.exe from the zip exited with 0 within 6 s'
     } else {
         Write-Host 'smoke: nightjar.exe from the zip is still running after 6 s'
         $process.Kill()

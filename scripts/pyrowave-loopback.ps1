@@ -6,6 +6,13 @@
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe>            # baseline stage split only
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <a.exe> -ClientB <b.exe> -Codec Hevc -Bitrates 0
 #   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe> -ClientB <nightjar.exe> -DecoderA Cpu -DecoderB Gpu -Width 2560 -Height 1440
+#   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe> -DecoderA Gpu -ExtraA @{ beam_race = $true; window_mode = 'Borderless'; vrr = $false; vsync = $false } -PresentMon <PresentMon.exe>
+#
+# -PresentMon captures the client's presents with PresentMon 2.x (console build, needs this shell to be
+# elevated) into <leg>.presentmon.csv next to the leg's timing CSV; the summary counts its PresentMode
+# ("Hardware: Independent Flip" is a direct flip to the display, "Composed: Flip" went through the
+# desktop compositor). Without -CaptureVisible the client window is excluded from the host's capture
+# (WDA_EXCLUDEFROMCAPTURE), which may itself force composition: run once with -CaptureVisible to compare.
 #
 # Needs release builds (the MSYS2 UCRT64 runtime DLLs are put on PATH). Takes
 # C:\src\butterpollo-release\GPU-LOCK (waits while another agent holds it) and refuses to start
@@ -35,6 +42,7 @@ param(
     [switch]$EarlyDecode,
     [switch]$KeepLock,   # the lock is already this agent's ("<Agent> ..."): use it and leave it for the next run
     [switch]$CaptureVisible,   # leave the client window in the host's capture (a feedback loop)
+    [string]$PresentMon = $env:NIGHTJAR_PRESENTMON,   # PresentMon 2.x console exe: capture the client's presents per leg
     [string]$DumpDir,
     [int]$ClientX = 3560,
     [int]$ClientY = 300
@@ -44,6 +52,7 @@ $Lock = 'C:\src\butterpollo-release\GPU-LOCK'
 $Pin = '1234'
 if (-not $Order) { $Order = if ($ClientB) { 'ABBA' } else { 'A' } }
 if ($Order -match 'B' -and -not $ClientB) { throw 'Order names B but -ClientB is missing' }
+if ($PresentMon -and -not (Test-Path $PresentMon)) { throw "PresentMon not found at $PresentMon" }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
 # --- Idle check and GPU lock ----------------------------------------------------------------
@@ -143,6 +152,13 @@ try {
         $null = $started.Handle  # without a cached handle ExitCode reads empty after the exit
         $started
     }
+    # PresentMon follows the client process by exe name and ends with it; the timer is a backstop.
+    function Start-PresentMon([string]$Exe, [string]$Name, [int]$StreamSeconds) {
+        $session = "nightjar-$Name"
+        Start-Process $PresentMon -PassThru -WindowStyle Hidden -RedirectStandardOutput "$Out\$Name.presentmon.stdout.log" -RedirectStandardError "$Out\$Name.presentmon.stderr.log" -ArgumentList `
+            '--process_name', (Split-Path $Exe -Leaf), '--output_file', "`"$Out\$Name.presentmon.csv`"", '--no_console_stats', '--session_name', $session,
+            '--stop_existing_session', '--terminate_on_proc_exit', '--timed', ($StreamSeconds + 60), '--terminate_after_timed'
+    }
     function Move-ClientWindow($Process) {
         Add-Type -Namespace Win -Name Native -ErrorAction SilentlyContinue -MemberDefinition '[DllImport("user32.dll")] public static extern bool MoveWindow(System.IntPtr h, int x, int y, int w, int hh, bool r);'
         foreach ($i in 1..40) {
@@ -195,9 +211,16 @@ try {
         $hostLines = (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
         Write-Host "leg $name ($Seconds s at $kbps kbps, ${Width}x${Height}@$Fps, decoder $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }))"
         $p = Start-Client $exe $name $Seconds $EarlyDecode.IsPresent
-        Move-ClientWindow $p
+        $extra = if ($variant -eq 'B') { $ExtraB } else { $ExtraA }
+        # A fullscreen leg stays where it is; only a window is put at the corner of the second display.
+        if (-not $extra.ContainsKey('window_mode') -or $extra['window_mode'] -eq 'Windowed') { Move-ClientWindow $p }
+        $meter = if ($PresentMon) { Start-PresentMon $exe $name $Seconds }
         $ended = $p.WaitForExit(($Seconds + 120) * 1000)
         if (-not $ended) { $p.Kill() }
+        if ($meter) {
+            if (-not $meter.WaitForExit(20000)) { Stop-Process -Id $meter.Id -Force; Write-Host "leg ${name}: PresentMon did not end by itself" }
+            if (-not (Test-Path "$Out\$name.presentmon.csv")) { Write-Host "leg ${name}: PresentMon wrote no CSV; see $Out\$name.presentmon.stderr.log"; exit 2 }
+        }
         # A hang is looked for first: a leg that stalls or fails because the encoder hung is exit 3, not 2.
         $hostText = (Get-Content $hostLog -ErrorAction SilentlyContinue | Select-Object -Skip $hostLines) -join "`n"
         if ($hostText -match '(?i)gpu hang|encoder hang|device removed') {

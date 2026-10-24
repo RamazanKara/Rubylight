@@ -8,6 +8,7 @@ Stream your PC games and desktop to the Android screen you want to use. Nightjar
 | Connect a PC and grant access | [Pairing and permissions](pairing.md) |
 | Understand a setting or choose a preset | [Settings reference](settings.md) |
 | Use Home, a game's page and the in-stream Session and graphics menu (Rubylight 3.0) | [Home and the session menu](console.md) |
+| Try the Windows and Linux client or beam-raced PyroWave | [Desktop client](../protocol/desktop/README.md) · [Beam racing](beam-racing.md) · [Early decode](early-decode.md) · [PyroWave decode](pyrowave-decode.md) |
 | Use a controller, touch, mouse or keyboard | [Controls](controls.md), [USB and Bluetooth pads in the menus](gamepad-navigation.md) |
 | Tune picture quality and response time | [Video and latency](video-and-latency.md) |
 | Recover interruptions or adapt resolution and FPS | [Recovery and automatic quality](recovery-and-quality.md) |
@@ -20,7 +21,7 @@ Stream your PC games and desktop to the Android screen you want to use. Nightjar
 | Find a short answer | [FAQ](faq.md) |
 | Translate Nightjar or fix a translation | [Translations](TRANSLATIONS.md#help-translate) |
 
-Development references: [host feature matrix](PARITY-MATRIX.md), [October 2026 audit and remaining gaps](android-audit-2026-10.md), [rename history](RENAME.md), the not-yet-hardware-tested [refresh rate switching](expected-refresh-switch.md) and [HDR10](expected-hdr10.md) notes, and [documentation checks](building.md#documentation-checks).
+Development references: [host feature matrix](PARITY-MATRIX.md), [October 2026 audit and remaining gaps](android-audit-2026-10.md), [rename history](RENAME.md), the Experimental [refresh rate switching](expected-refresh-switch.md) and [HDR10](expected-hdr10.md) notes, and [documentation checks](building.md#documentation-checks).
 
 [Download Nightjar](../README.md#download) · [Privacy](PRIVACY.md)
 

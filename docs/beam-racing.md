@@ -2,7 +2,7 @@
 
 Experimental and opt-in. It missed its default-on gate on loopback (the numbers and the decision are
 in [pyrowave-decode.md](pyrowave-decode.md#beam-racing-measured-opt-in-helps-the-median-at-low-pace-not-p95-worse-receive_to_present-at-high-pace));
-the wired NUC legs are untested. Turn it on with the `beam_race` setting or `NIGHTJAR_BEAM_RACE=1`.
+the wired NUC legs have not run. Turn it on with the `beam_race` setting or `NIGHTJAR_BEAM_RACE=1`.
 `NIGHTJAR_BEAM_RACE=0` forces it off. The switches take `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off` in any case; any other value is reported on stderr and ignored, and so is a margin that is not a number. `NIGHTJAR_BEAM_RACE_SLICES` is 1 to 7 (a frame's presents are kept in 8 timing columns). `beam_race_margin_ms` (`NIGHTJAR_BEAM_RACE_MARGIN_MS`),
 `NIGHTJAR_BEAM_RACE_SLICES` and `NIGHTJAR_BEAM_RACE_PRESENT=0` (probe and slices, whole presents) are
 for measurement runs.

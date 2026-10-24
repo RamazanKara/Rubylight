@@ -1,6 +1,6 @@
-# Refresh rate switching on multi-rate phones (Expected, untested on hardware)
+# Refresh rate switching on multi-rate phones (Experimental)
 
-**Status: Expected (untested on hardware).** Nightjar's own devices are a Retroid Pocket 6, an emulator and a Linux NUC. The Retroid's refresh policy allows one rate at a time (`primaryRefreshRateRange` is [60 60] or pinned at 120), so a screen that switches seamlessly between several rates (a Pixel, a Samsung with Adaptive refresh rate) has never been in front of this code. The votes, the withdrawal and the reasons below are covered by unit tests with fake displays only.
+**Status: Experimental.** Nightjar's own devices are a Retroid Pocket 6, an emulator and a Linux NUC. The Retroid's refresh policy allows one rate at a time (`primaryRefreshRateRange` is [60 60] or pinned at 120), so a screen that switches seamlessly between several rates (a Pixel, a Samsung with Adaptive refresh rate) has never been in front of this code. The votes, the withdrawal and the reasons below are covered by unit tests with fake displays only.
 
 ## What the app does
 
@@ -33,7 +33,7 @@ Before Android 12 no mode lists alternatives, so a blanking switch cannot be tol
 
 Not checked against a source in this pass: the API levels of `getAlternativeRefreshRates()` (Android 12, API 31) and `Display.Mode.getSupportedHdrTypes()` (Android 14, API 34) are from the platform reference as remembered. The `peak_refresh_rate` and `min_refresh_rate` keys are internal and may differ on vendor ROMs.
 
-## Other video and display items that stay untested
+## Other video and display items that stay Experimental
 
 Looked at, with no code change because nothing can be decided without the hardware: Android TV and Shield boxes (HDMI mode switches are never seamless and take seconds, so a vote may blank the TV), foldables (the mode list changes with the fold state, which the monitor re-reads every second), and tablets with a single 60 Hz mode (the monitor reports "No mode" for any other vote). Android 16 ARR support is the one exception: its fallback reason is now shown (see above).
 
@@ -49,6 +49,6 @@ Report the phone, Android version, the three refresh settings and the `Refresh s
 
 ## Rubylight wording
 
-- Plan, B1: "Refresh-rate mode switch on a multi-rate phone: Expected (untested on hardware). Nightjar names the reason when the screen does not follow the vote."
-- Hardware matrix: "Nightjar Android, seamless refresh switching on 60/90/120 phones | Expected | None | Votes and the reasons are unit-tested with fake displays; the Retroid's policy allows one rate."
-- Release notes: "Expected, not tested on hardware: the Statistics overlay says why the screen stays at a different refresh rate than the stream asked for."
+- Plan, B1: "Refresh-rate mode switch on a multi-rate phone: Experimental. Nightjar names the reason when the screen does not follow the vote."
+- Hardware matrix: "Nightjar Android, seamless refresh switching on 60/90/120 phones | Experimental | None | Votes and the reasons are unit-tested with fake displays; the Retroid's policy allows one rate."
+- Release notes: "Experimental: the Statistics overlay says why the screen stays at a different refresh rate than the stream asked for."

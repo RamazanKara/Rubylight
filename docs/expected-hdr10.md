@@ -1,6 +1,6 @@
-# HDR10 on an HDR phone (Expected, untested on hardware)
+# HDR10 on an HDR phone (Experimental)
 
-**Status: Expected (untested on hardware).** Nightjar's own devices are a Retroid Pocket 6 (SDR panel), an emulator and a Linux NUC, so no HDR10 panel has been in front of this code. The decisions below are covered by unit tests with made-up display capabilities; the picture itself has not been looked at on an HDR screen.
+**Status: Experimental.** Nightjar's own devices are a Retroid Pocket 6 (SDR panel), an emulator and a Linux NUC, so no HDR10 panel has been in front of this code. The decisions below are covered by unit tests with made-up display capabilities; the picture itself has not been looked at on an HDR screen.
 
 ## What the app does
 
@@ -43,6 +43,6 @@ Report the phone, Android version, the codec in use and the `HDR requested but` 
 
 ## Rubylight wording
 
-- Plan, B3: "HDR10 end to end on an HDR phone: Expected (untested on hardware). Nightjar asks for HDR only when the screen reports HDR10 in its current mode and names the reason on the overlay when HDR is asked for and not delivered."
-- Hardware matrix: "Nightjar Android, HDR on an HDR phone | Expected | None | Decisions and reasons are unit-tested with fake capabilities; no HDR panel has been used."
-- Release notes: "Expected, not tested on hardware: HDR10 is requested only when the current display mode has it, and the Statistics overlay says why HDR is off or not working."
+- Plan, B3: "HDR10 end to end on an HDR phone: Experimental. Nightjar asks for HDR only when the screen reports HDR10 in its current mode and names the reason on the overlay when HDR is asked for and not delivered."
+- Hardware matrix: "Nightjar Android, HDR on an HDR phone | Experimental | None | Decisions and reasons are unit-tested with fake capabilities; no HDR panel has been used."
+- Release notes: "Experimental: HDR10 is requested only when the current display mode has it, and the Statistics overlay says why HDR is off or not working."

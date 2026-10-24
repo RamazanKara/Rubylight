@@ -412,7 +412,10 @@ pub struct LinkRate {
     fence: Option<Fence>,
     /// Until when one unrecoverable frame cuts (see [`LATCH_WATCH`]).
     latch_watch: Option<Instant>,
-    /// Keyframes sent since the fence of the latch being watched, with whether
+    /// When the latch being watched happened: a keyframe sent from then on
+    /// answers it, even one sent inside the fence.
+    latch_at: Option<Instant>,
+    /// Keyframes sent since the latch of the latch being watched, with whether
     /// the client reported each unrecoverable.
     watch_keyframes: Vec<WatchedKeyframe>,
     /// Rebuilt blocks seen, their packets and those of them reported missing
@@ -469,6 +472,7 @@ impl LinkRate {
             near_bad: None,
             fence: None,
             latch_watch: None,
+            latch_at: None,
             watch_keyframes: Vec::new(),
             rebuilt_blocks: 0,
             rebuilt_packets: 0,
@@ -646,7 +650,17 @@ impl LinkRate {
     /// `keyframe` is whether the frame is one the host sent as a keyframe: one
     /// of those lost while a latch is watched shows the latch did not help.
     pub fn on_unrecoverable(&mut self, frame: u32, keyframe: bool, now: Instant) {
-        if self.is_active() && self.admits(Some(frame), now) {
+        if !self.is_active() {
+            return;
+        }
+        // The keyframe answering a latch is often sent, and reported lost,
+        // inside the fence: it still did not arrive.
+        if keyframe {
+            for k in self.watch_keyframes.iter_mut().filter(|k| k.frame == frame) {
+                k.failed = true;
+            }
+        }
+        if self.admits(Some(frame), now) {
             Events::distinct(&mut self.events.unrecoverable, now, frame);
             self.events.lost(frame);
             // A frame lost while no keyframe has come through since the latch
@@ -654,17 +668,12 @@ impl LinkRate {
             if self.watching(now) && (keyframe || !self.keyframe_arrived(now)) {
                 self.events.latch_failed = true;
             }
-            if keyframe {
-                for k in self.watch_keyframes.iter_mut().filter(|k| k.frame == frame) {
-                    k.failed = true;
-                }
-            }
         }
     }
 
     /// The host is sending `frame` as a keyframe.
     pub fn on_keyframe_sent(&mut self, frame: u32, now: Instant) {
-        if !self.is_active() || !self.watching(now) || !self.admits(Some(frame), now) {
+        if !self.is_active() || !self.watching(now) || self.latch_at.is_none_or(|at| now < at) {
             return;
         }
         if self.watch_keyframes.len() >= EVENT_CAP {
@@ -722,6 +731,7 @@ impl LinkRate {
         if new && was_fast && self.is_active() {
             self.set_fence(now);
             self.latch_watch = self.fence.map(|f| f.at + LATCH_WATCH);
+            self.latch_at = Some(now);
         }
     }
 
@@ -769,6 +779,7 @@ impl LinkRate {
 
     fn set_fence(&mut self, now: Instant) {
         self.latch_watch = None;
+        self.latch_at = None;
         self.watch_keyframes.clear();
         let wait = MIN_FENCE.max(self.rtt * 2 + FENCE_MARGIN);
         self.fence = Some(Fence {

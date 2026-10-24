@@ -864,6 +864,56 @@ fn a_keyframe_request_after_a_whole_keyframe_since_the_latch_is_not_a_cut() {
     }
 }
 
+/// 2026-10-24 review: the keyframe that answers a latch is sent about 20 ms
+/// after it, inside the fence, and arrives whole. One lost frame or one request
+/// 1.5 s later must not halve the rate (main needed three events).
+#[test]
+fn a_keyframe_sent_inside_the_fence_that_arrived_whole_makes_one_event_no_cut() {
+    for fec in [true, false] {
+        for request in [false, true] {
+            let mut rig = Rig::new(58_988);
+            if fec {
+                rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+            } else {
+                rig.clean(300);
+            }
+            rig.lr.on_latch(rig.now(), true, true);
+            rig.clean(20);
+            let (frame, now) = (rig.frame, rig.now());
+            rig.lr.on_keyframe_sent(frame, now);
+            rig.clean(1_500);
+            let (frame, now) = (rig.frame, rig.now());
+            if request {
+                rig.lr.on_keyframe_request(true, now);
+            } else {
+                unrecoverable(&mut rig.lr, frame, now);
+            }
+            rig.clean(1_000);
+            assert!(
+                rig.changes.is_empty(),
+                "fec {fec} request {request}: {:?}",
+                rig.changes
+            );
+        }
+    }
+    // The same keyframe reported lost inside the fence did not arrive: the
+    // next event is a cut.
+    let mut rig = Rig::new(58_988);
+    rig.clean(300);
+    rig.lr.on_latch(rig.now(), true, true);
+    rig.clean(20);
+    let (frame, now) = (rig.frame, rig.now());
+    rig.lr.on_keyframe_sent(frame, now);
+    rig.clean(100);
+    let now = rig.now();
+    lost_keyframe(&mut rig.lr, frame, now);
+    rig.clean(1_400);
+    let (frame, now) = (rig.frame, rig.now());
+    unrecoverable(&mut rig.lr, frame, now);
+    rig.clean(1_000);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
+}
+
 #[test]
 fn a_stray_unrecoverable_frame_long_after_a_latch_is_not_a_cut() {
     let mut rig = Rig::new(40_000);

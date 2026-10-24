@@ -128,6 +128,22 @@ impl Client {
     pub fn der(&self) -> Result<Vec<u8>> {
         crypto::certificate_der(&self.cert)
     }
+    /// The WebRTC credentials of a device paired over the WebRTC signalling
+    /// channel: `(client_id, secret)` from `extra.webrtc`, only if both have
+    /// the shape the host issues. Such a device has no TLS certificate.
+    pub fn webrtc(&self) -> Option<(&str, &str)> {
+        use crate::webrtc::auth::{CLIENT_ID_BYTES, SECRET_BYTES, is_lower_hex};
+        let webrtc = self.extra.get("webrtc")?;
+        let id = webrtc.get("clientId")?.as_str()?;
+        let secret = webrtc.get("secret")?.as_str()?;
+        (is_lower_hex(id, CLIENT_ID_BYTES) && is_lower_hex(secret, SECRET_BYTES))
+            .then_some((id, secret))
+    }
+    /// A WebRTC device: no certificate, valid WebRTC credentials. It can
+    /// never be matched to a TLS peer.
+    pub fn is_webrtc(&self) -> bool {
+        self.cert.trim().is_empty() && self.webrtc().is_some()
+    }
 }
 /// Sunshine's and Apollo's property-tree writer stored an empty list or
 /// object as "". Only the known containers are read back as empty, as in
@@ -240,7 +256,21 @@ impl PairedState {
         let mut certs = HashSet::new();
         let mut ids = HashSet::new();
         let mut unique = Vec::with_capacity(clients.len());
+        let mut webrtc_ids = HashSet::new();
         for mut c in clients {
+            // A WebRTC device has no certificate; it is known by its client ID.
+            if c.is_webrtc() {
+                let id = c.webrtc().map(|(id, _)| id.to_string()).unwrap_or_default();
+                if !webrtc_ids.insert(id) {
+                    continue;
+                }
+                if !ids.insert(c.uuid.clone()) {
+                    c.uuid = uuid::Uuid::new_v4().to_string();
+                    ids.insert(c.uuid.clone());
+                }
+                unique.push(c);
+                continue;
+            }
             // Such a device could never connect; it must not keep every
             // other device from loading.
             let der = match c.der() {
@@ -287,6 +317,10 @@ impl PairedState {
     pub fn client_by_certificate(&self, der: &[u8]) -> Option<&Client> {
         let mut found = None;
         for c in &self.clients {
+            // An empty certificate (a WebRTC device) never matches a peer.
+            if c.cert.trim().is_empty() {
+                continue;
+            }
             if c.enabled && c.perm != 0 && c.der().is_ok_and(|b| crypto::equal(&b, der)) {
                 if found.is_some() {
                     return None;
@@ -340,6 +374,45 @@ impl PairedState {
         next.save(path)?;
         *self = next;
         Ok(())
+    }
+    /// The WebRTC device with this client ID.
+    pub fn webrtc_client(&self, client_id: &str) -> Option<&Client> {
+        self.clients
+            .iter()
+            .find(|c| c.is_webrtc() && c.webrtc().is_some_and(|(id, _)| id == client_id))
+    }
+    /// Pair a WebRTC device. `client` must be a WebRTC device ([`Client::is_webrtc`]).
+    /// The oldest WebRTC devices beyond `keep` are unpaired in the same save;
+    /// their UUIDs are returned.
+    pub fn add_webrtc(&mut self, path: &Path, client: Client, keep: usize) -> Result<Vec<String>> {
+        let Some((client_id, _)) = client.webrtc() else {
+            bail!("not a WebRTC device");
+        };
+        if !client.cert.trim().is_empty() {
+            bail!("a WebRTC device has no certificate");
+        }
+        let mut next = self.clone();
+        if next.clients.iter().any(|c| {
+            c.uuid == client.uuid || c.webrtc().is_some_and(|(id, _)| id == client_id)
+        }) {
+            bail!("duplicate client");
+        }
+        next.clients.push(client);
+        // Clients are stored oldest first, so the surplus is at the front.
+        let webrtc: Vec<String> = next
+            .clients
+            .iter()
+            .filter(|c| c.is_webrtc())
+            .map(|c| c.uuid.clone())
+            .collect();
+        let surplus: Vec<String> = webrtc[..webrtc.len().saturating_sub(keep)].to_vec();
+        next.clients.retain(|c| !surplus.contains(&c.uuid));
+        if next.clients.len() > 256 {
+            bail!("paired client limit reached");
+        }
+        next.save(path)?;
+        *self = next;
+        Ok(surplus)
     }
     pub fn remove(&mut self, path: &Path, id: &str) -> Result<()> {
         let mut next = self.clone();
@@ -563,6 +636,79 @@ mod tests {
         write_json(&p, &document).unwrap();
         s.save(&p).unwrap();
         assert!(Credentials::load(&p).unwrap().is_none());
+    }
+    fn webrtc_client(n: u8, name: &str) -> Client {
+        let id = format!("{n:02x}").repeat(16);
+        let secret = format!("{n:02x}").repeat(32);
+        serde_json::from_value(json!({
+            "name": name, "cert": "", "uuid": format!("web-{n}"), "perm": 0x071f1f00u32,
+            "webrtc": {"clientId": id, "secret": secret},
+        }))
+        .unwrap()
+    }
+    #[test]
+    fn an_empty_certificate_never_matches_a_tls_peer() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let mut s = PairedState::load(&p).unwrap();
+        s.add_webrtc(&p, webrtc_client(1, "TV"), 32).unwrap();
+        // A client record with no WebRTC credentials and no certificate, as a
+        // hand edit could leave, matches nothing either.
+        let mut blank = webrtc_client(2, "Blank");
+        blank.extra.clear();
+        s.clients.push(blank);
+        for der in [&b""[..], b"\0", b"abc"] {
+            assert!(s.client_by_certificate(der).is_none());
+        }
+        let identity = crypto::Identity::generate().unwrap();
+        let der = crypto::certificate_der(&identity.certificate).unwrap();
+        assert!(s.client_by_certificate(&der).is_none());
+        // A real certificate still matches next to them.
+        s.clients.push(
+            serde_json::from_value(
+                json!({"name":"Phone","uuid":"phone","cert":identity.certificate}),
+            )
+            .unwrap(),
+        );
+        assert_eq!(s.client_by_certificate(&der).unwrap().uuid, "phone");
+    }
+    #[test]
+    fn webrtc_devices_survive_a_reload_and_the_oldest_beyond_the_limit_goes() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let mut s = PairedState::load(&p).unwrap();
+        assert!(s.add_webrtc(&p, webrtc_client(1, "A"), 2).unwrap().is_empty());
+        s.add_webrtc(&p, webrtc_client(2, "B"), 2).unwrap();
+        let dropped = s.add_webrtc(&p, webrtc_client(3, "C"), 2).unwrap();
+        assert_eq!(dropped, ["web-1"]);
+        let reloaded = PairedState::load(&p).unwrap();
+        let names: Vec<_> = reloaded.clients.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["B", "C"]);
+        assert!(reloaded.clients.iter().all(Client::is_webrtc));
+        assert!(reloaded.webrtc_client(&"03".repeat(16)).is_some());
+        assert!(reloaded.webrtc_client(&"01".repeat(16)).is_none());
+        // The same client ID or UUID can't be added twice.
+        assert!(s.add_webrtc(&p, webrtc_client(3, "C"), 2).is_err());
+    }
+    #[test]
+    fn a_device_without_a_certificate_or_valid_webrtc_credentials_is_still_skipped() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let short =
+            json!({"name":"Short","uuid":"s","cert":"","webrtc":{"clientId":"ab","secret":"cd"}});
+        let none = json!({"name":"None","uuid":"n","cert":""});
+        write_json(&p, &json!({"root":{"named_devices":[short, none]}})).unwrap();
+        let s = PairedState::load(&p).unwrap();
+        assert!(s.clients.is_empty());
+        s.save(&p).unwrap();
+        let saved = load_json(&p, Value::Null).unwrap();
+        let kept: Vec<_> = saved["root"]["named_devices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["uuid"].as_str().unwrap())
+            .collect();
+        assert_eq!(kept, ["s", "n"]);
     }
     #[test]
     fn malformed_devices_are_preserved_without_blocking_usable_pairings() {

@@ -253,6 +253,14 @@ def pacing_values(run):
     return sorted({v for _, v in run.get('pacing_kbps_series') or [] if v})
 
 
+def pacing_series_equal(a, b):
+    """The distinct pacing rates match; a run from before the harness recorded the series has none
+    to compare, so it matches anything."""
+    if 'pacing_kbps_series' not in a or 'pacing_kbps_series' not in b:
+        return True
+    return pacing_values(a) == pacing_values(b)
+
+
 # ---- verdicts -----------------------------------------------------------------------------------
 
 def group_of(name):
@@ -308,7 +316,7 @@ def judge(name, a_runs, b_runs, repeats=DEFAULT_REPEATS):
     row['bitrate_equal'] = all(len(s or []) == 1 for s in seen_a + seen_b) and all(s == seen_a[0] for s in seen_a + seen_b) \
         and all(changes_of(r) == 0 for r in b_runs)
     row['pacing_equal'] = all(pacing_selected_equal(r.get('pacing_selected'), a_runs[0].get('pacing_selected')) for r in a_runs + b_runs) \
-        and all(pacing_values(r) == pacing_values(a_runs[0]) for r in a_runs + b_runs)
+        and all(pacing_series_equal(r, a_runs[0]) for r in a_runs + b_runs)
     row['changes'] = max(changes_of(r) for r in b_runs)
 
     def loss_no_worse():

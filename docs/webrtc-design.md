@@ -72,9 +72,11 @@ What str0m needs from us:
 - Set the H.265 fmtp ourselves. str0m defaults to `profile-id=1;level-id=180`.
 - Insert Samsung's `a=imageattr:<pt> send [x=[W:W],y=[H:H],fps=[F:F]]` line by editing the offer
   text. str0m keeps attributes it doesn't know, so the answer still parses.
-- HDR: set the HEVC Main10 fmtp (`profile-id=2`, Main tier, the lowest level that holds the mode:
-  4.1 at 1080p60, 5.0 at 1440p60 or 1080p120, 5.1 at 4K60 or 1440p120, 5.2 at 4K120) or the AV1 fmtp
-  (`profile=0`, `tier=0`, the lowest `level-idx` that holds the mode). Offer the colour-space
+- HDR: set the HEVC Main10 fmtp (`profile-id=2`) or the AV1 fmtp (`profile=0`). The level is the
+  lowest one, never below 4.1 as in the reference host, whose picture size, sample rate and Main-tier
+  bitrate hold the stream: 4.1 at 1080p60, 5.0 at 1440p60 or 1080p120, 5.1 at 4K60 or 1440p120, 5.2
+  at 4K120 at moderate bitrates. A bitrate no Main-tier level holds moves to High tier. The same rule
+  sets the SDR HEVC and AV1 levels. Offer the colour-space
   extension `http://www.webrtc.org/experiments/rtp-hdrext/color-space` and never send it, as the
   protocol requires.
 - AV1: str0m's `Av1` packetizer is hidden API. B2 proves it with a loopback test: a temporal unit from
@@ -184,7 +186,7 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
       press scrolls one notch (up and down vertical, left and right horizontal).
     - A, B, X, LB and RB act as left, right, middle, back and forward buttons. Buttons held when the
       mode turns on stay suppressed until released.
-    - The host reports `{"v":1,"type":"mouse-mode","controllerId":..,"controllerSlot":..,"active":..}`
+    - The host reports `{"v":2,"type":"mouse-mode","controllerId":..,"controllerSlot":..,"active":..}`
       on the control channel.
     - Leaving mouse mode, a disconnect or the end of the stream releases every simulated button.
     - B1 copies the field names, constants and button choice from the reference's `input_bridge` and

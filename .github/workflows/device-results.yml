@@ -1,0 +1,27 @@
+name: Device results
+
+# Adds the results of a "Device results" issue to the device table, publishes the data to
+# gh-pages, comments and closes the issue. See .github/scripts/device-results-issue.mjs.
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+# One run per issue; the script re-reads main before every push, so runs for different issues
+# can overlap without overwriting each other.
+concurrency:
+  group: device-results-${{ github.event.issue.number }}
+
+jobs:
+  add:
+    if: github.event.issue.state == 'open' && !github.event.issue.pull_request && contains(github.event.issue.labels.*.name, 'device-results')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: node .github/scripts/device-results-issue.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

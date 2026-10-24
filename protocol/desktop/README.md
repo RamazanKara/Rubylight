@@ -43,6 +43,9 @@ The script also checks that no import is left outside the zip or Windows itself 
 missing), then starts the unpacked exe with only the Windows folders on `PATH`. `-Version` names the zip after a release
 version; the release workflow builds it that way (`nightjar-desktop-<version>-windows-x86_64.zip`), and
 `package-linux.sh -v` does the same for the Linux tar.gz.
+`nightjar --check-pyrowave <file>` (no window; the packaging scripts run it on the unpacked package) writes whether the SDK
+library beside the executable loads (`load:`) and whether a decoder builds on this PC's GPU (`probe:`) and exits 0, 2 (loaded,
+no usable GPU) or 1 (did not load).
 
 ### Linux
 

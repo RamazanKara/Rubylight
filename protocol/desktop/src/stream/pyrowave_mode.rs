@@ -19,6 +19,38 @@ pub fn availability(
     }
 }
 
+/// `nightjar --check-pyrowave <report file>`: what a package check needs to know without a window
+/// (the Windows exe has no console). It writes `load:` (the SDK library next to the executable
+/// was found, loaded and has a supported ABI) and `probe:` (a decoder builds on the default GPU)
+/// lines to `report` and returns the exit code: 0 when both pass, 2 when only the probe failed
+/// (no usable GPU, as on a CI runner), 1 when the library did not load.
+pub fn package_check(report: &std::path::Path) -> i32 {
+    let load = super::pyrowave_sdk::Api::load().map(drop);
+    let probe = match &load {
+        Ok(()) => {
+            #[cfg(windows)]
+            let result = super::pyrowave_sdk::probe(None, false);
+            #[cfg(unix)]
+            let result = super::pyrowave_sdk::probe(false);
+            #[cfg(not(any(windows, unix)))]
+            let result: Result<(), String> = Err("PyroWave GPU decoding needs Windows or Linux".to_owned());
+            result
+        }
+        Err(_) => Err("skipped: the library did not load".to_owned()),
+    };
+    let line = |name: &str, result: &Result<(), String>| format!("{name}: {}\n", result.as_ref().map_or_else(|e| e.replace('\n', " "), |()| "ok".to_owned()));
+    let text = format!("{}{}", line("load", &load), line("probe", &probe));
+    if let Err(e) = std::fs::write(report, &text) {
+        eprintln!("nightjar: cannot write {}: {e}", report.display());
+    }
+    eprint!("{text}");
+    match (load, probe) {
+        (Ok(()), Ok(())) => 0,
+        (Ok(()), Err(_)) => 2,
+        (Err(_), _) => 1,
+    }
+}
+
 /// The `gpu` mode's requirements on the renderer's `ID3D11Device`: the SDK decoder and its plane
 /// import (`pyrowave_sdk::probe`) and the plane shader the presenter draws with.
 #[cfg(windows)]
@@ -157,5 +189,17 @@ mod tests {
         let error = gpu_probe(std::ptr::null_mut(), false).unwrap_err();
         assert!(error.contains("SDL GPU renderer"), "{error}");
         assert_eq!(super::super::pyrowave_sdk::Api::shared_loads(), loads);
+    }
+
+    #[test]
+    fn the_package_check_reports_a_library_that_is_not_next_to_the_executable() {
+        // The test executable sits in target/<profile>/deps, where no SDK library is.
+        let report = std::env::temp_dir().join(format!("nightjar-package-check-{}.txt", std::process::id()));
+        let code = package_check(&report);
+        let text = std::fs::read_to_string(&report).unwrap();
+        let _ = std::fs::remove_file(&report);
+        assert_eq!(code, 1, "{text}");
+        assert!(text.starts_with("load: ") && text.contains("not found next to the executable"), "{text}");
+        assert!(text.contains("probe: skipped"), "{text}");
     }
 }

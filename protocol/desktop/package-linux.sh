@@ -15,7 +15,8 @@
 # client loads it by path at run time), its build-info.txt as pyrowave-sdk-build-info.txt and
 # its licences. The script refuses a library that is not the one pyrowave-sdk.pin names
 # (commit, Granite, API, patches) or whose SHA-256 is not the one the build recorded, before the
-# long build. Without it the package has no GPU decoder and the client says so when asked for it.
+# long build. With it the unpacked archive is also run as `nightjar --check-pyrowave` (see the end of
+# the script). Without it the package has no GPU decoder and the client says so when asked for it.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -101,6 +102,22 @@ ldd "$stage/nightjar" | sed -n 's/^[[:space:]]*\(lib[^ ]*\) => .*/\1/p' | sort >
 	fi
 } >"$stage/LINUX-RUNTIME.txt"
 tar -C "$out" -czf "$out/$name.tar.gz" "$name"
+
+# With the SDK, the unpacked archive must find and load the library (`nightjar --check-pyrowave`,
+# no window needed). Exit 2 means it loaded but this machine has no usable Vulkan device (a CI
+# runner); NIGHTJAR_REQUIRE_GPU_PROBE=1 asks for the device too.
+if [[ -n $sdk ]]; then
+	check=$(mktemp -d)
+	tar -C "$check" -xzf "$out/$name.tar.gz"
+	code=0
+	"$check/$name/nightjar" --check-pyrowave "$check/report.txt" || code=$?
+	echo "pyrowave check (exit $code): $(tr '\n' ';' <"$check/report.txt" 2>/dev/null)"
+	if [[ $code != 0 && ( $code != 2 || -n ${NIGHTJAR_REQUIRE_GPU_PROBE:-} ) ]]; then
+		echo "error: nightjar from the archive cannot use the PyroWave SDK it carries" >&2
+		exit 1
+	fi
+	rm -rf "$check"
+fi
 
 (cd "$stage" && ls -l | tail -n +2 | awk '{printf "%12d  %s\n", $5, $9}')
 echo "$out/$name.tar.gz: $(du -h "$out/$name.tar.gz" | cut -f1)"

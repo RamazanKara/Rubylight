@@ -14,6 +14,9 @@
 # build-info.txt and its licences. The script refuses a DLL that is not the one protocol\desktop\
 # pyrowave-sdk.pin names (commit, Granite, API, patches) or whose SHA-256 is not the one the build
 # recorded. Without it the package has no GPU decoder and the client says so when asked for it.
+# With the SDK the unpacked exe is also run as `nightjar.exe --check-pyrowave <file>` (with only the
+# Windows folders on PATH): the package must find and load the DLL (always checked) and, with
+# -RequireGpuProbe, build a decoder on this PC's GPU (CI runners have none).
 # -Version names the package after a release version instead of the crate's (the release workflow
 # passes the app version): nightjar-desktop-<version>-windows-x86_64.zip.
 param(
@@ -21,7 +24,8 @@ param(
     [string]$PyrowaveSdkDir = '',
     [string]$Out = (Join-Path $PSScriptRoot '..\..\dist'),
     [string]$TargetDirectory = '',
-    [string]$Version = ''
+    [string]$Version = '',
+    [switch]$RequireGpuProbe
 )
 $ErrorActionPreference = 'Stop'
 
@@ -152,6 +156,15 @@ try {
         Write-Host 'smoke: nightjar.exe from the zip is still running after 6 s'
         $process.Kill()
         $process.WaitForExit()
+    }
+    if ($sdkDll) {
+        $report = Join-Path $unpacked 'pyrowave-check.txt'
+        $check = Start-Process -FilePath (Join-Path $unpacked 'nightjar.exe') -ArgumentList '--check-pyrowave', $report -WorkingDirectory $unpacked -Wait -PassThru
+        $text = if (Test-Path $report) { (Get-Content $report) -join '; ' } else { 'no report written' }
+        Write-Host "pyrowave check (exit $($check.ExitCode)): $text"
+        if ($check.ExitCode -notin 0, 2 -or ($RequireGpuProbe -and $check.ExitCode -ne 0)) {
+            throw "nightjar.exe from the zip cannot use the PyroWave SDK it carries (exit $($check.ExitCode)): $text"
+        }
     }
 } finally {
     $env:PATH = $savedPath

@@ -132,6 +132,15 @@ fn display_of(window: *mut SDL_Window) -> Display {
 }
 
 fn main() {
+    // Package checks run without a window: `nightjar --check-pyrowave <report file>`.
+    let mut args = std::env::args_os().skip(1);
+    if args.next().is_some_and(|flag| flag == "--check-pyrowave") {
+        let Some(report) = args.next() else {
+            eprintln!("nightjar: --check-pyrowave needs a report file");
+            std::process::exit(64);
+        };
+        std::process::exit(stream::pyrowave_mode::package_check(std::path::Path::new(&report)));
+    }
     if let Err(e) = run() {
         eprintln!("nightjar: {e}");
         let text = std::ffi::CString::new(e).unwrap_or_default();

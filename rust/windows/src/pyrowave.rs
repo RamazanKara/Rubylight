@@ -971,14 +971,25 @@ mod tests {
             .count();
         // 3000 frames at 17 ms is 51 s: the first, and one more after 30 s.
         assert_eq!(lines, 2);
-        // The warning text does not carry frame sizes, so Warnings dedups every frame to it.
-        assert_eq!(row_order_dropped_message(1024), row_order_dropped_message(1024));
-        assert_eq!(frame_size_message(1_000_000), frame_size_message(1_000_000));
+        // Frames of different sizes get the same text, so Warnings dedups them to one entry: the
+        // message is built from the config (packet size, limit) only, and no frame size is in it.
+        let limit = 1_000_000;
         let warnings = butterpollo_core::session::Warnings::default();
-        for _ in 0..100 {
-            warnings.event("pyrowave_row_order", row_order_dropped_message(1024), period);
+        let frame_sizes = [limit + 1, limit + 4096, limit * 3, 1_234_567, 99_999_999];
+        for frame_bytes in frame_sizes {
+            let text = frame_size_message(limit);
+            assert!(!text.contains(&frame_bytes.to_string()), "{text}");
+            warnings.event("pyrowave_frame_size", text, period);
         }
         assert_eq!(warnings.snapshot().len(), 1);
+        for frame_bytes in frame_sizes {
+            let text = row_order_dropped_message(1024);
+            assert!(!text.contains(&frame_bytes.to_string()), "{text}");
+            warnings.event("pyrowave_row_order", text, period);
+        }
+        assert_eq!(warnings.snapshot().len(), 2);
+        // A different config value is a different text.
+        assert_ne!(frame_size_message(limit), frame_size_message(limit * 2));
     }
 
     #[test]

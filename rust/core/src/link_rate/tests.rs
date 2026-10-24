@@ -1072,7 +1072,11 @@ fn two_events_in_the_latch_watch_even_inside_the_fence_cut_deep() {
         rig.clean(300);
         assert_eq!(rig.cuts(), 1, "fec {fec}: {:?}", rig.changes);
         let (at, cut) = rig.changes[0];
-        assert!(at - latched < 1_500, "cut {} ms after the latch", at - latched);
+        assert!(
+            at - latched < 1_500,
+            "cut {} ms after the latch",
+            at - latched
+        );
         assert_eq!(cut.reason, "keyframe_requests");
         assert!(cut.to_kbps <= 58_988 / 2, "{cut:?}");
     }

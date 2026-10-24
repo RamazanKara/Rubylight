@@ -766,7 +766,10 @@ impl LinkRate {
                 .sent(frame)
                 .and_then(|s| s.at)
                 .is_some_and(|at| at < latched)
-                || self.watch_events.iter().any(|(_, seen)| *seen == Some(frame))
+                || self
+                    .watch_events
+                    .iter()
+                    .any(|(_, seen)| *seen == Some(frame))
             {
                 return;
             }

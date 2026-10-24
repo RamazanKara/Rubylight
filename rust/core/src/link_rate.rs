@@ -6,8 +6,10 @@
 //!
 //! It acts only on loss that FEC cannot absorb (see the `*_FRAMES`, `LOSS_*`
 //! and `KEYFRAME_REQUESTS` constants). On a healthy link it never returns a
-//! target, never touches pacing and uses no RTT as a trigger, so the stream
-//! takes exactly the path it takes without it. After a cut it ignores reports
+//! target and never touches pacing, so the stream takes exactly the path it
+//! takes without it. The one delay signal, a standing queue (see
+//! [`QUEUE_MARGIN`]), is a lossless queue held for seconds, which no loss
+//! evidence can show. After a cut it ignores reports
 //! for frames sent before the cut took effect (the [`Fence`]); the opt-in
 //! `adaptive_bitrate` controller lacks this, and on the 2026-10-23 link-speed
 //! runs it cut once a second (179 to 24.7 Mbps in 9 s on a link that carries
@@ -54,7 +56,10 @@
 //! and framing plus the audio reserve), the unit of
 //! [`WireBudget::total_bps`], and converts to encoder kbps at the current FEC
 //! percentage with [`WireBudget::encoder_kbps`].
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use crate::{adaptive_bitrate::WireBudget, fec_status::Status, rtsp::Negotiated};
 
@@ -194,6 +199,31 @@ pub const KNEE_MAX_HOLD: Duration = Duration::from_secs(30);
 pub const KNEE_QUIET: Duration = Duration::from_secs(20);
 pub const KNEE_BACKOFF_PERCENT: u64 = 85;
 pub const KNEE_PERCENT: u64 = 5;
+/// A standing queue: the RTT stays this far above the lowest of the last
+/// [`QUEUE_FLOOR_WINDOW`] for [`QUEUE_HOLD`], in every sample, while video is
+/// busy and no loss signal fired. The 2026-10-24 r50-hevc-hi run held 36.8 Mbps
+/// into 50 Mbit/s with a 25 ms queue and no loss at all (p50 48 ms), where
+/// nothing else could cut. The wifi arm's jitter reaches 8 ms, and its RTT
+/// excursions (20 to 60 ms for 1.5 s) are bursty, so a dip below the margin
+/// starts the wait over.
+pub const QUEUE_MARGIN: Duration = Duration::from_millis(15);
+pub const QUEUE_HOLD: Duration = Duration::from_secs(2);
+/// The floor is the lowest RTT of this long, in one-second buckets, so a
+/// route that got slower for good is the floor after it.
+pub const QUEUE_FLOOR_WINDOW: Duration = Duration::from_secs(30);
+/// The queue has to start within this long of a probe step.
+pub const QUEUE_RAISED: Duration = Duration::from_secs(8);
+/// A queue cut waits this long for the queue to drain before it looks again.
+pub const QUEUE_SETTLE: Duration = Duration::from_secs(1);
+/// A queue cut goes down by 12 %, not deep: the stream is near the link's
+/// edge, and the next step is a few seconds away if the RTT stays up.
+pub const QUEUE_CUT_PERCENT: u64 = 88;
+/// A queue that a cut did not change (the excess stays within a quarter or
+/// 5 ms) is no queue: a slower route or another flow. The floor is re-learned
+/// there and the stream is not cut again for it.
+const QUEUE_FLAT_MS: u64 = 5;
+const QUEUE_STEPS_MAX: u8 = 6;
+const FLOOR_BUCKETS: usize = 32;
 /// A step down from within this share of the bad rate is a knee failure too.
 pub const KNEE_CUT_PERCENT: u64 = 90;
 /// 95 % left the stream at the link's edge, where each periodic big frame
@@ -479,6 +509,17 @@ pub struct LinkRate {
     fec_status_seen: bool,
     last_ping: Option<Instant>,
     minimum_rtt: Option<Duration>,
+    /// Lowest RTT per second over [`QUEUE_FLOOR_WINDOW`], oldest first.
+    rtt_floor: VecDeque<(Instant, Duration)>,
+    /// Since when every RTT sample was over the floor by [`QUEUE_MARGIN`].
+    queue_since: Option<Instant>,
+    /// A probe raised the rate at this time.
+    raised_at: Option<Instant>,
+    queue_quiet_until: Option<Instant>,
+    /// The excess over the floor when the last queue cut was made, and the
+    /// cuts of this queue so far.
+    queue_excess: Option<Duration>,
+    queue_steps: u8,
     rtt: Duration,
     next_eval: Option<Instant>,
     cache: Option<((u64, usize, Duration), u32)>,
@@ -538,6 +579,12 @@ impl LinkRate {
             fec_status_seen: false,
             last_ping: None,
             minimum_rtt: None,
+            rtt_floor: VecDeque::with_capacity(FLOOR_BUCKETS),
+            queue_since: None,
+            raised_at: None,
+            queue_quiet_until: None,
+            queue_excess: None,
+            queue_steps: 0,
             rtt: Duration::ZERO,
             next_eval: None,
             cache: None,
@@ -951,7 +998,10 @@ impl LinkRate {
             self.events.roll(now);
             self.events.prune(now);
             if let Some(why) = self.triggered(now) {
+                self.queue_since = None;
                 self.on_evidence(now, why, fec, period, current_kbps);
+            } else if self.standing_queue(now, busy) {
+                self.queue_cut(now, fec, period, current_kbps);
             } else if self.state != State::Full {
                 self.advance(now, busy, fec, period);
             }
@@ -962,7 +1012,94 @@ impl LinkRate {
     fn observe_rtt(&mut self, now: Instant, rtt: Duration) {
         if !rtt.is_zero() && self.ping_fresh(now) {
             self.minimum_rtt = Some(self.minimum_rtt.map_or(rtt, |m| m.min(rtt)));
+            match self.rtt_floor.back_mut() {
+                Some((at, low)) if now.saturating_duration_since(*at) < Duration::from_secs(1) => {
+                    *low = (*low).min(rtt);
+                }
+                _ => {
+                    if self.rtt_floor.len() >= FLOOR_BUCKETS {
+                        self.rtt_floor.pop_front();
+                    }
+                    self.rtt_floor.push_back((now, rtt));
+                }
+            }
+            while self
+                .rtt_floor
+                .front()
+                .is_some_and(|(at, _)| now.saturating_duration_since(*at) > QUEUE_FLOOR_WINDOW)
+            {
+                self.rtt_floor.pop_front();
+            }
         }
+    }
+
+    fn rtt_floor(&self) -> Option<Duration> {
+        self.rtt_floor.iter().map(|(_, low)| *low).min()
+    }
+
+    /// The RTT has been over the floor by [`QUEUE_MARGIN`] in every sample for
+    /// [`QUEUE_HOLD`] while video is busy: a lossless queue stands in the path.
+    /// A queue that a cut did not change at all is no queue (see
+    /// [`QUEUE_FLAT_MS`]): the floor is re-learned and this says no.
+    fn standing_queue(&mut self, now: Instant, busy: bool) -> bool {
+        let excess = self
+            .rtt_floor()
+            .filter(|_| !self.rtt.is_zero())
+            .map(|floor| self.rtt.saturating_sub(floor));
+        if excess.is_some_and(|excess| excess <= QUEUE_MARGIN) {
+            // The RTT came back: the queue is over, the next is a new one.
+            self.queue_excess = None;
+            self.queue_steps = 0;
+        }
+        if !(busy && self.ping_fresh(now) && excess.is_some_and(|e| e > QUEUE_MARGIN)) {
+            self.queue_since = None;
+            return false;
+        }
+        if self.queue_quiet_until.is_some_and(|until| now < until) {
+            return false;
+        }
+        let since = match self.queue_since {
+            Some(since) => since,
+            None => {
+                // Only a queue the stream's own rate can have made: one that
+                // starts soon after a probe step, or goes on after a cut. A
+                // slower route or a competing flow shows up as the same rise
+                // at any other time.
+                let caused = self.queue_excess.is_some()
+                    || self
+                        .raised_at
+                        .is_some_and(|at| now.saturating_duration_since(at) <= QUEUE_RAISED);
+                if !caused {
+                    return false;
+                }
+                self.queue_since = Some(now);
+                now
+            }
+        };
+        if now.saturating_duration_since(since) < QUEUE_HOLD {
+            return false;
+        }
+        if let (Some(before), Some(excess)) = (self.queue_excess, excess) {
+            let slack = (before / 4).max(Duration::from_millis(QUEUE_FLAT_MS));
+            if excess + slack < before {
+                // Draining, only slowly: the cut works, wait for it. The
+                // ENet round trip is smoothed and lags a queue by seconds.
+                self.queue_excess = Some(excess);
+                self.queue_since = None;
+                return false;
+            }
+            let flat = excess.abs_diff(before) <= slack;
+            if flat || self.queue_steps >= QUEUE_STEPS_MAX {
+                self.rtt_floor.clear();
+                self.rtt_floor.push_back((now, self.rtt));
+                self.minimum_rtt = Some(self.rtt);
+                self.queue_since = None;
+                self.queue_excess = None;
+                self.queue_steps = 0;
+                return false;
+            }
+        }
+        true
     }
 
     fn ping_fresh(&self, now: Instant) -> bool {
@@ -1359,6 +1496,95 @@ impl LinkRate {
         );
     }
 
+    /// Step down 12 % for a standing queue, or back to the last good rate when
+    /// a probe is the one that raised it, and keep probes under it for the
+    /// quiet hold.
+    fn queue_cut(&mut self, now: Instant, fec: usize, period: Duration, current_kbps: u32) {
+        let from_kbps = if self.state == State::Full {
+            current_kbps.min(self.ceiling_kbps)
+        } else {
+            self.encoder_kbps(fec, period)
+        };
+        let budget = self.budget();
+        if self.state == State::Full {
+            self.current = budget
+                .total_bps(from_kbps.max(1), fec, period)
+                .min(self.ceiling_total(fec, period));
+            self.good = self.current;
+        }
+        let cur = self.current;
+        let floor = self.cut_floor(fec, period).min(cur);
+        let excess = self
+            .rtt_floor()
+            .map_or(Duration::ZERO, |low| self.rtt.saturating_sub(low));
+        self.queue_since = None;
+        self.queue_quiet_until = Some(now + QUEUE_SETTLE);
+        if cur <= floor {
+            // Nothing to cut; a delay alone never makes a floor.
+            self.queue_excess = None;
+            return;
+        }
+        self.queue_excess = Some(excess);
+        self.queue_steps += 1;
+        // A probe that raised the rate into this queue is the failed one.
+        let recent = self
+            .confirmed
+            .filter(|c| now.saturating_duration_since(c.at) < EVIDENCE_WINDOW);
+        let back_to = match self.pending.iter().flatten().next() {
+            Some(_) => Some(self.good),
+            None => recent.map(|c| c.before),
+        };
+        self.pending = [None; PENDING_CAP];
+        self.confirmed = None;
+        if back_to.is_some() {
+            self.failed_probes += 1;
+        }
+        let mut target = cur * QUEUE_CUT_PERCENT / 100;
+        if let Some(back_to) = back_to {
+            target = target.min(back_to);
+        }
+        let target = target.max(floor);
+        let knee = self
+            .bad
+            .is_some_and(|bad| cur * 100 >= bad * KNEE_CUT_PERCENT);
+        self.bad = Some(self.bad.map_or(cur, |bad| bad.min(cur)));
+        self.current = target;
+        self.good = target;
+        self.hold = if knee {
+            (self.hold * 2).min(MAX_HOLD)
+        } else {
+            HOLD
+        };
+        self.next_probe = Some(now + self.hold.max(self.fence_wait()));
+        self.knee_failed(now, knee);
+        self.long_knee(now);
+        self.at_ceiling = None;
+        self.near_bad = None;
+        if back_to.is_none() {
+            self.steps_down += 1;
+        }
+        self.last_cut = Some(now);
+        self.state = State::Limited;
+        self.reason = "queue";
+        self.set_fence(now);
+        let to_kbps = self.encoder_kbps(fec, period);
+        self.record(
+            now,
+            Change {
+                kind: if back_to.is_some() {
+                    ChangeKind::ProbeFailed
+                } else {
+                    ChangeKind::StepDown
+                },
+                reason: "queue",
+                from_kbps,
+                to_kbps,
+                delivered_kbps: (self.delivered_bps / 1000) as u32,
+                evidence: Evidence::default(),
+            },
+        );
+    }
+
     /// A failure at the bad rate (`knee`) doubles the wait that keeps probes
     /// under it; any other failure leaves the bad rate somewhere new.
     fn knee_failed(&mut self, now: Instant, knee: bool) {
@@ -1487,6 +1713,7 @@ impl LinkRate {
             });
         }
         self.probes += 1;
+        self.raised_at = Some(now);
         if self.state == State::Floor {
             self.state = State::Limited;
         }
@@ -1553,6 +1780,8 @@ impl LinkRate {
             } else {
                 self.rebuilt_data_missing as f64 * 100. / self.rebuilt_packets as f64
             },
+            "rtt_ms": self.rtt.as_millis() as u64,
+            "rtt_floor_ms": self.rtt_floor().map_or(0, |floor| floor.as_millis() as u64),
             "last_change_ms_ago": self
                 .last_change
                 .map(|at| now.saturating_duration_since(at).as_millis() as u64),

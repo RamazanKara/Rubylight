@@ -131,6 +131,8 @@ pub struct Sim {
     pub frames: Vec<Frame>,
     pub changes: Vec<(f64, Change)>,
     pub kbps_log: Vec<(f64, u32)>,
+    /// The queue in front of the link, in ms, every 100 ms.
+    pub queue_log: Vec<(f64, f64)>,
     pub keyframe_requests: bool,
     pub client_pings: bool,
     /// The lowest bitrate the simulated encoder produces, however low it is
@@ -158,6 +160,7 @@ impl Sim {
             frames: Vec::new(),
             changes: Vec::new(),
             kbps_log: Vec::new(),
+            queue_log: Vec::new(),
             keyframe_requests: false,
             client_pings: true,
             encoder_min_kbps: 0,
@@ -287,6 +290,7 @@ impl Sim {
             self.deliver(t);
             if k % 100 == 0 {
                 rtt = Duration::from_secs_f64(base_rtt + self.link.queue_delay(t));
+                self.queue_log.push((t, self.link.queue_delay(t) * 1000.));
             }
             if self.client_pings && k % 100 == 0 {
                 self.lr.on_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);

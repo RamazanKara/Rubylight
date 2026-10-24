@@ -1879,9 +1879,13 @@ fn probes_stop_under_the_rate_that_failed_for_the_quiet_hold() {
             .filter(|(t, c)| {
                 *t > 2. && matches!(c.kind, ChangeKind::ProbeFailed | ChangeKind::StepDown)
             })
-            .map(|(t, c)| (*t, c.kind))
+            .map(|(t, c)| (*t, c.kind, c.reason))
             .collect();
-        assert!(failures.len() <= 3, "{what}: {failures:?}");
+        // A probe past the knee that builds a lossless queue is cut on its
+        // RTT (twice at most): a failure without the lost frames of one.
+        let loud = failures.iter().filter(|(_, _, r)| *r != "queue").count();
+        assert!(loud <= 3, "{what}: {failures:?}");
+        assert!(failures.len() <= 5, "{what}: {failures:?}");
         assert!(
             sim.frame_loss(3., 60.) < 0.02,
             "{what}: {}",
@@ -2019,4 +2023,174 @@ fn keyframe_requests_without_a_pending_probe_or_with_fewer_than_three_are_not_a_
         "{:?}",
         rig.kinds()
     );
+}
+
+// ---- standing queue (delay signal) ----
+
+/// A link that carries `link_kbps` of the encoder's rate, as a queue: it grows
+/// by the excess over the link every 100 ms and drains by the same below it.
+/// The RTT is 20 ms plus the queue, smoothed over about 1 s like the ENet
+/// round trip. Returns the largest queue, in ms.
+fn queue_for(rig: &mut Rig, link_kbps: u32, ms: u64, queue: &mut f64) -> f64 {
+    let mut largest = 0f64;
+    let mut shown = *queue;
+    for _ in 0..ms / 100 {
+        *queue =
+            (*queue + (f64::from(rig.kbps) / f64::from(link_kbps) - 1.) * 100.).clamp(0., 300.);
+        largest = largest.max(*queue);
+        shown += (*queue - shown) * 0.1;
+        rig.rtt = Duration::from_millis(20 + shown as u64);
+        rig.run(100, |_, _, _| {});
+    }
+    largest
+}
+
+fn queue_changes(rig: &Rig) -> Vec<(u64, Change)> {
+    rig.changes
+        .iter()
+        .filter(|(_, c)| c.reason == "queue")
+        .copied()
+        .collect()
+}
+
+/// The 2026-10-24 r50-hevc-hi run held 36.8 Mbps into 50 Mbit/s with a 25 ms
+/// queue and no loss, p50 48 ms: a probe step went over the link, the queue
+/// grew without a lost packet, and probes stop while the RTT is up. No loss
+/// evidence exists to cut on; the RTT staying over its floor does.
+#[test]
+fn a_lossless_standing_queue_after_a_probe_is_cut_and_the_rtt_returns_to_the_floor() {
+    let mut rig = Rig::new(40_000);
+    rig.rtt_jitter_ms = 3;
+    rig.clean(3_000);
+    rig.lose_three();
+    let mut queue = 0.;
+    let largest = queue_for(&mut rig, 30_000, 60_000, &mut queue);
+    let cuts = queue_changes(&rig);
+    assert!(!cuts.is_empty(), "{:?}", rig.changes);
+    // 15 ms of queue and two seconds of it, then 12 %; never the 300 ms an
+    // uncut probe would grow to.
+    assert!(
+        largest < 200.,
+        "the queue reached {largest} ms: {:?}",
+        rig.changes
+    );
+    assert!(cuts.len() <= 6, "{} queue cuts", cuts.len());
+    let low = cuts.iter().map(|(_, c)| c.to_kbps).min().unwrap();
+    assert!(low >= 30_000 * 60 / 100, "cut down to {low} kbps");
+    assert!(rig.kbps <= 31_500, "{} kbps over a 30,000 link", rig.kbps);
+}
+
+/// Spikes and short excursions on the wifi arm, in the seconds after a probe,
+/// are no queue: a dip under the margin starts the wait over, and 2 s over it
+/// are needed.
+#[test]
+fn wifi_rtt_spikes_and_excursions_under_two_seconds_are_no_queue() {
+    for parity in [7u16, 10, 13, 16] {
+        let mut rig = Rig::new(14_988);
+        rig.rtt_jitter_ms = 8;
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        rig.run(5_000, |lr, frame, now| {
+            wifi_block(&mut seed, lr, frame, parity, 5, 0, now);
+        });
+        rig.lose_three();
+        // 700 ms up to 60 ms, 700 ms back, while it probes back up.
+        for i in 0..42 {
+            rig.rtt = Duration::from_millis(if i % 2 == 0 { 60 } else { 20 });
+            rig.run(700, |lr, frame, now| {
+                wifi_block(&mut seed, lr, frame, parity, 5, 0, now);
+            });
+        }
+        // 1.8 s up, five times, with 4 s of calm between.
+        for _ in 0..5 {
+            rig.rtt = Duration::from_millis(60);
+            rig.run(1_800, |lr, frame, now| {
+                wifi_block(&mut seed, lr, frame, parity, 5, 0, now);
+            });
+            rig.rtt = Duration::from_millis(20);
+            rig.run(4_000, |lr, frame, now| {
+                wifi_block(&mut seed, lr, frame, parity, 5, 0, now);
+            });
+        }
+        assert!(
+            queue_changes(&rig).is_empty(),
+            "parity {parity}: {:?}",
+            rig.changes
+        );
+    }
+}
+
+/// A route that got slower for good (RTT 20 to 50 ms, no queue, whatever the
+/// rate): with no probe in the last 8 s it is no queue at all. Coinciding with
+/// a probe it costs one step back: the cut changes nothing, so the second look
+/// calls it no queue and re-learns the floor, and probes climb back. A slow
+/// growth is tracked by the 30 s floor and costs nothing.
+#[test]
+fn a_route_change_costs_at_most_one_step_and_a_slow_rtt_growth_nothing() {
+    // Long after any probe.
+    let mut rig = Rig::new(40_000);
+    rig.clean(3_000);
+    rig.lose_three();
+    rig.clean(60_000);
+    assert_eq!(rig.lr.state(), State::Full);
+    let before = rig.changes.len();
+    rig.rtt = Duration::from_millis(50);
+    rig.clean(30_000);
+    assert!(rig.changes[before..].is_empty(), "{:?}", rig.changes);
+
+    // Right after a probe.
+    let mut rig = Rig::new(40_000);
+    rig.clean(3_000);
+    rig.lose_three();
+    rig.until_probe();
+    rig.rtt = Duration::from_millis(50);
+    rig.clean(30_000);
+    let cuts = queue_changes(&rig);
+    assert_eq!(cuts.len(), 1, "{:?}", rig.changes);
+    assert_eq!(cuts[0].1.kind, ChangeKind::ProbeFailed);
+    let low = rig.kbps;
+    rig.clean(120_000);
+    assert_eq!(queue_changes(&rig).len(), 1, "{:?}", rig.changes);
+    assert!(rig.kbps > low, "{low} -> {}", rig.kbps);
+
+    // 0.3 ms a second for a minute and a half, probing all the while.
+    let mut rig = Rig::new(40_000);
+    rig.clean(3_000);
+    rig.lose_three();
+    for second in 0..90u64 {
+        rig.rtt = Duration::from_millis(20 + second * 3 / 10);
+        rig.clean(1_000);
+    }
+    assert!(queue_changes(&rig).is_empty(), "{:?}", rig.changes);
+}
+
+/// A deep buffer and a link that cannot carry the rate: the first cut is on
+/// loss (the queue is full); after that every probe past the link builds a
+/// queue that is cut on its RTT, and no packet is lost for it.
+#[test]
+fn a_deep_buffer_link_settles_with_a_short_queue() {
+    let mut sim = Sim::new(q(Link::constant(50.), 400.), 60_000, 20.);
+    sim.run(90.);
+    let queue_cuts = sim
+        .changes
+        .iter()
+        .filter(|(_, c)| c.reason == "queue")
+        .count();
+    assert!(
+        queue_cuts >= 1,
+        "{:?}",
+        sim.changes
+            .iter()
+            .map(|(t, c)| (*t, c.reason))
+            .collect::<Vec<_>>()
+    );
+    // Settled: sample the queue in the last 20 s.
+    let mut late: Vec<f64> = sim
+        .queue_log
+        .iter()
+        .filter(|(t, _)| *t >= 70.)
+        .map(|(_, ms)| *ms)
+        .collect();
+    late.sort_by(f64::total_cmp);
+    let worst = late[late.len() * 9 / 10];
+    assert!(worst < 120., "queue {worst:.0} ms");
 }

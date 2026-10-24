@@ -2759,7 +2759,9 @@ impl<P, A> Session<P, A> {
                         mbps(change.to_kbps)
                     ),
                     _ => {
-                        let loss = if loss_share > 0. {
+                        let loss = if change.reason == "queue" {
+                            "the network was holding video back in a growing queue".to_string()
+                        } else if loss_share > 0. {
                             format!("{:.0} % of packets lost", loss_share * 100.)
                         } else {
                             "video frames were lost".to_string()

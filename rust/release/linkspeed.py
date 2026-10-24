@@ -102,6 +102,9 @@ def arms():
             table[name] = arm_spec(name, rate, codec, 20000, queue=5, note='5 ms queue')
             name = f'q5-r{rate}-{codec}-4k'
             table[name] = arm_spec(name, rate, codec, 80000, 3840, 2160, queue=5, note='5 ms queue, 4K: the keyframe overflows it')
+    # A deep buffer: a probe past the link builds a queue for a second or more before it drops anything.
+    table['deep-r50-hevc-hi'] = arm_spec('deep-r50-hevc-hi', 50, 'hevc', table['r50-hevc-hi']['kbps'], queue=400,
+                                         note='50 Mbit/s, 400 ms queue, as r50-hevc-hi: the delay signal, not loss, holds the rate')
     return table
 
 

@@ -935,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn a_wireless_client_stream_starts_at_the_controllers_conservative_rate_not_the_wired_ceiling()
+    fn a_wireless_client_stream_starts_at_the_controllers_seed_and_climbs_toward_the_route_ceiling()
     {
         let config = crate::config::Config::default();
         for (wireless, expected) in [(true, 126_000_000), (false, 800_000_000)] {
@@ -949,9 +949,55 @@ mod tests {
             s.configure_automatic_pacing(
                 config.adaptive_packet_pacing(s.config.codec, s.config.client_wireless),
             );
-            // A wired 1 GbE host route allows 800 Mbps; only the controller lowers the start.
+            // The sender passes the host route's base (800 Mbps on a wired 1 GbE
+            // host) to the controller: its seed gives the conservative start.
+            assert_eq!(s.automatic_pacing_enabled(), wireless);
+            assert!(!s.client_wireless_sets_route_pacing());
             assert_eq!(s.video_pacing_bps(800_000_000, 75_000_000), expected);
+            if !wireless {
+                continue;
+            }
+            // Clean feedback lets the rate climb above twice the bitrate, in
+            // steps of at most 12.5%, and never past the route ceiling.
+            let start = Instant::now();
+            s.tick_automatic_pacing(start, Duration::from_millis(2));
+            let mut rate = expected;
+            for step in 1..=40u64 {
+                let now = start + Duration::from_millis(500 * step);
+                pacing_traffic(&s, 30 * step);
+                s.record_control_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
+                s.tick_automatic_pacing(now, Duration::from_millis(2));
+                let next = s.video_pacing_bps(800_000_000, 75_000_000);
+                assert!(next >= rate && next <= rate + rate / 8, "{rate} -> {next}");
+                assert!(next <= 800_000_000);
+                rate = next;
+            }
+            assert!(rate > 2 * 63_000_000, "never climbed: {rate}");
         }
+        // Without the controller the hint sets the route pacing instead.
+        for (setting, codec) in [
+            ("wireless_adaptive_pacing=false", 1),
+            ("", 3),
+            ("pacing_max_bitrate_kbps=80000", 1),
+            ("host_adaptive_bitrate=true", 1),
+        ] {
+            let config = crate::config::Config::parse(setting).unwrap();
+            let s = Session::new(
+                launch("wireless-hint", Role::Stream),
+                Negotiated {
+                    codec,
+                    client_wireless: true,
+                    ..Default::default()
+                },
+            );
+            s.configure_automatic_pacing(config.adaptive_packet_pacing(codec, true));
+            assert!(
+                s.client_wireless_sets_route_pacing(),
+                "{setting} codec {codec}"
+            );
+        }
+        let wired = Session::new(launch("wired", Role::Stream), Negotiated::default());
+        assert!(!wired.client_wireless_sets_route_pacing());
     }
 
     #[test]
@@ -2973,6 +3019,17 @@ impl<P, A> Session<P, A> {
     pub fn configure_automatic_pacing(&self, enabled: bool) {
         *self.automatic_pacing.lock().unwrap() =
             crate::adaptive_pacing::AdaptivePacing::new(enabled);
+    }
+    /// Whether the client reports a wireless route (`x-rl-video[0].clientWireless`)
+    /// and no adaptive controller owns this stream. Then the route base is
+    /// paced as Wi-Fi from the first frame. When the controller owns the stream
+    /// the base stays the host route's, so the controller starts conservatively
+    /// at its own seed and can probe up toward the real ceiling.
+    pub fn client_wireless_sets_route_pacing(&self) -> bool {
+        self.config.client_wireless && !self.automatic_pacing_enabled()
+    }
+    pub fn automatic_pacing_enabled(&self) -> bool {
+        self.automatic_pacing.lock().unwrap().enabled()
     }
     pub fn video_pacing_bps(&self, base: u64, needed: u64) -> u64 {
         let paced = self.automatic_pacing.lock().unwrap().rate(

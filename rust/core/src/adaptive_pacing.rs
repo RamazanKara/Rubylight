@@ -82,6 +82,11 @@ impl AdaptivePacing {
         }
     }
 
+    /// Whether this controller owns the stream's pacing.
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
     /// Refresh on each frame: FEC, FPS, bitrate and the route can change.
     /// The physical/configured ceiling wins when the requested stream cannot
     /// fit. The caller reports that shortfall; this controller cannot fix it.

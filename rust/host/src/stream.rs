@@ -1496,9 +1496,9 @@ impl Media {
                     // Packet adaptation is opt-in, or automatic for a client that
                     // reports a wireless route. Explicit pacing and host bitrate
                     // adaptation keep their own policies.
-                    let automatic_pacing = c.adaptive_packet_pacing(s.config.codec, s.config.client_wireless);
-                    s.configure_automatic_pacing(automatic_pacing);
-                    keyframe_loss_memory = Some(h.configure_keyframe_loss(&s, c.keyframe_loss_pacing(s.config.codec, s.config.client_wireless)));
+                    let keyframe_loss_pacing = crate::video_send::recovery::configure(&s, &c);
+                    let automatic_pacing = s.automatic_pacing_enabled();
+                    keyframe_loss_memory = Some(h.configure_keyframe_loss(&s, keyframe_loss_pacing));
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
                         iv_counter: 0,

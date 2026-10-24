@@ -53,7 +53,10 @@ pub(super) fn run(
             config.integer("pacing_max_bitrate_kbps", 0),
             frame.kbps,
             route.bps,
-            network_pacing::route_is_wireless(route.wireless, current.config.client_wireless),
+            network_pacing::route_is_wireless(
+                route.wireless,
+                current.client_wireless_sets_route_pacing(),
+            ),
             needed,
             client,
         );

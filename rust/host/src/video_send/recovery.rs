@@ -9,6 +9,15 @@ pub(crate) struct Pace {
     pub needed: u64,
 }
 
+/// Choose who paces this stream, once at its start. Returns whether
+/// keyframe-loss pacing applies. Adaptive packet pacing is opt-in, or automatic
+/// for a client that reports a wireless route; the two are mutually exclusive.
+pub(crate) fn configure(session: &Session, config: &Config) -> bool {
+    let (codec, wireless) = (session.config.codec, session.config.client_wireless);
+    session.configure_automatic_pacing(config.adaptive_packet_pacing(codec, wireless));
+    config.keyframe_loss_pacing(codec, wireless)
+}
+
 /// This query never records a sent frame. Only the sender advances loss history.
 pub(crate) fn pace(
     session: &Session,
@@ -67,7 +76,10 @@ fn select(
         config.integer("pacing_max_bitrate_kbps", 0),
         bitrate,
         route.bps,
-        network_pacing::route_is_wireless(route.wireless, session.config.client_wireless),
+        network_pacing::route_is_wireless(
+            route.wireless,
+            session.client_wireless_sets_route_pacing(),
+        ),
         needed,
         client_link,
     );
@@ -250,6 +262,125 @@ mod tests {
             pace(&session, &config, &packetizer, period, peer, route).bps,
             80_000_000
         );
+    }
+
+    /// A 40 Mbps stream on a wired 1 GbE host route, as a client that does or
+    /// does not report a wireless route. `configure` is what the stream start
+    /// calls; it decides whether the adaptive controller owns the stream.
+    fn wireless_hint_stream(
+        fixture: &crate::state::test_support::Fixture,
+        settings: &str,
+        codec: u8,
+        client_wireless: bool,
+    ) -> (std::sync::Arc<Session>, Config, bool) {
+        let session = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_core::rtsp::Negotiated {
+                codec,
+                client_wireless,
+                ..Default::default()
+            },
+        );
+        session
+            .bitrate
+            .store(40_000, std::sync::atomic::Ordering::Release);
+        let config = Config::parse(settings).unwrap();
+        let keyframe_loss = configure(&session, &config);
+        session.configure_keyframe_loss(keyframe_loss);
+        (session, config, keyframe_loss)
+    }
+
+    #[test]
+    fn the_wireless_hint_sets_the_route_pace_only_when_no_controller_owns_the_stream() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let packetizer = VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let period = Duration::from_secs_f64(1. / 60.);
+        let peer = "192.0.2.9:12345".parse().unwrap();
+        let route = Link {
+            bps: 1_000_000_000,
+            wireless: false,
+            ..Default::default()
+        };
+        let needed = network_pacing::video_wire_rate_bps(&packetizer, 40_000, period, false);
+        let wifi = network_pacing::rate_bps(0, 40_000, route.bps, true, needed);
+        assert_eq!(wifi, 80_000_000);
+        // No controller: the hint paces like a Wi-Fi host, without it 800 Mbps.
+        for (settings, codec) in [
+            ("wireless_adaptive_pacing=false", 1),
+            ("", 3),
+            (
+                "pacing_max_bitrate_kbps=0\nwireless_adaptive_pacing=false",
+                0,
+            ),
+            ("host_adaptive_bitrate=true", 2),
+        ] {
+            for (hint, expected) in [(true, wifi), (false, 800_000_000)] {
+                let (session, config, _) = wireless_hint_stream(&fixture, settings, codec, hint);
+                assert!(!session.automatic_pacing_enabled(), "{settings}");
+                let what = format!("{settings} codec {codec} hint {hint}");
+                assert_eq!(
+                    pace(&session, &config, &packetizer, period, peer, route).bps,
+                    expected,
+                    "{what}"
+                );
+                assert_eq!(
+                    preview_pace(&session, &config, &packetizer, period, peer, route).bps,
+                    expected,
+                    "{what}"
+                );
+            }
+        }
+        // A manual limit keeps its own policy with or without the hint.
+        let (session, config, _) =
+            wireless_hint_stream(&fixture, "pacing_max_bitrate_kbps=300000", 1, true);
+        assert_eq!(
+            pace(&session, &config, &packetizer, period, peer, route).bps,
+            300_000_000
+        );
+        // The controller owns it: base and ceiling stay the host route's
+        // 800 Mbps and the start is the controller's seed, exactly as with
+        // `host_adaptive_pacing` on a client that reports nothing.
+        let (owned, owned_config, owned_keyframe_loss) =
+            wireless_hint_stream(&fixture, "", 1, true);
+        let (host_opt_in, host_config, _) =
+            wireless_hint_stream(&fixture, "host_adaptive_pacing=true", 1, false);
+        assert!(owned.automatic_pacing_enabled() && host_opt_in.automatic_pacing_enabled());
+        assert!(!owned.client_wireless_sets_route_pacing());
+        assert!(!owned_keyframe_loss);
+        let seed = pace(&owned, &owned_config, &packetizer, period, peer, route);
+        assert_eq!(seed.bps, 80_000_000);
+        assert_eq!(
+            seed.bps,
+            pace(&host_opt_in, &host_config, &packetizer, period, peer, route).bps
+        );
+        assert_eq!(
+            preview_pace(&owned, &owned_config, &packetizer, period, peer, route).bps,
+            seed.bps
+        );
+        assert_eq!(
+            owned.automatic_pacing.lock().unwrap().snapshot()["ceiling_kbps"],
+            800_000
+        );
+        // The encoder's recovery-frame cap is what `host_adaptive_pacing`
+        // streams get, not the smaller one of a Wi-Fi host.
+        let cap = |s: &Session, c: &Config| {
+            let pace = preview_pace(s, c, &packetizer, period, peer, route);
+            network_pacing::recovery_frame_cap(pace.bps, 40_000, period, 20, 1392, false)
+        };
+        assert_eq!(cap(&owned, &owned_config), cap(&host_opt_in, &host_config));
+        // PyroWave is not owned by the controller unless it is opted in.
+        let (pyrowave, _, _) = wireless_hint_stream(&fixture, "", 3, true);
+        assert!(pyrowave.client_wireless_sets_route_pacing());
+        let (pyrowave, _, _) = wireless_hint_stream(&fixture, "host_adaptive_pacing=true", 3, true);
+        assert!(!pyrowave.client_wireless_sets_route_pacing());
     }
 
     #[test]

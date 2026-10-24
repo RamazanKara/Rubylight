@@ -730,6 +730,37 @@ mod tests {
     }
 
     #[test]
+    fn a_wireless_client_stream_the_controller_owns_leaves_remembered_routes_alone() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        let before = read(&f.host.paired.read().unwrap(), now());
+        assert_eq!(before.len(), 1);
+        let mut launch = f.launch(c.clone(), butterpollo_core::session::Role::Stream);
+        launch.peer = "192.0.2.1".parse().unwrap();
+        let s = Session::new(
+            launch,
+            Negotiated {
+                codec: 1,
+                client_wireless: true,
+                ..Default::default()
+            },
+        );
+        // The default configuration: the adaptive controller owns this stream.
+        let keyframe_loss = crate::video_send::recovery::configure(&s, &Config::default());
+        assert!(s.automatic_pacing_enabled() && !keyframe_loss);
+        let guard = f.host.configure_keyframe_loss(&s, keyframe_loss);
+        assert!(!s.keyframe_loss_active());
+        loss(&s);
+        assert!(!s.keyframe_loss_active());
+        drop(guard);
+        let after = read(&f.host.paired.read().unwrap(), now());
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].remembered_sessions, 0);
+        assert_eq!(after[0].observed_at, before[0].observed_at);
+    }
+
+    #[test]
     fn resetting_fences_existing_sessions_and_a_probe_cannot_erase_new_loss() {
         let f = Fixture::new();
         let c = f.client(0x071f1f00);

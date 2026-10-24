@@ -610,12 +610,122 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean streamEnding() {
-        return streamTerminated || hostExitRequested || connectionStopThread != null;
+        return streamTerminated || hostExitRequested || exiting || connectionStopThread != null;
     }
 
     private void noteVideoDisplay(Display display, boolean removed) {
-        lastVideoDisplayEventMs = SystemClock.uptimeMillis();
+        long now = SystemClock.uptimeMillis();
+        lastVideoDisplayEventMs = now;
         videoDisplayOff = removed || !display.isValid() || display.getState() == Display.STATE_OFF;
+        stagedExit.onDisplayChanged(now);
+    }
+
+    // Experimental: on Android TV, an HDR stream ends in stages (stop and release the decoder and
+    // video output, let the display settle, give the display mode back, settle again, then finish)
+    // so the HDR to SDR switch and the mode revert never overlap and wedge the TV's HDMI link.
+    // Everything else finishes at once, as always. See StagedStreamExit.
+    private final StagedStreamExit stagedExit = new StagedStreamExit();
+    private final Handler exitHandler = new Handler(Looper.getMainLooper());
+    private final Runnable stagedExitRunnable = this::stagedExitTick;
+    // True from the first finish() of a staged exit on; isFinishing() reports it so every
+    // "is this stream ending" check in this class holds while the exit is staged.
+    private volatile boolean exiting;
+    private boolean exitFinished;
+
+    @Override
+    public boolean isFinishing() {
+        return exiting || super.isFinishing();
+    }
+
+    @Override
+    public void finish() {
+        if (exitFinished) {
+            super.finish();
+        } else if (exiting) {
+            LimeLog.info("Exit: already in progress, ignoring finish()");
+        } else if (stagedExitApplies()) {
+            beginStagedExit();
+        } else {
+            exitFinished = true;
+            super.finish();
+        }
+    }
+
+    // For a hand-off to a new stream activity (reconnect, new intent): the stream is not ending.
+    private void finishNow() {
+        exitFinished = true;
+        super.finish();
+    }
+
+    private boolean stagedExitApplies() {
+        return !isDestroyed() && attemptedConnection && decoderRenderer != null &&
+                StagedStreamExit.applies(isAndroidTv(),
+                        streamHdr || Boolean.TRUE.equals(decoderRenderer.getHostHdrReport()));
+    }
+
+    private void beginStagedExit() {
+        if (!stagedExit.begin(SystemClock.uptimeMillis())) return;
+        exiting = true;
+        LimeLog.info("Exit: staged (Android TV, HDR stream, Experimental)");
+        setInputGrabState(false);
+        if (streamMenu != null) streamMenu.dismiss();
+        LimeLog.info("Exit: stopping the connection and releasing the decoder");
+        stopConnection();
+        exitHandler.post(stagedExitRunnable);
+    }
+
+    private void stagedExitTick() {
+        if (exitFinished || isDestroyed()) return;
+        long now = SystemClock.uptimeMillis();
+        Thread stopping = connectionStopThread;
+        if (stopping == null || !stopping.isAlive()) stagedExit.onStopFinished();
+        switch (stagedExit.poll(now)) {
+            case RELEASE_OUTPUT:
+                LimeLog.info(stagedExit.stopTimedOut() ?
+                        "Exit: connection stop still running after " + StagedStreamExit.STOP_TIMEOUT_MS +
+                                " ms, releasing the video output anyway" :
+                        "Exit: decoder released, releasing the video output");
+                releaseVideoOutput();
+                break;
+            case RESTORE_DISPLAY_MODE:
+                LimeLog.info("Exit: display settled, restoring the display mode");
+                restoreDisplayMode();
+                break;
+            case FINISH:
+                LimeLog.info("Exit: display settled, finishing");
+                exitFinished = true;
+                super.finish();
+                return;
+            default:
+                break;
+        }
+        exitHandler.postDelayed(stagedExitRunnable, StagedStreamExit.POLL_MS);
+    }
+
+    // Tears the video surface down, which ends the HDR output. The stop thread has released
+    // the decoder by now (or timed out; the surface callbacks then stop it as they always do).
+    private void releaseVideoOutput() {
+        if (streamView != null) streamView.setVisibility(View.GONE);
+        if (renderView != null && renderView != streamView) renderView.setVisibility(View.GONE);
+    }
+
+    // Gives back what prepareDisplayForRendering() and the frame-rate votes asked of the display,
+    // instead of leaving it to the window going away at the same time as something else.
+    private void restoreDisplayMode() {
+        try {
+            android.view.Window window = getVideoWindow();
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) attributes.preferredDisplayModeId = 0;
+            attributes.preferredRefreshRate = 0;
+            window.setAttributes(attributes);
+            Surface surface = videoSurface;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surface != null && surface.isValid()) {
+                surface.setFrameRate(0, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+            }
+            appSurfaceFrameRateVote = null;
+        } catch (RuntimeException e) {
+            LimeLog.warning("Exit: could not restore the display mode: " + e);
+        }
     }
 
     private WifiManager.WifiLock highPerfWifiLock;
@@ -2305,6 +2415,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     protected void onDestroy() {
         if (nativeMenuThread != null) nativeMenuThread.shutdownNow();
+        // A staged exit still waiting on the display ends here with the activity.
+        exitHandler.removeCallbacksAndMessages(null);
+        exitFinished = true;
         stopConnection();
         if (externalPresentation != null) {
             externalPresentation.setOnDismissListener(null);
@@ -2351,7 +2464,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // singleTask can deliver a new shortcut launch to a stream still visible in PiP.
         setInputGrabState(false);
         stopConnection();
-        finish();
+        finishNow();
         startActivity(new Intent(intent));
     }
 
@@ -3561,7 +3674,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (foreground && generation == foregroundGeneration && recovery == recoveryGeneration &&
                         !isFinishing() && !isDestroyed()) {
                     recoveryHandoffInProgress = false;
-                    finish();
+                    finishNow();
                     startActivity(retry);
                 }
             });
@@ -3669,7 +3782,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         return;
                     }
                     recoveryHandoffInProgress = false;
-                    finish();
+                    finishNow();
                     startActivity(retry);
                 });
             }, "Automatic stream recovery").start();

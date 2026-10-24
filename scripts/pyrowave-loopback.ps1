@@ -95,8 +95,12 @@ try {
     }
 } catch { }
 
-$hostProcess = $null; $anim = $null
+$hostProcess = $null; $anim = $null; $meter = $null
 try {
+    # A PresentMon session a killed run left behind keeps tracing; the lock is ours, so every nightjar-* session is stale.
+    if ($PresentMon) {
+        foreach ($stale in (logman query -ets 2>$null | ForEach-Object { if ($_ -match '^(nightjar-\S+)') { $Matches[1] } })) { logman stop $stale -ets *> $null }
+    }
     # --- Host profile, kept between runs so the pairing stays -------------------------------
     New-Item -ItemType Directory -Force "$HostProfile\record" | Out-Null
     @("port = $Port", 'encoder = amf', 'capture = wgc',
@@ -217,16 +221,15 @@ try {
         $meter = if ($PresentMon) { Start-PresentMon $exe $name $Seconds }
         $ended = $p.WaitForExit(($Seconds + 120) * 1000)
         if (-not $ended) { $p.Kill() }
-        if ($meter) {
-            if (-not $meter.WaitForExit(20000)) { Stop-Process -Id $meter.Id -Force; Write-Host "leg ${name}: PresentMon did not end by itself" }
-            if (-not (Test-Path "$Out\$name.presentmon.csv")) { Write-Host "leg ${name}: PresentMon wrote no CSV; see $Out\$name.presentmon.stderr.log"; exit 2 }
-        }
+        if ($meter -and -not $meter.WaitForExit(20000)) { Stop-Process -Id $meter.Id -Force; Write-Host "leg ${name}: PresentMon did not end by itself" }
         # A hang is looked for first: a leg that stalls or fails because the encoder hung is exit 3, not 2.
         $hostText = (Get-Content $hostLog -ErrorAction SilentlyContinue | Select-Object -Skip $hostLines) -join "`n"
         if ($hostText -match '(?i)gpu hang|encoder hang|device removed') {
             Write-Host "leg ${name}: AMD encoder hang suspected, stopping (exit 3). Do not retry; see $hostLog"; exit 3
         }
         if (-not $ended) { Write-Host "leg $name did not end"; exit 2 }
+        # After the hang check: a hung leg has no presents to capture, and that is exit 3, not 2.
+        if ($meter -and -not (Test-Path "$Out\$name.presentmon.csv")) { Write-Host "leg ${name}: PresentMon wrote no CSV; see $Out\$name.presentmon.stderr.log"; exit 2 }
         $sent = [regex]::Matches($hostText, 'sent_mbps=([0-9.]+)') | ForEach-Object { [double]$_.Groups[1].Value } | Sort-Object
         $sentMedian = if ($sent.Count) { $sent[[int][math]::Floor(($sent.Count - 1) / 2)] } else { [double]::NaN }
         "$name host sent_mbps median $([math]::Round($sentMedian, 1)) over $($sent.Count) timing lines" | Tee-Object -FilePath "$Out\sent_mbps.txt" -Append | Write-Host
@@ -241,6 +244,7 @@ try {
     Get-Content "$Out\summary.txt"
     Write-Host "results in $Out"
 } finally {
+    if ($meter -and -not $meter.HasExited) { Stop-Process -Id $meter.Id -Force }
     if ($anim -and -not $anim.HasExited) { Stop-Process -Id $anim.Id -Force }
     if ($hostProcess -and -not $hostProcess.HasExited) { Stop-Process -Id $hostProcess.Id -Force }
     if (-not $KeepLock -and (Test-Path $Lock) -and ((Get-Content $Lock -Raw) -like "$Agent *")) { Remove-Item $Lock -Force }

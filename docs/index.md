@@ -8,7 +8,7 @@ Stream your PC games and desktop to the Android screen you want to use. Nightjar
 | Connect a PC and grant access | [Pairing and permissions](pairing.md) |
 | Understand a setting or choose a preset | [Settings reference](settings.md) |
 | Use Home, a game's page and the in-stream Session and graphics menu (Rubylight 3.0) | [Home and the session menu](console.md) |
-| Use a controller, touch, mouse or keyboard | [Controls](controls.md) |
+| Use a controller, touch, mouse or keyboard | [Controls](controls.md), [USB and Bluetooth pads in the menus](gamepad-navigation.md) |
 | Tune picture quality and response time | [Video and latency](video-and-latency.md) |
 | Recover interruptions or adapt resolution and FPS | [Recovery and automatic quality](recovery-and-quality.md) |
 | Fix a problem or export a report | [Troubleshooting](TROUBLESHOOTING.md) |

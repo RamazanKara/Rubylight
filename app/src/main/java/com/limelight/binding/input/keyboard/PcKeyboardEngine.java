@@ -37,7 +37,7 @@ public final class PcKeyboardEngine {
 
     private static final PcModifier[] MODIFIERS = PcModifier.values();
     /** A key Windows ignores, sent between a lone Alt or Win going down and up so it is not taken as a tap. */
-    static final int NEUTRAL_VK = 0xE8;
+    public static final int NEUTRAL_VK = 0xE8;
 
     private final Output output;
     private final StickyModifiers sticky = new StickyModifiers();

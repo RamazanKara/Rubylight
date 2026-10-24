@@ -148,6 +148,37 @@ public class GameKeyboardOverlayTest {
     }
 
     @Test
+    public void aLocalChordKeepsItsModifierTapsFromBeingLoneTapsOnTheHost() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        int neutral = 0x8000 | com.limelight.binding.input.keyboard.PcKeyboardEngine.NEUTRAL_VK;
+        int[] chord = {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT};
+        for (int key : chord) game.handleKeyDown(keyboardKey(KeyEvent.ACTION_DOWN, key));
+        assertEquals("the modifiers are sent as they go down", 3, connection.keys.size());
+        assertTrue(game.handleKeyDown(keyboardKey(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_K)));
+        assertEquals("the shortcut key itself never reaches the host", 5, connection.keys.size());
+        assertEquals(neutral, connection.keys.get(3)[0]);
+        assertEquals(KeyboardPacket.KEY_DOWN, connection.keys.get(3)[1]);
+        assertEquals(neutral, connection.keys.get(4)[0]);
+        assertEquals(KeyboardPacket.KEY_UP, connection.keys.get(4)[1]);
+        assertTrue(game.handleKeyUp(keyboardKey(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_K)));
+        for (int key : chord) game.handleKeyUp(keyboardKey(KeyEvent.ACTION_UP, key));
+        assertTrue("the PC keyboard opened", pcKeyboardVisible(game));
+        assertEquals("the modifier releases follow the neutral key", 8, connection.keys.size());
+    }
+
+    @Test
+    public void aLocalChordSendsNothingExtraWhileInputIsNotGrabbed() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        ReflectionHelpers.setField(game, "grabbedInput", false);
+        for (int key : new int[] {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_K}) {
+            game.handleKeyDown(keyboardKey(KeyEvent.ACTION_DOWN, key));
+        }
+        assertEquals(0, connection.keys.size());
+    }
+
+    @Test
     public void shortcutsPreservePhysicalModifiersAndRespectInputGrab() {
         RecordingConnection connection = new RecordingConnection();
         Game game = game(connection);
@@ -520,6 +551,18 @@ public class GameKeyboardOverlayTest {
         ReflectionHelpers.setField(game, "foreground", true);
         ReflectionHelpers.setField(game, "connected", true);
         return game;
+    }
+
+    /** A key of a physical keyboard (a device that is not a game controller). */
+    private static KeyEvent keyboardKey(int action, int keyCode) {
+        InputDevice device = ShadowInputDevice.makeInputDeviceNamed("Keyboard");
+        ReflectionHelpers.setField(device, "mId", 31);
+        ReflectionHelpers.setField(device, "mSources", InputDevice.SOURCE_KEYBOARD);
+        ReflectionHelpers.setField(device, "mKeyboardType", InputDevice.KEYBOARD_TYPE_ALPHABETIC);
+        ReflectionHelpers.setField(device, "mMotionRanges", new ArrayList<>());
+        KeyEvent event = new KeyEvent(0, 0, action, keyCode, 0, 0, 31, 0, 0, InputDevice.SOURCE_KEYBOARD);
+        shadowOf(event).setDevice(device);
+        return event;
     }
 
     private static void sendShortcut(Game game, int... keys) {

@@ -66,6 +66,7 @@ import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.binding.input.keyboard.PcKeyboardController;
+import com.limelight.binding.input.keyboard.PcKeyboardEngine;
 import com.limelight.ui.DesktopControlsPanel;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
@@ -4200,6 +4201,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     // events until the modifiers come up
                     specialKeyCode = androidKeyCode;
                     waitingForAllModifiersUp = true;
+                    breakLoneModifierTap();
                     return true;
 
                 default:
@@ -4210,6 +4212,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Not a special combo
         return false;
+    }
+
+    // The host has already seen Ctrl, Alt and Shift go down for a client-side combo like Ctrl+Alt+Shift+K, and
+    // sees them go up. Windows reads Alt or Ctrl+Shift going up with nothing between as a tap (the menu bar,
+    // the input language switch), so put a key it ignores between them.
+    private void breakLoneModifierTap() {
+        if (!grabbedInput || !connected || conn == null || !conn.canSendInput()) return;
+        short neutral = (short) (0x8000 | PcKeyboardEngine.NEUTRAL_VK);
+        byte modifiers = getModifierState();
+        sendKeyboardInput(neutral, KeyboardPacket.KEY_DOWN, modifiers, (byte) 0);
+        sendKeyboardInput(neutral, KeyboardPacket.KEY_UP, modifiers, (byte) 0);
     }
 
     // We cannot simply use modifierFlags for all key event processing, because

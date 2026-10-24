@@ -472,6 +472,27 @@ impl Config {
     pub fn ports(&self) -> Result<Ports> {
         Ok(Ports::from_base(self.port()?))
     }
+    /// The WebRTC server for TV and browser clients (off by default).
+    pub fn webrtc_server(&self) -> bool {
+        self.boolean("webrtc_server", false)
+    }
+    /// The WebRTC signalling port (TCP; discovery always listens on UDP 8000).
+    /// A value outside 1024..=65535 is reported and the default is used.
+    pub fn webrtc_port(&self) -> u16 {
+        self.webrtc_port_setting("webrtc_port", WEBRTC_PORT)
+    }
+    /// The WebRTC media port (UDP).
+    pub fn webrtc_media_port(&self) -> u16 {
+        self.webrtc_port_setting("webrtc_media_port", WEBRTC_MEDIA_PORT)
+    }
+    fn webrtc_port_setting(&self, key: &str, default: u16) -> u16 {
+        let n = self.integer(key, i64::from(default));
+        if !WEBRTC_PORTS.contains(&n) {
+            invalid(key, self.get(key, ""));
+            return default;
+        }
+        n as u16
+    }
     /// Before 2.0.0 `amd_ltr_frames` defaulted to 0, and a console save
     /// could write that default into sunshine.conf, which kept AV1's
     /// recovery without a keyframe off after the upgrade. Until `upgraded`,
@@ -553,6 +574,11 @@ impl Config {
         let changed = |key: &str| object.contains_key(key) && next.values.contains_key(key);
         if changed("port") && !PORTS.contains(&next.integer("port", 0)) {
             bail!("port must be between 1029 and 65514");
+        }
+        for key in ["webrtc_port", "webrtc_media_port"] {
+            if changed(key) && !WEBRTC_PORTS.contains(&next.integer(key, 0)) {
+                bail!("{key} must be between 1024 and 65535");
+            }
         }
         if changed("frame_limiter_fps_limit") {
             crate::framegen::Rate::parse(next.get("frame_limiter_fps_limit", "0"))?;
@@ -759,6 +785,10 @@ impl Config {
 }
 /// Base ports whose derived ports (base - 5 to base + 21) are all valid.
 const PORTS: std::ops::RangeInclusive<i64> = 1029..=65514;
+/// The WebRTC ports the TV expects by default, and the range a saved port may take.
+pub const WEBRTC_PORT: u16 = 8000;
+pub const WEBRTC_MEDIA_PORT: u16 = 8001;
+const WEBRTC_PORTS: std::ops::RangeInclusive<i64> = 1024..=65535;
 /// Whether a device or an app may override `key` for its streams. As in
 /// Vibepollo, overrides cover stream, input, display and encoder behaviour;
 /// identity, network, paths and integrations stay host-wide.
@@ -1018,6 +1048,47 @@ impl Ports {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_webrtc_server_is_off_on_8000_and_8001_and_refuses_bad_ports() {
+        let config = super::Config::default();
+        assert!(!config.webrtc_server());
+        assert_eq!(
+            (config.webrtc_port(), config.webrtc_media_port()),
+            (8000, 8001)
+        );
+        let mut config = super::Config::default();
+        let saved = serde_json::json!({"webrtc_server": true, "webrtc_port": 9000, "webrtc_media_port": "9001"});
+        config.update(saved.as_object().unwrap()).unwrap();
+        assert!(config.webrtc_server());
+        assert_eq!(
+            (config.webrtc_port(), config.webrtc_media_port()),
+            (9000, 9001)
+        );
+        for bad in [
+            serde_json::json!(80),
+            serde_json::json!(70000),
+            serde_json::json!("x"),
+        ] {
+            for key in ["webrtc_port", "webrtc_media_port"] {
+                let saved = serde_json::json!({ key: bad });
+                assert!(
+                    config.update(saved.as_object().unwrap()).is_err(),
+                    "{key} {bad}"
+                );
+            }
+        }
+        // A hand-edited file with a bad port falls back loudly to the default.
+        let config = super::Config::parse(
+            "webrtc_port = 80
+webrtc_media_port = 99999
+",
+        )
+        .unwrap();
+        assert_eq!(
+            (config.webrtc_port(), config.webrtc_media_port()),
+            (8000, 8001)
+        );
+    }
     #[test]
     fn direct_driver_push_defaults_to_the_fence_ring_unless_turned_off() {
         let fence = |text: &str| super::Config::parse(text).unwrap().idd_push_fence_ring();

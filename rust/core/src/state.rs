@@ -139,6 +139,21 @@ impl Client {
         (is_lower_hex(id, CLIENT_ID_BYTES) && is_lower_hex(secret, SECRET_BYTES))
             .then_some((id, secret))
     }
+    /// A device the administrator approved over WebRTC signalling, with the
+    /// permissions of an ordinary device and a new UUID.
+    pub fn paired_over_webrtc(name: String, client_id: &str, secret: &str) -> Self {
+        Self {
+            name,
+            cert: String::new(),
+            uuid: uuid::Uuid::new_v4().to_string(),
+            perm: default_permission(),
+            enabled: true,
+            extra: BTreeMap::from([(
+                "webrtc".to_owned(),
+                json!({"clientId": client_id, "secret": secret}),
+            )]),
+        }
+    }
     /// A WebRTC device: no certificate, valid WebRTC credentials. It can
     /// never be matched to a TLS peer.
     pub fn is_webrtc(&self) -> bool {
@@ -392,9 +407,11 @@ impl PairedState {
             bail!("a WebRTC device has no certificate");
         }
         let mut next = self.clone();
-        if next.clients.iter().any(|c| {
-            c.uuid == client.uuid || c.webrtc().is_some_and(|(id, _)| id == client_id)
-        }) {
+        if next
+            .clients
+            .iter()
+            .any(|c| c.uuid == client.uuid || c.webrtc().is_some_and(|(id, _)| id == client_id))
+        {
             bail!("duplicate client");
         }
         next.clients.push(client);
@@ -677,7 +694,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("state.json");
         let mut s = PairedState::load(&p).unwrap();
-        assert!(s.add_webrtc(&p, webrtc_client(1, "A"), 2).unwrap().is_empty());
+        assert!(
+            s.add_webrtc(&p, webrtc_client(1, "A"), 2)
+                .unwrap()
+                .is_empty()
+        );
         s.add_webrtc(&p, webrtc_client(2, "B"), 2).unwrap();
         let dropped = s.add_webrtc(&p, webrtc_client(3, "C"), 2).unwrap();
         assert_eq!(dropped, ["web-1"]);

@@ -84,13 +84,14 @@ pub const LOSS_WINDOW: Duration = Duration::from_millis(500);
 /// quiet stream loses 5 % to a single packet.
 pub const LOSS_MIN_PACKETS: u64 = 100;
 /// After a fast-to-slow pacing latch has had its fence, this long a single
-/// unrecoverable frame is enough (E1 is otherwise [`UNRECOVERABLE_FRAMES`]): the
-/// latch was given its chance and the loss went on. A client waiting for a
-/// keyframe reports little (one lost keyframe per request), so three frames
-/// took 4 s on the 2026-10-24 `r50-hevc-hi` arm (75 Mbps into 50 Mbit/s) and
-/// the stream lost its first 5.8 s. Its keyframe requests count as well, even
-/// from a client that sends FEC status: they were the only sign of loss for 1.5 s
-/// of that run. A cut with no measured share goes to [`MIN_CUT_PERCENT`] then.
+/// event is enough (E1 is otherwise [`UNRECOVERABLE_FRAMES`]) if it proves the
+/// latch failed: a lost keyframe, or a keyframe request while no keyframe has
+/// come through whole since the latch. Any other lone event is not proof: the
+/// latch can be provisional (start-up) and almost every IDR request is counted
+/// as a network request. A client waiting for a keyframe reports little (one
+/// lost keyframe per request), so three frames took 4 s on the 2026-10-24
+/// `r50-hevc-hi` arm (75 Mbps into 50 Mbit/s) and the stream lost its first
+/// 5.8 s. A cut with no measured share goes to [`MIN_CUT_PERCENT`] then.
 pub const LATCH_WATCH: Duration = Duration::from_secs(4);
 /// Frames lost on send (WSAENOBUFS and the like) that cut (E3).
 pub const SEND_LOSS_FRAMES: usize = 3;
@@ -271,6 +272,13 @@ impl Fence {
     }
 }
 
+#[derive(Clone, Copy)]
+struct WatchedKeyframe {
+    frame: u32,
+    at: Instant,
+    failed: bool,
+}
+
 #[derive(Default)]
 struct Events {
     unrecoverable: Vec<(Instant, u32)>,
@@ -288,6 +296,10 @@ struct Events {
     /// have been reported yet (feedback lag), so the loss share is measured
     /// only up to here.
     last_loss: Option<u32>,
+    /// During a latch watch: a keyframe the client could not rebuild, or a
+    /// keyframe request made while no keyframe had arrived whole since the
+    /// latch. Either shows the latch did not fix the loss.
+    latch_failed: bool,
 }
 impl Events {
     fn clear(&mut self) {
@@ -300,6 +312,7 @@ impl Events {
         self.hot = 0;
         self.first_loss = None;
         self.last_loss = None;
+        self.latch_failed = false;
     }
     fn lost(&mut self, frame: u32) {
         if self
@@ -388,6 +401,15 @@ pub struct LinkRate {
     fence: Option<Fence>,
     /// Until when one unrecoverable frame cuts (see [`LATCH_WATCH`]).
     latch_watch: Option<Instant>,
+    /// Keyframes sent since the fence of the latch being watched, with whether
+    /// the client reported each unrecoverable.
+    watch_keyframes: Vec<WatchedKeyframe>,
+    /// Rebuilt blocks seen, their packets and those of them reported missing
+    /// before the block was rebuilt (data only), for the snapshot: on a path
+    /// that reorders, nearly every block is "missing" its trailing packets.
+    rebuilt_blocks: u64,
+    rebuilt_packets: u64,
+    rebuilt_data_missing: u64,
     last_sent: Option<u32>,
     ring: Box<[Sent]>,
     events: Events,
@@ -436,6 +458,10 @@ impl LinkRate {
             near_bad: None,
             fence: None,
             latch_watch: None,
+            watch_keyframes: Vec::new(),
+            rebuilt_blocks: 0,
+            rebuilt_packets: 0,
+            rebuilt_data_missing: 0,
             last_sent: None,
             ring: Box::default(),
             events: Events::default(),
@@ -576,6 +602,9 @@ impl LinkRate {
         // 2026-10-24 Wi-Fi arm (3 +/- 2 ms delay, 0.5 % loss) that read as 18 %
         // missing and cut the stream to its floor.
         if received >= u32::from(status.data) {
+            self.rebuilt_blocks += 1;
+            self.rebuilt_packets += u64::from(total);
+            self.rebuilt_data_missing += u64::from(status.data - status.received_data);
             return;
         }
         let missing = total - received;
@@ -589,11 +618,44 @@ impl LinkRate {
     /// A distinct frame the client could not rebuild, already classified by
     /// `KeyframeLoss` (not inside a host-change window, not counted as lost on
     /// send). Feeds E1.
-    pub fn on_unrecoverable(&mut self, frame: u32, now: Instant) {
+    /// `keyframe` is whether the frame is one the host sent as a keyframe: one
+    /// of those lost while a latch is watched shows the latch did not help.
+    pub fn on_unrecoverable(&mut self, frame: u32, keyframe: bool, now: Instant) {
         if self.is_active() && self.admits(Some(frame), now) {
             Events::distinct(&mut self.events.unrecoverable, now, frame);
             self.events.lost(frame);
+            if keyframe {
+                if self.watching(now) {
+                    self.events.latch_failed = true;
+                }
+                for k in self.watch_keyframes.iter_mut().filter(|k| k.frame == frame) {
+                    k.failed = true;
+                }
+            }
         }
+    }
+
+    /// The host is sending `frame` as a keyframe.
+    pub fn on_keyframe_sent(&mut self, frame: u32, now: Instant) {
+        if !self.is_active() || !self.watching(now) || !self.admits(Some(frame), now) {
+            return;
+        }
+        if self.watch_keyframes.len() >= EVENT_CAP {
+            self.watch_keyframes.remove(0);
+        }
+        self.watch_keyframes.push(WatchedKeyframe {
+            frame,
+            at: now,
+            failed: false,
+        });
+    }
+
+    /// A keyframe sent since the latch's fence that the client had time to
+    /// report lost and did not.
+    fn keyframe_arrived(&self, now: Instant) -> bool {
+        self.watch_keyframes
+            .iter()
+            .any(|k| !k.failed && now.saturating_duration_since(k.at) >= self.fence_wait())
     }
 
     /// A frame the host could not send whole. Feeds E3.
@@ -608,11 +670,14 @@ impl LinkRate {
     /// the network, not the host or the decoder queue, caused it. Feeds E4,
     /// and only from a client that has sent no FEC status.
     pub fn on_keyframe_request(&mut self, network: bool, now: Instant) {
-        if !network
-            || (self.fec_status_seen && !self.watching(now))
-            || !self.is_active()
-            || !self.admits(None, now)
-        {
+        if !network || !self.is_active() || !self.admits(None, now) {
+            return;
+        }
+        // Under a latch watch a request from a client that reports FEC status
+        // counts when no keyframe has got through since the latch.
+        if self.watching(now) && !self.keyframe_arrived(now) {
+            self.events.latch_failed = true;
+        } else if self.fec_status_seen {
             return;
         }
         if self.events.requests.len() >= EVENT_CAP {
@@ -668,6 +733,7 @@ impl LinkRate {
 
     fn set_fence(&mut self, now: Instant) {
         self.latch_watch = None;
+        self.watch_keyframes.clear();
         let wait = MIN_FENCE.max(self.rtt * 2 + FENCE_MARGIN);
         self.fence = Some(Fence {
             frame: self.last_sent.map(|f| f.wrapping_add(1 + PIPELINE_FRAMES)),
@@ -773,16 +839,18 @@ impl LinkRate {
             loss_windows: e.hot,
             loss_share: 0.,
         };
-        let watching = self.watching(now);
-        let unrecoverable = if watching { 1 } else { UNRECOVERABLE_FRAMES };
-        let requests = if watching { 1 } else { KEYFRAME_REQUESTS };
-        let (reason, share_known) = if evidence.unrecoverable_frames >= unrecoverable {
+        let latch_failed = self.watching(now) && e.latch_failed;
+        let (reason, share_known) = if evidence.unrecoverable_frames >= UNRECOVERABLE_FRAMES
+            || (latch_failed && evidence.unrecoverable_frames > 0)
+        {
             ("unrecoverable_frames", true)
         } else if evidence.loss_windows >= LOSS_WINDOWS {
             ("fec_loss_share", true)
         } else if evidence.send_losses >= SEND_LOSS_FRAMES {
             ("send_losses", true)
-        } else if (!self.fec_status_seen || watching) && evidence.keyframe_requests >= requests {
+        } else if (!self.fec_status_seen && evidence.keyframe_requests >= KEYFRAME_REQUESTS)
+            || (latch_failed && evidence.keyframe_requests > 0)
+        {
             ("keyframe_requests", false)
         } else {
             return None;
@@ -790,6 +858,7 @@ impl LinkRate {
         Some(Trigger {
             reason,
             share_known,
+            latch_failed,
             evidence,
         })
     }
@@ -1043,7 +1112,7 @@ impl LinkRate {
                 // keyframe reports almost nothing. A 30 % cut left r50-hevc-hi
                 // at 41 Mbps on a 50 Mbit/s link with 75 % of packets lost for
                 // another 1.6 s; go as deep as a cut may, and probe back.
-                let percent = if self.watching(now) {
+                let percent = if why.latch_failed {
                     MIN_CUT_PERCENT
                 } else {
                     UNKNOWN_SHARE_PERCENT
@@ -1272,6 +1341,12 @@ impl LinkRate {
             "steps_down": self.steps_down,
             "probes": self.probes,
             "failed_probes": self.failed_probes,
+            "rebuilt_blocks": self.rebuilt_blocks,
+            "rebuilt_data_missing_percent": if self.rebuilt_packets == 0 {
+                0.
+            } else {
+                self.rebuilt_data_missing as f64 * 100. / self.rebuilt_packets as f64
+            },
             "last_change_ms_ago": self
                 .last_change
                 .map(|at| now.saturating_duration_since(at).as_millis() as u64),
@@ -1293,5 +1368,7 @@ impl LinkRate {
 struct Trigger {
     reason: &'static str,
     share_known: bool,
+    /// A watched latch is known not to have fixed the loss.
+    latch_failed: bool,
     evidence: Evidence,
 }

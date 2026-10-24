@@ -265,7 +265,7 @@ impl Sim {
                 if self.keyframe_requests {
                     self.lr.on_keyframe_request(true, now);
                 }
-                self.lr.on_unrecoverable(status.frame, now);
+                self.lr.on_unrecoverable(status.frame, false, now);
             }
         }
     }

@@ -259,6 +259,10 @@ impl KeyframeLoss {
     pub fn take_lifted(&mut self) -> Option<String> {
         self.lifted_note.take()
     }
+    /// Whether the host sent this wire frame as a keyframe (recent ones only).
+    pub fn is_keyframe(&self, frame: u32) -> bool {
+        self.keyframes.contains(&Some(frame))
+    }
     /// Whether this keyframe is the stream's first or the client's quick
     /// request for another.
     fn startup_keyframe(&self, frame: u32) -> bool {

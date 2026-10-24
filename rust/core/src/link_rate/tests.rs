@@ -33,7 +33,14 @@ fn status(frame: u32, received: u16, parity_lost: u16) -> Status {
 /// A frame the client could not rebuild.
 fn unrecoverable(lr: &mut LinkRate, frame: u32, now: Instant) {
     lr.on_status(&status(frame, 60, 0), now);
-    lr.on_unrecoverable(frame, now);
+    lr.on_unrecoverable(frame, false, now);
+}
+
+/// A keyframe the client could not rebuild, sent just now.
+fn lost_keyframe(lr: &mut LinkRate, frame: u32, now: Instant) {
+    lr.on_keyframe_sent(frame, now);
+    lr.on_status(&status(frame, 60, 0), now);
+    lr.on_unrecoverable(frame, true, now);
 }
 
 /// A frame that lost `missing` packets, all of them repaired by FEC.
@@ -255,30 +262,65 @@ fn an_occasional_failed_frame_is_not_a_cut() {
 
 /// The 2026-10-24 `wifi` arm (150 Mbit/s, 3 +/- 2 ms delay, 0.5 % loss, HEVC
 /// 1080p60 at 14,988 kbps, 20 % FEC) from `host-samples.jsonl`: about 38 packets
-/// a frame (2,370 in the first 62 frames, 39 with 20 % parity). The delay jitter reorders packets
-/// within a frame, so the client decodes each block when its 32nd packet is in
-/// and reports it with the rest still on the way; a few percent of the frames
-/// also truly lost a packet. The old controller read 18 % missing and cut to
-/// the 2,415 kbps floor within seven seconds (15 changes).
+/// a frame. A frame leaves the host in under a millisecond and the +/- 2 ms
+/// jitter then puts its packets in an almost random order, so the client
+/// rebuilds a block when its 32nd packet is in and reports it with parity in
+/// and data still on the way: 17.7 % "missing" in the log, so nearly every
+/// frame was reported. The old controller cut to the 2,415 kbps floor within
+/// seven seconds (15 changes).
+///
+/// Modelled here as it is: a random arrival order per block, 0.5 % of packets
+/// lost, a report at the 32nd arrival unless all 32 data packets came first.
 #[test]
 fn the_wifi_arm_with_reordering_and_random_loss_never_cuts() {
     let mut rig = Rig::new(14_988);
-    let mut n = 0u32;
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut random = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let (mut blocks, mut rebuilt) = (0u32, 0u32);
     rig.run(45_000, |lr, frame, now| {
-        n += 1;
-        // Data 32 + parity 7. The block is rebuilt when 32 of the 39 packets
-        // are in: `late` of them parity-first, i.e. data still on the way.
-        let late = 1 + (n * 7 % 7) as u16;
+        // Data 32 + parity 7, indices 0..32 are data.
+        let mut order: Vec<u16> = (0..39).collect();
+        for i in (1..order.len()).rev() {
+            order.swap(i, (random() % (i as u64 + 1)) as usize);
+        }
+        let (mut data, mut parity) = (0u16, 0u16);
+        let mut report = None;
+        for index in order {
+            if random() % 1000 < 5 {
+                continue;
+            }
+            if index < 32 {
+                data += 1;
+            } else {
+                parity += 1;
+            }
+            if data + parity == 32 {
+                report = Some((data, parity));
+                break;
+            }
+        }
+        blocks += 1;
+        let (data, parity) = report.unwrap_or((data, parity));
+        // A block whose data all came first needs no report.
+        if data == 32 {
+            return;
+        }
+        rebuilt += 1;
         lr.on_status(
             &Status {
                 frame,
                 highest_received: 38,
                 next_contiguous: 0,
-                missing_before_highest: late,
+                missing_before_highest: 39 - data - parity,
                 data: 32,
                 parity: 7,
-                received_data: 32 - late,
-                received_parity: late,
+                received_data: data,
+                received_parity: parity,
                 percentage: 20,
                 block: 0,
                 blocks: 1,
@@ -288,6 +330,14 @@ fn the_wifi_arm_with_reordering_and_random_loss_never_cuts() {
     });
     assert!(rig.changes.is_empty(), "{:?}", rig.changes);
     assert_eq!(rig.kbps, 14_988);
+    // The model is the log: nearly every block is reported, and the data
+    // packets the client had not yet were far over the 5 % that cut. Counting
+    // them as loss (or the whole tail, 18 %) would cut this stream.
+    assert!(rebuilt * 100 > blocks * 95, "{rebuilt} of {blocks}");
+    let share = rig.lr.snapshot(rig.now())["rebuilt_data_missing_percent"]
+        .as_f64()
+        .unwrap();
+    assert!(share > 5., "{share}");
 }
 
 #[test]
@@ -542,13 +592,14 @@ fn it_never_goes_below_the_floor_and_says_so() {
     let (_, floor) = floor.expect("a floor change");
     assert!(floor.delivered_kbps > 0, "{floor:?}");
     assert!(floor.evidence.loss_share > 0., "{floor:?}");
+    // And the probe after it, once the losses stop.
+    rig.clean(60_000);
     let probe = rig
         .changes
         .iter()
         .find(|(_, c)| c.kind == ChangeKind::Probe);
-    if let Some((_, probe)) = probe {
-        assert!(probe.delivered_kbps > 0, "{probe:?}");
-    }
+    let (_, probe) = probe.expect("a probe change");
+    assert!(probe.delivered_kbps > 0, "{probe:?}");
 }
 
 #[test]
@@ -640,7 +691,7 @@ fn a_latch_that_did_not_help_cuts_on_the_first_unrecoverable_frame_after_it() {
         let at = now.duration_since(base).as_millis() as u64;
         if reports.first().is_some_and(|r| at >= *r) {
             reports.remove(0);
-            unrecoverable(lr, frame, now);
+            lost_keyframe(lr, frame, now);
         }
     });
     assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
@@ -651,10 +702,11 @@ fn a_latch_that_did_not_help_cuts_on_the_first_unrecoverable_frame_after_it() {
 
 /// The same run, 2026-10-24: after the latch's fence the only sign of loss for
 /// 1.5 s was the client's keyframe request, from a client that reports FEC
-/// status (so requests are otherwise not evidence). The cut had no measured
-/// share and the 30 % default left the stream above the link.
+/// status (so requests are otherwise not evidence). No keyframe had got through
+/// since the latch, so the latch had failed; the cut had no measured share and
+/// the 30 % default left the stream above the link.
 #[test]
-fn a_latch_that_did_not_help_cuts_on_a_keyframe_request_and_goes_deep() {
+fn a_keyframe_request_with_no_keyframe_through_since_the_latch_cuts_deep() {
     let mut rig = Rig::new(58_988);
     rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
     rig.lr.on_latch(rig.now(), true, true);
@@ -669,12 +721,51 @@ fn a_latch_that_did_not_help_cuts_on_a_keyframe_request_and_goes_deep() {
     let (_, cut) = rig.changes[0];
     assert_eq!(cut.reason, "keyframe_requests");
     assert!(cut.to_kbps <= 58_988 / 2, "{cut:?}");
-    // The cut is not a default for later ones: without a latch to watch, a
-    // request from a client that reports FEC status is still nothing.
+
+    // The same request, a keyframe that was lost since the latch: cut.
     let mut rig = Rig::new(58_988);
     rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
-    rig.clean(1_000);
-    rig.lr.on_keyframe_request(true, rig.now());
+    rig.lr.on_latch(rig.now(), true, true);
+    rig.clean(600);
+    let (frame, now) = (rig.frame, rig.now());
+    rig.lr.on_keyframe_sent(frame, now);
+    rig.clean(700);
+    rig.lr.on_status(&status(frame, 60, 0), rig.now());
+    rig.lr.on_unrecoverable(frame, true, rig.now());
+    rig.clean(300);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
+}
+
+/// A start-up latch (the first keyframe was lost, pacing slowed) is followed by
+/// a keyframe that arrives whole. A request after that is the decoder, a
+/// resize or one burst, not proof that the latch failed: the stream must not be
+/// halved on it, whether or not the client reports FEC status.
+#[test]
+fn a_keyframe_request_after_a_whole_keyframe_since_the_latch_is_not_a_cut() {
+    for fec in [true, false] {
+        let mut rig = Rig::new(58_988);
+        if fec {
+            rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+        } else {
+            rig.clean(300);
+        }
+        rig.lr.on_latch(rig.now(), true, true);
+        rig.clean(600);
+        // A keyframe after the fence, nothing reported lost for it.
+        let (frame, now) = (rig.frame, rig.now());
+        rig.lr.on_keyframe_sent(frame, now);
+        rig.clean(1_000);
+        rig.lr.on_keyframe_request(true, rig.now());
+        rig.clean(1_000);
+        assert!(rig.changes.is_empty(), "fec {fec}: {:?}", rig.changes);
+    }
+    // One ordinary frame lost after a latch is no longer a cut either.
+    let mut rig = Rig::new(58_988);
+    rig.clean(300);
+    rig.lr.on_latch(rig.now(), true, true);
+    rig.clean(700);
+    let (frame, now) = (rig.frame, rig.now());
+    unrecoverable(&mut rig.lr, frame, now);
     rig.clean(1_000);
     assert!(rig.changes.is_empty(), "{:?}", rig.changes);
 }

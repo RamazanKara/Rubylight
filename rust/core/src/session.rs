@@ -2658,12 +2658,13 @@ impl<P, A> Session<P, A> {
             return;
         };
         let now = Instant::now();
-        let (network, abandoned) = {
+        let (network, abandoned, keyframe) = {
             let loss = self.keyframe_loss.lock().unwrap();
             (
                 matches!(block, crate::adaptive_fec::Block::Unrecoverable)
                     && loss.network_loss(frame, now),
                 loss.is_abandoned(frame),
+                loss.is_keyframe(frame),
             )
         };
         let mut link = self.link_rate.lock().unwrap();
@@ -2674,7 +2675,7 @@ impl<P, A> Session<P, A> {
             link.rate.on_status(&status, now);
         }
         if network {
-            link.rate.on_unrecoverable(frame, now);
+            link.rate.on_unrecoverable(frame, keyframe, now);
         }
     }
     /// The link-rate state for the session API and the `stream timings` line.
@@ -2983,6 +2984,13 @@ impl<P, A> Session<P, A> {
         // Fast is what was applied to this frame, not what the route allows.
         let fast = bps > safe;
         self.pace_was_fast.store(fast, Ordering::Relaxed);
+        if keyframe && self.link_sent.live() {
+            self.link_rate
+                .lock()
+                .unwrap()
+                .rate
+                .on_keyframe_sent(wire_frame, now);
+        }
         if let Some(why) = lifted {
             tracing::info!(stream_id = %self.launch.id, why, "returning to the route's pacing rate: the start-up loss did not recur");
             self.launch.warnings.clear("network_keyframe_loss");

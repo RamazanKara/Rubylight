@@ -984,7 +984,7 @@ impl Prepared {
         {
             launch.warnings.set("display_virtual", format!("Using the physical display because this Windows cannot load the virtual display driver. {reason} Update to Windows 11 23H2 or later to use a virtual display."));
         } else if display_request.requested() && !virtual_mode {
-            launch.warnings.set("display_virtual", "Using a physical display because the virtual display driver is unavailable. The desktop is visible locally and its refresh can limit fresh frames; repair the virtual display driver or explicitly select the physical display.");
+            launch.warnings.set("display_virtual", "Using a physical display because the virtual display driver is unavailable. The desktop is visible locally and its refresh can limit fresh frames; repair the virtual display driver (run \"uninstall.exe --repair-drivers\" from the Rubylight folder in an administrator shell) or explicitly select the physical display.");
         } else {
             launch.warnings.clear("display_virtual");
         }

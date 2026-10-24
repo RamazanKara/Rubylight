@@ -1181,6 +1181,8 @@ fn driver_lock(wait: Duration) -> Option<std::fs::File> {
     }
 }
 const REPAIR_RECORD: &str = "driver-repair.json";
+/// What the log tells a person when the service's repair was held back.
+const REPAIR_BY_HAND: &str = "To try again now, run \"uninstall.exe --repair-drivers\" from the Rubylight folder in an administrator shell.";
 /// A new installation may repair the display driver again, unless it was
 /// installed with --no-display-driver.
 fn remember_driver_choice(profile: &Path, display_driver: bool) {
@@ -1198,8 +1200,11 @@ fn remember_driver_choice(profile: &Path, display_driver: bool) {
 /// it missing, and Artemis then reports the "SudoVDA" driver as not
 /// installed. Sets the display driver up again from this installation, at
 /// most once a day per version and never during a stream; the driver script
-/// restarts the service. Returns whether Windows must restart.
-pub fn repair_drivers(progress: &Progress) -> Result<bool> {
+/// restarts the service. The daily limit and the --no-display-driver choice
+/// bind only the service's `automatic` runs: a person who runs the repair has
+/// asked for it, so an automatic attempt that failed cannot lock it out for
+/// the day. Returns whether Windows must restart.
+pub fn repair_drivers(progress: &Progress, automatic: bool) -> Result<bool> {
     let exe = std::env::current_exe()?;
     let install = system::win32_path(exe.parent().context("setup folder unavailable")?)?;
     let profile = profile();
@@ -1208,8 +1213,15 @@ pub fn repair_drivers(progress: &Progress) -> Result<bool> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
     let version = env!("CARGO_PKG_VERSION");
-    if let Some(reason) = repair_skipped(std::fs::read(&record).ok().as_deref(), version, now) {
-        line(format!("not repairing the display driver: {reason}"));
+    if let Some(reason) = repair_skipped(
+        std::fs::read(&record).ok().as_deref(),
+        version,
+        now,
+        automatic,
+    ) {
+        line(format!(
+            "not repairing the display driver: {reason}. {REPAIR_BY_HAND}"
+        ));
         return Ok(false);
     }
     // Setup or an update that is installing the drivers right now restarts
@@ -1237,7 +1249,15 @@ pub(crate) fn display_driver_declined() -> bool {
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .is_some_and(|record| record["declined"] == true)
 }
-fn repair_skipped(record: Option<&[u8]>, version: &str, now: u64) -> Option<&'static str> {
+fn repair_skipped(
+    record: Option<&[u8]>,
+    version: &str,
+    now: u64,
+    automatic: bool,
+) -> Option<&'static str> {
+    if !automatic {
+        return None;
+    }
     let record: serde_json::Value = serde_json::from_slice(record?).ok()?;
     if record["declined"] == true {
         return Some("it was left out with --no-display-driver");
@@ -1639,7 +1659,18 @@ mod tests {
         let day = 86_400;
         let record = |text: &str| Some(text.as_bytes().to_vec());
         let skipped =
-            |text: Option<Vec<u8>>, now| repair_skipped(text.as_deref(), "2.0.0-rc.27", now);
+            |text: Option<Vec<u8>>, now| repair_skipped(text.as_deref(), "2.0.0-rc.27", now, true);
+        // A person running the repair is never held back by an automatic
+        // attempt that failed earlier the same day, nor by a declined choice.
+        for text in [
+            r#"{"version":"2.0.0-rc.27","unix":86400}"#,
+            r#"{"declined":true}"#,
+        ] {
+            assert_eq!(
+                repair_skipped(Some(text.as_bytes()), "2.0.0-rc.27", day + 60, false),
+                None
+            );
+        }
         assert_eq!(skipped(None, day), None);
         assert_eq!(skipped(record("not json"), day), None);
         let tried = record(r#"{"version":"2.0.0-rc.27","unix":86400}"#);

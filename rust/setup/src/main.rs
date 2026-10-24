@@ -7,7 +7,7 @@
 //!                       [--no-display-driver] [--usbip-driver | --no-usbip-driver]
 //!                       [--no-start] [--end-streams]
 //! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
-//! rubylight-setup.exe --repair-drivers (the service runs this one)
+//! rubylight-setup.exe --repair-drivers [--automatic] (the service runs this one with --automatic)
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 #[allow(dead_code)]
@@ -52,6 +52,9 @@ struct Arguments {
     remove_drivers: bool,
     /// The service found no virtual display driver: set it up again.
     repair_drivers: bool,
+    /// With --repair-drivers: the service asked, so the once-a-day limit and
+    /// the --no-display-driver choice apply. Run by hand, the repair always runs.
+    automatic: bool,
     /// Diagnostics: write what setup found to this file and exit.
     detect: Option<PathBuf>,
     /// Diagnostics: unpack and verify the package into this folder and exit.
@@ -84,6 +87,7 @@ fn arguments() -> Result<Arguments, String> {
             "--factory-reset" => parsed.factory_reset = true,
             "--remove-drivers" => parsed.remove_drivers = true,
             "--repair-drivers" => parsed.repair_drivers = true,
+            "--automatic" => parsed.automatic = true,
             "--detect" => {
                 parsed.detect = Some(PathBuf::from(args.next().ok_or("--detect needs a file")?))
             }
@@ -167,8 +171,9 @@ fn main() {
         }
         failed(args.quiet, "This PC cannot run Rubylight 3.0", &error)
     } else if args.repair_drivers {
-        match ui::progress(TITLE, "Repairing the drivers", true, |progress| {
-            install::repair_drivers(&progress)
+        let automatic = args.automatic;
+        match ui::progress(TITLE, "Repairing the drivers", true, move |progress| {
+            install::repair_drivers(&progress, automatic)
         }) {
             Ok(true) => 3010,
             Ok(false) => 0,

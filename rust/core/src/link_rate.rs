@@ -761,18 +761,17 @@ impl LinkRate {
         let Some(latched) = self.latch_at.filter(|_| self.watching(now)) else {
             return;
         };
-        if let Some(frame) = frame {
-            if self
+        if let Some(frame) = frame
+            && (self
                 .sent(frame)
                 .and_then(|s| s.at)
                 .is_some_and(|at| at < latched)
                 || self
                     .watch_events
                     .iter()
-                    .any(|(_, seen)| *seen == Some(frame))
-            {
-                return;
-            }
+                    .any(|(_, seen)| *seen == Some(frame)))
+        {
+            return;
         }
         if self
             .watch_events

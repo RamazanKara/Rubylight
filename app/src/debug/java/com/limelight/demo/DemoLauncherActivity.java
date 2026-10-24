@@ -36,6 +36,8 @@ public final class DemoLauncherActivity extends Activity {
             finish();
             return;
         }
+        DemoFixtures.smallTiles = getIntent().getBooleanExtra("small", true);
+        DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
         DemoFixtures.nativeApiHost = "native".equals(getIntent().getStringExtra("host"));
         DemoConsole.hostControl = getIntent().getBooleanExtra("control", true);

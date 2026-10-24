@@ -20,6 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class DemoFixtures {
+    /** "--ez small false" on the launcher shows the large library tiles; "--ez roles true" adds the view-only and input-only tiles. */
+    public static boolean smallTiles = true;
+    public static boolean roleTiles;
     public static final String PC_UUID = "d3e00000-0000-4000-8000-000000000001";
     public static final String[] TITLES = {"Desktop", "Racing Game", "Open World", "Space Sim",
             "Puzzle Night", "Retro Arcade", "Strategy", "Music Studio", "Ocean Explorer", "Skybound"};
@@ -85,6 +88,10 @@ public final class DemoFixtures {
             xml.append("<App><AppTitle>").append(TITLES[i]).append("</AppTitle><ID>")
                     .append(i + 1).append("</ID><IsHdrSupported>1</IsHdrSupported></App>");
         }
+        if (roleTiles) {
+            xml.append("<App><AppTitle>Remote Monitor</AppTitle><ID>2147483605</ID></App>")
+                    .append("<App><AppTitle>Remote Input</AppTitle><ID>2147483606</ID></App>");
+        }
         return xml.append("</root>").toString();
     }
 
@@ -99,7 +106,7 @@ public final class DemoFixtures {
                 .putBoolean("checkbox_vrr", true).putBoolean("checkbox_enable_hdr", false)
                 .putBoolean("checkbox_drop_late_frames", false).putBoolean("checkbox_reduce_refresh_rate", false)
                 .putBoolean("checkbox_codec_performance", true).putBoolean("checkbox_phone_performance_hints", true)
-                .putBoolean("checkbox_small_icon_mode", true)
+                .putBoolean("checkbox_small_icon_mode", smallTiles)
                 .putBoolean("checkbox_enable_pip", true).putBoolean("checkbox_show_onscreen_controls", true)
                 .putBoolean("checkbox_enable_perf_overlay", true)
                 .putBoolean("checkbox_usb_dualsense", true).putBoolean("checkbox_usb_dualsense_haptics", true)

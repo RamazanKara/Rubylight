@@ -236,6 +236,108 @@ public class DecoderTuningKeysTest {
         assertFalse(tune("c2.exynos.hevc.decoder", 0, false).containsKey("vendor.low-latency.enable"));
     }
 
+    private static final String[] EXYNOS_KEYS = {
+            "vendor.rtc-ext-dec-low-latency.enable", "vendor.rtc-ext-dec-output-queue-depth.value", "vendor.sec-dec-output.delay"};
+
+    @Test
+    public void exynosDecodersGetTheWholePresetForEveryCodec() {
+        for (String name : new String[] {"c2.exynos.h264.decoder", "c2.exynos.hevc.decoder", "c2.exynos.av1.decoder",
+                "OMX.Exynos.avc.dec", "OMX.Exynos.HEVC.Decoder"}) {
+            MediaFormat format = tune(name, 0, false);
+            assertKeys(name, format, EXYNOS_KEYS);
+            assertEquals(name, 1, format.getInteger("vendor.rtc-ext-dec-low-latency.enable"));
+            assertEquals(name, 2, format.getInteger("vendor.rtc-ext-dec-output-queue-depth.value"));
+            assertEquals(name, 0, format.getInteger("vendor.sec-dec-output.delay"));
+            assertAbsent(name, format, QTI_KEYS);
+            assertAbsent(name, format, TEGRA_KEYS);
+            assertAbsent(name, format, MTK_KEYS);
+            assertAbsent(name, format, MediaFormat.KEY_OPERATING_RATE, VendorLowLatencyKeys.GOOGLE_FRAME_RATE);
+        }
+    }
+
+    @Test
+    @Config(sdk = 34)
+    public void androidTwelveSendsTheExynosPresetEvenWhenTheDecoderListsLessOrNothing() {
+        // The Galaxy A37 lists the switch for H.264 only (issue 26); HEVC lists no vendor key.
+        MediaCodecInfo avc = decoder("c2.exynos.h264.decoder", "vendor.rtc-ext-dec-low-latency.enable");
+        MediaCodecInfo hevc = decoder("c2.exynos.hevc.decoder", "vendor.acme.unrelated.value");
+        for (MediaCodecInfo info : new MediaCodecInfo[] {avc, hevc}) {
+            MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+            assertTrue(MediaCodecHelper.setDecoderLowLatencyOptions(format, info, 0, true, true, false, false));
+            assertKeys(info.getName(), format, EXYNOS_KEYS);
+        }
+    }
+
+    @Test
+    public void exynosPresetFollowsTheFallbackLadderAndTheVendorSwitch() {
+        for (int attempt = 0; attempt <= 5; attempt++) {
+            MediaFormat format = tune("c2.exynos.hevc.decoder", attempt, false);
+            // The queue and delay keys leave after the second try; the switch stays through the fourth.
+            assertEquals("try " + attempt, attempt < 4, format.containsKey("vendor.rtc-ext-dec-low-latency.enable"));
+            assertEquals("try " + attempt, attempt < 2, format.containsKey("vendor.rtc-ext-dec-output-queue-depth.value"));
+            assertEquals("try " + attempt, attempt < 2, format.containsKey("vendor.sec-dec-output.delay"));
+        }
+        assertAbsent("vendor switch off", tuneWithoutVendorKeys("c2.exynos.hevc.decoder"), EXYNOS_KEYS);
+        MediaFormat blocked = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        MediaCodecHelper.setDecoderLowLatencyOptions(blocked, decoder("c2.exynos.hevc.decoder"), 0, true, true, false, true);
+        assertAbsent("HEVC override", blocked, EXYNOS_KEYS);
+    }
+
+    @Test
+    public void exynosKeysAreNotSentToOtherChips() {
+        for (String name : new String[] {"c2.qti.hevc.decoder", "OMX.qcom.video.decoder.hevc", "c2.mtk.hevc.decoder",
+                "OMX.MTK.VIDEO.DECODER.HEVC", "OMX.Nvidia.h265.decode", "c2.google.hevc.decoder", "c2.android.hevc.decoder"}) {
+            MediaFormat format = tune(name, 0, true);
+            assertAbsent(name, format, "vendor.rtc-ext-dec-output-queue-depth.value", "vendor.sec-dec-output.delay");
+            assertAbsent(name, format, "vendor.rtc-ext-dec-low-latency.enable");
+        }
+    }
+
+    @Test
+    public void tensorDecodersRunAtTheirMostAndTheStreamRateCountsAtLeast() {
+        for (String name : new String[] {"c2.google.hevc.decoder", "c2.google.h264.decoder", "c2.google.av1.decoder"}) {
+            MediaFormat format = tune(name, 0, false);
+            assertEquals(name, 120, format.getInteger(MediaFormat.KEY_OPERATING_RATE));
+            assertEquals(name, 0, format.getInteger(MediaFormat.KEY_PRIORITY));
+            assertAbsent(name, format, EXYNOS_KEYS);
+            assertAbsent(name, format, QTI_KEYS);
+            assertAbsent(name, format, MTK_KEYS);
+            // The frame rate key is Android 17 only.
+            assertFalse(name, format.containsKey(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
+        }
+        MediaFormat fast = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        fast.setInteger(MediaFormat.KEY_FRAME_RATE, 240);
+        MediaCodecHelper.setDecoderLowLatencyOptions(fast, decoder("c2.google.hevc.decoder"), 0, true, true, false, false);
+        assertEquals(240, fast.getInteger(MediaFormat.KEY_OPERATING_RATE));
+    }
+
+    @Test
+    public void tensorKeysFollowTheFallbackLadderAndTheVendorSwitch() {
+        for (int attempt = 0; attempt <= 3; attempt++) {
+            MediaFormat format = tune("c2.google.hevc.decoder", attempt, false);
+            assertEquals("try " + attempt, attempt < 2, format.containsKey(MediaFormat.KEY_OPERATING_RATE));
+            assertEquals("try " + attempt, attempt < 2, format.containsKey(MediaFormat.KEY_PRIORITY));
+        }
+        assertAbsent("vendor switch off", tuneWithoutVendorKeys("c2.google.hevc.decoder"),
+                MediaFormat.KEY_OPERATING_RATE, MediaFormat.KEY_PRIORITY, VendorLowLatencyKeys.GOOGLE_FRAME_RATE);
+    }
+
+    @Test
+    @Config(sdk = 35)
+    public void tensorDecodersGetTheirFrameRateKeyOnAndroidSeventeenOnTheFirstTryOnly() {
+        // Robolectric has no API 36 yet, so the level is raised on the Build class itself.
+        int before = android.os.Build.VERSION.SDK_INT;
+        ReflectionHelpers.setStaticField(android.os.Build.VERSION.class, "SDK_INT", 36);
+        try {
+            MediaFormat first = tune("c2.google.hevc.decoder", 0, false);
+            assertEquals(120, first.getInteger(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
+            assertFalse(tune("c2.google.hevc.decoder", 1, false).containsKey(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
+            assertFalse(tune("c2.exynos.hevc.decoder", 0, false).containsKey(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
+        } finally {
+            ReflectionHelpers.setStaticField(android.os.Build.VERSION.class, "SDK_INT", before);
+        }
+    }
+
     @Test
     public void unknownDecodersGetOnlyTheStandardKey() {
         MediaFormat format = tune("c2.acme.hevc.decoder", 0, false);
@@ -310,6 +412,9 @@ public class DecoderTuningKeysTest {
         assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.Nvidia.h264.decode"));
         assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.amlogic.hevc.decoder.awesome"));
         assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("c2.qcom.hevc.decoder"));
+        assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("c2.exynos.h264.decoder"));
+        assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.Exynos.avc.dec"));
+        assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("c2.google.hevc.decoder"));
         assertFalse(MediaCodecHelper.isExperimentalVendorDecoder("c2.qti.hevc.decoder.low_latency"));
         assertFalse(MediaCodecHelper.isExperimentalVendorDecoder("c2.android.hevc.decoder"));
     }

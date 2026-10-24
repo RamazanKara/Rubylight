@@ -49,6 +49,7 @@ public class MediaCodecHelper {
     private static final List<String> kirinDecoderPrefixes;
     private static final List<String> exynosDecoderPrefixes;
     private static final List<String> amlogicDecoderPrefixes;
+    private static final List<String> googleDecoderPrefixes;
 
     public static final boolean SHOULD_BYPASS_SOFTWARE_BLOCK =
             Build.HARDWARE.equals("ranchu") || Build.HARDWARE.equals("cheets") || Build.BRAND.equals("Android-x86");
@@ -263,6 +264,14 @@ public class MediaCodecHelper {
         amlogicDecoderPrefixes.add("c2.amlogic"); // Unconfirmed
     }
 
+    static {
+        googleDecoderPrefixes = new LinkedList<>();
+
+        // Google Codec2 decoders, the hardware decoders of Tensor phones (Moonlight X names them
+        // for Pixels too).
+        googleDecoderPrefixes.add("c2.google");
+    }
+
     private static boolean isPowerVR(String glRenderer) {
         return glRenderer.toLowerCase().contains("powervr");
     }
@@ -318,12 +327,14 @@ public class MediaCodecHelper {
 
     /**
      * Decoders whose vendor keys follow Artemis and the derflacco fork but were never run on
-     * MediaTek, NVIDIA or Amlogic hardware by us; the stream log marks them Experimental.
+     * MediaTek, NVIDIA, Amlogic, Exynos or Tensor hardware by us; the stream log marks them Experimental.
      */
     static boolean isExperimentalVendorDecoder(String decoderName) {
         return isDecoderInList(mediaTekDecoderPrefixes, decoderName)
                 || isDecoderInList(tegraDecoderPrefixes, decoderName)
                 || isDecoderInList(amlogicDecoderPrefixes, decoderName)
+                || isDecoderInList(exynosDecoderPrefixes, decoderName)
+                || isDecoderInList(googleDecoderPrefixes, decoderName)
                 || decoderName.toLowerCase(java.util.Locale.ROOT).startsWith("c2.qcom");
     }
 
@@ -685,6 +696,36 @@ public class MediaCodecHelper {
             setNewOption = true;
         }
 
+        // Samsung Exynos decoders take the whole preset by name. On Android 12 and newer the
+        // declared-keys path below sends only what a decoder lists, and Exynos H.264 decoders list
+        // just the low-latency switch while HEVC and AV1 list none (issue 26). The preset leaves
+        // after the second try; the low-latency switch alone stays through the fourth.
+        // Experimental: we have no Exynos device to run the preset on.
+        if (useVendorOptions && tryNumber < 4 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                isDecoderInList(exynosDecoderPrefixes, decoderInfo.getName())) {
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.EXYNOS.entrySet()) {
+                if (tryNumber < 2 || VendorLowLatencyKeys.isCoreSwitch(key.getKey())) {
+                    videoFormat.setInteger(key.getKey(), key.getValue());
+                    setNewOption = true;
+                }
+            }
+        }
+
+        // Google Codec2 (Tensor) decoders run at the most they can do for the stream's size, with
+        // real-time priority, and on Android 17 and newer also get the frame rate by their own key.
+        // The rate comes from the decoder's own capabilities, so it can meet it.
+        // Experimental: we have no Tensor device to run this on.
+        if (useVendorOptions && tryNumber < 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                isDecoderInList(googleDecoderPrefixes, decoderInfo.getName())) {
+            int rate = googleOperatingRate(videoFormat, decoderInfo);
+            videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, rate);
+            videoFormat.setInteger(MediaFormat.KEY_PRIORITY, 0);
+            if (tryNumber == 0 && Build.VERSION.SDK_INT >= 36) {
+                videoFormat.setInteger(VendorLowLatencyKeys.GOOGLE_FRAME_RATE, rate);
+            }
+            setNewOption = true;
+        }
+
         List<String> vendorParams = useVendorOptions ? getIntegerVendorParameters(decoderInfo.getName()) : null;
         if (vendorParams != null && !vendorParams.isEmpty() && tryNumber < 5) {
             // Android 12+: set exactly the low-latency keys this decoder declares. The full set goes
@@ -743,13 +784,6 @@ public class MediaCodecHelper {
                     setNewOption = true;
                 }
             }
-            else if (isDecoderInList(exynosDecoderPrefixes, decoderInfo.getName())) {
-                if (tryNumber < 4) {
-                    // Exynos low latency option for H.264 decoder
-                    videoFormat.setInteger("vendor.rtc-ext-dec-low-latency.enable", 1);
-                    setNewOption = true;
-                }
-            }
             else if (isDecoderInList(amlogicDecoderPrefixes, decoderInfo.getName())) {
                 if (tryNumber < 4) {
                     // Amlogic low latency vendor extension
@@ -775,6 +809,29 @@ public class MediaCodecHelper {
         }
 
         return setNewOption;
+    }
+
+    /**
+     * Operating rate for a Google Codec2 decoder: the most it reports for the stream's size, at
+     * least 120 and the stream's frame rate, at most 960. Moonlight X (GPL-3.0) asks for the
+     * decoder's maximum because a rate equal to the stream's makes each frame take most of a
+     * frame interval (about 8 ms at 120 FPS on a Pixel 10).
+     */
+    static int googleOperatingRate(MediaFormat format, MediaCodecInfo decoderInfo) {
+        int fps = format.containsKey(MediaFormat.KEY_FRAME_RATE) ? format.getInteger(MediaFormat.KEY_FRAME_RATE) : 60;
+        int rate = Math.max(120, fps);
+        try {
+            MediaCodecInfo.VideoCapabilities caps = decoderInfo
+                    .getCapabilitiesForType(format.getString(MediaFormat.KEY_MIME)).getVideoCapabilities();
+            int width = format.getInteger(MediaFormat.KEY_WIDTH);
+            int height = format.getInteger(MediaFormat.KEY_HEIGHT);
+            if (caps != null && caps.isSizeSupported(width, height)) {
+                rate = Math.max(rate, (int) Math.min(caps.getSupportedFrameRatesFor(width, height).getUpper(), 960));
+            }
+        } catch (Exception e) {
+            // Keep the rate from the stream
+        }
+        return rate;
     }
 
     /**
@@ -826,8 +883,13 @@ public class MediaCodecHelper {
                 keys.add(key);
             }
         }
+        for (String key : VendorLowLatencyKeys.EXYNOS.keySet()) {
+            if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
         for (String key : new String[] {"vendor.qti-ext-dec-frame-drop.enable", "vendor.qti-ext-dec-dpb-output-delay.enable",
-                "vendor.qti-ext-dec-picture-type.enable"}) {
+                "vendor.qti-ext-dec-picture-type.enable", VendorLowLatencyKeys.GOOGLE_FRAME_RATE}) {
             if (!keys.contains(key)) {
                 keys.add(key);
             }

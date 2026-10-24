@@ -17,6 +17,10 @@ final class VendorLowLatencyKeys {
     static final Map<String, Integer> TEGRA;
     // The whole MediaTek preset, set on MediaTek decoders by name. Experimental: no MediaTek device here.
     static final Map<String, Integer> MEDIATEK;
+    // The Samsung Exynos preset, set on Exynos decoders by name. Experimental: no Exynos device here.
+    static final Map<String, Integer> EXYNOS;
+    // Google Codec2 frame rate key, read by Android 17 and newer (API 36). Experimental: no Tensor device here.
+    static final String GOOGLE_FRAME_RATE = "vendor.google.frame-rate.value";
     // MediaTek switches whose presence on a decoder shows it handles low-latency streams (reference
     // frame invalidation); they are detected for HEVC RFI only, never set. Delay and timeout
     // knobs (buffer.fetch.timeout.ms, the output delay frame counts) are no evidence of that.
@@ -85,6 +89,16 @@ final class VendorLowLatencyKeys {
         mtk.put("vendor.mtk.vdec.drop.nonref.frame", 0);
         mtk.put("vendor.mtk.vdec.frame-drop.policy", 0);
         MEDIATEK = Collections.unmodifiableMap(mtk);
+
+        // Moonlight X (MoreOrLessSoftware's mlsoft-x branch, GPL-3.0) sends all three to every
+        // Exynos decoder, H.264, HEVC and AV1: the low-latency switch, the shortest output queue
+        // and no output delay. The switch is declared by H.264 decoders only (issue 26), so the
+        // preset goes by name like the MediaTek one.
+        Map<String, Integer> exynos = new LinkedHashMap<>();
+        exynos.put("vendor.rtc-ext-dec-low-latency.enable", 1);
+        exynos.put("vendor.rtc-ext-dec-output-queue-depth.value", 2);
+        exynos.put("vendor.sec-dec-output.delay", 0);
+        EXYNOS = Collections.unmodifiableMap(exynos);
     }
 
     private VendorLowLatencyKeys() {}

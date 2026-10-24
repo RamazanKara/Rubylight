@@ -339,7 +339,10 @@ impl Encoder {
         }
         let adapter = device.display.adapter.clone();
         crate::amf::Encoder::new_device_options(config, device, tuning)
-            .map(|encoder| Self::Amf(Box::new(encoder)))
+            .map(|mut encoder| {
+                encoder.probe = true;
+                Self::Amf(Box::new(encoder))
+            })
             .map_err(|error| amf_failed(error, &adapter))
     }
     pub fn encode(&mut self, image: &Image, idr: bool, bitrate: u32) -> Result<Vec<Encoded>> {

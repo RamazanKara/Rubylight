@@ -235,6 +235,9 @@ pub struct Encoder {
     /// A frame AMF never returned may have been a reference: the next frame
     /// is a keyframe, or the client decodes damaged pictures until one comes.
     recover: bool,
+    /// Opened to test what the driver can do (the codec capability probe),
+    /// not to stream: nobody sees its pauses.
+    pub(crate) probe: bool,
     rate_control: rate_control::State,
     frame_cap: rate_control::FrameCap,
     references: butterpollo_core::ltr::References,
@@ -552,6 +555,7 @@ impl Encoder {
                 in_flight: std::collections::VecDeque::new(),
                 backlog: AmfBacklog::new(None),
                 recover: false,
+                probe: false,
                 rate_control: rate_control::State::new(config.bitrate_kbps, scale_frame_cap),
                 frame_cap: rate_control::FrameCap::new(automatic_frame_cap),
                 references: Default::default(),
@@ -1565,7 +1569,14 @@ impl Encoder {
             if let Some(stale) = &stale {
                 self.units.forget(stale.pts);
             }
-            self.warnings.event("encoder_dropped", format!("AMF returned no output for frame {:?} within two seconds; dropping it and requesting a keyframe. You may see a pause; lower game GPU load or update the AMD driver if this repeats.", stale.map(|s| s.pts)), butterpollo_core::session::EVENT_PERIOD);
+            match unreturned_notice(self.probe, stale.map(|s| s.pts)) {
+                Unreturned::Warning(message) => self.warnings.event(
+                    "encoder_dropped",
+                    message,
+                    butterpollo_core::session::EVENT_PERIOD,
+                ),
+                Unreturned::Probe(message) => tracing::info!("{message}"),
+            }
             self.recover = true;
         }
     }
@@ -1849,6 +1860,29 @@ impl Encoder {
 fn scale_rate_control(value: i64, applied_kbps: u32, requested_kbps: u32) -> i64 {
     let scaled = i128::from(value) * i128::from(requested_kbps) / i128::from(applied_kbps.max(1));
     scaled.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
+}
+/// How a frame AMF did not return within two seconds is reported.
+#[derive(Debug, PartialEq)]
+enum Unreturned {
+    /// A stream's: shown to the client and in the console.
+    Warning(String),
+    /// The capability probe's: only logged. The first frame of an encoder the
+    /// driver has just started (the service probes at boot or right after an
+    /// install, and an iGPU shares memory with the desktop) can be slow; the
+    /// probe still judges the codec by what it returns afterwards, and nobody
+    /// watches it.
+    Probe(String),
+}
+fn unreturned_notice(probe: bool, pts: Option<i64>) -> Unreturned {
+    if probe {
+        Unreturned::Probe(format!(
+            "AMF returned no output for the probe's frame {pts:?} within two seconds; the driver was probably still starting up. The probe goes on with a keyframe and counts the codec by what it returns."
+        ))
+    } else {
+        Unreturned::Warning(format!(
+            "AMF returned no output for frame {pts:?} within two seconds; dropping it and requesting a keyframe. You may see a pause; lower game GPU load or update the AMD driver if this repeats."
+        ))
+    }
 }
 impl Encoder {
     /// Apply a pace-based encoded-byte budget. An explicit user setting,

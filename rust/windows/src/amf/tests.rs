@@ -28,6 +28,21 @@ fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreatio
 }
 
 #[test]
+fn a_slow_first_probe_frame_is_logged_but_a_slow_stream_frame_warns_the_client() {
+    // The 780M's service start: the startup probe's first H.264 frame took
+    // over two seconds, then every codec worked. That is no warning.
+    let Unreturned::Probe(message) = unreturned_notice(true, Some(0)) else {
+        panic!("a probe frame must not raise a stream warning");
+    };
+    assert!(message.contains("probe's frame Some(0)"), "{message}");
+    assert!(!message.contains("You may see a pause"), "{message}");
+    let Unreturned::Warning(message) = unreturned_notice(false, Some(0)) else {
+        panic!("a stream frame must warn");
+    };
+    assert!(message.contains("You may see a pause"), "{message}");
+}
+
+#[test]
 #[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
 fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;

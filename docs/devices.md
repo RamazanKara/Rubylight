@@ -59,15 +59,21 @@ Save the results text from the issue to a file and run `node scripts/add-device-
 
 ## Devices
 
-Measured values are median decode times from the decoder benchmark. "To measure" means no results have been sent yet.
+Measured values are median decode times in milliseconds from the decoder benchmark (1920×1080, 60 FPS clip, decoded on the device, no host or network involved). "To measure" means no results have been sent yet. The full results text of each report, including the latency test, is on the [device results page](https://ramazankara.github.io/nightjar/devices.html) and in the linked issue.
 
 | Device | SoC | Android | H.264 | HEVC | AV1 | Vendor keys declared | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| Samsung Galaxy S25 Ultra | Snapdragon 8 Elite (SM8750) | 16 | 0.60 | 0.55 | 0.39 | picture order, output fence | Nightjar 0.7.13, 120 Hz. [#11](https://github.com/RamazanKara/nightjar/issues/11) |
+| OnePlus 13 | Snapdragon 8 Elite (SM8750) | 16 | 0.88 | 0.73 | 1.58 | picture order, output fence | Nightjar 0.7.6, 120 Hz. [#6](https://github.com/RamazanKara/nightjar/issues/6) |
+| Alldocube iPlay 70 Mini Ultra | Snapdragon 7+ Gen 3 (SM7675) | 14 | 1.35 | 1.10 | — | picture order, output fence | Nightjar 0.7.13, 144 Hz, on battery. [#10](https://github.com/RamazanKara/nightjar/issues/10) |
+| iQOO 7 | Snapdragon 870 (SM8250) | 14 | 2.42 | 2.83 | — | None (OMX decoders, no low-latency mode) | Nightjar 0.8.0, 120 Hz. [#25](https://github.com/RamazanKara/nightjar/issues/25) |
+| OPPO Reno 10 Pro+ | Snapdragon 8+ Gen 1 (SM8475) | 16 | 4.48 | 4.26 | — | picture order | Nightjar 0.8.0; no latency test. Slower than the 870 above; being looked into. [#23](https://github.com/RamazanKara/nightjar/issues/23) |
+| Realme GT 7T | MediaTek MT6899 | 16 | 4.87 | 4.27 | 8.31 | CPU boost | Nightjar 0.7.18, 120 Hz. [#18](https://github.com/RamazanKara/nightjar/issues/18) |
+| Samsung Galaxy A37 | Samsung Exynos (s5e8845) | 16 | 11.17 | 11.53 | — | `rtc-ext-dec-low-latency` (H.264 only) | Nightjar 0.8.0, 120 Hz. [#24](https://github.com/RamazanKara/nightjar/issues/24) |
+| Samsung Galaxy A37 | Samsung Exynos (s5e8845) | 16 | 12.26 | 11.55 | — | `rtc-ext-dec-low-latency` (H.264 only) | Nightjar 3.0.0, no change from 0.8.0. 3.1.0 sends more Exynos keys; retest pending. [#26](https://github.com/RamazanKara/nightjar/issues/26) |
 | Phone with Dimensity 9000 | MediaTek | To measure | To measure | To measure | To measure | To measure | Upstream reports about 30 ms decode. |
-| Phone with a recent Dimensity (8000 or 9000 series) | MediaTek | To measure | To measure | To measure | To measure | To measure | |
 | Samsung Galaxy with Exynos 2200 or newer | Samsung Exynos | To measure | To measure | To measure | To measure | To measure | |
 | Google Pixel 8 or newer | Google Tensor | To measure | To measure | To measure | To measure | To measure | Shares the Exynos low-latency key. |
-| Phone with Snapdragon 8 Gen 2 or newer | Qualcomm | To measure | To measure | To measure | To measure | To measure | Reference for the other rows. |
 | Google TV Streamer | MediaTek | To measure | To measure | To measure | To measure | To measure | Upstream reports audio delay on Android TV 14. |
 | Chromecast with Google TV | Amlogic | To measure | To measure | To measure | To measure | To measure | |
 | Xiaomi Mi Box S | Amlogic | To measure | To measure | To measure | To measure | To measure | Upstream reports HEVC and AV1 problems. |

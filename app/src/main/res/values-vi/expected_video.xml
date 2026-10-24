@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">Luồng yêu cầu %1$s Hz, nhưng màn hình này chỉ có %2$s Hz và đang chạy ở %3$s Hz.</string>
     <string name="refresh_diag_not_seamless">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu: việc chuyển sẽ làm hình ảnh tối đi trong giây lát (chế độ: %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">Màn hình vẫn ở %2$s Hz thay vì %1$s Hz đã yêu cầu: việc chuyển sẽ làm màn hình đen thoáng chốc và Android chỉ làm vậy khi cho phép khớp tốc độ khung hình nội dung trong cài đặt màn hình (các chế độ: %3$s Hz).</string>
     <string name="refresh_diag_user_limit">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu: cài đặt tần số quét của Android chỉ cho phép tối đa %3$s Hz.</string>
     <string name="refresh_diag_battery_saver">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu: chế độ tiết kiệm pin giới hạn nó.</string>
     <string name="refresh_diag_thermal">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu: thiết bị đang nóng và giới hạn ở 60 Hz.</string>

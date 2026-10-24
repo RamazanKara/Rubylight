@@ -45,18 +45,23 @@ public class HdrPolicyTest {
     }
 
     @Test
-    public void onAndroid14TheModeTheScreenIsInMustHaveHdr10Too() {
-        // A panel can list HDR10 overall and still not offer it at every refresh rate.
+    public void onAndroid14ACapabilityListWithoutHdr10IsAModeProblemWhenAnotherModeHasIt() {
+        // From Android 14 the display's capabilities follow the active mode: HDR10 missing there
+        // while another mode lists it is a refusal with its own reason, never a request.
         assertEquals(Refusal.MODE_WITHOUT_HDR10,
-                HdrPolicy.displayRefusal(34, true, new int[] {HDR10}, new int[] {HLG}));
-        assertEquals(Refusal.MODE_WITHOUT_HDR10, HdrPolicy.displayRefusal(34, true, new int[] {HDR10}, NO_TYPES));
-        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(34, true, new int[] {HDR10}, new int[] {HDR10, HLG}));
-        // Older Android has no per-mode list; a missing list is not a refusal.
-        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(34, true, new int[] {HDR10}, null));
-        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(33, true, new int[] {HDR10}, NO_TYPES));
-        // No HDR10 at the display level is the more basic reason.
+                HdrPolicy.displayRefusal(34, true, new int[] {HLG}, new int[] {HDR10, HLG}));
+        assertEquals(Refusal.MODE_WITHOUT_HDR10, HdrPolicy.displayRefusal(34, true, NO_TYPES, new int[] {HDR10}));
+        assertEquals(Refusal.MODE_WITHOUT_HDR10, HdrPolicy.displayRefusal(34, true, null, new int[] {HDR10}));
+        // No mode has it: the screen cannot show it at all.
+        assertEquals(Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.displayRefusal(34, true, new int[] {HLG}, new int[] {HLG}));
+        assertEquals(Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.displayRefusal(34, true, new int[] {HLG}, NO_TYPES));
+        // Older Android has no per-mode list.
+        assertEquals(Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.displayRefusal(34, true, new int[] {HLG}, null));
         assertEquals(Refusal.DISPLAY_WITHOUT_HDR10,
-                HdrPolicy.displayRefusal(34, true, new int[] {HLG}, new int[] {HDR10}));
+                HdrPolicy.displayRefusal(33, true, new int[] {HLG}, new int[] {HDR10}));
+        // HDR10 in the active mode is the only way to be asked for, whatever the modes say.
+        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(34, true, new int[] {HDR10}, new int[] {HLG}));
+        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(34, true, new int[] {HDR10}, null));
     }
 
     @Test

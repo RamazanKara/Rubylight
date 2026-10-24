@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">Strumień chce %1$s Hz, ale ten ekran oferuje tylko %2$s Hz i działa z %3$s Hz.</string>
     <string name="refresh_diag_not_seamless">Ekran pozostaje przy %2$s Hz zamiast żądanych %1$s Hz: zmiana na chwilę wygasiłaby obraz (tryby: %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">Ekran pozostaje przy %2$s Hz zamiast żądanych %1$s Hz: przełączenie na chwilę zaciemniłoby obraz, a Android robi to tylko wtedy, gdy w ustawieniach ekranu włączono dopasowanie do liczby klatek treści (tryby: %3$s Hz).</string>
     <string name="refresh_diag_user_limit">Ekran pozostaje przy %2$s Hz zamiast żądanych %1$s Hz: ustawienie częstotliwości odświeżania w Androidzie pozwala na najwyżej %3$s Hz.</string>
     <string name="refresh_diag_battery_saver">Ekran pozostaje przy %2$s Hz zamiast żądanych %1$s Hz: ogranicza to oszczędzanie baterii.</string>
     <string name="refresh_diag_thermal">Ekran pozostaje przy %2$s Hz zamiast żądanych %1$s Hz: urządzenie jest gorące i ogranicza ją do 60 Hz.</string>

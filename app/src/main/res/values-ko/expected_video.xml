@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">스트림은 %1$s Hz를 원하지만 이 화면은 %2$s Hz만 지원하며 현재 %3$s Hz로 동작합니다.</string>
     <string name="refresh_diag_not_seamless">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.전환하면 화면이 잠시 꺼집니다(모드: %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">화면이 요청한 %1$s Hz가 아니라 %2$s Hz로 유지됩니다. 전환하면 화면이 잠시 검게 변하며, Android는 디스플레이 설정에서 ‘콘텐츠 프레임 속도에 맞추기’를 허용한 경우에만 전환합니다(모드: %3$s Hz).</string>
     <string name="refresh_diag_user_limit">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.Android 주사율 설정이 최대 %3$s Hz까지만 허용합니다.</string>
     <string name="refresh_diag_battery_saver">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.절전 모드가 제한합니다.</string>
     <string name="refresh_diag_thermal">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.기기가 뜨거워 60 Hz로 제한됩니다.</string>

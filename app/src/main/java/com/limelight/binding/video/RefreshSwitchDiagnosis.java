@@ -70,8 +70,13 @@ public final class RefreshSwitchDiagnosis {
         HOLDS,
         /** No mode of this screen size runs at the vote or a multiple of it. */
         NO_MODE,
-        /** Every matching mode is a switch that would blank the screen, and Android did not do it. */
+        /** Every matching mode is a switch that would blank the screen, and the vote allowed seamless switches only. */
         NOT_SEAMLESS,
+        /**
+         * Every matching mode would blank the screen and the vote allowed that; Android does such a
+         * switch only when the user allows Match content frame rate in the display settings.
+         */
+        NEEDS_MATCH_SETTING,
         /** The user's refresh rate setting limits apps below the vote. */
         USER_LIMIT,
         BATTERY_SAVER,
@@ -128,7 +133,8 @@ public final class RefreshSwitchDiagnosis {
      * @param sdk the Android API level; below 31 no mode lists alternatives, so a blank switch
      *            cannot be told from an allowed one and is never blamed
      * @param seamlessOnly the vote asked for seamless switches only (the content rate vote), as
-     *            opposed to one that may blank the screen
+     *            opposed to one that may blank the screen; it decides whether a switch that would
+     *            blank is the vote's own limit or waits for the user's Match content frame rate
      */
     public static Result diagnose(int sdk, float voteHz, boolean seamlessOnly, PanelMode active,
                                   List<PanelMode> modes, Conditions conditions) {
@@ -168,7 +174,10 @@ public final class RefreshSwitchDiagnosis {
                     break;
                 }
             }
-            if (!anySeamless) return new Result(Cause.NOT_SEAMLESS, voteHz, active.hz, rates, 0f);
+            if (!anySeamless) {
+                return new Result(seamlessOnly ? Cause.NOT_SEAMLESS : Cause.NEEDS_MATCH_SETTING,
+                        voteHz, active.hz, rates, 0f);
+            }
         }
         return new Result(Cause.UNEXPLAINED, voteHz, active.hz, rates, 0f);
     }
@@ -210,6 +219,8 @@ public final class RefreshSwitchDiagnosis {
                 return context.getString(R.string.refresh_diag_no_mode, vote, rates, active);
             case NOT_SEAMLESS:
                 return context.getString(R.string.refresh_diag_not_seamless, vote, active, rates);
+            case NEEDS_MATCH_SETTING:
+                return context.getString(R.string.refresh_diag_needs_match_setting, vote, active, rates);
             case USER_LIMIT:
                 return context.getString(R.string.refresh_diag_user_limit, vote, active,
                         format(result.limitHz, locale));

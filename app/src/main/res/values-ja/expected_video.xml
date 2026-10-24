@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">ストリームは%1$s Hzを求めていますが、この画面は%2$s Hzしか対応しておらず、現在は%3$s Hzで動作しています。</string>
     <string name="refresh_diag_not_seamless">画面は要求された%1$s Hzではなく%2$s Hzのままです。切り替えると一瞬映像が途切れます（モード：%3$s Hz）。</string>
+    <string name="refresh_diag_needs_match_setting">画面は要求された %1$s Hz ではなく %2$s Hz のままです。切り替えると一瞬黒くなり、Android はディスプレイ設定で「コンテンツのフレームレートに合わせる」が許可されている場合のみ切り替えます（モード: %3$s Hz）。</string>
     <string name="refresh_diag_user_limit">画面は要求された%1$s Hzではなく%2$s Hzのままです。Androidのリフレッシュレート設定が最大%3$s Hzに制限しています。</string>
     <string name="refresh_diag_battery_saver">画面は要求された%1$s Hzではなく%2$s Hzのままです。バッテリーセーバーが制限しています。</string>
     <string name="refresh_diag_thermal">画面は要求された%1$s Hzではなく%2$s Hzのままです。端末が高温のため60 Hzに制限されています。</string>

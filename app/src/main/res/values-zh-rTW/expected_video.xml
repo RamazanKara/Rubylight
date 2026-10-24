@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">串流需要 %1$s Hz，但此螢幕只提供 %2$s Hz，目前為 %3$s Hz。</string>
     <string name="refresh_diag_not_seamless">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：切換會讓畫面短暫黑屏（模式：%3$s Hz）。</string>
+    <string name="refresh_diag_needs_match_setting">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：切換會讓畫面短暫黑屏，而 Android 只有在顯示設定中允許「配合內容影格率」時才會這樣做（模式：%3$s Hz）。</string>
     <string name="refresh_diag_user_limit">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：Android 的更新率設定最高只允許 %3$s Hz。</string>
     <string name="refresh_diag_battery_saver">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：省電模式限制了它。</string>
     <string name="refresh_diag_thermal">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：裝置過熱，已限制為 60 Hz。</string>

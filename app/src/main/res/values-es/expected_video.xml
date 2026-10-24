@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">La transmisión quiere %1$s Hz, pero esta pantalla solo ofrece %2$s Hz y funciona a %3$s Hz.</string>
     <string name="refresh_diag_not_seamless">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el cambio dejaría la imagen en negro un instante (modos: %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">La pantalla se mantiene en %2$s Hz en lugar de los %1$s Hz solicitados: el cambio dejaría la imagen en negro un instante y Android solo lo hace si se permite «Ajustar la frecuencia de fotogramas del contenido» en los ajustes de pantalla (modos: %3$s Hz).</string>
     <string name="refresh_diag_user_limit">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el ajuste de frecuencia de actualización de Android permite hasta %3$s Hz.</string>
     <string name="refresh_diag_battery_saver">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el ahorro de batería la limita.</string>
     <string name="refresh_diag_thermal">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el dispositivo está caliente y la limita a 60 Hz.</string>

@@ -424,8 +424,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             };
     // Whether this stream asked for HDR (setting on, HDR10 display and decoder).
     private boolean streamHdr;
-    // Why HDR is off although the setting is on, null when it is not (see refuseHdr).
-    private String hdrRefusalText;
     private HdrPolicy.Status lastHdrStatus = HdrPolicy.Status.QUIET;
     private DisplayCapsReporter displayCapsReporter;
 
@@ -5667,9 +5665,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         qualityAutoBitrate = false;
         bitrateHandler.removeCallbacks(sampleStreamHealth);
         bitrateHandler.removeCallbacks(pollContentRateVote);
-        bitrateHandler.removeCallbacks(pollRefreshSwitch);
-        messages.status("refresh", null);
-        messages.status("hdr", null);
+        stopRefreshSwitchPolling();
         if (wifiDiagnostics != null) wifiDiagnostics.stop();
         pyroWaveBitrate = null;
         displayCapsReporter = null;
@@ -5966,11 +5962,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 bitrateHandler.postDelayed(sampleStreamHealth, 1000);
                 bitrateHandler.removeCallbacks(pollContentRateVote);
                 if (prefConfig.contentRateFrameRate) bitrateHandler.postDelayed(pollContentRateVote, 1000);
-                if (refreshSwitchMonitor == null) {
-                    refreshSwitchMonitor = new com.limelight.binding.video.RefreshSwitchMonitor(Game.this);
-                }
-                bitrateHandler.removeCallbacks(pollRefreshSwitch);
-                bitrateHandler.postDelayed(pollRefreshSwitch, 1000);
+                startRefreshSwitchPolling();
                 if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
                 wifiDiagnostics.start();
                 connectedAt = SystemClock.elapsedRealtime();
@@ -6139,8 +6131,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         });
     }
 
-    // A lasting fact about this PC or device: the status line, and a message once per PC.
-    // The reason HDR was left off although the setting is on: a toast once per PC, and the status line each stream.
+    // The reason HDR was left off although the setting is on: the status line each stream
+    // and a message once per PC (notice does both).
     private void refuseHdr(HdrPolicy.Refusal refusal) {
         int text;
         switch (refusal) {
@@ -6152,7 +6144,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         LimeLog.warning("HDR requested but not used: " + refusal);
         hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, text);
-        hdrRefusalText = getString(text);
     }
 
     private void hostNotice(HostNotices.Notice notice, int text) {
@@ -6343,6 +6334,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
+    private void startRefreshSwitchPolling() {
+        if (refreshSwitchMonitor == null) {
+            refreshSwitchMonitor = new com.limelight.binding.video.RefreshSwitchMonitor(this);
+        }
+        bitrateHandler.removeCallbacks(pollRefreshSwitch);
+        bitrateHandler.postDelayed(pollRefreshSwitch, 1000);
+    }
+
+    private void stopRefreshSwitchPolling() {
+        bitrateHandler.removeCallbacks(pollRefreshSwitch);
+        messages.status("refresh", null);
+        messages.status("hdr", null);
+    }
+
     // When the screen has stayed off the rate voted for, says why on the overlay's status line.
     private void checkRefreshSwitch() {
         if (refreshSwitchMonitor == null) return;
@@ -6351,11 +6356,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (messages.status("refresh", text)) updatePerformanceOverlay();
     }
 
-    // HDR was asked for and not granted, or granted and not delivered: say so on the status line
-    // for as long as it lasts, besides the once-per-PC toast, and log it.
+    // HDR was granted and then not delivered: say so on the status line for as long as it lasts,
+    // and log it. A refusal before the stream is already noted by refuseHdr, not repeated here.
     private void checkHdrStatus() {
-        String text = hdrRefusalText;
-        if (text == null && streamHdr && decoderRenderer != null) {
+        String text = null;
+        if (streamHdr && decoderRenderer != null) {
             int format = decoderRenderer.getActiveVideoFormat();
             HdrPolicy.Status status = format == 0 ? HdrPolicy.Status.WAITING : HdrPolicy.status(true,
                     (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, decoderRenderer.getHostHdrReport(),

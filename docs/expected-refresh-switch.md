@@ -14,7 +14,8 @@
 | Battery saver | The vote is above 60 Hz and battery saver is on. | `PowerManager.isPowerSaveMode()` |
 | Hot | The vote is above 60 Hz and the thermal status is critical or worse (Android 10+). | `PowerManager.getCurrentThermalStatus()` |
 | User limit | The Android refresh rate setting (Smooth display, Adaptive) allows less than the vote. | `Settings.System` `peak_refresh_rate` (not public API; unreadable means unknown) |
-| Not seamless | Every matching mode needs a switch that would blank the screen, and no matching mode is in the active mode's alternatives. | `Display.Mode.getAlternativeRefreshRates()` (Android 12+) |
+| Not seamless | The vote allowed seamless switches only (the content rate vote), and every matching mode needs a switch that would blank the screen. | `Display.Mode.getAlternativeRefreshRates()` (Android 12+) |
+| Needs Match content frame rate | Every matching mode needs a switch that would blank the screen and the vote allowed it (the base vote); Android does that only when the user allows Match content frame rate in the display settings. | the same, plus the kind of vote |
 | No reason given | A seamless matching mode exists and nothing readable explains why Android stayed. The rates are listed. | the above |
 
 Before Android 12 no mode lists alternatives, so a blanking switch cannot be told from a seamless one: that case is never blamed and falls to "No reason given".

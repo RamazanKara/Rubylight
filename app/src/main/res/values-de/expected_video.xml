@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">Der Stream möchte %1$s Hz, aber dieser Bildschirm bietet nur %2$s Hz und läuft mit %3$s Hz.</string>
     <string name="refresh_diag_not_seamless">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Ein Wechsel würde das Bild kurz schwarz schalten (Modi: %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Ein Wechsel würde das Bild kurz schwarz schalten, und Android erlaubt das nur, wenn „Bildrate des Inhalts anpassen“ in den Anzeigeeinstellungen erlaubt ist (Modi: %3$s Hz).</string>
     <string name="refresh_diag_user_limit">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Die Android-Einstellung für die Bildwiederholrate erlaubt höchstens %3$s Hz.</string>
     <string name="refresh_diag_battery_saver">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Der Energiesparmodus begrenzt sie.</string>
     <string name="refresh_diag_thermal">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Das Gerät ist heiß und begrenzt sie auf 60 Hz.</string>

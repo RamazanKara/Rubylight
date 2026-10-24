@@ -7,8 +7,9 @@ import android.view.Display;
 /**
  * The decisions around an HDR10 stream, apart from the Android objects so they can be tested with
  * made-up capabilities. HDR is asked for only when the setting is on and the screen reports HDR10
- * (not just HLG or Dolby Vision) for the mode it is in now; a decoder with a Main10 HDR10 profile
- * is needed too. Whatever is asked for and not granted, or granted and then not delivered, is named
+ * (not just HLG or Dolby Vision); from Android 14 the capabilities follow the mode the screen is in,
+ * so a mode without HDR10 is refused, with its own reason when another mode has it; a decoder
+ * with a Main10 HDR10 profile is needed too. Whatever is asked for and not granted, or granted and then not delivered, is named
  * rather than left to look like SDR. Nothing here has run on an HDR panel; see
  * docs/expected-hdr10.md.
  */
@@ -22,22 +23,24 @@ public final class HdrPolicy {
         ANDROID_TOO_OLD,
         /** The screen reports no HDR10, or no HDR capabilities at all. */
         DISPLAY_WITHOUT_HDR10,
-        /** Android 14 and newer: the screen has HDR10, but not in the mode it is in now. */
+        /** Android 14 and newer: the mode the screen is in has no HDR10, but another mode does. */
         MODE_WITHOUT_HDR10,
         DECODER_WITHOUT_HDR10
     }
 
     /**
      * @param displayTypes the types from Display.getHdrCapabilities(), null when the call gave no
-     *                     capabilities (some devices return null)
-     * @param modeTypes the active mode's types, null before Android 14 (the mode has no list there)
+     *                     capabilities (some devices return null). From Android 14 these follow the
+     *                     active mode.
+     * @param anyModeTypes the types of all the screen's modes together, null before Android 14 (a
+     *                     mode has no list there). Only used to name the reason; HDR is never
+     *                     asked for because some other mode has it.
      */
-    public static Refusal displayRefusal(int sdk, boolean enabled, int[] displayTypes, int[] modeTypes) {
+    public static Refusal displayRefusal(int sdk, boolean enabled, int[] displayTypes, int[] anyModeTypes) {
         if (!enabled) return Refusal.SETTING_OFF;
         if (sdk < 24) return Refusal.ANDROID_TOO_OLD;
-        if (!hasHdr10(displayTypes)) return Refusal.DISPLAY_WITHOUT_HDR10;
-        if (sdk >= 34 && modeTypes != null && !hasHdr10(modeTypes)) return Refusal.MODE_WITHOUT_HDR10;
-        return Refusal.NONE;
+        if (hasHdr10(displayTypes)) return Refusal.NONE;
+        return sdk >= 34 && hasHdr10(anyModeTypes) ? Refusal.MODE_WITHOUT_HDR10 : Refusal.DISPLAY_WITHOUT_HDR10;
     }
 
     /** The screen's HDR types, null when Android gives none (before Android 7, and a few devices return null). */
@@ -47,15 +50,23 @@ public final class HdrPolicy {
         return capabilities == null ? null : capabilities.getSupportedHdrTypes();
     }
 
-    /** The types of the mode the screen is in now; null before Android 14, which has no per-mode list. */
-    public static int[] modeHdrTypes(Display display) {
+    /** The types any of the screen's modes offers; null before Android 14, which has no per-mode list. */
+    public static int[] anyModeHdrTypes(Display display) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null;
-        Display.Mode mode = display.getMode();
-        return mode == null ? null : mode.getSupportedHdrTypes();
+        Display.Mode[] modes = display.getSupportedModes();
+        if (modes == null) return null;
+        java.util.TreeSet<Integer> types = new java.util.TreeSet<>();
+        for (Display.Mode mode : modes) {
+            for (int type : mode.getSupportedHdrTypes()) types.add(type);
+        }
+        int[] all = new int[types.size()];
+        int i = 0;
+        for (int type : types) all[i++] = type;
+        return all;
     }
 
     public static Refusal displayRefusal(Display display, boolean enabled) {
-        return displayRefusal(Build.VERSION.SDK_INT, enabled, displayHdrTypes(display), modeHdrTypes(display));
+        return displayRefusal(Build.VERSION.SDK_INT, enabled, displayHdrTypes(display), anyModeHdrTypes(display));
     }
 
     /** HDR10 PQ is what the PC encodes; HLG and Dolby Vision on the panel do not stand in for it. */

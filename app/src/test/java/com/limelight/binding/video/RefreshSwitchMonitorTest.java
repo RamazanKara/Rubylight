@@ -110,6 +110,23 @@ public class RefreshSwitchMonitorTest {
         assertEquals(context.getString(R.string.refresh_diag_not_seamless, "120", "60", "60, 120"), settled(120f));
     }
 
+    @Test public void aVoteThatMayBlankNamesTheMatchContentFrameRateSetting() {
+        FakePanel.set(mode(1, 60f), mode(1, 60f), mode(2, 120f));
+        RefreshSwitchMonitor monitor = new RefreshSwitchMonitor(context);
+        assertNull(monitor.poll(0, display, 120f, false));
+        assertEquals(context.getString(R.string.refresh_diag_needs_match_setting, "120", "60", "60, 120"),
+                monitor.poll(SETTLE, display, 120f, false));
+    }
+
+    @Test public void anyModeHdrTypesCoverTheScreensModes() {
+        assertTrue(HdrPolicy.hasHdr10(HdrPolicy.anyModeHdrTypes(display)));
+    }
+
+    @Test @Config(sdk = 33)
+    public void anyModeHdrTypesAreUnknownBeforeAndroid14() {
+        assertNull(HdrPolicy.anyModeHdrTypes(display));
+    }
+
     @Test public void theMonitorReadsTheAlternativesFromTheModes() {
         RefreshSwitchDiagnosis.PanelMode active = RefreshSwitchMonitor.activeMode(display);
         assertEquals(60f, active.hz, 0f);

@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">Le flux demande %1$s Hz, mais cet écran propose seulement %2$s Hz et tourne à %3$s Hz.</string>
     <string name="refresh_diag_not_seamless">L’écran reste à %2$s Hz au lieu des %1$s Hz demandés : le changement couperait l’image un instant (modes : %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">L’écran reste à %2$s Hz au lieu des %1$s Hz demandés : le changement ferait un écran noir et Android ne le fait que si « Adapter la fréquence d’images du contenu » est autorisé dans les réglages d’affichage (modes : %3$s Hz).</string>
     <string name="refresh_diag_user_limit">L’écran reste à %2$s Hz au lieu des %1$s Hz demandés : le réglage de fréquence d’actualisation d’Android autorise au plus %3$s Hz.</string>
     <string name="refresh_diag_battery_saver">L’écran reste à %2$s Hz au lieu des %1$s Hz demandés : l’économiseur de batterie la limite.</string>
     <string name="refresh_diag_thermal">L’écran reste à %2$s Hz au lieu des %1$s Hz demandés : l’appareil est chaud et la limite à 60 Hz.</string>

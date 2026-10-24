@@ -1,6 +1,7 @@
 <resources>
     <string name="refresh_diag_no_mode">The stream wants %1$s Hz, but this screen offers only %2$s Hz and runs at %3$s Hz.</string>
     <string name="refresh_diag_not_seamless">The screen stays at %2$s Hz, not the %1$s Hz asked for: switching would blank it (modes: %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">The screen stays at %2$s Hz, not the %1$s Hz asked for: switching would blank it, and Android does that only when Match content frame rate is allowed in the display settings (modes: %3$s Hz).</string>
     <string name="refresh_diag_user_limit">The screen stays at %2$s Hz, not the %1$s Hz asked for: the Android refresh rate setting allows up to %3$s Hz.</string>
     <string name="refresh_diag_battery_saver">The screen stays at %2$s Hz, not the %1$s Hz asked for: battery saver limits it.</string>
     <string name="refresh_diag_thermal">The screen stays at %2$s Hz, not the %1$s Hz asked for: the device is hot and limits it to 60 Hz.</string>

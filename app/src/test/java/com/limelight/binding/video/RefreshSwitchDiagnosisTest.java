@@ -80,6 +80,19 @@ public class RefreshSwitchDiagnosisTest {
     }
 
     @Test
+    public void aVoteThatMayBlankPointsAtTheMatchContentFrameRateSetting() {
+        // The same panel, but the vote allows a blanking switch: Android needs the user's opt-in.
+        List<PanelMode> modes = Arrays.asList(mode(1, 60f), mode(2, 120f));
+        Result result = diagnose(34, 120f, false, mode(1, 60f), modes, Conditions.NONE);
+        assertEquals(Cause.NEEDS_MATCH_SETTING, result.cause);
+        // A seamless mode that exists is never blamed on the setting, whichever the vote.
+        assertEquals(Cause.UNEXPLAINED,
+                diagnose(34, 120f, false, mode(1, 60f, 90f, 120f), seamlessPhone(), Conditions.NONE).cause);
+        // Before Android 12 nothing is known about seamlessness, so the setting is not blamed either.
+        assertEquals(Cause.UNEXPLAINED, diagnose(30, 120f, false, mode(1, 60f), modes, Conditions.NONE).cause);
+    }
+
+    @Test
     public void beforeAndroid12NoModeListsAlternativesSoNothingIsBlamedOnSeamlessness() {
         List<PanelMode> modes = Arrays.asList(mode(1, 60f), mode(2, 120f));
         Result result = diagnose(30, 120f, true, mode(1, 60f), modes, Conditions.NONE);

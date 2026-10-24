@@ -87,7 +87,6 @@ impl Stream {
             rtsp_received: Default::default(),
             preparation: Default::default(),
             vrr_requested: false,
-            resumed: false,
             host_audio: false,
             requested_rate: 0,
             options: Default::default(),

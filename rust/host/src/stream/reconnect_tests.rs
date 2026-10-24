@@ -516,16 +516,27 @@ impl Harness {
         encryption: u32,
         sdp: &str,
     ) -> Result<(Arc<Session>, Client)> {
-        self.rtsp(launch, 1, "ANNOUNCE", &format!("a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\na=x-ss-general.encryptionEnabled:{encryption}\r\n{sdp}")).await?;
-        self.rtsp(launch, 2, "PLAY", "").await?;
-        let session = self.h.sessions.lock().unwrap().active[&launch.id].clone();
-        let client = Client::new(self.ports, launch.clone())?;
+        let (session, client) = self.connect_announcing(launch, encryption, sdp).await?;
         until("control and video established", WAIT, || {
             client.frames.load(Ordering::Acquire) > 2
                 && session.stats.idr_requests.load(Ordering::Acquire) > 0
         })
         .await;
         assert!(!session.stopping());
+        Ok((session, client))
+    }
+    /// ANNOUNCE with the extra SDP lines `sdp`, PLAY and the control connection,
+    /// without waiting for video or the first IDR request.
+    async fn connect_announcing(
+        &self,
+        launch: &Launch,
+        encryption: u32,
+        sdp: &str,
+    ) -> Result<(Arc<Session>, Client)> {
+        self.rtsp(launch, 1, "ANNOUNCE", &format!("a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\na=x-ss-general.encryptionEnabled:{encryption}\r\n{sdp}")).await?;
+        self.rtsp(launch, 2, "PLAY", "").await?;
+        let session = self.h.sessions.lock().unwrap().active[&launch.id].clone();
+        let client = Client::new(self.ports, launch.clone())?;
         Ok((session, client))
     }
     async fn counts(&self, active: usize, pending: usize) -> Result<()> {
@@ -1787,15 +1798,18 @@ async fn a_cancel_while_a_launch_waits_for_its_client_ends_the_session() -> Resu
 }
 
 /// A client that negotiates a ten-bit format (`dynamicRangeMode:1`) after a
-/// launch or resume: the stream is HDR only when the query asked for it, or
-/// for a /resume without `hdrMode`. Otherwise it is ten-bit SDR whose `hdr`
-/// (the part the prepared display compares) is off, so the display prepared
-/// for the launch is kept, and the client is told HDR is off.
+/// launch or resume: it is ten-bit SDR only when the query said `hdrMode=0`,
+/// and HDR otherwise (no `hdrMode`, or `hdrMode=1`). SDR keeps `hdr` off, the
+/// part the prepared display compares, so the display prepared for the launch
+/// is kept, and the client is told HDR is off. The three launches run first,
+/// each ended by TEARDOWN, which leaves the app for the three resumes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_ten_bit_format_streams_sdr_unless_the_launch_or_a_bare_resume_wants_hdr() -> Result<()> {
+async fn a_ten_bit_format_streams_sdr_only_with_hdr_mode_zero() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let sdp = "a=x-nv-vqos[0].bitStreamFormat:1\r\na=x-nv-video[0].dynamicRangeMode:1\r\n";
     // (resume, hdrMode, streams ten-bit SDR rather than HDR)
     for (resume, hdr_mode, sdr) in [
-        (false, None, true),
+        (false, None, false),
         (false, Some("0"), true),
         (false, Some("1"), false),
         (true, None, false),
@@ -1803,20 +1817,12 @@ async fn a_ten_bit_format_streams_sdr_unless_the_launch_or_a_bare_resume_wants_h
         (true, Some("1"), false),
     ] {
         let case = format!("resume={resume} hdrMode={hdr_mode:?}");
-        let h = Harness::new(10_000, 1).await?;
-        let launch = if resume {
-            let first = h.launch(0, false).await?;
-            let (_, client) = h.play(&first).await?;
-            drop(client);
-            h.launch_hdr(0, true, hdr_mode).await?
-        } else {
-            h.launch_hdr(0, false, hdr_mode).await?
-        };
-        let sdp = "a=x-nv-vqos[0].bitStreamFormat:1\r\na=x-nv-video[0].dynamicRangeMode:1\r\n";
-        let (session, client) = h.play_announcing(&launch, 0, sdp).await?;
+        let launch = h.launch_hdr(0, resume, hdr_mode).await?;
+        let (session, client) = h.connect_announcing(&launch, 0, sdp).await?;
         let config = &session.config;
         assert!(config.ten_bit(), "{case}");
         assert_eq!((config.hdr, config.sdr_10bit), (!sdr, sdr), "{case}");
+        // The message needs the control connection only.
         until("HDR mode message", WAIT, || {
             !client.hdr_modes.lock().unwrap().is_empty()
         })
@@ -1827,7 +1833,6 @@ async fn a_ten_bit_format_streams_sdr_unless_the_launch_or_a_bare_resume_wants_h
             "{case}"
         );
         h.end(&session, client).await?;
-        h.finish().await?;
     }
-    Ok(())
+    h.finish().await
 }

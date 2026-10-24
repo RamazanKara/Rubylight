@@ -2007,23 +2007,26 @@ fn negotiate_color(mut stream: Negotiated, sdr_requested: bool, config: &Config)
     stream
 }
 #[test]
-fn a_ten_bit_request_without_an_hdr_launch_is_ten_bit_sdr() {
+fn a_ten_bit_request_with_hdr_mode_zero_is_ten_bit_sdr() {
     let mut stream = ten_bit_request();
     assert!(infer_sdr_10bit(&mut stream, true));
     assert!(stream.sdr_10bit && !stream.hdr && stream.ten_bit());
-    // The host option changes nothing for it, and the inference is idempotent.
-    let stream = negotiate_color(
-        ten_bit_request(),
-        false,
-        &Config::parse("prefer_sdr_10bit=true\n").unwrap(),
-    );
-    assert!(stream.sdr_10bit && !stream.hdr);
+    // `apply_color` after the inference keeps what it inferred, under the
+    // default config and with the host option on.
+    for config in [
+        Config::default(),
+        Config::parse("prefer_sdr_10bit=true\n").unwrap(),
+    ] {
+        let stream = negotiate_color(ten_bit_request(), true, &config);
+        assert!(stream.sdr_10bit && !stream.hdr && stream.ten_bit());
+    }
+    // And the inference is idempotent.
     let mut again = stream.clone();
     assert!(!infer_sdr_10bit(&mut again, true));
     assert!(again.sdr_10bit && !again.hdr);
 }
 #[test]
-fn a_ten_bit_request_from_an_hdr_launch_stays_hdr() {
+fn a_ten_bit_request_without_hdr_mode_zero_stays_hdr() {
     let stream = negotiate_color(ten_bit_request(), false, &Config::default());
     assert!(stream.hdr && !stream.sdr_10bit);
     assert!(!infer_sdr_10bit(&mut ten_bit_request(), false));

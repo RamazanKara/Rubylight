@@ -1536,7 +1536,6 @@ mod tests {
             rtsp_received: Default::default(),
             preparation: Default::default(),
             vrr_requested: false,
-            resumed: false,
             host_audio: false,
             requested_rate: 0,
             options: Default::default(),
@@ -1546,27 +1545,14 @@ mod tests {
         }
     }
     #[test]
-    fn a_ten_bit_format_is_sdr_unless_the_launch_or_a_bare_resume_wants_hdr() {
-        // (resume, hdrMode, ten-bit SDR): hdrMode=0 says so on either verb, a
-        // /launch without hdrMode is SDR, and a minimal /resume keeps HDR.
-        for (resume, hdr_mode, sdr) in [
-            (false, None, true),
-            (false, Some("0"), true),
-            (false, Some("1"), false),
-            (true, None, false),
-            (true, Some("0"), true),
-            (true, Some("1"), false),
-        ] {
+    fn a_ten_bit_format_is_sdr_only_when_the_query_says_hdr_mode_zero() {
+        // Launch and resume carry the same query, so one table covers both.
+        for (hdr_mode, sdr) in [(None, false), (Some("0"), true), (Some("1"), false)] {
             let mut launch = launch("color", Role::Stream);
-            launch.resumed = resume;
             if let Some(mode) = hdr_mode {
                 launch.options.insert("hdrMode".into(), mode.into());
             }
-            assert_eq!(
-                launch.ten_bit_sdr_requested(),
-                sdr,
-                "resume={resume} hdrMode={hdr_mode:?}"
-            );
+            assert_eq!(launch.ten_bit_sdr_requested(), sdr, "hdrMode={hdr_mode:?}");
         }
     }
     #[test]
@@ -2245,8 +2231,6 @@ pub struct Launch<P = (), A = ()> {
     /// gives expired, rejected and disconnected requests the same RAII teardown.
     pub preparation: Arc<std::sync::Mutex<Option<Box<dyn Preparation<P>>>>>,
     pub vrr_requested: bool,
-    /// Made by /resume, or by a /launch that joined the running game.
-    pub resumed: bool,
     pub host_audio: bool,
     pub requested_rate: u32,
     pub options: BTreeMap<String, String>,
@@ -2277,7 +2261,6 @@ impl<P, A> Clone for Launch<P, A> {
             rtsp_received: self.rtsp_received.clone(),
             preparation: self.preparation.clone(),
             vrr_requested: self.vrr_requested,
-            resumed: self.resumed,
             host_audio: self.host_audio,
             requested_rate: self.requested_rate,
             options: self.options.clone(),
@@ -2288,16 +2271,11 @@ impl<P, A> Clone for Launch<P, A> {
 }
 impl<P, A> Launch<P, A> {
     /// Whether a 10-bit format negotiated by RTSP is 10-bit SDR. The protocol
-    /// has no flag for it, so a client says so with `hdrMode=0`. Without
-    /// `hdrMode`, a /launch means SDR (as for any client that wants no HDR),
-    /// but a /resume keeps HDR: older and third-party clients send a minimal
-    /// /resume and expect the HDR they negotiated.
+    /// has no flag for it, so a client says so with `hdrMode=0` on /launch or
+    /// /resume. Without `hdrMode` the format stays HDR, as older and
+    /// third-party clients expect.
     pub fn ten_bit_sdr_requested(&self) -> bool {
-        match self.options.get("hdrMode").map(String::as_str) {
-            Some("0") => true,
-            None => !self.resumed,
-            Some(_) => false,
-        }
+        self.options.get("hdrMode").is_some_and(|v| v == "0")
     }
     /// RTSP may wait for network input after authorization. Its identity
     /// snapshot must not keep a canceled launch's display, limiter or audio

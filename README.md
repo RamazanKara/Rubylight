@@ -26,8 +26,7 @@
 
 Rubylight is a Windows game-streaming host for your Radeon PC. It streams to any Moonlight client, and it is built around AMD hardware. AMF drives the encoder directly, frame copies and colour conversion run on D3D12 compute queues beside your game, and every stage of a frame is timed so the numbers below are ones we recorded, not ones we hoped for. 3.0 adds PyroWave, a wavelet codec for full-colour HDR on a fast network, a native API that lets a client browse your library and manage the session, link-rate adaptation, stream presets, Radeon controls per game and per device, and a frame timing record from capture to screen.
 
-**Requirements:** an AMD Radeon GPU with a working AMF encoder, on Windows 10 or 11. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
-
+**Requirements:** an AMD Radeon GPU with a working AMF encoder, on Windows 10 or 11. Linux is in the pipeline, but not yet available ( Contributors are welcome! )
 ## Install. Pair. Play.
 
 1. **Install.** Run **`rubylight-setup-3.0.0-rc.1.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.1). It sets up the service, the virtual display driver and controller support. No test mode, no restart. A ZIP is there too, for trying the host without installing.

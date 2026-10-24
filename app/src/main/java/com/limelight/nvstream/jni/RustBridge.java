@@ -76,8 +76,8 @@ final class RustBridge {
                                       int videoCapabilities, int colorSpace, int colorRange,
                                       int hostFeatures, boolean inputOnly, boolean enableMic,
                                       boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps,
-                                      int networkGracePeriodMs, boolean packed444, int packed444Modes,
-                                      boolean remoteMonitor, boolean unbatchedInput,
+                                      boolean clientWireless, int networkGracePeriodMs, boolean packed444,
+                                      int packed444Modes, boolean remoteMonitor, boolean unbatchedInput,
                                       boolean networkPriority);
     static native void stopConnection();
     static native void interruptConnection();

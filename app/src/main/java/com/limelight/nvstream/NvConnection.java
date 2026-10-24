@@ -1012,13 +1012,14 @@ public class NvConnection {
                     // unknown) leaves either out of the stream description.
                     boolean pyroWave = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
                     int pyroWaveLinkMbps = WiredLink.mbpsToward(appContext, context.serverAddress.address);
+                    boolean clientWireless = WiredLink.wirelessToward(appContext, context.serverAddress.address);
                     int pyroWavePaceMbps = pyroWave ?
                             PyroWavePaceStore.paceMbpsFor(appContext, hostDetails.uuid, pyroWaveLinkMbps) : 0;
                     if (pyroWave) {
-                        LimeLog.info("PyroWave pacing hints: link " + pyroWaveLinkMbps + " Mbps, calibrated pace " +
-                                pyroWavePaceMbps + " Mbps");
-                    } else if (pyroWaveLinkMbps > 0) {
-                        LimeLog.info("Pacing hint: link " + pyroWaveLinkMbps + " Mbps");
+                        LimeLog.info("PyroWave pacing hints: link " + pyroWaveLinkMbps + " Mbps, wireless " +
+                                clientWireless + ", calibrated pace " + pyroWavePaceMbps + " Mbps");
+                    } else if (pyroWaveLinkMbps > 0 || clientWireless) {
+                        LimeLog.info("Pacing hint: link " + pyroWaveLinkMbps + " Mbps, wireless " + clientWireless);
                     }
 
                     synchronized (MoonBridge.class) {
@@ -1060,7 +1061,7 @@ public class NvConnection {
                                         !context.streamConfig.getApp().isSmallStreamInputOnly(),
                                 context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR,
                                 micPermitted, prefs.usbDualSenseHaptics,
-                                pyroWaveLinkMbps, pyroWavePaceMbps);
+                                pyroWaveLinkMbps, pyroWavePaceMbps, clientWireless);
                         if (ret != 0) {
                             return;
                         }

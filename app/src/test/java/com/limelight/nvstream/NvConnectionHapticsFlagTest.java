@@ -157,6 +157,7 @@ public class NvConnectionHapticsFlagTest {
         static Boolean hapticsPcm;
         static int serverCodecModeSupport, hostFeatures;
         static int linkMbps = -1, paceMbps = -1;
+        static boolean clientWireless;
         static Integer gracePeriodMs;
         static int videoCapabilities = -1;
 
@@ -179,13 +180,15 @@ public class NvConnectionHapticsFlagTest {
                                           int colorSpace, int colorRange,
                                           boolean unbatchedInput, boolean networkPriority, int hostFeatures,
                                           boolean inputOnly, boolean remoteMonitor, boolean enableMic,
-                                          boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps) {
+                                          boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps,
+                                          boolean clientWireless) {
             CapturingBridge.hapticsPcm = hapticsPcm;
             CapturingBridge.serverCodecModeSupport = serverCodecModeSupport;
             CapturingBridge.hostFeatures = hostFeatures;
             CapturingBridge.videoCapabilities = videoCapabilities;
             CapturingBridge.linkMbps = pyrowaveLinkMbps;
             CapturingBridge.paceMbps = pyrowavePaceMbps;
+            CapturingBridge.clientWireless = clientWireless;
             // Stop here: no native stream exists in this test.
             return -1;
         }

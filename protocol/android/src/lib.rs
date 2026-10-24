@@ -103,6 +103,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     haptics_pcm: jboolean,
     pyrowave_link_mbps: jint,
     pyrowave_pace_mbps: jint,
+    client_wireless: jboolean,
     network_grace_ms: jint,
     packed444: jboolean,
     packed444_modes: jint,
@@ -147,6 +148,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     stream.pyrowave_records_supported = host_features & 1 != 0;
     stream.pyrowave_link_mbps = pyrowave_link_mbps.max(0);
     stream.pyrowave_pace_mbps = pyrowave_pace_mbps.max(0);
+    stream.client_wireless = client_wireless == JNI_TRUE;
     let config = SessionConfig {
         stream,
         location: extras::location(streaming_remotely),

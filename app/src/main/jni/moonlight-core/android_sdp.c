@@ -483,6 +483,12 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             err |= addAttributeString(&optionHead, "x-ss-video[0].pyrowaveLinkMbps", payloadStr);
         }
 
+        // Only set when this client's route to the host is Wi-Fi or cellular, for every codec,
+        // so a Rubylight host paces for a wireless link from the first frame. Never sent as 0.
+        if (StreamConfig.clientWireless) {
+            err |= addAttributeString(&optionHead, "x-rl-video[0].clientWireless", "1");
+        }
+
         if (AppVersionQuad[0] >= 7) {
             // Enable HDR if requested
             if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_10BIT) {

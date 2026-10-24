@@ -602,7 +602,8 @@ Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass 
                                                            jint hostFeatures,
                                                            jboolean inputOnly, jboolean remoteMonitor,
                                                            jboolean enableMic, jboolean hapticsPcm,
-                                                           jint pyrowaveLinkMbps, jint pyrowavePaceMbps) {
+                                                           jint pyrowaveLinkMbps, jint pyrowavePaceMbps,
+                                                           jboolean clientWireless) {
     AndroidInputOnly = inputOnly;
     AndroidRemoteMonitor = remoteMonitor;
     AndroidMicRequested = enableMic;
@@ -640,7 +641,8 @@ Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass 
             .colorSpace = colorSpace,
             .colorRange = colorRange,
             .pyrowaveLinkMbps = pyrowaveLinkMbps > 0 ? pyrowaveLinkMbps : 0,
-            .pyrowavePaceMbps = pyrowavePaceMbps > 0 ? pyrowavePaceMbps : 0
+            .pyrowavePaceMbps = pyrowavePaceMbps > 0 ? pyrowavePaceMbps : 0,
+            .clientWireless = clientWireless ? 1 : 0
     };
 
     jbyte* riAesKeyBuf = (*env)->GetByteArrayElements(env, riAesKey, NULL);

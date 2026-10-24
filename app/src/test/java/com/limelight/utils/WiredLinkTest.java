@@ -8,6 +8,8 @@ import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class WiredLinkTest {
     private static Route ethernet(String name, int prefix, boolean active) {
@@ -61,5 +63,45 @@ public class WiredLinkTest {
         assertEquals(0, WiredLink.mbpsToward(Collections.singletonList(ethernet("../eth0", 24, true)), fast));
         assertEquals(0, WiredLink.mbpsToward(Collections.singletonList(ethernet(null, 24, true)), fast));
         assertEquals(0, WiredLink.mbpsToward(Collections.singletonList(ethernet("eth0", 24, true)), name -> 0));
+    }
+
+    private static Route vpnOver(boolean wifi, boolean cellular, int prefix, boolean active) {
+        return new Route("tun0", false, true, active, prefix, wifi, cellular);
+    }
+
+    @Test public void wifiAndCellularRoutesAreWireless() {
+        assertTrue(WiredLink.wirelessToward(Collections.singletonList(
+                new Route("wlan0", false, false, true, 24, true, false))));
+        assertTrue(WiredLink.wirelessToward(Collections.singletonList(
+                new Route("rmnet0", false, false, true, 0, false, true))));
+    }
+
+    @Test public void wiredUnknownAndEmptyRoutesAreNotWireless() {
+        assertFalse(WiredLink.wirelessToward(Collections.singletonList(ethernet("eth0", 24, true))));
+        assertFalse(WiredLink.wirelessToward(Collections.singletonList(wifi(24, true))));
+        assertFalse(WiredLink.wirelessToward(Collections.<Route>emptyList()));
+        // Ethernet among the transports wins over a Wi-Fi flag on the same network.
+        assertFalse(WiredLink.wirelessToward(Collections.singletonList(
+                new Route("eth0", true, false, true, 24, true, false))));
+    }
+
+    @Test public void vpnCountsByItsVisibleUnderlyingTransport() {
+        assertTrue(WiredLink.wirelessToward(Collections.singletonList(vpnOver(true, false, 0, true))));
+        assertTrue(WiredLink.wirelessToward(Collections.singletonList(vpnOver(false, true, 0, true))));
+        assertFalse(WiredLink.wirelessToward(Collections.singletonList(vpnOver(false, false, 0, true))));
+    }
+
+    @Test public void theRouteTheTrafficTakesDecidesWhetherItIsWireless() {
+        Route wlan = new Route("wlan0", false, false, true, 0, true, false);
+        // Wi-Fi is active, but the host's subnet is on Ethernet: the stream is wired.
+        assertFalse(WiredLink.wirelessToward(Arrays.asList(wlan, ethernet("eth0", 24, false))));
+        // Ethernet is the default, but the host's subnet is on Wi-Fi.
+        assertTrue(WiredLink.wirelessToward(Arrays.asList(ethernet("eth0", 0, true),
+                new Route("wlan0", false, false, false, 24, true, false))));
+        // Equal prefix: the active network wins the tie.
+        assertTrue(WiredLink.wirelessToward(Arrays.asList(
+                new Route("wlan0", false, false, true, 24, true, false), ethernet("eth0", 24, false))));
+        assertFalse(WiredLink.wirelessToward(Arrays.asList(
+                new Route("wlan0", false, false, false, 24, true, false), ethernet("eth0", 24, true))));
     }
 }

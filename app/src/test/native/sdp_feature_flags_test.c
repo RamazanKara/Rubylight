@@ -80,6 +80,16 @@ static long pyroWaveHint(const char* name) {
     return value;
 }
 
+// Whether the SDP the stream sends contains the text.
+static int sdpHas(const char* text) {
+    int length = 0;
+    char* sdp = getSdpPayloadForStreamConfig(13, &length);
+    CHECK(sdp != NULL && length > 0);
+    int found = strstr(sdp, text) != NULL;
+    free(sdp);
+    return found;
+}
+
 // The link-speed hint goes to hosts of every codec, spelled as in Nonary's moonlight-common-c,
 // only when known; the calibrated pace is PyroWave's alone.
 static void pacingHints(void) {
@@ -106,8 +116,24 @@ static void pacingHints(void) {
     }
 }
 
+// The wireless hint is Rubylight's own attribute, sent as 1 for every codec only when set,
+// and never as 0.
+static void clientWirelessHint(void) {
+    static const int formats[] = {VIDEO_FORMAT_H264, VIDEO_FORMAT_H265, VIDEO_FORMAT_AV1_MAIN8, VIDEO_FORMAT_PYROWAVE};
+    for (int i = 0; i < 4; i++) {
+        sunshineStream();
+        NegotiatedVideoFormat = formats[i];
+        CHECK(sdpHas("a=x-rl-video[0].clientWireless:") == 0);
+        StreamConfig.clientWireless = 1;
+        CHECK(sdpHas("a=x-rl-video[0].clientWireless:1") == 1);
+        StreamConfig.clientWireless = 0;
+        CHECK(sdpHas("a=x-rl-video[0].clientWireless") == 0);
+    }
+}
+
 int main(void) {
     pacingHints();
+    clientWirelessHint();
     sunshineStream();
     CHECK(offeredFlags(false) == (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1));
     CHECK(offeredFlags(true) == (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1 | ML_FF_HAPTICS_PCM));

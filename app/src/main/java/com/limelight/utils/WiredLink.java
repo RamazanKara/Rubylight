@@ -35,15 +35,24 @@ public final class WiredLink {
     static final class Route {
         final String interfaceName;
         final boolean ethernet, vpn, active;
+        /** Wi-Fi or cellular is among the network's transports; a VPN shows its underlying ones. */
+        final boolean wifi, cellular;
         /** Prefix length of the best route to the host on this network; 0 is the default route. */
         final int prefixLength;
 
         Route(String interfaceName, boolean ethernet, boolean vpn, boolean active, int prefixLength) {
+            this(interfaceName, ethernet, vpn, active, prefixLength, false, false);
+        }
+
+        Route(String interfaceName, boolean ethernet, boolean vpn, boolean active, int prefixLength,
+              boolean wifi, boolean cellular) {
             this.interfaceName = interfaceName;
             this.ethernet = ethernet;
             this.vpn = vpn;
             this.active = active;
             this.prefixLength = prefixLength;
+            this.wifi = wifi;
+            this.cellular = cellular;
         }
     }
 
@@ -65,7 +74,29 @@ public final class WiredLink {
         }
     }
 
-    static int mbpsToward(List<Route> routes, SpeedSource speeds) {
+    /**
+     * Whether the route to {@code host} is Wi-Fi or cellular, for the clientWireless hint
+     * (x-rl-video[0].clientWireless) that lets a Rubylight host pace for a wireless link from the
+     * first frame. False when it is wired, unknown, a VPN whose underlying transport is not
+     * visible, or cannot be determined. Blocks on name lookup.
+     */
+    public static boolean wirelessToward(Context context, String host) {
+        try {
+            InetAddress address = InetAddress.getByName(host);
+            return wirelessToward(routesTo(context, address));
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    static boolean wirelessToward(List<Route> routes) {
+        Route best = bestRoute(routes);
+        // A VPN counts by the transport underneath it when Android shows one; a network with
+        // Ethernet among its transports is never wireless, whatever else it carries.
+        return best != null && !best.ethernet && (best.wifi || best.cellular);
+    }
+
+    private static Route bestRoute(List<Route> routes) {
         Route best = null;
         for (Route route : routes) {
             if (best == null || route.prefixLength > best.prefixLength ||
@@ -73,6 +104,11 @@ public final class WiredLink {
                 best = route;
             }
         }
+        return best;
+    }
+
+    static int mbpsToward(List<Route> routes, SpeedSource speeds) {
+        Route best = bestRoute(routes);
         // Only the network the traffic takes counts: a wired port that loses to Wi-Fi or a VPN
         // on the route to this host says nothing about the stream.
         if (best == null || !best.ethernet || best.vpn || best.interfaceName == null ||
@@ -109,7 +145,9 @@ public final class WiredLink {
                         capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
                         capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
                                 !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN),
-                        network.equals(active), prefix));
+                        network.equals(active), prefix,
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)));
             }
         }
         return routes;

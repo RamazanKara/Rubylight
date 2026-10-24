@@ -447,7 +447,7 @@ public class MoonBridge {
                                       boolean unbatchedInput, boolean networkPriority, int hostFeatures,
                                       boolean inputOnly, boolean remoteMonitor, boolean enableMic,
                                       boolean hapticsPcm,
-                                      int pyrowaveLinkMbps, int pyrowavePaceMbps) {
+                                      int pyrowaveLinkMbps, int pyrowavePaceMbps, boolean clientWireless) {
         boolean rust = false;
         int packedModes = 0;
         if (packed444Requested && !rustEngineRequested) {
@@ -490,14 +490,15 @@ public class MoonBridge {
                     width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,
                     supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
-                    pyrowaveLinkMbps, pyrowavePaceMbps, networkGracePeriodMs, packed444Requested, packedModes,
+                    pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
                     remoteMonitor, unbatchedInput, networkPriority);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,
                 supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                 colorSpace, colorRange, unbatchedInput, networkPriority, hostFeatures, inputOnly,
-                remoteMonitor, enableMic, hapticsPcm, pyrowaveLinkMbps, pyrowavePaceMbps);
+                remoteMonitor, enableMic, hapticsPcm, pyrowaveLinkMbps, pyrowavePaceMbps,
+                clientWireless);
     }
     private static native int cStartConnection(String address, String appVersion, String gfeVersion,
                                                String rtspSessionUrl, int serverCodecModeSupport,
@@ -511,7 +512,8 @@ public class MoonBridge {
                                                boolean unbatchedInput, boolean networkPriority, int hostFeatures,
                                                boolean inputOnly, boolean remoteMonitor, boolean enableMic,
                                                boolean hapticsPcm,
-                                               int pyrowaveLinkMbps, int pyrowavePaceMbps);
+                                               int pyrowaveLinkMbps, int pyrowavePaceMbps,
+                                               boolean clientWireless);
 
     /** Call before startConnection(); 0 keeps the native 10 second control timeout. */
     public static void setNetworkGracePeriodMs(int gracePeriodMs) {

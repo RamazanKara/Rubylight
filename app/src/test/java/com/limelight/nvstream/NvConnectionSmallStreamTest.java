@@ -142,7 +142,8 @@ public class NvConnectionSmallStreamTest {
                                           int colorSpace, int colorRange,
                                           boolean unbatchedInput, boolean networkPriority, int hostFeatures,
                                           boolean inputOnly, boolean remoteMonitor, boolean enableMic,
-                                          boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps) {
+                                          boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps,
+                                          boolean clientWireless) {
             CapturingBridge.width = width;
             CapturingBridge.height = height;
             CapturingBridge.fps = fps;

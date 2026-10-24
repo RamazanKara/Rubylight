@@ -41,9 +41,30 @@ public abstract class NightjarActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onPause() {
+        dpadEchoes.reset();
+        super.onPause();
+    }
+
+    @Override
     protected void onStop() {
         PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(appearanceListener);
         super.onStop();
+    }
+
+    private final DpadEchoFilter dpadEchoes = new DpadEchoFilter();
+
+    /** A pad that reports its D-pad as keys and as a hat must not move the focus twice. */
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        return dpadEchoes.drop(event) || super.dispatchKeyEvent(event);
+    }
+
+    /** Releases that arrive while another window has focus never reach this one. */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        if (!hasFocus) dpadEchoes.reset();
+        super.onWindowFocusChanged(hasFocus);
     }
 
     private void refreshAppearance() {

@@ -164,4 +164,17 @@ public class PcKeyboardControllerTest {
         assertEquals("DE", controller.layout().id.toUpperCase());
         assertEquals("G", focused());
     }
+
+    @Test
+    public void releasingThePadsAlsoLetsGoOfAHeldStickOrHat() {
+        controller.stick(1, 0, 0);
+        assertTrue(controller.stickActive());
+        assertTrue(controller.needsTick());
+        controller.releasePads(100);
+        assertFalse(controller.stickActive());
+        assertFalse("The release never comes once the pad is gone", controller.needsTick());
+        String before = focused();
+        controller.tick(10_000);
+        assertEquals(before, focused());
+    }
 }

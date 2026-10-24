@@ -8,7 +8,7 @@
     <string name="stats_throughput">視訊酬載：%1$s Mbps · 遺失：%2$s%%</string>
     <string name="stats_network">網路 RTT：%1$s ms (±%2$s ms)</string>
     <string name="stats_host">主機處理：%1$s ms</string>
-    <string name="stats_host_split">主機處理：%1$s ms + 傳送 %2$s ms</string>
+    <string name="stats_host_network">主機到網路：%1$s ms</string>
     <string name="stats_client">解碼：%1$s ms · 顯示等待：%2$s ms</string>
     <string name="hardware_title">主機硬體 (所有 GPU)</string>
     <string name="hardware_cpu">主機 CPU：%1$s%%</string>

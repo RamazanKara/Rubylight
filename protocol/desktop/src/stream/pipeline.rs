@@ -79,6 +79,10 @@ pub struct Counters {
     /// Pictures dropped because a newer one was ready before they were shown.
     pub replaced: AtomicU64,
     pub decode_us_total: AtomicU64,
+    /// The header's processing times (100 us units) of the received frames that carried one, and
+    /// how many did: the overlay's Host processing, counted like Artemis does, before any decode.
+    pub host_latency_total: AtomicU64,
+    pub host_latency_frames: AtomicU64,
     /// PyroWave early decode: frames whose blocks were decoded while they arrived, frames
     /// whose chunks did not match and decoded whole, and the time spent decoding chunks.
     pub early_frames: AtomicU64,
@@ -96,6 +100,16 @@ pub struct Counters {
     pub audio_underruns: AtomicU64,
     /// Output channels, 0 without an audio device.
     pub audio_channels: AtomicU64,
+}
+
+impl Counters {
+    /// Counts one received frame's header processing time; frames without one are not counted.
+    pub fn count_host_latency(&self, units: u16) {
+        if units != 0 {
+            self.host_latency_total.fetch_add(u64::from(units), Ordering::Relaxed);
+            self.host_latency_frames.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 }
 
 pub struct Shared {
@@ -405,6 +419,7 @@ impl VideoDecoder for Decoder {
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
+        self.shared.counters.count_host_latency(frame.host_processing_latency);
         if self.pyrowave.is_some() {
             let start = session::now_us();
             let setup = self.setup.expect("decoder setup precedes frames");
@@ -679,6 +694,20 @@ mod tests {
 
     fn notices(shared: &Shared) -> Vec<Notice> {
         std::mem::take(&mut *lock(&shared.notices))
+    }
+
+    #[test]
+    fn every_received_frame_with_a_header_value_counts_for_the_host_processing_average() {
+        // No decoder is set up, so nothing is decoded or shown: the count must not depend on that.
+        let (mut decoder, shared) = decoder();
+        for units in [5u16, 0, 6, 4] {
+            let mut frame = Frame::default();
+            frame.host_processing_latency = units;
+            assert!(matches!(decoder.submit(&frame), DecodeStatus::Ok));
+        }
+        assert_eq!(shared.counters.host_latency_total.load(Ordering::Relaxed), 15);
+        assert_eq!(shared.counters.host_latency_frames.load(Ordering::Relaxed), 3);
+        assert_eq!(shared.counters.decoded.load(Ordering::Relaxed), 0);
     }
 
     #[test]

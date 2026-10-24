@@ -82,6 +82,15 @@ class VideoStats {
         return totalFramesReceived == 0 ? 0 : (int) (decoderTimeMs / totalFramesReceived);
     }
 
+    /**
+     * The frame header's host processing time averaged over the frames that carried one, in ms, the same
+     * sum and count Artemis and Moonlight divide (the wire value is in 100 us units); -1 when none did.
+     */
+    float getHostProcessingMs() {
+        return framesWithHostProcessingLatency == 0 ? -1 :
+                (float) totalHostProcessingLatency / framesWithHostProcessingLatency / 10;
+    }
+
     float getWindowDecoderLatencyMs(boolean measured) {
         return totalFramesReceived == 0 || (decoderTimeMs == 0 && !measured) ? -1 :
                 (float) decoderTimeMs / totalFramesReceived;

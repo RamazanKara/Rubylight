@@ -150,6 +150,16 @@ public final class PcKeyboardController {
         for (Pad button : Pad.values()) {
             if (padDown[button.ordinal()]) pad(button, false, now);
         }
+        // A held stick or hat never reports its release once the pad is gone, and would walk the focus forever.
+        if (stickDirection != null) {
+            stickDirection = null;
+            updateDirection(now);
+        }
+    }
+
+    /** Whether a stick or hat is held past its engage point. */
+    public boolean stickActive() {
+        return stickDirection != null;
     }
 
     /** Told after {@link #release}, so whoever feeds this controller can resync what it believes is held. */

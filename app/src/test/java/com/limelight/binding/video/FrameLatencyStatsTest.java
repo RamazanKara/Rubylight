@@ -630,7 +630,7 @@ public class FrameLatencyStatsTest {
     }
 
     @Test
-    public void hostTimingReportsReplaceTheHeaderLatencyAndFillTheCsvColumns() throws Exception {
+    public void hostTimingReportsFillTheirOwnStagesAndTheCsvColumns() throws Exception {
         FrameLatencyStats stats = new FrameLatencyStats();
         // The report can arrive before or after its frame; the header says 5 ms (50 x 100 us).
         stats.onHostTiming(report(new long[] {42, 12000, 3000, 5000, 2500}), 1000000000L);
@@ -639,7 +639,10 @@ public class FrameLatencyStatsTest {
         stats.onHostTiming(report(new long[] {43, 8000, 1000, 2000, 3000}), 1000000100L);
 
         double[][] summary = stats.summarize();
-        assertArrayEquals(new double[] {2, 10, 12, 12}, summary[4], 0);
+        // Host processing (stage 4) is the two header values, 5 ms each; the reports' present to
+        // last packet sent is stage 8.
+        assertArrayEquals(new double[] {2, 5, 5, 5}, summary[4], 0);
+        assertArrayEquals(new double[] {2, 10, 12, 12}, summary[FrameLatencyStats.HOST_SENT_STAGE], 0);
         assertEquals(2, summary[5][1], 0);
         assertEquals(3.5, summary[6][1], 0);
         assertEquals(2.75, summary[7][1], 0);
@@ -669,21 +672,29 @@ public class FrameLatencyStatsTest {
     }
 
     @Test
-    public void headerLatencyReturnsWhenReportsStopAndWindowsNeverMix() {
+    public void hostProcessingStaysTheHeaderValueWhateverTheReportsSay() {
+        // Regression: host timing reports (present to last packet sent, with the network send) once
+        // replaced the header's host processing in the overlay, so Nightjar showed 4.9 ms where
+        // Artemis showed the header's 0.5 ms.
         FrameLatencyStats stats = new FrameLatencyStats();
-        stats.onDecoderInput(1, 1, 1000000, 1000000, 2000000, (char) 100);
-        assertArrayEquals(new double[] {1, 10, 10, 10}, stats.summarize()[4], 0);
+        stats.onDecoderInput(1, 1, 1000000, 1000000, 2000000, (char) 5);
+        stats.onHostTiming(report(new long[] {1, 5000, 100, 600, 4200}), 3000000000L);
+        // Reports are fresh, and the header keeps counting.
+        stats.onDecoderInput(2, 2, 3100000000L, 3100000000L, 3100000000L, (char) 5);
+        double[][] summary = stats.summarize();
+        assertArrayEquals(new double[] {2, 0.5, 0.5, 0.5}, summary[4], 0.00001);
+        assertArrayEquals(new double[] {1, 5, 5, 5}, summary[FrameLatencyStats.HOST_SENT_STAGE], 0);
+        // Long after the last report the header's average is still the same stage.
+        stats.onDecoderInput(3, 3, 9000000000L, 9000000000L, 9000000000L, (char) 5);
+        assertArrayEquals(new double[] {3, 0.5, 0.5, 0.5}, stats.summarize()[4], 0.00001);
+    }
 
-        stats.onHostTiming(report(new long[] {1, 4000, 1000, 1000, 1000}), 3000000000L);
-        assertArrayEquals(new double[] {1, 4, 4, 4}, stats.summarize()[4], 0);
-        // While reports are fresh the header value is ignored.
-        stats.onDecoderInput(2, 2, 3100000000L, 3100000000L, 3100000000L, (char) 100);
-        assertEquals(1, stats.summarize()[4][0], 0);
-        // Two seconds without a report: the header is used again, on a fresh window, and the
-        // split (which only reports carry) is gone.
-        stats.onDecoderInput(3, 3, 6000000000L, 6000000000L, 6000000000L, (char) 70);
-        assertArrayEquals(new double[] {1, 7, 7, 7}, stats.summarize()[4], 0);
-        assertEquals(0, stats.summarize()[5][0], 0);
+    @Test
+    public void reportsAloneLeaveHostProcessingEmpty() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onHostTiming(report(new long[] {1, 5000, 100, 600, 4200}), 3000000000L);
+        assertEquals(0, stats.summarize()[4][0], 0);
+        assertEquals(1, stats.summarize()[FrameLatencyStats.HOST_SENT_STAGE][0], 0);
     }
 
     @Test

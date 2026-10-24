@@ -262,7 +262,7 @@
     <string name="latency_output_render">Wartezeit vor Anzeige</string>
     <string name="latency_receive_render">Client-Latenz</string>
     <string name="latency_host_processing">Host-Verarbeitung</string>
-    <string name="latency_host_processing_send">Host-Verarbeitung + Senden</string>
+    <string name="latency_host_processing_send">Host bis Netzwerk</string>
     <string name="latency_host_split">Host-Warteschlange / Kodierung / Senden (Ø): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">YUV 4:4:4 bevorzugen</string>
     <string name="summary_yuv444">Schärferer farbiger Text, wenn PC und Gerät es unterstützen. HDR hat Vorrang.</string>

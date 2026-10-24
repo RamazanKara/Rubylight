@@ -262,7 +262,7 @@
     <string name="latency_output_render">Attente d’affichage</string>
     <string name="latency_receive_render">Latence client</string>
     <string name="latency_host_processing">Traitement de l’hôte</string>
-    <string name="latency_host_processing_send">Traitement de l’hôte + envoi</string>
+    <string name="latency_host_processing_send">Hôte vers le réseau</string>
     <string name="latency_host_split">File d\'attente / encodage / envoi hôte (moy.): %1$.2f / %2$.2f / %3$.2f</string>
     <string name="title_yuv444">Privilégier YUV 4:4:4</string>
     <string name="summary_yuv444">Texte en couleur plus net si le PC et cet appareil le prennent en charge. Le HDR est prioritaire.</string>

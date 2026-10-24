@@ -36,6 +36,20 @@ public final class ActionSheet extends BottomSheetDialog {
         }
     };
 
+    private final DpadEchoFilter dpadEchoes = new DpadEchoFilter();
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        return dpadEchoes.drop(event) || super.dispatchKeyEvent(event);
+    }
+
+    /** Releases that arrive while another window has focus never reach this one. */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        if (!hasFocus) dpadEchoes.reset();
+        super.onWindowFocusChanged(hasFocus);
+    }
+
     public ActionSheet(Context context, CharSequence title) {
         super(context);
         if (context instanceof android.app.Activity) setOwnerActivity((android.app.Activity) context);

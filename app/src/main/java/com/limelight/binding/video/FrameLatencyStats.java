@@ -22,19 +22,18 @@ class FrameLatencyStats {
     private static final int MAX_COMPLETED = 4096;
     private static final long CALLBACK_TIMEOUT_NS = 5000000000L;
     private static final long FPS_WINDOW_NS = 2000000000L;
-    // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency, 4 host latency,
-    // then the host's queue, encode and send split (only from host timing reports).
-    private static final int STAGES = 8;
+    // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency, 4 host processing
+    // (the video frame header's value, the one Artemis and Moonlight show), 5 to 7 the host's queue,
+    // encode and send split and 8 its present to last packet sent (only from host timing reports).
+    private static final int STAGES = 9;
     private static final int HOST_STAGE = 4;
+    static final int HOST_QUEUE_STAGE = 5;
+    static final int HOST_SEND_STAGE = 7;
+    static final int HOST_SENT_STAGE = 8;
     // Reports that arrive before their frame, and frames finished before their report, are matched
     // within these bounds; a report older than that is dropped.
     private static final int MAX_EARLY_REPORTS = 256;
     private static final int MAX_COMPLETED_SCAN = 512;
-    // Host timing reports replace the frame header's host latency while they keep arriving.
-    private static final long HOST_TIMING_FRESH_NS = 2000000000L;
-    private static final int SOURCE_NONE = 0;
-    private static final int SOURCE_HEADER = 1;
-    private static final int SOURCE_REPORTS = 2;
     // Queued frames Artemis never counts (replaced before display) are forgotten past this many.
     private static final int MAX_ARTEMIS_QUEUED = 1024;
     static final String CSV_HEADER = "frame_number,pts_us,receive_ns,decoder_input_ns,decoder_output_ns," +
@@ -69,8 +68,6 @@ class FrameLatencyStats {
     private final int[] counts = new int[STAGES];
     private final int[] positions = new int[STAGES];
     private final LinkedHashMap<Integer, HostTimingReport.Record> earlyReports = new LinkedHashMap<>();
-    private long lastHostTimingNs;
-    private int hostSource = SOURCE_NONE;
     private long csvRowsLost;
     private final boolean vrr;
     private long lastOutputNs;
@@ -166,25 +163,23 @@ class FrameLatencyStats {
         frame.hostProcessingNs = hostProcessingLatency * 100000L;
         pending.put(ptsUs, frame);
         frame.hostTiming = earlyReports.remove(frameNumber);
-        boolean reportsFresh = lastHostTimingNs != 0 && inputNs - lastHostTimingNs < HOST_TIMING_FRESH_NS;
-        if (frame.hostProcessingNs != 0 && !reportsFresh) {
-            useHostSource(SOURCE_HEADER);
+        // Stage 4 is only ever the header's value. Never feed a host timing report into it:
+        // present to last packet sent includes the network send and reads several times higher.
+        if (frame.hostProcessingNs != 0) {
             addDuration(HOST_STAGE, frame.hostProcessingNs, inputNs);
         }
     }
 
     // A host timing report (0x5536), which arrives on the native control thread. Its present to
-    // last-packet-sent time is the host latency; the frame header's value stops at the first
-    // packet. The reports take over the host latency samples for as long as they keep arriving.
+    // last-packet-sent time and the queue, encode and send split get their own stages; they never
+    // touch the host processing stage, which stays the frame header's value.
     synchronized void onHostTiming(HostTimingReport report, long nowNs) {
-        lastHostTimingNs = nowNs;
-        useHostSource(SOURCE_REPORTS);
         for (int i = 0; i < report.size(); i++) {
             HostTimingReport.Record record = report.get(i);
-            addDuration(HOST_STAGE, record.hostUs * 1000L, nowNs);
-            addDuration(HOST_STAGE + 1, record.queueUs * 1000L, nowNs);
-            addDuration(HOST_STAGE + 2, record.encodeUs * 1000L, nowNs);
-            addDuration(HOST_STAGE + 3, record.sendUs * 1000L, nowNs);
+            addDuration(HOST_SENT_STAGE, record.hostUs * 1000L, nowNs);
+            addDuration(HOST_QUEUE_STAGE, record.queueUs * 1000L, nowNs);
+            addDuration(HOST_QUEUE_STAGE + 1, record.encodeUs * 1000L, nowNs);
+            addDuration(HOST_SEND_STAGE, record.sendUs * 1000L, nowNs);
             Frame frame = findFrame(record.frame);
             if (frame != null) {
                 frame.hostTiming = record;
@@ -197,20 +192,6 @@ class FrameLatencyStats {
                 earlyReports.put(record.frame, record);
             }
         }
-    }
-
-    // A window never mixes the two sources of host latency: switching starts it afresh.
-    private void useHostSource(int source) {
-        if (hostSource == source) {
-            return;
-        }
-        if (hostSource != SOURCE_NONE) {
-            for (int stage = HOST_STAGE; stage < STAGES; stage++) {
-                counts[stage] = 0;
-                positions[stage] = 0;
-            }
-        }
-        hostSource = source;
     }
 
     private Frame findFrame(int frameNumber) {

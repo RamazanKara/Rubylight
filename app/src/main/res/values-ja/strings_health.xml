@@ -10,7 +10,7 @@
     <string name="health_presentation">表示: フレームが表示されるより速く送り出され、表示待ちが長くなっていました。フレームペーシングのモードと画面のリフレッシュレートを比べてみてください。</string>
     <string name="health_heat">温度: Android が高い熱負荷を報告しました。フレームレートや解像度を下げるか、負荷の高いクライアント側の処理を無効にし、デバイスを冷ましてください。</string>
     <string name="health_evidence">観測された最大値:\nフレーム損失: %1$s %%\nデコード: %2$s ms\nホストの処理 p95: %3$s ms\n表示待ち p95: %4$s ms\nこれらの段階を合計しても、入力から画面表示までの遅延にはなりません。</string>
-    <string name="health_evidence_send">観測された最大値:\nフレーム損失: %1$s %%\nデコード: %2$s ms\nホストの処理 + 送信 p95: %3$s ms\n表示待ち p95: %4$s ms\nこれらの段階を合計しても、入力から画面表示までの遅延にはなりません。</string>
+    <string name="health_evidence_send">観測された最大値:\nフレーム損失: %1$s %%\nデコード: %2$s ms\nホストからネットワーク p95: %3$s ms\n表示待ち p95: %4$s ms\nこれらの段階を合計しても、入力から画面表示までの遅延にはなりません。</string>
     <string name="health_trial_help">ビットレートの試行はこのセッションにのみ適用されます。同じようなプレイをさらに 30 秒行って比べてから、ここに戻って元に戻してください。手動または自動でビットレートを変更すると、試行は置き換えられます。</string>
     <string name="health_try">ビットレートを下げて試す</string>
     <string name="health_undo">ビットレートの試行を元に戻す</string>

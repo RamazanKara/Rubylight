@@ -162,6 +162,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Conventional decode follows Artemis; PyroWave follows Moonlight X's CPU submission metric.
     // Both use every frame received in the last two one-second windows as the denominator.
     private volatile float shownDecodeTimeMs = -1;
+    // The statistics overlay's Host processing: the frame header's average over the last two windows,
+    // computed exactly as Artemis and Moonlight do. -1 until a frame carried one.
+    private volatile float shownHostProcessingMs = -1;
     private final PyroWaveSubmissionTiming pyroWaveSubmissionTiming = new PyroWaveSubmissionTiming();
     private ThermalMonitor thermalMonitor;
     private volatile int thermalLevel = ThermalMonitor.NORMAL;
@@ -200,7 +203,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     };
     private BufferedWriter latencyCsv;
     private volatile String latencyOverlay = "";
-    private volatile double[][] latencySummary = new double[8][4];
+    private volatile double[][] latencySummary = new double[9][4];
     private volatile String decoderDiagnostics = "";
     // Private file name kept from earlier releases so the last stream's timings survive updates.
     public static final String LATENCY_CSV_NAME = "butterpollo-latency.csv";
@@ -256,15 +259,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     static String formatLatencyOverlay(Context context, double[][] summary, float decodeAverageMs, boolean pyroWave) {
-        // With host timing reports the row runs to the last packet sent, so it says it includes the send.
-        boolean hostReports = summary.length > 7 && summary[7][0] > 0;
+        // Host processing is always the frame header's value, like Artemis and Moonlight show it. With
+        // host timing reports a second row follows, present to last packet sent, which says it includes the send.
+        boolean hostReports = summary.length > FrameLatencyStats.HOST_SENT_STAGE && summary[FrameLatencyStats.HOST_SENT_STAGE][0] > 0;
         int[] labels = { R.string.latency_receive_render, R.string.latency_queue_wait,
                 pyroWave ? R.string.latency_pyrowave_completed_decode : R.string.latency_input_output, R.string.latency_output_render,
-                hostReports ? R.string.latency_host_processing_send : R.string.latency_host_processing };
-        int[] stages = {3, 0, 1, 2, 4};
+                R.string.latency_host_processing, R.string.latency_host_processing_send };
+        int[] stages = {3, 0, 1, 2, 4, FrameLatencyStats.HOST_SENT_STAGE};
         StringBuilder text = new StringBuilder(context.getString(R.string.latency_header, FrameLatencyStats.WINDOW_SIZE));
         for (int line = 0; line < labels.length; line++) {
             int stage = stages[line];
+            if (stage == FrameLatencyStats.HOST_SENT_STAGE && !hostReports) {
+                continue;
+            }
             if (stage == 4) {
                 text.append("\n\n").append(context.getString(R.string.overlay_host));
             }
@@ -312,11 +319,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         long nowNs = System.nanoTime();
         double[][] timing = frameLatencyStats.summarizeRecent(nowNs, 2_000_000_000L);
         float[] rates = frameLatencyStats.getFrameRates(nowNs);
+        // The stream doctor judges the host by its present to last packet sent when the host reports it,
+        // otherwise by the frame header's processing time. The statistics overlay never does this.
+        boolean hostReports = timing[FrameLatencyStats.HOST_SENT_STAGE][0] > 0;
+        int hostStage = hostReports ? FrameLatencyStats.HOST_SENT_STAGE : 4;
+        float hostP95Ms = timing[hostStage][0] > 0 ? (float) timing[hostStage][2] : -1;
         return new com.limelight.utils.StreamHealth.Sample(nowMs, hasRecentVideoFrames(nowMs), fps,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
-                jitterMs, getDecodeTimeMs(), timing[4][0] > 0 ? (float) timing[4][2] : -1,
+                jitterMs, getDecodeTimeMs(), hostP95Ms,
                 timing[2][0] > 0 ? (float) timing[2][2] : -1, rates[0], rates[1], rates[2], getThermalLevel(),
-                timing[7][0] > 0);
+                hostReports);
     }
 
     public LatencyProbe getLatencyProbe() {
@@ -2910,12 +2922,30 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
                     PerformanceOverlay.statisticsText(context, stream, frameRates[2],
                             frameRates[0], receivedVideoMbps, fps.lossPercent,
-                            networkMs, varianceMs, PerformanceOverlay.average(timings, 4),
-                            PerformanceOverlay.average(timings, 7), shownDecodeTimeMs,
+                            networkMs, varianceMs, shownHostProcessingMs,
+                            PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
                             frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2), !mediaCodec),
                     PerformanceOverlay.compactText(context, frameRates[2], frameRates[0], networkMs,
                             fps.lossPercent, decodeTimeMs));
         }
+    }
+
+    /**
+     * Adds a frame's header processing time (100 us units, 0 when the host sent none) to the window the
+     * statistics overlay's Host processing averages, the way Artemis and Moonlight do. Every path of
+     * submitDecodeUnit calls this, early returns included, and host timing reports never do.
+     */
+    static void recordHostProcessing(VideoStats window, char frameHostProcessingLatency) {
+        if (frameHostProcessingLatency != 0) {
+            if (window.minHostProcessingLatency != 0) {
+                window.minHostProcessingLatency = (char) Math.min(window.minHostProcessingLatency, frameHostProcessingLatency);
+            } else {
+                window.minHostProcessingLatency = frameHostProcessingLatency;
+            }
+            window.framesWithHostProcessingLatency += 1;
+        }
+        window.maxHostProcessingLatency = (char) Math.max(window.maxHostProcessingLatency, frameHostProcessingLatency);
+        window.totalHostProcessingLatency += frameHostProcessingLatency;
     }
 
     @SuppressWarnings("deprecation")
@@ -2980,6 +3010,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // PyroWave can measure real zero whole milliseconds while carrying the sub-ms remainder
             // into the next window. GPU completion is not a prerequisite for that CPU measurement.
             shownDecodeTimeMs = lastTwo.getWindowDecoderLatencyMs(pyroWave || decodeTimeMs >= 0);
+            shownHostProcessingMs = lastTwo.getHostProcessingMs();
             networkFrameLossPercent = activeWindowVideoStats.totalFrames == 0 ? 0 :
                     (float) activeWindowVideoStats.framesLost / activeWindowVideoStats.totalFrames * 100;
             overlayFps = lastTwo.getFps();
@@ -2993,6 +3024,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         receivedVideoBytes.addAndGet(decodeUnitLength);
 
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            // Before any return below: the statistics overlay's Host processing needs every frame.
+            recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency);
             long inputNs = System.nanoTime();
             pyroWaveQueueDelayTotal += Math.max(0, inputNs - enqueueTimeNs) / 1000000.0f;
             pyroWaveQueueSamples++;
@@ -3258,16 +3291,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
         }
 
-        if (frameHostProcessingLatency != 0) {
-            if (activeWindowVideoStats.minHostProcessingLatency != 0) {
-                activeWindowVideoStats.minHostProcessingLatency = (char) Math.min(activeWindowVideoStats.minHostProcessingLatency, frameHostProcessingLatency);
-            } else {
-                activeWindowVideoStats.minHostProcessingLatency = frameHostProcessingLatency;
-            }
-            activeWindowVideoStats.framesWithHostProcessingLatency += 1;
-        }
-        activeWindowVideoStats.maxHostProcessingLatency = (char) Math.max(activeWindowVideoStats.maxHostProcessingLatency, frameHostProcessingLatency);
-        activeWindowVideoStats.totalHostProcessingLatency += frameHostProcessingLatency;
+        recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency);
 
         activeWindowVideoStats.totalFramesReceived++;
         frameLatencyStats.onFrameReceived(receiveTimeNs);

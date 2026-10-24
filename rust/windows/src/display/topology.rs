@@ -300,8 +300,6 @@ fn keep_active_modes(paths: &[DISPLAYCONFIG_PATH_INFO]) -> Vec<DISPLAYCONFIG_PAT
         })
         .collect()
 }
-/// Desktop sources an adapter drives at most.
-const MAX_DESKTOP_SOURCES: u32 = 4;
 /// The active paths plus one route that switches `target` on, or None while
 /// the target is not connected. Active paths keep their mode indices, so the
 /// other displays keep their timings, positions and clone groups; Windows
@@ -333,19 +331,20 @@ fn activation_paths(
     let occupied: std::collections::BTreeSet<_> =
         active.iter().filter(|p| !ours(p)).map(source).collect();
     // Windows lists a display that is on only at the source it is on (the
-    // panel's, when it came up cloned); the sources it does not list are free
-    // to ask for, up to the four an adapter drives.
+    // panel's, when it came up cloned). The other sources the adapter lists
+    // for its other displays are free to ask for; one nothing lists is not.
     let free_offered = available.iter().find(|p| !occupied.contains(&source(p)));
     let mut route = match free_offered {
         Some(p) => **p,
         None => {
             let template = *available[0];
-            let (low, high) = (
-                template.sourceInfo.adapterId.LowPart,
-                template.sourceInfo.adapterId.HighPart,
-            );
-            let free = (0..MAX_DESKTOP_SOURCES)
-                .find(|id| !occupied.contains(&(low, high, *id)))
+            let adapter = template.sourceInfo.adapterId;
+            let free = all
+                .iter()
+                .filter(|p| p.sourceInfo.adapterId == adapter)
+                .map(|p| p.sourceInfo.id)
+                .filter(|id| !occupied.contains(&(adapter.LowPart, adapter.HighPart, *id)))
+                .min()
                 .with_context(|| {
                     let offered: Vec<_> = available.iter().map(|p| **p).collect();
                     format!(
@@ -1376,8 +1375,6 @@ mod tests {
             active[1],
             active[2],
             path(vdd, 1, 5, 4, true, true),
-            path(vdd, 2, 6, 4, true, true),
-            path(vdd, 3, 7, 4, true, true),
         ];
         assert!(activation_paths(&busy, &all, &[(vdd, 2)]).is_err());
     }
@@ -1401,15 +1398,23 @@ mod tests {
             path
         };
         let active = [path(1, 10, true), path(1, 20, true)];
-        let paths = activation_paths(&active, &active, &[(gpu, 20)])
+        // The panel's other route lists source 0 as one the adapter drives.
+        let mut all = active.to_vec();
+        all.push(path(0, 10, false));
+        let paths = activation_paths(&active, &all, &[(gpu, 20)])
             .unwrap()
             .unwrap();
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0].sourceInfo.id, 1);
         assert_eq!((paths[1].targetInfo.id, paths[1].sourceInfo.id), (20, 0));
-        // Every source taken by other displays: nothing to move it to.
-        let busy: Vec<_> = (0..4).map(|s| path(s, 10 + s, true)).collect();
-        let mut all = busy.clone();
+        // No listed source is free: the error says so; an unlisted source
+        // is never tried.
+        let Err(error) = activation_paths(&active, &active, &[(gpu, 20)]) else {
+            panic!("an unlisted source was tried");
+        };
+        assert!(format!("{error:#}").contains("no free desktop source"));
+        let busy = [path(0, 10, true), path(1, 11, true)];
+        let mut all = busy.to_vec();
         all.push(path(1, 20, true));
         assert!(activation_paths(&busy, &all, &[(gpu, 20)]).is_err());
     }

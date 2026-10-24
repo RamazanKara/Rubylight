@@ -409,6 +409,20 @@ fn connected(routes: &[Route]) -> bool {
         })
     })
 }
+/// Why a display Windows keeps duplicated on a physical display is refused.
+fn still_duplicated(activation: &str) -> String {
+    format!(
+        "virtual display stays duplicated with a physical display; moving it to a source of its own failed (switching it on: {activation})"
+    )
+}
+/// The monitor Windows lists for the display's device path, under whatever
+/// adapter and target it goes by now. The path is the display's identity; an
+/// empty one names nothing.
+fn listed_by_path(monitors: Vec<Monitor>, path: &str) -> Option<Monitor> {
+    monitors
+        .into_iter()
+        .find(|m| !path.is_empty() && m.monitor_device_path.eq_ignore_ascii_case(path))
+}
 /// Why the display did not come up, with what the last attempt to switch it
 /// on came to.
 fn not_active(connected: bool, activation: &str) -> String {
@@ -564,14 +578,9 @@ impl VirtualDisplay {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        if let Some(m) = duplicated {
-            // The layout step of the stream separates it again; this is not a
-            // reason to refuse the stream.
-            tracing::warn!(
-                switching_on = activation,
-                "the new virtual display stays duplicated with a physical display"
-            );
-            return self.adopt(m);
+        if duplicated.is_some() {
+            // Streaming it would set the stream's mode on the panel's source.
+            bail!(still_duplicated(&activation));
         }
         bail!(not_active(connected_since.is_some(), &activation))
     }
@@ -625,14 +634,10 @@ impl VirtualDisplay {
     pub(super) fn current_monitor(&mut self) -> Result<Monitor> {
         let owned = self.hotplug_monitor()?.clone();
         let routes = self.routes()?;
-        wait_for_monitor(
-            || {
-                Ok(monitors()?.into_iter().find(|m| {
-                    routes.contains(&(m.adapter, m.target))
-                        && m.monitor_device_path
-                            .eq_ignore_ascii_case(&owned.monitor_device_path)
-                }))
-            },
+        // Windows can list the display under another pair after switching it
+        // off and on: its device path stays, so that finds it.
+        let monitor = wait_for_monitor(
+            || Ok(listed_by_path(monitors()?, &owned.monitor_device_path)),
             || {
                 // Windows can switch the owned target off during startup,
                 // before the stream starts feeding its lease.
@@ -653,7 +658,23 @@ impl VirtualDisplay {
                 Ok(())
             },
             Duration::from_secs(10),
-        )
+        )?;
+        if (monitor.adapter, monitor.target) != (owned.adapter, owned.target) {
+            tracing::info!(
+                from_adapter = owned.adapter.LowPart,
+                from_target = owned.target,
+                listed_adapter = monitor.adapter.LowPart,
+                listed_target = monitor.target,
+                "Windows lists the virtual display under another adapter and target than before"
+            );
+            rubylight_vdd::rehome(
+                self.id,
+                (monitor.adapter.LowPart, monitor.adapter.HighPart),
+                monitor.target,
+            );
+            self.resolved_target = Some(monitor.clone());
+        }
+        Ok(monitor)
     }
     fn check_hotplug(&mut self, stage: &str) -> Result<()> {
         if let Some(protection) = &self.startup_protection {
@@ -1436,6 +1457,30 @@ mod tests {
             listed(std::slice::from_ref(&ours), luid(942_669_753), 258, &taken).map(|m| m.target),
             None
         );
+    }
+    #[test]
+    fn a_display_is_followed_to_a_new_pair_by_its_device_path() {
+        // Windows listed it at 117440770 before it was switched off and at
+        // 117440783 after; the device path is the same.
+        let listing = |path: &str, target| Monitor {
+            monitor_device_path: path.into(),
+            target,
+            ..crate::display::monitor("m", 0x10687, false)
+        };
+        let path = r"\\?\DISPLAY#RBY0001#1&28a6823a&0&UID258#{g}";
+        let panel = listing(r"\\?\DISPLAY#LEN8ABA#5&277e72b4&0&UID256#{g}", 256);
+        let moved = listing(&path.to_lowercase(), 117_440_783);
+        let found = listed_by_path(vec![panel.clone(), moved], path);
+        assert_eq!(found.map(|m| m.target), Some(117_440_783));
+        // Another display, or no path at all, is never taken for it.
+        assert!(listed_by_path(vec![panel], path).is_none());
+        assert!(listed_by_path(vec![listing("", 5)], "").is_none());
+    }
+    #[test]
+    fn a_display_that_stays_duplicated_is_refused_with_the_reason() {
+        let message = still_duplicated("no free desktop source for the virtual display");
+        assert!(message.contains("duplicated with a physical display"));
+        assert!(message.contains("no free desktop source"));
     }
     #[test]
     fn a_display_on_the_panels_source_is_duplicated_and_not_ready() {

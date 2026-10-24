@@ -82,6 +82,8 @@ public final class PcKeyboardController {
 
     public void touchDown(PcKey key, int pointerId, long now) {
         focusVisible = false;
+        // The selection follows the finger, so a pad press right after touch acts from that key.
+        focus.focus(key.id);
         engine.press(key, pointerId, now);
         host.changed();
     }
@@ -103,7 +105,7 @@ public final class PcKeyboardController {
             case RIGHT: padDirection(KeyboardFocus.Direction.RIGHT, down, now); break;
             case A:
                 if (down) {
-                    if (revealFocus()) break;
+                    focusVisible = true;
                     engine.press(focus.focused(), Pad.A, now);
                 } else {
                     engine.release(Pad.A);
@@ -199,15 +201,9 @@ public final class PcKeyboardController {
         activeDirection = wanted;
         if (wanted == null) return;
         nextNavigate = now + NAVIGATE_DELAY_MS;
-        // The first press only shows the selection when touch had hidden it.
-        if (!revealFocus()) focus.move(wanted);
-        host.changed();
-    }
-
-    /** Show the selection if hidden; true when this input did nothing else. */
-    private boolean revealFocus() {
-        if (focusVisible) return false;
+        // Touch hid the selection; the first pad press shows it and still acts.
         focusVisible = true;
-        return true;
+        focus.move(wanted);
+        host.changed();
     }
 }

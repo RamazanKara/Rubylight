@@ -121,18 +121,30 @@ public class PcKeyboardControllerTest {
     }
 
     @Test
-    public void aTouchHidesTheSelectionAndTheNextPadInputOnlyShowsIt() {
+    public void aTouchHidesTheSelectionAndTheNextPadInputShowsItAndActs() {
         assertTrue(controller.isFocusVisible());
         controller.touchDown(controller.layout().key("Q"), 7, 0);
         controller.touchUp(7);
         assertFalse(controller.isFocusVisible());
+        assertEquals("the selection follows the finger", "Q", focused());
         events.clear();
         controller.pad(Pad.RIGHT, true, 10);
         controller.pad(Pad.RIGHT, false, 11);
         assertTrue(controller.isFocusVisible());
-        assertEquals("a first press moves nothing", "G", focused());
+        assertEquals("the first press already moved from the touched key", "W", focused());
+    }
+
+    @Test
+    public void theFirstAPressAfterTouchTypesTheTouchedKey() {
+        controller.touchDown(controller.layout().key("Q"), 7, 0);
+        controller.touchUp(7);
+        events.clear();
         controller.pad(Pad.A, true, 20);
-        assertEquals(List.of("47+"), events);
+        controller.pad(Pad.A, false, 21);
+        assertTrue(controller.isFocusVisible());
+        assertEquals(2, events.size());
+        assertTrue(events.get(0).endsWith("+"));
+        assertTrue(events.get(1).endsWith("-"));
     }
 
     @Test

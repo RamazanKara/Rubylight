@@ -87,6 +87,7 @@ pub struct LaunchPlan {
     pub bitrate_limit_kbps: u32,
     pub pyrowave_link_mbps: u32,
     pub pyrowave_pace_mbps: u32,
+    pub client_wireless: bool,
     pub recovery: Option<recovery::Recovery>,
 }
 
@@ -748,6 +749,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
         pyrowave_link_mbps: link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
+        client_wireless: plan.client_wireless,
         pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
         pyrowave_row_order: race_ask.row_order,
         encryption_flags: ENCFLG_ALL,

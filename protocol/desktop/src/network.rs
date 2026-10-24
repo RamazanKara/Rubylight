@@ -27,6 +27,12 @@ impl Network {
         if self.wifi || self.cellular { 0 } else { self.link_mbps.min(9999) }
     }
 
+    /// Whether the route to the host is Wi-Fi or cellular, sent as a hint so the host paces for
+    /// a wireless link from the first frame. False when wired, unknown or unreadable.
+    pub fn wireless(&self) -> bool {
+        self.wifi || self.cellular
+    }
+
     pub fn description(&self, home: &[String]) -> String {
         if let Some(error) = &self.error { return format!("Network details unavailable: {error}"); }
         let name = match self.kind(home) {
@@ -128,5 +134,16 @@ mod tests {
         assert_eq!(Network { wifi: true, ..wired.clone() }.wired_link_mbps(), 0);
         assert_eq!(Network { cellular: true, ..wired.clone() }.wired_link_mbps(), 0);
         assert_eq!(Network::default().wired_link_mbps(), 0);
+    }
+
+    #[test]
+    fn wireless_is_wifi_or_cellular_and_nothing_else() {
+        assert!(Network { wifi: true, ..Default::default() }.wireless());
+        assert!(Network { cellular: true, ..Default::default() }.wireless());
+        assert!(Network { wifi: true, cellular: true, ..Default::default() }.wireless());
+        assert!(!Network { link_mbps: 2500, ..Default::default() }.wireless());
+        // Metered alone says nothing about the medium; an unreadable network is not wireless.
+        assert!(!Network { metered: true, ..Default::default() }.wireless());
+        assert!(!Network { error: Some("no adapter".into()), ..Default::default() }.wireless());
     }
 }

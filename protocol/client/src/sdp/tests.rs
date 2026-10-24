@@ -326,6 +326,27 @@ fn link_speed_hint_is_sent_for_every_codec_and_only_pyrowave_gets_the_pace() {
 }
 
 #[test]
+fn wireless_route_is_flagged_for_every_codec_and_never_sent_as_zero() {
+    const WIRELESS: &str = "x-rl-video[0].clientWireless";
+    for format in [
+        VIDEO_FORMAT_H264,
+        VIDEO_FORMAT_H265,
+        VIDEO_FORMAT_AV1_MAIN8,
+        VIDEO_FORMAT_PYROWAVE,
+    ] {
+        let config = StreamConfig { client_wireless: true, ..Default::default() };
+        let sdp = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
+        assert_eq!(attribute(&sdp, WIRELESS), Some("a=x-rl-video[0].clientWireless:1"), "{format:#x}");
+
+        // Wired, unknown, VPN-only or undeterminable: nothing at all, not a 0.
+        let config = StreamConfig { client_wireless: false, ..Default::default() };
+        let sdp = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
+        assert_eq!(attribute(&sdp, WIRELESS), None, "{format:#x}");
+        assert!(!sdp.contains("clientWireless"), "{format:#x}");
+    }
+}
+
+#[test]
 fn row_order_is_requested_only_for_pyrowave_with_records_and_the_setting() {
     const ROW_ORDER: &str = "x-ss-video[0].pyrowaveRowOrder";
     for (format, records, row_order, sent) in [

@@ -158,6 +158,9 @@ pub struct StreamConfig {
     pub pyrowave_link_mbps: i32,
     /// A loss-free pace found by calibration; 0 when none.
     pub pyrowave_pace_mbps: i32,
+    /// The client's route to the host is Wi-Fi or cellular, so a Rubylight host paces for a
+    /// wireless link from the first frame. False when wired, unknown or undeterminable.
+    pub client_wireless: bool,
     /// CAPABILITY_* of the video decoder, with slices per frame in the top byte.
     pub video_capabilities: u32,
     /// CAPABILITY_* of the audio decoder.
@@ -195,6 +198,7 @@ impl Default for StreamConfig {
             remote_input_aes_iv: [0; 16],
             pyrowave_link_mbps: 0,
             pyrowave_pace_mbps: 0,
+            client_wireless: false,
             video_capabilities: 0,
             audio_capabilities: 0,
             haptics_pcm: false,
@@ -462,6 +466,10 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         // when known (0 on Wi-Fi, cellular or an unreadable port).
         if c.pyrowave_link_mbps > 0 {
             a.add("x-ss-video[0].pyrowaveLinkMbps", c.pyrowave_link_mbps);
+        }
+        // Only ever 1: a wired or unknown route sends nothing, never a 0.
+        if c.client_wireless {
+            a.add("x-rl-video[0].clientWireless", 1);
         }
         if quad[0] >= 7 {
             a.add(

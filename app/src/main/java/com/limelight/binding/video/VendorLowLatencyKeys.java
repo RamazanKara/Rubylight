@@ -13,6 +13,8 @@ import java.util.Map;
 final class VendorLowLatencyKeys {
     // Known keys and the value that enables the low-latency behaviour.
     static final Map<String, Integer> KNOWN;
+    // Keys sent to NVIDIA decoders by name, declared or not.
+    static final Map<String, Integer> TEGRA;
 
     static {
         Map<String, Integer> known = new LinkedHashMap<>();
@@ -34,10 +36,24 @@ final class VendorLowLatencyKeys {
         known.put("vendor.mtk.vdec.low-latency.mode.value", 1);
         known.put("vendor.mtk.vdec.cpu.boost.mode", 1);
         known.put("vendor.mtk.vdec.cpu.boost.mode.value", 1);
+        // Keep the clocks up and let the app pace output; both from Artemis's MediaTek preset.
+        known.put("vendor.mtk.vdec.dvfs.mode", 1);
+        known.put("vendor.mtk.vdec.dvfs.level", 1);
+        known.put("vendor.mtk.vdec.disable-idle", 1);
+        known.put("vendor.mtk.vdec.vsync.adjust.enable", 0);
         // NVIDIA Tegra.
         known.put("vendor.nvidia.disable-output-reorder", 1);
         known.put("vendor.nvidia.disable-output-reorder.value", 1);
         KNOWN = Collections.unmodifiableMap(known);
+
+        // Tegra (Shield) decoders take these at configure time without listing them, so they are
+        // set by decoder name. Artemis sets the same four.
+        Map<String, Integer> tegra = new LinkedHashMap<>();
+        tegra.put("media.low-latency.enable", 1);
+        tegra.put("vendor.low-latency.enable", 1);
+        tegra.put("disable-output-reorder", 1);
+        tegra.put("vendor.nvidia.disable-output-reorder", 1);
+        TEGRA = Collections.unmodifiableMap(tegra);
     }
 
     private VendorLowLatencyKeys() {}
@@ -66,6 +82,17 @@ final class VendorLowLatencyKeys {
         Map<String, Integer> keys = new LinkedHashMap<>();
         for (Map.Entry<String, Integer> known : KNOWN.entrySet()) {
             if (known.getKey().startsWith("vendor.qti-ext-")) {
+                keys.put(known.getKey(), known.getValue());
+            }
+        }
+        return keys;
+    }
+
+    /** Every MediaTek key, set by name when the decoder lists no vendor parameters (Android 11 and older). */
+    static Map<String, Integer> mediaTekKeys() {
+        Map<String, Integer> keys = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> known : KNOWN.entrySet()) {
+            if (known.getKey().startsWith("vendor.mtk.")) {
                 keys.put(known.getKey(), known.getValue());
             }
         }

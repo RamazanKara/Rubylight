@@ -44,6 +44,8 @@ public class MediaCodecHelper {
     private static final List<String> refFrameInvalidationHevcPrefixes;
     private static final List<String> useFourSlicesPrefixes;
     private static final List<String> qualcommDecoderPrefixes;
+    private static final List<String> tegraDecoderPrefixes;
+    private static final List<String> mediaTekDecoderPrefixes;
     private static final List<String> kirinDecoderPrefixes;
     private static final List<String> exynosDecoderPrefixes;
     private static final List<String> amlogicDecoderPrefixes;
@@ -222,6 +224,22 @@ public class MediaCodecHelper {
 
         qualcommDecoderPrefixes.add("omx.qcom");
         qualcommDecoderPrefixes.add("c2.qti");
+        // Artemis also lists c2.qcom, the Codec2 name some older Qualcomm builds use.
+        qualcommDecoderPrefixes.add("c2.qcom");
+    }
+
+    static {
+        tegraDecoderPrefixes = new LinkedList<>();
+
+        tegraDecoderPrefixes.add("omx.nvidia");
+        tegraDecoderPrefixes.add("c2.nvidia");
+    }
+
+    static {
+        mediaTekDecoderPrefixes = new LinkedList<>();
+
+        mediaTekDecoderPrefixes.add("omx.mtk");
+        mediaTekDecoderPrefixes.add("c2.mtk");
     }
 
     static {
@@ -545,9 +563,11 @@ public class MediaCodecHelper {
         // This is opt-in on any device, independent of decoder performance hints.
         boolean disableLowLatency = disableHevcLowLatency && "video/hevc".equals(videoFormat.getString(MediaFormat.KEY_MIME));
         boolean useVendorOptions = vendorLowLatency && !disableLowLatency;
-        if (lowLatency && !disableLowLatency && tryNumber < 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (lowLatency && !disableLowLatency && tryNumber < 1) {
             // Official Android 11+ low latency option (KEY_LOW_LATENCY). Many decoders honour it
             // without advertising FEATURE_LowLatency, and decoders that don't know it ignore it.
+            // Artemis (ClassicOldSong) sends it on every Android version, because some vendor
+            // builds read the "low-latency" key before Android 11; older frameworks ignore it.
             // Vendor keys stay on as well: on Snapdragon 8 Gen 2 and newer the standard flag alone
             // leaves the output fence in place, which costs several milliseconds per frame.
             videoFormat.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
@@ -594,6 +614,16 @@ public class MediaCodecHelper {
         //
         // MediaCodec vendor extension support was introduced in Android 8.0:
         // https://cs.android.com/android/_/android/platform/frameworks/av/+/01c10f8cdcd58d1e7025f426a72e6e75ba5d7fc2
+        // NVIDIA Tegra decoders take their keys by name whether or not they list them (Artemis does
+        // the same). They go first so the fallback tries drop them like every other vendor key.
+        if (useVendorOptions && tryNumber < 4 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                isDecoderInList(tegraDecoderPrefixes, decoderInfo.getName())) {
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.TEGRA.entrySet()) {
+                videoFormat.setInteger(key.getKey(), key.getValue());
+            }
+            setNewOption = true;
+        }
+
         List<String> vendorParams = useVendorOptions ? getIntegerVendorParameters(decoderInfo.getName()) : null;
         if (vendorParams != null && !vendorParams.isEmpty() && tryNumber < 5) {
             // Android 12+: set exactly the low-latency keys this decoder declares. The full set goes
@@ -643,6 +673,16 @@ public class MediaCodecHelper {
                     videoFormat.setInteger("vendor.qti-ext-output-fence.fence_type", 1);
                 }
             }
+            else if (isDecoderInList(mediaTekDecoderPrefixes, decoderInfo.getName())) {
+                if (tryNumber < 4) {
+                    // MediaTek boost and low-latency keys, from Artemis's preset. Codec2 builds with
+                    // Android 12 take the branch above and only get the ones they declare.
+                    for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.mediaTekKeys().entrySet()) {
+                        videoFormat.setInteger(key.getKey(), key.getValue());
+                    }
+                    setNewOption = true;
+                }
+            }
             else if (isDecoderInList(kirinDecoderPrefixes, decoderInfo.getName())) {
                 if (tryNumber < 4) {
                     // Kirin low latency options
@@ -679,17 +719,7 @@ public class MediaCodecHelper {
      */
     static String[] getDecoderLowLatencyOptions(MediaFormat requested, MediaFormat accepted,
                                                 List<String> vendorParams, boolean featureLowLatency) {
-        List<String> keys = new ArrayList<>(VendorLowLatencyKeys.KNOWN.keySet());
-        keys.add(0, MediaFormat.KEY_LOW_LATENCY);
-        keys.add(1, "vdec-lowlatency");
-        keys.add("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-rdy");
-        if (vendorParams != null) {
-            for (String param : vendorParams) {
-                if (!keys.contains(param)) {
-                    keys.add(param);
-                }
-            }
-        }
+        List<String> keys = tuningKeyNames(vendorParams);
         List<String> confirmed = new ArrayList<>();
         List<String> unconfirmed = new ArrayList<>();
         boolean android = false, vendor = false;
@@ -713,6 +743,48 @@ public class MediaCodecHelper {
         String mode = android && vendor ? "android+vendor" : android ? "android" : vendor ? "vendor" : "off";
         return new String[] { confirmed.isEmpty() ? "none" : String.join(", ", confirmed),
                 unconfirmed.isEmpty() ? "none" : String.join(", ", unconfirmed), mode };
+    }
+
+    /** Every format key this class can set for decoder tuning, plus the decoder's own vendor parameters. */
+    private static List<String> tuningKeyNames(List<String> vendorParams) {
+        List<String> keys = new ArrayList<>(VendorLowLatencyKeys.KNOWN.keySet());
+        keys.add(0, MediaFormat.KEY_LOW_LATENCY);
+        keys.add(1, "vdec-lowlatency");
+        keys.add("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-rdy");
+        for (String key : VendorLowLatencyKeys.TEGRA.keySet()) {
+            if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        if (vendorParams != null) {
+            for (String param : vendorParams) {
+                if (!keys.contains(param)) {
+                    keys.add(param);
+                }
+            }
+        }
+        return keys;
+    }
+
+    /** The tuning keys a format asks for, as "key=value" in a fixed order. */
+    static List<String> requestedTuningKeys(MediaFormat format, List<String> vendorParams) {
+        List<String> keys = tuningKeyNames(vendorParams);
+        keys.add(MediaFormat.KEY_OPERATING_RATE);
+        keys.add(MediaFormat.KEY_PRIORITY);
+        List<String> requested = new ArrayList<>();
+        for (String key : keys) {
+            if (format.containsKey(key)) {
+                requested.add(key + "=" + format.getInteger(key));
+            }
+        }
+        return requested;
+    }
+
+    /** Keys the first configure attempt asked for that the format finally configured no longer carries. */
+    static List<String> droppedTuningKeys(List<String> firstTry, List<String> configured) {
+        List<String> dropped = new ArrayList<>(firstTry);
+        dropped.removeAll(configured);
+        return dropped;
     }
 
     public static boolean decoderSupportsFusedIdrFrame(MediaCodecInfo decoderInfo, String mimeType) {

@@ -209,6 +209,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile String latencyOverlay = "";
     private volatile double[][] latencySummary = new double[9][4];
     private volatile String decoderDiagnostics = "";
+    // Tuning keys of the configure attempt in progress, and those an earlier attempt asked for that it no longer has.
+    private volatile List<String> lowLatencyKeysApplied = new ArrayList<>();
+    private volatile List<String> lowLatencyKeysDropped = new ArrayList<>();
     // Private file name kept from earlier releases so the last stream's timings survive updates.
     public static final String LATENCY_CSV_NAME = "butterpollo-latency.csv";
     public static final String LATENCY_CSV_EXPORT_NAME = "nightjar-latency.csv";
@@ -1529,8 +1532,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         decoderDiagnostics += '\n' + context.getString(R.string.perf_overlay_phone_hints,
                 context.getString(prefs.phonePerformanceHints ? R.string.stream_enabled : R.string.stream_disabled));
         LimeLog.info(decoderDiagnostics);
+        // Report text only (not the overlay): the raw key names are for bug reports.
+        String keyReport = (videoDecoder == null || (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) ? "" :
+                "\nTuning keys applied: " + describeKeys(lowLatencyKeysApplied) +
+                "\nTuning keys dropped after rejected configures: " + describeKeys(lowLatencyKeysDropped);
         ProblemReport.setDecoderDiagnostics(initialWidth + "x" + initialHeight + " @ " + refreshRate + " FPS\n" +
-                decoderDiagnostics);
+                decoderDiagnostics + keyReport);
+    }
+
+    private static String describeKeys(List<String> keys) {
+        return keys.isEmpty() ? "none" : String.join(", ", keys);
     }
 
     // The stack trace only reached logcat; the problem report keeps what the codec said.
@@ -1655,6 +1666,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
 
         boolean retryWithoutUpscaling = false;
+        List<String> firstTryKeys = null;
         for (int tryNumber = 0;; tryNumber++) {
             LimeLog.info("Decoder configuration try: "+tryNumber);
 
@@ -1663,6 +1675,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // This will try low latency options until we find one that works (or we give up).
             boolean newFormat = MediaCodecHelper.setDecoderLowLatencyOptions(mediaFormat, selectedDecoderInfo, tryNumber,
                     prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.disableHevcLowLatency);
+
+            // Each rejected configure drops keys on the next try; keep a record of which ones went.
+            List<String> vendorParams = MediaCodecHelper.getIntegerVendorParameters(selectedDecoderInfo.getName());
+            List<String> triedKeys = MediaCodecHelper.requestedTuningKeys(mediaFormat, vendorParams);
+            if (firstTryKeys == null) {
+                firstTryKeys = triedKeys;
+            }
+            lowLatencyKeysDropped = MediaCodecHelper.droppedTuningKeys(firstTryKeys, triedKeys);
+            lowLatencyKeysApplied = triedKeys;
 
             // Throw the underlying codec exception on the last attempt if the caller requested it
             if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat, !newFormat && upscaler == null && throwOnCodecError)) {
@@ -1676,6 +1697,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     notifyUpscalingFallback();
                 }
                 // Success!
+                LimeLog.info("Decoder " + selectedDecoderInfo.getName() + " tuning keys applied: " +
+                        describeKeys(lowLatencyKeysApplied) + "; dropped after rejected configures: " +
+                        describeKeys(lowLatencyKeysDropped));
                 break;
             }
 

@@ -192,7 +192,7 @@ pub fn restart(before: &Sample, after: &[Sample], beam: &Beam) -> Restart {
 /// given up on after `CHECK_FRAMES` presents.
 pub const CHECK_TESTED: u32 = 30;
 /// A present whose scan starts late is normal (see the window), so a third of the tested presents
-/// have to miss before the check fails; a compositor-paced present misses most of them.
+/// have to miss before the check fails; a present that does not restart the scan misses most of them.
 pub const CHECK_MISSES: u32 = 9;
 pub const CHECK_FRAMES: u32 = 300;
 
@@ -265,7 +265,10 @@ pub enum Reason {
     NoScanline,
     NoScan,
     NoVrr,
-    Composed,
+    /// A present issued while the display idled did not start a scan: what was measured, which
+    /// says VRR is not active for this window. The probe has no signal for composition itself.
+    NoRestart,
+    Windowed,
 }
 
 impl Reason {
@@ -275,7 +278,8 @@ impl Reason {
             Self::NoScanline => "no scanline",
             Self::NoScan => "no scan seen",
             Self::NoVrr => "no VRR",
-            Self::Composed => "composed",
+            Self::NoRestart => "no VRR scan restart",
+            Self::Windowed => "not fullscreen",
         }
     }
 }
@@ -309,7 +313,7 @@ impl Verdict {
 }
 
 /// Decides from the evidence. Order of the reasons is the order of the design's table: tearing,
-/// scanline, then what the restart check says (composed or not variable).
+/// scanline, then the window, then what the restart check says (no restart or not variable).
 pub fn decide(e: &Evidence) -> Verdict {
     let mut capability = RaceCapability { tearing: e.tearing, vrr: false, independent_flip: false, scanline: e.scanline };
     if !e.tearing { return Verdict::Off(Reason::NoTearing, capability); }
@@ -320,16 +324,15 @@ pub fn decide(e: &Evidence) -> Verdict {
         Some(Ok(beam)) => beam,
     };
     if !e.fullscreen {
-        // A window that does not cover its display goes through the desktop compositor as far as
-        // the race is concerned: whatever the scan does, it does not start with our presents.
-        return Verdict::Off(Reason::Composed, capability);
+        // A window that does not cover its display is not raced; the scan is not checked for it.
+        return Verdict::Off(Reason::Windowed, capability);
     }
     if e.check.failed() {
         // A fixed refresh scans all the time whatever is presented: the blanking is a small share
         // of the readings although the stream runs well below the display's top rate.
         let fixed = e.content_hz > 0.0 && e.display_hz > 0.0 && e.content_hz < e.display_hz * 0.7 && beam.vblank_fraction < 0.3;
         capability.vrr = !fixed;
-        return Verdict::Off(if fixed { Reason::NoVrr } else { Reason::Composed }, capability);
+        return Verdict::Off(if fixed { Reason::NoVrr } else { Reason::NoRestart }, capability);
     }
     if e.check.starved() {
         // Enough presents went by without the display ever idling in its blanking.
@@ -638,16 +641,16 @@ mod tests {
         assert_eq!(line(Evidence { tearing: false, ..evidence() }), "off (no tearing)", "V-Sync presents never tear");
         assert_eq!(line(Evidence { scanline: false, ..evidence() }), "off (no scanline)");
         assert_eq!(line(Evidence { beam: Some(Err(CalibrationError::NoScan)), ..evidence() }), "off (no scan seen)");
-        assert_eq!(line(Evidence { check: missed(), ..evidence() }), "off (composed)", "a borderless window whose presents wait for the compositor");
-        assert_eq!(line(Evidence { check: missed(), fullscreen: false, ..evidence() }), "off (composed)", "windowed");
-        // A window is composed whatever the check saw, and before the check has finished.
-        assert_eq!(line(Evidence { fullscreen: false, ..evidence() }), "off (composed)");
-        assert_eq!(line(Evidence { fullscreen: false, check: RestartCheck::default(), ..evidence() }), "off (composed)");
-        assert_eq!(line(Evidence { fullscreen: false, beam: Some(Ok(beam(0.13))), ..evidence() }), "off (composed)", "a windowed fixed refresh");
+        assert_eq!(line(Evidence { check: missed(), ..evidence() }), "off (no VRR scan restart)", "a borderless window whose presents do not restart the scan");
+        assert_eq!(line(Evidence { check: missed(), fullscreen: false, ..evidence() }), "off (not fullscreen)", "windowed");
+        // A window is not raced whatever the check saw, and before the check has finished.
+        assert_eq!(line(Evidence { fullscreen: false, ..evidence() }), "off (not fullscreen)");
+        assert_eq!(line(Evidence { fullscreen: false, check: RestartCheck::default(), ..evidence() }), "off (not fullscreen)");
+        assert_eq!(line(Evidence { fullscreen: false, beam: Some(Ok(beam(0.13))), ..evidence() }), "off (not fullscreen)", "a windowed fixed refresh");
         // A fixed refresh scans all the time: little blanking at a stream rate far below the top rate.
         assert_eq!(line(Evidence { check: missed(), beam: Some(Ok(beam(0.05))), ..evidence() }), "off (no VRR)");
-        // At the display's own rate the two cannot be told apart, so a miss is composition.
-        assert_eq!(line(Evidence { check: missed(), beam: Some(Ok(beam(0.05))), content_hz: 240.0, ..evidence() }), "off (composed)");
+        // At the display's own rate the two cannot be told apart, so a miss is only a missing restart.
+        assert_eq!(line(Evidence { check: missed(), beam: Some(Ok(beam(0.05))), content_hz: 240.0, ..evidence() }), "off (no VRR scan restart)");
         let mut starved = RestartCheck::default();
         for _ in 0..CHECK_FRAMES { starved.push(Restart::NotTested); }
         assert_eq!(line(Evidence { check: starved, ..evidence() }), "off (no VRR)", "the display never idled");

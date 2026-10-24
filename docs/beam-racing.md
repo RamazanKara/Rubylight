@@ -93,7 +93,8 @@ The verdict, in the order of the reasons:
 | no tearing | V-Sync pacing, or a swap chain without tearing |
 | no scanline | `D3DKMTOpenAdapterFromGdiDisplayName` or `D3DKMTGetScanLine` fails |
 | no scan seen | the calibration found no scan |
-| composed | the window is not a fullscreen window, or the scan-restart check failed on a fullscreen one |
+| not fullscreen | the window is not a fullscreen window (the scan is not checked) |
+| no VRR scan restart | the scan-restart check failed on a fullscreen window: a present issued while the display idled did not start a scan, so VRR is not active for this window |
 | no VRR | the restart check failed on a display that scans all the time (under 30% of the readings in the blanking at a stream rate under 70% of the display's), or the display never idled for 300 presents |
 
 The scan-restart check: a present issued while the display idles in its blanking has to start a
@@ -108,9 +109,9 @@ Measured (30 s loopback streams, 2560x1440@60 PyroWave, GPU decode, borderless f
 | Setup | Overlay | PresentMon `PresentMode` |
 |---|---|---|
 | window excluded from the host's capture (the harness default), first run | on, 4.18 ms, 1440 rows | Hardware: Independent Flip 98% |
-| the same setting, three later runs | off (composed): 9 of 10-12 tested presents did not start a scan in 3 ms | Hardware: Independent Flip |
-| window visible to the host's capture (`-CaptureVisible`) | off (composed): 9 of 16 tested presents did not start a scan in 3 ms | Hardware: Independent Flip 97% |
-| windowed (`window_mode` Windowed) | off (composed) | Hardware: Independent Flip 97% (multi-plane overlay); the scan was 13% blanking, a fixed refresh |
+| the same setting, three later runs | off (no VRR scan restart): 9 of 10-12 tested presents did not start a scan in 3 ms | Hardware: Independent Flip |
+| window visible to the host's capture (`-CaptureVisible`) | off (no VRR scan restart): 9 of 16 tested presents did not start a scan in 3 ms | Hardware: Independent Flip 97% |
+| windowed (`window_mode` Windowed) | off (not fullscreen) | Hardware: Independent Flip 97% (multi-plane overlay); the scan was 13% blanking, a fixed refresh |
 | V-Sync | off (no tearing) | Hardware Composed: Independent Flip |
 
 `NIGHTJAR_EXCLUDE_FROM_CAPTURE=1` does not force composition here. The probe and PresentMon

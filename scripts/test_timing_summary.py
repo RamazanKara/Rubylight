@@ -110,8 +110,8 @@ class LegTests(unittest.TestCase):
         with open(base + ".presentmon.csv", "w", newline="") as handle:
             handle.write("Application,PresentMode\n")
         self.assertEqual(ts.present_modes(base + ".csv"), ["  PresentMon present modes: no presents captured"])
-        rows = [{"race_reason": "on"}] * 2 + [{"race_reason": ""}, {"race_reason": "composed"}]
-        self.assertEqual(ts.race_reasons(rows), ["  beam race verdicts: on 2 (67%), composed 1 (33%)"])
+        rows = [{"race_reason": "on"}] * 2 + [{"race_reason": ""}, {"race_reason": "no VRR scan restart"}]
+        self.assertEqual(ts.race_reasons(rows), ["  beam race verdicts: on 2 (67%), no VRR scan restart 1 (33%)"])
         self.assertEqual(ts.race_reasons([{"race_reason": ""}, {}]), [])
         # main prints both under the leg.
         import contextlib

@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use sdl3_sys::everything::*;
 
-use super::scanline::{decide, Beam, CalibrationError, Evidence, Follow, RestartCheck, Sample, Verdict};
+#[cfg(any(windows, test))]
+use super::scanline::Follow;
+use super::scanline::{decide, Beam, CalibrationError, Evidence, RestartCheck, Sample, Verdict};
 
 /// What the timing CSV records for one present: the beam when the present was issued and the
 /// verdict (`race_reason`: "on", the reason, or empty while it is being checked).
@@ -112,6 +114,7 @@ impl RaceProbe {
 
     /// What the window moving to another monitor (`follow`) means for the measurements. Returns
     /// whether the new display has to be measured again.
+    #[cfg(any(windows, test))]
     fn apply_follow(&mut self, follow: Follow) -> bool {
         match follow {
             Follow::Same => false,

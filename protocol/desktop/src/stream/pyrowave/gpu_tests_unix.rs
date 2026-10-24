@@ -88,7 +88,7 @@ fn setup(width: usize, height: usize, full: bool, ten: bool, range: i32) -> Vide
 }
 
 fn decoded(output: Output, setup: VideoSetup) -> Decoded {
-    Decoded { picture: output.picture, setup, rtp: 0, number: 0, receive_us: 0, enqueue_us: 0, input_us: 0, ready_us: 0, host_latency: 0, early: 0, first_block_us: 0 }
+    Decoded { picture: output.picture, setup, rtp: 0, number: 0, receive_us: 0, enqueue_us: 0, input_us: 0, ready_us: 0, host_latency: 0, early: 0, first_block_us: 0, bands: Vec::new(), race: Default::default() }
 }
 
 fn gpu_decoder(case: &Case, slots: usize) -> Pyrowave {

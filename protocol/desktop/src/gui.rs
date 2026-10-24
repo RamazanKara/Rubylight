@@ -509,7 +509,7 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            let mut output = ctx.run_ui(input, |ui| {
                 let out = egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
                     follow_focus(ui, &mut last);
                     for i in 0..30 {
@@ -521,6 +521,8 @@ mod tests {
                 });
                 offset = out.state.clamped_offset().y;
             });
+            // Nothing paints here; epaint asserts (debug builds) that texture uploads are not dropped.
+            output.textures_delta.clear();
             offset
         };
         frame(vec![]);

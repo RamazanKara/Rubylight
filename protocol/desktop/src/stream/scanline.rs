@@ -74,6 +74,8 @@ impl Beam {
 }
 
 /// Why the samples did not make a scan.
+// The variants are made by `calibrate`, which only the Windows probe and the tests call.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CalibrationError {
     /// The readings never show the counter walking through a blanking, so no scan began in the
@@ -86,12 +88,15 @@ pub enum CalibrationError {
     RowsDiffer,
 }
 
+#[cfg(any(windows, test))]
 /// How far the counter's top may be from the blanking plus the monitor's height.
 const ROWS_TOLERANCE: f64 = 0.03;
 
+#[cfg(any(windows, test))]
 /// Fewest readings a rising run needs to be fitted.
 const MIN_RUN: usize = 5;
 
+#[cfg(any(windows, test))]
 /// The runs of `samples` (readings in time order) in which the line only rises: one refresh
 /// each, from where the counter started to where it wrapped or held.
 fn rising_runs(samples: &[Sample]) -> Vec<&[Sample]> {
@@ -107,6 +112,7 @@ fn rising_runs(samples: &[Sample]) -> Vec<&[Sample]> {
     runs
 }
 
+#[cfg(any(windows, test))]
 /// Slope of the least squares line through (time, line), in lines per ns.
 fn slope(run: &[Sample]) -> Option<f64> {
     let origin = run.first()?.at_ns;
@@ -126,12 +132,14 @@ fn slope(run: &[Sample]) -> Option<f64> {
     (rate > 0.0).then_some(rate)
 }
 
+#[cfg(any(windows, test))]
 fn median(values: &mut [f64]) -> f64 {
     values.sort_by(|a, b| a.total_cmp(b));
     let mid = values.len() / 2;
     if values.len() % 2 == 1 { values[mid] } else { (values[mid - 1] + values[mid]) / 2.0 }
 }
 
+#[cfg(any(windows, test))]
 /// Measures the scan from readings taken every 0.25 ms or so while the stream presented. The
 /// rate is the median slope of the refreshes the readings cover (rising runs of at least five
 /// readings); the blanking is where the counter leaves `vblank` (the middle of the two readings
@@ -187,6 +195,7 @@ pub fn calibrate(samples: &[Sample], picture_rows: u32) -> Result<Beam, Calibrat
     })
 }
 
+#[cfg(any(windows, test))]
 /// What reopening the scan line on the window's monitor found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Follow {
@@ -197,6 +206,7 @@ pub enum Follow {
     Lost,
 }
 
+#[cfg(any(windows, test))]
 /// What the scan-restart check saw after one present.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Restart {
@@ -216,10 +226,12 @@ pub enum Restart {
 /// idler GPU the median was 0.95 ms and 92% were under 2 ms. 10 ms is the longest seen plus 1 ms.
 pub const RESTART_WINDOW_NS: u64 = 10_000_000;
 
+#[cfg(any(windows, test))]
 /// How close to the panel's own refresh period a new scan may start (ns) before it could be that
 /// refresh and not the present's.
 const FORCED_TOLERANCE_NS: i64 = 1_000_000;
 
+#[cfg(any(windows, test))]
 /// The check for one present: `before` was read just before the present call, `after` are the
 /// readings in the window that followed it (which starts when the call returned, so a slow call
 /// does not eat it). A present while the display idles after a scan (the counter at or past
@@ -265,6 +277,7 @@ pub struct RestartCheck {
 }
 
 impl RestartCheck {
+    #[cfg(any(windows, test))]
     pub fn push(&mut self, result: Restart) {
         if !self.running() { return; }
         self.frames += 1;

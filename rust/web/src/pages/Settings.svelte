@@ -139,6 +139,10 @@
     settings: Setting[];
   }
 
+  /** Groups shown collapsed under their heading, for options that only help when troubleshooting. */
+  const FOLDED_GROUPS = new Set(['Capture troubleshooting']);
+  let foldOpen = $state<Record<string, boolean>>({});
+
   /** Settings under their group headings, groups in order of first use. */
   function grouped(list: Setting[]): Group[] {
     const groups: Group[] = [];
@@ -363,13 +367,33 @@
 
 {#snippet groups(list: Group[])}
   {#each list as group (group.name)}
-    <section class="group">
-      {#if group.name}<h3 class="group-title">{group.name}</h3>{/if}
-      <!-- Keyed by object: a key may be listed in two categories. -->
-      {#each group.settings as setting (setting)}
-        {@render row(setting, !visible(setting))}
-      {/each}
-    </section>
+    {#if FOLDED_GROUPS.has(group.name)}
+      <!-- Opened by the user; an unsaved change inside opens it too. -->
+      <details
+        class="group fold"
+        open={foldOpen[group.name] === true || group.settings.some((setting) => pending.has(setting.key))}
+        ontoggle={(event) => {
+          foldOpen[group.name] = event.currentTarget.open;
+        }}
+      >
+        <summary>
+          <Icon name="chevron" size={15} />
+          {group.name}
+          <span class="count">{group.settings.length} {group.settings.length === 1 ? 'setting' : 'settings'}</span>
+        </summary>
+        {#each group.settings as setting (setting)}
+          {@render row(setting, !visible(setting))}
+        {/each}
+      </details>
+    {:else}
+      <section class="group">
+        {#if group.name}<h3 class="group-title">{group.name}</h3>{/if}
+        <!-- Keyed by object: a key may be listed in two categories. -->
+        {#each group.settings as setting (setting)}
+          {@render row(setting, !visible(setting))}
+        {/each}
+      </section>
+    {/if}
   {/each}
 {/snippet}
 
@@ -754,6 +778,35 @@
     font-size: var(--text-sm);
     color: var(--muted);
   }
+  .fold {
+    border-top: 1px solid var(--line);
+  }
+  .fold summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-5);
+    font-size: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+  }
+  .fold summary::-webkit-details-marker {
+    display: none;
+  }
+  .fold summary:hover {
+    background: var(--sunken);
+  }
+  .fold summary :global(svg) {
+    color: var(--muted);
+    transition: transform 0.12s;
+  }
+  .fold[open] summary :global(svg) {
+    transform: rotate(90deg);
+  }
+  .fold > :global(.setting) {
+    border-top: 1px solid var(--line);
+  }
   /* The headings inside read as subsections of Advanced. */
   .advanced .group:first-child .group-title {
     padding-top: 0;
@@ -822,11 +875,13 @@
       grid-template-columns: minmax(0, 1fr);
     }
     .group-title,
+    .fold summary,
     .advanced summary {
       padding-left: var(--space-4);
       padding-right: var(--space-4);
     }
     .show-keys,
+    .fold summary,
     .advanced summary {
       min-height: 44px;
     }

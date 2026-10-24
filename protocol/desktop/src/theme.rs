@@ -320,6 +320,7 @@ pub fn step_value<N: egui::emath::Numeric>(
     style: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
     let id = ui.next_auto_id();
+    let mut stepped = false;
     if ui.is_enabled() && ui.memory(|m| m.has_focus(id)) {
         let steps = ui.input_mut(|i| {
             // Focus has already moved on these (egui reads them before the frame); the field must not step too.
@@ -330,10 +331,15 @@ pub fn step_value<N: egui::emath::Numeric>(
         });
         if steps != 0 {
             let (low, high) = (range.start().to_f64(), range.end().to_f64());
-            *value = N::from_f64((value.to_f64() + steps as f64 * step).clamp(low, high));
+            let before = value.to_f64();
+            *value = N::from_f64((before + steps as f64 * step).clamp(low, high));
+            stepped = value.to_f64() != before;
         }
     }
-    let response = ui.add(style(egui::DragValue::new(value).range(range)));
+    let mut response = ui.add(style(egui::DragValue::new(value).range(range)));
+    // The value changed before the DragValue saw it, so the response would not say so; callers that
+    // write the value back on `changed()` (the stream menu's fps) must hear about the step.
+    if stepped { response.mark_changed(); }
     if ui.is_enabled() && response.has_focus() {
         // Its text field has just locked every arrow key to the caret; give Up and Down back to focus.
         let filter = egui::EventFilter { horizontal_arrows: true, ..Default::default() };
@@ -408,17 +414,19 @@ mod tests {
         value: u32,
         time: f64,
         ids: [egui::Id; 3],
+        /// Whether the field reported a change in the frame that carried the last key.
+        changed: bool,
     }
 
     impl Column {
         fn new(value: u32) -> Self {
-            let mut column = Self { ctx: egui::Context::default(), value, time: 1.0, ids: [egui::Id::NULL; 3] };
+            let mut column = Self { ctx: egui::Context::default(), value, time: 1.0, ids: [egui::Id::NULL; 3], changed: false };
             column.frame(Vec::new());
             column.frame(Vec::new());
             column
         }
 
-        fn frame(&mut self, events: Vec<egui::Event>) {
+        fn frame(&mut self, events: Vec<egui::Event>) -> bool {
             self.time += 0.1;
             let input = egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 300.0))),
@@ -427,16 +435,19 @@ mod tests {
                 ..Default::default()
             };
             let (value, ids) = (&mut self.value, &mut self.ids);
+            let mut changed = false;
             let mut output = self.ctx.run_ui(input, |ui| {
                 ids[0] = ui.button("above").id;
-                ids[1] = step_value(ui, value, 1000..=5000, 500.0, |d| d.suffix(" kbps")).id;
+                let field = step_value(ui, value, 1000..=5000, 500.0, |d| d.suffix(" kbps"));
+                (ids[1], changed) = (field.id, field.changed());
                 ids[2] = ui.button("below").id;
             });
             output.textures_delta.clear();
+            changed
         }
 
         fn press(&mut self, key: egui::Key) {
-            self.frame(crate::gui::tap(key).to_vec());
+            self.changed = self.frame(crate::gui::tap(key).to_vec());
             self.frame(Vec::new());
         }
 
@@ -472,8 +483,10 @@ mod tests {
         column.focus_field();
         column.press(egui::Key::ArrowRight);
         assert_eq!(column.value, 5000);
+        assert!(column.changed, "a step is reported as a change, so callers write it back");
         column.press(egui::Key::ArrowRight);
         assert_eq!(column.value, 5000, "the top of the range holds");
+        assert!(!column.changed, "holding at the top of the range is no change");
         assert_eq!(column.focused(), Some(column.ids[1]), "Right keeps the field focused");
         column.press(egui::Key::ArrowLeft);
         column.press(egui::Key::ArrowLeft);

@@ -8,7 +8,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## Unreleased
 
-- **Automatic update checks run on schedule.** The host now counts the time since the last check by the clock, so a PC that slept checks as soon as it wakes, a new check interval applies at once without a restart, and a check that fails because the network is not back yet is retried within two minutes instead of after a whole interval. A game left running no longer holds checks back (only a stream does). Maintenance shows the next check and the cause of a failed one, and the host log records every check.
+- **Automatic update checks run on schedule.** The host now counts the time since the last check by the clock, so a PC that slept checks as soon as it wakes, a new check interval applies at once without a restart, and a check that fails because the network is not back yet is first retried within two minutes (backing off after that, up to the check interval) instead of after a whole interval. A game left running no longer holds checks back (only a stream does). Maintenance shows the next check and the cause of a failed one, and the host log records every check.
 - **Simpler settings in the console.** Clearer names and help (for example "Still-picture resend rate"), fewer settings in the basic view, and the capture troubleshooting settings folded away with a count of the ones you changed. The virtual display default now says that it depends on the Windows version, and Activate a virtual display stays visible while it is on.
 
 ## New in 3.0.0-rc.1

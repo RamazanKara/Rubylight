@@ -92,7 +92,7 @@
         </dd>
         <dt>Last checked</dt><dd>{updates.checked_at ? `${ago(updates.checked_at)}${updates.check_failed ? ' (failed)' : ''}` : 'Never'}</dd>
         {#if updates.next_check_at != null}
-          <dt>Next check</dt><dd>{updates.next_check_at * 1000 <= Date.now() ? 'Shortly' : when(updates.next_check_at)}</dd>
+          <dt>Next check</dt><dd>{updates.deferred ? 'After the stream' : updates.next_check_at * 1000 <= Date.now() ? 'Shortly' : when(updates.next_check_at)}</dd>
         {/if}
         <dt>Automatic installation</dt><dd>{!updates.install_supported ? 'Unavailable — requires the Windows service' : updates.update_check_interval <= 0 ? 'Off — automatic update checks are disabled' : updates.auto_update ? 'On — installs when idle' : 'Off — notify me first'}</dd>
       </dl>

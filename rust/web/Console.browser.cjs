@@ -70,7 +70,7 @@ async function fixture(t, options = {}) {
     if (url.pathname === '/api/logs/tail') return reply({ offset: 0, text: '', reset: false });
     if (url.pathname === '/api/updates') return reply({
       releases: [], checked_at: 0, auto_update: true, update_check_interval: 0,
-      install_supported: true, update_available: true, phase: 'idle',
+      install_supported: true, update_available: true, phase: 'idle', ...options.updates,
     });
     if (url.pathname === '/api/auth/sessions') return reply({ sessions: [] });
     if (url.pathname === '/api/tokens') return reply({ tokens: [] });
@@ -225,6 +225,28 @@ test('Install now needs confirmation and disabled update checks disable automati
   await page.getByRole('dialog').getByRole('button', { name: 'Install now', exact: true }).click();
   await installed;
   assert.equal(writes.filter(value => value === '/api/updates/install_now').length, 1);
+});
+
+test('the next update check says when it runs, and that a stream holds it back', async t => {
+  const now = Math.floor(Date.now() / 1000);
+  const shot = async (page, name) => {
+    if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) await page.locator('section', { hasText: 'Next check' }).first().screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, name) });
+  };
+  const scheduled = { checked_at: now - 600, update_check_interval: 86400, next_check_at: now + 85800, deferred: false };
+  const normal = await fixture(t, { updates: scheduled });
+  await normal.page.goto(base + '/maintenance');
+  await normal.page.getByText('Next check', { exact: true }).waitFor();
+  assert.equal(await normal.page.getByText('After the stream').count(), 0);
+  assert.equal(await normal.page.getByText('Shortly').count(), 0);
+  await shot(normal.page, 'updates-panel-scheduled.png');
+  const held = await fixture(t, { updates: { ...scheduled, checked_at: now - 90000, next_check_at: now - 3600, deferred: true } });
+  await held.page.goto(base + '/maintenance');
+  await held.page.getByText('After the stream', { exact: true }).waitFor();
+  assert.equal(await held.page.getByText('Shortly').count(), 0);
+  await shot(held.page, 'updates-panel-deferred.png');
+  const overdue = await fixture(t, { updates: { ...scheduled, checked_at: now - 90000, next_check_at: now - 3600 } });
+  await overdue.page.goto(base + '/maintenance');
+  await overdue.page.getByText('Shortly', { exact: true }).waitFor();
 });
 
 test('signing out respects unsaved settings and only logs out after confirmation', async t => {

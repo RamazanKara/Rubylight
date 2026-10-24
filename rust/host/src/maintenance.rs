@@ -90,6 +90,16 @@ pub fn trigger_update(h: &Shared, tell: bool) {
         state["checking"] = json!(false);
         state["checked_at"] = json!(now());
         state["check_failed"] = json!(result.is_err());
+        // Consecutive failures drive the retry back-off; a success resets them.
+        let failures = if result.is_err() {
+            state["check_failures"]
+                .as_u64()
+                .unwrap_or(0)
+                .saturating_add(1)
+        } else {
+            0
+        };
+        state["check_failures"] = json!(failures);
         match result {
             Ok(releases) => {
                 let current = env!("CARGO_PKG_VERSION");

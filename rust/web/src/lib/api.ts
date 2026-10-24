@@ -535,6 +535,8 @@ export interface UpdatesState {
   checked_at: number;
   /** Unix seconds of the next automatic check; null when automatic checks are off. */
   next_check_at?: number | null;
+  /** The check is due but held back by an active or pending stream. */
+  deferred?: boolean;
   releases: Release[];
   update_available?: boolean;
   latest_version?: string | null;

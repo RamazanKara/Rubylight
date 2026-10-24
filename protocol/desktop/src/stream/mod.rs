@@ -1755,11 +1755,14 @@ impl Streaming {
     fn present_slices(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), now: u64) -> bool {
         if self.pacer.mode != PacingMode::BeamRace { return false; }
         let (Some(scan), Some(setup)) = (self.race_scan, self.race_setup) else { return false };
+        // The picture is decoded already: its own present shows the rows, a slice present first
+        // would only keep it waiting (a present costs 0.4 ms of this thread).
+        if self.pacer.front_race().is_some_and(|(seq, due)| seq != 0 && seq == self.racer.seq() && due <= now) { return false; }
         let batch = self.racer.take(now);
         if batch.is_empty() { return false; }
-        for (band, pin) in &batch {
-            let Some(rows) = race::scissor(band.first_row, band.end_row, setup.height as u32) else { continue };
-            if !self.texture.upload_slice(renderer, setup, pin, band.fence_value, rows) {
+        for run in race::runs(batch.iter().map(|(band, pin)| (*band, pin.set()))) {
+            let Some(rows) = race::scissor(run.first_row, run.end_row, setup.height as u32) else { continue };
+            if !self.texture.upload_slice(renderer, setup, &batch[run.last].1, run.fence_value, rows) {
                 let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
                 self.exit = Some(Exit::Ended(Some(reason)));
                 return true;

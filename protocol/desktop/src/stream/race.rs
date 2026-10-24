@@ -77,6 +77,35 @@ pub fn scissor(first_row: u32, end_row: u32, height: u32) -> Option<(u32, u32)> 
     (first_row < end).then_some((first_row, end))
 }
 
+/// Slices drawn in one pass: the rows `first_row..end_row` of consecutive slices of one plane
+/// set, ready once the newest of their fences is; `last` is the index of the final slice.
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Run {
+    pub first_row: u32,
+    pub end_row: u32,
+    pub fence_value: u64,
+    pub last: usize,
+}
+
+/// Joins the slices that follow one another in the picture (and sit in the same plane set) into
+/// runs. Each draw costs the presenting thread 0.2 ms, and a frame's final decode waits for it.
+#[cfg(any(windows, test))]
+pub fn runs(bands: impl Iterator<Item = (BandReady, usize)>) -> Vec<Run> {
+    let mut runs: Vec<(Run, usize)> = Vec::new();
+    for (index, (band, set)) in bands.enumerate() {
+        match runs.last_mut() {
+            Some((run, run_set)) if run.end_row == band.first_row && *run_set == set => {
+                run.end_row = band.end_row;
+                run.fence_value = run.fence_value.max(band.fence_value);
+                run.last = index;
+            }
+            _ => runs.push((Run { first_row: band.first_row, end_row: band.end_row, fence_value: band.fence_value, last: index }, set)),
+        }
+    }
+    runs.into_iter().map(|(run, _)| run).collect()
+}
+
 /// How old the picture is at the middle row when the beam reaches it (ns): the time the beam
 /// gets there for a scan whose present was issued at `present_us`, minus when the slice that
 /// holds the row was ready. A slice's decode stands for its band's arrival; step 2 frames (one
@@ -377,7 +406,8 @@ impl<T> Default for Racer<T> {
 }
 
 impl<T> Racer<T> {
-    #[cfg(test)]
+    /// The frame the racer follows (`Decoded::race_seq`), 0 before the first.
+    #[cfg(any(windows, test))]
     pub fn seq(&self) -> u64 { self.seq }
 
     /// The scan of the frame in flight started at this time (us), if it did.
@@ -531,6 +561,22 @@ mod tests {
 
     fn band(slice: u8, first_row: u32, end_row: u32, ready_us: u64) -> BandReady {
         BandReady { slice, first_row, end_row, fence_value: u64::from(slice) + 1, ready_us }
+    }
+
+    #[test]
+    fn consecutive_slices_of_a_set_are_drawn_in_one_pass() {
+        let bands = [band(0, 0, 270, 0), band(1, 270, 540, 0), band(2, 540, 810, 0)];
+        let one = runs(bands.iter().map(|b| (*b, 3)));
+        assert_eq!(one, vec![Run { first_row: 0, end_row: 810, fence_value: 3, last: 2 }]);
+        // A gap in the rows, or another plane set, starts a new pass.
+        let gap = runs([(bands[0], 3), (bands[2], 3)].into_iter());
+        assert_eq!(gap.len(), 2);
+        let sets = runs([(bands[0], 3), (bands[1], 4), (bands[2], 4)].into_iter());
+        assert_eq!(sets, vec![
+            Run { first_row: 0, end_row: 270, fence_value: 1, last: 0 },
+            Run { first_row: 270, end_row: 810, fence_value: 3, last: 2 },
+        ]);
+        assert!(runs(std::iter::empty()).is_empty());
     }
 
     /// Four slices of a frame whose first slice is ready at `at` and whose last is ready `span` later.

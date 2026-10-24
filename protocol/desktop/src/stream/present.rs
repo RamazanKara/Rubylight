@@ -116,6 +116,12 @@ impl Pacer {
         });
     }
 
+    /// The raced frame number of the next picture and when it is due, if one is waiting.
+    #[cfg(any(windows, test))]
+    pub fn front_race(&self) -> Option<(u64, u64)> {
+        super::pipeline::lock(&self.pending).front().map(|p| (p.decoded.race_seq, p.present_us))
+    }
+
     /// When the next picture is due, if one is waiting.
     pub fn next_due(&self) -> Option<u64> {
         super::pipeline::lock(&self.pending).front().map(|p| p.present_us)
@@ -846,5 +852,16 @@ pub(crate) mod tests {
         assert_eq!(picture.unwrap().decoded.ready_us, 30);
         assert_eq!(dropped, 0);
         assert!(pacer.next_due().is_none());
+    }
+
+    #[test]
+    fn the_front_picture_says_which_raced_frame_it_is_and_when_it_is_due() {
+        let mut pacer = Pacer::new(PacingMode::BeamRace, 16_667);
+        assert_eq!(pacer.front_race(), None);
+        let mut picture = decoded(40);
+        picture.race_seq = 7;
+        pacer.accept(picture);
+        pacer.accept(decoded(50));
+        assert_eq!(pacer.front_race(), Some((7, 40)));
     }
 }

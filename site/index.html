@@ -56,9 +56,9 @@
         <p class="stat-note">down from 4.68 ms · 120 Hz game in a 60 fps stream</p>
       </div>
       <div class="stat">
-        <p class="stat-value">1.6<span> %</span></p>
+        <p class="stat-value">&lt;2<span> %</span></p>
         <p class="stat-label">of frames lost when 75 Mbps is asked of a 50 Mbit/s link</p>
-        <p class="stat-note">1.6 to 1.95 % after the start-up, down from 6.7 %</p>
+        <p class="stat-note">after the start-up, down from 6.7 %</p>
       </div>
     </div>
     <p class="fine">Rubylight 3.0 builds, October 2026 · RX 7900 XT · release builds, our own runs. <a href="#performance">How these were measured</a></p>
@@ -88,10 +88,10 @@
         <tbody>
           <tr><td>Frame timing record, 1080p60, loopback</td><td><b>7.41 ms</b> median from capture to client present with H.264, <b>8.81 ms</b> with HEVC, <b>8.82 ms</b> with AV1, <b>13.34 ms</b> with PyroWave. <a href="rust/PERFORMANCE.html#october-23-per-frame-timing-record-baselines">Baselines</a></td></tr>
           <tr><td>VRR-aware capture</td><td>A 120 Hz game in a 60 fps stream: median age at the encoder <b>4.68 to 0.27 ms</b>, present to sent <b>7.27 to 3.80 ms</b>, shown frame rate unchanged. <a href="rust/PERFORMANCE.html#october-24-predictive-claim-waits-under-vrr">VRR</a></td></tr>
-          <tr><td>Link-rate adaptation</td><td>75 Mbps asked of a 50 Mbit/s link: <b>1.6 to 1.95 %</b> of frames lost after the start-up, against 6.7 % before the fix, and no change on a clean Wi-Fi link. <a href="rust/PERFORMANCE.html#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix">Link-rate fix</a></td></tr>
+          <tr><td>Link-rate adaptation</td><td>75 Mbps asked of a 50 Mbit/s link: <b>under 2 %</b> of frames lost after the start-up, against 6.7 % before the fix, and no change on an emulated 150 Mbit/s Wi-Fi link with 0.5 % loss. <a href="rust/PERFORMANCE.html#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix">Link-rate fix</a></td></tr>
           <tr><td>Stream presets</td><td>Lowest latency makes the first keyframe <b>29 %</b> smaller on HEVC and <b>38 to 40 %</b> smaller on H.264. The median end to end time of the three presets stayed within <b>0.15 ms</b>. <a href="rust/PERFORMANCE.html#october-23-stream-presets-b3">Presets</a></td></tr>
-          <tr><td>Slice delivery (experimental)</td><td>4K60 HEVC at 80 Mbps arrives <b>1.3 to 1.5 ms</b> sooner on loopback and <b>1.2 to 1.4 ms</b> sooner over Wi-Fi 6E. <a href="rust/PERFORMANCE.html#october-23-slice-delivery-b2-step-2f">Slice delivery</a></td></tr>
-          <tr><td>Beam-raced PyroWave (experimental)</td><td>On the Nightjar desktop client the picture's middle row is on screen <b>1.4 ms</b> sooner, median age 5.32 to 3.93 ms, at 399 Mbps. <a href="rust/PERFORMANCE.html#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate">Beam racing</a></td></tr>
+          <tr><td>Slice delivery (experimental)</td><td>On the Nightjar desktop client, 4K60 HEVC at 80 Mbps arrives <b>1.3 to 1.5 ms</b> sooner on loopback and <b>1.2 to 1.4 ms</b> sooner over Wi-Fi 6E. <a href="rust/PERFORMANCE.html#october-23-slice-delivery-b2-step-2f">Slice delivery</a></td></tr>
+          <tr><td>Beam-raced PyroWave (experimental)</td><td>Opt-in on the Nightjar desktop client: the picture's middle row is on screen <b>1.4 ms</b> sooner, median age 5.32 to 3.93 ms, loopback on one PC, PyroWave 1080p60 4:2:0 at 399 Mbps. <a href="rust/PERFORMANCE.html#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate">Beam racing</a></td></tr>
           <tr><td>Rust engine in Nightjar on Android</td><td>Retroid Pocket 6, HEVC 1080p60 at 40 Mbps: median end to end <b>6.92 ms</b> against 7.04 ms for the classic engine. <a href="rust/PERFORMANCE.html#october-23-rust-engine-against-the-c-engine-on-android-b8">Rust engine</a></td></tr>
           <tr><td>Against 2.6.0</td><td>56 streams on physical and virtual displays: every mean picture age within <b>0.15 ms</b> of 2.6.0. Wired LAN to a second PC: mean host processing <b>0.45 ms</b>. <a href="rust/PERFORMANCE.html#october-22-30-alpha1-hardware-gate">Hardware gate</a></td></tr>
         </tbody>

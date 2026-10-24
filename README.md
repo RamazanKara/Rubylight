@@ -89,11 +89,11 @@ Every number here comes from a recorded run on an RX 7900 XT, with its method an
 
 | Result | Measured |
 | :-- | :-- |
-| **7.41 ms** | median time from capture to client present, H.264 1080p60 (HEVC and AV1 8.81 ms), from the frame timing record ([baselines](rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines)) |
+| **7.41 ms** | median time from capture to client present, loopback, H.264 1080p60 (HEVC 8.81 ms, AV1 8.82 ms), from the frame timing record ([baselines](rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines)) |
 | **0.27 ms** | median age of the picture at the encoder with VRR, down from 4.68 ms, for a 120 Hz game in a 60 fps stream ([VRR](rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr)) |
-| **1.6 to 1.95 %** | of frames lost after the start-up when 75 Mbps is asked of a 50 Mbit/s link, down from 6.7 % ([link adaptation](rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix)) |
-| **1.4 ms** | sooner at the middle row of the picture with beam racing on, PyroWave at 399 Mbps on the desktop client ([beam racing](rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate)) |
-| **42 ms against 96 ms** | mean picture age under game-like GPU load, Rubylight 2.0.0-rc.2 against Vibepollo 2.0 on the same PC and settings ([comparison](rust/PERFORMANCE.md#against-vibepollo-20)) |
+| **Under 2 %** | of frames lost after the start-up when 75 Mbps is asked of a 50 Mbit/s link, down from 6.7 % ([link adaptation](rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix)) |
+| **1.4 ms** | sooner at the middle row of the picture with beam racing on (opt-in, Nightjar desktop), loopback on one PC, PyroWave 1080p60 4:2:0 at 399 Mbps ([beam racing](rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate)) |
+| **42 ms against 96 ms** | mean picture age under game-like GPU load, Rubylight 2.0.0-rc.2 against Vibepollo 2.0, HEVC 10-bit HDR 1080p60 at 20 Mbps, Desktop Duplication, a 120 Hz virtual display, three runs each, same PC and settings ([comparison](rust/PERFORMANCE.md#against-vibepollo-20)) |
 
 The [performance guide](docs/performance.md) explains each metric and links the runs.
 
@@ -113,7 +113,7 @@ Existing **Steam and Playnite synchronization** stays available through source m
 
 | Client | Highlights |
 | --- | --- |
-| **[Nightjar](https://github.com/RamazanKara/nightjar)** for Android, Windows and Linux (desktop in preview) | The full Rubylight experience: a console Home with your library and favourites, a session menu with a Radeon panel, an on-screen keyboard, PyroWave HDR 4:4:4, DualSense audio and haptics, and a Rust streaming engine. |
+| **[Nightjar](https://github.com/RamazanKara/nightjar)** for Android, and the [Desktop client for Windows and Linux (Experimental)](https://github.com/RamazanKara/nightjar/blob/main/protocol/desktop/README.md) ([downloads](https://github.com/RamazanKara/nightjar/releases)) | The full Rubylight experience: a console Home with your library and favourites, a session menu with a Radeon panel, an on-screen keyboard, PyroWave HDR 4:4:4, DualSense audio and haptics, and a Rust streaming engine. |
 | **Moonlight PC** (Windows, macOS, Linux, Steam Deck) | H.264, HEVC and AV1, SDR and HDR, up to 240 fps |
 | **Moonlight and Artemis on Android** | Native resolution at 120 Hz with HDR, on a virtual display that matches the phone |
 | **Moonlight for Xbox** | 4K 120 Hz HDR on your TV |

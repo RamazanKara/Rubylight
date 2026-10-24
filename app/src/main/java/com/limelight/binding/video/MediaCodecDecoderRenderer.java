@@ -83,6 +83,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean constrainedHighProfile;
     private boolean refFrameInvalidationAvc, refFrameInvalidationHevc, refFrameInvalidationAv1;
     private byte optimalSlicesPerFrame;
+    // The same for the decoders chosen for 10-bit SDR HEVC and AV1 (the 8-bit values when none differs).
+    private boolean refFrameInvalidationHevc10, refFrameInvalidationAv110;
+    private byte optimalSlicesPerFrame10;
     private boolean refFrameInvalidationActive;
     private int initialWidth, initialHeight;
     // Why the last setup() failed, for the stream dialog; null when it did not. The last codec
@@ -571,7 +574,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
      * format may use the decoder chosen for it.
      */
     MediaCodecInfo decoderFor(int format) {
-        boolean tenBitSdr = sdr10 && (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+        boolean tenBitSdr = tenBitSdr(format);
         if ((format & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
             return tenBitSdr ? tenBitHevcDecoder() : hevcDecoder;
         }
@@ -579,6 +582,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return tenBitSdr ? tenBitAv1Decoder() : av1Decoder;
         }
         return avcDecoder;
+    }
+
+    private boolean tenBitSdr(int format) {
+        return sdr10 && (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
     }
 
     /** The decoder lists a Main10 profile (HDR10 profiles included), the least 10-bit SDR needs. */
@@ -1157,8 +1164,24 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         optimalSlicesPerFrame = (byte)Math.max(avcOptimalSlicesPerFrame, hevcOptimalSlicesPerFrame);
         LimeLog.info("Requesting "+optimalSlicesPerFrame+" slices per frame");
 
+        // A 10-bit SDR stream may run on other decoders, so the same values are worked out for
+        // them and getCapabilities(format) reports those of the decoder that will run the format.
+        refFrameInvalidationHevc10 = refFrameInvalidationHevc;
+        optimalSlicesPerFrame10 = optimalSlicesPerFrame;
+        if (hevcDecoder10 != null && hevcDecoder10 != hevcDecoder) {
+            refFrameInvalidationHevc10 = MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(hevcDecoder10,
+                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.disableHevcLowLatency);
+            optimalSlicesPerFrame10 = (byte)Math.max(avcOptimalSlicesPerFrame,
+                    MediaCodecHelper.getDecoderOptimalSlicesPerFrame(hevcDecoder10.getName()));
+            LimeLog.info("Decoder "+hevcDecoder10.getName()+" for 10-bit SDR: RFI "+refFrameInvalidationHevc10+
+                    ", "+optimalSlicesPerFrame10+" slices per frame");
+        }
+        refFrameInvalidationAv110 = av1Decoder10 != null && av1Decoder10 != av1Decoder ?
+                MediaCodecHelper.decoderSupportsRefFrameInvalidationAv1(av1Decoder10) : refFrameInvalidationAv1;
+
         if (consecutiveCrashCount % 2 == 1) {
             refFrameInvalidationAvc = refFrameInvalidationHevc = refFrameInvalidationAv1 = false;
+            refFrameInvalidationHevc10 = refFrameInvalidationAv110 = false;
             LimeLog.warning("Disabling RFI due to previous crash");
         }
     }
@@ -1774,9 +1797,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 return -2;
             }
 
-            refFrameInvalidationActive = refFrameInvalidationHevc && (selectedDecoderInfo == hevcDecoder ||
-                    MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(selectedDecoderInfo,
-                            prefs.codecLowLatency, prefs.vendorLowLatency, prefs.disableHevcLowLatency));
+            refFrameInvalidationActive = tenBitSdr(videoFormat) ? refFrameInvalidationHevc10 : refFrameInvalidationHevc;
         }
         else if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
             mimeType = "video/av01";
@@ -1789,8 +1810,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 return -2;
             }
 
-            refFrameInvalidationActive = refFrameInvalidationAv1 && (selectedDecoderInfo == av1Decoder ||
-                    MediaCodecHelper.decoderSupportsRefFrameInvalidationAv1(selectedDecoderInfo));
+            refFrameInvalidationActive = tenBitSdr(videoFormat) ? refFrameInvalidationAv110 : refFrameInvalidationAv1;
         }
         else {
             // Unknown format
@@ -3607,19 +3627,32 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public int getCapabilities() {
+        return capabilitiesFor(0);
+    }
+
+    /** The capabilities of the decoder that will run the negotiated format (10-bit SDR may use its own). */
+    @Override
+    public int getCapabilities(int negotiatedFormat) {
+        return capabilitiesFor(negotiatedFormat);
+    }
+
+    private int capabilitiesFor(int format) {
         int capabilities = 0;
+        boolean tenBit = tenBitSdr(format);
+        boolean hevc = (format & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0;
+        boolean av1 = (format & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0;
 
         // Request the optimal number of slices per frame for this decoder
-        capabilities |= MoonBridge.CAPABILITY_SLICES_PER_FRAME(optimalSlicesPerFrame);
+        capabilities |= MoonBridge.CAPABILITY_SLICES_PER_FRAME(tenBit && hevc ? optimalSlicesPerFrame10 : optimalSlicesPerFrame);
 
         // Enable reference frame invalidation on supported hardware
         if (refFrameInvalidationAvc) {
             capabilities |= MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC;
         }
-        if (refFrameInvalidationHevc) {
+        if (tenBit && hevc ? refFrameInvalidationHevc10 : refFrameInvalidationHevc) {
             capabilities |= MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
         }
-        if (refFrameInvalidationAv1) {
+        if (tenBit && av1 ? refFrameInvalidationAv110 : refFrameInvalidationAv1) {
             capabilities |= MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
         }
 
@@ -3701,10 +3734,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 str = "ErrorWhileStreaming";
             }
 
+            // The decoders that run the format: 10-bit SDR may use other ones than the 8-bit stream.
+            MediaCodecInfo hevcShown = (renderer.videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ?
+                    renderer.decoderFor(renderer.videoFormat) : renderer.hevcDecoder;
+            MediaCodecInfo av1Shown = (renderer.videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ?
+                    renderer.decoderFor(renderer.videoFormat) : renderer.av1Decoder;
             str += "Format: "+String.format("%x", renderer.videoFormat)+DELIMITER;
             str += "AVC Decoder: "+((renderer.avcDecoder != null) ? renderer.avcDecoder.getName():"(none)")+DELIMITER;
-            str += "HEVC Decoder: "+((renderer.hevcDecoder != null) ? renderer.hevcDecoder.getName():"(none)")+DELIMITER;
-            str += "AV1 Decoder: "+((renderer.av1Decoder != null) ? renderer.av1Decoder.getName():"(none)")+DELIMITER;
+            str += "HEVC Decoder: "+((hevcShown != null) ? hevcShown.getName():"(none)")+DELIMITER;
+            str += "AV1 Decoder: "+((av1Shown != null) ? av1Shown.getName():"(none)")+DELIMITER;
             if (renderer.avcDecoder != null) {
                 Range<Integer> avcWidthRange = renderer.avcDecoder.getCapabilitiesForType("video/avc").getVideoCapabilities().getSupportedWidths();
                 str += "AVC supported width range: "+avcWidthRange+DELIMITER;
@@ -3717,24 +3755,24 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     }
                 }
             }
-            if (renderer.hevcDecoder != null) {
-                Range<Integer> hevcWidthRange = renderer.hevcDecoder.getCapabilitiesForType("video/hevc").getVideoCapabilities().getSupportedWidths();
+            if (hevcShown != null) {
+                Range<Integer> hevcWidthRange = hevcShown.getCapabilitiesForType("video/hevc").getVideoCapabilities().getSupportedWidths();
                 str += "HEVC supported width range: "+hevcWidthRange+DELIMITER;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     try {
-                        Range<Double> hevcFpsRange = renderer.hevcDecoder.getCapabilitiesForType("video/hevc").getVideoCapabilities().getAchievableFrameRatesFor(renderer.initialWidth, renderer.initialHeight);
+                        Range<Double> hevcFpsRange = hevcShown.getCapabilitiesForType("video/hevc").getVideoCapabilities().getAchievableFrameRatesFor(renderer.initialWidth, renderer.initialHeight);
                         str += "HEVC achievable FPS range: " + hevcFpsRange + DELIMITER;
                     } catch (IllegalArgumentException e) {
                         str += "HEVC achievable FPS range: UNSUPPORTED!"+DELIMITER;
                     }
                 }
             }
-            if (renderer.av1Decoder != null) {
-                Range<Integer> av1WidthRange = renderer.av1Decoder.getCapabilitiesForType("video/av01").getVideoCapabilities().getSupportedWidths();
+            if (av1Shown != null) {
+                Range<Integer> av1WidthRange = av1Shown.getCapabilitiesForType("video/av01").getVideoCapabilities().getSupportedWidths();
                 str += "AV1 supported width range: "+av1WidthRange+DELIMITER;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     try {
-                        Range<Double> av1FpsRange = renderer.av1Decoder.getCapabilitiesForType("video/av01").getVideoCapabilities().getAchievableFrameRatesFor(renderer.initialWidth, renderer.initialHeight);
+                        Range<Double> av1FpsRange = av1Shown.getCapabilitiesForType("video/av01").getVideoCapabilities().getAchievableFrameRatesFor(renderer.initialWidth, renderer.initialHeight);
                         str += "AV1 achievable FPS range: " + av1FpsRange + DELIMITER;
                     } catch (IllegalArgumentException e) {
                         str += "AV1 achievable FPS range: UNSUPPORTED!"+DELIMITER;

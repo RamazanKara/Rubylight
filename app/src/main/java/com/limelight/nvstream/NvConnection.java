@@ -711,16 +711,25 @@ public class NvConnection {
             int commonFormats = negotiateVideoFormats(offeredFormats, context.serverCodecModeSupport);
             // The pick order ranks Main10 above native 4:4:4, so when both are possible with this PC,
             // 4:4:4 is kept by leaving the 10-bit formats out before negotiating.
-            boolean yuv444OverSdr10 = context.streamConfig.isSdr10Bit() && Sdr10Policy.yuv444Wins(commonFormats);
-            if (yuv444OverSdr10) {
-                offeredFormats = Sdr10Policy.withoutTenBit(offeredFormats);
-                commonFormats = negotiateVideoFormats(offeredFormats, context.serverCodecModeSupport);
+            // Decided on the formats without the 10-bit ones: with them in, negotiating drops a codec
+            // family that has no 10-bit format, and its 4:4:4 format with it.
+            boolean yuv444OverSdr10 = false;
+            if (context.streamConfig.isSdr10Bit()) {
+                int withoutTenBit = Sdr10Policy.withoutTenBit(offeredFormats);
+                int commonWithoutTenBit = negotiateVideoFormats(withoutTenBit, context.serverCodecModeSupport);
+                if (Sdr10Policy.yuv444Wins(commonWithoutTenBit)) {
+                    yuv444OverSdr10 = true;
+                    offeredFormats = withoutTenBit;
+                    commonFormats = commonWithoutTenBit;
+                }
             }
             renderer.setStreamFrameRateMilliHz(NvHTTP.getStreamFrameRateMilliHz(context));
             int preparedFormats = renderer.prepareVideoFormats(commonFormats, context.negotiatedWidth,
                     context.negotiatedHeight, context.streamConfig.getRefreshRate());
             context.negotiatedVideoFormats = negotiateVideoFormats(preparedFormats, context.serverCodecModeSupport);
             context.negotiated10Bit = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+            // The decoder for the negotiated format sets the reference-frame and slice capabilities.
+            context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats);
             // 10-bit SDR offers 10-bit formats without asking for HDR in the launch.
             context.negotiatedHdr = context.negotiated10Bit && !context.streamConfig.isSdr10Bit();
             if (pyroWaveHdrLost(commonFormats, context.negotiatedVideoFormats)) {

@@ -33,6 +33,13 @@ public class NvConnectionHostNoticeTest {
     private static final String WITH_DISPLAY = SUNSHINE.replace("</root>",
             "<Permission>4294967295</Permission><VirtualDisplayCapable>true</VirtualDisplayCapable></root>");
 
+    private static NvConnection lastConnection;
+
+    private static int negotiatedFormats() {
+        ConnectionContext context = ReflectionHelpers.getField(lastConnection, "context");
+        return context.negotiatedVideoFormats;
+    }
+
     private static List<String> stream(String serverInfo, boolean virtualDisplay) throws Exception {
         return stream(serverInfo, virtualDisplay, MoonBridge.VIDEO_FORMAT_H264, false);
     }
@@ -56,6 +63,7 @@ public class NvConnectionHostNoticeTest {
                     if (method.getName().equals("displayTransientMessage")) messages.add((String) args[0]);
                     return null;
                 });
+        lastConnection = connection;
         connection.start(null, new VideoDecoderRenderer() {
             @Override public int setup(int format, int width, int height, int rate) { return -1; }
             @Override public void start() {}
@@ -133,6 +141,8 @@ public class NvConnectionHostNoticeTest {
         assertEquals(Collections.singletonList(preferred), stream(with444, false, offered, true));
         assertFalse(NvConnectionRecoveryTest.FakeHost.lastQuery, NvConnectionRecoveryTest.FakeHost.lastQuery.contains("hdrMode"));
         assertFalse(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        assertEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_MASK_10BIT);
+        assertNotEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_H264_HIGH8_444);
         assertEquals(Collections.emptyList(), stream(with444, false, offered, true));
         // HDR is not touched: the same offer for an HDR stream keeps its 10-bit formats.
         assertEquals(Collections.emptyList(), stream(with444, false, offered, false));
@@ -140,6 +150,24 @@ public class NvConnectionHostNoticeTest {
         // 10-bit working again re-arms the notice.
         assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
         assertEquals(Collections.singletonList(preferred), stream(with444, false, offered, true));
+    }
+
+    @Test
+    public void fullChromaInOneCodecAnd10BitInAnotherStillGoesToFullChroma() throws Exception {
+        // HEVC has 4:4:4 but no Main10 and AV1 has Main10: negotiating with the 10-bit bits in would drop
+        // HEVC and its 4:4:4 format, so the choice is made without them.
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_REXT8_444 |
+                MoonBridge.VIDEO_FORMAT_AV1_MAIN8 | MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
+        String preferred = RuntimeEnvironment.getApplication().getString(R.string.stream_sdr10_unavailable,
+                RuntimeEnvironment.getApplication().getString(R.string.stream_sdr10_reason_yuv444));
+        String host = SUNSHINE.replace("<ServerCodecModeSupport>197377", "<ServerCodecModeSupport>" + (197377 | 0x80000));
+        assertEquals(Collections.singletonList(preferred), stream(host, false, offered, true));
+        assertEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_MASK_10BIT);
+        assertNotEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_H265_REXT8_444);
+        assertFalse(NvConnectionRecoveryTest.FakeHost.lastQuery, NvConnectionRecoveryTest.FakeHost.lastQuery.contains("hdrMode"));
+        // Without the setting the 10-bit AV1 format is negotiated as before.
+        stream(host, false, offered, false);
+        assertNotEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_AV1_MAIN10);
     }
 
     private static boolean hdrMode(String query, String value) {

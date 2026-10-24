@@ -29,7 +29,9 @@ import static org.junit.Assert.*;
  * chosen for 10-bit SDR (a non-whitelisted one is accepted if it lists Main10) serve only 10-bit formats.
  */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 29, application = Application.class)
+@Config(sdk = 29, application = Application.class,
+        shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
+        instrumentedPackages = "com.limelight.nvstream.jni")
 public class MediaCodecSdr10DecoderChoiceTest {
     private static final String AVC = "video/avc";
     private static final String HEVC = "video/hevc";
@@ -49,15 +51,18 @@ public class MediaCodecSdr10DecoderChoiceTest {
         ShadowMediaCodecList.addCodec(decoder(AVC_DECODER, AVC, CodecProfileLevel.AVCProfileHigh));
     }
 
-    private static MediaCodecInfo decoder(String name, String mime, int profile) {
-        CodecProfileLevel level = new CodecProfileLevel();
-        level.profile = profile;
-        level.level = 0;
+    private static MediaCodecInfo decoder(String name, String mime, int... profiles) {
+        CodecProfileLevel[] levels = new CodecProfileLevel[profiles.length];
+        for (int i = 0; i < profiles.length; i++) {
+            levels[i] = new CodecProfileLevel();
+            levels[i].profile = profiles[i];
+            levels[i].level = 0;
+        }
         return MediaCodecInfoBuilder.newBuilder().setName(name).setIsHardwareAccelerated(true)
                 .setIsSoftwareOnly(false).setCapabilities(
                         CodecCapabilitiesBuilder.newBuilder()
                                 .setMediaFormat(MediaFormat.createVideoFormat(mime, 1920, 1080))
-                                .setProfileLevels(new CodecProfileLevel[] {level})
+                                .setProfileLevels(levels)
                                 .setColorFormats(new int[] {CodecCapabilities.COLOR_FormatYUV420Flexible}).build())
                 .build();
     }
@@ -150,6 +155,61 @@ public class MediaCodecSdr10DecoderChoiceTest {
             assertNull(field(on, "hevcDecoder10"));
             assertEquals(0, on.getSupportedVideoFormats(false, true) & MoonBridge.VIDEO_FORMAT_MASK_10BIT);
             assertFalse(on.isHevcMain10Supported());
+        });
+    }
+
+    private static int slices(int capabilities) {
+        return capabilities >>> 24;
+    }
+
+    private static boolean rfiHevc(int capabilities) {
+        return (capabilities & MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC) != 0;
+    }
+
+    @Test
+    public void theCapabilitiesFollowTheDecoderThatRunsTheNegotiatedFormat() {
+        // An 8-bit decoder that takes reference frame invalidation with one slice, and a Main10 one
+        // (four slices, never RFI) for 10-bit SDR.
+        ShadowMediaCodecList.addCodec(decoder("c2.exynos.hevc.decoder", HEVC, CodecProfileLevel.HEVCProfileMain));
+        ShadowMediaCodecList.addCodec(decoder("c2.android.hevc.main10.decoder", HEVC, CodecProfileLevel.HEVCProfileMain10));
+        withRenderers(activity -> {
+            MediaCodecDecoderRenderer off = renderer(activity.get(), false);
+            MediaCodecDecoderRenderer on = renderer(activity.get(), true);
+            assertEquals("c2.exynos.hevc.decoder", name(field(on, "hevcDecoder")));
+            assertEquals("c2.android.hevc.main10.decoder", name(field(on, "hevcDecoder10")));
+
+            int eightBit = off.getCapabilities(MoonBridge.VIDEO_FORMAT_H265);
+            assertTrue(rfiHevc(eightBit));
+            assertEquals(1, slices(eightBit));
+            assertEquals(eightBit, off.getCapabilities());
+            // The 8-bit outcome with the setting on is the setting off, whatever else was found.
+            assertEquals(eightBit, on.getCapabilities(MoonBridge.VIDEO_FORMAT_H265));
+            assertEquals(eightBit, on.getCapabilities(MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265));
+            // The 10-bit SDR format runs on the other decoder: no RFI, its own slices.
+            int tenBit = on.getCapabilities(MoonBridge.VIDEO_FORMAT_H265_MAIN10);
+            assertFalse(rfiHevc(tenBit));
+            assertEquals(4, slices(tenBit));
+            // Only a stream asked for as 10-bit SDR uses it.
+            on.setSdr10Requested(false);
+            assertEquals(eightBit, on.getCapabilities(MoonBridge.VIDEO_FORMAT_H265_MAIN10));
+        });
+    }
+
+    @Test
+    public void oneDecoderForBothDepthsIsTheSameForEveryFormat() {
+        ShadowMediaCodecList.addCodec(decoder("c2.exynos.hevc.decoder", HEVC,
+                CodecProfileLevel.HEVCProfileMain, CodecProfileLevel.HEVCProfileMain10));
+        withRenderers(activity -> {
+            MediaCodecDecoderRenderer off = renderer(activity.get(), false);
+            MediaCodecDecoderRenderer on = renderer(activity.get(), true);
+            assertEquals("c2.exynos.hevc.decoder", name(field(on, "hevcDecoder")));
+            assertSame(field(on, "hevcDecoder"), on.decoderFor(MoonBridge.VIDEO_FORMAT_H265));
+            assertSame(field(on, "hevcDecoder"), on.decoderFor(MoonBridge.VIDEO_FORMAT_H265_MAIN10));
+            assertEquals(name(off.decoderFor(MoonBridge.VIDEO_FORMAT_H265)),
+                    name(on.decoderFor(MoonBridge.VIDEO_FORMAT_H265_MAIN10)));
+            assertEquals(off.getCapabilities(MoonBridge.VIDEO_FORMAT_H265),
+                    on.getCapabilities(MoonBridge.VIDEO_FORMAT_H265_MAIN10));
+            assertEquals(off.getCapabilities(MoonBridge.VIDEO_FORMAT_H265), on.getCapabilities(MoonBridge.VIDEO_FORMAT_H265));
         });
     }
 }

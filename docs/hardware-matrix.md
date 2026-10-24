@@ -76,7 +76,7 @@ Columns: **RX 7900 XT** is Windows 11 26200 with the driver named in the evidenc
 | Xbox and Switch Pro profiles, Steam Deck pads, DualSense USB haptics, back grips | Experimental | Experimental | Experimental | None recorded | - |
 | **Rendering paths** | | | | | |
 | D3D12 compute path (the default) | Tested | Experimental | Experimental | Every 3.0 gate runs it; compute off against on, [1080p60](../rust/PERFORMANCE.md#1080p-at-60-fps) | 3.0 `a14f1932b`, 2026-10-22 |
-| D3D11 path (`gpu_compute_conversion = false`) | Tested | Experimental | Experimental | [Single-pass D3D11 conversion](../rust/PERFORMANCE.md#october-12-single-pass-d3d11-420-conversion): 1080p60 HEVC SDR and HDR and PyroWave SDR streams, 9 GPU correctness tests | 2.2.8, 2026-10-12. Not re-run on 3.0 |
+| D3D11 path (`gpu_compute_conversion = false`) | Tested | Experimental | Experimental | [Single-pass D3D11 conversion](../rust/PERFORMANCE.md#october-12-single-pass-d3d11-420-conversion): 1080p60 HEVC SDR and HDR and PyroWave SDR streams, 9 GPU correctness tests. On 3.0: 30 s loopback at 1080p60, HEVC 1795 of 1795 frames decoded at 60.1 fps (end to end median 8.8 ms), PyroWave 1802 of 1802 at 60.1 fps (12.1 ms) | 2.2.8, 2026-10-12; 3.0.0-rc.1, 2026-10-24 |
 
 A D3D12-only host and virtual-display-only streaming are not offered. That work is parked on `claude/d3d12-virtual-only`, and any of it returns beside the existing paths, never instead of them.
 

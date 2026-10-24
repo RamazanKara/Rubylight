@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
   import { api, type PendingPairing } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
@@ -38,7 +39,10 @@
 <li>
   <form class="request" onsubmit={pair}>
     <div class="who">
-      <span class="name">{request.name}</span>
+      <span class="title">
+        <span class="name">{request.name}</span>
+        {#if request.webrtc}<Badge>WebRTC</Badge>{/if}
+      </span>
       <span class="muted age">Requested {duration(request.age_seconds)} ago</span>
     </div>
     <label class="visually-hidden" for="{uid}-pin">PIN shown on {request.name}</label>
@@ -75,6 +79,12 @@
     display: grid;
     flex: 1 1 160px;
     min-width: 0;
+  }
+  .title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
   }
   .name {
     font-weight: 600;

@@ -565,3 +565,20 @@ test('login and account setup remain readable on mobile in both themes', async t
     }
   }
 });
+
+test('a WebRTC TV is badged on the PIN list and the Devices page, and keeps its normal controls', async t => {
+  const clients = [
+    { uuid: 'phone', name: 'Phone', enabled: true, connected: false, perm: 0x071f1f00 },
+    { uuid: 'tv', name: 'Living room TV', enabled: false, connected: false, perm: 0x071f1f00, webrtc: { clientId: 'ab'.repeat(16) } },
+  ];
+  const { page } = await fixture(t, { clients, pending: [{ uniqueid: 'request', name: 'Den TV', age_seconds: 3, webrtc: true }] });
+  await page.goto(base + '/devices');
+  const tv = page.locator('.device').filter({ hasText: 'Living room TV' });
+  await tv.getByText('WebRTC', { exact: true }).waitFor();
+  await tv.getByText('Disabled', { exact: true }).waitFor();
+  assert.equal(await page.locator('.device').filter({ hasText: 'Phone' }).getByText('WebRTC', { exact: true }).count(), 0);
+  await page.getByRole('list', { name: 'Waiting for a PIN' }).getByText('WebRTC', { exact: true }).waitFor();
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'b3-devices-webrtc-badge.png') });
+  }
+});

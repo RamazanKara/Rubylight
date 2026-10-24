@@ -200,6 +200,7 @@
               <div class="title">
                 <span class="name">{client.name}</span>
                 {#if client.connected}<Badge tone="live">Connected</Badge>{:else}<span class="muted">Offline</span>{/if}
+                {#if client.webrtc}<Badge>WebRTC</Badge>{/if}
                 {#if !client.enabled}<Badge>Disabled</Badge>{/if}
               </div>
               <div class="meta muted">

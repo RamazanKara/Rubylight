@@ -497,7 +497,7 @@ async fn devices(
         .lock()
         .unwrap()
         .iter()
-        .map(|(id, pin)| (id.clone(), pin.name.clone()))
+        .map(|(id, pin)| (id.clone(), pin.name.clone(), pin.certificate.is_empty()))
         .collect();
     let mut content =
         "<p class=\"intro\">Pair Moonlight devices and choose what each device can do.</p>"
@@ -508,9 +508,13 @@ async fn devices(
             "<p>Add this host in Moonlight. Moonlight shows a four-digit PIN. Reload this page to see the pairing request, then enter that PIN here.</p><a class=\"button secondary\" href=\"/devices\">Check for a pairing request</a>",
         );
     }
-    for (id, name) in pending {
+    for (id, name, webrtc) in pending {
         content += &card(
-            "Pairing request",
+            if webrtc {
+                "Pairing request (WebRTC)"
+            } else {
+                "Pairing request"
+            },
             &form(
                 "pair",
                 csrf,
@@ -558,6 +562,7 @@ async fn devices(
             "enabled",
             "connected",
             "cert",
+            "webrtc",
             "network_loss_routes",
         ] {
             advanced.as_object_mut().unwrap().remove(key);
@@ -589,11 +594,16 @@ async fn devices(
         content += &card(
             text(client, "name"),
             &format!(
-                "<p><span class=\"badge\">{}</span></p>{memory}{}<div class=\"actions\">{actions}</div>",
+                "<p><span class=\"badge\">{}</span>{}</p>{memory}{}<div class=\"actions\">{actions}</div>",
                 if client["connected"] == true {
                     "Connected"
                 } else {
                     "Paired"
+                },
+                if client.get("webrtc").is_some() {
+                    " <span class=\"badge\">WebRTC</span>"
+                } else {
+                    ""
                 },
                 form("client-save", csrf, "/devices", &editor)
             ),

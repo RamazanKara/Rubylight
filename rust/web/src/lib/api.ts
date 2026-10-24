@@ -229,6 +229,7 @@ export interface Metadata {
   audio_enabled: boolean;
   features: { pyrowave: boolean; virtual_display: boolean; [key: string]: boolean };
   credentials_exists: boolean;
+  webrtc?: { enabled: boolean; running: boolean; discovery: boolean; port: number; media_port: number; error: string | null };
 }
 
 export interface PrepCommand {
@@ -281,6 +282,8 @@ export interface Client {
   perm: number;
   enabled: boolean;
   connected: boolean;
+  /** Set for a device paired over WebRTC; the secret never leaves the host. */
+  webrtc?: { clientId: string };
   network_loss_routes?: { address: string; expires_in_seconds: number; sessions_until_probe: number }[];
   output_name_override?: string | null;
   display_mode?: string | null;
@@ -305,6 +308,8 @@ export interface PendingPairing {
   uniqueid: string;
   name: string;
   age_seconds: number;
+  /** The request comes from a WebRTC TV. */
+  webrtc?: boolean;
 }
 
 export type LibrarySource = 'steam' | 'epic' | 'battlenet' | 'ea' | 'ubisoft' | 'gog' | 'microsoft';

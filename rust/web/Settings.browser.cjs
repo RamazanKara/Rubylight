@@ -386,3 +386,28 @@ test('six groups keep expert settings collapsed, searchable, and customized coun
   }
   assert.deepEqual(writes, [{ fec_percentage: 25 }]);
 });
+
+test('the WebRTC server is an Experimental toggle that says its signalling is unencrypted and reveals its ports when on', async t => {
+  const { page, writes } = await fixture(t);
+  await page.goto(base + '/settings/network');
+  const row = setting(page, 'webrtc_server');
+  await row.waitFor();
+  assert.match(await row.innerText(), /WebRTC server \(Experimental\)/);
+  assert.equal(await setting(page, 'webrtc_port').count(), 0);
+  await row.getByRole('switch').click();
+  await row.locator('summary').click();
+  assert.match(await row.innerText(), /plain ws:\/\/ on the local network/);
+  assert.match(await row.innerText(), /does not hide the traffic/);
+  await showAdvanced(page);
+  assert.equal(await setting(page, 'webrtc_port').getByRole('spinbutton').inputValue(), '8000');
+  assert.equal(await setting(page, 'webrtc_media_port').getByRole('spinbutton').inputValue(), '8001');
+  await setting(page, 'webrtc_port').getByRole('spinbutton').fill('80');
+  assert.equal(await page.getByRole('button', { name: 'Save changes' }).isDisabled(), true);
+  await setting(page, 'webrtc_port').getByRole('spinbutton').fill('8000');
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await row.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'b3-settings-webrtc-toggle.png') });
+  }
+  await save(page);
+  assert.deepEqual(writes, [{ webrtc_server: true }]);
+});

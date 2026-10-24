@@ -167,6 +167,9 @@ pub const GLOBAL: &[Setting] = settings! {
         "enable_discovery", "Moonlight discovery on the local network", Bool;
         "enable_pairing", "Allow new device pairings", Bool;
         "upnp", "UPnP router port forwarding", Bool;
+        "webrtc_server", "WebRTC server (Experimental; unencrypted ws:// on the local network)", Bool;
+        "webrtc_port", "WebRTC signalling port (TCP and UDP discovery)", Number;
+        "webrtc_media_port", "WebRTC media port (UDP)", Number;
         "lan_encryption_mode", "Local network encryption (0 never, 1 optional, 2 required)", Number;
         "wan_encryption_mode", "Internet encryption (0 never, 1 optional, 2 required)", Number;
         "ping_timeout", "Device timeout (milliseconds)", Number;

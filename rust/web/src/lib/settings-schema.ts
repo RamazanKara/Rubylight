@@ -53,6 +53,7 @@ const basicKeys = new Set([
   'forward_rumble',
   'terminate_on_pause',
   'enable_discovery',
+  'webrtc_server',
   'origin_web_ui_allowed',
   'playnite_enabled',
   'playnite_auto_sync',

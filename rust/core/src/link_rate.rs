@@ -85,10 +85,10 @@ pub const LOSS_WINDOW: Duration = Duration::from_millis(500);
 pub const LOSS_MIN_PACKETS: u64 = 100;
 /// After a fast-to-slow pacing latch has had its fence, this long a single
 /// event is enough (E1 is otherwise [`UNRECOVERABLE_FRAMES`]) if it proves the
-/// latch failed: a lost keyframe, or a keyframe request while no keyframe has
-/// come through whole since the latch. Any other lone event is not proof: the
-/// latch can be provisional (start-up) and almost every IDR request is counted
-/// as a network request. A client waiting for a keyframe reports little (one
+/// latch failed: a lost keyframe, or a lost frame or keyframe request while no
+/// keyframe has come through whole since the latch. Once one has, a lone event
+/// is not proof: the latch can be provisional (start-up) and almost every IDR
+/// request is counted as a network request. A client waiting for a keyframe reports little (one
 /// lost keyframe per request), so three frames took 4 s on the 2026-10-24
 /// `r50-hevc-hi` arm (75 Mbps into 50 Mbit/s) and the stream lost its first
 /// 5.8 s. A cut with no measured share goes to [`MIN_CUT_PERCENT`] then.
@@ -624,10 +624,12 @@ impl LinkRate {
         if self.is_active() && self.admits(Some(frame), now) {
             Events::distinct(&mut self.events.unrecoverable, now, frame);
             self.events.lost(frame);
+            // A frame lost while no keyframe has come through since the latch
+            // is the same proof a request is: the latch has not helped yet.
+            if self.watching(now) && (keyframe || !self.keyframe_arrived(now)) {
+                self.events.latch_failed = true;
+            }
             if keyframe {
-                if self.watching(now) {
-                    self.events.latch_failed = true;
-                }
                 for k in self.watch_keyframes.iter_mut().filter(|k| k.frame == frame) {
                     k.failed = true;
                 }

@@ -759,15 +759,23 @@ fn a_keyframe_request_after_a_whole_keyframe_since_the_latch_is_not_a_cut() {
         rig.clean(1_000);
         assert!(rig.changes.is_empty(), "fec {fec}: {:?}", rig.changes);
     }
-    // One ordinary frame lost after a latch is no longer a cut either.
-    let mut rig = Rig::new(58_988);
-    rig.clean(300);
-    rig.lr.on_latch(rig.now(), true, true);
-    rig.clean(700);
-    let (frame, now) = (rig.frame, rig.now());
-    unrecoverable(&mut rig.lr, frame, now);
-    rig.clean(1_000);
-    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+    // One ordinary frame lost after a whole keyframe is no cut either, but
+    // with no keyframe through since the latch it is.
+    for keyframe in [true, false] {
+        let mut rig = Rig::new(58_988);
+        rig.clean(300);
+        rig.lr.on_latch(rig.now(), true, true);
+        rig.clean(600);
+        let (frame, now) = (rig.frame, rig.now());
+        if keyframe {
+            rig.lr.on_keyframe_sent(frame, now);
+        }
+        rig.clean(1_000);
+        let (frame, now) = (rig.frame, rig.now());
+        unrecoverable(&mut rig.lr, frame, now);
+        rig.clean(1_000);
+        assert_eq!(rig.changes.is_empty(), keyframe, "{:?}", rig.changes);
+    }
 }
 
 #[test]

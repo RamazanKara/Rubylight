@@ -707,6 +707,7 @@ mod tests {
     #[test]
     #[ignore = "requires an HEVC/AV1 hardware decoder and a D3D11 or Vulkan display"]
     fn packed_decode_and_gpu_reconstruction() {
+        if crate::sdl::skip_without_display() { return; }
         // SAFETY: This test owns SDL and all its resources on one thread.
         unsafe {
             assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());

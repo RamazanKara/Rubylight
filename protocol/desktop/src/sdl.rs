@@ -8,6 +8,30 @@ use sdl3_sys::everything::*;
 #[cfg(test)]
 pub static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// For an ignored test that opens a window: true, after saying why, when this session has no way
+/// to show one (no `DISPLAY`, no `XDG_RUNTIME_DIR` for Wayland, no `SDL_VIDEO_DRIVER` chosen), so the
+/// test skips instead of failing in `SDL_Init`.
+#[cfg(test)]
+pub fn skip_without_display() -> bool {
+    let unset = |name: &str| std::env::var_os(name).is_none_or(|v| v.is_empty());
+    let none = cfg!(unix) && unset("XDG_RUNTIME_DIR") && unset("DISPLAY") && unset("SDL_VIDEO_DRIVER");
+    if none {
+        eprintln!("skipped: no display here (XDG_RUNTIME_DIR, DISPLAY and SDL_VIDEO_DRIVER are all unset); run it in a desktop session");
+    }
+    none
+}
+
+/// For an ignored test that reads an input named by `name`: its value, or None after saying that
+/// the test skips (`what` says what to set it to).
+#[cfg(test)]
+pub fn test_input(name: &str, what: &str) -> Option<std::ffi::OsString> {
+    let value = std::env::var_os(name).filter(|v| !v.is_empty());
+    if value.is_none() {
+        eprintln!("skipped: {name} is not set; set it to {what}");
+    }
+    value
+}
+
 /// SDL's last error message.
 pub fn error() -> String {
     // SAFETY: SDL_GetError always returns a valid string.

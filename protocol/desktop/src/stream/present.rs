@@ -147,6 +147,8 @@ pub struct VideoTexture {
     /// PyroWave decoded on the GPU: converts the decoder's planes into the texture.
     #[cfg(windows)]
     planes: Option<super::d3d11::PlanesPass>,
+    #[cfg(unix)]
+    planes: Option<super::planes_gpu::PlanesPass>,
     /// Why the last `upload` failed, when it knows more than the caller can say.
     pub failure: Option<String>,
     /// Measurement: CPU time per PyroWave picture in `pyrowave_gpu`, kept across `destroy`.
@@ -171,7 +173,7 @@ impl Default for VideoTexture {
             packed: None,
             pyrowave: None,
             pyrowave_format: None,
-            #[cfg(windows)]
+            #[cfg(any(windows, unix))]
             planes: None,
             failure: None,
             pyrowave_stages: super::stage_times::Stages::new(super::pyrowave_gpu::UPLOAD_AND_PASSES),
@@ -328,6 +330,10 @@ impl VideoTexture {
         #[cfg(windows)]
         if let media::Picture::GpuPlanes { lease, fence_value } = &decoded.picture {
             return self.upload_planes(renderer, decoded, lease, *fence_value);
+        }
+        #[cfg(unix)]
+        if let media::Picture::GpuPlanes { lease } = &decoded.picture {
+            return self.upload_planes(renderer, decoded, lease);
         }
         let Some(frame) = decoded.picture.frame() else { return false };
         let info = frame.info();
@@ -574,8 +580,41 @@ impl VideoTexture {
         drawn
     }
 
+    /// Draws a picture the GPU decoder left in CPU plane buffers: uploads the planes to the
+    /// renderer's GPU, converts them into the texture and gives the plane set back.
+    #[cfg(unix)]
+    fn upload_planes(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, lease: &super::gpu_planes::Lease) -> bool {
+        let setup = decoded.setup;
+        let ten = setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
+        let hdr = self.hdr_mode.unwrap_or(ten);
+        if hdr && !crate::sdl::hdr_available(renderer) { self.destroy(); return false; }
+        // SAFETY: The live renderer belongs to the presenting thread.
+        let white_level = if hdr { unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0) }.max(0.001) } else { 1.0 };
+        let flags = u32::from(setup.color_range != 0) | (u32::from(hdr) << 1) | ((setup.color_space as u32) << 2)
+            | (u32::from(ten) << 4) | (u32::from(setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_YUV444 != 0) << 5);
+        let parameters = [setup.width as u32, setup.height as u32, setup.width as u32, setup.height as u32, 0, 3, flags, white_level.to_bits()];
+        if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
+        if !self.ensure(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, setup.width, setup.height, SDL_COLORSPACE_SRGB_LINEAR, white_level) { return false; }
+        if self.planes.is_none() {
+            // SAFETY: The live renderer belongs to the presenting thread.
+            match unsafe { super::planes_gpu::PlanesPass::new(renderer, lease.planes().config()) } {
+                Ok(pass) => { self.planes = Some(pass); self.pyrowave_format = Some(parameters); }
+                Err(error) => { self.failure = Some(format!("PyroWave GPU decoding cannot draw its planes: {error}")); return false; }
+            }
+        }
+        let texture = self.texture;
+        let stages = &mut self.pyrowave_stages;
+        let failure = &mut self.failure;
+        let drawn = self.planes.as_mut().is_some_and(|pass| match unsafe { pass.draw(renderer, texture, lease, &parameters, stages) } {
+            Ok(()) => true,
+            Err(error) => { *failure = Some(format!("PyroWave GPU decoding failed: {error}")); false }
+        });
+        if drawn { self.pyrowave_stages.commit(); } else { self.pyrowave_stages.reset(); }
+        drawn
+    }
+
     pub fn destroy(&mut self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, unix))]
         { self.planes = None; }
         self.pyrowave = None;
         self.pyrowave_format = None;

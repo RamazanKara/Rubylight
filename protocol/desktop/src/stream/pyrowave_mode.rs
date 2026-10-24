@@ -2,7 +2,7 @@
 //!
 //! `cpu` is the Rust decoder with GPU wavelets in the presenter; `gpu` is the SDK's Vulkan decoder
 //! writing planes the presenter draws. Each mode checks only its own requirements: `cpu` never
-//! loads the SDK's DLL, and `gpu` never falls back to `cpu`, so a missing piece is reported with
+//! loads the SDK's library, and `gpu` never falls back to `cpu`, so a missing piece is reported with
 //! its reason instead of being papered over.
 
 use crate::config::PyroWaveDecoder;
@@ -31,9 +31,21 @@ pub fn gpu_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), Str
     super::d3d11::PlanesPass::compiles()
 }
 
-#[cfg(not(windows))]
+/// The `gpu` mode's requirements on the renderer's `SDL_GPUDevice`: the SDK's own Vulkan device
+/// and decoder (`pyrowave_sdk::probe`) and the plane shader the presenter draws with.
+#[cfg(unix)]
+pub fn gpu_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), String> {
+    if device.is_null() {
+        return Err("PyroWave GPU decoding needs the SDL GPU renderer".to_owned());
+    }
+    super::pyrowave_sdk::probe(ten_bit)?;
+    // SAFETY: A live device pointer from the renderer; shader creation is thread-safe in SDL.
+    unsafe { super::planes_gpu::PlanesPass::compiles(device.cast(), ten_bit) }
+}
+
+#[cfg(not(any(windows, unix)))]
 pub fn gpu_probe(_device: *mut std::ffi::c_void, _ten_bit: bool) -> Result<(), String> {
-    Err("PyroWave GPU decoding needs Windows".to_owned())
+    Err("PyroWave GPU decoding needs Windows or Linux".to_owned())
 }
 
 type ProbeState = std::sync::Mutex<Vec<(bool, Option<Result<(), String>>)>>;
@@ -49,7 +61,16 @@ fn settings_probe_state() -> &'static ProbeState {
 /// while it runs. `device` is the renderer's, which outlives the process's settings screens.
 pub fn settings_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Option<Result<(), String>> {
     struct Raw(*mut std::ffi::c_void);
+    #[cfg(windows)]
     // SAFETY: D3D11 devices are free-threaded and the renderer outlives the probe thread's use.
+    unsafe impl Send for Raw {}
+    #[cfg(unix)]
+    // SAFETY: The pointer is the renderer's SDL_GPUDevice, which outlives the process's settings
+    // screens, and the probe thread only borrows it to create (and release) a shader module through
+    // `SDL_CreateGPUShader`. That relies on SDL's rule that GPU device-level calls other than the
+    // ones on a command buffer may be made from any thread, and on the Vulkan backend guarding
+    // its own bookkeeping for them (shader creation touches no state the render thread's command
+    // buffers use). Nothing else of the device is used from the probe thread.
     unsafe impl Send for Raw {}
     let mut state = settings_probe_state().lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, done)) = state.iter().find(|(key, _)| *key == ten_bit) {
@@ -106,6 +127,8 @@ mod tests {
         assert!(done.clone().is_err());
         if cfg!(windows) {
             assert!(done.clone().unwrap_err().contains("Direct3D 11 renderer"));
+        } else if cfg!(unix) {
+            assert!(done.clone().unwrap_err().contains("SDL GPU renderer"));
         }
         assert!(settings_probe_started(false));
         assert_eq!(settings_probe(std::ptr::null_mut(), false), Some(done), "remembered");
@@ -119,9 +142,20 @@ mod tests {
         assert_eq!(super::super::pyrowave_sdk::Api::shared_loads(), loads);
     }
 
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     #[test]
-    fn gpu_mode_is_unavailable_off_windows() {
-        assert!(gpu_probe(std::ptr::null_mut(), false).is_err());
+    fn cpu_mode_never_loads_the_sdk_library() {
+        let loads = super::super::pyrowave_sdk::Api::shared_loads();
+        let _ = availability(PyroWaveDecoder::Cpu, || Ok(()), || super::super::pyrowave_sdk::probe(false));
+        assert_eq!(super::super::pyrowave_sdk::Api::shared_loads(), loads);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_gpu_probe_without_a_renderer_device_says_so_before_loading_the_sdk() {
+        let loads = super::super::pyrowave_sdk::Api::shared_loads();
+        let error = gpu_probe(std::ptr::null_mut(), false).unwrap_err();
+        assert!(error.contains("SDL GPU renderer"), "{error}");
+        assert_eq!(super::super::pyrowave_sdk::Api::shared_loads(), loads);
     }
 }

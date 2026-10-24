@@ -203,7 +203,7 @@ fn the_gpu_picture_matches_the_cpu_picture_on_the_fixtures() {
 #[test]
 #[ignore = "needs the PyroWave SDK, a GPU, a display and NIGHTJAR_PYROWAVE_FRAMES"]
 fn the_gpu_picture_matches_the_cpu_picture_on_dumped_real_frames() {
-    let Some(dir) = std::env::var_os("NIGHTJAR_PYROWAVE_FRAMES") else { panic!("set NIGHTJAR_PYROWAVE_FRAMES to a NIGHTJAR_PYROWAVE_DUMP directory") };
+    let Some(dir) = crate::sdl::test_input("NIGHTJAR_PYROWAVE_FRAMES", "a NIGHTJAR_PYROWAVE_DUMP directory") else { return };
     let _lock = gpu_lock();
     let frames = super::tests::dumped_frames(std::path::Path::new(&dir));
     assert!(!frames.is_empty(), "no frame-*.bin envelopes in {dir:?}");

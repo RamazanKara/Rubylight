@@ -113,6 +113,7 @@ mod tests {
     #[test]
     #[ignore = "manual 1080p GPU latency measurement"]
     fn gpu_wavelet_1080p_latency() {
+        if crate::sdl::skip_without_display() { return; }
         unsafe {
             assert!(SDL_Init(SDL_INIT_VIDEO));
             #[cfg(windows)]
@@ -176,6 +177,7 @@ mod tests {
     #[test]
     #[ignore = "requires a D3D11 or Vulkan display"]
     fn single_upload_draws_the_same_pixels_as_uploading_both_textures() {
+        if crate::sdl::skip_without_display() { return; }
         unsafe {
             assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
             #[cfg(windows)]
@@ -225,6 +227,7 @@ mod tests {
     #[test]
     #[ignore = "requires a D3D11 or Vulkan display"]
     fn gpu_wavelets_match_reference_planes() {
+        if crate::sdl::skip_without_display() { return; }
         unsafe {
             assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
             #[cfg(windows)]

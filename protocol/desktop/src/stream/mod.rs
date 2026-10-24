@@ -23,10 +23,10 @@ pub mod pyrowave_mode;
 mod stage_times;
 #[cfg(windows)]
 mod d3d11;
-#[cfg(windows)]
 pub mod gpu_planes;
-#[cfg(windows)]
 mod pyrowave_sdk;
+#[cfg(unix)]
+mod planes_gpu;
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::Ordering;

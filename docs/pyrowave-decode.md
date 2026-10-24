@@ -5,7 +5,7 @@ decoder in `stream/pyrowave.rs`) or `Gpu` (the SDK, this document). Neither fall
 with `Gpu` and a failing probe, PyroWave is not offered and the settings screen says why (the probe's
 error text, "Switch the PyroWave decoder to CPU ..."); with `Cpu` the DLL is never loaded.
 The default is `Gpu` on Windows (every leg of the ABBA below keeps, on this PC and on the 780M
-laptop) and `Cpu` elsewhere. A settings file that says `Cpu` keeps it.
+laptop, and on the NUC under Linux, [below](#linux-brief-g3)). A settings file that says `Cpu` keeps it.
 
 ## Route A: the SDK decodes, D3D11 presents
 
@@ -254,6 +254,102 @@ one of 3589 frames, first slice ready 1.65 ms (p50) after the first packet again
 wire, last 7.20 ms. The final decode is byte-identical to a decode with slicing off on all three
 planes, and each slice matches that reference on its rows (ignored GPU test, 24 frames). See
 [beam-racing.md](beam-racing.md).
+
+## Linux (brief G3)
+
+The same SDK, loaded as `libpyrowave-shared.so` from beside the executable
+(`stream/pyrowave_sdk/unix.rs`). `scripts/build-pyrowave-sdk.sh` builds the pinned commit and
+patches into `~/nj-pyrowave-sdk` (or `-o <folder>`) with `build-info.txt` and `licenses/`. There is
+no shared-texture handoff to the presenter on Linux, so the route differs from Windows after the
+decode:
+
+- **Decode.** The SDK creates its own Vulkan device (`create_device_by_compat` with no LUID, so the
+  Vulkan driver's default adapter, which on a machine with several GPUs is not necessarily the
+  renderer's) and decodes with `decoder_decode_cpu_buffer_async` into a ring of plane-buffer sets
+  (three CPU buffers each, R8 or R16 planes, tightly packed rows). The buffers are plain memory, so
+  there is no fence to share: `Picture::GpuPlanes { lease }` holds the set and dropping the lease
+  (shown, or dropped unshown) gives it back. The setting, the probe, early decode and the failure
+  policy are the Windows ones.
+- **Present.** `stream/planes_gpu.rs` (`PlanesPass`) copies the three planes into one SDL GPU
+  transfer buffer, uploads them to three persistent R8/R16 UNORM textures on the renderer's own
+  device (its own copy pass, submitted before the render pass) and draws the `planes` entry of
+  `pyrowave.hlsl` through `SDL_GPURenderState` into the RGBA64F picture texture: the same shader
+  and the same `linearRgb` as the CPU path. The upload and the draw are the presenter's `upload` and
+  `passes` stages. The renderer must be SDL's "gpu" one (Vulkan, SPIR-V); anything else is the same
+  loud "PyroWave GPU decoding needs ..." refusal as on Windows.
+- **Shader module.** `pyrowave-planes.spv` is glslang's output (dxc is not used here):
+  `glslangValidator -V -D -e planes -S frag --auto-sampled-textures --target-env vulkan1.0
+  protocol/desktop/src/pyrowave.hlsl -o protocol/desktop/src/pyrowave-planes.spv`. `-V` defines
+  `VULKAN`, which selects the sampler slots t0 to t2 in `space2` that SDL's fragment shaders use.
+  Check the result with `spirv-val`. The committed `pyrowave.spv` is a different module and is not
+  regenerated.
+- **Probe and the loud failure.** Without the library the client refuses the stream, it does not
+  switch to the CPU decoder: `autostream failed: PyroWave GPU decoding unavailable:
+  libpyrowave-shared.so not found next to the executable (...). Switch the PyroWave decoder to CPU
+  in the settings, or pick another codec.` A failing Vulkan device gets the same treatment, with the
+  SDK's error. Probing twice loads the SDK once.
+- **Packaging.** `protocol/desktop/package-linux.sh -s <SDK folder>` builds the release binary and
+  packs `nightjar-desktop-<version>-linux-<arch>.tar.gz` with the library beside it, its build-info
+  as `pyrowave-sdk-build-info.txt`, `licenses-pyrowave/` and `system-libraries.txt` (what `ldd`
+  finds). Like the Windows script it refuses a library that is not the pinned one, or whose SHA-256
+  is not the recorded one, before the long build.
+- **Default.** `Gpu`, as on Windows. `package-linux.sh -s` puts the library in the package. A
+  source build without it, or a box that fails the probe, behaves as a Windows one without the DLL:
+  PyroWave is not offered in the settings, with the reason and the hint to switch the decoder to
+  CPU, and asking for it anyway (`NIGHTJAR_*` autostream) is the exit-2 refusal above. No other
+  codec is affected, so a GPU default does not make a library-less build unusable; only PyroWave
+  needs the setting changed there.
+- **Deadline.** `pyrowave_decoder_decode_cpu_buffer_complete` waits on its fence with no timeout,
+  so submit and complete run together as one job on a wait thread (`pyrowave_sdk/watchdog.rs`; the
+  SDK registers its thread index and logger in the submit call, so that thread is set up by the
+  call itself, and one hand-over per frame covers both) and `decode` gives up after the same
+  `GPU_DECODE_TIMEOUT` (2 s) as Windows, with `Failure::Device("PyroWave GPU decode failed: the
+  PyroWave decode did not finish within 2s: the Vulkan device may be hung or lost")`. A stalled
+  decoder is never called, destroyed (that would idle the hung device and block) or reused again,
+  and the plane set of that decode is leaked, because the stuck call may still copy into it. The
+  deadline logic is unit-tested everywhere (`watchdog::tests`); an ignored GPU test forces a miss
+  with a zero deadline.
+
+### Linux measurements
+
+Client: the NUC (Core i5-8259U, Iris Plus 655, Mesa 25.0.7, Debian 13). It also runs other
+containers, so its load is not quiet. The client ran in a container with `/dev/dri`, SDL's
+`offscreen` video driver (1024x768) and the "gpu" renderer, so nothing is scanned out and
+`receive_to_present_ms` ends at the offscreen present. Host: this PC (RX 7900 XT), isolated profile
+on port 49123, `virtual_display_layout = extended`, 1080p60 over 1 GbE, 60 s legs in ABBA order
+(`scripts/pyrowave-linux.ps1 -Bitrates 133000,300000`; the host sent about 137.8 and 312.5 Mbps).
+Raw results are in `C:\src\nj-pwd-out\linux-abba`.
+
+Equality first. The SDK on the NUC against the reference `.yuv` fixtures: max error 1.0 to 1.15
+code values, 0.62 to 0.89 against the CPU decoder. The presenter's pictures against the CPU
+pictures (`pyrowave/gpu_tests_unix.rs`, encoded RGB): max 0.8 to 2.1 codes, inside the Windows bounds
+(2.5/255 for 8-bit, 1/255 for 10-bit). The SDK alone, push to planes in memory: 1080p p50 4.9 ms
+(p95 5.3, GPU 2.3), 1440p p50 8.3, 4K p50 19.0.
+
+| Stream | Mbps | Decoder | receive_to_present p50 / p95 / p99 (ms) | decode_to_present p50 / p95 (ms) | shown fps | dropped | decoder errors |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1080p60 | 133 | CPU | 23.73 / 231.16 / 278.95 | 6.13 / 17.92 | 58.91 | 16 | 0 |
+| 1080p60 | 133 | GPU | 13.45 / 25.23 / 30.07 | 1.39 / 2.87 | 60.09 | 0 | 0 |
+| 1080p60 | 300 | CPU | 148.04 / 275.06 / 291.52 | 7.27 / 11.19 | 49.28 | 70 | 0 |
+| 1080p60 | 300 | GPU | 19.37 / 30.23 / 44.10 | 1.47 / 2.98 | 60.00 | 0 | 0 |
+
+Both bitrates keep G2's rule (`timing_summary.py --keep`: p50 and p95 of `receive_to_present_ms`
+not worse, no fps loss, no new decoder errors). On this CPU the Rust decoder's entropy stage takes
+about 6 ms a frame at 133 Mbps and 13.7 to 15.2 ms at 300 Mbps, so the queue fills at 300 Mbps and
+drops frames. One GPU leg at 300 Mbps was noisier (p50 22.9 ms, the SDK's `gpu` stage 11.4 ms
+against 4.6 to 5 ms elsewhere) and is still better than both CPU legs. Not measured: a Linux
+machine with a discrete GPU, a real display (the offscreen driver has no scan-out or vsync),
+Wayland or X11 presentation.
+
+Tests on Linux: `cargo test -p nightjar-desktop -p nightjar-core` runs G2's mode and probe tests.
+The ignored ones need the library and a Vulkan device, one at a time:
+`NIGHTJAR_PYROWAVE_SDK=<folder> cargo test -p nightjar-desktop --release -- --ignored
+--test-threads=1 pyrowave_sdk gpu_tests_unix`. `pyrowave_sdk::tests` is the G1 set (fixtures against
+the reference and the CPU decoder, lossy frames, a ring of buffers, probing twice, decode timing);
+`gpu_tests_unix` runs the fixtures through the presenter on an offscreen "gpu" renderer against the
+CPU pictures, plus a sequence longer than the ring. Four older ignored tests (wavelet tests needing
+`XDG_RUNTIME_DIR`, one needing `NIGHTJAR_PYROWAVE_FRAMES`) fail on the headless NUC for their
+own environment reasons. `scripts/pyrowave-linux-leg.sh` runs one client leg on the NUC.
 
 ## The wait between decoded and shown (HostTimes pacing)
 

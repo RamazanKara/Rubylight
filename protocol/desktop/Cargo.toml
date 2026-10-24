@@ -21,15 +21,15 @@ mdns-sd = { version = "0.21", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 directories = "6"
+# The PyroWave SDK library is loaded at run time (stream/pyrowave_sdk.rs); ash only gives it the
+# Vulkan types, so neither bindgen nor Vulkan headers are involved.
+libloading = "0.8"
+ash = { version = "0.38", default-features = false, features = ["std", "loaded"] }
 
 # Windows links the SDL3 DLL found by pkg-config (MSYS2's mingw-w64-ucrt-x86_64-sdl3). Distros
 # without an SDL3 package (Ubuntu 24.04) get SDL built from source and linked statically.
 [target.'cfg(windows)'.dependencies]
 sdl3-sys = { version = "0.7", default-features = false, features = ["use-pkg-config"] }
-# The PyroWave SDK DLL is loaded at run time (stream/pyrowave_sdk.rs); ash only gives it the Vulkan
-# types, so neither bindgen nor Vulkan headers are involved.
-libloading = "0.8"
-ash = { version = "0.38", default-features = false, features = ["std", "loaded"] }
 windows = { version = "0.62", features = ["Networking_Connectivity", "Win32_System_WinRT", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D10", "Win32_Graphics_Direct3D11", "Win32_Graphics_Direct3D_Fxc", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Security", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(not(windows))'.dependencies]

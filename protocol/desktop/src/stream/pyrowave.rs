@@ -10,7 +10,6 @@ use rubylight_protocol::pyrowave::{push_container, Records};
 
 use crate::media::Picture;
 use super::stage_times::Stages;
-#[cfg(windows)]
 use super::pyrowave_sdk::{GpuConfig, GpuDecoder};
 
 struct Band {
@@ -586,7 +585,6 @@ pub enum Failure {
 /// The PyroWave decoder of a stream, on the CPU or on the GPU (`Settings::pyrowave_decoder`).
 pub enum Pyrowave {
     Cpu(Box<Decoder>),
-    #[cfg(windows)]
     Gpu(Box<GpuStream>),
 }
 
@@ -599,7 +597,6 @@ impl Pyrowave {
     pub fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
         match self {
             Self::Cpu(decoder) => decoder.chunk(first, flags, payload),
-            #[cfg(windows)]
             Self::Gpu(stream) => stream.chunk(first, flags, payload),
         }
     }
@@ -612,6 +609,8 @@ impl Pyrowave {
             Self::Cpu(_) => Err("beam racing needs the GPU PyroWave decoder, so frames decode whole"),
             #[cfg(windows)]
             Self::Gpu(stream) => { stream.set_slices(slices); Ok(()) }
+            #[cfg(not(windows))]
+            Self::Gpu(_) => Err("beam racing is Windows-only so far, so frames decode whole"),
         }
     }
 
@@ -620,7 +619,6 @@ impl Pyrowave {
     pub fn source(&self) -> Source {
         match self {
             Self::Cpu(decoder) => decoder.source,
-            #[cfg(windows)]
             Self::Gpu(stream) => stream.source,
         }
     }
@@ -635,7 +633,6 @@ impl Pyrowave {
                 Ok(Output { picture: Picture::Frame(frame), loss_percent: decoder.loss_percent, first_block_us: decoder.first_block_us,
                     bands: Vec::new(), race: RaceReport::default() })
             }
-            #[cfg(windows)]
             Self::Gpu(stream) => stream.frame(data, evict),
         }
     }
@@ -643,7 +640,6 @@ impl Pyrowave {
     pub fn stage_summary(&self) -> Option<String> {
         match self {
             Self::Cpu(decoder) => decoder.stage_summary(),
-            #[cfg(windows)]
             Self::Gpu(stream) => stream.stage_summary(),
         }
     }
@@ -672,28 +668,21 @@ fn final_decode_gate(sliced: bool, finished: bool, loss_percent: f32, sdk_ready:
     Ok(())
 }
 /// How long the decoder thread waits for the GPU to finish a frame before the stream ends.
-#[cfg(windows)]
-const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-#[cfg(windows)]
+pub(crate) const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const GPU_STAGE_NAMES: [&str; 5] = ["clear", "push", "submit", "gpu", "slices"];
-#[cfg(windows)]
 const GPU_CLEAR: usize = 0;
-#[cfg(windows)]
 const GPU_PUSH: usize = 1;
 #[cfg(windows)]
 const GPU_SUBMIT: usize = 2;
-#[cfg(windows)]
 const GPU_WAIT: usize = 3;
 /// The slice decodes made while the frame arrives (beam race), submit and wait together.
-#[cfg(windows)]
+#[cfg_attr(not(windows), allow(dead_code))]
 const GPU_SLICES: usize = 4;
 /// The first word of a record that is the sequence header.
-#[cfg(windows)]
 const HEADER_BIT: u32 = 0x8000_0000;
 
 /// Gives one record to the SDK; false if it is a sequence header for another picture than the
 /// one negotiated (the CPU path's check, `Decoder::coefficients`) or the SDK refuses it.
-#[cfg(windows)]
 fn push_checked(gpu: &mut GpuDecoder, packet: &[u8]) -> bool {
     if word(packet, 0) & HEADER_BIT != 0 {
         let (first, second, config) = (word(packet, 0), word(packet, 4), gpu.config());
@@ -708,7 +697,6 @@ fn push_checked(gpu: &mut GpuDecoder, packet: &[u8]) -> bool {
 /// PyroWave frames decoded by the SDK on the GPU into shared D3D11 planes. The records go to
 /// the SDK as they complete (early decode) or when the frame does; the SDK runs the entropy
 /// decoding and the inverse wavelets, and the presenter converts the planes to RGB.
-#[cfg(windows)]
 pub struct GpuStream {
     gpu: GpuDecoder,
     planes: std::sync::Arc<super::gpu_planes::Planes>,
@@ -727,7 +715,7 @@ pub struct GpuStream {
 }
 
 /// The beam race state of the frame in flight.
-#[cfg(windows)]
+#[cfg_attr(not(windows), allow(dead_code))]
 struct Race {
     plan: SlicePlan,
     /// The sequence header went to the SDK ahead of the records, so a prefix decodes.
@@ -745,7 +733,7 @@ struct Race {
     slicing: bool,
 }
 
-#[cfg(windows)]
+#[cfg_attr(not(windows), allow(dead_code))]
 impl Race {
     fn begin_frame(&mut self) {
         self.plan.begin_frame();
@@ -775,12 +763,19 @@ impl Race {
     }
 }
 
-#[cfg(windows)]
 impl GpuStream {
     /// Creates the SDK decoder on `device` (the renderer's) with `slots` plane sets.
+    #[cfg(windows)]
     pub fn new(device: &windows::Win32::Graphics::Direct3D11::ID3D11Device, width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
         let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots };
         GpuDecoder::new(device, config).map(Self::with_decoder)
+    }
+
+    /// Creates the SDK decoder (on the Vulkan driver's default device) with `slots` plane sets.
+    #[cfg(unix)]
+    pub fn new(width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
+        let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots };
+        GpuDecoder::new(config).map(Self::with_decoder)
     }
 
     pub fn with_decoder(gpu: GpuDecoder) -> Self {
@@ -802,6 +797,7 @@ impl GpuStream {
 
     /// Decodes the picture in `slices` slices while a row-ordered frame arrives (0 turns it off).
     /// Frames that do not arrive in row order are decoded once, whole, and say so in their report.
+    #[cfg(windows)]
     pub fn set_slices(&mut self, slices: u32) {
         let config = self.gpu.config();
         self.race = (slices > 0).then(|| Race {
@@ -816,7 +812,7 @@ impl GpuStream {
         });
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub fn planes(&self) -> &std::sync::Arc<super::gpu_planes::Planes> {
         &self.planes
     }
@@ -871,6 +867,7 @@ impl GpuStream {
     /// frame, missing blocks as zero (the SDK needs no `is_ready` for that, which a prefix never
     /// satisfies), into the plane set the final decode will use. Waits for it, because the next
     /// decode needs the SDK's payload buffer free.
+    #[cfg(windows)]
     fn decode_due_slice(&mut self) {
         if self.early != Early::Active { return; }
         let Self { race: Some(race), gpu, planes, stages, .. } = self else { return };
@@ -892,6 +889,9 @@ impl GpuStream {
         }
         stages.add(GPU_SLICES, step);
     }
+
+    #[cfg(not(windows))]
+    fn decode_due_slice(&mut self) {}
 
     pub fn frame(&mut self, data: &[u8], evict: &mut dyn FnMut() -> bool) -> Result<Output, Failure> {
         let early = std::mem::replace(&mut self.early, Early::Off);
@@ -949,18 +949,50 @@ impl GpuStream {
         // what the cache had to fill in is the loss the gate would have judged.
         final_decode_gate(sliced, finished, loss_percent, || self.gpu.is_ready(true)).map_err(|why| Failure::Frame(why.into()))?;
         let step = Instant::now();
-        let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
-        self.stages.add(GPU_SUBMIT, step);
-        let step = Instant::now();
-        self.gpu.wait(fence_value, GPU_DECODE_TIMEOUT).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
-        self.stages.add(GPU_WAIT, step);
+        #[cfg(windows)]
+        let fence_value = {
+            let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+            self.stages.add(GPU_SUBMIT, step);
+            let step = Instant::now();
+            self.gpu.wait(fence_value, GPU_DECODE_TIMEOUT).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
+            self.stages.add(GPU_WAIT, step);
+            fence_value
+        };
+        // The decode into the set's CPU buffers blocks until the GPU is done and the planes are read
+        // back, so the whole of it is the "gpu" stage.
+        #[cfg(unix)]
+        {
+            let _ = after;
+            let gpu = &mut self.gpu;
+            let decoded = lease.with_buffers(|[y, cb, cr]| gpu.decode([y, cb, cr]));
+            if let Err(e) = decoded {
+                // A decode that missed its deadline may still write into these buffers once the
+                // device comes back: the set is never given back, so nothing reads or reuses it.
+                if self.gpu.stalled() { std::mem::forget(lease); }
+                return Err(Failure::Device(format!("PyroWave GPU decode failed: {e}")));
+            }
+            self.stages.add(GPU_WAIT, step);
+        }
         self.stages.commit();
         let first_block_us = if source == Source::Early { self.first_block_us } else { 0 };
+        #[cfg(windows)]
         let (race, bands) = match &mut self.race {
             Some(race) => race.finish(fence_value, nightjar_core::session::now_us(), source == Source::Early),
             None => (RaceReport::default(), Vec::new()),
         };
-        Ok(Output { picture: Picture::GpuPlanes { lease, fence_value }, loss_percent, first_block_us, bands, race })
+        #[cfg(not(windows))]
+        let (race, bands) = (RaceReport::default(), Vec::new());
+        Ok(Output {
+            picture: Picture::GpuPlanes {
+                lease,
+                #[cfg(windows)]
+                fence_value,
+            },
+            loss_percent,
+            first_block_us,
+            bands,
+            race,
+        })
     }
 
     /// The stage times; the slices stage only when the beam race is on.
@@ -971,6 +1003,9 @@ impl GpuStream {
 
 #[cfg(all(test, windows))]
 mod gpu_tests;
+
+#[cfg(all(test, unix))]
+mod gpu_tests_unix;
 
 #[cfg(test)]
 mod tests {
@@ -1344,7 +1379,7 @@ mod tests {
     #[test]
     #[ignore = "real 1080p frames from NIGHTJAR_PYROWAVE_FRAMES"]
     fn a_real_frame_decodes_its_bands_exactly_from_the_blocks_before_their_cut() {
-        let dir = std::env::var_os("NIGHTJAR_PYROWAVE_FRAMES").expect("set NIGHTJAR_PYROWAVE_FRAMES to a dump directory");
+        let Some(dir) = crate::sdl::test_input("NIGHTJAR_PYROWAVE_FRAMES", "a NIGHTJAR_PYROWAVE_DUMP directory") else { return };
         for (width, height, full, data) in dumped_frames(std::path::Path::new(&dir)).into_iter().take(3) {
             let mut decoder = Decoder::new(width, height, full).unwrap();
             decoder.coefficients(&data).unwrap();

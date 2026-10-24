@@ -119,6 +119,29 @@ public class NvConnectionHostNoticeTest {
         assertNotEquals(notAccepted, hdrUnavailable);
     }
 
+    @Test
+    public void nativeFullChromaWinsOver10BitSdrOnlyWithAPcThatHasIt() throws Exception {
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H264_HIGH8_444 |
+                MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        String preferred = RuntimeEnvironment.getApplication().getString(R.string.stream_sdr10_unavailable,
+                RuntimeEnvironment.getApplication().getString(R.string.stream_sdr10_reason_yuv444));
+        String with444 = SUNSHINE.replace("<ServerCodecModeSupport>197377", "<ServerCodecModeSupport>" + (197377 | 0x40000));
+        // A PC without 4:4:4 keeps 10-bit SDR, whatever the phone could do.
+        assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
+        assertTrue(NvConnectionRecoveryTest.FakeHost.lastQuery, hdrMode(NvConnectionRecoveryTest.FakeHost.lastQuery, "0"));
+        // A PC with both gets 4:4:4: said once, and the launch carries no hdrMode as 10-bit was not negotiated.
+        assertEquals(Collections.singletonList(preferred), stream(with444, false, offered, true));
+        assertFalse(NvConnectionRecoveryTest.FakeHost.lastQuery, NvConnectionRecoveryTest.FakeHost.lastQuery.contains("hdrMode"));
+        assertFalse(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        assertEquals(Collections.emptyList(), stream(with444, false, offered, true));
+        // HDR is not touched: the same offer for an HDR stream keeps its 10-bit formats.
+        assertEquals(Collections.emptyList(), stream(with444, false, offered, false));
+        assertTrue(NvConnectionRecoveryTest.FakeHost.lastHdr);
+        // 10-bit working again re-arms the notice.
+        assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
+        assertEquals(Collections.singletonList(preferred), stream(with444, false, offered, true));
+    }
+
     private static boolean hdrMode(String query, String value) {
         return query.contains("&hdrMode=" + value + "&") || query.endsWith("&hdrMode=" + value);
     }

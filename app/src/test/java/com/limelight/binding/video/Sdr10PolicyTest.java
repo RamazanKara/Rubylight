@@ -9,18 +9,34 @@ import static org.junit.Assert.*;
 public class Sdr10PolicyTest {
     private static Refusal refusal(boolean media, boolean enabled, boolean hdr, boolean hevc, boolean av1,
                                    boolean pyroWave, boolean packed) {
-        return Sdr10Policy.refusal(media, enabled, hdr, hevc, av1, pyroWave, packed, false);
+        return Sdr10Policy.refusal(media, enabled, hdr, hevc, av1, pyroWave, packed);
     }
 
     @Test
-    public void nativeFullChromaWinsAndIsSaid() {
-        Refusal r = Sdr10Policy.refusal(true, true, false, true, true, false, false, true);
-        assertEquals(Refusal.YUV444, r);
-        assertEquals(0, Sdr10Policy.formats(r, true, true));
-        assertTrue(Sdr10Policy.worthSaying(r));
-        // The setting being off, or HDR being streamed, still says nothing about it.
-        assertEquals(Refusal.SETTING_OFF, Sdr10Policy.refusal(true, false, false, true, true, false, false, true));
-        assertEquals(Refusal.HDR_STREAM, Sdr10Policy.refusal(true, true, true, true, true, false, false, true));
+    public void nativeFullChromaOnlyWinsWithAFormatThePcAlsoSupports() {
+        assertTrue(Sdr10Policy.yuv444Wins(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H264_HIGH8_444));
+        assertTrue(Sdr10Policy.yuv444Wins(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT8_444 | VIDEO_FORMAT_H265_MAIN10));
+        // The PC has no 4:4:4 in common: 10-bit SDR stays.
+        assertFalse(Sdr10Policy.yuv444Wins(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10));
+        assertFalse(Sdr10Policy.yuv444Wins(0));
+        // The 10-bit formats go and the 8-bit ones stay.
+        assertEquals(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT8_444 | VIDEO_FORMAT_AV1_MAIN8,
+                Sdr10Policy.withoutTenBit(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 |
+                        VIDEO_FORMAT_H265_REXT8_444 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10));
+    }
+
+    @Test
+    public void theHostHdrNoticeSaysOnceAndRearmsWhenThePcReturnsToSdr() {
+        // Only a 10-bit stream, and only a changed report, does anything.
+        assertEquals(Sdr10Policy.HostHdrStep.NONE, Sdr10Policy.hostHdrStep(false, true, null));
+        assertEquals(Sdr10Policy.HostHdrStep.NONE, Sdr10Policy.hostHdrStep(true, null, null));
+        assertEquals(Sdr10Policy.HostHdrStep.SAY, Sdr10Policy.hostHdrStep(true, true, null));
+        assertEquals(Sdr10Policy.HostHdrStep.NONE, Sdr10Policy.hostHdrStep(true, true, true));
+        assertEquals(Sdr10Policy.HostHdrStep.REARM, Sdr10Policy.hostHdrStep(true, false, true));
+        assertEquals(Sdr10Policy.HostHdrStep.NONE, Sdr10Policy.hostHdrStep(true, false, false));
+        assertEquals(Sdr10Policy.HostHdrStep.SAY, Sdr10Policy.hostHdrStep(true, true, false));
+        // The first report being SDR also clears a claim left by an earlier stream.
+        assertEquals(Sdr10Policy.HostHdrStep.REARM, Sdr10Policy.hostHdrStep(true, false, null));
     }
 
     @Test
@@ -30,11 +46,6 @@ public class Sdr10PolicyTest {
         assertFalse(Sdr10Policy.decoderChoiceMayChange(true, true, false, false));
         assertFalse(Sdr10Policy.decoderChoiceMayChange(true, false, true, false));
         assertFalse(Sdr10Policy.decoderChoiceMayChange(true, false, false, true));
-        // A choice made for 10-bit is kept only if something decodes Main10 and 4:4:4 is not in play.
-        assertTrue(Sdr10Policy.decoderChoiceApplies(true, false, false));
-        assertTrue(Sdr10Policy.decoderChoiceApplies(false, true, false));
-        assertFalse(Sdr10Policy.decoderChoiceApplies(false, false, false));
-        assertFalse(Sdr10Policy.decoderChoiceApplies(true, true, true));
     }
 
     @Test

@@ -25,26 +25,22 @@ public final class Sdr10Policy {
         /** PyroWave is chosen, and its 10-bit output is the HDR10 path. */
         PYROWAVE,
         /** The experimental packed 4:4:4 path has its own 10-bit handling. */
-        PACKED_444,
-        /** Native 4:4:4 is on and offered; the PC takes 4:4:4 or 10-bit, not both, and 4:4:4 wins. */
-        YUV444
+        PACKED_444
     }
 
     public static Refusal refusal(boolean mediaStream, boolean enabled, boolean hdrGranted, boolean hevcMain10,
-                                  boolean av1Main10, boolean pyroWaveChosen, boolean packed444, boolean yuv444) {
+                                  boolean av1Main10, boolean pyroWaveChosen, boolean packed444) {
         if (!enabled) return Refusal.SETTING_OFF;
         if (!mediaStream) return Refusal.NO_VIDEO;
         if (hdrGranted) return Refusal.HDR_STREAM;
         if (pyroWaveChosen) return Refusal.PYROWAVE;
         if (packed444) return Refusal.PACKED_444;
-        if (yuv444) return Refusal.YUV444;
         return hevcMain10 || av1Main10 ? Refusal.NONE : Refusal.NO_MAIN10;
     }
 
     /** Whether the user should be told why an enabled setting is not used for this stream. */
     public static boolean worthSaying(Refusal refusal) {
-        return refusal == Refusal.NO_MAIN10 || refusal == Refusal.PYROWAVE || refusal == Refusal.PACKED_444 ||
-                refusal == Refusal.YUV444;
+        return refusal == Refusal.NO_MAIN10 || refusal == Refusal.PYROWAVE || refusal == Refusal.PACKED_444;
     }
 
     /** Whether the setting could change which decoders are used: only for a stream that may offer it. */
@@ -54,11 +50,33 @@ public final class Sdr10Policy {
     }
 
     /**
-     * Whether the decoders chosen for 10-bit SDR are kept: one of them decodes Main10 and 4:4:4 is not
-     * in play. Otherwise the choice is the one made with the setting off.
+     * Whether native 4:4:4 takes the stream from 10-bit SDR: the PC takes 4:4:4 or 10-bit, not both,
+     * and the pick order ranks Main10 above 4:4:4, so this is settled before negotiating. Only a
+     * 4:4:4 format the PC also supports counts.
+     *
+     * @param commonFormats the offered formats the PC also supports
      */
-    public static boolean decoderChoiceApplies(boolean hevcMain10, boolean av1Main10, boolean yuv444) {
-        return (hevcMain10 || av1Main10) && !yuv444;
+    public static boolean yuv444Wins(int commonFormats) {
+        return (commonFormats & MoonBridge.VIDEO_FORMAT_MASK_YUV444 & ~MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+    }
+
+    /** The offered formats without the 10-bit ones, which is how 4:4:4 wins over 10-bit SDR. */
+    public static int withoutTenBit(int offeredFormats) {
+        return offeredFormats & ~MoonBridge.VIDEO_FORMAT_MASK_10BIT;
+    }
+
+    /** What the HDR-in-SDR notice does on a status check. */
+    public enum HostHdrStep { NONE, SAY, REARM }
+
+    /**
+     * The PC's HDR report on a 10-bit SDR stream: say it once when it turns to HDR, and arm the
+     * notice again once it has turned back to SDR.
+     *
+     * @param previous the report seen at the last check, null before any
+     */
+    public static HostHdrStep hostHdrStep(boolean tenBit, Boolean hostHdr, Boolean previous) {
+        if (!tenBit || hostHdr == null || hostHdr.equals(previous)) return HostHdrStep.NONE;
+        return hostHdr ? HostHdrStep.SAY : HostHdrStep.REARM;
     }
 
     /** The 10-bit formats to offer in addition to the 8-bit ones: 0 unless the refusal is NONE. */

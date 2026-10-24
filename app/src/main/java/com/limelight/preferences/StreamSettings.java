@@ -1205,7 +1205,11 @@ public class StreamSettings extends NightjarActivity {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_hdr_short));
                     } else if ("forcepyrowave".equals(prefs.getString("video_format", "auto"))) {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_pyrowave_short));
-                    } else if (prefs.getBoolean("checkbox_enable_sdr_10bit", false)) {
+                    } else if (prefs.getBoolean("checkbox_enable_sdr_10bit", false) &&
+                            // Only when 10-bit SDR is not refused by settings alone (HDR and PyroWave are above).
+                            com.limelight.binding.video.Sdr10Policy.refusal(true, true, false, true, true, false,
+                                    prefs.getBoolean("experimental_packed_444", false)) ==
+                                    com.limelight.binding.video.Sdr10Policy.Refusal.NONE) {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_tenbit_short));
                     }
                 }

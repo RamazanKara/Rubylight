@@ -431,7 +431,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean streamHdr;
     // 10-bit formats offered for 10-bit SDR (the setting), without asking the PC for HDR.
     private boolean streamSdr10;
-    private boolean sdr10HostHdrNoticed;
+    private Boolean sdr10LastHostHdr;
     private HdrPolicy.Status lastHdrStatus = HdrPolicy.Status.QUIET;
     private DisplayCapsReporter displayCapsReporter;
 
@@ -962,23 +962,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean sdr10Av1 = mediaStream && decoderRenderer.isAv1Main10SdrSupported();
         Sdr10Policy.Refusal sdr10Refusal = Sdr10Policy.refusal(mediaStream, prefConfig.enableSdr10Bit, willStreamHdr,
                 sdr10Hevc, sdr10Av1, prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE,
-                prefConfig.experimentalPacked444,
-                // Native 4:4:4 and 10-bit cannot both be negotiated, and 4:4:4 wins.
-                mediaStream && prefConfig.enableYuv444 && (decoderRenderer.getSupportedVideoFormats(false, false) &
-                        MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0);
+                prefConfig.experimentalPacked444);
         streamSdr10 = Sdr10Policy.formats(sdr10Refusal, sdr10Hevc, sdr10Av1) != 0;
         decoderRenderer.setSdr10Requested(streamSdr10);
         if (Sdr10Policy.worthSaying(sdr10Refusal)) {
             LimeLog.warning("10-bit SDR enabled but not used: " + sdr10Refusal);
             int reason = sdr10Refusal == Sdr10Policy.Refusal.PYROWAVE ? R.string.stream_sdr10_reason_pyrowave :
                     sdr10Refusal == Sdr10Policy.Refusal.PACKED_444 ? R.string.stream_sdr10_reason_packed :
-                    sdr10Refusal == Sdr10Policy.Refusal.YUV444 ? R.string.stream_sdr10_reason_yuv444 :
                             R.string.stream_sdr10_reason_decoder;
             messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_UNAVAILABLE,
                     getString(R.string.stream_sdr10_unavailable, getString(reason)));
-        } else if (sdr10Refusal == Sdr10Policy.Refusal.NONE) {
-            HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_UNAVAILABLE);
         }
+        // Native 4:4:4 over 10-bit SDR depends on the PC, so the connection decides it (and re-arms the notice).
 
         int supportedVideoFormats = mediaStream ? decoderRenderer.getSupportedVideoFormats(willStreamHdr, streamSdr10) : MoonBridge.VIDEO_FORMAT_H264;
 
@@ -6471,19 +6466,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         if (streamSdr10 && decoderRenderer != null) {
             int format = decoderRenderer.getActiveVideoFormat();
-            if (Sdr10Policy.status((format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
-                    decoderRenderer.getHostHdrReport()) == Sdr10Policy.Status.HOST_HDR) {
+            boolean tenBit = (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+            Boolean report = decoderRenderer.getHostHdrReport();
+            if (Sdr10Policy.status(tenBit, report) == Sdr10Policy.Status.HOST_HDR) {
                 text = getString(R.string.stream_sdr10_host_hdr);
-                if (!sdr10HostHdrNoticed) {
-                    sdr10HostHdrNoticed = true;
-                    LimeLog.warning("10-bit SDR requested but the PC sends HDR");
-                    hostNotice(HostNotices.Notice.SDR10_HOST_HDR, R.string.stream_sdr10_host_hdr);
-                }
-            } else if (Boolean.FALSE.equals(decoderRenderer.getHostHdrReport())) {
+            }
+            Sdr10Policy.HostHdrStep step = Sdr10Policy.hostHdrStep(tenBit, report, sdr10LastHostHdr);
+            if (step == Sdr10Policy.HostHdrStep.SAY) {
+                LimeLog.warning("10-bit SDR requested but the PC sends HDR");
+                hostNotice(HostNotices.Notice.SDR10_HOST_HDR, R.string.stream_sdr10_host_hdr);
+            } else if (step == Sdr10Policy.HostHdrStep.REARM) {
                 // The PC's display is in SDR now; if it goes to HDR again, say so again.
-                sdr10HostHdrNoticed = false;
                 HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_HOST_HDR);
             }
+            if (tenBit && report != null) sdr10LastHostHdr = report;
         }
         if (messages.status("hdr", text)) updatePerformanceOverlay();
     }

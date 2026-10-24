@@ -57,6 +57,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private MediaCodecInfo avcDecoder;
     private MediaCodecInfo hevcDecoder;
     private MediaCodecInfo av1Decoder;
+    // Chosen for 10-bit SDR only (null when the usual decoder serves): the 8-bit formats never use them.
+    private MediaCodecInfo hevcDecoder10;
+    private MediaCodecInfo av1Decoder10;
 
     private final ArrayList<byte[]> vpsBuffers = new ArrayList<>();
     private final ArrayList<byte[]> spsBuffers = new ArrayList<>();
@@ -551,6 +554,31 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         return hevcDecoderInfo;
+    }
+
+    /** The decoder for 10-bit HEVC streams: the one chosen for 10-bit SDR, else the usual one. */
+    private MediaCodecInfo tenBitHevcDecoder() {
+        return hevcDecoder10 != null ? hevcDecoder10 : hevcDecoder;
+    }
+
+    private MediaCodecInfo tenBitAv1Decoder() {
+        return av1Decoder10 != null ? av1Decoder10 : av1Decoder;
+    }
+
+    /**
+     * The decoder for a negotiated HEVC or AV1 format. 8-bit formats use the decoder chosen without
+     * 10-bit SDR, so they behave exactly as with the setting off; only a 10-bit SDR stream's 10-bit
+     * format may use the decoder chosen for it.
+     */
+    MediaCodecInfo decoderFor(int format) {
+        boolean tenBitSdr = sdr10 && (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+        if ((format & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
+            return tenBitSdr ? tenBitHevcDecoder() : hevcDecoder;
+        }
+        if ((format & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
+            return tenBitSdr ? tenBitAv1Decoder() : av1Decoder;
+        }
+        return avcDecoder;
     }
 
     /** The decoder lists a Main10 profile (HDR10 profiles included), the least 10-bit SDR needs. */
@@ -1075,21 +1103,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         selectHevcAndAv1Decoders(prefs, meteredData, requestedHdr, false);
         if (Sdr10Policy.decoderChoiceMayChange(prefs.enableSdr10Bit, requestedHdr,
                 prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE, prefs.experimentalPacked444)) {
-            // 10-bit SDR may change which decoders are used, but only when it will be offered:
-            // otherwise the choice stays exactly what it is with the setting off.
+            // 10-bit SDR may pick other decoders, but only for its own 10-bit formats and only ones that
+            // report Main10. Everything 8-bit keeps exactly the decoders chosen with the setting off.
             MediaCodecInfo baseHevc = hevcDecoder;
             MediaCodecInfo baseAv1 = av1Decoder;
-            boolean base444 = prefs.enableYuv444 && (getDecoderVideoFormats(hevcDecoder, "video/hevc", false, true) &
-                    MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0;
             selectHevcAndAv1Decoders(prefs, meteredData, requestedHdr, true);
-            boolean now444 = prefs.enableYuv444 && (getDecoderVideoFormats(hevcDecoder, "video/hevc", false, true) &
-                    MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0;
-            if (!Sdr10Policy.decoderChoiceApplies(isHevcMain10Supported(), isAv1Main10SdrSupported(),
-                    base444 || now444)) {
-                LimeLog.info("10-bit SDR will not be offered; keeping the decoders chosen without it");
-                hevcDecoder = baseHevc;
-                av1Decoder = baseAv1;
-            }
+            hevcDecoder10 = reportsMain10(hevcDecoder, "video/hevc") ? hevcDecoder : null;
+            av1Decoder10 = reportsMain10(av1Decoder, "video/av01") ? av1Decoder : null;
+            hevcDecoder = baseHevc;
+            av1Decoder = baseAv1;
         }
 
         // Set attributes that are queried in getCapabilities(). This must be done here
@@ -1155,7 +1177,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /** A plain Main10 profile (HDR10 profiles count too): enough for 10-bit SDR. */
     public boolean isHevcMain10Supported() {
-        return (getDecoderVideoFormats(hevcDecoder, "video/hevc", false, true, false) & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+        return (getDecoderVideoFormats(tenBitHevcDecoder(), "video/hevc", false, true, false) & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
     }
 
     public boolean isAv1Supported() {
@@ -1163,7 +1185,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     public boolean isAv1Main10SdrSupported() {
-        return (getDecoderVideoFormats(av1Decoder, "video/av01", false, true, false) & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+        return (getDecoderVideoFormats(tenBitAv1Decoder(), "video/av01", false, true, false) & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
     }
 
     public boolean isAv1Main10Supported() {
@@ -1241,12 +1263,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /**
-     * @param sdr10 offer the 10-bit HEVC and AV1 formats for 10-bit SDR; PyroWave stays 8-bit
+     * @param sdr10 offer the 10-bit HEVC and AV1 formats for 10-bit SDR; PyroWave stays 8-bit. The
+     *              8-bit formats are those of the decoders chosen without it, and only the Main10 bits
+     *              come from the decoders chosen for it.
      */
     public int getSupportedVideoFormats(boolean hdr, boolean sdr10) {
+        int tenBit = !sdr10 ? 0 :
+                (getDecoderVideoFormats(tenBitHevcDecoder(), "video/hevc", false, true, false) |
+                        getDecoderVideoFormats(tenBitAv1Decoder(), "video/av01", false, true, false)) &
+                        MoonBridge.VIDEO_FORMAT_MASK_10BIT;
         if (prefs.experimentalPacked444) {
-            return getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, sdr10, false) |
-                    getDecoderVideoFormats(av1Decoder, "video/av01", hdr, sdr10, false);
+            return getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, false) |
+                    getDecoderVideoFormats(av1Decoder, "video/av01", hdr, false) | tenBit;
         }
         int pyroWave = 0;
         if (isPyroWaveSupported()) {
@@ -1259,8 +1287,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         return pyroWave | MoonBridge.VIDEO_FORMAT_H264 |
                 getDecoderVideoFormats(avcDecoder, "video/avc", false, prefs.enableYuv444) |
-                getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, sdr10, prefs.enableYuv444) |
-                getDecoderVideoFormats(av1Decoder, "video/av01", hdr, sdr10, false);
+                getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, prefs.enableYuv444) |
+                getDecoderVideoFormats(av1Decoder, "video/av01", hdr, false) | tenBit;
     }
 
     /**
@@ -1737,29 +1765,32 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         else if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
             mimeType = "video/hevc";
-            selectedDecoderInfo = hevcDecoder;
+            selectedDecoderInfo = decoderFor(videoFormat);
 
-            if (hevcDecoder == null) {
+            if (selectedDecoderInfo == null) {
                 LimeLog.severe("No available HEVC decoder!");
                 setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.NO_DECODER, null, mimeType,
                         initialWidth, initialHeight, refreshRate, null);
                 return -2;
             }
 
-            refFrameInvalidationActive = refFrameInvalidationHevc;
+            refFrameInvalidationActive = refFrameInvalidationHevc && (selectedDecoderInfo == hevcDecoder ||
+                    MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(selectedDecoderInfo,
+                            prefs.codecLowLatency, prefs.vendorLowLatency, prefs.disableHevcLowLatency));
         }
         else if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
             mimeType = "video/av01";
-            selectedDecoderInfo = av1Decoder;
+            selectedDecoderInfo = decoderFor(videoFormat);
 
-            if (av1Decoder == null) {
+            if (selectedDecoderInfo == null) {
                 LimeLog.severe("No available AV1 decoder!");
                 setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.NO_DECODER, null, mimeType,
                         initialWidth, initialHeight, refreshRate, null);
                 return -2;
             }
 
-            refFrameInvalidationActive = refFrameInvalidationAv1;
+            refFrameInvalidationActive = refFrameInvalidationAv1 && (selectedDecoderInfo == av1Decoder ||
+                    MediaCodecHelper.decoderSupportsRefFrameInvalidationAv1(selectedDecoderInfo));
         }
         else {
             // Unknown format

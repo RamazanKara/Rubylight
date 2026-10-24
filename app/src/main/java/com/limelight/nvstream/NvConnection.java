@@ -42,6 +42,7 @@ import com.limelight.R;
 import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.InputBatcher;
+import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.computers.HostNotices;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.JniNativeApiTransport;
@@ -708,6 +709,13 @@ public class NvConnection {
 
             int offeredFormats = context.streamConfig.getSupportedVideoFormats();
             int commonFormats = negotiateVideoFormats(offeredFormats, context.serverCodecModeSupport);
+            // The pick order ranks Main10 above native 4:4:4, so when both are possible with this PC,
+            // 4:4:4 is kept by leaving the 10-bit formats out before negotiating.
+            boolean yuv444OverSdr10 = context.streamConfig.isSdr10Bit() && Sdr10Policy.yuv444Wins(commonFormats);
+            if (yuv444OverSdr10) {
+                offeredFormats = Sdr10Policy.withoutTenBit(offeredFormats);
+                commonFormats = negotiateVideoFormats(offeredFormats, context.serverCodecModeSupport);
+            }
             renderer.setStreamFrameRateMilliHz(NvHTTP.getStreamFrameRateMilliHz(context));
             int preparedFormats = renderer.prepareVideoFormats(commonFormats, context.negotiatedWidth,
                     context.negotiatedHeight, context.streamConfig.getRefreshRate());
@@ -730,7 +738,15 @@ public class NvConnection {
                     MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PYROWAVE_HDR_UNAVAILABLE);
             }
-            if (context.streamConfig.isSdr10Bit()) {
+            if (yuv444OverSdr10) {
+                // No 10-bit was negotiated, so the launch does not say hdrMode=0 either.
+                LimeLog.warning("10-bit SDR not used: native 4:4:4 takes precedence");
+                if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.SDR10_UNAVAILABLE)) {
+                    context.connListener.displayTransientMessage(appContext.getString(R.string.stream_sdr10_unavailable,
+                            appContext.getString(R.string.stream_sdr10_reason_yuv444)));
+                }
+            } else if (context.streamConfig.isSdr10Bit()) {
+                HostNotices.reset(appContext, details.uuid, HostNotices.Notice.SDR10_UNAVAILABLE);
                 if (!context.negotiated10Bit) {
                     LimeLog.warning("10-bit SDR offered, but this PC streams 8-bit");
                     if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.SDR10_NOT_ACCEPTED)) {

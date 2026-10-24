@@ -178,7 +178,7 @@ def main(argv=None):
         rows = load_leg(path, args.discard)
         groups.setdefault(group, {}).setdefault(variant, []).append(rows)
         print("\n".join(describe(f"{variant} @ {group}  {os.path.basename(path)}", summarize(rows))))
-        print("\n".join(log_lines(path)))
+        print("\n".join(log_lines(path) + race_reasons(rows) + present_modes(path)))
     ok = True
     for group, variants in groups.items():
         print()

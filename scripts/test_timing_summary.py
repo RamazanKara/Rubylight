@@ -113,6 +113,15 @@ class LegTests(unittest.TestCase):
         rows = [{"race_reason": "on"}] * 2 + [{"race_reason": ""}, {"race_reason": "composed"}]
         self.assertEqual(ts.race_reasons(rows), ["  beam race verdicts: on 2 (67%), composed 1 (33%)"])
         self.assertEqual(ts.race_reasons([{"race_reason": ""}, {}]), [])
+        # main prints both under the leg.
+        import contextlib
+        import io
+        with open(base + ".presentmon.csv", "w", newline="") as handle:
+            handle.write("Application,PresentMode\n" + "nightjar.exe,Hardware: Independent Flip\n" * 2)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ts.main(["--discard", "0", f"A:60:{base}.csv"])
+        self.assertIn("PresentMon present modes: Hardware: Independent Flip 2 (100%)", out.getvalue())
 
     def test_a_bad_leg_argument_is_an_error(self):
         with self.assertRaises(ValueError):

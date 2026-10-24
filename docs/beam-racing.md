@@ -69,6 +69,70 @@ and the last decode finished), `row_ordered` (1 or 0). They are empty when the r
 the frame did not use early chunks. Compare `first_slice_ready_ns` with `receive_ns` (the
 frame's first packet) against the frame's time on the wire.
 
+## The capability probe
+
+With the race on, the client reads the scan line of the window's monitor (`D3DKMTGetScanLine`,
+opened from the monitor's GDI name, reopened when the window moves to another monitor) and says
+on the overlay whether racing can work: "Beam race: on, scan 4.18 ms over 1440 rows" or "off
+(reason)", with the same word in the timing CSV's `race_reason` column next to
+`scan_line_at_present` and `in_vblank_at_present` (the beam when each present was issued). The
+old slices line is now "Race slices". Nothing is read with `beam_race` off.
+
+What the counter does (RX 7900 XT, 5120x1440 at 240 Hz, VRR): it counts lines at 393.6 per ms
+from 0; the first 186-205 lines are the blanking (`InVerticalBlank`), then the 1440 picture rows.
+A fixed refresh runs the counter around continuously: the whole scan, blanking included, is the
+scan time S = 4.1-4.2 ms (the active rows alone take 3.65 ms). On a VRR display that idles
+between presents the counter keeps counting past the end of the scan (up to 7000 lines seen at 60
+fps) with `InVerticalBlank` set, and a present restarts it. The first second of readings gives the
+rate, the blanking, the rows and S (calibration, `scanline.rs`).
+
+The verdict, in the order of the reasons:
+
+| Reason | When |
+|---|---|
+| no tearing | V-Sync pacing, or a swap chain without tearing |
+| no scanline | `D3DKMTOpenAdapterFromGdiDisplayName` or `D3DKMTGetScanLine` fails |
+| no scan seen | the calibration found no scan |
+| composed | the window is not a fullscreen window, or the scan-restart check failed on a fullscreen one |
+| no VRR | the restart check failed on a display that scans all the time (under 30% of the readings in the blanking at a stream rate under 70% of the display's), or the display never idled for 300 presents |
+
+The scan-restart check: a present issued while the display idles in its blanking has to start a
+scan, the first reading out of the blanking within 5% of the picture rows. It looks for 3 ms after
+the present. Measured with independent flip on the VRR display, the scan begins about 1 ms after
+the present call (median 0.95 ms, 89% under 1.5 ms, 92% under 2 ms, the rest up to 6 ms: the flip
+waits for the GPU), so the first design's 0.5 ms window and 3 misses in 30 failed a good setup. It
+now fails at 9 misses in 30 tested presents.
+
+Measured (30 s loopback streams, 2560x1440@60 PyroWave, GPU decode, borderless fullscreen, `Immediate`):
+
+| Setup | Overlay | PresentMon `PresentMode` |
+|---|---|---|
+| window excluded from the host's capture (the harness default), first run | on, 4.18 ms, 1440 rows | Hardware: Independent Flip 98% |
+| the same setting, three later runs | off (composed): 9 of 10-12 tested presents did not start a scan in 3 ms | Hardware: Independent Flip |
+| window visible to the host's capture (`-CaptureVisible`) | off (composed): 9 of 16 tested presents did not start a scan in 3 ms | Hardware: Independent Flip 97% |
+| windowed (`window_mode` Windowed) | off (composed) | Hardware: Independent Flip 97% (multi-plane overlay); the scan was 13% blanking, a fixed refresh |
+| V-Sync | off (no tearing) | Hardware Composed: Independent Flip |
+
+`NIGHTJAR_EXCLUDE_FROM_CAPTURE=1` does not force composition here. The probe and PresentMon
+disagree when the host captures the window: the OS calls it independent flip, but the scan does
+not follow the presents within 3 ms (probably the GPU work queued ahead of the flip, with the host
+capturing and encoding on the same GPU). Treat "composed" as "the display's scan does not start
+with our presents" and read PresentMon for what the OS did.
+
+The verdict is not stable on this PC: the same excluded borderless setting gave "on" in two runs and
+"composed" in four later ones, with the scan itself measured the same each time (4.16-4.19 ms). In
+the failing runs only 1 to 6 of the tested presents began a scan inside the window (median 1.7-2.2
+ms, longest 3.1 ms), so the flips were late rather than absent. Other agents were using the GPU
+during these runs, which is the likely cause, but a quiet-GPU rerun was not done. The summary line
+`beam race: restart check over N presents ...` in the client log gives the counts and delays.
+Brief 3 should treat "composed" as a reason to stay off, never as a reason to race, and the window
+may need to grow if a quiet GPU still misses.
+
+`scripts/pyrowave-loopback.ps1 -PresentMon <PresentMon 2.x console exe>` (or
+`NIGHTJAR_PRESENTMON`) captures the client's presents into `<leg>.presentmon.csv`, and
+`timing_summary.py` prints its `PresentMode` counts and the leg's `race_reason` counts. Settings
+go in with `-ExtraA @{ beam_race = $true; window_mode = 'Borderless'; vrr = $true; present_at_host_times = $false }`.
+
 ## Tests
 
 - `stream::pyrowave::tests`: the slice plan on 1080p row-ordered and index-ordered frames, and
@@ -77,3 +141,7 @@ frame's first packet) against the frame's time on the wire.
 - Ignored GPU test `a_slice_decode_is_exact_on_its_rows_on_real_row_ordered_frames`: with
   `NIGHTJAR_PYROWAVE_DUMP` envelopes of a row-ordered stream in `NIGHTJAR_PYROWAVE_FRAMES`,
   every slice's rows are byte-identical to the final decode's.
+- `stream::scanline::tests`: the calibration on synthetic fixed and variable refresh displays, the
+  restart check, and each reason.
+- `timing_csv`: the three scan columns.
+- `scripts/test_timing_summary.py`: the PresentMode and verdict counts.

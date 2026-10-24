@@ -18,6 +18,7 @@ mod touch;
 mod upscale;
 mod phase;
 pub mod scanline;
+pub mod race;
 pub mod race_probe;
 pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;

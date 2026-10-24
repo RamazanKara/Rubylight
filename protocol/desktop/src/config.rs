@@ -192,6 +192,10 @@ pub struct Settings {
     /// decode it in slices as its bands complete (docs/beam-racing.md). Implies early decode. Off
     /// by default; `NIGHTJAR_BEAM_RACE=1` or `0` overrides it.
     pub beam_race: bool,
+    /// How far ahead of the display's beam a slice must be presented when the beam race is on, in
+    /// ms; 0 works it out from how the presents vary (docs/beam-racing.md). `NIGHTJAR_BEAM_RACE_MARGIN_MS`
+    /// overrides it.
+    pub beam_race_margin_ms: u32,
     /// PyroWave: reconstruct on the GPU with the PyroWave library (the default, where it measured
     /// better on every leg, docs/pyrowave-decode.md) or on the CPU.
     pub pyrowave_decoder: PyroWaveDecoder,
@@ -322,6 +326,7 @@ impl Default for Settings {
             decoder: DecoderPreference::Auto,
             early_decode: false,
             beam_race: false,
+            beam_race_margin_ms: 0,
             pyrowave_decoder: PyroWaveDecoder::default(),
             microphone: false,
             cursor_shapes: true,
@@ -1089,6 +1094,9 @@ mod tests {
         assert!(!old.beam_race, "a settings file from before the beam race keeps it off");
         let on: Settings = serde_json::from_str("{\"beam_race\": true}").unwrap();
         assert!(on.beam_race);
+        assert_eq!(old.beam_race_margin_ms, 0, "the margin is automatic unless the file sets one");
+        let margin: Settings = serde_json::from_str("{\"beam_race_margin_ms\": 2}").unwrap();
+        assert_eq!(margin.beam_race_margin_ms, 2);
     }
 
     #[test]

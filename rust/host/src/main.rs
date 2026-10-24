@@ -173,6 +173,15 @@ fn main() -> Result<()> {
     }
     if let Some(report) = &args.display_self_test {
         let _com = butterpollo_windows::capture::ComGuard::new()?;
+        // The host log is not open in this process: keep what the checks log
+        // (why Windows refused a layout) beside the report.
+        if let Ok(log) = std::fs::File::create(report.with_extension("log")) {
+            let _ = tracing_subscriber::fmt()
+                .with_writer(std::sync::Mutex::new(log))
+                .with_ansi(false)
+                .with_max_level(tracing::Level::INFO)
+                .try_init();
+        }
         let passed = butterpollo_windows::display::self_test::run(report)?;
         std::process::exit(if passed { 0 } else { 1 });
     }

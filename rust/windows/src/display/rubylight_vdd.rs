@@ -327,6 +327,20 @@ pub(super) fn register(mut owned: Owned) {
     all.push(owned);
 }
 
+/// Windows can list a display under another adapter and target than the
+/// driver reported; captures find the display by the listed ones.
+pub(super) fn rehome(session_id: u64, adapter: (u32, i32), target: u32) {
+    if let Some(owned) = OWNED
+        .lock()
+        .unwrap()
+        .iter_mut()
+        .find(|o| o.session_id == session_id)
+    {
+        owned.adapter = adapter;
+        owned.target = target;
+    }
+}
+
 pub(super) fn unregister(session_id: u64) {
     OWNED.lock().unwrap().retain(|o| o.session_id != session_id);
 }
@@ -431,5 +445,28 @@ mod tests {
         let recreated = current();
         unregister(monitor.session_id);
         assert_ne!(first.registration, recreated.registration);
+    }
+
+    #[test]
+    fn capture_finds_a_display_windows_listed_under_another_adapter_and_target() {
+        let monitor = Owned {
+            session_id: u64::MAX - 19,
+            adapter: (0x3822_0001, 0),
+            target: 258,
+            wudf_pid: 99,
+            registration: 0,
+        };
+        register(monitor);
+        rehome(monitor.session_id, (0x10687, 0), 117_440_770);
+        // Another session's registration is left alone.
+        rehome(u64::MAX - 20, (1, 0), 1);
+        let all = OWNED.lock().unwrap().clone();
+        unregister(monitor.session_id);
+        let found = find(&all, (0x10687, 0), 117_440_770).unwrap();
+        assert_eq!(found.session_id, monitor.session_id);
+        assert_ne!(found.registration, 0);
+        assert_eq!(found.wudf_pid, 99);
+        assert_eq!(find(&all, (0x3822_0001, 0), 258), None, "no longer there");
+        assert_eq!(find(&all, (1, 0), 1), None);
     }
 }

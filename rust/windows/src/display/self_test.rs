@@ -78,14 +78,17 @@ fn switch_on() -> Result<(Value, String)> {
         .resolved_target
         .clone()
         .context("virtual display unresolved")?;
-    let ours = |m: &Monitor| m.adapter == target.adapter && m.target == target.target;
+    // Windows lists it under another adapter and target while it is on than
+    // while it is off on some systems.
+    let routes = display.routes()?;
+    let ours = |m: &Monitor| routes.contains(&(m.adapter, m.target));
     let before = timings(ours)?;
     switch_off(&target)?;
     anyhow::ensure!(
         !monitors()?.iter().any(ours),
         "the virtual display stayed on after switching it off"
     );
-    let kept_timings = activate_target(target.adapter, target.target)?;
+    let kept_timings = activate_target(&routes)?;
     let on = monitors()?.iter().any(ours);
     let after = timings(ours)?;
     let unchanged = after == before;
@@ -181,12 +184,11 @@ fn beside_duplicated_tvs(a: &str, b: &str) -> Result<(Value, String)> {
         .resolved_target
         .clone()
         .context("virtual display unresolved")?;
-    let on = monitors()?
-        .iter()
-        .any(|m| m.adapter == target.adapter && m.target == target.target);
+    let routes = display.routes()?;
+    let ours = |m: &Monitor| routes.contains(&(m.adapter, m.target));
+    let on = monitors()?.iter().any(ours);
     // The TVs may move to make room; everything else keeps its timing.
-    let after =
-        timings(|m| others(m) || (m.adapter == target.adapter && m.target == target.target))?;
+    let after = timings(|m| others(m) || ours(m))?;
     let unchanged = after == before;
     // Windows lays out the displays again when one arrives and may break up
     // the duplicate; that is reported, not failed.

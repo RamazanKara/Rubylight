@@ -6,7 +6,7 @@ use super::modes::{
     supported_modes,
 };
 use super::rubylight_vdd::{self, Control};
-use super::topology::activate_target;
+use super::topology::{Route, activate_target, is_virtual_monitor};
 use super::*;
 use butterpollo_core::virtual_output::{DisplayProvider, Mode};
 
@@ -225,6 +225,9 @@ pub struct VirtualDisplay {
     pub(super) generation: u64,
     startup_protection: Option<hotplug::Protection>,
     pub(super) resolved_target: Option<Monitor>,
+    /// The adapter and target the driver reported. Windows lists the display
+    /// there while it is off, and may list it elsewhere while it is on.
+    driver_route: Option<Route>,
     /// Windows left this display off and the host switched it on.
     pub switched_on: bool,
 }
@@ -357,6 +360,51 @@ fn heartbeat(
     );
     Ok(Heartbeat::SwitchOn)
 }
+/// The monitor Windows lists for the display the driver created. The driver
+/// reports the adapter and target IddCx gave it, and normally Windows lists
+/// the display there. On some systems (the Ryzen 7 8845HS laptop with a
+/// Radeon 780M) it lists it under the render adapter with another target id;
+/// the monitor's own device path keeps the driver's target id as its UID. A
+/// route without a device path cannot identify the display yet.
+fn listed(monitors: &[Monitor], adapter: LUID, target: u32) -> Option<&Monitor> {
+    let named = || {
+        monitors
+            .iter()
+            .filter(|m| !m.monitor_device_path.is_empty())
+    };
+    named()
+        .find(|m| m.adapter == adapter && m.target == target)
+        .or_else(|| named().find(|m| is_virtual_monitor(&m.monitor_device_path, target)))
+}
+/// Where the display is connected, if it is: the route the driver reported,
+/// else the one Windows lists the display under.
+fn connected_route(adapter: LUID, target: u32) -> Option<(LUID, u32)> {
+    let all = Topology::query_all().ok()?;
+    let available = |adapter: LUID, target: u32| {
+        all.paths.iter().any(|p| {
+            p.targetInfo.adapterId == adapter
+                && p.targetInfo.id == target
+                && p.targetInfo.targetAvailable.as_bool()
+        })
+    };
+    if available(adapter, target) {
+        return Some((adapter, target));
+    }
+    let monitors = all.monitors();
+    let m = listed(&monitors, adapter, target)?;
+    available(m.adapter, m.target).then_some((m.adapter, m.target))
+}
+/// Why the display did not come up, with what the last attempt to switch it
+/// on came to.
+fn not_active(connected: bool, activation: &str) -> String {
+    if connected {
+        format!(
+            "virtual display was connected but Windows kept it switched off (switching it on: {activation})"
+        )
+    } else {
+        "virtual display did not become active before the deadline".into()
+    }
+}
 impl VirtualDisplay {
     pub fn create(stable_id: &str, width: u32, height: u32, fps: u32) -> Result<Self> {
         Self::create_rate(
@@ -411,6 +459,7 @@ impl VirtualDisplay {
             generation: 0,
             startup_protection: Some(startup_protection),
             resolved_target: None,
+            driver_route: None,
             switched_on: false,
         };
         display.resolve(&result)?;
@@ -438,6 +487,7 @@ impl VirtualDisplay {
     }
     fn resolve(&mut self, result: &[u8]) -> Result<()> {
         let (luid, target) = self.identity(result)?;
+        self.driver_route = Some((luid, target));
         let deadline = Instant::now() + Duration::from_secs(10);
         // Windows decides whether a display it has just connected joins the
         // desktop. A layout it saved for the same displays (duplicate, or one
@@ -446,47 +496,53 @@ impl VirtualDisplay {
         // do we, without changing the other displays.
         let mut connected_since = None;
         let mut next_check = Instant::now();
+        // What the last attempt to switch it on came to.
+        let mut activation = String::from("not tried");
         while Instant::now() < deadline {
             if let Ok(monitors) = monitors()
-                && let Some(m) = monitors
-                    .into_iter()
-                    // Windows can report the active route before publishing its
-                    // monitor interface. An empty path cannot identify our display.
-                    .find(|m| {
-                        m.adapter == luid && m.target == target && !m.monitor_device_path.is_empty()
-                    })
+                && let Some(m) = listed(&monitors, luid, target)
             {
+                if (m.adapter, m.target) != (luid, target) {
+                    tracing::info!(
+                        driver_target = target,
+                        listed_target = m.target,
+                        "Windows lists the new virtual display under another adapter and target than the driver reported"
+                    );
+                    rubylight_vdd::rehome(
+                        self.id,
+                        (m.adapter.LowPart, m.adapter.HighPart),
+                        m.target,
+                    );
+                }
                 self.name = m.display_name.clone();
-                self.resolved_target = Some(m);
+                self.resolved_target = Some(m.clone());
                 self.last_feed = Instant::now();
                 return Ok(());
             }
             if Instant::now() >= next_check {
                 next_check = Instant::now() + Duration::from_millis(250);
-                let connected = Topology::query_all().is_ok_and(|all| {
-                    all.paths.iter().any(|p| {
-                        p.targetInfo.adapterId == luid
-                            && p.targetInfo.id == target
-                            && p.targetInfo.targetAvailable.as_bool()
-                    })
-                });
-                if connected {
+                let route = connected_route(luid, target);
+                if let Some((adapter, id)) = route {
                     let since = *connected_since.get_or_insert_with(Instant::now);
                     if since.elapsed() >= Duration::from_secs(1) {
                         next_check = Instant::now() + Duration::from_secs(1);
-                        match activate_target(luid, target) {
+                        match activate_target(&[(adapter, id)]) {
                             Ok(Some(kept_timings)) => {
+                                activation = "Windows accepted the layout".into();
                                 self.switched_on = true;
                                 tracing::info!(
                                     kept_timings,
                                     "Windows left the new virtual display switched off; switched it on beside the current displays"
                                 )
                             }
-                            Ok(None) => {}
-                            Err(error) => tracing::warn!(
-                                error = format!("{error:#}"),
-                                "could not switch on the new virtual display"
-                            ),
+                            Ok(None) => activation = "no route to switch on".into(),
+                            Err(error) => {
+                                activation = format!("{error:#}");
+                                tracing::warn!(
+                                    error = activation,
+                                    "could not switch on the new virtual display"
+                                )
+                            }
                         }
                     }
                 }
@@ -497,19 +553,23 @@ impl VirtualDisplay {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        if connected_since.is_some() {
-            bail!("virtual display was connected but Windows kept it switched off")
-        }
-        bail!("virtual display did not become active before the deadline")
+        bail!(not_active(connected_since.is_some(), &activation))
     }
     pub(super) fn owns_monitor(&self, monitor: &Monitor) -> bool {
         self.resolved_target.as_ref().is_some_and(|owned| {
-            owned.adapter == monitor.adapter
-                && owned.target == monitor.target
+            self.routes()
+                .is_ok_and(|routes| routes.contains(&(monitor.adapter, monitor.target)))
                 && owned
                     .monitor_device_path
                     .eq_ignore_ascii_case(&monitor.monitor_device_path)
         })
+    }
+    /// Every adapter and target the display can be listed under.
+    pub(super) fn routes(&self) -> Result<Vec<Route>> {
+        let owned = self.hotplug_monitor()?;
+        let mut routes = vec![(owned.adapter, owned.target)];
+        routes.extend(self.driver_route.filter(|route| *route != routes[0]));
+        Ok(routes)
     }
     fn hotplug_monitor(&self) -> Result<&Monitor> {
         // Resolve stores the target returned by our driver request. Never infer
@@ -524,11 +584,11 @@ impl VirtualDisplay {
     }
     pub(super) fn current_monitor(&mut self) -> Result<Monitor> {
         let owned = self.hotplug_monitor()?.clone();
+        let routes = self.routes()?;
         wait_for_monitor(
             || {
                 Ok(monitors()?.into_iter().find(|m| {
-                    m.adapter == owned.adapter
-                        && m.target == owned.target
+                    routes.contains(&(m.adapter, m.target))
                         && m.monitor_device_path
                             .eq_ignore_ascii_case(&owned.monitor_device_path)
                 }))
@@ -540,9 +600,9 @@ impl VirtualDisplay {
                 self.last_feed = Instant::now();
                 // SAFETY: Topology::shows supplies initialized device-name
                 // structures with matching header types and sizes.
-                if Topology::query_all()?.shows(&owned, |header| unsafe {
+                if Topology::query_all()?.shows(&routes, &owned, |header| unsafe {
                     DisplayConfigGetDeviceInfo(header)
-                })? && let Some(kept_timings) = activate_target(owned.adapter, owned.target)?
+                })? && let Some(kept_timings) = activate_target(&routes)?
                 {
                     self.switched_on = true;
                     tracing::info!(
@@ -750,19 +810,20 @@ impl VirtualDisplay {
         let device_info = |header: &mut DISPLAYCONFIG_DEVICE_INFO_HEADER| unsafe {
             DisplayConfigGetDeviceInfo(header)
         };
+        // Without a resolved display the lookups below report that.
+        let routes = self.routes().unwrap_or_default();
         match heartbeat(
             renewed,
             recover,
-            || Topology::query()?.shows(self.hotplug_monitor()?, device_info),
-            || Topology::query_all()?.shows(self.hotplug_monitor()?, device_info),
+            || Topology::query()?.shows(&routes, self.hotplug_monitor()?, device_info),
+            || Topology::query_all()?.shows(&routes, self.hotplug_monitor()?, device_info),
         )? {
             Heartbeat::Keep | Heartbeat::Present => return Ok(()),
             Heartbeat::SwitchOn => {
                 // A live lease can be switched off by a Windows layout
                 // recall. Activate that same target; creating its ID again
                 // returns BUSY.
-                let owned = self.hotplug_monitor()?;
-                activate_target(owned.adapter, owned.target)?
+                activate_target(&self.routes()?)?
                     .context("owned virtual display has no connected route yet")?;
                 // Publish the change before the name lookup, which can lag
                 // the switch. Once the display is on, later heartbeats find
@@ -1286,5 +1347,76 @@ mod tests {
         // A GPU that is gone leaves the choice to Windows, never another GPU.
         let missing = Config::parse("adapter_name = No Such GPU\n").unwrap();
         assert_eq!(configured_render_adapter(&missing), None);
+    }
+    #[test]
+    fn a_display_windows_lists_under_the_render_adapter_is_still_ours() {
+        // From the Ryzen 7 8845HS laptop: the driver reported the IddCx adapter
+        // and target 258, and Windows listed the display on the Radeon 780M
+        // under target 117440770, with the driver's target id as the UID.
+        let luid = |low| LUID {
+            LowPart: low,
+            HighPart: 0,
+        };
+        let listing = |path: &str, adapter: u32, target: u32| Monitor {
+            monitor_device_path: path.into(),
+            adapter: luid(adapter),
+            target,
+            ..crate::display::monitor("m", adapter, false)
+        };
+        let panel = listing(
+            r"\\?\DISPLAY#LEN8ABA#5&277e72b4&0&UID256#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}",
+            0x10687,
+            256,
+        );
+        let ours = listing(
+            r"\\?\DISPLAY#RBY0001#1&28a6823a&0&UID258#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}",
+            0x10687,
+            117_440_770,
+        );
+        let found = |monitors: &[Monitor], target| {
+            listed(monitors, luid(942_669_753), target).map(|m| m.target)
+        };
+        assert_eq!(
+            found(&[panel.clone(), ours.clone()], 258),
+            Some(117_440_770)
+        );
+        // The UID is the driver's target id: another id is another display, and
+        // the panel is never taken for it.
+        assert_eq!(found(&[panel.clone(), ours.clone()], 259), None);
+        assert_eq!(found(&[panel], 256), None);
+        // The route the driver reported wins when Windows lists it there.
+        let direct = listing(&ours.monitor_device_path, 942_669_753, 258);
+        assert_eq!(found(&[ours.clone(), direct], 258), Some(258));
+        // A route without a device path cannot identify the display yet.
+        let unnamed = listing("", 942_669_753, 258);
+        assert_eq!(found(std::slice::from_ref(&unnamed), 258), None);
+        assert_eq!(found(&[unnamed, ours], 258), Some(117_440_770));
+    }
+    #[test]
+    fn virtual_monitor_paths_name_the_driver_target_in_their_uid() {
+        use super::super::topology::is_virtual_monitor;
+        let path =
+            r"\\?\DISPLAY#RBY0001#1&28a6823a&0&UID258#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
+        assert!(is_virtual_monitor(path, 258));
+        assert!(is_virtual_monitor(&path.replace("RBY", "rby"), 258));
+        assert!(!is_virtual_monitor(path, 25), "a prefix of the id");
+        assert!(!is_virtual_monitor(path, 58), "a suffix of the id");
+        assert!(!is_virtual_monitor(&path.replace("RBY", "LEN"), 258));
+        assert!(!is_virtual_monitor("", 258));
+        assert!(
+            !is_virtual_monitor("a#\u{e4}\u{e4}#UID258", 258),
+            "non-ASCII maker"
+        );
+    }
+    #[test]
+    fn the_failure_says_what_switching_the_display_on_came_to() {
+        assert_eq!(
+            not_active(false, "not tried"),
+            "virtual display did not become active before the deadline"
+        );
+        assert_eq!(
+            not_active(true, "Windows refused the display layout"),
+            "virtual display was connected but Windows kept it switched off (switching it on: Windows refused the display layout)"
+        );
     }
 }

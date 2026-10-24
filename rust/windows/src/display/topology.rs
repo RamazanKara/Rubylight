@@ -132,6 +132,19 @@ fn monitor_instance(path: &str) -> Result<String> {
         result
     }
 }
+/// An adapter and target id a display can be listed under.
+pub(super) type Route = (LUID, u32);
+/// Whether a monitor device path, `\\?\DISPLAY#RBY0001#1&28a6823a&0&UID258#{guid}`,
+/// belongs to a Rubylight virtual display that IddCx gave target id `target`:
+/// the maker code is RBY and the instance ends in the target id as its UID.
+pub(super) fn is_virtual_monitor(path: &str, target: u32) -> bool {
+    let parts: Vec<_> = path.split('#').collect();
+    parts.len() >= 3
+        && parts[1]
+            .get(..3)
+            .is_some_and(|maker| maker.eq_ignore_ascii_case("RBY"))
+        && parts[2].ends_with(&format!("&UID{target}"))
+}
 fn monitor_id(path: &str) -> String {
     static IDS: std::sync::LazyLock<
         std::sync::Mutex<std::collections::BTreeMap<String, (Instant, String)>>,
@@ -287,11 +300,12 @@ fn keep_active_modes(paths: &[DISPLAYCONFIG_PATH_INFO]) -> Vec<DISPLAYCONFIG_PAT
 fn activation_paths(
     active: &[DISPLAYCONFIG_PATH_INFO],
     all: &[DISPLAYCONFIG_PATH_INFO],
-    adapter: LUID,
-    target: u32,
+    routes: &[Route],
 ) -> Result<Option<Vec<DISPLAYCONFIG_PATH_INFO>>> {
     let ours = |p: &DISPLAYCONFIG_PATH_INFO| {
-        p.targetInfo.adapterId == adapter && p.targetInfo.id == target
+        routes.iter().any(|(adapter, target)| {
+            p.targetInfo.adapterId == *adapter && p.targetInfo.id == *target
+        })
     };
     let source = |p: &DISPLAYCONFIG_PATH_INFO| {
         (
@@ -300,16 +314,16 @@ fn activation_paths(
             p.sourceInfo.id,
         )
     };
-    let routes: Vec<_> = all
+    let available: Vec<_> = all
         .iter()
         .filter(|p| ours(p) && p.targetInfo.targetAvailable.as_bool())
         .collect();
-    if routes.is_empty() {
+    if available.is_empty() {
         return Ok(None);
     }
     let occupied: std::collections::BTreeSet<_> =
         active.iter().filter(|p| !ours(p)).map(source).collect();
-    let mut route = **routes
+    let mut route = **available
         .iter()
         .find(|p| !occupied.contains(&source(p)))
         .context("no free desktop source for the virtual display")?;
@@ -320,11 +334,13 @@ fn activation_paths(
 }
 /// Switch on a connected display beside the current desktop. Returns None
 /// while the target is not connected, otherwise whether the other displays
-/// kept their timings.
-pub(super) fn activate_target(adapter: LUID, target: u32) -> Result<Option<bool>> {
+/// kept their timings. `routes` are the (adapter, target) pairs the display
+/// goes by: Windows can list it under one pair while it is on and another
+/// while it is off.
+pub(super) fn activate_target(routes: &[Route]) -> Result<Option<bool>> {
     let active = Topology::query()?;
     let all = Topology::query_all()?;
-    let Some(paths) = activation_paths(&active.paths, &all.paths, adapter, target)? else {
+    let Some(paths) = activation_paths(&active.paths, &all.paths, routes)? else {
         return Ok(None);
     };
     let flags = SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES;
@@ -890,14 +906,19 @@ impl Topology {
     }
     /// Whether a path still leads to this monitor, as `monitors` would list
     /// it: the lease heartbeat's check each second, without the DXGI and
-    /// colour queries that take nearly all of the half millisecond.
+    /// colour queries that take nearly all of the half millisecond. `routes`
+    /// are the (adapter, target) pairs the display goes by: Windows can list
+    /// it under another pair while it is off than while it is on.
     pub(super) fn shows(
         &self,
+        routes: &[Route],
         monitor: &Monitor,
         mut device_info: impl FnMut(&mut DISPLAYCONFIG_DEVICE_INFO_HEADER) -> i32,
     ) -> Result<bool> {
         for p in self.paths.iter().filter(|p| {
-            p.targetInfo.adapterId == monitor.adapter && p.targetInfo.id == monitor.target
+            routes.iter().any(|(adapter, target)| {
+                p.targetInfo.adapterId == *adapter && p.targetInfo.id == *target
+            })
         }) {
             let mut source = DISPLAYCONFIG_SOURCE_DEVICE_NAME {
                 header: header(
@@ -1091,7 +1112,7 @@ mod tests {
         };
         for monitor in monitors()? {
             assert!(
-                topology.shows(&monitor, device_info)?,
+                topology.shows(&[(monitor.adapter, monitor.target)], &monitor, device_info)?,
                 "{}",
                 monitor.monitor_device_path
             );
@@ -1099,12 +1120,12 @@ mod tests {
                 monitor_device_path: format!("{}#other", monitor.monitor_device_path),
                 ..monitor.clone()
             };
-            assert!(!topology.shows(&other, device_info)?);
+            assert!(!topology.shows(&[(other.adapter, other.target)], &other, device_info)?);
             let moved = Monitor {
                 target: monitor.target ^ 0x8000_0000,
                 ..monitor
             };
-            assert!(!topology.shows(&moved, device_info)?);
+            assert!(!topology.shows(&[(moved.adapter, moved.target)], &moved, device_info)?);
         }
         Ok(())
     }
@@ -1120,7 +1141,7 @@ mod tests {
         };
         for fail_call in [1, 2] {
             let mut calls = 0;
-            let result = topology.shows(&owned, |_| {
+            let result = topology.shows(&[(owned.adapter, owned.target)], &owned, |_| {
                 calls += 1;
                 if calls == fail_call {
                     ERROR_BUSY.0 as i32
@@ -1143,7 +1164,9 @@ mod tests {
         };
         assert!(
             !empty
-                .shows(&owned, |_| panic!("no target to query"))
+                .shows(&[(owned.adapter, owned.target)], &owned, |_| panic!(
+                    "no target to query"
+                ))
                 .unwrap()
         );
     }
@@ -1264,7 +1287,9 @@ mod tests {
             path(vdd, 0, 2, 0, false, true),
             path(vdd, 1, 2, 0, false, true),
         ]);
-        let paths = activation_paths(&active, &all, vdd, 2).unwrap().unwrap();
+        let paths = activation_paths(&active, &all, &[(vdd, 2)])
+            .unwrap()
+            .unwrap();
         assert_eq!(paths.len(), 4);
         for (kept, original) in paths.iter().zip(&active) {
             assert_eq!(kept.targetInfo.id, original.targetInfo.id);
@@ -1300,11 +1325,19 @@ mod tests {
         assert_eq!(new.targetInfo.rotation, DISPLAYCONFIG_ROTATION_IDENTITY);
         assert_eq!(new.targetInfo.scaling, DISPLAYCONFIG_SCALING_PREFERRED);
         // Not connected yet: keep waiting rather than failing.
-        assert!(activation_paths(&active, &all, vdd, 3).unwrap().is_none());
+        assert!(
+            activation_paths(&active, &all, &[(vdd, 3)])
+                .unwrap()
+                .is_none()
+        );
         let mut gone = all.clone();
         gone.retain(|p| p.targetInfo.id != 2);
         gone.push(path(vdd, 0, 2, 0, false, false));
-        assert!(activation_paths(&active, &gone, vdd, 2).unwrap().is_none());
+        assert!(
+            activation_paths(&active, &gone, &[(vdd, 2)])
+                .unwrap()
+                .is_none()
+        );
         // Every source of the adapter is in use.
         let busy = [
             active[0],
@@ -1312,6 +1345,108 @@ mod tests {
             active[2],
             path(vdd, 1, 5, 4, true, true),
         ];
-        assert!(activation_paths(&busy, &all, vdd, 2).is_err());
+        assert!(activation_paths(&busy, &all, &[(vdd, 2)]).is_err());
+    }
+
+    /// Windows lists a virtual display under the render adapter while it is
+    /// on and under the driver's adapter while it is off (Radeon 780M).
+    #[test]
+    fn activation_finds_a_display_by_either_of_its_routes() {
+        let gpu = LUID {
+            LowPart: 7,
+            HighPart: 0,
+        };
+        let vdd = LUID {
+            LowPart: 9,
+            HighPart: 0,
+        };
+        let path = |adapter, source, target, active, available: bool| {
+            let mut path = DISPLAYCONFIG_PATH_INFO::default();
+            path.sourceInfo.adapterId = adapter;
+            path.sourceInfo.id = source;
+            path.targetInfo.adapterId = adapter;
+            path.targetInfo.id = target;
+            path.targetInfo.targetAvailable = available.into();
+            path.flags = if active { DISPLAYCONFIG_PATH_ACTIVE } else { 0 };
+            path
+        };
+        // The panel is on; the virtual display is off, available only at the
+        // driver's pair, though Windows lists it at the GPU's pair when on.
+        let active = [path(gpu, 0, 10, true, true)];
+        let off = [
+            active[0],
+            path(vdd, 0, 2, false, true),
+            path(gpu, 1, 20, false, false),
+        ];
+        let routes = [(gpu, 20), (vdd, 2)];
+        let paths = activation_paths(&active, &off, &routes).unwrap().unwrap();
+        assert_eq!(paths.len(), 2);
+        assert_eq!(
+            (paths[1].targetInfo.adapterId, paths[1].targetInfo.id),
+            (vdd, 2)
+        );
+        // The GPU's pair alone finds nothing to switch on.
+        assert!(
+            activation_paths(&active, &off, &[(gpu, 20)])
+                .unwrap()
+                .is_none()
+        );
+        // On at the GPU's pair: switching it on again keeps one route for it.
+        let on = [active[0], path(gpu, 1, 20, true, true)];
+        let all = [on[0], on[1], path(vdd, 0, 2, false, false)];
+        let paths = activation_paths(&on, &all, &routes).unwrap().unwrap();
+        assert_eq!(paths.len(), 2);
+        assert_eq!(paths[1].targetInfo.id, 20);
+    }
+
+    #[test]
+    fn shows_follows_a_display_that_changes_routes() {
+        let gpu = LUID {
+            LowPart: 7,
+            HighPart: 0,
+        };
+        let vdd = LUID {
+            LowPart: 9,
+            HighPart: 0,
+        };
+        let mut off = DISPLAYCONFIG_PATH_INFO::default();
+        off.targetInfo.adapterId = vdd;
+        off.targetInfo.id = 2;
+        let topology = Topology {
+            paths: vec![off],
+            modes: Vec::new(),
+        };
+        let mut monitor = monitor("m", gpu.LowPart, false);
+        monitor.target = 20;
+        monitor.monitor_device_path = r"\\?\DISPLAY#RBY0001#1&28a6823a&0&UID2#{guid}".into();
+        let named = |header: &mut DISPLAYCONFIG_DEVICE_INFO_HEADER| {
+            if header.r#type == DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME {
+                // SAFETY: The header opens a DISPLAYCONFIG_TARGET_DEVICE_NAME.
+                let target = unsafe {
+                    &mut *(header as *mut DISPLAYCONFIG_DEVICE_INFO_HEADER
+                        as *mut DISPLAYCONFIG_TARGET_DEVICE_NAME)
+                };
+                for (slot, unit) in target
+                    .monitorDevicePath
+                    .iter_mut()
+                    .zip(monitor.monitor_device_path.encode_utf16())
+                {
+                    *slot = unit;
+                }
+            }
+            0
+        };
+        // Listed at the GPU's pair while on, so a lookup there finds nothing
+        // when the display is off; the driver's pair finds it.
+        assert!(
+            !topology
+                .shows(&[(monitor.adapter, monitor.target)], &monitor, named)
+                .unwrap()
+        );
+        assert!(
+            topology
+                .shows(&[(gpu, 20), (vdd, 2)], &monitor, named)
+                .unwrap()
+        );
     }
 }

@@ -188,9 +188,13 @@ pub struct Settings {
     /// instead of when the frame is complete. Off by default until measured on the wired
     /// client (docs/early-decode.md). `NIGHTJAR_EARLY_DECODE=1` or `0` overrides it.
     pub early_decode: bool,
-    /// PyroWave on a wired link: ask the host to send the picture's records in row order and
-    /// decode it in slices as its bands complete (docs/beam-racing.md). Implies early decode. Off
-    /// by default; `NIGHTJAR_BEAM_RACE=1` or `0` overrides it.
+    /// EXPERIMENTAL. PyroWave on a wired link: ask the host to send the picture's records in row
+    /// order and present the picture in slices ahead of the display's beam (docs/beam-racing.md).
+    /// Implies early decode. Off by default, and off costs nothing: no row order is requested, no
+    /// scan line probe runs, frames decode whole. It missed its default-on gate on loopback (it
+    /// helps the median picture age at a low pace, not the p95, and `receive_to_present` is worse
+    /// at a high pace; docs/pyrowave-decode.md). When it cannot run it says why in the log and the
+    /// stats overlay. `NIGHTJAR_BEAM_RACE=1` or `0` overrides it.
     pub beam_race: bool,
     /// How far ahead of the display's beam a slice must be presented when the beam race is on, in
     /// ms; 0 works it out from how the presents vary (docs/beam-racing.md). `NIGHTJAR_BEAM_RACE_MARGIN_MS`

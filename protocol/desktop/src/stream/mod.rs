@@ -506,6 +506,22 @@ impl BeamRace {
     }
 }
 
+/// Everything the beam race setting asks of a stream, in one place: the row order from the host,
+/// early decode (the slices are decoded from chunks) and the slice count. All of it is off
+/// unless the decision is `On`, so a stream without the setting asks the host for nothing, starts
+/// no scan line probe and decodes whole frames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RaceRequest {
+    row_order: bool,
+    early_decode: bool,
+    slices: u32,
+}
+
+fn race_request(beam: BeamRace, early_setting: bool, height: u32) -> RaceRequest {
+    let on = beam == BeamRace::On;
+    RaceRequest { row_order: on, early_decode: early_setting || on, slices: if on { beam_slices(height) } else { 0 } }
+}
+
 const BEAM_RACE_NO_GPU: &str = "nightjar: beam race is on but PyroWave is decoded on the CPU, so the host is not asked \
     for the row order and frames are decoded whole";
 
@@ -654,8 +670,10 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     match beam {
         BeamRace::NotWired => eprintln!("{BEAM_RACE_NOT_WIRED}"),
         BeamRace::NoGpuDecoder => eprintln!("{BEAM_RACE_NO_GPU}"),
-        BeamRace::Off | BeamRace::On => {}
+        BeamRace::On => eprintln!("nightjar: beam race is on (experimental): asking the host for the row order"),
+        BeamRace::Off => {}
     }
+    let race_ask = race_request(beam, early_decode(settings.early_decode), height);
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let stream = StreamConfig {
@@ -684,7 +702,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         pyrowave_link_mbps: link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
         pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
-        pyrowave_row_order: beam == BeamRace::On,
+        pyrowave_row_order: race_ask.row_order,
         encryption_flags: ENCFLG_ALL,
         remote_input_aes_key: ri_key,
         remote_input_aes_iv: iv,
@@ -699,8 +717,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         server_codec_mode_support: if scm != 0 { scm } else { SCM_H264 },
     };
     // The slices are decoded from chunks, so the beam race needs early decode.
-    let early = early_decode(settings.early_decode) || beam == BeamRace::On;
-    let slices = if beam == BeamRace::On { beam_slices(height) } else { 0 };
+    let (early, slices) = (race_ask.early_decode, race_ask.slices);
     let session = Session::start(
         &host,
         SessionConfig {
@@ -2576,6 +2593,22 @@ mod tests {
         assert!(BeamRace::NoGpuDecoder.reason().unwrap().contains("CPU"));
         assert!(BeamRace::NotWired.reason().unwrap().contains("wired"));
         assert_eq!((BeamRace::On.reason(), BeamRace::Off.reason()), (None, None));
+    }
+
+    #[test]
+    fn the_beam_race_off_asks_for_nothing() {
+        // Whatever turned it off (the setting, `NIGHTJAR_BEAM_RACE=0`, a link or decoder that cannot race):
+        // no row order from the host, no slices (so no probe, no slice handoff), early decode as the user set it.
+        for beam in [BeamRace::Off, BeamRace::NotWired, BeamRace::NoGpuDecoder] {
+            for early in [false, true] {
+                assert_eq!(race_request(beam, early, 1080), RaceRequest { row_order: false, early_decode: early, slices: 0 }, "{beam:?}");
+            }
+        }
+        let on = race_request(BeamRace::On, false, 1080);
+        assert!(on.row_order && on.early_decode && on.slices > 0, "on asks for all of it: {on:?}");
+        // The default settings never turn it on, on any link.
+        assert!(!crate::config::Settings::default().beam_race);
+        assert_eq!(beam_race_for(None, false, 1000, true), BeamRace::Off);
     }
 
     #[test]

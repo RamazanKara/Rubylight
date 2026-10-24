@@ -221,12 +221,11 @@
     <string name="title_quick_resume">Quick resume</string>
     <string name="summary_quick_resume">Tapping a PC that is running a game goes straight back into the game instead of opening its library.</string>
 
-    <string name="title_checkbox_enable_sops">Optimize game settings</string>
-    <string name="summary_checkbox_enable_sops">Lets the host adjust a game’s settings for the stream. The host decides what changes.</string>
+    <string name="title_checkbox_enable_sops">Game optimization hint</string>
+    <string name="summary_checkbox_enable_sops">Tells the PC whether it may optimize a game’s settings for this stream. Rubylight only passes the choice on to commands you run on the PC, as SUNSHINE_CLIENT_ENABLE_SOPS. Other hosts may change the game’s settings themselves.</string>
     <string name="title_checkbox_host_audio">Play audio on the host PC</string>
 
-    <string name="title_unlock_fps">Unlock all frame rates</string>
-    <string name="summary_unlock_fps">Allow 90 and 120 FPS, with possible stutter.</string>
+    <string name="title_unlock_fps">Show all frame rates</string>
     <string name="title_checkbox_reduce_refresh_rate">Allow lower refresh rate</string>
     <string name="summary_checkbox_reduce_refresh_rate">Save power at the cost of some delay.</string>
     <string name="title_checkbox_disable_warnings">Hide connection warnings</string>
@@ -253,8 +252,6 @@
     <string name="summary_enable_hdr">Needs an HDR screen on this device and HDR turned on for the PC’s display.</string>
     <string name="title_full_range">Force full-range video</string>
     <string name="summary_full_range">Use only when the PC and this screen both use full-range color. Otherwise dark and bright areas lose detail.</string>
-    <string name="title_enable_perf_overlay">Show performance overlay</string>
-    <string name="summary_enable_perf_overlay">Shows stream speed, delay and frame loss live. You can also show it from the stream menu.</string>
     <string name="title_enable_post_stream_toast">Show decode time after streaming</string>
     <string name="summary_enable_post_stream_toast">Shows the average decode time when a stream ends.</string>
     <string name="title_rust_engine">New streaming engine</string>
@@ -319,8 +316,8 @@
     <string name="summary_host_frame_times">Hold each frame a few milliseconds so it appears when the game drew it, instead of when the network delivered it. Evens out jitter, especially with adaptive refresh. Replaces frame pacing. Not used with PyroWave.</string>
     <string name="title_content_rate_frame_rate">Match the screen to the game\'s frame rate</string>
     <string name="summary_content_rate_frame_rate">Tells Android the frame rate the game really runs at, so a screen with a matching refresh mode can switch to it without a blank screen. Needs a PC that sends frame times and Allow lower refresh rate; changes at most once every 2 seconds. Not used with PyroWave or adaptive refresh.</string>
-    <string name="title_virtual_display_scale">Host render scale</string>
-    <string name="summary_virtual_display_scale">Changes the PC’s render resolution, not the transmitted video size. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
+    <string name="title_virtual_display_scale">PC render resolution</string>
+    <string name="summary_virtual_display_scale">Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">no data yet</string>
     <string name="title_export_latency_csv">Export latency CSV</string>
@@ -416,9 +413,9 @@
     <string name="pip_disconnect_description">Disconnect and keep the PC app running</string>
     <string name="title_upscaling">Client-side upscaling</string>
     <string name="upscaling_off">Off</string>
-    <string name="upscaling_bilinear">Bilinear</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
+    <string name="upscaling_bilinear">Smooth</string>
+    <string name="upscaling_fsr1">Sharp (FSR)</string>
+    <string name="upscaling_sgsr1">Sharp, Snapdragon (SGSR)</string>
     <string name="summary_upscaling">Reconstruct lower-resolution SDR video at your screen’s size. First lower Stream resolution. PyroWave uses SGSR for both FSR and SGSR selections. Uses more battery.</string>
     <string name="title_upscaling_sharpness">Upscaling sharpness</string>
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR sharpening: 0% off, 100% maximum; applies next stream, with SGSR reconstruction always active.</string>
@@ -460,10 +457,7 @@
     <string name="keyboard_shortcuts_replace_button">Replace</string>
     <string name="keyboard_shortcuts_exported">Shortcuts exported.</string>
     <string name="keyboard_shortcuts_file_error">Could not read or write the shortcut file. Check file access and use a valid shortcut export with at most 32 shortcuts.</string>
-    <string name="title_disable_hevc_low_latency">Disable HEVC low-latency flags</string>
-    <string name="summary_disable_hevc_low_latency">Try if HEVC video stutters or freezes. Disables optional Android and chipset low-latency flags and reference-frame invalidation for HEVC. Required compatibility flags are preserved on older Fire TV decoders. Other codecs and decoder performance hints keep their own settings. Applies to the next stream.</string>
-    <string name="title_always_dark">Always dark</string>
-    <string name="summary_always_dark">Use the dark grey theme in the app, menus and dialogs, even with a light system theme. OLED black makes it pure black.</string>
+    <string name="title_disable_hevc_low_latency">HEVC low-latency flags</string>
+    <string name="summary_disable_hevc_low_latency">Turn off if HEVC video stutters or freezes. Off skips the optional Android and chipset low-latency flags and reference-frame invalidation for HEVC. Required compatibility flags are preserved on older Fire TV decoders. Other codecs and decoder performance hints keep their own settings. Applies to the next stream.</string>
     <string name="title_oled_black">OLED black</string>
-    <string name="summary_oled_black">Use pure black backgrounds in the app, menus and dialogs, even with a light system theme.</string>
 </resources>

@@ -59,7 +59,12 @@ public class SettingsKeysTest {
             "gpu_driver", "host_display_location", "keyboard_shortcuts_editor", "controller_button_mapping",
             "controller_test", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             // The merged switch writes the three decoder switches and stores nothing itself.
-            StreamSettings.LOW_LATENCY_DECODING_KEY));
+            StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY));
+    // Stored settings that a picker or a dialog writes without a row of their own.
+    private static final Set<String> WRITTEN_BY_PICKERS = new HashSet<>(Arrays.asList(
+            "checkbox_unlock_fps", // the frame rate picker's button
+            "performance_overlay_mode", // the performance overlay picker
+            com.limelight.ui.AppTheme.OLED_BLACK)); // the theme picker
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode", // Game and the overlay
@@ -126,7 +131,7 @@ public class SettingsKeysTest {
     public void everyKeyFromBeforeTheRestructureIsStillASetting() throws Exception {
         Map<String, String> keys = keysInXml();
         for (String key : KEYS_BEFORE) {
-            assertTrue("Missing or renamed: " + key, keys.containsKey(key));
+            assertTrue("Missing or renamed: " + key, keys.containsKey(key) || WRITTEN_BY_PICKERS.contains(key));
         }
         assertEquals(KEYS_BEFORE.length, new HashSet<>(Arrays.asList(KEYS_BEFORE)).size());
     }
@@ -278,6 +283,7 @@ public class SettingsKeysTest {
         assertTrue("Stored settings PreferenceConfiguration no longer reads: " + unread, unread.isEmpty());
         Set<String> checked = new HashSet<>(reads().keySet());
         checked.add(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING);
+        checked.removeAll(WRITTEN_BY_PICKERS);
         assertEquals("Each stored setting needs a value check below", stored, checked);
     }
 

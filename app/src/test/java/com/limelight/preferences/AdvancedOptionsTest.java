@@ -48,13 +48,21 @@ import static org.junit.Assert.*;
 public class AdvancedOptionsTest {
     private static final String LEGACY_UNLOCK = "developer_options";
     private static final String GPU_BOOST = PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING;
+    private static final String HEVC = PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING;
+    /** The controls Advanced shows without any further tap. The individual decoding switches sit behind Customize. */
     private static final String[] ADVANCED_CONTROLS = {
-            "checkbox_disable_hevc_low_latency",
-            "checkbox_codec_low_latency", "checkbox_vendor_low_latency", "checkbox_phone_performance_hints",
-            "checkbox_codec_performance", "checkbox_drop_late_frames", "checkbox_unbatched_input",
-            "checkbox_network_priority", "checkbox_texture_view", "checkbox_unlock_fps",
-            "export_latency_csv", "latency_benchmark", "checkbox_enable_post_stream_toast", "checkbox_rust_engine"
+            "low_latency_customize", "checkbox_unbatched_input",
+            "checkbox_network_priority", "checkbox_texture_view", "checkbox_gl_render", "checkbox_full_range",
+            "checkbox_enable_sops", "export_latency_csv", "latency_benchmark", "checkbox_enable_post_stream_toast",
+            "checkbox_rust_engine"
     };
+
+    /** Opens Customize under Low-latency decoding, once. */
+    private static void openCustomize(PreferenceScreen advanced) {
+        if (advanced.findPreference(StreamSettings.LOW_LATENCY_CUSTOMIZED.get(0)) != null) return;
+        Preference customize = advanced.findPreference("low_latency_customize");
+        customize.getOnPreferenceClickListener().onPreferenceClick(customize);
+    }
 
     @Implements(value = PyroWaveDecoderRenderer.class, isInAndroidSdk = false)
     public static class NonAdrenoGpu {
@@ -76,18 +84,20 @@ public class AdvancedOptionsTest {
     }
 
     @Test
-    public void hevcLowLatencyOptInIsOffByDefaultAndIndependentOfTheGeneralSwitch() {
+    public void hevcLowLatencyOptOutIsOffByDefaultAndIndependentOfTheGeneralSwitch() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
-            SwitchPreference hevc = (SwitchPreference) open(controller.get(), "advanced")
-                    .findPreference(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING);
-            assertFalse(hevc.isChecked());
-            hevc.setChecked(true);
+            PreferenceScreen advanced = open(controller.get(), "advanced").getPreferenceScreen();
+            openCustomize(advanced);
+            // The switch reads "use the flags" and stores the older "disable" choice.
+            SwitchPreference hevc = (SwitchPreference) advanced.findPreference(HEVC);
+            assertTrue(hevc.isChecked());
+            hevc.setChecked(false);
             assertTrue(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
             for (boolean general : new boolean[] {false, true}) {
                 PreferenceConfiguration.setLowLatencyDecoding(prefs(), general);
                 assertTrue(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
             }
-            hevc.setChecked(false);
+            hevc.setChecked(true);
             assertFalse(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
         }
     }
@@ -197,26 +207,16 @@ public class AdvancedOptionsTest {
         }
     }
 
-    private static List<String> overlayModes(ListPreference mode) {
-        List<String> values = new ArrayList<>();
-        for (CharSequence value : mode.getEntryValues()) values.add(value.toString());
-        return values;
-    }
-
     @Test
-    public void debugIsAlwaysAnOverlayChoiceBesideTheOverlaySwitch() {
+    public void debugIsAlwaysAnOverlayChoiceOfTheOverlayPicker() {
+        assertEquals(Arrays.asList("compact", "statistics", "debug"), Arrays.asList(OverlayChoice.MODES));
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
-            PreferenceGroup streaming = (PreferenceGroup) open(screen, "streaming").getPreferenceScreen().getPreference(0);
-            List<String> keys = SettingsStructureTest.keys(streaming);
-            assertEquals(keys.indexOf("checkbox_enable_perf_overlay") + 1, keys.indexOf("performance_overlay_mode"));
-            ListPreference mode = (ListPreference) streaming.findPreference("performance_overlay_mode");
-            assertEquals(Arrays.asList("compact", "statistics", "debug"), overlayModes(mode));
-            assertEquals(screen.getString(R.string.overlay_compact), mode.getEntry().toString());
-            mode.setValue("debug");
-            mode = (ListPreference) open(screen, "streaming").findPreference("performance_overlay_mode");
-            assertEquals(screen.getString(R.string.overlay_debug), mode.getEntry().toString());
-            assertEquals("debug", prefs().getString("performance_overlay_mode", null));
+            Preference overlay = open(screen, "streaming").getPreferenceScreen().findPreference("checkbox_enable_perf_overlay");
+            assertEquals(screen.getString(R.string.overlay_off), overlay.getSummary().toString());
+            prefs().edit().putBoolean("checkbox_enable_perf_overlay", true).putString("performance_overlay_mode", "debug").commit();
+            overlay = open(screen, "streaming").getPreferenceScreen().findPreference("checkbox_enable_perf_overlay");
+            assertEquals(screen.getString(R.string.overlay_debug), overlay.getSummary().toString());
         }
     }
 
@@ -227,12 +227,14 @@ public class AdvancedOptionsTest {
         for (String key : ADVANCED_CONTROLS) {
             if (key.startsWith("checkbox_")) choices.put(key, false);
         }
+        for (String key : StreamSettings.LOW_LATENCY_CUSTOMIZED) choices.put(key, false);
+        choices.put(HEVC, true);
         choices.put("checkbox_texture_view", true);
-        choices.put("checkbox_unlock_fps", true);
         choices.put("checkbox_enable_post_stream_toast", true);
         choices.put(GPU_BOOST, true);
         for (boolean legacy : new boolean[] {false, true}) {
             SharedPreferences.Editor editor = prefs().edit().putBoolean(LEGACY_UNLOCK, legacy)
+                    .putBoolean("checkbox_unlock_fps", true)
                     // Do not rerun the older migration that enables the latency switches.
                     .putInt(PreferenceConfiguration.PREFS_VERSION_PREF_STRING, PreferenceConfiguration.PROFILE_NATIVE_VERSION)
                     .putString("performance_overlay_mode", "debug")
@@ -244,14 +246,17 @@ public class AdvancedOptionsTest {
                 StreamSettings screen = controller.get();
                 for (String section : new String[] {"advanced", "developer"}) {
                     PreferenceScreen advanced = open(screen, section).getPreferenceScreen();
+                    openCustomize(advanced);
                     for (Map.Entry<String, Boolean> entry : choices.entrySet()) {
-                        assertEquals(entry.getKey(), entry.getValue(),
+                        boolean shown = HEVC.equals(entry.getKey()) ? !entry.getValue() : entry.getValue();
+                        assertEquals(entry.getKey(), shown,
                                 ((SwitchPreference) advanced.findPreference(entry.getKey())).isChecked());
                         assertEquals(entry.getKey(), entry.getValue(), prefs().getBoolean(entry.getKey(), !entry.getValue()));
                     }
                 }
                 PreferenceConfiguration config = PreferenceConfiguration.readPreferences(screen);
                 assertTrue(config.useTextureView);
+                assertTrue(config.unlockFps);
                 assertFalse(config.networkPriority);
                 assertTrue(config.gpuMaxClocks);
                 assertFalse(config.rustEngine);
@@ -324,9 +329,9 @@ public class AdvancedOptionsTest {
             StreamSettings screen = controller.get();
             assertNull(root(screen).findPreference("developer"));
             assertAdvancedControls(screen);
-            ListPreference mode = (ListPreference) open(screen, "streaming").findPreference("performance_overlay_mode");
-            assertEquals(Arrays.asList("compact", "statistics", "debug"), overlayModes(mode));
-            assertEquals("compact", mode.getValue());
+            Preference overlay = open(screen, "streaming").getPreferenceScreen().findPreference("checkbox_enable_perf_overlay");
+            assertEquals(screen.getString(R.string.overlay_off), overlay.getSummary().toString());
+            assertEquals(0, OverlayChoice.read(prefs()));
         }
     }
 }

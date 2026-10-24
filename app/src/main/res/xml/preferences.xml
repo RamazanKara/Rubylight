@@ -25,7 +25,8 @@
             android:entries="@array/resolution_names"
             android:entryValues="@array/resolution_values"
             android:defaultValue="1280x720" />
-        <com.limelight.preferences.MaterialListPreference
+        <!-- The picker also switches between the supported rates and every rate (checkbox_unlock_fps). -->
+        <com.limelight.preferences.FpsPreference
             android:key="list_fps"
             android:title="@string/title_fps_list"
             android:dialogMessage="@string/summary_fps_list"
@@ -50,6 +51,29 @@
             android:title="@string/title_auto_bitrate"
             android:dialogMessage="@string/dialog_auto_bitrate"
             android:defaultValue="false" />
+        <!-- The same feature as the stream menu's Automatic quality; the two minimums show only while it is on
+             (StreamSettings, SettingRules). -->
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_mode"
+            android:title="@string/title_adaptive_quality_setting"
+            android:dialogMessage="@string/summary_adaptive_quality_setting"
+            android:entries="@array/adaptive_quality_names"
+            android:entryValues="@array/adaptive_quality_values"
+            android:defaultValue="off" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_min_resolution"
+            android:title="@string/title_adaptive_quality_min_resolution"
+            android:dialogMessage="@string/summary_adaptive_quality_min_resolution"
+            android:entries="@array/adaptive_quality_resolution_names"
+            android:entryValues="@array/adaptive_quality_resolution_values"
+            android:defaultValue="720" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_min_fps"
+            android:title="@string/title_adaptive_quality_min_fps"
+            android:dialogMessage="@string/summary_adaptive_quality_min_fps"
+            android:entries="@array/adaptive_quality_fps_names"
+            android:entryValues="@array/adaptive_quality_fps_values"
+            android:defaultValue="30" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_mobile_bitrate_kbps"
             android:title="@string/title_mobile_bitrate"
@@ -69,33 +93,11 @@
             android:title="@string/title_enable_hdr"
             android:dialogMessage="@string/summary_enable_hdr"
             android:defaultValue="false" />
-        <com.limelight.preferences.MaterialListPreference
-            android:key="adaptive_quality_mode"
-            android:title="@string/title_adaptive_quality"
-            android:dialogMessage="@string/summary_adaptive_quality"
-            android:entries="@array/adaptive_quality_names"
-            android:entryValues="@array/adaptive_quality_values"
-            android:defaultValue="off" />
-        <!-- The two minimums are enabled only while Automatic stream quality is on (StreamSettings). -->
-        <com.limelight.preferences.MaterialListPreference
-            android:key="adaptive_quality_min_resolution"
-            android:title="@string/title_adaptive_quality_min_resolution"
-            android:dialogMessage="@string/summary_adaptive_quality_min_resolution"
-            android:entries="@array/adaptive_quality_resolution_names"
-            android:entryValues="@array/adaptive_quality_resolution_values"
-            android:defaultValue="720" />
-        <com.limelight.preferences.MaterialListPreference
-            android:key="adaptive_quality_min_fps"
-            android:title="@string/title_adaptive_quality_min_fps"
-            android:dialogMessage="@string/summary_adaptive_quality_min_fps"
-            android:entries="@array/adaptive_quality_fps_names"
-            android:entryValues="@array/adaptive_quality_fps_values"
-            android:defaultValue="30" />
     </PreferenceCategory>
 
     <!-- Display & image -->
     <PreferenceCategory android:key="category_display_refresh" android:title="@string/settings_category_refresh">
-        <!-- Adaptive refresh replaces frame pacing and the lower refresh rate while it is on. -->
+        <!-- Adaptive refresh and host frame times both replace frame pacing and the lower refresh rate (StreamSettings, SettingRules). -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_vrr"
             android:title="@string/title_vrr"
@@ -108,13 +110,7 @@
             android:title="@string/title_host_frame_times"
             android:dialogMessage="@string/summary_host_frame_times"
             android:defaultValue="false" />
-        <!-- Needs a host that sends frame times; a vote never changes the mode with a blank screen. -->
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_content_rate_frame_rate"
-            android:dependency="checkbox_vrr"
-            android:title="@string/title_content_rate_frame_rate"
-            android:dialogMessage="@string/summary_content_rate_frame_rate"
-            android:defaultValue="false" />
+        <!-- Greyed while host frame times replace it. -->
         <com.limelight.preferences.MaterialListPreference
             android:key="frame_pacing"
             android:dependency="checkbox_vrr"
@@ -123,11 +119,25 @@
             android:entries="@array/video_frame_pacing_names"
             android:entryValues="@array/video_frame_pacing_values"
             android:defaultValue="latency" />
+        <!-- Part of Balanced frame pacing: shown only with it (StreamSettings, SettingRules). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_drop_late_frames"
+            android:title="@string/title_drop_late_frames"
+            android:dialogMessage="@string/summary_drop_late_frames"
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_reduce_refresh_rate"
             android:dependency="checkbox_vrr"
             android:title="@string/title_checkbox_reduce_refresh_rate"
             android:dialogMessage="@string/summary_checkbox_reduce_refresh_rate"
+            android:defaultValue="false" />
+        <!-- Needs a host that sends frame times; a vote never changes the mode with a blank screen. Without
+             a lower refresh rate allowed the vote cannot drop below the stream's own, so it needs that switch. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_content_rate_frame_rate"
+            android:dependency="checkbox_reduce_refresh_rate"
+            android:title="@string/title_content_rate_frame_rate"
+            android:dialogMessage="@string/summary_content_rate_frame_rate"
             android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_upscaling" android:title="@string/settings_category_image">
@@ -147,11 +157,6 @@
             android:max="100"
             seekbar:step="1"
             android:text="%" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_gl_render"
-            android:title="@string/title_gl_render"
-            android:dialogMessage="@string/summary_gl_render"
-            android:defaultValue="false" />
         <Preference android:key="checkbox_stretch_video"
             android:title="@string/video_scaling_title" android:persistent="false" />
         <com.limelight.preferences.MaterialListPreference
@@ -172,11 +177,6 @@
             android:key="checkbox_yuv444"
             android:title="@string/title_yuv444"
             android:dialogMessage="@string/summary_yuv444"
-            android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_full_range"
-            android:title="@string/title_full_range"
-            android:dialogMessage="@string/summary_full_range"
             android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_host_display" android:title="@string/settings_category_pc_display">
@@ -502,18 +502,9 @@
 
     <!-- Streaming -->
     <PreferenceCategory android:key="category_streaming">
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_enable_perf_overlay"
-            android:title="@string/title_enable_perf_overlay"
-            android:dialogMessage="@string/summary_enable_perf_overlay"
-            android:defaultValue="false"/>
-        <com.limelight.preferences.MaterialListPreference
-            android:key="performance_overlay_mode"
-            android:title="@string/overlay_mode"
-            android:dialogMessage="@string/overlay_mode_help"
-            android:entries="@array/overlay_mode_names"
-            android:entryValues="@array/overlay_mode_values"
-            android:defaultValue="compact" />
+        <!-- Off, Compact, Statistics or Debug: writes checkbox_enable_perf_overlay and performance_overlay_mode (OverlayChoice). -->
+        <Preference android:key="checkbox_enable_perf_overlay"
+            android:title="@string/title_performance_overlay" android:persistent="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_enable_pip"
             android:title="@string/title_checkbox_enable_pip"
@@ -545,16 +536,9 @@
 
     <!-- App -->
     <PreferenceCategory android:key="category_ui_settings">
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_always_dark"
-            android:title="@string/title_always_dark"
-            android:dialogMessage="@string/summary_always_dark"
-            android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_oled_black"
-            android:title="@string/title_oled_black"
-            android:dialogMessage="@string/summary_oled_black"
-            android:defaultValue="false" />
+        <!-- System, Dark or OLED black: writes checkbox_always_dark and checkbox_oled_black (ThemeChoice). -->
+        <Preference android:key="checkbox_always_dark"
+            android:title="@string/title_theme" android:persistent="false" />
         <com.limelight.preferences.LanguagePreference
             android:key="list_languages"
             android:title="@string/title_language_list"
@@ -622,22 +606,9 @@
             android:title="@string/title_low_latency_decoding"
             android:dialogMessage="@string/summary_low_latency_decoding"
             android:persistent="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_enable_sops"
-            android:title="@string/title_checkbox_enable_sops"
-            android:summary="@string/settings_needs_host_support"
-            android:dialogMessage="@string/summary_checkbox_enable_sops"
-            android:defaultValue="true" />
-        <!-- Shown on arm64 Adreno devices only, like the driver screen itself (GpuDriverStore.isSupported). -->
-        <Preference android:key="gpu_driver" android:title="@string/gpu_driver_title" />
-    </PreferenceCategory>
-
-    <PreferenceCategory android:key="category_advanced_decoder" android:title="@string/settings_category_decoder">
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_disable_hevc_low_latency"
-            android:title="@string/title_disable_hevc_low_latency"
-            android:dialogMessage="@string/summary_disable_hevc_low_latency"
-            android:defaultValue="false" />
+        <!-- Shows and hides the switches below (StreamSettings). -->
+        <Preference android:key="low_latency_customize"
+            android:title="@string/title_low_latency_customize" android:persistent="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_codec_low_latency"
             android:title="@string/title_codec_low_latency"
@@ -658,6 +629,17 @@
             android:title="@string/title_codec_performance"
             android:dialogMessage="@string/summary_codec_performance"
             android:defaultValue="true" />
+        <!-- Shown as "use" and stored as "disable" (InvertedSwitchPreference). -->
+        <com.limelight.preferences.InvertedSwitchPreference
+            android:key="checkbox_disable_hevc_low_latency"
+            android:title="@string/title_disable_hevc_low_latency"
+            android:dialogMessage="@string/summary_disable_hevc_low_latency"
+            android:defaultValue="true" />
+        <!-- Shown on arm64 Adreno devices only, like the driver screen itself (GpuDriverStore.isSupported). -->
+        <Preference android:key="gpu_driver" android:title="@string/gpu_driver_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:key="category_advanced_decoder" android:title="@string/settings_category_decoder">
         <!-- Opt-in: holding the GPU at full speed costs battery. Shown on Adreno devices only. -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_gpu_max_clocks"
@@ -665,20 +647,28 @@
             android:summary="@string/summary_gpu_max_clocks"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_drop_late_frames"
-            android:title="@string/title_drop_late_frames"
-            android:dialogMessage="@string/summary_drop_late_frames"
-            android:defaultValue="true" />
-        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_texture_view"
             android:title="@string/title_texture_view"
             android:dialogMessage="@string/summary_texture_view"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_unlock_fps"
-            android:title="@string/title_unlock_fps"
-            android:dialogMessage="@string/summary_unlock_fps"
+            android:key="checkbox_gl_render"
+            android:title="@string/title_gl_render"
+            android:dialogMessage="@string/summary_gl_render"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_full_range"
+            android:title="@string/title_full_range"
+            android:dialogMessage="@string/summary_full_range"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_advanced_compatibility" android:title="@string/settings_category_compatibility">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_sops"
+            android:title="@string/title_checkbox_enable_sops"
+            android:summary="@string/summary_sops_short"
+            android:dialogMessage="@string/summary_checkbox_enable_sops"
+            android:defaultValue="true" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_advanced_input" android:title="@string/settings_category_input_network">
         <com.limelight.preferences.MaterialSwitchPreference

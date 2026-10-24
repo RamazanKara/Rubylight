@@ -167,18 +167,21 @@ pub enum Restart {
     Missed,
 }
 
-/// How long after a present a new scan has to begin (ns). Measured on a 240 Hz VRR display with
-/// direct scanout: the scan begins about 1 ms after the present call (median 0.95 ms, 89% under
-/// 1.5 ms, 92% under 2 ms, the rest up to 6 ms), because the flip waits for the GPU work.
-pub const RESTART_WINDOW_NS: u64 = 3_000_000;
+/// How long after a present a new scan has to begin (ns). The flip waits for the GPU work queued
+/// ahead of it, so the scan begins anywhere from 0.2 ms to the time that work takes. Measured on a
+/// 240 Hz VRR display with direct scanout, a PyroWave GPU decode of 2560x1440 at 60 fps and the
+/// host encoding on the same GPU: 60 presents spread evenly over 0.2-8.8 ms (median 5 ms); on an
+/// idler GPU the median was 0.95 ms and 92% were under 2 ms. 10 ms is the longest seen plus 1 ms.
+pub const RESTART_WINDOW_NS: u64 = 10_000_000;
 
 /// The check for one present: `before` was read just before the present call, `after` are the
-/// readings in the window that followed it. A present while the display idles in its blanking
-/// starts a new scan at once when the present is scanned out directly on a variable refresh
-/// display, so the first reading that is not in the blanking must be within the first 5% of the
-/// picture's rows.
+/// readings in the window that followed it. A present while the display idles after a scan
+/// (the counter past the last row, `total_rows`, which only a variable refresh display does: a
+/// fixed one wraps to line 0) starts a new scan when the present is scanned out directly, so the
+/// first reading that is not in the blanking must be within the first 5% of the picture's rows.
+/// A present in the blanking of a scan already under way proves nothing and is not tested.
 pub fn restart(before: &Sample, after: &[Sample], beam: &Beam) -> Restart {
-    if !before.vblank {
+    if !before.vblank || before.line < beam.total_rows {
         return Restart::NotTested;
     }
     match after.iter().find(|s| !s.vblank) {
@@ -564,7 +567,7 @@ mod tests {
 
     #[test]
     fn a_present_in_the_blanking_that_restarts_the_scan_passes() {
-        let before = at(0, 0, true);
+        let before = at(0, 2400, true);
         // The first reading out of the blanking is on row 3 (line 203).
         let after = [at(10_000, 0, true), at(20_000, 130, true), at(30_000, 203, false), at(40_000, 215, false)];
         assert_eq!(restart(&before, &after, &measured()), Restart::Began);
@@ -572,7 +575,7 @@ mod tests {
 
     #[test]
     fn a_present_whose_scan_starts_late_or_far_down_misses() {
-        let before = at(0, 0, true);
+        let before = at(0, 2400, true);
         let beam = measured();
         // Nothing within the window.
         assert_eq!(restart(&before, &[at(100_000, 0, true), at(400_000, 0, true)], &beam), Restart::Missed);
@@ -582,7 +585,19 @@ mod tests {
     }
 
     #[test]
-    fn a_present_in_the_middle_of_a_scan_says_nothing() {
+    fn the_window_covers_the_slowest_flip_measured_with_a_millisecond_to_spare() {
+        // 60 presents on the 240 Hz VRR display with the host encoding on the same GPU began their
+        // scans 0.2-8.8 ms after the present call (p99 8.79 ms).
+        assert!(RESTART_WINDOW_NS >= 8_790_000 + 1_000_000);
+        let beam = measured();
+        let late = [at(8_700_000, 2400, true), at(8_790_000, 203, false)];
+        assert_eq!(restart(&at(0, 2400, true), &late, &beam), Restart::Began);
+    }
+
+    #[test]
+    fn a_present_in_the_middle_of_a_scan_or_in_its_blanking_says_nothing() {
+        // The blanking of a scan under way (a fixed refresh has nothing else) is not the display idling.
+        assert_eq!(restart(&at(0, 50, true), &[at(1_000, 203, false)], &measured()), Restart::NotTested);
         assert_eq!(restart(&at(0, 900, false), &[at(1_000, 910, false)], &measured()), Restart::NotTested);
     }
 

@@ -97,37 +97,41 @@ The verdict, in the order of the reasons:
 | no VRR scan restart | the scan-restart check failed on a fullscreen window: a present issued while the display idled did not start a scan, so VRR is not active for this window |
 | no VRR | the restart check failed on a display that scans all the time (under 30% of the readings in the blanking at a stream rate under 70% of the display's), or the display never idled for 300 presents |
 
-The scan-restart check: a present issued while the display idles in its blanking has to start a
-scan, the first reading out of the blanking within 5% of the picture rows. It looks for 3 ms after
-the present. Measured with independent flip on the VRR display, the scan begins about 1 ms after
-the present call (median 0.95 ms, 89% under 1.5 ms, 92% under 2 ms, the rest up to 6 ms: the flip
-waits for the GPU), so the first design's 0.5 ms window and 3 misses in 30 failed a good setup. It
-now fails at 9 misses in 30 tested presents.
+The scan-restart check: a present issued while the display idles after a scan (the counter past
+the last row with `InVerticalBlank` set, which only a variable refresh display does; a fixed
+refresh wraps to line 0, and a present in the blanking of a scan under way proves nothing) has to
+start a new scan, the first reading out of the blanking within 5% of the picture rows. It looks for
+10 ms after the present call returned and fails at 9 misses in 30 tested presents.
+
+The window comes from measurement. The flip waits for the GPU work queued ahead of it, so the scan
+begins anywhere between 0.2 ms and the time that work takes, not at a fixed delay. With the host
+encoding on the same GPU, 60 presents (two earlier traces) spread evenly over 0.2-8.8 ms after the
+present call, median 5 ms; a lighter run had median 0.95 ms and 92% under 2 ms. The first design's
+0.5 ms window and the second's 3 ms failed these setups (1.7-2.3 ms medians, 9 of 10-13 tested
+presents missed in the four runs on a quiet GPU); 10 ms is the longest seen plus 1 ms. The check
+cannot tell a fixed 240 Hz display from VRR by delay, which is why only presents in the idle zone
+are tested: a fixed refresh gives none and ends as "no VRR" after 300 presents (unit tested, not
+run on hardware: this PC's display is VRR). A forced refresh of the panel inside the window (the
+panel's own minimum rate) would pass a present that did not restart the scan; it was not seen at
+60 fps.
 
 Measured (30 s loopback streams, 2560x1440@60 PyroWave, GPU decode, borderless fullscreen, `Immediate`):
 
 | Setup | Overlay | PresentMon `PresentMode` |
 |---|---|---|
-| window excluded from the host's capture (the harness default), first run | on, 4.18 ms, 1440 rows | Hardware: Independent Flip 98% |
-| the same setting, three later runs | off (no VRR scan restart): 9 of 10-12 tested presents did not start a scan in 3 ms | Hardware: Independent Flip |
-| window visible to the host's capture (`-CaptureVisible`) | off (no VRR scan restart): 9 of 16 tested presents did not start a scan in 3 ms | Hardware: Independent Flip 97% |
+| window excluded from the host's capture (the harness default), 4 runs, window 10 ms | on in 4 of 4: 4.14-4.19 ms, 1440 rows; restart delay median 0.9-4.6 ms, longest 1.5-11.2 ms | Hardware: Independent Flip 97-98% |
+| the same, 3 ms window, 4 runs on a quiet GPU | off (no VRR scan restart) in 4 of 4: 9 of 13-14 tested presents began later than 3 ms | Hardware: Independent Flip 97-98% |
+| window visible to the host's capture (`-CaptureVisible`), 3 ms window | off (no VRR scan restart): 9 of 16 | Hardware: Independent Flip 97% |
 | windowed (`window_mode` Windowed) | off (not fullscreen) | Hardware: Independent Flip 97% (multi-plane overlay); the scan was 13% blanking, a fixed refresh |
 | V-Sync | off (no tearing) | Hardware Composed: Independent Flip |
 
-`NIGHTJAR_EXCLUDE_FROM_CAPTURE=1` does not force composition here. The probe and PresentMon
-disagree when the host captures the window: the OS calls it independent flip, but the scan does
-not follow the presents within 3 ms (probably the GPU work queued ahead of the flip, with the host
-capturing and encoding on the same GPU). Treat "composed" as "the display's scan does not start
-with our presents" and read PresentMon for what the OS did.
-
-The verdict is not stable on this PC: the same excluded borderless setting gave "on" in two runs and
-"composed" in four later ones, with the scan itself measured the same each time (4.16-4.19 ms). In
-the failing runs only 1 to 6 of the tested presents began a scan inside the window (median 1.7-2.2
-ms, longest 3.1 ms), so the flips were late rather than absent. Other agents were using the GPU
-during these runs, which is the likely cause, but a quiet-GPU rerun was not done. The summary line
-`beam race: restart check over N presents ...` in the client log gives the counts and delays.
-Brief 3 should treat "composed" as a reason to stay off, never as a reason to race, and the window
-may need to grow if a quiet GPU still misses.
+The reason says what was measured. The probe has no signal for composition: "no VRR scan restart"
+means a present did not restart the scan, which is also what a composed present would do, but
+PresentMon reported independent flip for every one of these runs, so read it for what the OS did.
+`NIGHTJAR_EXCLUDE_FROM_CAPTURE=1` does not force composition on this PC (the window visible to
+capture still shows Independent Flip). The summary line `beam race: restart check over N presents
+...` in the client log gives the counts and delays (measured from just before the present call,
+so a slow call counts against the window's 10 ms in the longest figure but not in the check).
 
 `scripts/pyrowave-loopback.ps1 -PresentMon <PresentMon 2.x console exe>` (or
 `NIGHTJAR_PRESENTMON`) captures the client's presents into `<leg>.presentmon.csv`, and

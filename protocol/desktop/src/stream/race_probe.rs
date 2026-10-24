@@ -193,7 +193,7 @@ mod win {
                 }
             }
             if let (Some(Ok(beam)), Some(before), Some(scan)) = (&self.beam, before, &self.scan) {
-                if self.check.running() && before.vblank {
+                if self.check.running() && before.vblank && before.line >= beam.total_rows {
                     // Poll for the new scan for as long as the check allows: it begins at once or not at all.
                     let end = scan.clock().elapsed().as_nanos() as u64 + RESTART_WINDOW_NS;
                     let mut after = Vec::with_capacity(32);

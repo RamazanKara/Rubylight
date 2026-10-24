@@ -921,7 +921,7 @@ impl Prepared {
             config,
             &launch.client,
             app.as_ref(),
-            butterpollo_windows::display::windows_11(),
+            butterpollo_windows::display::virtual_display_os(),
         );
         let client_virtual = launch
             .options
@@ -975,6 +975,14 @@ impl Prepared {
         }
         if physical_only && display_request.requested() {
             launch.warnings.set("display_virtual", "Windows was locked and the virtual display could not be set up there, so this stream shows the physical display. Start the stream again after signing in to use the virtual display.");
+        } else if display_request.requested()
+            && !virtual_mode
+            && let Some(reason) = butterpollo_core::os_gate::missing(
+                butterpollo_windows::display::windows_build(),
+                butterpollo_core::os_gate::Feature::VirtualDisplay,
+            )
+        {
+            launch.warnings.set("display_virtual", format!("Using the physical display because this Windows cannot load the virtual display driver. {reason} Update to Windows 11 23H2 or later to use a virtual display."));
         } else if display_request.requested() && !virtual_mode {
             launch.warnings.set("display_virtual", "Using a physical display because the virtual display driver is unavailable. The desktop is visible locally and its refresh can limit fresh frames; repair the virtual display driver or explicitly select the physical display.");
         } else {

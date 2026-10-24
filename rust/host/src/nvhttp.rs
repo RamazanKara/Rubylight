@@ -336,7 +336,7 @@ async fn serverinfo(
             .unwrap_or_else(|_| ("00:00:00:00:00:00".into(), 0, false))
         }
     };
-    let windows_11 = butterpollo_windows::display::windows_11();
+    let windows_11 = butterpollo_windows::display::virtual_display_os();
     serverinfo_response(
         &h,
         &connection,

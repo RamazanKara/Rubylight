@@ -745,6 +745,11 @@ impl Duplication {
         if let Some(mismatch) = GpuMismatch::of(&gpu) {
             bail!("{}", mismatch.refusal());
         }
+        let build = crate::display::windows_build();
+        use butterpollo_core::os_gate::{Feature, missing};
+        if hdr && let Some(reason) = missing(build, Feature::OutputDesc1) {
+            tracing::warn!("{reason} An HDR stream will be captured as SDR.");
+        }
         let native_hdr = hdr
             && gpu
                 .color_description()?
@@ -762,10 +767,20 @@ impl Duplication {
         let (duplicate, api) = unsafe {
             // DuplicateOutput1 needs a per-monitor DPI-aware process; fall back
             // to the legacy call rather than fail where it is refused.
-            match output
-                .cast::<IDXGIOutput5>()
-                .and_then(|output| output.DuplicateOutput1(&gpu.device, 0, formats))
-            {
+            let unsupported = missing(build, Feature::DuplicateOutput1);
+            match unsupported
+                .as_ref()
+                .map(|reason| {
+                    Err(windows::core::Error::new(
+                        windows::Win32::Foundation::E_NOTIMPL,
+                        reason.as_str(),
+                    ))
+                })
+                .unwrap_or_else(|| {
+                    output
+                        .cast::<IDXGIOutput5>()
+                        .and_then(|output| output.DuplicateOutput1(&gpu.device, 0, formats))
+                }) {
                 Ok(duplicate) => (duplicate, "DuplicateOutput1"),
                 Err(error) => {
                     tracing::warn!(%error, "DuplicateOutput1 unavailable; trying legacy Desktop Duplication, which may lose HDR or fail after display changes. Update Windows and the graphics driver or select WGC");
@@ -1425,6 +1440,15 @@ impl Wgc {
             let native_hdr = color_space
                 .map(|space| space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
                 .unwrap_or(hdr);
+            // Say which Windows build lacks WGC or display capture, and what to
+            // use instead, before the generic COM error would hide it.
+            use butterpollo_core::os_gate::{Feature, missing};
+            let build = crate::display::windows_build();
+            for feature in [Feature::Wgc, Feature::WgcMonitor] {
+                if let Some(reason) = missing(build, feature) {
+                    bail!("{reason} Select Desktop Duplication in the capture settings.");
+                }
+            }
             let interop: IGraphicsCaptureItemInterop =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
                     .context("Windows Graphics Capture is unavailable")?;
@@ -1458,8 +1482,22 @@ impl Wgc {
             let session = pool
                 .CreateCaptureSession(&item)
                 .context("Windows Graphics Capture session")?;
-            session.SetIsCursorCaptureEnabled(true)?;
-            let _ = session.SetIsBorderRequired(false);
+            // Each switch below needs a Windows build (see `os_gate`); older
+            // builds keep their fixed behaviour and the stream says so.
+            if let Some(reason) = missing(build, Feature::WgcCursorSwitch) {
+                tracing::info!("{reason}");
+            } else {
+                session
+                    .SetIsCursorCaptureEnabled(true)
+                    .context("Windows Graphics Capture cursor capture")?;
+            }
+            if let Some(reason) = missing(build, Feature::WgcBorderSwitch) {
+                tracing::info!("{reason}");
+            } else if let Err(error) = session.SetIsBorderRequired(false) {
+                // Windows asks the user for borderless access or refuses it
+                // for some sessions; the capture itself still works.
+                tracing::warn!(%error, "WGC border could not be removed; Windows draws a yellow border around the captured display");
+            }
             // Leaving this property untouched is not equivalent to zero:
             // Windows build 26200 reports a 16 ms default, which can deliver
             // only 50-57 updates/sec when quantized to compositor ticks.
@@ -1468,13 +1506,17 @@ impl Wgc {
             let interval = windows::Foundation::TimeSpan {
                 Duration: if high_rate { 10_000 } else { 0 },
             };
-            match session.SetMinUpdateInterval(interval) {
-                Ok(()) => tracing::info!(
-                    interval_us = interval.Duration / 10,
-                    "WGC minimum update interval configured"
-                ),
-                Err(error) => {
-                    tracing::warn!(%error, "WGC minimum update interval unavailable; using the Windows default, which may limit capture fps. Update Windows or disable high-rate capture")
+            if let Some(reason) = missing(build, Feature::WgcUpdateInterval) {
+                tracing::info!("{reason}");
+            } else {
+                match session.SetMinUpdateInterval(interval) {
+                    Ok(()) => tracing::info!(
+                        interval_us = interval.Duration / 10,
+                        "WGC minimum update interval configured"
+                    ),
+                    Err(error) => {
+                        tracing::warn!(%error, "WGC minimum update interval unavailable; using the Windows default, which may limit capture fps. Update Windows or disable high-rate capture")
+                    }
                 }
             }
             let capture = Self {

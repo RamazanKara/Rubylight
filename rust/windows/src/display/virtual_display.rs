@@ -12,12 +12,11 @@ use butterpollo_core::virtual_output::{DisplayProvider, Mode};
 
 /// How long a create retries while a previous host's display with the same identity departs.
 const CREATE_RETRY: Duration = Duration::from_secs(10);
-/// Windows 11 (build 22000) or later. Vibepollo keeps hosts on Windows 10 on
-/// the physical display unless configured otherwise: virtual-display capture
-/// depends on Windows 11 capture features.
-pub fn windows_11() -> bool {
+/// The Windows build number from the registry, or None when it cannot be read
+/// (callers then treat the build as capable; see `butterpollo_core::os_gate`).
+pub fn windows_build() -> Option<u32> {
     static BUILD: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
-    BUILD
+    *BUILD
         // SAFETY: The registry names are terminated and the output size matches the live UTF-16 buffer.
         .get_or_init(|| unsafe {
             use windows::Win32::System::Registry::*;
@@ -36,7 +35,19 @@ pub fn windows_11() -> bool {
             .ok()?;
             wide(&text).trim().parse().ok()
         })
-        .is_none_or(|build| build >= 22000)
+}
+/// Whether this Windows ships the IddCx the virtual display driver requires
+/// (1.10, Windows 11 23H2 and later). Below that the host defaults to the
+/// physical display, as Vibepollo does on Windows 10, because the driver
+/// cannot bind. The first call logs why, once.
+pub fn virtual_display_os() -> bool {
+    use butterpollo_core::os_gate::{Feature, missing, virtual_display};
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    let build = windows_build();
+    if let Some(reason) = missing(build, Feature::VirtualDisplay) {
+        LOGGED.call_once(|| tracing::info!("{reason}"));
+    }
+    virtual_display(build)
 }
 pub fn virtual_display_available() -> bool {
     Control::open().is_ok()

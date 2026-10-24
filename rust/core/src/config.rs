@@ -435,8 +435,9 @@ impl Config {
         self.integer("hardware_metrics_interval", 1000)
             .clamp(500, 10000) as u64
     }
-    /// `virtual_display_mode`; unset, it is per client on Windows 11 and
-    /// disabled on Windows 10, as in Vibepollo.
+    /// `virtual_display_mode`; unset, it is per client where the OS ships the
+    /// IddCx the driver needs (`os_gate::virtual_display`, Windows 11 23H2 and
+    /// later) and disabled before that, as Vibepollo does on Windows 10.
     pub fn virtual_display_mode(&self, windows_11: bool) -> &str {
         self.get(
             "virtual_display_mode",

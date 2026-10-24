@@ -1164,10 +1164,10 @@ fn a_standing_overload_after_a_latch_cuts_within_a_second_and_a_half() {
         let mut n = 0u32;
         rig.run(4_000, |lr, frame, now| {
             n += 1;
-            if n % 70 == 0 {
+            if n.is_multiple_of(70) {
                 lr.on_keyframe_request(true, now);
             }
-            if n % 15 == 0 {
+            if n.is_multiple_of(15) {
                 unrecoverable(lr, frame, now);
             }
         });

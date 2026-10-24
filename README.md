@@ -10,7 +10,7 @@
 
 <div align="center">
 
-**[Download 3.0.0-rc.1](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.1)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
+**[Download 3.0.0-rc.1](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.1)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Looking for an optimized client? Nightjar for Android/Linux/Windows](https://github.com/RamazanKara/nightjar)
 
 <sub>Windows x64 · GPL-3.0 · Formerly Butterpollo</sub>
 

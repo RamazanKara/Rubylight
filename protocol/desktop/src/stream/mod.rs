@@ -900,6 +900,8 @@ pub struct Streaming {
     pub export_statistics: bool,
     statistics: VecDeque<String>,
     pub menu_visible: bool,
+    /// The widget that had keyboard focus in the controls last frame, to scroll to when it moves.
+    pub menu_focus: Option<egui::Id>,
     /// The open "Session and graphics" page; its worker runs only while this is Some.
     pub session_page: Option<crate::session_page::Page>,
     session_link: String,
@@ -1015,6 +1017,7 @@ impl Streaming {
             export_statistics: false,
             statistics: VecDeque::new(),
             menu_visible: false,
+            menu_focus: None,
             session_page: None,
             session_link: String::new(),
             session_page_requested: false,

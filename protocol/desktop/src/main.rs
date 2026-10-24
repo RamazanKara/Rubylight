@@ -1411,6 +1411,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                     .collapsible(false).resizable(false).vscroll(true).default_width(440.0)
                     .show(&ctx, |ui| {
+                        gui::follow_focus(ui, &mut s.menu_focus);
                         outcome = session_ui::show(ui, page, &title, &lines, hints);
                     });
             }
@@ -1427,6 +1428,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .collapsible(false).resizable(false).vscroll(true)
                 .show(&ctx, |ui| {
+                    gui::follow_focus(ui, &mut s.menu_focus);
                     ui.label(&title);
                     let back = ui.button(tr("Return to stream"));
                     if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }

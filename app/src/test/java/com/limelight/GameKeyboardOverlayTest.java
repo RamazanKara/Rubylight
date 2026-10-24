@@ -530,6 +530,7 @@ public class GameKeyboardOverlayTest {
     static class RecordingConnection extends NvConnection {
         final List<int[]> keys = new ArrayList<>();
         final List<String> text = new ArrayList<>();
+        final List<Integer> controllerButtons = new ArrayList<>();
         boolean inputAllowed = true;
 
         RecordingConnection() {
@@ -539,6 +540,11 @@ public class GameKeyboardOverlayTest {
 
         @Override public boolean canSendInput() { return inputAllowed; }
         @Override public void sendUtf8Text(String value) { text.add(value); }
+        @Override public void sendControllerInput(short controllerNumber, short activeGamepadMask, int buttonFlags,
+                byte leftTrigger, byte rightTrigger, short leftStickX, short leftStickY,
+                short rightStickX, short rightStickY) {
+            controllerButtons.add(buttonFlags);
+        }
         @Override public void sendKeyboardInput(short key, byte direction, byte modifiers, byte flags) {
             keys.add(new int[] {key & 0xffff, direction, modifiers});
         }

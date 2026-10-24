@@ -153,7 +153,7 @@ public class ControllerInputReleaseTest {
             usb(handler, ControllerPacket.X_FLAG);
             handler.setPadCapture(new ControllerHandler.PadCapture() {
                 @Override public void button(int flag, boolean down) { events.add(flag + (down ? "+" : "-")); }
-                @Override public void stick(float x, float y) { events.add("stick"); }
+                @Override public void stick(int controllerId, float x, float y) { events.add("stick"); }
             });
             // X was held before the keyboard opened, and A arrives on the first report it sees: neither is
             // a press for the keyboard; X is only seen being let go. The game's last state is cleared from
@@ -190,7 +190,7 @@ public class ControllerInputReleaseTest {
         try {
             handler.setPadCapture(new ControllerHandler.PadCapture() {
                 @Override public void button(int flag, boolean down) { }
-                @Override public void stick(float x, float y) { sticks.add(x + "," + y); }
+                @Override public void stick(int controllerId, float x, float y) { sticks.add(x + "," + y); }
             });
             handler.reportControllerState(3, 0, 0f, 0f, 0f, 0f, 0f, 0f);
             handler.reportControllerState(3, 0, 0.1f, 0.2f, 0f, 0f, 0f, 0f);
@@ -217,7 +217,7 @@ public class ControllerInputReleaseTest {
         try {
             handler.setPadCapture(new ControllerHandler.PadCapture() {
                 @Override public void button(int flag, boolean down) { events.add(flag + (down ? "+" : "-")); }
-                @Override public void stick(float x, float y) { events.add("stick " + x + "," + y); }
+                @Override public void stick(int controllerId, float x, float y) { events.add("stick " + x + "," + y); }
             });
             usb(handler, 0);
             handler.reportControllerState(3, ControllerPacket.X_FLAG, 0.9f, 0f, 0f, 0f, 0f, 0f);
@@ -254,7 +254,7 @@ public class ControllerInputReleaseTest {
         try {
             handler.setPadCapture(new ControllerHandler.PadCapture() {
                 @Override public void button(int flag, boolean down) { }
-                @Override public void stick(float x, float y) { sticks.add(x + "," + y); }
+                @Override public void stick(int controllerId, float x, float y) { sticks.add(x + "," + y); }
             });
             handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
             handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
@@ -275,7 +275,7 @@ public class ControllerInputReleaseTest {
             usb(handler, 0);
             handler.setPadCapture(new ControllerHandler.PadCapture() {
                 @Override public void button(int flag, boolean down) { }
-                @Override public void stick(float x, float y) { sticks.add(x + "," + y); }
+                @Override public void stick(int controllerId, float x, float y) { sticks.add(x + "," + y); }
             });
             handler.reportControllerState(3, 0, 0.9f, 0f, 0f, 0f, 0f, 0f);
             assertEquals(4, sticks.size());

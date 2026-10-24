@@ -7,9 +7,12 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 
 import com.limelight.GameKeyboardOverlayTest.RecordingConnection;
+import com.limelight.binding.input.ControllerButtonMap;
+import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.keyboard.KeyboardFocus;
 import com.limelight.binding.input.keyboard.PcKey;
 import com.limelight.binding.input.keyboard.PcKeyboardController;
+import com.limelight.preferences.PreferenceConfiguration;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -207,6 +210,96 @@ public class GamePadKeyboardNavigationTest {
         // Pushing past 0.6 engages; a stick that merely drifts does not.
         game.onGenericMotionEvent(joystick(PAD_ID, MotionEvent.ACTION_MOVE, 0, 0, 0.5f, 0.2f));
         assertEquals(start + 1, column(game));
+        game.onGenericMotionEvent(joystick(PAD_ID, MotionEvent.ACTION_MOVE, 0, 0, 0, 0));
+        // A pad that reports a hat and a stick at once: the hat wins on the axis it names.
+        game.onGenericMotionEvent(joystick(PAD_ID, MotionEvent.ACTION_MOVE, -1, 0, 0.9f, 0));
+        assertEquals("The hat's left beats the stick's right", start, column(game));
+        hat(game, PAD_ID, 0, 0);
+        assertFalse(pcKeyboardController(game).needsTick());
+    }
+
+    private static ControllerHandler.PadCapture usbCapture(Game game) {
+        ControllerHandler handler = ReflectionHelpers.getField(game, "controllerHandler");
+        ControllerHandler.PadCapture capture = ReflectionHelpers.getField(handler, "padCapture");
+        assertNotNull("Opening the keyboard gives it the USB-driver pads", capture);
+        return capture;
+    }
+
+    @Test
+    public void aUsbDriverPadAtRestDoesNotCancelABluetoothPadsHeldHat() {
+        Game game = openKeyboard(new RecordingConnection());
+        PcKeyboardController keyboard = pcKeyboardController(game);
+        ControllerHandler.PadCapture usb = usbCapture(game);
+        hat(game, PAD_ID, 1, 0);
+        // The USB pad reports its stick going back to centre (or small noise that changes its direction).
+        usb.stick(3, 0, 0);
+        assertTrue("Still held", keyboard.stickActive());
+        // The USB pad pushing takes over; the Bluetooth pad letting go afterwards must not cancel it.
+        int before = column(game);
+        usb.stick(3, -0.9f, 0);
+        assertEquals(before - 1, column(game));
+        hat(game, PAD_ID, 0, 0);
+        assertTrue(keyboard.stickActive());
+        usb.stick(3, 0, 0);
+        assertFalse(keyboard.needsTick());
+    }
+
+    @Test
+    public void aBluetoothPadAtRestDoesNotCancelAUsbDriverPadsHeldStick() {
+        Game game = openKeyboard(new RecordingConnection());
+        PcKeyboardController keyboard = pcKeyboardController(game);
+        ControllerHandler.PadCapture usb = usbCapture(game);
+        int start = column(game);
+        usb.stick(3, 0.9f, 0);
+        assertEquals(start + 1, column(game));
+        game.onGenericMotionEvent(joystick(PAD_ID, MotionEvent.ACTION_MOVE, 0, 0, 0.05f, 0.02f));
+        assertTrue("Still held", keyboard.stickActive());
+        // Two USB pads are told apart by their controller ids as well.
+        usb.stick(4, 0, 0);
+        assertTrue(keyboard.stickActive());
+        usb.stick(3, 0, 0);
+        assertFalse(keyboard.needsTick());
+    }
+
+    @Test
+    public void aButtonHeldPastTheKeyRepeatAfterItClosedTheKeyboardStaysAwayFromTheHost() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = openKeyboard(connection);
+        connection.controllerButtons.clear();
+        InputDevice pad = gamepad();
+        assertTrue(game.handleKeyDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_B, 0, 0, pad, InputDevice.SOURCE_GAMEPAD)));
+        assertFalse("B closes the keyboard", pcKeyboardVisible(game));
+        for (int repeat = 1; repeat <= 3; repeat++) {
+            assertTrue("repeat " + repeat, game.handleKeyDown(
+                    key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_B, repeat, 0, pad, InputDevice.SOURCE_GAMEPAD)));
+        }
+        assertTrue("The release stays with the keyboard", game.handleKeyUp(
+                key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_B, 0, 0, pad, InputDevice.SOURCE_GAMEPAD)));
+        assertEquals("The host never hears of a B it did not see pressed", 0, heldPadKeys(game).size());
+        for (int buttons : connection.controllerButtons) assertEquals(0, buttons);
+        // A new press afterwards is the game's again.
+        assertFalse(takenByPcKeyboard(game, key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_B, 0, 0, pad, InputDevice.SOURCE_GAMEPAD)));
+    }
+
+    @Test
+    public void aButtonRemappedToBackClosesTheKeyboard() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        // A map that turns this pad's X into Back, however it was set up.
+        ReflectionHelpers.setField(game, "controllerHandler", new ControllerHandler(game, connection, game, prefs) {
+            @Override public synchronized int userMappedKey(KeyEvent event) {
+                return event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_X
+                        ? KeyEvent.KEYCODE_BACK : ControllerButtonMap.UNMAPPED;
+            }
+        });
+        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        assertTrue(pcKeyboardVisible(game));
+        connection.keys.clear();
+        assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X));
+        assertFalse("The mapped Back closes the keyboard like B", pcKeyboardVisible(game));
+        assertTrue(padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_X));
+        assertTrue("It never types", connection.keys.isEmpty());
     }
 
     @Test

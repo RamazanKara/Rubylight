@@ -4284,7 +4284,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public boolean handleKeyDown(KeyEvent event) {
         if (handleRemoteMenuKey(event)) return true;
-        if (isPcKeyboardVisible() && handlePcKeyboardKey(event)) return true;
+        // A key the keyboard took keeps being the keyboard's after it closed, so its repeats stay away from the game.
+        if ((isPcKeyboardVisible() || pcKeyboardKeys.get(event.getKeyCode())) && handlePcKeyboardKey(event)) return true;
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -4545,9 +4546,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 PcKeyboardController.Pad pad = padForFlag(flag);
                 if (pad != null) runOnUiThread(() -> padToPcKeyboard(pad, down));
             }
-            @Override public void stick(float x, float y) {
+            @Override public void stick(int controllerId, float x, float y) {
+                // USB-driver pads have no Android device id; a negative one cannot clash with a real device.
                 runOnUiThread(() -> {
-                    if (isPcKeyboardVisible()) pcKeyboard.controller().stick(x, y, SystemClock.uptimeMillis());
+                    if (isPcKeyboardVisible()) steerPcKeyboard(-2 - controllerId, x, y, SystemClock.uptimeMillis());
                 });
             }
         });
@@ -4647,6 +4649,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // A release of a key the keyboard took stays with it, even if it just closed. A new press
             // is the game's, so an old entry for the same key must not swallow its release.
             if (down) {
+                // Held past the key repeat after the keyboard closed (B closes it): the host never saw the
+                // press, so it must not see the repeats, and the release stays with the keyboard.
+                if (event.getRepeatCount() > 0 && pcKeyboardKeys.get(keyCode)) return true;
                 pcKeyboardKeys.delete(keyCode);
                 return false;
             }
@@ -4660,7 +4665,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 ? padForKey(keyCode, prefConfig.flipFaceButtons) : padForKey(mapped, false);
         // A pad's own Back (a handheld's Back key, or a pad that sends Back for B) closes the keyboard like B:
         // Android's TV rules name both as Back, and swallowing it would leave the pad with no way out.
-        if (pad == null && !remote && keyCode == KeyEvent.KEYCODE_BACK && mapped == ControllerButtonMap.UNMAPPED) {
+        if (pad == null && !remote && (mapped == ControllerButtonMap.UNMAPPED ? keyCode : mapped) == KeyEvent.KEYCODE_BACK) {
             pad = PcKeyboardController.Pad.B;
         }
         if (pad == null) return !remote;
@@ -4698,9 +4703,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void handlePcKeyboardMotion(MotionEvent event) {
         int action = event.getActionMasked();
         int device = event.getDeviceId();
-        PcKeyboardController keyboard = pcKeyboard.controller();
         if (action == MotionEvent.ACTION_CANCEL) {
-            if (device == pcKeyboardAxisDevice) keyboard.stick(0, 0, event.getEventTime());
+            if (device == pcKeyboardAxisDevice) pcKeyboard.controller().stick(0, 0, event.getEventTime());
             pcKeyboardAxisDevice = -1;
             return;
         }
@@ -4708,11 +4712,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         float hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X), hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y);
         float x = hatX != 0 ? hatX : event.getAxisValue(MotionEvent.AXIS_X);
         float y = hatY != 0 ? hatY : event.getAxisValue(MotionEvent.AXIS_Y);
-        if (pcKeyboardAxisDevice != -1 && pcKeyboardAxisDevice != device) {
-            if (PcKeyboardController.stickDirection(x, y, null) == null) return;
+        steerPcKeyboard(device, x, y, event.getEventTime());
+    }
+
+    /** The one place a stick or hat reaches the keyboard, for Android pads and USB-driver pads alike. */
+    private void steerPcKeyboard(int source, float x, float y, long time) {
+        PcKeyboardController keyboard = pcKeyboard.controller();
+        if (pcKeyboardAxisDevice != -1 && pcKeyboardAxisDevice != source
+                && PcKeyboardController.stickDirection(x, y, null) == null) {
+            return;
         }
-        keyboard.stick(x, y, event.getEventTime());
-        pcKeyboardAxisDevice = keyboard.stickActive() ? device : -1;
+        keyboard.stick(x, y, time);
+        pcKeyboardAxisDevice = keyboard.stickActive() ? source : -1;
     }
 
     private void toggleKeyboardOverlay() {

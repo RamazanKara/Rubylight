@@ -60,6 +60,13 @@ public abstract class NightjarActivity extends AppCompatActivity {
         return dpadEchoes.drop(event) || super.dispatchKeyEvent(event);
     }
 
+    /** Releases that arrive while another window has focus never reach this one. */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        if (!hasFocus) dpadEchoes.reset();
+        super.onWindowFocusChanged(hasFocus);
+    }
+
     private void refreshAppearance() {
         if (!recreatingForTheme && !isFinishing() && !isDestroyed() &&
                 !AppTheme.appearance(this).equals(appearance)) {

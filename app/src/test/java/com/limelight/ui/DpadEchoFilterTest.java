@@ -1,11 +1,14 @@
 package com.limelight.ui;
 
 import android.app.Application;
+import android.content.DialogInterface;
 import android.os.Bundle;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.FrameLayout;
+
+import androidx.appcompat.app.AlertDialog;
 
 import com.limelight.PcViewLifecycleTest;
 import com.limelight.R;
@@ -141,6 +144,61 @@ public class DpadEchoFilterTest {
             // A keyboard's arrow key (no fallback flag) and a remote are untouched.
             probe.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0, false, PAD));
             assertEquals(2, probe.downs.size());
+        }
+    }
+
+    @Test
+    public void losingWindowFocusForgetsHeldKeys() {
+        try (var controller = Robolectric.buildActivity(Probe.class).setup().visible()) {
+            Probe probe = controller.get();
+            probe.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0, false, PAD));
+            // The release goes to the window that took focus, so this one never sees it.
+            probe.onWindowFocusChanged(false);
+            probe.onWindowFocusChanged(true);
+            probe.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0, true, PAD));
+            assertEquals(2, probe.downs.size());
+        }
+    }
+
+    private static DialogInterface.OnKeyListener counting(List<Integer> downs) {
+        return (dialog, code, event) -> {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) downs.add(code);
+            return false;
+        };
+    }
+
+    @Test
+    public void anActionSheetMovesFocusOnceForAPadThatSendsKeysAndAHat() {
+        try (var controller = Robolectric.buildActivity(Probe.class).setup().visible()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            List<Integer> downs = new ArrayList<>();
+            sheet.setOnKeyListener(counting(downs));
+            sheet.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0, false, PAD));
+            sheet.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0, true, PAD));
+            sheet.dispatchKeyEvent(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN, 0, false, PAD));
+            sheet.dispatchKeyEvent(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN, 0, true, PAD));
+            assertEquals(1, downs.size());
+            // Focus lost with a key held: the stale entry must not eat the next press.
+            sheet.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 0, false, PAD));
+            sheet.onWindowFocusChanged(false);
+            sheet.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 0, true, PAD));
+            assertEquals(3, downs.size());
+        }
+    }
+
+    @Test
+    public void aNavigationDialogMovesFocusOnceForAPadThatSendsKeysAndAHat() {
+        try (var controller = Robolectric.buildActivity(Probe.class).setup().visible()) {
+            List<Integer> downs = new ArrayList<>();
+            AlertDialog dialog = new NavigationDialogBuilder(controller.get())
+                    .setOnKeyListener(counting(downs)).setMessage("Hello").create();
+            dialog.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0, false, PAD));
+            dialog.dispatchKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0, true, PAD));
+            dialog.dispatchKeyEvent(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN, 0, false, PAD));
+            dialog.dispatchKeyEvent(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN, 0, true, PAD));
+            assertEquals(1, downs.size());
+            // The dialog's own Back, Escape and B handling is unchanged.
+            assertTrue(dialog.dispatchKeyEvent(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_B, 0, false, PAD)));
         }
     }
 

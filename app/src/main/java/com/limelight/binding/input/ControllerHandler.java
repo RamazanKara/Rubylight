@@ -344,8 +344,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     public interface PadCapture {
         /** A button, as a {@code ControllerPacket} flag, went down or up. */
         void button(int flag, boolean down);
-        /** The left stick, y growing downwards like Android reports it. */
-        void stick(float x, float y);
+        /** The left stick of the USB controller with this id, y growing downwards like Android reports it. */
+        void stick(int controllerId, float x, float y);
     }
 
     private volatile PadCapture padCapture;
@@ -3443,7 +3443,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         KeyboardFocus.Direction direction = PcKeyboardController.stickDirection(stickX, stickY, context.captureStick);
         if (direction != context.captureStick) {
             context.captureStick = direction;
-            capture.stick(stickX, stickY);
+            capture.stick(context.id, stickX, stickY);
         }
     }
 
@@ -3517,7 +3517,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 context.menuButtons = 0;
                 if (context.captureStick != null) {
                     context.captureStick = null;
-                    capture.stick(0f, 0f);
+                    capture.stick(context.id, 0f, 0f);
                 }
             }
             if (context.assignedControllerNumber && (controller.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {

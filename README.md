@@ -46,7 +46,7 @@
   <img src="docs/assets/shots/stream-keyboard.png" width="600" alt="Nightjar's on-screen PC keyboard over a stream: Esc, F1 to F12, a full letter block, modifier keys and arrows, in the English (US) layout">
 </p>
 
-**A Rust streaming engine.** The streaming engine is written in Rust and is the default on Android, with the classic engine one switch away. On a Retroid Pocket 6 it matched the classic engine's end-to-end time, 6.92 ms against 7.04 ms at the median.
+**A Rust streaming engine.** The streaming engine is written in Rust and is the default on Android, with the classic engine one switch away. On a Retroid Pocket 6 it was the fastest engine available, 6.92 ms against 7.04 ms at the median end-to-end.
 
 **Desktop client for Windows and Linux (Experimental).** The same engine runs on the desktop with hardware decoding, VRR pacing, audio, keyboard, mouse and controllers, an egui interface and GPU PyroWave decoding. [Desktop client](protocol/desktop/README.md) · [Downloads](https://github.com/RamazanKara/nightjar/releases).
 
@@ -60,7 +60,7 @@
 
 **Quality that adjusts itself.** Automatic bitrate follows packet loss, network jitter and how much headroom your phone's decoder has left, up to 2000 Mbps where the host allows it. Automatic quality also changes resolution and frame rate mid-stream, with three goals to pick from: keep motion smooth, keep detail sharp, or save battery. Both watch your phone's temperature and back off before it starts throttling. When a Rubylight host lowers the bitrate to fit your network, the overlay says so.
 
-**It works hard on latency.** Decoders get per-chip low-latency tuning, frames are paced to your display, including Android's adaptive refresh on newer phones, and stereo audio uses low-latency AAudio. On Rubylight, Nightjar tells the host how long frames wait for your screen so it can time them to arrive just in time.
+**It works hard on latency.** Decoders get per-chip low-latency tuning, frames are paced to your display, including Android's adaptive refresh on newer phones, and audio uses low-latency AAudio. On Rubylight, Nightjar tells the host how long frames wait for your screen so it can time them to arrive just in time.
 
 **PyroWave, upscaling and your own GPU driver.** Nightjar decodes PyroWave on the GPU through Vulkan, including full-colour 4:4:4. Any SDR stream can be sent at a lower resolution and upscaled on the phone with FSR 1 or Snapdragon GSR. On Snapdragon phones you can load a newer Adreno Vulkan driver for PyroWave.
 

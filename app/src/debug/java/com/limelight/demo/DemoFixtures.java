@@ -71,7 +71,8 @@ public final class DemoFixtures {
             pc.macAddress = "02:00:00:00:00:0" + (i + 1);
             if (i == 1 && studioAddress) pc.activeAddress = new ComputerDetails.AddressTuple("192.0.2.20", 47989);
             pc.runningGameId = i == 0 ? 2 : 0;
-            pc.rawAppList = appList();
+            // The offline Laptop has no saved library: Home would repeat every game, without covers.
+            pc.rawAppList = i == 2 ? null : appList();
             if (i == 0) describeHost(pc);
             computers.add(pc);
         }

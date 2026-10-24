@@ -15,6 +15,16 @@
 </p>
 
 <p align="center">
+  <img src="docs/assets/shots/console-home.png" width="410" alt="Nightjar's Home on a Retroid Pocket 6: a Continue playing row with Space Sim and Open World, and a Library row of cover art with Racing Game marked Running">
+  <img src="docs/assets/shots/console-library.png" width="410" alt="Nightjar's Home library grid on a handheld: ten games with cover art, each labelled with the PC it runs on, Living-room PC">
+</p>
+
+<p align="center">
+  <img src="docs/assets/shots/stream-stats.png" width="410" alt="A Nightjar stream with the Statistics overlay: 1920 by 1080 AV1 HDR, 119.9 FPS displayed, 38.6 Mbps, 8 ms network round trip, host processing, decode time, and the PC's CPU and GPU load, temperature and power (demo sample data)">
+  <img src="docs/assets/shots/desktop-home.png" width="410" alt="Nightjar's Desktop client (Experimental) on Windows: the Home screen with a library of ten games as cover art, and the Living-room PC and Studio PC below">
+</p>
+
+<p align="center">
   <img src="docs/assets/shots/pc-list.png" width="160" alt="Nightjar's PCs list: Living-room PC playing Racing Game, Studio PC not paired and Laptop offline">
   <img src="docs/assets/shots/library.png" width="160" alt="Living-room PC's game library in Nightjar: ten games with cover art, Racing Game marked Running">
   <img src="https://raw.githubusercontent.com/RamazanKara/nightjar/ef040817e7dc340ed5a874b4c159f49445bc2774/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream's top-left corner, where the one-line overlay shows a green health dot, 119.9 FPS and 8 ms RTT">
@@ -25,7 +35,16 @@
 
 **A console on your phone.** With a Rubylight 3.0 host, Nightjar opens on Home: favourites first, what is running, your library across every paired PC with covers, and your PCs. A game's page shows where it runs and which stream settings it will use, then Play or Resume. While you stream, the stream menu has a Session and graphics page: Resume, Disconnect, End session and Close game, the connection facts, and a Radeon panel for the host's AMD driver features such as Anti-Lag and Radeon Chill. The host puts every setting back when the session ends. [Home and the session menu](docs/console.md).
 
+<p align="center">
+  <img src="docs/assets/shots/console-pcs.png" width="410" alt="Nightjar's PCs screen: Living-room PC playing Racing Game, Studio PC not paired, Laptop offline, and an Add PC button">
+  <img src="docs/assets/shots/console-game.png" width="410" alt="A game's page in Nightjar: cover art for Puzzle Night, the host it runs on, and Play and Add to favourites buttons">
+</p>
+
 **A PC keyboard that fits any input.** A full on-screen keyboard has Esc, Tab, F1 to F12, arrows and sticky Ctrl, Alt, Win and Shift. It works with touch, a controller or a TV remote, so you can type on the PC from the couch.
+
+<p align="center">
+  <img src="docs/assets/shots/stream-keyboard.png" width="600" alt="Nightjar's on-screen PC keyboard over a stream: Esc, F1 to F12, a full letter block, modifier keys and arrows, in the English (US) layout">
+</p>
 
 **A Rust streaming engine.** The streaming engine is written in Rust and is the default on Android, with the classic engine one switch away. On a Retroid Pocket 6 it matched the classic engine's end-to-end time, 6.92 ms against 7.04 ms at the median.
 
@@ -34,6 +53,10 @@
 **Beam-raced PyroWave (opt-in, Nightjar desktop).** Switch it on and the desktop client decodes a PyroWave picture in slices while the rest of it is still arriving, and draws the top before the bottom has left the network. [Beam racing](docs/beam-racing.md).
 
 **It learns your host.** Every host supports a different set of extras. Nightjar reads what yours reports and only shows the options that work there, with a short reason when something needs a host setting or an update.
+
+<p align="center">
+  <img src="docs/assets/shots/console-settings.png" width="600" alt="Nightjar's Settings: defaults for all PCs, the Native (recommended) and Battery saver presets, and a Video summary of 1080p, 120 FPS, 40 Mbps, Automatic">
+</p>
 
 **Quality that adjusts itself.** Automatic bitrate follows packet loss, network jitter and how much headroom your phone's decoder has left, up to 2000 Mbps where the host allows it. Automatic quality also changes resolution and frame rate mid-stream, with three goals to pick from: keep motion smooth, keep detail sharp, or save battery. Both watch your phone's temperature and back off before it starts throttling. When a Rubylight host lowers the bitrate to fit your network, the overlay says so.
 

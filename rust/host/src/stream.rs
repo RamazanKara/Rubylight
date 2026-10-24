@@ -2177,6 +2177,8 @@ impl Media {
                                             link_steps_down=link["steps_down"].as_u64().unwrap_or(0),
                                             link_probes=link["probes"].as_u64().unwrap_or(0),
                                             link_failed_probes=link["failed_probes"].as_u64().unwrap_or(0),
+                                            link_rtt_ms=link["rtt_ms"].as_u64().unwrap_or(0),
+                                            link_rtt_floor_ms=link["rtt_floor_ms"].as_u64().unwrap_or(0),
                                             "stream timings"
                                         );
                                     }

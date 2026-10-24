@@ -96,3 +96,13 @@ test('the card shows the current bitrate, and says when the encoder cannot go lo
   });
   assert.match(stuck, /encoder cannot go lower/);
 });
+
+test('a bitrate cut for a standing queue says so on the card', () => {
+  const link = { state: 'limited', reason: 'queue', ceiling_kbps: 75_000, current_kbps: 32_000, encoder_floor_kbps: 0 };
+  const queue = html({ encoder_bitrate_kbps: 32_000, link_rate: link });
+  assert.match(queue, /Bitrate limited by the network: <span class="num">32<\/span> of\s*<span class="num">75<\/span> Mbps/);
+  assert.match(queue, /video was held back in a queue/);
+  const loss = html({ encoder_bitrate_kbps: 32_000, link_rate: { ...link, reason: 'unrecoverable_frames' } });
+  assert.match(loss, /Bitrate limited by the network/);
+  assert.doesNotMatch(loss, /held back in a queue/);
+});

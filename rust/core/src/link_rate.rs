@@ -222,7 +222,9 @@ pub const QUEUE_CUT_PERCENT: u64 = 88;
 /// 5 ms) is no queue: a slower route or another flow. The floor is re-learned
 /// there and the stream is not cut again for it.
 const QUEUE_FLAT_MS: u64 = 5;
-const QUEUE_STEPS_MAX: u8 = 6;
+/// A queue that three cuts (about a third of the rate) did not drain is
+/// another flow's: further cuts would only take the stream's own share.
+const QUEUE_STEPS_MAX: u8 = 3;
 const FLOOR_BUCKETS: usize = 32;
 /// A step down from within this share of the bad rate is a knee failure too.
 pub const KNEE_CUT_PERCENT: u64 = 90;
@@ -1090,9 +1092,14 @@ impl LinkRate {
             }
             let flat = excess.abs_diff(before) <= slack;
             if flat || self.queue_steps >= QUEUE_STEPS_MAX {
+                // A slower route, or a flow that keeps the queue full whatever
+                // the stream sends. Only the queue's own floor is re-learned:
+                // `minimum_rtt` stays, so `rtt_elevated` keeps holding probes
+                // and the reorder baseline sees the same RTT as before. No
+                // new queue is looked for until a probe raises the rate again.
                 self.rtt_floor.clear();
                 self.rtt_floor.push_back((now, self.rtt));
-                self.minimum_rtt = Some(self.rtt);
+                self.raised_at = None;
                 self.queue_since = None;
                 self.queue_excess = None;
                 self.queue_steps = 0;

@@ -825,6 +825,29 @@ mod tests {
         assert!(!message.contains("cannot carry even"), "{message}");
     }
     #[test]
+    fn a_queue_cut_says_the_network_held_video_back_not_that_packets_were_lost() {
+        let s = Session::new(launch("link-queue", Role::Stream), Negotiated::default());
+        let change = crate::link_rate::Change {
+            kind: crate::link_rate::ChangeKind::StepDown,
+            reason: "queue",
+            from_kbps: 36_000,
+            to_kbps: 31_700,
+            delivered_kbps: 0,
+            evidence: Default::default(),
+        };
+        let mut link = s.link_rate.lock().unwrap();
+        let report = note_link_change(&mut link, Instant::now(), change);
+        drop(link);
+        s.announce_link_change(report);
+        let message = link_warning(&s).expect("the console gets a warning");
+        assert!(
+            message.contains("holding video back in a growing queue"),
+            "{message}"
+        );
+        assert!(!message.contains("lost"), "{message}");
+        assert!(message.contains("as low as"), "{message}");
+    }
+    #[test]
     fn keyframe_requests_count_only_for_a_client_that_sends_no_fec_status() {
         for reports_fec in [false, true] {
             let (s, end) = link_session(60, true);

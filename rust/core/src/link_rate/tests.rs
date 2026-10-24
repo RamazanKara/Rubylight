@@ -2147,10 +2147,13 @@ fn a_route_change_costs_at_most_one_step_and_a_slow_rtt_growth_nothing() {
     let cuts = queue_changes(&rig);
     assert_eq!(cuts.len(), 1, "{:?}", rig.changes);
     assert_eq!(cuts[0].1.kind, ChangeKind::ProbeFailed);
-    let low = rig.kbps;
+    // `minimum_rtt` is not re-learned, so `rtt_elevated` holds probes for as
+    // long as the route is slower (as it did before the delay signal): the
+    // cost of the route change is the one step, kept.
+    let (low, probes) = (rig.kbps, rig.probes());
     rig.clean(120_000);
     assert_eq!(queue_changes(&rig).len(), 1, "{:?}", rig.changes);
-    assert!(rig.kbps > low, "{low} -> {}", rig.kbps);
+    assert_eq!((rig.kbps, rig.probes()), (low, probes), "{:?}", rig.changes);
 
     // 0.3 ms a second for a minute and a half, probing all the while.
     let mut rig = Rig::new(40_000);
@@ -2161,6 +2164,96 @@ fn a_route_change_costs_at_most_one_step_and_a_slow_rtt_growth_nothing() {
         rig.clean(1_000);
     }
     assert!(queue_changes(&rig).is_empty(), "{:?}", rig.changes);
+}
+
+/// Another flow keeps the queue growing whatever the stream sends: three
+/// cuts (about a third of the rate) are the most it takes, probes stay held
+/// while the RTT is up, and the queue floor is re-learned so it is not cut
+/// for the same queue again.
+#[test]
+fn a_competing_flow_that_keeps_the_queue_rising_gets_at_most_three_cuts_and_no_probes() {
+    let mut rig = Rig::new(40_000);
+    rig.rtt_jitter_ms = 3;
+    rig.clean(3_000);
+    rig.lose_three();
+    rig.until_probe();
+    // 10 ms more a second for 90 s, up to 300 ms, regardless of the rate.
+    for second in 0..90u64 {
+        rig.rtt = Duration::from_millis(20 + (second * 10).min(280));
+        rig.clean(1_000);
+    }
+    let cuts = queue_changes(&rig);
+    assert!(
+        (1..=3).contains(&cuts.len()),
+        "{} cuts: {:?}",
+        cuts.len(),
+        rig.changes
+    );
+    let last_cut = rig
+        .changes
+        .iter()
+        .rposition(|(_, c)| c.reason == "queue")
+        .unwrap();
+    assert!(
+        rig.changes[last_cut + 1..]
+            .iter()
+            .all(|(_, c)| c.kind != ChangeKind::Probe),
+        "{:?}",
+        rig.changes
+    );
+    // Each cut is 12 % at most, and there are no more than two after the first
+    // (which only takes the probe back).
+    assert!(
+        u64::from(cuts[cuts.len() - 1].1.to_kbps) * 10_000
+            >= u64::from(cuts[0].1.to_kbps) * 88 * 88 * 97 / 100,
+        "{:?}",
+        rig.changes
+    );
+}
+
+/// A Wi-Fi stall of 2.5 to 4 s that starts just after a probe step has the
+/// RTT up for longer than the hold: it costs one 12 % cut (the probe goes
+/// back to the last good rate) and the knee hold keeps probes under the rate
+/// that failed for `KNEE_QUIET`. The bound and the price: at most one cut a stall, the
+/// rate lower for 20 s. Not a loop: the RTT is back by the next look.
+#[test]
+fn a_wifi_stall_of_a_few_seconds_after_a_probe_costs_one_cut_and_the_knee_hold() {
+    for stall_ms in [2_500u64, 3_000, 4_000] {
+        let mut rig = Rig::new(40_000);
+        rig.rtt_jitter_ms = 8;
+        rig.clean(3_000);
+        rig.lose_three();
+        let probe = rig.until_probe();
+        rig.clean(1_000);
+        let before = rig.changes.len();
+        rig.rtt = Duration::from_millis(80);
+        rig.clean(stall_ms);
+        rig.rtt = Duration::from_millis(20);
+        rig.clean(1_000);
+        let cuts: Vec<_> = rig.changes[before..]
+            .iter()
+            .filter(|(_, c)| c.reason == "queue")
+            .copied()
+            .collect();
+        assert_eq!(cuts.len(), 1, "stall {stall_ms}: {:?}", rig.changes);
+        assert_eq!(cuts[0].1.kind, ChangeKind::ProbeFailed);
+        assert!(cuts[0].1.to_kbps >= probe.to_kbps * 88 / 100 - 1);
+        // The knee hold: for KNEE_QUIET no probe reaches the rate that failed (it may climb to just under it).
+        let (after, probes) = (rig.changes.len(), rig.probes());
+        rig.clean(KNEE_QUIET.as_millis() as u64 - 2_000);
+        let knee = cuts[0].1.from_kbps;
+        for (at, c) in &rig.changes[after..] {
+            assert!(
+                c.kind != ChangeKind::Probe || u64::from(c.to_kbps) < u64::from(knee),
+                "stall {stall_ms}: probed to {} at {at} (knee {knee})",
+                c.to_kbps
+            );
+        }
+        // And it climbs again afterwards.
+        rig.clean(60_000);
+        assert!(rig.probes() > probes, "stall {stall_ms}");
+        assert_eq!(queue_changes(&rig).len(), 1, "{:?}", rig.changes);
+    }
 }
 
 /// A deep buffer and a link that cannot carry the rate: the first cut is on
@@ -2193,4 +2286,17 @@ fn a_deep_buffer_link_settles_with_a_short_queue() {
     late.sort_by(f64::total_cmp);
     let worst = late[late.len() * 9 / 10];
     assert!(worst < 120., "queue {worst:.0} ms");
+}
+
+/// The 5 s timings line logs these two to read a delay-signal run back: the
+/// smoothed RTT and the lowest RTT of the last 30 s the signal compares with.
+#[test]
+fn the_snapshot_carries_the_rtt_and_its_30_second_floor() {
+    let mut rig = Rig::new(40_000);
+    rig.clean(5_000);
+    rig.rtt = Duration::from_millis(45);
+    rig.clean(1_500);
+    let snapshot = rig.lr.snapshot(rig.now());
+    assert_eq!(snapshot["rtt_floor_ms"], 20);
+    assert_eq!(snapshot["rtt_ms"], 45);
 }

@@ -758,7 +758,7 @@
     "webrtc_media_port": "WebRTC media port",
     "webrtc_media_port_desc": "The UDP port for WebRTC media once streaming over WebRTC is available",
     "webrtc_port": "WebRTC signalling port",
-    "webrtc_port_desc": "The TCP port of the WebRTC server and the UDP port its discovery answers on",
+    "webrtc_port_desc": "The TCP port of the WebRTC server; discovery stays on UDP 8000",
     "webrtc_server": "WebRTC server (Experimental)",
     "webrtc_server_desc": "Let WebRTC TVs and browsers pair and sign in. Signalling is unencrypted ws:// on the local network",
     "dd_hdr_request_override": "HDR request override",

@@ -322,8 +322,8 @@ const network: Setting[] = [
   {
     key: 'webrtc_port',
     label: 'WebRTC signalling port',
-    description: 'The TCP port of the WebRTC server and the UDP port TVs send their discovery broadcast to.',
-    details: 'If something else uses the port, the console shows a warning and the server does not start. The port is never changed for you.',
+    description: 'The TCP port TVs connect their WebSocket to. Discovery always listens on UDP 8000, where TVs send their broadcast.',
+    details: 'If something else uses a port, the console shows a warning and the server does not start. Ports are never changed for you.',
     category: 'network',
     group: 'WebRTC',
     control: { kind: 'number', min: 1024, max: 65535, step: 1 },

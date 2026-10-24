@@ -520,7 +520,7 @@ Off by default. With **WebRTC server (Experimental)** (`webrtc_server`) on, Ruby
 | Key | Default | What it means |
 | --- | --- | --- |
 | `webrtc_server` | `false` | Turns the server on. Needs a restart. |
-| `webrtc_port` | `8000` | TCP port of the WebSocket, and UDP port of the discovery broadcast the TVs send. 1024 to 65535. |
+| `webrtc_port` | `8000` | TCP port of the WebSocket, announced in the discovery reply. 1024 to 65535. Discovery itself always listens on UDP 8000, where TVs send their broadcast. |
 | `webrtc_media_port` | `8001` | UDP port reserved for WebRTC media. 1024 to 65535. |
 
 - Pairing: the TV shows a four-digit PIN and the request appears on the console's PIN page next to Moonlight's. Enter the PIN there. The TV then holds a client ID and a secret; the secret is stored in `sunshine_state.json` and is never shown in the console. Paired TVs are listed on **Devices** with a WebRTC badge, where you can disable or unpair them. A disabled or unpaired TV is disconnected at once. At most 32 TVs stay paired; the oldest go first.

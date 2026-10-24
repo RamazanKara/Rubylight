@@ -25,7 +25,7 @@
     <string name="overlay_decode">解碼</string>
     <string name="overlay_host">主機</string>
     <string name="perf_overlay_releasedfps">釋出至顯示：%1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">已顯示：%1$s</string>
+    <string name="perf_overlay_shownfps">已渲染：%1$s</string>
     <string name="perf_overlay_presentdrops">估計顯示掉格：%1$d</string>
     <string name="perf_overlay_low_latency">低延遲模式：%1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + 晶片廠商</string>

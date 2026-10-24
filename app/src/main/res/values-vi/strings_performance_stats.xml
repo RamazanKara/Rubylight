@@ -4,7 +4,7 @@
     <string name="perf_overlay_pyrowave_submit">Thời gian gửi từ CPU: %1$s ms</string>
     <string name="latency_pyrowave_completed_decode">Giải mã hoàn tất</string>
     <string name="stats_waiting">Đang chờ thống kê stream…</string>
-    <string name="stats_frame_rates">Hiển thị: %1$s FPS · Nhận: %2$s FPS</string>
+    <string name="stats_frame_rates">Kết xuất: %1$s FPS · Nhận: %2$s FPS</string>
     <string name="stats_throughput">Dữ liệu video: %1$s Mbps · Mất gói: %2$s%%</string>
     <string name="stats_network">RTT mạng: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Xử lý trên máy chủ: %1$s ms</string>

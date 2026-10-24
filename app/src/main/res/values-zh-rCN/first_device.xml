@@ -25,7 +25,7 @@
     <string name="overlay_decode">解码</string>
     <string name="overlay_host">主机</string>
     <string name="perf_overlay_releasedfps">送往显示：%1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">已显示：%1$s</string>
+    <string name="perf_overlay_shownfps">已渲染：%1$s</string>
     <string name="perf_overlay_presentdrops">估计显示丢帧：%1$d</string>
     <string name="perf_overlay_low_latency">低延迟模式：%1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + 芯片厂商</string>

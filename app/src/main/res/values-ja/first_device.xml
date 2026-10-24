@@ -25,7 +25,7 @@
     <string name="overlay_decode">デコード</string>
     <string name="overlay_host">ホスト</string>
     <string name="perf_overlay_releasedfps">表示へ送出: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">表示: %1$s</string>
+    <string name="perf_overlay_shownfps">描画: %1$s</string>
     <string name="perf_overlay_presentdrops">推定表示ドロップ数: %1$d</string>
     <string name="perf_overlay_low_latency">低遅延モード: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + チップベンダー</string>

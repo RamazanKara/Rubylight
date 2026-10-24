@@ -32,7 +32,7 @@ public class PerformanceOverlayTest {
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · AV1 · HDR",
                 59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
         assertEquals("1920×1080 · AV1 · HDR\n" +
-                "Displayed: 59.9 FPS · Received: 60.0 FPS\n" +
+                "Rendered: 59.9 FPS · Received: 60.0 FPS\n" +
                 "Video payload: 20.4 Mbps · Loss: 0.14%\n" +
                 "Network RTT: 8 ms (±1 ms)\n" +
                 "Host processing: 2.1 ms\n" +
@@ -68,7 +68,7 @@ public class PerformanceOverlayTest {
         for (float missing : new float[] {-1, Float.NaN, Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY}) {
             String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
                     missing, 60, missing, missing, missing, missing, missing, missing, missing, missing, false).toString();
-            assertTrue(text.contains("Displayed: — FPS · Received: 60.0 FPS"));
+            assertTrue(text.contains("Rendered: — FPS · Received: 60.0 FPS"));
             assertTrue(text.contains("Video payload: — Mbps · Loss: —%"));
             assertTrue(text.contains("Network RTT: — ms (±— ms)"));
             assertTrue(text.contains("Host processing: — ms"));
@@ -82,7 +82,7 @@ public class PerformanceOverlayTest {
     public void germanUsesLocalizedLabelsAndMeasurements() {
         String text = PerformanceOverlay.statisticsText(context(Locale.GERMANY), "1920×1080 · HEVC · SDR",
                 59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
-        assertTrue(text.contains("Angezeigt: 59,9 FPS"));
+        assertTrue(text.contains("Gerendert: 59,9 FPS"));
         assertTrue(text.contains("Videodaten: 20,4 Mbit/s · Verlust: 0,14%"));
         assertTrue(text.contains("Host-Verarbeitung: 2,1 ms"));
     }
@@ -106,7 +106,7 @@ public class PerformanceOverlayTest {
                 rates[2], rates[0], 12, 1.2f, 8, 1, PerformanceOverlay.average(summary, 4),
                 PerformanceOverlay.average(summary, 7), stats.takeDecodeTimeMs(),
                 PerformanceOverlay.average(summary, 2), false).toString();
-        assertTrue(text.contains("Displayed: 30.0 FPS"));
+        assertTrue(text.contains("Rendered: 30.0 FPS"));
         assertTrue(text.contains("Host processing: 2.1 ms"));
         assertTrue(text.contains("Decode: 4.00 ms · Display wait: 4.00 ms"));
     }

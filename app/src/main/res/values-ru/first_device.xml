@@ -25,7 +25,7 @@
     <string name="overlay_decode">Декодирование</string>
     <string name="overlay_host">Хост</string>
     <string name="perf_overlay_releasedfps">Передано на вывод: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">Показано: %1$s</string>
+    <string name="perf_overlay_shownfps">Отрисовано: %1$s</string>
     <string name="perf_overlay_presentdrops">Оценка пропусков вывода: %1$d</string>
     <string name="perf_overlay_low_latency">Режим низкой задержки: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + производитель чипа</string>

@@ -4,7 +4,7 @@
     <string name="perf_overlay_pyrowave_submit">Temps de soumission CPU: %1$s ms</string>
     <string name="latency_pyrowave_completed_decode">Décodage complet</string>
     <string name="stats_waiting">En attente des statistiques du stream…</string>
-    <string name="stats_frame_rates">Affichées : %1$s FPS · Reçues : %2$s FPS</string>
+    <string name="stats_frame_rates">Rendues : %1$s FPS · Reçues : %2$s FPS</string>
     <string name="stats_throughput">Données vidéo : %1$s Mbit/s · Perte : %2$s %%</string>
     <string name="stats_network">RTT réseau : %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Traitement de l’hôte : %1$s ms</string>

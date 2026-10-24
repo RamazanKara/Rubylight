@@ -25,7 +25,7 @@
     <string name="overlay_decode">Decoder</string>
     <string name="overlay_host">Host</string>
     <string name="perf_overlay_releasedfps">An Display gesendet: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">Angezeigt: %1$s</string>
+    <string name="perf_overlay_shownfps">Gerendert: %1$s</string>
     <string name="perf_overlay_presentdrops">Geschätzte Anzeigeverluste: %1$d</string>
     <string name="perf_overlay_low_latency">Niedrige Latenz: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + Chiphersteller</string>

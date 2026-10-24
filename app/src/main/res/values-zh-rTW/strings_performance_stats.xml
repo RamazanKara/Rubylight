@@ -4,7 +4,7 @@
     <string name="perf_overlay_pyrowave_submit">CPU 提交時間: %1$s ms</string>
     <string name="latency_pyrowave_completed_decode">完整解碼</string>
     <string name="stats_waiting">正在等待串流統計資料…</string>
-    <string name="stats_frame_rates">顯示：%1$s FPS · 接收：%2$s FPS</string>
+    <string name="stats_frame_rates">渲染：%1$s FPS · 接收：%2$s FPS</string>
     <string name="stats_throughput">視訊酬載：%1$s Mbps · 遺失：%2$s%%</string>
     <string name="stats_network">網路 RTT：%1$s ms (±%2$s ms)</string>
     <string name="stats_host">主機處理：%1$s ms</string>

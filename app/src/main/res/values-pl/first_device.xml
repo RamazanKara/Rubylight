@@ -25,7 +25,7 @@
     <string name="overlay_decode">Dekodowanie</string>
     <string name="overlay_host">Host</string>
     <string name="perf_overlay_releasedfps">Przekazane do wyświetlenia: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">Wyświetlane: %1$s</string>
+    <string name="perf_overlay_shownfps">Renderowane: %1$s</string>
     <string name="perf_overlay_presentdrops">Szacowane pominięte klatki: %1$d</string>
     <string name="perf_overlay_low_latency">Tryb niskiego opóźnienia: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + producent układu</string>

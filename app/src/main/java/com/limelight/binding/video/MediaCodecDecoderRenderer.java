@@ -3022,7 +3022,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         VideoStatsFps fps = overlayFps;
         if (perfListener != null && fps != null) {
             float[] frameRates = frameLatencyStats.getFrameRates(System.nanoTime());
-            String shownFps = metric(frameRates[2], " FPS");
+            // Rendered FPS counts frames submitted for display, like other Moonlight clients;
+            // compositor confirmations (stage 2) only feed the latency diagnostics.
+            String shownFps = metric(frameRates[1], " FPS");
             long presentDrops = frameLatencyStats.getPresentDrops();
             boolean mediaCodec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
             long rttInfo = MoonBridge.getEstimatedRttInfo();
@@ -3096,12 +3098,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             decode.append('\n').append(latencyOverlay);
             double[][] timings = latencySummary;
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
-                    PerformanceOverlay.statisticsText(context, stream, frameRates[2],
+                    PerformanceOverlay.statisticsText(context, stream, frameRates[1],
                             frameRates[0], receivedVideoMbps, fps.lossPercent,
                             networkMs, varianceMs, shownHostProcessingMs,
                             PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
                             frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2), !mediaCodec),
-                    PerformanceOverlay.compactText(context, frameRates[2], frameRates[0], networkMs,
+                    PerformanceOverlay.compactText(context, frameRates[1], frameRates[0], networkMs,
                             fps.lossPercent, decodeTimeMs));
         }
     }

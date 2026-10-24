@@ -445,6 +445,32 @@ public class FrameLatencyStatsTest {
     }
 
     @Test
+    public void renderedFpsCountsSubmittedFramesWithoutRenderCallbacks() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        long startNs = 1000000000L;
+        for (int i = 1; i <= 5; i++) {
+            long base = startNs + i * 100000000L;
+            stats.onFrameReceived(base);
+            stats.onDecoderInput(i, i, base, base, base + 1000000, (char) 0);
+            stats.onDecoderQueued(i, base + 1000000);
+            stats.onDecoderOutput(i, i, base + 3000000);
+        }
+        // Frames 1 to 3 are released for rendering, 4 and 5 are dropped; no render callback arrives.
+        for (int i = 1; i <= 3; i++) {
+            stats.onOutputReleased(i, startNs + i * 100000000L + 4000000, true, false);
+        }
+        stats.onOutputReleased(4, startNs + 400000000L + 4000000, false, false);
+        stats.onOutputReleased(5, startNs + 500000000L + 4000000, false, false);
+        float[] rates = stats.getFrameRates(startNs + 1100000000L);
+        // The window starts at the first received frame, which its own start excludes from the
+        // received count; the release stamps all fall inside it.
+        assertEquals(4, rates[0], 0.001f);
+        assertEquals(3, rates[1], 0.001f);
+        // Compositor-confirmed rate stays unavailable without callbacks.
+        assertEquals(-1, rates[2], 0);
+    }
+
+    @Test
     public void absentAndInvalidQueueTimestampsDoNotInventQueueWait() throws Exception {
         FrameLatencyStats stats = new FrameLatencyStats();
         for (long enqueueNs : new long[] {0, 4000000}) {

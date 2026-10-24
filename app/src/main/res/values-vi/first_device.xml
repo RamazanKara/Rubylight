@@ -25,7 +25,7 @@
     <string name="overlay_decode">Giải mã</string>
     <string name="overlay_host">Máy chủ</string>
     <string name="perf_overlay_releasedfps">Đưa ra hiển thị: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">Đã hiển thị: %1$s</string>
+    <string name="perf_overlay_shownfps">Đã kết xuất: %1$s</string>
     <string name="perf_overlay_presentdrops">Số khung hình hiển thị bị rớt ước tính: %1$d</string>
     <string name="perf_overlay_low_latency">Chế độ độ trễ thấp: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + nhà sản xuất chip</string>

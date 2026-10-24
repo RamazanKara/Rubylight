@@ -25,7 +25,7 @@
     <string name="overlay_decode">Kod çözme</string>
     <string name="overlay_host">Ana bilgisayar</string>
     <string name="perf_overlay_releasedfps">Ekrana gönderilen: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">Gösterilen: %1$s</string>
+    <string name="perf_overlay_shownfps">Render edilen: %1$s</string>
     <string name="perf_overlay_presentdrops">Tahmini ekran kare atlamaları: %1$d</string>
     <string name="perf_overlay_low_latency">Düşük gecikme modu: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + yonga üreticisi</string>

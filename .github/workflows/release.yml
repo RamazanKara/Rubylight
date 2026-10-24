@@ -206,7 +206,7 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake \
             mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf \
             mingw-w64-ucrt-x86_64-sdl3 mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-dav1d \
-            mingw-w64-ucrt-x86_64-winpthreads mingw-w64-ucrt-x86_64-gcc-libs
+            mingw-w64-ucrt-x86_64-winpthreads
       # Dry runs on main use and save the build caches. A tag run (the release itself) neither
       # restores nor saves the target, FFmpeg or SDK caches: it rebuilds them, so nothing a
       # branch run cached can end up in a published package. Only the downloaded crates

@@ -24,9 +24,9 @@ use crate::input::Input;
 
 /// `v` values accepted on gamepad messages. The TV sends 2 and also accepts 1.
 const ACCEPTED_VERSIONS: [i64; 2] = [1, 2];
-/// `v` of the control messages the host sends, as the design specifies. The
-/// TV app accepts 1 and 2.
-pub const CONTROL_VERSION: u32 = 1;
+/// `v` of the control messages the host sends: the reference's
+/// `GAMEPAD_PROTOCOL_VERSION`. The TV app accepts 1 and 2.
+pub const CONTROL_VERSION: u32 = 2;
 /// Controller slots in Moonlight's active gamepad mask.
 pub const MAX_GAMEPADS: usize = 16;
 /// The client re-sends an unchanged state at least this often. Documentation
@@ -1156,7 +1156,7 @@ mod tests {
         assert_eq!(
             json,
             json!({
-                "v": 1,
+                "v": 2,
                 "type": "rumble",
                 "controllerId": 42,
                 "controllerSlot": 0,
@@ -1166,6 +1166,29 @@ mod tests {
                 "rightTrigger": 1.0,
             })
         );
+    }
+
+    #[test]
+    fn host_sent_control_messages_use_version_2() {
+        for control in [
+            Control::MouseMode {
+                controller_id: 1,
+                slot: 0,
+                active: false,
+            },
+            Control::Rumble {
+                controller_id: 1,
+                slot: 0,
+                strong: 0.,
+                weak: 0.,
+                left_trigger: 0.,
+                right_trigger: 0.,
+            },
+        ] {
+            let json: Value = serde_json::from_str(&control.to_json()).unwrap();
+            assert_eq!(json["v"], 2, "{control:?}");
+        }
+        assert_eq!(CONTROL_VERSION, 2);
     }
 
     #[test]
@@ -1242,7 +1265,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             json,
-            json!({"v":1,"type":"mouse-mode","controllerId":5,"controllerSlot":2,"active":true})
+            json!({"v":2,"type":"mouse-mode","controllerId":5,"controllerSlot":2,"active":true})
         );
     }
 

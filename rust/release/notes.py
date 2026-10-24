@@ -21,7 +21,7 @@ version = tag.removeprefix('v')
 cargo = re.search(r'(?m)^version = "([^"]+)"', (root / 'Cargo.toml').read_text(encoding='utf-8'))[1]
 if cargo != version:
     raise SystemExit(f'Cargo.toml is at {cargo}, not {version}; run rust/release/bump.py {version} first.')
-match = re.search(r'-(rc\.\d+)$', version)
+match = re.fullmatch(r'2\.0\.0-(rc\.\d+)', version)
 label = match[1] if match else version
 history = (root / 'rust/RELEASE_NOTES.md').read_text(encoding='utf-8')
 section = re.search(r'(?ms)^## New in %s\s*\n(.*?)(?=^## )' % re.escape(label), history)

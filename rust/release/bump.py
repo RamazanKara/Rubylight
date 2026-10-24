@@ -10,7 +10,7 @@ READMEs and docs; the title, history and installer names in
 rust/RELEASE_NOTES.md; and adds a "## New in <label>" section above the
 previous one: the contents of --notes, or the bullets to fill in.
 
-The label is the version, except that 2.0 release candidates were "rc.N".
+The label is the version, except that 2.0.0 release candidates were "rc.N".
 Alpha and beta versions keep their full version so that 3.0.0-alpha.1 and
 3.1.0-alpha.1 get different sections.
 """
@@ -27,7 +27,7 @@ assert re.fullmatch(VERSION, new), new
 
 
 def label(version):
-    m = re.search(r'-(rc\.\d+)$', version)
+    m = re.fullmatch(r'2\.0\.0-(rc\.\d+)', version)
     return m[1] if m else version
 
 

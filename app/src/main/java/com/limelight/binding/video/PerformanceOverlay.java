@@ -16,7 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 
 public final class PerformanceOverlay {
-    /** One line: displayed FPS, network round trip and frame loss behind a health dot. The default. */
+    /** One line: rendered FPS, network round trip and frame loss behind a health dot. The default. */
     public static final String MODE_COMPACT = "compact";
     /** Six lines of stream measurements. */
     public static final String MODE_STATISTICS = "statistics";

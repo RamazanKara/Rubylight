@@ -475,7 +475,7 @@ Disconnect and End session need the device to own the session. **Close game** al
 
 ### Radeon settings with restore
 
-Not in 3.0.0-alpha.1; it is in the unreleased build after it. A device with host control that owns a running or suspended session can read and change Radeon settings of the GPU the host encodes on, for example Anti-Lag, Radeon Chill, Radeon Boost, Image Sharpening, Enhanced Sync, a frame rate target, vertical sync, AFMF and RSR sharpness. The host reads them through AMD's ADLX interface and offers a setting only if its write was proven on the installed driver. Each setting is in one of five states, and a client shows only what it can do:
+A device with host control that owns a running or suspended session can read and change Radeon settings of the GPU the host encodes on, for example Anti-Lag, Radeon Chill, Radeon Boost, Image Sharpening, Enhanced Sync, a frame rate target, vertical sync, AFMF and RSR sharpness. The host reads them through AMD's ADLX interface and offers a setting only if its write was proven on the installed driver. Each setting is in one of five states, and a client shows only what it can do:
 
 | State | Meaning |
 | --- | --- |

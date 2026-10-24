@@ -4,7 +4,7 @@
 
 Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play from. These guides take you from a first desktop stream to HDR, virtual displays and the Radeon frame pipeline.
 
-**Rubylight 3.0 needs an AMD Radeon GPU** with a working AMF encoder, on Windows 10 or 11. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). 3.0.0-alpha.1 is an alpha; the [3.0 roadmap](rubylight-3.0-plan.md) shows what is done and what is next.
+**Rubylight 3.0 needs an AMD Radeon GPU** with a working AMF encoder, on Windows 10 or 11. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). The [3.0 roadmap](rubylight-3.0-plan.md) shows how the release was planned and what comes next.
 
 **New here?** [Install Rubylight](getting-started.md#install-or-run-portable), [open the console](getting-started.md#open-the-console), then [pair Moonlight and launch Desktop](getting-started.md#pair-moonlight-and-start-desktop). Start at 1080p60 in SDR so you can check the picture, sound and controls before tuning the stream.
 
@@ -19,7 +19,9 @@ Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play 
 | Stream the game's sound without other applications | [Game-only audio](configuration.md#game-only-audio): supported Windows versions, verified launches and silence on capture failure. |
 | Let a device play while someone keeps using the PC | [Background streaming](configuration.md#background-streaming): an isolated display, controllers only, and which games work unfocused; or [a Hyper-V VM](configuration.md#background-streaming-from-a-hyper-v-vm) with full input. |
 | Give each device its own display or cap a game's frame rate | [Displays and RTSS](configuration.md#displays-and-rtss) · [Settings for one app or device](configuration.md#settings-for-one-app-or-device) |
-| Let a device close games or change Radeon settings, and see what each session action does | [Host control](configuration.md#host-control-for-a-device) · [Session actions](configuration.md#session-actions) · [Radeon settings with restore](configuration.md#radeon-settings-with-restore) |
+| Let a device close games or change Radeon settings, and see what each session action does | [Host control](configuration.md#host-control-for-a-device) · [Session actions](configuration.md#session-actions) · [Radeon settings with restore](configuration.md#radeon-settings-with-restore) · [A Radeon profile for each game](configuration.md#radeon-settings-per-game) |
+| Keep the stream from stalling on a slow link, or pick a latency or quality preset | [Link-rate adaptation](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Stream presets](configuration.md#stream-presets) |
+| Send frames earlier, or record where each frame's time goes | [Slice delivery](b2-slice-delivery.md) · [Timing record](timing-record.md) |
 | Set up a controller or use my client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
 | Launch Steam games from Steam Deck with MoonDeck | [MoonDeck setup](configuration.md#moondeck) |
 | Understand an away-from-home Tailscale connection | [Remote connection route](network-path.md): paired route diagnostics and what an unknown result means. |
@@ -32,7 +34,7 @@ The full [configuration guide](configuration.md) starts with the defaults. If a 
 | Guide | What it covers |
 | --- | --- |
 | [Architecture](architecture.md) | What is written in Rust, where compute fits, frame ownership, native HDR and PyroWave. |
-| [Performance](performance.md) | Comparisons under gaming load, the meaning of each measurement and links to recorded runs. |
+| [Performance](performance.md) | The 3.0 results, comparisons under gaming load, the meaning of each measurement and links to recorded runs. |
 | [3.0 roadmap](rubylight-3.0-plan.md) | What 3.0 contains, what is done and what is next. |
 | [Features](features.md) | Everything Rubylight does: video, capture, displays, input, library, console and clients. |
 | [Release notes](../rust/RELEASE_NOTES.md) | Changes in every Windows release, from the first release candidate to the latest release. |
@@ -49,7 +51,7 @@ The full [configuration guide](configuration.md) starts with the defaults. If a 
 | [Native API v1](native-api.md) | The paired-client API behind Nightjar: capabilities, library, session actions and Radeon settings. The design and contract. |
 | [Control messages](control-messages.md) | Rubylight's own client-to-host messages (phase lock, display luminance, mid-stream resolution change) and how a client finds out the host takes them. |
 | [Hardware metrics](hardware-metrics.md) | Client overlay telemetry: discovery, paired-client authentication, JSON readings, units, polling and errors. |
-| [Hardware matrix](hardware-matrix.md) | What we have tested and what we only expect, per GPU generation, Windows version, feature and client, plus the Radeon settings probes per GPU and driver. |
+| [Hardware matrix](hardware-matrix.md) | What we have tested and what is still Experimental, per GPU generation, Windows version, feature and client, plus the Radeon settings probes per GPU and driver. |
 | [Third-party components](../rust/THIRD_PARTY.md) | Codec SDKs, drivers and licensing. |
 | [Detailed performance record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, rejected experiments and reproduction instructions. |
 

@@ -2,7 +2,7 @@
 
 [Docs](README.md) · [HTTP API](api.md) · [Hardware metrics](hardware-metrics.md) · [3.0 plan](rubylight-3.0-plan.md)
 
-Status: **host side implemented for 3.0.0-alpha.2 (unreleased)** (all five briefs of A3: capabilities, library, session actions and the Radeon endpoints, with fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs`). The short user and developer reference is in [HTTP API](api.md#native-api-v1-paired-clients); where it differs from this design text, the code wins. Still awaiting validation: a stock Moonlight client pairing and streaming against an isolated test host, `curl` of every GET endpoint with a paired certificate, a Radeon write and crash-restore on real hardware, and the first real client (Nightjar's pin bump). It is the contract between the host and `nightjar-core` for the alpha.2 couch loop: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
+Status: **shipped since 3.0.0-alpha.2** (capabilities, library, session actions and the Radeon endpoints). Fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs` cover the contract, and the Radeon round trip and crash restore are recorded in the [hardware matrix](hardware-matrix.md). Nightjar 0.8.0 is the reference client. The short user and developer reference is in [HTTP API](api.md#native-api-v1-paired-clients); where it differs from this design text, the code wins. It is the contract between the host and `nightjar-core`: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
 
 ## Ground rules
 

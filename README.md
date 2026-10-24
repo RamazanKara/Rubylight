@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/banner.svg" width="900" alt="Rubylight — Written in Rust. Built for Radeon. Made for Moonlight.">
+  <img src="docs/media/banner.svg" width="900" alt="Rubylight: Written in Rust. Built for Radeon. Made for Moonlight.">
 </p>
 
 <p align="center">
@@ -24,11 +24,9 @@
 
 ## What it is
 
-Rubylight is a Windows game-streaming host. It runs on your gaming PC and streams to any Moonlight client. It was written for AMD Radeon first: AMF drives the encoder directly, and frame copies and colour conversion run on D3D12 compute queues beside your game.
+Rubylight is a Windows game-streaming host for your Radeon PC. It streams to any Moonlight client, and it is built around AMD hardware. AMF drives the encoder directly, frame copies and colour conversion run on D3D12 compute queues beside your game, and every stage of a frame is timed so the numbers below are ones we recorded, not ones we hoped for. 3.0 adds PyroWave, a wavelet codec for full-colour HDR on a fast network, a native API that lets a client browse your library and manage the session, link-rate adaptation, stream presets, Radeon controls per game and per device, and a frame timing record from capture to screen.
 
-**3.0 is AMD-only.** It needs a Radeon GPU with a working AMF video encoder, on Windows 10 or 11, whatever the GPU's generation. Setup and the host check for one and say what to do if it is missing. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
-
-**3.0.0-alpha.1 is an alpha.** Expect rough edges, and keep 2.6.0 around if you depend on it. The [roadmap](docs/rubylight-3.0-plan.md) lists what is done and what is next, and the [release notes](rust/RELEASE_NOTES.md) list every change.
+**Requirements:** an AMD Radeon GPU with a working AMF encoder, on Windows 10 or 11. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
 
 ## Install. Pair. Play.
 
@@ -49,20 +47,55 @@ Rubylight is a Windows game-streaming host. It runs on your gaming PC and stream
 
 ## What you get
 
+**Speed**
+
 | Feature | What it does |
 | --- | --- |
-| **Native AMD encoding** | AMF encodes H.264, HEVC and AV1, with per-codec defaults tuned by measurement. A lost frame is repaired with a small recovery frame instead of a full keyframe. |
+| **Native AMD encoding** | AMF encodes H.264, HEVC and AV1 with defaults tuned by measurement. A lost frame is repaired with a small recovery frame instead of a full keyframe. |
 | **Radeon compute pipeline** | Copies, colour conversion and scaling run on D3D12 compute queues, so the game and the stream wait on each other less. [How it works](docs/architecture.md) |
-| **A screen for every device** | Rubylight's own virtual display driver gives each client its resolution and refresh rate and hands every frame to the encoder directly. Your monitors come back when you disconnect. Physical displays stay supported, with Windows Graphics Capture or Desktop Duplication. |
-| **HDR, and PyroWave 4:4:4** | 10-bit HDR over HEVC and AV1. PyroWave adds full-colour HDR 4:4:4 on a fast local network, paced to each client's link. |
-| **Console and native API** | Home shows whether the PC is ready. Devices, Games & apps and Settings cover pairing, your library and stream options. The [native API](docs/native-api.md) lets Nightjar read your library and session. |
-| **Host control, per device** | In **Devices**, open a device and turn on **Host control** to let it close games and change Radeon settings. It is off for every device until you turn it on. [More](docs/configuration.md#host-control-for-a-device) |
-| **Session actions** | Disconnect leaves the game running, End session stops the stream and keeps the game, Close game also quits it. [More](docs/configuration.md#session-actions) |
-| **Radeon settings with restore** | A device with host control can change Radeon settings during a stream. Each change is journaled and put back when the session ends. Unreleased, after alpha.1. [More](docs/configuration.md#radeon-settings-with-restore) |
+| **PyroWave, 4:4:4 HDR** | A wavelet codec for full-colour HDR on a fast local network, paced to each client's link. |
+| **Beam-raced PyroWave** (experimental) | The host sends each frame in display order, so Nightjar on the desktop starts drawing the top of the picture while the bottom is still arriving. [Numbers](rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate) |
+| **Slice delivery** (experimental) | H.264 and HEVC frames go out slice by slice while the encoder works on the rest, with stock Moonlight. [Numbers](rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f) |
+| **VRR-aware capture** | With variable refresh, the host waits for the game's next frame when it is close, so the picture reaches the encoder fresh. [Numbers](docs/performance.md#vrr-capture-age) |
+| **Link-rate adaptation** | When a link cannot carry the bitrate you asked for, the host steps down to what it delivers, probes back up and returns to your rate when the link allows. Clients can show the change. [More](docs/configuration.md#lower-bitrate-when-the-link-cannot-carry-it) |
+| **Stream presets** | Lowest latency, Balanced or Reference quality, set once or per device or app. [More](docs/configuration.md#stream-presets) |
+| **Frame timing record** | One CSV row per frame with capture, convert, encode, send and client times on one clock. [More](docs/timing-record.md) |
 
-Also built in: Steam and Playnite library sync, RTSS frame limits, Lossless Scaling, VRR, DualSense haptics and adaptive triggers, a real Steam Deck controller, touch and pen, surround sound, microphone passthrough, streaming from the lock screen, and headless or VM hosts.
+**Control**
+
+| Feature | What it does |
+| --- | --- |
+| **A screen for every device** | Rubylight's own virtual display driver gives each client its resolution and refresh rate and hands every frame to the encoder directly. Your monitors come back when you disconnect. Physical displays work too, with Windows Graphics Capture or Desktop Duplication. |
+| **Console and native API** | Home shows whether the PC is ready. Devices, Games & apps and Settings cover pairing, your library and stream options. The [native API](docs/native-api.md) lets Nightjar read your library and session. |
+| **Host control, per device** | Turn it on for a device and that device can close games and change Radeon settings. It is off until you turn it on. [More](docs/configuration.md#host-control-for-a-device) |
+| **Session actions** | Disconnect leaves the game running, End session stops the stream and keeps the game, Close game also quits it. [More](docs/configuration.md#session-actions) |
+| **Radeon settings with restore** | A device with host control changes Radeon settings during a stream, and each change is put back when the session ends. [More](docs/configuration.md#radeon-settings-with-restore) |
+| **A Radeon profile for each game** | Competitive, Smoothness, Quality or your own list: Anti-Lag, frame caps, filtering, written when the game starts and restored when it ends, also after a crash. [More](docs/configuration.md#radeon-settings-per-game) |
+
+**Your library**
+
+| Feature | What it does |
+| --- | --- |
+| **Add games in one pass** | Scan Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, and Microsoft Store and Xbox PC games, then pick what you want. Steam and Playnite sync stays available. |
+| **Launcher hints** | When a launcher window waits for an update or a sign in, the session says so and the client can show it. |
+
+Also built in: RTSS frame limits, Lossless Scaling, DualSense haptics and adaptive triggers, a real Steam Deck controller, touch and pen, surround sound, microphone passthrough, streaming from the lock screen, and headless or VM hosts.
 
 [All features →](docs/features.md)
+
+## Measured
+
+Every number here comes from a recorded run on an RX 7900 XT, with its method and raw results in [rust/PERFORMANCE.md](rust/PERFORMANCE.md). The build that was measured is named in each row's source.
+
+| Result | Measured |
+| :-- | :-- |
+| **7.41 ms** | median time from capture to client present, H.264 1080p60 (HEVC and AV1 8.81 ms), from the frame timing record ([baselines](rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines)) |
+| **0.27 ms** | median age of the picture at the encoder with VRR, down from 4.68 ms, for a 120 Hz game in a 60 fps stream ([VRR](rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr)) |
+| **1.6 to 1.95 %** | of frames lost after the start-up when 75 Mbps is asked of a 50 Mbit/s link, down from 6.7 % ([link adaptation](rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix)) |
+| **1.4 ms** | sooner at the middle row of the picture with beam racing on, PyroWave at 399 Mbps on the desktop client ([beam racing](rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate)) |
+| **42 ms against 96 ms** | mean picture age under game-like GPU load, Rubylight 2.0.0-rc.2 against Vibepollo 2.0 on the same PC and settings ([comparison](rust/PERFORMANCE.md#against-vibepollo-20)) |
+
+The [performance guide](docs/performance.md) explains each metric and links the runs.
 
 ## Your games, ready to stream
 
@@ -74,35 +107,20 @@ Existing **Steam and Playnite synchronization** stays available through source m
 
 ## Runs on your hardware
 
-**GPUs.** Any AMD Radeon with a working AMF encoder, on Windows 10 or 11. Our measurements are on an RX 7900 XT. Users report daily use on RDNA 2, 3 and 4: RX 6800 XT, 6900 XT, 7900 XT, 7900 XTX, 9070 and 9070 XT, plus Radeon 890M handhelds. The [hardware matrix](docs/hardware-matrix.md) labels each GPU generation, Windows version, feature and client Tested, Expected, Experimental or Unsupported, with the evidence, and holds the Radeon settings probed on real hardware.
+**GPUs.** Any AMD Radeon with a working AMF encoder, on Windows 10 or 11. Our measurements are on an RX 7900 XT. Users report daily use on RDNA 2, 3 and 4: RX 6800 XT, 6900 XT, 7900 XT, 7900 XTX, 9070 and 9070 XT, plus Radeon 890M handhelds. The [hardware matrix](docs/hardware-matrix.md) lists each GPU generation, Windows version, feature and client with the evidence behind it.
 
 **Clients.** Rubylight speaks the Moonlight protocol, so Moonlight, Artemis and other Sunshine-compatible clients work unchanged.
 
 | Client | Highlights |
 | --- | --- |
+| **[Nightjar](https://github.com/RamazanKara/nightjar)** for Android, Windows and Linux (desktop in preview) | The full Rubylight experience: a console Home with your library and favourites, a session menu with a Radeon panel, an on-screen keyboard, PyroWave HDR 4:4:4, DualSense audio and haptics, and a Rust streaming engine. |
 | **Moonlight PC** (Windows, macOS, Linux, Steam Deck) | H.264, HEVC and AV1, SDR and HDR, up to 240 fps |
 | **Moonlight and Artemis on Android** | Native resolution at 120 Hz with HDR, on a virtual display that matches the phone |
-| **[Nightjar](https://github.com/RamazanKara/nightjar)** for Android | PyroWave HDR 4:4:4 and DualSense audio and haptics. Nightjar 0.8.0 and newer also use the native API: a console Home, your library and a Radeon panel during the stream. |
 | **Moonlight for Xbox** | 4K 120 Hz HDR on your TV |
 | **[Nonary's Moonlight](https://github.com/Nonary/moonlight-qt)** | PyroWave and 1000 Hz VRR on a PC |
 | **iOS, Apple TV, Switch** | Everything the device can decode |
 
 [Pick the right client and stream format →](docs/getting-started.md#choose-your-stream-format)
-
-## Measured
-
-Every number here comes from a recorded run on an RX 7900 XT, with its method and raw results in [rust/PERFORMANCE.md](rust/PERFORMANCE.md). The version is the build that was measured.
-
-| Result | Measured |
-| :-- | :-- |
-| **13.7 to 14.3 ms** | mean picture age from a rendered frame to a decoded picture, HDR at 120 fps with a game on the same GPU (2.2.9; HEVC 14.3 ms, AV1 13.7 ms) |
-| **7.4 ms lower** | mean picture age than Vibepollo 2.0 on the same GPU and settings under game-like GPU load, with p95 down 43% (HEVC) and 48% (AV1) ([rc.24 comparison](rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)) |
-| **Within 0.15 ms of 2.6.0** | mean picture age in 56 A/B streams on physical and virtual displays (3.0.0-alpha.1) |
-| **0.45 ms** | mean host processing for HEVC 1080p60 over wired LAN to a second PC, every frame decoded (3.0.0-alpha.1) |
-| **0.7 ms** | host time per frame at 2880×1800, 165 fps, AV1 10-bit HDR (2.5.6) |
-| **16.6 MB, 0% CPU** | for host and service together while idle |
-
-Picture age excludes display time and does not measure input-to-photon latency. The [performance guide](docs/performance.md) explains each metric and links the runs.
 
 ## Documentation
 
@@ -114,7 +132,7 @@ Picture age excludes display time and does not measure input-to-photon latency. 
 | See everything it does and how fast | [Features](docs/features.md) · [Performance](docs/performance.md) · [Architecture](docs/architecture.md) |
 | Check what we have tested on my GPU, Windows or client | [Hardware matrix](docs/hardware-matrix.md) |
 | Build or integrate Rubylight | [Build guide](docs/building.md) · [Developer guide](rust/README.md) · [HTTP API](docs/api.md) · [Native API](docs/native-api.md) |
-| See what 3.0 will contain | [3.0 roadmap](docs/rubylight-3.0-plan.md) |
+| See how 3.0 was planned | [3.0 roadmap](docs/rubylight-3.0-plan.md) |
 
 [Release notes](rust/RELEASE_NOTES.md) · Found a bug? [Open an issue](https://github.com/RamazanKara/Rubylight/issues/new/choose) with the support bundle from the console.
 

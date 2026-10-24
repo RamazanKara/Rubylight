@@ -2,18 +2,40 @@
 
 [Docs](README.md) · [How compute works](architecture.md) · [Troubleshooting](troubleshooting.md) · [Full measurement record](../rust/PERFORMANCE.md)
 
-Rubylight's performance work targets fresh pictures and lower picture age, especially when the GPU is busy. Everything here was measured on an RX 7900 XT. Start with the [3.0.0-alpha.1 gate against 2.6.0](#october-22-300-alpha1-against-260), then use the earlier full-stream and component tests to see where the time goes. Sections are dated and name the build they measured; later builds can differ. The [matched October 8 comparison](#next-to-vibepollo-20) retains its original builds and results.
+Rubylight's performance work targets fresh pictures and low picture age, especially when the GPU is busy. Everything here was measured on an RX 7900 XT unless a row names another device. Each section is dated and names the build it measured; later builds can differ. The [3.0 results](#30-results) come first, then the earlier full-stream and component tests that show where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) keeps its original builds and results.
 
-**On this page:** [3.0.0-alpha.1](#october-22-300-alpha1-against-260) · [2.5.0 comparisons](#october-17-250-comparisons) · [Metrics](#what-the-numbers-mean) · [Host latency between hosts](#comparing-host-latency-between-hosts) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
+**On this page:** [3.0 results](#30-results) · [2.5.0 comparisons](#october-17-250-comparisons) · [Metrics](#what-the-numbers-mean) · [Host latency between hosts](#comparing-host-latency-between-hosts) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
 
-## October 22: 3.0.0-alpha.1 against 2.6.0
+## 3.0 results
 
-3.0 removes the NVENC, Quick Sync and software encoders and makes the GPU fence ring the default for virtual-display capture. The gate checked that this cost nothing on Radeon. The full numbers and method are in the [alpha.1 hardware gate](../rust/PERFORMANCE.md#october-22-30-alpha1-hardware-gate) and the [fence ring under load](../rust/PERFORMANCE.md#october-22-fence-ring-under-gpu-load).
+Every row links to the method and the raw numbers in the [full record](../rust/PERFORMANCE.md).
 
-- **Against 2.6.0, ABBA order:** 56 streams on the physical display with WGC and Desktop Duplication (HEVC and AV1, 1440p120) and on the virtual display with both driver rings. Every mean picture age was within 0.15 ms of 2.6.0, and no encoder hung.
-- **Soak:** 30 minutes of HEVC 1080p60, with all 107,814 frames decoded at 60.1 fps and no growth in host or encode time.
-- **Wired LAN to a second PC:** a moonlight-common-c client streamed HEVC 1080p60 for 60 seconds. Every frame decoded, the arrival interval p99 was 20.9 ms and mean host processing was 0.45 ms.
-- **Not measured yet:** stock Moonlight on a phone.
+| What | Result | Record |
+| --- | --- | --- |
+| Frame timing record, 1080p60, loopback | Median capture to client present: H.264 7.41 ms, HEVC 8.81 ms, AV1 8.82 ms, PyroWave 13.34 ms. Decode medians 3.54, 5.02, 4.36 and 1.85 ms. | [Baselines](../rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines) |
+| VRR-aware capture | A 120 Hz game in a 60 fps stream: median age at the encoder 4.68 to 0.27 ms, present to sent 7.27 to 3.80 ms, shown frame rate unchanged. | [VRR](../rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr) |
+| Link-rate adaptation | 75 Mbps asked of a 50 Mbit/s link: 1.6 to 1.95 % of frames lost after the start-up (6.7 % before), the first cut within 1.6 s of the first loss, and no change on a clean Wi-Fi link. | [Link-rate fix](../rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix) |
+| Stream presets | Lowest latency makes the first keyframe 29 % smaller on HEVC and 38 to 40 % smaller on H.264. The median end to end time of the three presets was within 0.15 ms. | [Presets](../rust/PERFORMANCE.md#october-23-stream-presets-b3) |
+| Slice delivery (experimental) | 4K60 HEVC at 80 Mbps: the picture arrives 1.3 to 1.5 ms sooner on loopback and 1.2 to 1.4 ms sooner over Wi-Fi 6E to a laptop running Nightjar desktop. | [Slice delivery](../rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f) |
+| Beam-raced PyroWave (experimental) | Nightjar desktop, PyroWave 1080p60 at 399 Mbps, loopback: the picture's middle row is on screen 1.4 ms sooner (median age 5.32 to 3.93 ms). | [Beam-race gate](../rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate) |
+| Rust engine on Android | Retroid Pocket 6, HEVC 1080p60 at 40 Mbps, four runs of 75 s per engine: median end to end 6.92 ms against 7.04 ms for the classic engine. | [Rust engine](../rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8) |
+| Against 2.6.0 | 56 streams on physical and virtual displays, ABBA order: every mean picture age within 0.15 ms of 2.6.0. Wired LAN to a second PC: mean host processing 0.45 ms. | [alpha.1 gate](../rust/PERFORMANCE.md#october-22-30-alpha1-hardware-gate) |
+
+### VRR capture age
+
+With variable refresh, a game that runs faster than the stream used to reach the encoder up to a game frame old. The pacer now waits for the game's next frame when it is at least 2 ms away. The runs below used HEVC, 2560x720, a 60 fps stream, the VRR hint on, and a scripted game at three rates, A (old behaviour) against B (default), ABBA, two runs each.
+
+| Game | Age at the encoder, median A / B | Present to sent, median A / B |
+| --- | --- | --- |
+| 120 Hz | 4.68 / 0.27 ms | 7.27 / 3.80 ms |
+| 240 Hz | 2.53 / 0.23 ms | 4.76 / 2.83 ms |
+| 60 Hz | 0.26 / 0.23 ms | 2.81 / 2.80 ms |
+
+### Soak and correctness
+
+30 minutes of HEVC 1080p60 decoded all 107,814 frames at 60.1 fps with no growth in host or encode time. A moonlight-common-c client on wired LAN to a second PC decoded every frame of a 60 second HEVC 1080p60 stream, with an arrival interval p99 of 20.9 ms.
+
+Phones and other GPU generations are labelled in the [hardware matrix](hardware-matrix.md).
 
 ## October 17: 2.5.0 comparisons
 

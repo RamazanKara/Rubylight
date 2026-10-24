@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rubylight · Moonlight host for AMD Radeon</title>
-<meta name="description" content="A Windows game-streaming host for Moonlight, written in Rust and built for AMD Radeon: native AMF encoding, Radeon compute, HEVC and AV1 10-bit HDR, and PyroWave HDR 4:4:4.">
+<meta name="description" content="A Windows game-streaming host for Moonlight, written in Rust and built for AMD Radeon: native AMF encoding, Radeon compute, HEVC and AV1 10-bit HDR, PyroWave HDR 4:4:4, link-rate adaptation and a console on your phone.">
 <meta name="color-scheme" content="dark light">
 <meta property="og:title" content="Rubylight">
 <meta property="og:description" content="Written in Rust. Built for Radeon. Made for Moonlight.">
@@ -14,7 +14,7 @@
 </head>
 <body class="landing">
 <!--
-  Every number on this page comes from rust/PERFORMANCE_WORK.md or
+  Every number on this page comes from rust/PERFORMANCE.md or
   docs/performance.md and links to its section. When a newer measurement
   replaces one, update it here in the same commit.
 -->
@@ -35,34 +35,33 @@
 <main>
 <section class="hero">
   <div class="wrap">
-    <p class="eyebrow">Windows game-streaming host for Moonlight · formerly Butterpollo</p>
+    <p class="eyebrow">Rubylight 3.0 · Windows game-streaming host for Moonlight · formerly Butterpollo</p>
     <h1>Written in Rust.<br><span class="accent">Built for Radeon.</span><br>Made for Moonlight.</h1>
-    <p class="lede">Stream your games from any AMD Radeon PC to any screen: a laptop, TV, phone, tablet, handheld or another PC. Rubylight drives AMD's encoder natively, prepares every frame on Radeon compute, and carries HEVC and AV1 in 10-bit HDR, or full-colour HDR 4:4:4 through PyroWave. It works with Moonlight and every other Sunshine-compatible client.</p>
+    <p class="lede">Stream your games from a Radeon PC to a laptop, TV, phone, handheld or another PC. Rubylight drives AMD's encoder natively, prepares every frame on Radeon compute, and carries HEVC and AV1 in 10-bit HDR, or full-colour HDR 4:4:4 through PyroWave. It lowers the bitrate when your link cannot carry it, waits for your game's next frame under VRR, and times every frame from capture to screen. It works with Moonlight and every other Sunshine-compatible client, and with Nightjar it adds a console on your phone with your library, a session menu and Radeon controls.</p>
     <div class="actions">
       <a class="button" href="{{download_url}}">Download {{download_label}}</a>
       <a class="button ghost" href="docs/getting-started.html">Get started</a>
     </div>
-    <p class="fine">Windows x64 · free and open source (GPL-3.0)</p>
+    <p class="fine">Windows x64 · AMD Radeon with AMF · free and open source (GPL-3.0) · NVIDIA and Intel stay on <a href="https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0">Rubylight 2.6.x</a></p>
 
     <div class="stats">
       <div class="stat">
-        <p class="stat-value">14.34<span> ms</span></p>
-        <p class="stat-label">HEVC picture age under GPU load, native HDR at 120 fps</p>
-        <p class="stat-note">95th percentile 16.03 ms · local hardware decode</p>
+        <p class="stat-value">7.41<span> ms</span></p>
+        <p class="stat-label">median from capture to client present, H.264 1080p60</p>
+        <p class="stat-note">HEVC 8.81 ms · AV1 8.82 ms · PyroWave 13.34 ms · loopback</p>
       </div>
       <div class="stat">
-        <p class="stat-value">13.65<span> ms</span></p>
-        <p class="stat-label">AV1 picture age under GPU load, native HDR at 120 fps</p>
-        <p class="stat-note">95th percentile 18.00 ms · local hardware decode</p>
+        <p class="stat-value">0.27<span> ms</span></p>
+        <p class="stat-label">median age of the picture at the encoder with VRR</p>
+        <p class="stat-note">down from 4.68 ms · 120 Hz game in a 60 fps stream</p>
       </div>
       <div class="stat">
-        <p class="stat-value">120<span> fps</span></p>
-        <p class="stat-label">fresh pictures delivered under the synthetic GPU load</p>
-        <p class="stat-note">HEVC 119.99 · AV1 119.98 · 1968×2184 HDR</p>
+        <p class="stat-value">1.6<span> %</span></p>
+        <p class="stat-label">of frames lost when 75 Mbps is asked of a 50 Mbit/s link</p>
+        <p class="stat-note">1.6 to 1.95 % after the start-up, down from 6.7 %</p>
       </div>
     </div>
-    <p class="fine">Rubylight 2.2.9, October 12, 2026 · RX 7900 XT · DDX · two runs per codec. Excludes remote network and display time. <a href="#performance">How these were measured</a></p>
-    <p class="fine">Next: Direct3D 12 from capture to encoder. Conversion and encoding already run on D3D12; moving capture there too removes the Direct3D 11 hand-off from every frame.</p>
+    <p class="fine">Rubylight 3.0 builds, October 2026 · RX 7900 XT · release builds, our own runs. <a href="#performance">How these were measured</a></p>
   </div>
 </section>
 
@@ -78,125 +77,47 @@
 <section id="performance" class="section">
   <div class="wrap">
     <p class="eyebrow">Measured, not claimed</p>
-    <h2>Measured picture age under GPU load</h2>
-    <p class="section-lede">The October 12 native-HDR tests measured 14.34 ms average picture age for HEVC and 13.65 ms for AV1 at 1968×2184 and 120 fps. A timestamped picture passes through capture, encoding and independent hardware decoding on the same Radeon PC.</p>
-    <p><b>Rubylight 2.2.9 — October 12, 2026.</b> The refresh passed 81 encoder probes, encoded and scored 148 AMF quality cases (32 defaults plus 116 settings variants), and passed 36 short loopback streams and 12 static-keyframe checks, alongside CPU, GPU, input and PyroWave component checks. <a href="docs/performance.html#october-12-229-measurements">Current measurements and scope</a></p>
-    <p>The AMF property sweeps passed <b>1,018/1,030 probes</b>. Twelve 4K SDR cases with preanalysis enabled failed completion or frame-accounting checks; these probes do not measure full-stream latency. <a href="rust/PERFORMANCE.html#retained-amf-property-sweeps-october-12">Settings results and failures</a></p>
-    <p>Both 4K120 HEVC runs and both 5120×1440/240 FPS saturation runs failed the stream gates. The audio/load/outage batch passed <b>6/11 full-stream checks</b>, while <b>11/11 retained continuous audio</b>. Those earlier stream batches used physical SDR capture with converted HDR output, separately from the native-HDR measurements.</p>
-    <p>Both 120-second audio streams passed, with <b>24/24 continuous audio windows</b>. All four loss controls passed; all four injected-outage runs failed the normal gap checks. The short soak passed <b>64/67 cases</b>, with three GPU-load freshness failures. Reconnect, switching, helper recovery and host working set, handle and thread growth checks passed. A <a href="rust/PERFORMANCE_WORK.html#gpu-memory-counter-follow-up-october-12">30-reconnect follow-up</a> reproduced the rising GPU process counter as a reporting artifact: adapter-wide memory returned to baseline, with no sustained VRAM growth observed. <a href="rust/PERFORMANCE_WORK.html#short-soak-switching-reconnects-and-wgc-helper-recovery">Soak results and scope</a></p>
-    <p>The real Radeon 780M Wi-Fi receiver passed <b>20/20 stream checks</b>: 12 HDR-output conversion runs and eight control/recovery runs. <b>19/20 calibrated timing records</b> passed source validation; one had mismatched barcode timestamps and remains unavailable. Timing ends at frame assembly/enqueue, before decoder queueing, decoding or display. <a href="rust/PERFORMANCE_WORK.html#real-wi-fi-hardware-receiver-streams-october-12">Current Wi-Fi results</a></p>
-    <p>Official <b>Moonlight 6.2.0</b> completed two <b>165-second 1080p60 HEVC SDR sessions requesting 80 Mbps</b> on the Radeon 780M laptop over Wi-Fi, reporting <b>59.99 FPS rendering</b> in both. These component statistics do not measure full picture age. Both wrappers failed their immediate exit check; later checks confirmed natural exit with settings and pairings preserved. <a href="rust/PERFORMANCE_WORK.html#stock-moonlight-620-over-wi-fi-october-12">Stock Moonlight results</a></p>
-    <p>The native-HDR follow-up passed <b>28/28 DDX/WGC stream and timing checks</b> and <b>4/4 HDR pixel checks</b>. The separate SDR VRR capture sweep has <b>20 valid requested-mode phases</b>; <b>12 phases remain unavailable</b> because Windows selected different refresh rates. The historical private HDR/RTSS fixture source is unavailable.</p>
+    <h2>Every number has a run behind it</h2>
+    <p class="section-lede">Rubylight records the time of each frame at every stage and keeps the method and the raw results next to each number. All of these were measured on an RX 7900 XT.</p>
 
-    <figure class="chart" aria-labelledby="chart-title">
-      <figcaption>
-        <h3 id="chart-title">Current Rubylight and historical Vibepollo picture age</h3>
-        <p>Rubylight 2.2.9: October 12. Vibepollo 2.0: October 8, 2026, unchanged. Bar: average. Thin line: 95th percentile. Different physical desktop conditions; these are not a new matched comparison.</p>
-      </figcaption>
-      <div class="legend" aria-hidden="true">
-        <span><i class="key bp"></i>Rubylight 2.2.9 · October 12</span>
-        <span><i class="key vp"></i>Vibepollo 2.0 · October 8</span>
-      </div>
-      <div class="bars">
-        <div class="group">
-          <p class="group-label">1968×2184 HEVC HDR, 120 fps</p>
-          <div class="bar-row" tabindex="0" style="--mean:14.34;--p95:16.03">
-            <div class="track"><span class="bar bp"></span><span class="whisker"></span></div>
-            <span class="val"><b>14.3</b> ms<small>p95 16.0</small></span>
-            <span class="tip">Rubylight 2.2.9, October 12: average 14.34 ms, p95 16.03 ms, p99 18.15 ms, host latency 3.35 ms</span>
-          </div>
-          <div class="bar-row" tabindex="0" style="--mean:26.96;--p95:37.62">
-            <div class="track"><span class="bar vp"></span><span class="whisker"></span></div>
-            <span class="val"><b>27.0</b> ms<small>p95 37.6</small></span>
-            <span class="tip">Vibepollo 2.0: average 26.96 ms, p95 37.62 ms, p99 39.25 ms, host latency 8.3 ms</span>
-          </div>
-        </div>
-        <div class="group">
-          <p class="group-label">1968×2184 AV1 HDR, 120 fps</p>
-          <div class="bar-row" tabindex="0" style="--mean:13.65;--p95:18.00">
-            <div class="track"><span class="bar bp"></span><span class="whisker"></span></div>
-            <span class="val"><b>13.6</b> ms<small>p95 18.0</small></span>
-            <span class="tip">Rubylight 2.2.9, October 12: average 13.65 ms, p95 18.00 ms, p99 18.95 ms, host latency 5.25 ms</span>
-          </div>
-          <div class="bar-row" tabindex="0" style="--mean:24.53;--p95:36.77">
-            <div class="track"><span class="bar vp"></span><span class="whisker"></span></div>
-            <span class="val"><b>24.5</b> ms<small>p95 36.8</small></span>
-            <span class="tip">Vibepollo 2.0: average 24.53 ms, p95 36.77 ms, p99 38.05 ms, host latency 7.4 ms</span>
-          </div>
-        </div>
-        <div class="group">
-          <p class="group-label">1920×1080 HEVC HDR, 60 fps</p>
-          <div class="bar-row" tabindex="0" style="--mean:10.64;--p95:18.27">
-            <div class="track"><span class="bar bp"></span><span class="whisker"></span></div>
-            <span class="val"><b>10.6</b> ms<small>p95 18.3</small></span>
-            <span class="tip">Rubylight 2.2.9, October 12: average 10.64 ms, p95 18.27 ms, p99 18.58 ms, host latency 2.24 ms</span>
-          </div>
-          <div class="bar-row" tabindex="0" style="--mean:20.55;--p95:22.55">
-            <div class="track"><span class="bar vp"></span><span class="whisker"></span></div>
-            <span class="val"><b>20.6</b> ms<small>p95 22.6</small></span>
-            <span class="tip">Vibepollo 2.0 (one run): average 20.55 ms, p95 22.55 ms, p99 22.66 ms, host latency 5.7 ms</span>
-          </div>
-        </div>
-        <div class="axis" aria-hidden="true"><span>0</span><span>10</span><span>20</span><span>30</span><span>40</span></div>
-      </div>
-    </figure>
-
-    <p class="note">Current DDX results average two runs per codec and include local hardware decoding, excluding remote network and display time. The virtual HDR source remains at 120 Hz. The physical desktop changed from 2560×1440/120 Hz on October 8 to 5120×1440/240 Hz on October 12. Different dates and desktop conditions prevent a matched improvement claim. <a href="rust/PERFORMANCE_WORK.html#native-virtual-hdr-headline-streams-october-12">Current native runs and scope</a></p>
-
-    <h3 class="table-title">Historical matched comparison: October 8, 2026</h3>
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Picture age, average / p95 / p99</th><th>Rubylight rc.24</th><th>Vibepollo 2.0</th></tr>
+          <tr><th>What</th><th>Result</th></tr>
         </thead>
         <tbody>
-          <tr class="row-group"><th colspan="3">Beside a game capped at 60 fps</th></tr>
-          <tr><td>1968×2184 HEVC HDR 120 fps</td><td><b>19.61 / 21.56 / 23.10 ms</b><br><small>host 3.4 ms</small></td><td>26.96 / 37.62 / 39.25 ms<br><small>host 8.3 ms</small></td></tr>
-          <tr><td>1968×2184 AV1 HDR 120 fps</td><td><b>17.15 / 18.96 / 22.18 ms</b><br><small>host 3.1 ms</small></td><td>24.53 / 36.77 / 38.05 ms<br><small>host 7.4 ms</small></td></tr>
-          <tr><td>1920×1080 HEVC HDR 60 fps</td><td>17.84 / 21.78 / 22.84 ms<br><small>host 2.2 ms</small></td><td>20.55 / 22.55 / 22.66 ms<br><small>host 5.7 ms, one run</small></td></tr>
-          <tr class="row-group"><th colspan="3">No game running</th></tr>
-          <tr><td>1968×2184 HEVC HDR 120 fps</td><td><b>17.81 / 18.94 / 19.56 ms</b></td><td>19.97 / 20.43 / 20.87 ms</td></tr>
-          <tr><td>1968×2184 AV1 HDR 120 fps</td><td><b>17.42 / 18.10 / 18.62 ms</b></td><td>18.88 / 19.54 / 19.90 ms</td></tr>
-          <tr><td>2560×1440 HEVC HDR 120 fps</td><td>17.09 / 17.99 / 18.46 ms</td><td>17.19 / 17.68 / 17.93 ms</td></tr>
+          <tr><td>Frame timing record, 1080p60, loopback</td><td><b>7.41 ms</b> median from capture to client present with H.264, <b>8.81 ms</b> with HEVC, <b>8.82 ms</b> with AV1, <b>13.34 ms</b> with PyroWave. <a href="rust/PERFORMANCE.html#october-23-per-frame-timing-record-baselines">Baselines</a></td></tr>
+          <tr><td>VRR-aware capture</td><td>A 120 Hz game in a 60 fps stream: median age at the encoder <b>4.68 to 0.27 ms</b>, present to sent <b>7.27 to 3.80 ms</b>, shown frame rate unchanged. <a href="rust/PERFORMANCE.html#october-24-predictive-claim-waits-under-vrr">VRR</a></td></tr>
+          <tr><td>Link-rate adaptation</td><td>75 Mbps asked of a 50 Mbit/s link: <b>1.6 to 1.95 %</b> of frames lost after the start-up, against 6.7 % before the fix, and no change on a clean Wi-Fi link. <a href="rust/PERFORMANCE.html#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix">Link-rate fix</a></td></tr>
+          <tr><td>Stream presets</td><td>Lowest latency makes the first keyframe <b>29 %</b> smaller on HEVC and <b>38 to 40 %</b> smaller on H.264. The median end to end time of the three presets stayed within <b>0.15 ms</b>. <a href="rust/PERFORMANCE.html#october-23-stream-presets-b3">Presets</a></td></tr>
+          <tr><td>Slice delivery (experimental)</td><td>4K60 HEVC at 80 Mbps arrives <b>1.3 to 1.5 ms</b> sooner on loopback and <b>1.2 to 1.4 ms</b> sooner over Wi-Fi 6E. <a href="rust/PERFORMANCE.html#october-23-slice-delivery-b2-step-2f">Slice delivery</a></td></tr>
+          <tr><td>Beam-raced PyroWave (experimental)</td><td>On the Nightjar desktop client the picture's middle row is on screen <b>1.4 ms</b> sooner, median age 5.32 to 3.93 ms, at 399 Mbps. <a href="rust/PERFORMANCE.html#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate">Beam racing</a></td></tr>
+          <tr><td>Rust engine in Nightjar on Android</td><td>Retroid Pocket 6, HEVC 1080p60 at 40 Mbps: median end to end <b>6.92 ms</b> against 7.04 ms for the classic engine. <a href="rust/PERFORMANCE.html#october-23-rust-engine-against-the-c-engine-on-android-b8">Rust engine</a></td></tr>
+          <tr><td>Against 2.6.0</td><td>56 streams on physical and virtual displays: every mean picture age within <b>0.15 ms</b> of 2.6.0. Wired LAN to a second PC: mean host processing <b>0.45 ms</b>. <a href="rust/PERFORMANCE.html#october-22-30-alpha1-hardware-gate">Hardware gate</a></td></tr>
         </tbody>
       </table>
     </div>
-    <p class="note">Rubylight rc.24 and the pinned Vibepollo 2.0 build on the same GPU, alternating in one batch, two runs per cell. Identical settings: native AMF at ultra-low latency, Desktop Duplication capture, a virtual HDR display. The picture is decoded in hardware by an independent client on the same PC, which isolates the host from the network so the two can be compared precisely; the Wi-Fi results below add a real network. Beside the game Rubylight also delivered more fresh pictures: 117–120 a second against 103–118. <a href="rust/PERFORMANCE_WORK.html#rc24-against-vibepollo-20-on-the-same-gpu">Runs and settings</a></p>
 
-    <h3 class="sub-title">Over Wi-Fi</h3>
-    <p>The <a href="rust/PERFORMANCE_WORK.html#real-wi-fi-hardware-receiver-streams-october-12">October 12 Rubylight 2.2.9 hardware-receiver matrix</a> passed 20/20 ordinary stream checks, with 19 valid calibrated timing records. It measures arrival at assembly/enqueue from a physical SDR source, including HDR-output conversion. The 1.177 ms clock-fit diagnostic is not a proven error bound. The following October 8 measurements retain their original method and date.</p>
-    <p>A client on 5 GHz Wi-Fi, decoding in hardware, against the host on Ethernet. "Received" is when the client starts decoding a fully received picture.</p>
+    <h3 class="table-title">Next to Vibepollo 2.0</h3>
+    <p>Rubylight 2.0.0-rc.2 and Vibepollo 2.0 alternated in one batch on the same PC and settings: HEVC 10-bit HDR at 1080p60, 20 Mbps, Desktop Duplication, a 120 Hz virtual display, three runs each. Picture age is the time from a rendered picture to an independent decoder on the same PC, so it leaves out remote network and display time. The figures are means of the three runs.</p>
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>HDR, render to received</th><th>Average / p95 / p99</th><th>Fresh pictures</th><th>Host</th></tr>
+          <tr><th>Case</th><th>Vibepollo 2.0</th><th>Rubylight 2.0.0-rc.2</th></tr>
         </thead>
         <tbody>
-          <tr><td>1968×2184 AV1, 120 fps, 80 Mbps</td><td><b>13.54 / 14.33 / 14.93 ms</b></td><td>120.0/s</td><td>3.0 ms</td></tr>
-          <tr><td>1968×2184 HEVC, 120 fps, 80 Mbps</td><td>14.13 / 14.97 / 15.90 ms</td><td>120.0/s</td><td>3.7 ms</td></tr>
-          <tr><td>2560×1440 AV1, 120 fps, 50 Mbps</td><td>13.34 / 14.15 / 16.12 ms<br><small>repeat: 13.28 / 14.07 / 15.63 ms</small></td><td>120.0/s</td><td>2.8 ms</td></tr>
-          <tr><td>2560×1440 HEVC, 120 fps, 50 Mbps</td><td>13.67 / 14.69 / 19.87 ms</td><td>120.0/s</td><td>3.1 ms</td></tr>
-          <tr><td>1920×1080 AV1, 60 fps, 20 Mbps</td><td>12.91 / 15.05 / 17.89 ms</td><td>60.6/s</td><td>2.2 ms</td></tr>
-          <tr><td>1920×1080 HEVC, 60 fps, 20 Mbps</td><td>12.99 / 14.15 / 16.62 ms</td><td>60.5/s</td><td>2.4 ms</td></tr>
+          <tr><td>Idle, picture age mean / p95</td><td>15.96 / 16.65 ms</td><td><b>13.77 / 14.51 ms</b></td></tr>
+          <tr><td>Under game-like load, picture age mean / p95</td><td>96.44 / 136.98 ms</td><td><b>42.43 / 56.49 ms</b></td></tr>
+          <tr><td>Under game-like load, new pictures per second</td><td>23.9</td><td><b>51.4</b></td></tr>
         </tbody>
       </table>
     </div>
-    <p class="note">Rubylight rc.24, October 8, 2026, one 30-second run per row. The client's clock was synchronised to the host with 200 ms pings (error about ±0.6 ms). Every picture arrived and decoded. <a href="rust/PERFORMANCE_WORK.html#october-8-real-client-picture-age-over-wi-fi-rc24-laptop">Method and clock sync</a></p>
+    <p class="note"><a href="rust/PERFORMANCE.html#against-vibepollo-20">Setup, per-run values and artifacts</a></p>
 
-    <p>With Moonlight on the same link, a 1440p120 AV1 stream held 119.7 fps with no loss, and with the host dropping 20 ms of video every 1.5 s, <b>all 59 lost frames were recovered without a keyframe</b> at 117.7 fps.</p>
-
-    <h3 class="sub-title">Earlier results</h3>
-    <ul class="results">
-      <li><b>Radeon compute, one setting changed:</b> average picture age beside a game-like load fell from 41.0 to 33.5 ms and the 95th percentile from 54.4 to 42.3 ms (1080p60 HEVC HDR). <a href="docs/performance.html#isolating-radeon-compute">Details</a></li>
-      <li><b>PyroWave beside a GPU-heavy game:</b> 0.55 ms per 1080p HDR 4:4:4 frame instead of 5.7 ms, now that its colour conversion runs on the compute queue. <a href="docs/performance.html#radeon-under-pressure">Details</a></li>
-      <li><b>A saturated encoder:</b> at 5120×1440 HEVC 240 fps a game frame reaches the network in 11.1 ms instead of 42.7 ms. <a href="docs/performance.html#radeon-under-pressure">Details</a></li>
-      <li><b>Input under CPU load:</b> a mouse move behind a controller update took at worst 2.0 ms instead of 287 ms. <a href="docs/performance.html#input-under-load">Details</a></li>
-      <li><b>H.264 picture quality:</b> adaptive quantization off by default raised VMAF by 1.0 and 9.4 points at 1440p120 and 20 Mbps, at the same encode time. <a href="rust/PERFORMANCE_WORK.html#amf-settings-per-codec-quality-at-a-given-bitrate">Details</a></li>
-    </ul>
     <h3 class="sub-title">Works with</h3>
     <ul class="results">
       <li><b>Every Moonlight and Sunshine-compatible client</b>, on Windows, macOS, Linux, Android, iOS, TVs, consoles and handhelds.</li>
-      <li><b>AMD Radeon GPUs</b>, desktop and mobile, as the host.</li>
+      <li><b>Any AMD Radeon GPU with AMF</b>, desktop and mobile, as the host, on Windows 10 and 11.</li>
       <li><b>Locked Windows</b>, so you can sign in from the couch, <b>headless machines and VMs</b> with no monitor, and <b>Kubernetes pods with GPUs</b>.</li>
     </ul>
     <p><a class="more" href="docs/performance.html">All performance results and what each number means</a></p>
@@ -209,12 +130,12 @@
     <h2>The Radeon frame path, end to end</h2>
     <div class="cards">
       <article class="card">
-        <h3>Radeon compute</h3>
-        <p>Frame copies and colour conversion run on D3D12 compute queues beside the game's graphics work, instead of waiting behind it.</p>
+        <h3>Native AMF encoding</h3>
+        <p>AMD's encoder driven directly, not through a generic wrapper, and tuned per codec from VMAF measurements. A lost frame is repaired with a small recovery frame instead of a keyframe.</p>
       </article>
       <article class="card">
-        <h3>Native AMF encoding</h3>
-        <p>AMD's encoder driven directly, not through a generic wrapper, and tuned per codec from VMAF measurements. Driver quirks get workarounds, and lose them once AMD fixes the driver.</p>
+        <h3>Radeon compute</h3>
+        <p>Frame copies and colour conversion run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.</p>
       </article>
       <article class="card">
         <h3>HEVC and AV1 HDR</h3>
@@ -222,19 +143,47 @@
       </article>
       <article class="card">
         <h3>PyroWave HDR 4:4:4</h3>
-        <p>A colour sample for every pixel keeps coloured text and edges crisp, over a fast local network with <a href="https://github.com/RamazanKara/nightjar">Nightjar</a>, an Android client with PyroWave support, or any other PyroWave-capable Moonlight client.</p>
+        <p>A colour sample for every pixel keeps coloured text and edges crisp over a fast local network, with <a href="https://github.com/RamazanKara/nightjar">Nightjar</a> or any other PyroWave-capable Moonlight client.</p>
       </article>
       <article class="card">
-        <h3>Virtual displays</h3>
-        <p>A display per device, shared or off, with exclusive, extended, primary and isolated layouts, HDR, and your own layout restored after the stream.</p>
+        <h3>Beam racing and slices (experimental)</h3>
+        <p>PyroWave frames arrive in display order so the top of the picture can be drawn while the bottom is still on the wire, and H.264 and HEVC frames can leave the host slice by slice.</p>
+      </article>
+      <article class="card">
+        <h3>Link-rate adaptation</h3>
+        <p>When your link cannot carry the bitrate you asked for, the host steps down to what it delivers, probes back up, and tells the client what it did.</p>
+      </article>
+      <article class="card">
+        <h3>Stream presets</h3>
+        <p>Lowest latency, Balanced or Reference quality, for the whole host, one device or one app.</p>
+      </article>
+      <article class="card">
+        <h3>VRR-aware capture</h3>
+        <p>With variable refresh, the host waits for the game's next frame when it is close, so the encoder gets a fresh picture.</p>
+      </article>
+      <article class="card">
+        <h3>Radeon controls</h3>
+        <p>Turn on Host control for a device and it can change Anti-Lag, Radeon Chill and more during a stream. Each change is undone when the session ends. Give a game its own Radeon profile and it is set when the game starts.</p>
+      </article>
+      <article class="card">
+        <h3>A console on your phone</h3>
+        <p>With <a href="https://github.com/RamazanKara/nightjar">Nightjar</a>, Home shows favourites, what is running and your library across PCs. A session menu closes the game or changes Radeon settings without leaving the stream.</p>
       </article>
       <article class="card">
         <h3>Your library</h3>
-        <p>Steam and Playnite sync, per-app and per-device settings, RTSS frame limits, Lossless Scaling, and a 1000 Hz VRR mode.</p>
+        <p>Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store and Xbox PC games in one scan, plus Playnite sync, per-app settings, RTSS frame limits and Lossless Scaling.</p>
+      </article>
+      <article class="card">
+        <h3>Virtual displays</h3>
+        <p>A display per device, shared or off, with exclusive, extended, primary and isolated layouts, HDR, and your own layout restored after the stream. Physical displays work too.</p>
       </article>
       <article class="card">
         <h3>Controllers</h3>
         <p>Xbox, DualSense with adaptive triggers and Switch Pro pads from one signed driver. With usbip-win2 installed, a Steam Deck can show up on the host as a real Steam Deck controller.</p>
+      </article>
+      <article class="card">
+        <h3>A timing record for every frame</h3>
+        <p>One CSV row per frame with capture, convert, encode, send and client times on one clock, so you can see where your own milliseconds go.</p>
       </article>
       <article class="card">
         <h3>Rust throughout</h3>
@@ -305,7 +254,7 @@
       <a href="docs/architecture.html"><b>Architecture</b><span>The Radeon frame path, HDR and PyroWave</span></a>
       <a href="docs/performance.html"><b>Performance</b><span>Comparisons and what each number means</span></a>
       <a href="docs/features.html"><b>Features</b><span>Video, capture, displays, input, library and clients</span></a>
-      <a href="rust/RELEASE_NOTES.html"><b>Release notes</b><span>Every release, honestly described</span></a>
+      <a href="rust/RELEASE_NOTES.html"><b>Release notes</b><span>Every release, with what was tested</span></a>
       <a href="docs/building.html"><b>Build guide</b><span>Toolchain, dependencies, packaging and CI</span></a>
       <a href="docs/api.html"><b>HTTP API</b><span>Authentication, permissions and endpoints</span></a>
     </div>

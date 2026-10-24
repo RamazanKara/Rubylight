@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Troubleshooting](troubleshooting.md)
 
-Rubylight is a Windows x64 streaming host written in Rust, for AMD Radeon GPUs. The current release, 3.0.0-alpha.1, is an alpha. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
+Rubylight is a Windows x64 streaming host written in Rust, for AMD Radeon GPUs. The current release is 3.0.0-beta.1. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
 
 **On this page:** [Before you start](#before-you-start) · [Install](#install-or-run-portable) · [Open the console](#open-the-console) · [Pair Moonlight](#pair-moonlight-and-start-desktop) · [Stream formats](#choose-your-stream-format) · [Displays and updates](#virtual-displays-and-updates) · [Import a profile](#bring-an-existing-profile) · [Upgrading](#upgrading)
 
@@ -72,7 +72,7 @@ For a fresh configuration, leave **Settings → Video → Capture method** on **
 
 If the host is missing, start with [discovery and pairing](troubleshooting.md#moonlight-cannot-find-or-pair-with-the-pc). If Desktop opens to a black picture, check [capture and displays](troubleshooting.md#black-picture-no-display-or-wgc-fails).
 
-To let [Nightjar](https://github.com/RamazanKara/nightjar) 0.8.0 or newer close games or change Radeon settings from the couch, turn on **Host control** for that device. It is off after pairing. See [host control](configuration.md#host-control-for-a-device).
+With [Nightjar](https://github.com/RamazanKara/nightjar) 0.8.0 or newer on Android, your phone opens on a console Home with your library, favourites and a game page for each title. To let it also close games or change Radeon settings from the couch, turn on **Host control** for that device. It is off after pairing. See [host control](configuration.md#host-control-for-a-device).
 
 If pairing succeeds but launching is denied, check the device's enabled state and **List apps**, **View streams** and **Launch apps** permissions in **Devices → Edit**.
 

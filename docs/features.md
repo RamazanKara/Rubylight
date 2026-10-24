@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md) · [Performance](performance.md)
 
-Everything Rubylight does, grouped by what you will notice while streaming. For the numbers behind the speed, see [Performance](performance.md).
+Everything Rubylight does, grouped by what you will notice while streaming. Features marked experimental are off until you turn them on. For the numbers behind the speed, see [Performance](performance.md).
 
 ## Fast video on Radeon
 
@@ -11,6 +11,12 @@ Everything Rubylight does, grouped by what you will notice while streaming. For 
 - **Radeon compute.** Frame copies, colour conversion and letterboxing run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.
 - **HDR from capture to screen.** Ten-bit BT.2020/PQ through HEVC and AV1, with HDR metadata in the keyframes, and ten-bit SDR where you want it.
 - **PyroWave HDR 4:4:4.** A colour sample for every pixel, so coloured text and fine edges stay crisp, on [Nightjar](https://github.com/RamazanKara/nightjar) for Android or any other PyroWave-capable Moonlight client over a fast local network.
+- **Link-rate adaptation.** When a device loses frames that error correction cannot repair, for example 150 Mbps asked of a 100 Mbps link, the host steps the bitrate down to what the link delivered, says so on the stream card, probes back up in small steps and returns to your rate after ten clean seconds. On a 50 Mbit/s link asked for 75 Mbps, 1.6 to 1.95 % of frames were lost after the start-up (6.7 % before the 3.0 fix). A link that carries the stream sees no change. [Details](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Numbers](performance.md#30-results).
+- **Stream presets.** Lowest latency, Balanced and Reference quality fill in the encoder settings you did not set, for the whole host, one device or one app. Lowest latency made the first keyframe 29 % smaller on HEVC and 38 to 40 % smaller on H.264, with the same median end to end time. [Details](configuration.md#stream-presets).
+- **VRR-aware capture.** With variable refresh, the host waits for the game's next frame when it is close, so the picture reaches the encoder fresh: 0.27 ms old instead of 4.68 ms for a 120 Hz game in a 60 fps stream. [Numbers](performance.md#vrr-capture-age).
+- **Slice delivery (experimental).** `video_slice_delivery = 4` hands H.264 and HEVC frames to the network slice by slice while the encoder works on the rest. It needs no client change and brought a 4K60 HEVC picture 1.2 to 1.5 ms sooner over loopback and Wi-Fi 6E. [Details](b2-slice-delivery.md) · [Numbers](../rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f).
+- **Beam-raced PyroWave (experimental).** A client that asks gets each PyroWave frame in display order, so Nightjar on the desktop can decode and present the top of the picture while the bottom is still arriving. The picture's middle row was on screen 1.4 ms sooner on loopback. Off unless the client turns it on. [Numbers](../rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate).
+- **A timing record for every frame.** Set `BUTTERPOLLO_TIMING_RECORD` and each video stream writes capture, convert, encode, packetize and send times on one clock, ready to join with a client's frame log. [Details](timing-record.md).
 - **Loss recovery that skips the keyframe.** Lost frames are repaired with reference frame invalidation, and forward error correction covers short bursts of loss. When the host's own Wi-Fi briefly stops taking packets, the host sends a keyframe at once instead of waiting for the client to ask.
 - **Experimental host bitrate adaptation.** Opt-in adaptation for conventional Moonlight streams uses observed feedback, accounts for FEC and audio, and yields to client bitrate control. [Policy and limits](configuration.md#host-bitrate-adaptation).
 - **Optional adaptive packet pacing.** The existing fast route policy remains the default. Experimental adaptation starts conservatively and responds to reported loss without lowering picture bitrate, at the cost of slower startup and possible probe losses. A suitable fixed limit remains the simpler option for a known constrained path. [Pacing policy](configuration.md#capture-and-video).
@@ -71,9 +77,14 @@ Rubylight 3.0 encodes on AMD GPUs only: any Radeon with a working AMF video enco
 ## Control from the couch (3.0)
 
 - **Native API v1.** A paired client on the streaming HTTPS port can read the host's capabilities, your game library with covers, and the session state. Stock Moonlight and Artemis are unaffected. [Contract](native-api.md).
+- **A console on your phone.** [Nightjar](https://github.com/RamazanKara/nightjar) 0.8.0 and newer open on Home when the host offers the API: favourites, what is running, your library across every paired PC with covers, and a page for each game with Play or Resume. A session menu closes the game, ends the session or changes Radeon settings without leaving the stream.
 - **Session actions.** Disconnect leaves the game running, End session stops the stream and keeps the game, Close game also quits it. [Details](configuration.md#session-actions).
 - **Host control.** A per-device permission that lets a device close games and change Radeon settings. Off until you turn it on in the console. [Details](configuration.md#host-control-for-a-device).
-- **Radeon settings with restore.** In the build after 3.0.0-alpha.1. A device with host control changes Radeon settings during a stream; every change is journaled and put back when the session ends. [Details](configuration.md#radeon-settings-with-restore).
+- **Radeon settings with restore.** A device with host control changes Radeon settings during a stream, such as Anti-Lag and Radeon Chill; every change is journaled and put back when the session ends. [Details](configuration.md#radeon-settings-with-restore).
+- **A Radeon profile for each game.** In the app editor, **Radeon** picks Competitive (Anti-Lag on), Smoothness (the game's frame rate capped at the stream's), Quality (anisotropic filtering and the driver's anti-aliasing enhancement) or a list of your own. The host writes the settings when the game starts and puts the originals back when the session ends, also after a crash. [Details](configuration.md#radeon-settings-per-game).
+- **Microsoft Store and Xbox PC games** appear in **Add games** next to Steam, Epic Games, Battle.net, EA app, Ubisoft Connect and GOG, and start the way the Start menu starts them.
+- **Launcher hints.** If a Steam, Epic Games, EA app or Ubisoft Connect window is waiting for an update or a sign in, the session says so and a client can show it. The host only reads window titles; it never clicks or types into a launcher.
+- **Rust engine and an on-screen keyboard in Nightjar.** The Rust streaming engine is Nightjar's default on Android, and a full PC keyboard works with touch, a controller or a TV remote. [Nightjar docs](https://github.com/RamazanKara/nightjar/blob/main/docs/index.md).
 
 ## Install and update
 
@@ -84,6 +95,6 @@ Rubylight 3.0 encodes on AMD GPUs only: any Radeon with a working AMF video enco
 
 ## Clients
 
-Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android. Nightjar 0.8.0 and newer also use the native API above.
+Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android. Nightjar 0.8.0 and newer also use the native API above, and Nightjar's desktop client (in preview) runs on Windows and Linux.
 
 See [Getting started](getting-started.md#choose-your-stream-format) to pick a stream format.

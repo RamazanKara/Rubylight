@@ -86,6 +86,11 @@ $runtime = @{
 }
 foreach ($name in $runtime.Keys) {
     $source = Join-Path $msys $runtime[$name]
+    if (-not (Test-Path $source)) {
+        # Package splits move the licence directory; take the one file of that name if there is one.
+        $found = @(Get-ChildItem (Join-Path $msys 'ucrt64\share\licenses') -Recurse -File -Filter (Split-Path $source -Leaf) -ErrorAction SilentlyContinue)
+        if ($found.Count -eq 1) { $source = $found[0].FullName }
+    }
     if (-not (Test-Path $source)) { throw "$source is missing; install the MSYS2 package that owns it (mingw-w64-ucrt-x86_64-winpthreads, mingw-w64-ucrt-x86_64-gcc-libs)" }
     Copy-Item $source "$Out\licenses\$name"
 }

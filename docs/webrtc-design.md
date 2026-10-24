@@ -33,6 +33,17 @@ All three repos are weeks old. Before each brief starts, and again before the re
    protocol's error with a clear message. It never takes over silently.
 5. **The host sends the offer** (protocol v2). The offer carries a single codec with fixed payload
    types. The host checks the answer and rejects any change of codec or profile with an error.
+6. **Everything protocol v2 defines, plus two extensions.** H.264, HEVC and AV1, HDR (HEVC Main10 and
+   AV1 Main 10-bit) and 30 to 120 fps are part of protocol v2 and are in scope as written there.
+   Surround audio and keyboard and mouse input are not in protocol v2 (scope widened on 2026-10-24), so
+   they are Rubylight extensions:
+   - advertised in a `capabilities.extensions` object, which stock clients ignore;
+   - used only when the client asks for them (`audio.channels` 6 or 8, a client-opened `input`
+     DataChannel);
+   - `version` stays 2, and a stock TV or browser client sees exactly the protocol v2 behaviour.
+
+   The TV app's own mouse path, a long press of Start that turns the gamepad into a mouse, works on
+   the host side as the reference host does it, so TVs get a mouse without the extension.
 
 ## Library
 
@@ -45,7 +56,8 @@ All three repos are weeks old. Before each brief starts, and again before the re
 | Dependencies | Small. Its RustCrypto crates sit beside the ones core already uses | Duplicates ours (rand 0.10, x509-parser 0.16 against 0.18), plus mdns, turn and a runtime | The whole native toolchain |
 | Packetizers | H.264, H.265 (profile, tier and level), AV1, Opus | H.264, HEVC, AV1, Opus | H.264, H.265, AV1, Opus |
 | Latency control | With no bandwidth estimate it uses a null pacer: a packet leaves when we poll. Writer playout-delay and abs-capture-time | Runtime scheduling sits between us and the socket | Its own send thread and queues |
-| HEVC Main10 later | Profile-tier-level handling plus custom fmtp | fmtp strings | fmtp strings |
+| HDR and AV1 | H.265 profile-tier-level handling plus custom fmtp; `Codec::H265` and `Codec::Av1` exist but are `#[doc(hidden)]` | fmtp strings | fmtp strings |
+| Surround | No multiopus codec: we rewrite the SDP text (below) | No multiopus codec | No multiopus codec |
 
 All three licences are GPL-3.0 compatible. str0m wins on control. The frame goes from the encoder
 thread to our own socket without a runtime or foreign thread in between, so we can reuse our pacing
@@ -60,6 +72,25 @@ What str0m needs from us:
 - Set the H.265 fmtp ourselves. str0m defaults to `profile-id=1;level-id=180`.
 - Insert Samsung's `a=imageattr:<pt> send [x=[W:W],y=[H:H],fps=[F:F]]` line by editing the offer
   text. str0m keeps attributes it doesn't know, so the answer still parses.
+- HDR: set the HEVC Main10 fmtp (`profile-id=2`, Main tier, the lowest level that holds the mode:
+  4.1 at 1080p60, 5.0 at 1440p60 or 1080p120, 5.1 at 4K60 or 1440p120, 5.2 at 4K120) or the AV1 fmtp
+  (`profile=0`, `tier=0`, the lowest `level-idx` that holds the mode). Offer the colour-space
+  extension `http://www.webrtc.org/experiments/rtp-hdrext/color-space` and never send it, as the
+  protocol requires.
+- AV1: str0m's `Av1` packetizer is hidden API. B2 proves it with a loopback test: a temporal unit from
+  AMF goes out as RTP and comes back as the same OBUs, minus the temporal delimiter.
+- Surround: str0m knows only `opus/48000/2`. The audio track is built as Opus at a fixed PT, and
+  `sdp.rs` rewrites the text both ways:
+  - offer: `a=rtpmap:<pt> multiopus/48000/<6|8>` and
+    `a=fmtp:<pt> channel_mapping=<m>;num_streams=<s>;coupled_streams=<c>;minptime=10;useinbandfec=0`,
+    with the mapping, stream and coupled counts taken from `OpusLayout::select`, the same layout the
+    GameStream encoder uses;
+  - answer: `multiopus/48000/<n>` back to `opus/48000/2` before str0m parses it, after checking that the
+    answer kept the channel count and mapping.
+
+  str0m's Opus packetizer passes a payload through untouched, so a multistream packet goes out as is.
+  Only Chromium-based receivers decode `multiopus`. A client that answers without it gets an error,
+  never a silent downmix.
 
 Install the crypto provider once at startup with
 `str0m::crypto::from_feature_flags().install_process_default()`.
@@ -81,7 +112,9 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
                               webrtc::media thread: str0m Rtc + UDP socket + pacer
                                          │  PLI/FIR, request-keyframe ──▶ Session.idr + recovery wake
                                          │  gamepad DataChannel ──▶ Input::Arrival / Input::Controller
-                                         ◀──  rumble feedback ── control DataChannel
+                                         │  input DataChannel ──▶ Input::Keyboard / Relative / Absolute /
+                                         │                        MouseButton / Scroll (extension)
+                                         ◀──  rumble, mouse-mode ── control DataChannel
 ```
 
 - **Code layout.** Protocol logic is pure and OS-independent, in `rust/core/src/webrtc/`. It needs no
@@ -96,9 +129,9 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
     random key that is never used.
   - A new `transport` field (default `GameStream`) tells the stream which senders to start.
 - **Session.** RTSP builds `Negotiated` in ANNOUNCE. A new constructor,
-  `Negotiated::webrtc(width, height, fps, codec, bitrate)`, builds it from `start-session` instead, with
-  2-channel audio, 5 ms Opus packets, 1 slice, no FEC and no reference-frame invalidation.
-  `Media::start` then runs unchanged. The WebRTC transport doesn't start the GameStream video, audio
+  `Negotiated::webrtc(width, height, fps, codec, hdr, bitrate, channels)`, builds it from
+  `start-session` instead, with 2, 6 or 8 audio channels, 5 ms Opus packets, 1 slice, no FEC and no
+  reference-frame invalidation. `Media::start` then runs unchanged. The WebRTC transport doesn't start the GameStream video, audio
   or ENet control sockets. The video peer that GameStream learns from Moonlight's UDP ping comes from
   the address ICE selects instead.
 - **Video.** `webrtc_sender` is `None` unless the session is WebRTC. It hands each `Encoded` frame
@@ -108,12 +141,31 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   - Each frame also gets a playout-delay of min=max=0.
   - A frame that misses its deadline is dropped and followed by an IDR request, the way GameStream
     recovery handles it. No queue builds up.
+- **HDR.** A `start-session` with `hdr:true` uses the GameStream HDR path unchanged:
+  - The host display must already be in HDR. If it isn't, or leaves HDR during the stream, the session
+    ends with an error, as the protocol says. The host never tone-maps to SDR.
+  - The encoder writes HEVC Main10 or AV1 Main 10-bit with BT.2020 primaries, PQ transfer and limited
+    range. The colour description sits in the HEVC VUI and the AV1 sequence header.
+  - Mastering-display and content-light metadata come from the display's `Session.hdr_metadata`
+    through the existing AMF metadata path (HEVC SEI, AV1 metadata OBUs), refreshed when the display
+    changes it. GameStream sends the same values over ENet; WebRTC has only the bitstream.
+- **AV1.** The AMF encoder probe decides. `capabilities` lists AV1 only when the probe found an AV1
+  encoder, and lists it in `hdrCodecs` only when that encoder also does Main 10-bit. A request for
+  AV1 on a GPU without it gets `unsupported-settings`. The capabilities wording never names GPU
+  generations. AMF hands over a temporal unit per frame; the temporal delimiter is dropped before
+  packetizing, as the AV1 RTP spec requires.
 - **Audio.** `audio()` keeps its WASAPI capture and Opus encoder. The packet sink becomes a small
   trait: GameStream RTP/FEC (today's code, unchanged) or the WebRTC channel. Packets are 5 ms (240
-  samples), stereo, 48 kHz, in their own media stream with a separate msid so the browser doesn't hold
-  video back for lip sync. The fmtp line follows the protocol's
-  (`minptime=20;maxaveragebitrate=128000;stereo=1;sprop-stereo=1;useinbandfec=0`) unless B2 shows a
-  receiver rejecting 5 ms packets under it.
+  samples) at 48 kHz, in their own media stream with a separate msid so the browser doesn't hold video
+  back for lip sync.
+  - Stereo uses the protocol's fmtp
+    (`minptime=20;maxaveragebitrate=128000;stereo=1;sprop-stereo=1;useinbandfec=0`) unless B2 shows a
+    receiver rejecting 5 ms packets under it.
+  - 5.1 and 7.1 (extension) use Opus multistream with the layout and bitrate GameStream's surround
+    uses (`OpusLayout::select`), sent as `multiopus` (see Library). Capture follows the GameStream
+    surround path, including its upmix and channel order, so the channel mapping in the fmtp is the
+    one the encoder used.
+  - The video budget subtracts the audio bitrate of the chosen layout.
 - **Input.**
   - `gamepad-connected` becomes `Input::Arrival` with the Xbox type; `gamepad-disconnected` clears the
     controller's bit in the active mask.
@@ -126,7 +178,40 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
     gamepad worker.
   - Rumble from `feedback_packets` (`RUMBLE_DATA`) is sent as `rumble` on the control channel, with
     magnitudes scaled to 0..1.
-  - The protocol has no keyboard or mouse, so neither is in scope.
+  - **Gamepad mouse mode** (what the TV app offers today). Holding Start for 750 ms and releasing it
+    toggles mouse mode for that controller, as in the reference host:
+    - The stick moves the pointer every 50 ms on a cubic curve with a small deadzone, and each D-pad
+      press scrolls one notch (up and down vertical, left and right horizontal).
+    - A, B, X, LB and RB act as left, right, middle, back and forward buttons. Buttons held when the
+      mode turns on stay suppressed until released.
+    - The host reports `{"v":1,"type":"mouse-mode","controllerId":..,"controllerSlot":..,"active":..}`
+      on the control channel.
+    - Leaving mouse mode, a disconnect or the end of the stream releases every simulated button.
+    - B1 copies the field names, constants and button choice from the reference's `input_bridge` and
+      cites it; the TV app's gamepad tests show what it expects.
+  - **Keyboard and mouse** (extension). The client opens a DataChannel labelled `input` (ordered,
+    reliable). The host accepts it only after authentication and closes any other unknown label.
+    Messages are JSON with `"v":1`:
+    - `{"type":"key","code":"KeyA","down":true}`: `code` is the DOM `KeyboardEvent.code`. A core table
+      maps it to the Windows virtual key that `Input::Keyboard` carries. Modifiers are ordinary keys.
+      An unknown code is dropped and counted in the stream summary.
+    - `{"type":"text","text":"é"}`: `Input::Text`, at most 32 characters per message, for IME output
+      and characters with no key.
+    - `{"type":"mouse-move","dx":-3,"dy":5}`: relative motion (pointer lock), clamped to i16, becomes
+      `Input::Relative`.
+    - `{"type":"mouse-position","x":0.5,"y":0.25}`: absolute position as a fraction of the video,
+      clamped to 0..1, becomes `Input::Absolute` against the stream's width and height.
+    - `{"type":"mouse-button","button":0,"down":true}`: DOM button numbers 0 to 4 (left, middle, right,
+      back, forward) become Moonlight buttons 1, 2, 3, 4 and 5.
+    - `{"type":"wheel","dx":0,"dy":120}`: 120 units per notch, DOM signs (positive `dy` scrolls down),
+      becomes `Input::Scroll` with the sign Moonlight uses (up is positive).
+
+    The client's `perm` bits gate keyboard and mouse exactly as for a Moonlight client. When the
+    channel closes, the stream stops or the session switches, the host releases every key and button
+    it holds for that client, so nothing stays stuck. The cursor comes from capture, as it does for
+    Moonlight.
+  - `capabilities.extensions` advertises
+    `{"audioChannels":[2,6,8],"input":{"label":"input","version":1,"keyboard":true,"mouse":true}}`.
 - **ICE.** The host is ICE-lite. Its only candidate is the local address the WebSocket arrived on,
   plus `webrtc_media_port`. There is no STUN or TURN.
   - Chrome hides its own host candidates behind mDNS names. We ignore them and learn the client's
@@ -188,8 +273,10 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   - The pacer sends 1 ms groups at a rate above the stream's bitrate. B2 starts from the existing
     `network_pacing` frame-wire-rate maths and caps the rate at the routed link.
   - B5 A/B tests paced against unpaced on a 4K keyframe and keeps whichever measures better.
-- **Bitrate.** Video gets the requested bitrate minus 128 kbps of audio and the RTP/SRTP overhead.
-  Valid requests are 10,000 to 100,000 kbps.
+- **Bitrate.** Video gets the requested bitrate minus the audio layout's bitrate (128 kbps for stereo)
+  and the RTP/SRTP overhead. Valid requests are 10,000 to 100,000 kbps.
+- **Input.** Keyboard and mouse messages go straight from the media thread into the input dispatcher
+  with no batching. Mouse motion is not coalesced on the host.
 - **Recovery.**
   - PLI, FIR and the control channel's `request-keyframe` set `Session.idr` and wake recovery, the same
     as a Moonlight IDR request.
@@ -202,27 +289,32 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
 
 **MVP (3.0.0), labelled Experimental:**
 
-- SDR H.264 at 720p, 1080p and 1440p.
-- SDR HEVC at 1080p, 1440p and 4K.
+- The protocol's video modes: H.264 at 720p, 1080p and 1440p; HEVC and AV1 at 720p, 1080p, 1440p and
+  4K, all in SDR.
+- HDR: HEVC Main10 and AV1 Main 10-bit at 1080p, 1440p and 4K, with BT.2020 PQ colour description and
+  mastering-display and content-light metadata in the bitstream.
+- AV1 wherever the AMF probe finds an AV1 encoder.
 - 30 and 60 fps. 90 and 120 fps are offered only for modes where B5 measures them clean.
-- Opus stereo audio.
-- Gamepads with rumble.
+- Opus stereo audio, and 5.1 and 7.1 Opus multistream (extension).
+- Gamepads with rumble, and gamepad mouse mode on a long press of Start.
+- Keyboard and mouse over the `input` DataChannel (extension).
 - Discovery, signalling, PIN pairing, the app list with artwork, `gateway-status` with the MAC address
   (the TV sends Wake-on-LAN itself), `start-session` and `stop-session`, `stop-host-session` and
   `switch-session`.
 - The console toggle and Devices page entries.
 
-`capabilities` lists only what we send: `hdrSupported:false` and no AV1. A request for anything else gets
-`unsupported-settings`, and the host never falls back.
+`capabilities` lists only what this host can send: AV1 and AV1 HDR follow the encoder probe, and HDR
+modes are listed with `hdrExperimental:true`. A request for anything else gets `unsupported-settings`,
+and the host never falls back: no SDR for HDR, no H.264 for AV1, no stereo for surround.
+
+Everything ships as Experimental. Where B5 cannot test a part on our own devices (the Samsung TV
+itself, HDR decode inside a browser), it is hardened and fake-tested, and stays labelled Experimental.
 
 **Later in 3.x:**
 
-- HEVC Main10 HDR (`profile-id=2`, levels 123/150/153/156; the colour-space extension offered but
-  never sent).
-- AV1, once its packetizer test passes against the TV.
-- Host-side mouse mode on a long press of Start.
-- Surround audio.
 - Signalling over TLS, if the client gains it.
+- Touch, pen and controller motion over the `input` channel.
+- Moving the extensions into the upstream protocol, if its author wants them.
 
 ## Testing
 
@@ -234,16 +326,38 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   - Pairing expiry and the single attempt work.
   - The connection limits (8 unauthenticated, 32 paired) hold.
   - `start-session` validation covers H.264 with HDR, 720p with HDR, 4K on H.264, a bitrate out of
-    range and an unknown codec.
+    range, an unknown codec, AV1 and AV1 HDR with and without the encoder, and `audio.channels` 2, 6
+    and 8 against 1, 4 and 10.
+  - `capabilities` matches the protocol's mode table for each encoder probe result, and carries the
+    `extensions` object.
   - The gamepad mapping covers every button bit, trigger and stick sign.
+  - Gamepad mouse mode: the 750 ms toggle, motion curve and deadzone, button mapping and suppression,
+    the `mouse-mode` message, and release of every simulated button on exit and disconnect.
+  - Keyboard and mouse: every `KeyboardEvent.code` in the table maps to its virtual key, an unknown
+    code is dropped, text length is capped, button numbers, wheel signs, absolute clamping and
+    scaling, and the held-input tracker releases everything on close.
 - **Unit (host, str0m).**
   - The offer has one codec at a fixed PT and exactly one correct `imageattr`.
   - The offer has the playout-delay extension, and no RTX, transport-cc or REMB.
-  - The H.265 fmtp level matches the mode.
+  - The H.265 fmtp level matches the mode, for Main and Main10.
+  - The AV1 fmtp matches the mode, and HDR offers carry the colour-space extension, which is never
+    sent.
+  - The multiopus rewrite: the offer has the right rtpmap and fmtp for 6 and 8 channels, the answer
+    goes back to `opus/48000/2`, and an answer that drops `multiopus` or changes the mapping is
+    rejected.
   - Answer validation rejects a changed codec or profile.
-  - Loopback between two in-memory str0m peers: an access unit goes through RTP and back
-    byte-identical, with the marker bit on the last packet, timestamps from capture time, a PLI that
-    sets `Session.idr`, and DataChannel messages in both directions.
+  - Loopback between two in-memory str0m peers: an H.264, HEVC and AV1 access unit goes through RTP
+    and back byte-identical (AV1 without its temporal delimiter), with the marker bit on the last
+    packet, timestamps from capture time, a PLI that sets `Session.idr`, a multistream Opus packet
+    unchanged, and DataChannel messages in both directions, including a client-opened `input`
+    channel.
+- **Unit (host, stream).**
+  - A WebRTC HDR session against a fake encoder: the encoder config asks for 10-bit BT.2020 PQ, and
+    the session ends with an error when the display is SDR or leaves HDR.
+  - The bitstream of a real AMF HDR encode (an AMF test, skipped without AMF) has the expected HEVC
+    VUI and SEI, or AV1 sequence header and metadata OBUs.
+  - Keyboard and mouse messages reach the input dispatcher, `perm` bits block them, and a closed
+    channel releases held keys.
 - **GameStream unchanged.**
   - The existing suites pass with no edits to their expectations.
   - With the setting off, a test asserts that no WebRTC socket is open.
@@ -252,16 +366,34 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   - Setup:
     - Fetch the browser client at its pin into `rust/tests/fixtures/webrtc-web`.
     - Serve it with its own `npm start`.
-    - Use installed Edge (`channel:'msedge'`) for H.264. For HEVC, try Chrome with
+    - Use installed Edge (`channel:'msedge'`) for H.264 and AV1. For HEVC, try Chrome with
       `--enable-features=WebRtcAllowH265Receive`.
+    - The browser client asks for none of the extensions, so a small protocol v2 client of our own
+      (`rust/tests/webrtc_client/`, plain JS in the same Playwright browser) drives the HDR, AV1,
+      surround and keyboard and mouse legs.
   - Run against an isolated test host: `--config-dir C:\tests\webrtc --port 48123 --bind 127.0.0.1`,
     `webrtc_port`/`webrtc_media_port` in the 48545+ range, `virtual_display_layout = extended`.
   - Run order:
     1. Pair: request, approve through `/api/pin`, then a wrong PIN and a cancel case.
     2. Authenticate, list the apps and fetch artwork.
-    3. Start a stream, announce a gamepad and check that rumble comes back.
+    3. Start a stream, announce a gamepad and check that rumble comes back. Toggle mouse mode and
+       check the `mouse-mode` message and the pointer movement on the host.
     4. Stream for 60 s.
     5. Stop the stream and the app.
+    6. With our own client:
+       - AV1 1080p60 SDR for 60 s.
+       - HDR: HEVC Main10 and AV1 10-bit at 4K60 with the test host's virtual display in HDR. The
+         host checks the bitstream (10-bit, BT.2020, PQ, metadata present). The client checks that
+         frames decode, and `getStats` reports the codec it should. A real HDR picture in a browser
+         is not something we can verify, so HDR stays Experimental.
+       - 5.1 and 7.1: the test host plays one tone per channel, and the client checks each channel
+         with a Web Audio `ChannelSplitterNode` and an `AnalyserNode`, so a wrong mapping fails.
+       - Keyboard and mouse: an echo window on the test host's virtual display logs what arrives. The
+         client sends a fixed script of keys, text, relative and absolute motion, buttons and wheel
+         notches, and the harness compares the logs. Then it closes the channel with a key held and
+         checks that the key is released.
+       - Injected input reaches the real desktop session, so the keyboard and mouse leg runs only on
+         the 780M laptop or when this PC is idle and nobody is using it.
   - Data collected:
     - `getStats` for video: framesDecoded/framesReceived, framesDropped, packetsLost, freezeCount and
       jitterBufferDelay per frame.
@@ -271,8 +403,9 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
     - The client reads it back from each decoded frame with `requestVideoFrameCallback` and a canvas.
     - Both sides run on the same PC, so they share one clock.
   - Idle check before every run; nothing runs while the user is gaming.
-- **"Tested." paragraph cites** (our numbers only), for H.264 1080p60 at 20 Mbps and HEVC 4K60 at
-  50 Mbps (whatever Edge or Chrome can decode):
+- **"Tested." paragraph cites** (our numbers only), for H.264 1080p60 at 20 Mbps, AV1 1080p60 at
+  20 Mbps and HEVC 4K60 at 50 Mbps (whatever Edge or Chrome can decode), plus pass or fail for the HDR,
+  surround and keyboard and mouse legs:
   - median and p95 glass-to-glass;
   - decoded/sent frame ratio;
   - packet loss;
@@ -287,30 +420,39 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
 Each brief gets its own worktree from `main` and owns only the files named. An implementer builds it
 and a reviewer checks the diff before it merges.
 
-- **B1. Protocol core (parallel with B2).**
-  - Goal: `rust/core/src/webrtc/{mod,protocol,auth,capabilities,gamepad}.rs`, covering the serde
-    message types for every protocol v2 message, nonce and HMAC auth, credential generation, the mode
-    table and `start-session` validation, and the gamepad-state to `Input` mapping.
-  - Constraints: no I/O, no new core dependencies, error codes exactly as in the protocol.
+- **B1. Protocol core (parallel with B2), in two parts that run side by side.**
+  - **B1a, protocol.** Goal: `rust/core/src/webrtc/{mod,protocol,auth,capabilities}.rs`, covering the
+    serde message types for every protocol v2 message, nonce and HMAC auth, credential generation, the
+    mode table with HDR and AV1 driven by an encoder-probe input, the `extensions` object, and
+    `start-session` validation including HDR, AV1 and `audio.channels`.
+  - **B1b, input.** Goal: `rust/core/src/webrtc/{gamepad,input}.rs`, covering the gamepad-state to
+    `Input` mapping, gamepad mouse mode as a pure state machine driven by timestamps, the `input`
+    channel messages, the `KeyboardEvent.code` to virtual-key table, and a held-input tracker that
+    yields the releases on close. It adds one `mod` line each to B1a's `mod.rs`.
+  - Constraints: no I/O, no new core dependencies, error codes exactly as in the protocol, and the
+    extension messages exactly as in this doc.
   - Acceptance: the core unit tests above pass under the fast core loop, and clippy and fmt are clean.
   - Report: files, test count, any protocol ambiguity.
 - **B2. str0m media transport (parallel with B1).**
   - Goal: `rust/host/src/webrtc/{media,sdp}.rs`, plus the pinned str0m dependency in `rust/host/Cargo.toml`
     and `Cargo.lock`. That covers:
-    - the Rtc builder with codecs, fixed PTs, extensions and fmtp;
-    - offer post-processing and answer validation;
+    - the Rtc builder with codecs (H.264, HEVC Main and Main10, AV1), fixed PTs, extensions and fmtp;
+    - offer post-processing (`imageattr`, the colour-space extension for HDR, the multiopus rewrite)
+      and answer validation (codec, profile, multiopus channels and mapping);
     - an ICE-lite single-socket media thread with a bounded frame channel;
     - the pacer;
-    - Opus writes;
+    - Opus writes, stereo and multistream;
     - PLI/FIR to a callback;
-    - DataChannel plumbing;
+    - DataChannel plumbing, including accepting the client-opened `input` channel after
+      authentication and closing unknown labels;
     - the NACK-without-RTX finding.
   - Constraints: no edits outside those files, the release profile builds on GNU, and nothing is wired
     into `stream.rs` yet.
-  - Acceptance: the in-memory loopback tests pass. A bench reports the time from `submit` to the last
-    packet for a 1 MB keyframe, and the SRTP cost per Mbps for `rust-crypto` against `wincrypto`. The
-    full gate passes.
-  - Report: test names, the bench numbers, the NACK finding.
+  - Acceptance: the in-memory loopback tests pass for H.264, HEVC, AV1, stereo and multistream Opus
+    and the `input` channel. A bench reports the time from `submit` to the last packet for a 1 MB
+    keyframe, and the SRTP cost per Mbps for `rust-crypto` against `wincrypto`. The full gate passes.
+  - Report: test names, the bench numbers, the NACK finding, and whether str0m's AV1 packetizer needed
+    anything beyond dropping the temporal delimiter.
 - **B3. Signalling, discovery, pairing, console (after B1).**
   - Goal: `rust/host/src/webrtc/{server,discovery,clients}.rs`, the `webrtc_server`, `webrtc_port` and
     `webrtc_media_port` settings (console settings, `docs/configuration.md`), WebRTC pairing requests on
@@ -330,32 +472,48 @@ and a reviewer checks the diff before it merges.
 - **B4. Stream integration (after B2 and B3).**
   - Goal:
     - The `nvhttp::start` split.
-    - `Launch.transport` and `Negotiated::webrtc`.
+    - `Launch.transport` and `Negotiated::webrtc` with HDR and the channel count.
     - `webrtc::session` (start, stop, switch, stop-host).
     - The `send_frames` short-circuit.
-    - The audio sink trait.
-    - Gamepad input and rumble.
+    - HDR: the display check at start and during the stream, the 10-bit encoder config, and the
+      metadata path into the bitstream.
+    - AV1: the encoder probe feeding `capabilities`, and dropping the temporal delimiter.
+    - The audio sink trait, with stereo and surround.
     - PLI to `Session.idr`.
     - Mutual exclusion with Moonlight.
   - Files: `rust/host/src/{nvhttp,stream}.rs`, `rust/core/src/{session,rtsp}.rs`,
-    `rust/host/src/webrtc/session.rs`.
+    `rust/host/src/webrtc/session.rs`, and in `rust/windows` only what the AV1 HDR metadata needs if
+    GameStream doesn't already do it.
   - Constraints: the GameStream checks above hold. No edits to `video_send` or the core `packet`
     module. Every fix gets a regression test.
-  - Acceptance: the full gate passes, plus a host test that starts a WebRTC session against a fake
-    encoder and receives frames through a str0m receiver.
+  - Acceptance: the full gate passes, plus host tests that start WebRTC sessions (H.264, HEVC HDR,
+    AV1, 5.1) against a fake encoder and receive frames and audio through a str0m receiver.
   - Report: diff summary, tests, anything that changed in a GameStream file.
-- **B5. Harness, measurements, docs (after B4; the pairing and app-list legs can start after B3).**
+- **B4i. Input integration (after B4).**
+  - Goal: `rust/host/src/webrtc/input.rs` and its hooks in `session.rs`: gamepad input and rumble,
+    gamepad mouse mode with its 50 ms motion tick and `mouse-mode` messages, keyboard and mouse from
+    the `input` channel into the dispatcher, `perm` checks, and the held-input release on close, stop
+    and switch.
+  - Constraints: the same dispatcher and gamepad worker as the ENet path, with no changes to their
+    GameStream behaviour.
+  - Acceptance: host tests for each path, including a stuck-key test, and the full gate.
+  - Report: diff summary, tests.
+- **B5. Harness, measurements, docs (after B4i; the pairing and app-list legs can start after B3).**
   - Goal:
     - `rust/tests/webrtc_e2e.cjs` with the fixture fetch, getStats and the glass-to-glass clock.
+    - `rust/tests/webrtc_client/`, our own small client for the HDR, AV1, surround and keyboard and
+      mouse legs, plus the host-side tone player and input echo window.
     - The pacing A/B and the RTX A/B.
     - The 90/120 fps decision per mode.
-    - `docs/webrtc.md` for users.
+    - `docs/webrtc.md` for users, including the extensions so client authors can use them.
     - A row in `docs/hardware-matrix.md`.
     - The release-notes "Tested." figures.
-  - Constraints: an isolated test host, idle checks, no runs while the user is gaming, and claims only
-    from these runs. Revert any change that measures worse.
-  - Acceptance: the harness passes three runs in a row for H.264 1080p60, and HEVC is at least
-    established. Numbers go into `rust/PERFORMANCE.md`.
+  - Constraints: an isolated test host, idle checks, no runs while the user is gaming, the keyboard and
+    mouse leg only on the laptop or an idle, unattended PC, and claims only from these runs. Revert any
+    change that measures worse.
+  - Acceptance: the harness passes three runs in a row for H.264 1080p60 and AV1 1080p60, HEVC is at
+    least established, and the HDR, 5.1, 7.1 and keyboard and mouse legs pass. Numbers go into
+    `rust/PERFORMANCE.md`.
   - Report: the measurement table, the A/B outcomes, the modes offered.
 
 ## Risks
@@ -371,3 +529,8 @@ and a reviewer checks the diff before it merges.
 | The `nvhttp::start` split regresses Moonlight launch | Behaviour-preserving split, nvhttp tests unchanged, reviewed before merge |
 | Keyframe bursts overflow the socket at 4K | 4 MB send buffer plus the pacer A/B in B5 |
 | Unencrypted signalling | Documented. Auth guards control, not confidentiality. LAN-only filter |
+| str0m's H.265 and AV1 support is hidden API | Exact pin; loopback tests for both; B2 reports anything it had to work around |
+| Only Chromium decodes `multiopus`; the TV may not | Surround is an extension a client asks for. An answer without it is an error, never a silent downmix |
+| A browser can't show whether HDR looks right | Host-side bitstream checks plus decoded frames; HDR ships Experimental |
+| Injected keyboard and mouse reach the real desktop | `perm` bits, auth and the LAN filter; release of held input on every close; the test leg runs only on the laptop or an idle PC |
+| The extensions clash with a later protocol version | Advertised under `extensions`, opt-in per session, `version` stays 2; offered upstream later |

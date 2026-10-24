@@ -258,7 +258,7 @@ test('an unset virtual display mode keeps the OS-dependent default without hidin
   const key = 'virtual_display_mode';
   const setting = settings.get(key);
   assert.equal(effective(setting, {}, {}), '');
-  assert.equal(describeDefault(setting).text, 'Default (one for each device)');
+  assert.equal(describeDefault(setting).text, 'Default (by Windows version)');
   assert.deepEqual(computeChanges(settings, { [key]: 'per_client' }, {}), { [key]: 'per_client' });
   assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'disabled' }), { [key]: null });
 });
@@ -284,11 +284,26 @@ test('capture quirks sit together in an advanced troubleshooting group and stay 
   assert.equal(settings.get('capture').group, 'Capture');
 });
 
+test('the troubleshooting fold counts customized and unsaved settings and opens for unsaved ones', () => {
+  const { foldStatus } = values;
+  const group = schema.settings.filter(setting => setting.group === 'Capture troubleshooting');
+  const none = foldStatus(group, {}, {}, new Set());
+  assert.deepEqual(none, { customized: 0, unsaved: 0, mustOpen: false });
+  // wgc_direct_encoder_input defaults on, so storing false customizes it.
+  const stored = foldStatus(group, {}, { wgc_direct_encoder_input: false }, new Set());
+  assert.deepEqual(stored, { customized: 1, unsaved: 0, mustOpen: false });
+  const edited = foldStatus(group, { wgc_direct_encoder_input: false }, {}, new Set(['wgc_direct_encoder_input']));
+  assert.deepEqual(edited, { customized: 1, unsaved: 1, mustOpen: true });
+  // An edit back to the default is unsaved but no longer customized.
+  const reverted = foldStatus(group, { wgc_direct_encoder_input: true }, { wgc_direct_encoder_input: false }, new Set(['wgc_direct_encoder_input']));
+  assert.deepEqual(reverted, { customized: 0, unsaved: 1, mustOpen: true });
+});
+
 test('bitrate and pacing controllers say which one wins', () => {
   // The finer points live behind More; descriptions are capped at two short sentences.
   const says = (key, pattern) => assert.match(settings.get(key).details, pattern, key);
   says('link_rate_adaptation', /Adapt bitrate on the host wins[^.]*sets its own bitrate takes over/);
-  says('host_adaptive_bitrate', /replaces[^.]*sets its own bitrate takes over/);
+  says('host_adaptive_bitrate', /replaces Lower the bitrate when the link cannot carry it/);
   says('pacing_max_bitrate_kbps', /turns off Adaptive packet pacing and Slow down after video loss/);
   says('host_adaptive_pacing', /manual pacing rate or Adapt bitrate on the host turns it off/);
   says('keyframe_loss_pacing', /manual pacing rate, Adaptive packet pacing or Adapt bitrate on the host turns it off/);
@@ -303,11 +318,15 @@ test('the still-picture resend rate is not named like a floor on game frame rate
 test('activating a virtual display is offered only where it changes the stream', () => {
   // display_session.rs: a virtual display is configured when the mode is not "disabled" or this is on.
   const activate = settings.get('dd_activate_virtual_display');
-  assert.equal(activate.visibleWhen({}), true, 'unset is off on Windows 10');
+  assert.equal(activate.visibleWhen({}), true, 'unset is off before Windows 11 23H2');
   assert.equal(activate.visibleWhen({ virtual_display_mode: '' }), true);
   assert.equal(activate.visibleWhen({ virtual_display_mode: 'disabled' }), true);
   assert.equal(activate.visibleWhen({ virtual_display_mode: 'per_client' }), false);
   assert.equal(activate.visibleWhen({ virtual_display_mode: 'shared' }), false);
+  // A device or app set to Off still gets a virtual display while this is on, so the row stays.
+  assert.equal(activate.visibleWhen({ virtual_display_mode: 'per_client', dd_activate_virtual_display: true }), true);
+  assert.equal(activate.visibleWhen({ virtual_display_mode: 'shared', dd_activate_virtual_display: 'true' }), true);
+  assert.equal(activate.visibleWhen({ virtual_display_mode: 'shared', dd_activate_virtual_display: false }), false);
   assert.ok(activate.inactiveHint);
 });
 

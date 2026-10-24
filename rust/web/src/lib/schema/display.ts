@@ -49,13 +49,13 @@ export const settings: Setting[] = [
     label: 'Virtual display',
     description:
       'Whether streams use a virtual display sized for the device instead of a monitor. A device’s or app’s own choice wins.',
-    details: 'Unset, it is one for each device on Windows 11 and off on Windows 10.',
+    details: 'Unset, it is one for each device on Windows 11 23H2 or later and off on earlier Windows.',
     category: 'display',
     group: 'Streamed display',
     control: {
       kind: 'select',
       options: [
-        { value: '', label: 'Default (one for each device)' },
+        { value: '', label: 'Default (by Windows version)' },
         { value: 'disabled', label: 'Off, stream a monitor' },
         { value: 'per_client', label: 'One for each device' },
         { value: 'shared', label: 'One shared by all devices' },
@@ -110,14 +110,16 @@ export const settings: Setting[] = [
     key: 'dd_activate_virtual_display',
     label: 'Activate a virtual display',
     description:
-      'Streams use a virtual display even when Virtual display is off, unless the device asks for none. It has no effect while Virtual display is on.',
+      'Streams use a virtual display even when Virtual display is off, unless the device asks for none. It also overrides a device’s or app’s own Off.',
     category: 'display',
     group: 'Streamed display',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: 'Set Virtual display to Off to use this setting. While a virtual display is on, streams already use one.',
-    // display_session.rs: configured = mode != "disabled" || this. Unset is disabled on Windows 10.
-    visibleWhen: (values) => ['', 'disabled'].includes(text(values, 'virtual_display_mode', '')),
+    inactiveHint: 'It matters when Virtual display is unset or Off, or a device or app turns it off. Otherwise streams already use a virtual display.',
+    // display_session.rs: configured = mode != "disabled" || this, with the mode a device or app may override.
+    // Unset is disabled before Windows 11 23H2. Stay visible while on, so a setting that still acts is never hidden.
+    visibleWhen: (values) =>
+      ['', 'disabled'].includes(text(values, 'virtual_display_mode', '')) || on(values, 'dd_activate_virtual_display', false),
     advanced: true,
   },
   {

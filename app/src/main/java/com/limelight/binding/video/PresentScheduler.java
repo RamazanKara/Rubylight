@@ -14,6 +14,9 @@ package com.limelight.binding.video;
  *   <li>The buffer's timestamp is the time it is due; the compositor takes it at the first vsync
  *   at or after it. A quarter of a vsync before the vsync keeps it after the vsync before, so a
  *   frame planned a vsync later is not shown a vsync early.</li>
+ *   <li>The target is rounded to the nearest vsync (a slack of half a vsync), not up: the extra
+ *   half vsync a frame waited on average was the largest part of what the schedule added. A frame
+ *   still never goes before the first vsync it can make.</li>
  * </ul>
  *
  * Late frames. The clock holds each frame to the host time plus a delay that covers recent
@@ -25,7 +28,11 @@ package com.limelight.binding.video;
 final class PresentScheduler {
     /** A frame is due this fraction of a vsync before its vsync. */
     static final int LEAD_DIVISOR = 4;
-    /** Lateness window and the percentile of it that sets the frame's delay (the clock's rule). */
+    /**
+     * Lateness window and the percentile of it that marks a frame as late. The clock's own delay,
+     * on a vsync grid, covers a lower percentile (GRID_PERCENTILE in present_clock.rs); a frame is
+     * called late only past the higher one so that fewer frames are dropped.
+     */
     static final int WINDOW = 128;
     static final int PERCENTILE = 97;
     static final long MARGIN_US = 500;
@@ -113,7 +120,7 @@ final class PresentScheduler {
         if (vsyncNs <= 0 || intervalNs <= 0) return false;
         long readyForGridNs = readyNs + Math.max(0, deadlineNs);
         if (!clock.presentOnGrid(codecPtsUs, readyForGridNs, vsyncNs, intervalNs, intervalNs / LEAD_DIVISOR,
-                0, grid)) {
+                intervalNs / 2, grid)) {
             return false;
         }
         out.releaseNs = grid.releaseNs;

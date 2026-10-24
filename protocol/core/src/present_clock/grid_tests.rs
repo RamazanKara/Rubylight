@@ -98,17 +98,38 @@ fn without_a_grid_the_schedule_is_unchanged() {
 }
 
 #[test]
-fn a_grid_does_not_change_the_delay_the_clock_learns() {
-    let mut a = PresentClock::default();
-    let mut b = PresentClock::default();
+fn a_grid_learns_the_delay_of_a_lower_percentile() {
+    let mut plain = PresentClock::default();
+    let mut lower = PresentClock::new(Settings { percentile: GRID_PERCENTILE, ..Settings::default() });
+    let mut on_grid = PresentClock::default();
     let mut noise = Lcg(11);
     for i in 0..1500 {
         let host = i * 11_111;
         let ready = (host + 20_000 + noise.next(8_000) + 7_000_000) as u64;
-        a.schedule(rtp(host), ready);
-        b.schedule_on_grid(rtp(host), ready, grid(16_667, 1_000));
+        plain.schedule(rtp(host), ready);
+        lower.schedule(rtp(host), ready);
+        on_grid.schedule_on_grid(rtp(host), ready, grid(16_667, 1_000));
     }
-    assert_eq!(a.delay_us(), b.delay_us());
+    assert_eq!(on_grid.delay_us(), lower.delay_us(), "the same rule with the grid's percentile");
+    // Lateness is uniform over 8 ms (on the clocks' offset of 7 s and 20 ms of path): the 75th
+    // percentile is near 6 ms above the path, the 97th near 7.8 ms (a window of 128 frames is noisy).
+    let (grid_delay, plain_delay) = (on_grid.delay_us().unwrap(), plain.delay_us().unwrap());
+    assert!(plain_delay - grid_delay > 1_000, "{plain_delay} against {grid_delay}");
+    assert!((grid_delay - 7_000_000 - 20_000 - 6_000 - 500).abs() < 700, "{grid_delay}");
+}
+
+#[test]
+fn a_grid_with_no_interval_keeps_the_plain_percentile() {
+    let mut plain = PresentClock::default();
+    let mut gridless = PresentClock::default();
+    let mut noise = Lcg(12);
+    for i in 0..1500 {
+        let host = i * 11_111;
+        let ready = (host + 20_000 + noise.next(8_000) + 7_000_000) as u64;
+        plain.schedule(rtp(host), ready);
+        gridless.schedule_on_grid(rtp(host), ready, Grid { interval_us: 0, ..grid(0, 0) });
+    }
+    assert_eq!(plain.delay_us(), gridless.delay_us());
 }
 
 #[test]

@@ -198,7 +198,7 @@ public class PresentSchedulerTest {
         assertEquals(run.vsyncAnchorNs, call[2]);
         assertEquals(run.vsyncIntervalNs, call[3]);
         assertEquals("due a quarter of a vsync before its vsync", run.vsyncIntervalNs / 4, call[4]);
-        assertEquals("no slack: a frame is not shown early", 0, call[5]);
+        assertEquals("the nearest vsync: half a vsync of slack", run.vsyncIntervalNs / 2, call[5]);
         long hostUs = 1_000_000L + 599 * (long) (1e9 / 60) / 1000;
         long readyNs = hostUs * 1000 + run.model.offsetNs + 4_000_000L;
         assertEquals("a buffer queued the presentation deadline before a vsync is shown at it",

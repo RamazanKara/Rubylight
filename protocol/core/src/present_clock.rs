@@ -267,6 +267,11 @@ const WARMUP_US: i64 = 250_000;
 const FALL_TAU_US: i64 = 500_000;
 /// The longest host time step that counts towards the fall.
 const FALL_STEP_MAX_US: i64 = 100_000;
+/// The share of frames, in percent, that should be ready before their present time when frames
+/// go onto a vsync grid. The grid already holds a frame to the next vsync, and a frame ready
+/// after its present time still takes the first vsync it can make, so covering the worst
+/// frames of the window ([`Settings::percentile`]) only adds latency to all the others.
+const GRID_PERCENTILE: u8 = 75;
 
 impl PresentClock {
     pub fn new(settings: Settings) -> Self {
@@ -339,7 +344,7 @@ impl PresentClock {
 
     /// When to show the frame stamped `rtp` that was ready to present at `ready_us`.
     pub fn schedule(&mut self, rtp: u32, ready_us: u64) -> Schedule {
-        self.schedule_frame(rtp, ready_us).0
+        self.schedule_frame(rtp, ready_us, self.settings.percentile).0
     }
 
     /// Notes a frame with RTP timestamp `rtp` for the content rate. Call it for every frame in
@@ -379,9 +384,16 @@ impl PresentClock {
     ///   otherwise it shares and says so;
     /// - release is `lead_us` before the vsync, and at once for a frame ready later than that.
     ///
+    /// On a grid the delay covers [`GRID_PERCENTILE`] of the window, not `Settings::percentile`.
+    ///
     /// Without an interval this is [`schedule`](Self::schedule) with the extra fields.
     pub fn schedule_on_grid(&mut self, rtp: u32, ready_us: u64, grid: Grid) -> GridSchedule {
-        let (base, late_by_us, host) = self.schedule_frame(rtp, ready_us);
+        let percentile = if grid.interval_us > 0 {
+            GRID_PERCENTILE.min(self.settings.percentile)
+        } else {
+            self.settings.percentile
+        };
+        let (base, late_by_us, host) = self.schedule_frame(rtp, ready_us, percentile);
         let ready = ready_us as i64;
         let present = base.present_us as i64;
         if grid.interval_us <= 0 {
@@ -435,7 +447,7 @@ impl PresentClock {
 
     /// [`schedule`](Self::schedule), with how far past its present time the frame was ready and
     /// its host time.
-    fn schedule_frame(&mut self, rtp: u32, ready_us: u64) -> (Schedule, i64, i64) {
+    fn schedule_frame(&mut self, rtp: u32, ready_us: u64, percentile: u8) -> (Schedule, i64, i64) {
         let ready = ready_us as i64;
         let host = self.host_us(rtp);
         let lateness = ready - host;
@@ -453,7 +465,7 @@ impl PresentClock {
             self.window[self.next] = lateness;
             self.next = (self.next + 1) % window;
             self.len = (self.len + 1).min(window);
-            let wanted = self.quantile(self.settings.percentile) + self.settings.margin_us;
+            let wanted = self.quantile(percentile) + self.settings.margin_us;
             let mut delay = match self.delay_us {
                 Some(held) if wanted < held => {
                     let dt = step.clamp(0, FALL_STEP_MAX_US);

@@ -122,14 +122,25 @@ impl DriverWatch {
         self.quiet_until = Some(now + Self::QUIET);
         true
     }
+    /// How long to wait before the next poll: a minute while the driver is
+    /// there, which is the common case for the whole life of the service, and
+    /// 5 seconds while its minute of grace runs.
+    fn interval(&self) -> Duration {
+        if self.missing_since.is_some() {
+            Duration::from_secs(5)
+        } else {
+            Duration::from_secs(60)
+        }
+    }
 }
 /// Setup installs Rubylight's virtual display driver, but a failed driver
 /// step, an uninstalled device or a driver package Windows dropped can leave
 /// it missing, and Artemis then reports its "SudoVDA" driver as not installed.
 /// When the driver is missing for a minute, whether since the service started
 /// or after it was removed while the service runs, setup sets it up again from
-/// this installation. Setup does that at most once a day per version and never
-/// during a stream; the driver script stops and restarts this service.
+/// this installation. Setup does that at most once a day per version, never
+/// during a stream and never after --no-display-driver; the driver script stops
+/// and restarts this service. A device the user switched off counts as there.
 fn repair_display_driver(install: &std::path::Path, stop: Arc<AtomicBool>) {
     use std::os::windows::process::CommandExt;
     let setup = install.join("uninstall.exe");
@@ -143,22 +154,24 @@ fn repair_display_driver(install: &std::path::Path, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         let mut watch = DriverWatch::default();
         while !stop.load(Ordering::Acquire) {
-            if watch.poll(crate::display::virtual_display_available(), Instant::now()) {
+            if watch.poll(crate::display::virtual_display_installed(), Instant::now()) {
                 let status = crate::display::virtual_display_status();
                 tracing::warn!(
                     reason = status["reason"].as_str().unwrap_or(""),
                     "the virtual display driver is missing; setting it up again"
                 );
                 // Not a child that dies with the service: the script stops it.
+                // Plain --repair-drivers is the limited, quiet run; only a
+                // person adds --now.
                 if let Err(error) = std::process::Command::new(&setup)
-                    .args(["--repair-drivers", "--automatic"])
+                    .arg("--repair-drivers")
                     .creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0)
                     .spawn()
                 {
                     tracing::warn!(%error, "the driver repair could not start");
                 }
             }
-            std::thread::sleep(Duration::from_secs(5));
+            std::thread::sleep(watch.interval());
         }
     });
 }
@@ -345,6 +358,15 @@ mod tests {
         assert!(!watch.poll(false, at(660 + 3599)));
         assert!(!watch.poll(false, at(660 + 3600)));
         assert!(watch.poll(false, at(660 + 3600 + 60)));
+        // A minute apart while the driver is there, 5 seconds while it is not.
+        let mut watch = DriverWatch::default();
+        watch.poll(true, at(0));
+        assert_eq!(watch.interval(), Duration::from_secs(60));
+        watch.poll(false, at(60));
+        assert_eq!(watch.interval(), Duration::from_secs(5));
+        assert!(watch.poll(false, at(120)));
+        // Missing through the quiet hour: back to a minute.
+        assert_eq!(watch.interval(), Duration::from_secs(60));
         // A blip that heals within the minute never repairs.
         let mut watch = DriverWatch::default();
         assert!(!watch.poll(false, at(0)));

@@ -288,9 +288,19 @@ say) so it outranks the 0.1.0.x development builds, and puts it under
   device, driver packages and HDR layer earlier versions installed (a note when it cannot; the
   SignPath certificate stays, the gamepad driver needs it). Where the new driver was refused or
   failed, the old one stays; nothing uses it.
-- When the host has had no virtual display driver for a minute after the service starts, the
-  service runs `butterpollo-setup.exe --repair-drivers`, which installs it again: at most once
-  a day per version, never during a stream. Nothing installs or removes it after a settings
+- The service checks for the driver every minute, and every 5 seconds once it is missing.
+  When the driver has been missing for a minute, whether since the service started or after
+  the device was removed while it runs, the service runs `uninstall.exe --repair-drivers`
+  (the same program as `butterpollo-setup.exe`), which installs it again: at most once a day
+  per version, never after `--no-display-driver`, and only when the host reports no stream,
+  pending launch or app (a host that does not answer while it runs counts as busy). A device
+  that is only switched off in Device Manager counts as there and is left alone. A host bound
+  to a LAN `bind_address` hides its stream counts from every caller, so the service cannot tell
+  it is idle and never repairs it by itself: run `--now` there. After an
+  attempt the service waits an hour. To repair it at once, run
+  `butterpollo-setup.exe --repair-drivers --now` from an administrator shell: it shows
+  progress and the result, and ignores the daily limit and `--no-display-driver`, though it
+  still refuses during a stream. Nothing installs or removes the driver after a settings
   change.
 - The uninstaller always runs `-Uninstall`, also when the other drivers stay.
 

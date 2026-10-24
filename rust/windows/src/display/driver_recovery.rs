@@ -132,6 +132,56 @@ fn eligible(
         )
 }
 
+/// Our device is installed but switched off (Device Manager, or a policy):
+/// that is a choice, not a missing driver. `eligible` refuses the same
+/// problems, so no restart or reinstall overrides it either.
+fn switched_off(
+    hardware_ids: &[String],
+    status: CM_DEVNODE_STATUS_FLAGS,
+    problem: CM_PROB,
+) -> bool {
+    hardware_ids
+        .iter()
+        .any(|id| id.eq_ignore_ascii_case(rubylight_vdisplay_proto::HARDWARE_ID))
+        && status.contains(DN_HAS_PROBLEM)
+        && matches!(problem, CM_PROB_DISABLED | CM_PROB_DISABLED_SERVICE)
+}
+
+/// Whether a devnode of our driver exists and is switched off. Its interface
+/// is not there to open, so `virtual_display_available` calls it missing.
+/// Anything this cannot read counts as not switched off.
+pub fn disabled() -> bool {
+    let display_class = GUID::from_u128(0x4d36e968_e325_11ce_bfc1_08002be10318);
+    // SAFETY: a valid class GUID and no window/enumerator; this is read-only enumeration.
+    let Ok(handle) = (unsafe {
+        SetupDiGetClassDevsW(Some(&display_class), PCWSTR::null(), None, DIGCF_PRESENT)
+    }) else {
+        return false;
+    };
+    let set = DeviceSet(handle);
+    for index in 0..256 {
+        let mut device = SP_DEVINFO_DATA {
+            cbSize: size_of::<SP_DEVINFO_DATA>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: correctly sized output structure and a live device set.
+        if unsafe { SetupDiEnumDeviceInfo(set.0, index, &mut device) }.is_err() {
+            return false;
+        }
+        let Ok(ids) = strings(set.0, &device, SPDRP_HARDWAREID) else {
+            continue;
+        };
+        let mut status = CM_DEVNODE_STATUS_FLAGS::default();
+        let mut problem = CM_PROB::default();
+        // SAFETY: both outputs are live and DevInst came from this present device set.
+        let read = unsafe { CM_Get_DevNode_Status(&mut status, &mut problem, device.DevInst, 0) };
+        if read == CR_SUCCESS && switched_off(&ids, status, problem) {
+            return true;
+        }
+    }
+    false
+}
+
 struct DeviceSet(HDEVINFO);
 impl Drop for DeviceSet {
     fn drop(&mut self) {
@@ -331,6 +381,34 @@ mod tests {
             CM_PROB_FAILED_INSTALL,
         ] {
             assert!(!eligible(&own, "WUDFRd", DN_HAS_PROBLEM, problem));
+        }
+    }
+    #[test]
+    fn a_device_the_user_switched_off_is_not_a_missing_driver() {
+        let own = vec![rubylight_vdisplay_proto::HARDWARE_ID.to_owned()];
+        for problem in [CM_PROB_DISABLED, CM_PROB_DISABLED_SERVICE] {
+            assert!(switched_off(&own, DN_HAS_PROBLEM, problem));
+            // Neither switched off nor ours.
+            assert!(!switched_off(
+                &own,
+                CM_DEVNODE_STATUS_FLAGS::default(),
+                problem
+            ));
+            assert!(!switched_off(
+                &[r"PCI\VEN_1002".into()],
+                DN_HAS_PROBLEM,
+                problem
+            ));
+            // The restart path stays out of it too.
+            assert!(!eligible(&own, "WUDFRd", DN_HAS_PROBLEM, problem));
+        }
+        // A failed or healthy device is a different case.
+        for problem in [
+            CM_PROB::default(),
+            CM_PROB_FAILED_START,
+            CM_PROB_NEED_RESTART,
+        ] {
+            assert!(!switched_off(&own, DN_HAS_PROBLEM, problem));
         }
     }
     #[test]

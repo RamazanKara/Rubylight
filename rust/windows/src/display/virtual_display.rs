@@ -52,6 +52,12 @@ pub fn virtual_display_os() -> bool {
 pub fn virtual_display_available() -> bool {
     Control::open().is_ok()
 }
+/// Whether the driver counts as there for the service's repair watch: its
+/// interface opens, or its device is installed and switched off, which the user
+/// may have done on purpose.
+pub fn virtual_display_installed() -> bool {
+    virtual_display_available() || super::driver_recovery::disabled()
+}
 /// Launch/resume may repair a confirmed failed devnode before choosing its display.
 /// Console and server-info inspection must keep using the read-only availability query.
 pub fn ensure_virtual_display_available() -> bool {
@@ -97,7 +103,7 @@ fn problem_text(error: &anyhow::Error, recorded: Option<String>) -> String {
         .downcast_ref::<windows::core::Error>()
         .map(|e| e.code());
     if code == Some(ERROR_NO_MORE_ITEMS.to_hresult()) {
-        "Rubylight's display driver is not installed, or Windows must restart to finish installing it. The Rubylight service sets it up again a minute after it starts; if it stays missing, run the Rubylight installer.".into()
+        "Rubylight's display driver is not installed, or Windows must restart to finish installing it. The Rubylight service sets it up again a minute after it finds it missing, unless a stream is running; to do it now, run \"butterpollo-setup.exe --repair-drivers --now\" from the Rubylight folder in an administrator shell.".into()
     } else if code == Some(ERROR_ACCESS_DENIED.to_hresult()) {
         "Rubylight's display driver refused this process. Install Rubylight with its setup and let the service run the host.".into()
     } else {

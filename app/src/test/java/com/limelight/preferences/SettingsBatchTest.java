@@ -177,7 +177,7 @@ public class SettingsBatchTest {
             PreferenceScreen video = section(controller, "video");
             java.util.List<String> keys = SettingsStructureTest.keys(groupOf(video, "checkbox_auto_bitrate"));
             assertEquals(keys.indexOf("checkbox_auto_bitrate") + 1, keys.indexOf("adaptive_quality_mode"));
-            assertEquals("Also lower resolution or frame rate", video.findPreference("adaptive_quality_mode").getTitle().toString());
+            assertEquals("Lower resolution or frame rate when needed", video.findPreference("adaptive_quality_mode").getTitle().toString());
             assertNull(video.findPreference("adaptive_quality_min_resolution"));
             assertNull(video.findPreference("adaptive_quality_min_fps"));
             prefs().edit().putString("adaptive_quality_mode", "balanced").commit();
@@ -216,6 +216,24 @@ public class SettingsBatchTest {
             assertEquals("Hide the individual switches", customize.getSummary().toString());
             customize.getOnPreferenceClickListener().onPreferenceClick(customize);
             assertNull(advanced.findPreference("checkbox_codec_performance"));
+        }
+    }
+
+    @Test
+    public void customizeStaysOpenAcrossARotation() {
+        android.os.Bundle saved = new android.os.Bundle();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            PreferenceScreen advanced = section(controller, "advanced");
+            Preference customize = advanced.findPreference("low_latency_customize");
+            customize.getOnPreferenceClickListener().onPreferenceClick(customize);
+            assertNotNull(advanced.findPreference("checkbox_codec_performance"));
+            controller.saveInstanceState(saved);
+        }
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup(saved)) {
+            SettingsStructureTest.settle(controller.get());
+            PreferenceScreen advanced = ((StreamSettings.SettingsFragment) SettingsStructureTest.shown(controller.get())).getPreferenceScreen();
+            for (String key : StreamSettings.LOW_LATENCY_CUSTOMIZED) assertNotNull(key, advanced.findPreference(key));
+            assertEquals("Hide the individual switches", advanced.findPreference("low_latency_customize").getSummary().toString());
         }
     }
 
@@ -301,8 +319,11 @@ public class SettingsBatchTest {
             assertEquals("category_advanced_compatibility", groupOf(advanced, "checkbox_enable_sops").getKey());
             assertEquals("Game optimization hint", sops.getTitle().toString());
             assertTrue(sops.isChecked());
-            assertEquals("Passed on to commands on the PC", sops.getSummary().toString());
-            assertTrue(((MaterialSwitchPreference) sops).getExplanation().toString().contains("SUNSHINE_CLIENT_ENABLE_SOPS"));
+            assertEquals("Lets the PC adjust the game’s settings", sops.getSummary().toString());
+            // User-facing text stays host-neutral: no host brand and no host-specific variable name.
+            String explanation = ((MaterialSwitchPreference) sops).getExplanation().toString();
+            assertFalse(explanation.contains("SUNSHINE_CLIENT_ENABLE_SOPS"));
+            assertFalse(explanation.contains("Rubylight"));
             assertNull(section(controller, "video").findPreference("checkbox_enable_sops"));
         }
     }
@@ -366,6 +387,15 @@ public class SettingsBatchTest {
         OverlayChoice.save(editor, 0);
         editor.commit();
         assertEquals("Off keeps the last mode for the next time", "debug", p.getString("performance_overlay_mode", ""));
+    }
+
+    @Test
+    public void highContrastIsNotedOnTheThemePickerBecauseItKeepsTheAppBlack() {
+        prefs().edit().putBoolean("checkbox_high_contrast", true).commit();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            Preference theme = section(controller, "app").findPreference("checkbox_always_dark");
+            assertEquals("System\nHigh contrast keeps the app black", theme.getSummary().toString());
+        }
     }
 
     @Test

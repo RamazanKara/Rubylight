@@ -82,6 +82,7 @@ import java.util.Set;
 public class StreamSettings extends NightjarActivity {
     private static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
+    private static final String STATE_CUSTOMIZE = "customize_open";
     /** Opens this section of {@link #SECTIONS} instead of the list; an unknown name opens the list. */
     public static final String EXTRA_SECTION = "com.limelight.preferences.SECTION";
     /** The key of the setting to scroll to and select once the section shows; see {@link #open}. */
@@ -483,7 +484,11 @@ public class StreamSettings extends NightjarActivity {
             LimeLog.warning("Unable to read preference keys: " + e);
             return;
         }
+        // Stored by the frame rate, overlay and theme pickers, which have no row of their own for them.
         editor.remove("checkbox_native_touch")
+                .remove(PreferenceConfiguration.UNLOCK_FPS_STRING)
+                .remove(PreferenceConfiguration.OVERLAY_MODE_PREF_STRING)
+                .remove(com.limelight.ui.AppTheme.OLED_BLACK)
                 .remove(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING)
                 .remove(PreferenceConfiguration.BITRATE_PREF_OLD_STRING)
                 .remove(PreferenceConfiguration.PREFS_VERSION_PREF_STRING)
@@ -502,6 +507,7 @@ public class StreamSettings extends NightjarActivity {
             returnSearchQuery = savedInstanceState.getString("return_search");
             returnSearchSection = normalizeSection(savedInstanceState.getString("return_section"));
             searchResultKey = savedInstanceState.getString("search_result");
+            customizeOpen = savedInstanceState.getBoolean(STATE_CUSTOMIZE, false);
         } else {
             String named = getIntent().getStringExtra(EXTRA_SECTION);
             String focusKey = getIntent().getStringExtra(EXTRA_FOCUS_KEY);
@@ -604,6 +610,7 @@ public class StreamSettings extends NightjarActivity {
         outState.putString("return_search", returnSearchQuery);
         outState.putString("return_section", returnSearchSection);
         outState.putString("search_result", searchResultKey);
+        outState.putBoolean(STATE_CUSTOMIZE, customizeOpen);
     }
 
     @Override
@@ -1165,6 +1172,10 @@ public class StreamSettings extends NightjarActivity {
                     value = getResources().getStringArray(R.array.overlay_choice_names)[OverlayChoice.read(prefs)];
                 } else if (AppTheme.ALWAYS_DARK.equals(pref.getKey())) {
                     value = getResources().getStringArray(R.array.theme_choice_names)[ThemeChoice.read(prefs)];
+                    // High contrast is always black, whatever the picker says.
+                    if (prefs.getBoolean(AppTheme.HIGH_CONTRAST, false)) {
+                        value = value + "\n" + getString(R.string.theme_high_contrast_note);
+                    }
                 } else if (LOW_LATENCY_CUSTOMIZE_KEY.equals(pref.getKey())) {
                     value = getString(customizeOpen() ? R.string.low_latency_customize_open : R.string.low_latency_customize_closed);
                 } else if (Arrays.asList(PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS).contains(pref.getKey())) {

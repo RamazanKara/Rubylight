@@ -323,8 +323,15 @@ public class AdvancedOptionsTest {
 
     @Test
     public void resettingSettingsLeavesAdvancedAndDebugAvailable() {
-        prefs().edit().putBoolean(LEGACY_UNLOCK, true).putString("performance_overlay_mode", "debug").commit();
+        prefs().edit().putBoolean(LEGACY_UNLOCK, true).putString("performance_overlay_mode", "debug")
+                .putBoolean("checkbox_enable_perf_overlay", true)
+                .putBoolean(com.limelight.ui.AppTheme.OLED_BLACK, true).putBoolean("checkbox_unlock_fps", true).commit();
         StreamSettings.resetAllSettings(RuntimeEnvironment.getApplication());
+        // The pickers' own keys have no row in the XML; a reset must still clear them.
+        assertFalse(prefs().contains("performance_overlay_mode"));
+        assertFalse(prefs().contains(com.limelight.ui.AppTheme.OLED_BLACK));
+        assertFalse(prefs().getBoolean("checkbox_unlock_fps", false));
+        assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).unlockFps);
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             assertNull(root(screen).findPreference("developer"));

@@ -703,7 +703,7 @@ public class PreferenceConfiguration {
             config.useTextureView = PreferenceManager.getDefaultSharedPreferences(context)
                     .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr;
         }
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView;
+        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
         return config;
     }
 
@@ -1204,8 +1204,9 @@ public class PreferenceConfiguration {
         }
         config.hostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
         config.contentRateFrameRate = prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false);
-        // The vote is for a SurfaceView on a fixed-rate panel; VRR has its own vote.
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView;
+        // The vote is for a SurfaceView on a fixed-rate panel; VRR has its own vote. It needs the lower refresh
+        // rate switch: the settings screen greys it without that, so a stored choice must not act on its own.
+        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
         if (config.hostFrameTimes) {
             // Each frame is released at its scheduled time and the compositor shows it then.
             config.framePacing = FRAME_PACING_MIN_LATENCY;

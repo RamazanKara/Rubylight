@@ -296,7 +296,9 @@ public class SettingsKeysTest {
         PreferenceConfiguration.readPreferences(app);
         prefs().edit().putBoolean(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING, false)
                 .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true)
-                .putBoolean("checkbox_usb_dualsense", true).commit();
+                .putBoolean("checkbox_usb_dualsense", true)
+                // The content-rate vote needs the lower refresh rate switch; its own row resets it to off later.
+                .putBoolean("checkbox_reduce_refresh_rate", true).commit();
         for (Map.Entry<String, Read> entry : reads.entrySet()) {
             String key = entry.getKey();
             Read read = entry.getValue();

@@ -97,7 +97,7 @@
 
     <!-- Display & image -->
     <PreferenceCategory android:key="category_display_refresh" android:title="@string/settings_category_refresh">
-        <!-- Adaptive refresh and host frame times both replace frame pacing and the lower refresh rate (StreamSettings, SettingRules). -->
+        <!-- Adaptive refresh replaces frame pacing and the lower refresh rate; host frame times replace only frame pacing (StreamSettings, SettingRules). -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_vrr"
             android:title="@string/title_vrr"

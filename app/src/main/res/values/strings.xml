@@ -222,7 +222,7 @@
     <string name="summary_quick_resume">Tapping a PC that is running a game goes straight back into the game instead of opening its library.</string>
 
     <string name="title_checkbox_enable_sops">Game optimization hint</string>
-    <string name="summary_checkbox_enable_sops">Tells the PC whether it may optimize a game’s settings for this stream. Rubylight only passes the choice on to commands you run on the PC, as SUNSHINE_CLIENT_ENABLE_SOPS. Other hosts may change the game’s settings themselves.</string>
+    <string name="summary_checkbox_enable_sops">Tells the PC whether it may optimize a game’s settings for this stream. What the PC does with it depends on the host: some change the game’s settings themselves, others only pass the choice on to commands you run on the PC.</string>
     <string name="title_checkbox_host_audio">Play audio on the host PC</string>
 
     <string name="title_unlock_fps">Show all frame rates</string>

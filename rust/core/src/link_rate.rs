@@ -88,7 +88,9 @@ pub const LOSS_MIN_PACKETS: u64 = 100;
 /// latch was given its chance and the loss went on. A client waiting for a
 /// keyframe reports little (one lost keyframe per request), so three frames
 /// took 4 s on the 2026-10-24 `r50-hevc-hi` arm (75 Mbps into 50 Mbit/s) and
-/// the stream lost its first 5.8 s.
+/// the stream lost its first 5.8 s. Its keyframe requests count as well, even
+/// from a client that sends FEC status: they were the only sign of loss for 1.5 s
+/// of that run. A cut with no measured share goes to [`MIN_CUT_PERCENT`] then.
 pub const LATCH_WATCH: Duration = Duration::from_secs(4);
 /// Frames lost on send (WSAENOBUFS and the like) that cut (E3).
 pub const SEND_LOSS_FRAMES: usize = 3;
@@ -606,7 +608,11 @@ impl LinkRate {
     /// the network, not the host or the decoder queue, caused it. Feeds E4,
     /// and only from a client that has sent no FEC status.
     pub fn on_keyframe_request(&mut self, network: bool, now: Instant) {
-        if !network || self.fec_status_seen || !self.is_active() || !self.admits(None, now) {
+        if !network
+            || (self.fec_status_seen && !self.watching(now))
+            || !self.is_active()
+            || !self.admits(None, now)
+        {
             return;
         }
         if self.events.requests.len() >= EVENT_CAP {
@@ -653,6 +659,11 @@ impl LinkRate {
 
     fn is_active(&self) -> bool {
         self.budget.is_some() && self.state != State::Off
+    }
+
+    /// Whether a latch is still being judged (see [`LATCH_WATCH`]).
+    fn watching(&self, now: Instant) -> bool {
+        self.latch_watch.is_some_and(|until| now < until)
     }
 
     fn set_fence(&mut self, now: Instant) {
@@ -762,15 +773,16 @@ impl LinkRate {
             loss_windows: e.hot,
             loss_share: 0.,
         };
-        let watching = self.latch_watch.is_some_and(|until| now < until);
+        let watching = self.watching(now);
         let unrecoverable = if watching { 1 } else { UNRECOVERABLE_FRAMES };
+        let requests = if watching { 1 } else { KEYFRAME_REQUESTS };
         let (reason, share_known) = if evidence.unrecoverable_frames >= unrecoverable {
             ("unrecoverable_frames", true)
         } else if evidence.loss_windows >= LOSS_WINDOWS {
             ("fec_loss_share", true)
         } else if evidence.send_losses >= SEND_LOSS_FRAMES {
             ("send_losses", true)
-        } else if !self.fec_status_seen && evidence.keyframe_requests >= KEYFRAME_REQUESTS {
+        } else if (!self.fec_status_seen || watching) && evidence.keyframe_requests >= requests {
             ("keyframe_requests", false)
         } else {
             return None;
@@ -1026,7 +1038,17 @@ impl LinkRate {
             }
             None => {
                 self.delivered_bps = 0;
-                cur * UNKNOWN_SHARE_PERCENT / 100
+                // The latch did not help, so the loss is the rate, by an
+                // amount nothing here measured: a client waiting for a
+                // keyframe reports almost nothing. A 30 % cut left r50-hevc-hi
+                // at 41 Mbps on a 50 Mbit/s link with 75 % of packets lost for
+                // another 1.6 s; go as deep as a cut may, and probe back.
+                let percent = if self.watching(now) {
+                    MIN_CUT_PERCENT
+                } else {
+                    UNKNOWN_SHARE_PERCENT
+                };
+                cur * percent / 100
             }
         }
         .clamp(

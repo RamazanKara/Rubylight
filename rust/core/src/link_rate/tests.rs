@@ -649,6 +649,36 @@ fn a_latch_that_did_not_help_cuts_on_the_first_unrecoverable_frame_after_it() {
     assert_eq!(change.reason, "unrecoverable_frames");
 }
 
+/// The same run, 2026-10-24: after the latch's fence the only sign of loss for
+/// 1.5 s was the client's keyframe request, from a client that reports FEC
+/// status (so requests are otherwise not evidence). The cut had no measured
+/// share and the 30 % default left the stream above the link.
+#[test]
+fn a_latch_that_did_not_help_cuts_on_a_keyframe_request_and_goes_deep() {
+    let mut rig = Rig::new(58_988);
+    rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+    rig.lr.on_latch(rig.now(), true, true);
+    // A request inside the fence is nothing.
+    rig.clean(300);
+    rig.lr.on_keyframe_request(true, rig.now());
+    rig.clean(1_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+    rig.lr.on_keyframe_request(true, rig.now());
+    rig.clean(300);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
+    let (_, cut) = rig.changes[0];
+    assert_eq!(cut.reason, "keyframe_requests");
+    assert!(cut.to_kbps <= 58_988 / 2, "{cut:?}");
+    // The cut is not a default for later ones: without a latch to watch, a
+    // request from a client that reports FEC status is still nothing.
+    let mut rig = Rig::new(58_988);
+    rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+    rig.clean(1_000);
+    rig.lr.on_keyframe_request(true, rig.now());
+    rig.clean(1_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+}
+
 #[test]
 fn a_stray_unrecoverable_frame_long_after_a_latch_is_not_a_cut() {
     let mut rig = Rig::new(40_000);

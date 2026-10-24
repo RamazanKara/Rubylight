@@ -329,7 +329,7 @@ impl VideoTexture {
     pub fn upload(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded) -> bool {
         #[cfg(windows)]
         if let media::Picture::GpuPlanes { lease, fence_value } = &decoded.picture {
-            return self.upload_planes(renderer, decoded, lease, *fence_value);
+            return self.upload_planes(renderer, decoded, lease, *fence_value, None);
         }
         #[cfg(unix)]
         if let media::Picture::GpuPlanes { lease } = &decoded.picture {
@@ -542,34 +542,42 @@ impl VideoTexture {
         true
     }
 
-    /// Draws a picture the GPU decoder left in D3D11 planes: waits for its decode on the GPU,
-    /// converts the planes into the texture and gives the plane set back.
+    /// Makes the texture and the planes pass ready for pictures of `setup` and returns the pass
+    /// parameters, or `None` (with `failure` set when it is a loud one).
     #[cfg(windows)]
-    fn upload_planes(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, lease: &super::gpu_planes::Lease, fence_value: u64) -> bool {
-        let setup = decoded.setup;
+    fn prepare_planes(&mut self, renderer: *mut SDL_Renderer, setup: nightjar_core::session::VideoSetup) -> Option<[u32; 8]> {
         let ten = setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
         let hdr = self.hdr_mode.unwrap_or(ten);
-        if hdr && !crate::sdl::hdr_available(renderer) { self.destroy(); return false; }
+        if hdr && !crate::sdl::hdr_available(renderer) { self.destroy(); return None; }
         // SAFETY: The live renderer belongs to the presenting thread.
         let white_level = if hdr { unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0) }.max(0.001) } else { 1.0 };
         let flags = u32::from(setup.color_range != 0) | (u32::from(hdr) << 1) | ((setup.color_space as u32) << 2)
             | (u32::from(ten) << 4) | (u32::from(setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_YUV444 != 0) << 5);
         let parameters = [setup.width as u32, setup.height as u32, setup.width as u32, setup.height as u32, 0, 3, flags, white_level.to_bits()];
         if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
-        if !self.ensure(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, setup.width, setup.height, SDL_COLORSPACE_SRGB_LINEAR, white_level) { return false; }
+        if !self.ensure(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, setup.width, setup.height, SDL_COLORSPACE_SRGB_LINEAR, white_level) { return None; }
         if self.planes.is_none() {
             if self.d3d11.is_null() {
                 self.failure = Some("PyroWave GPU decoding needs the Direct3D 11 renderer".into());
-                return false;
+                return None;
             }
             // SAFETY: `d3d11` is the live texture of the renderer's device.
             match unsafe { super::d3d11::PlanesPass::new(self.d3d11) } {
                 Ok(pass) => { self.planes = Some(pass); self.pyrowave_format = Some(parameters); }
-                Err(error) => { self.failure = Some(format!("PyroWave GPU decoding cannot draw its planes: {error}")); return false; }
+                Err(error) => { self.failure = Some(format!("PyroWave GPU decoding cannot draw its planes: {error}")); return None; }
             }
         }
+        Some(parameters)
+    }
+
+    /// Draws a picture the GPU decoder left in D3D11 planes: waits for its decode on the GPU,
+    /// converts the planes (only `rows` of them when given) into the texture and gives the plane
+    /// set back.
+    #[cfg(windows)]
+    fn upload_planes(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, lease: &super::gpu_planes::Lease, fence_value: u64, rows: Option<(u32, u32)>) -> bool {
+        let Some(parameters) = self.prepare_planes(renderer, decoded.setup) else { return false };
         let step = std::time::Instant::now();
-        let drawn = self.planes.as_mut().is_some_and(|pass| match pass.draw(lease, fence_value, &parameters, PLANES_DECODE_DEADLINE) {
+        let drawn = self.planes.as_mut().is_some_and(|pass| match pass.draw(lease, fence_value, &parameters, PLANES_DECODE_DEADLINE, rows) {
             Ok(()) => true,
             Err(error) => { self.failure = Some(format!("PyroWave GPU decoding failed: {error}")); false }
         });
@@ -577,6 +585,21 @@ impl VideoTexture {
             self.pyrowave_stages.add(super::pyrowave_gpu::PASSES, step);
             self.pyrowave_stages.commit();
         } else { self.pyrowave_stages.reset(); }
+        drawn
+    }
+
+    /// Draws `rows` of a slice of the frame being received into the texture (the frame's plane
+    /// set stays with it). Returns false when the slice cannot be drawn; `failure` says why when
+    /// the stream must end.
+    #[cfg(windows)]
+    pub fn upload_slice(&mut self, renderer: *mut SDL_Renderer, setup: nightjar_core::session::VideoSetup, pin: &super::gpu_planes::Pin, fence_value: u64, rows: (u32, u32)) -> bool {
+        let Some(parameters) = self.prepare_planes(renderer, setup) else { return false };
+        let step = std::time::Instant::now();
+        let drawn = self.planes.as_mut().is_some_and(|pass| match pass.draw_slice(pin, fence_value, &parameters, PLANES_DECODE_DEADLINE, rows) {
+            Ok(()) => true,
+            Err(error) => { self.failure = Some(format!("PyroWave GPU decoding failed: {error}")); false }
+        });
+        if drawn { self.pyrowave_stages.add(super::pyrowave_gpu::PASSES, step); } else { self.pyrowave_stages.reset(); }
         drawn
     }
 
@@ -792,6 +815,7 @@ pub(crate) mod tests {
             first_block_us: 0,
             race: Default::default(),
             bands: Vec::new(),
+            race_seq: 0,
         }
     }
 

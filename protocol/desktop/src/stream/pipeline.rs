@@ -49,10 +49,10 @@ pub struct Decoded {
     /// How the beam race went (all zero unless it is on): the timing CSV's slice columns.
     pub race: super::pyrowave::RaceReport,
     /// The slices decoded for the frame, in order, each ready once its fence value is signalled
-    /// (empty unless the beam race is on). The last runs to the end of the picture. The presenter
-    /// does not draw from them yet.
-    #[allow(dead_code)]
+    /// (empty unless the beam race is on). The last runs to the end of the picture.
     pub bands: Vec<super::pyrowave::BandReady>,
+    /// The sequence number the frame's slices came with (`SliceReady::seq`), 0 when it had none.
+    pub race_seq: u64,
 }
 
 /// Something the UI should know about.
@@ -112,11 +112,16 @@ impl Counters {
     }
 }
 
+/// Slices waiting for the raced presenter at most (a frame has a handful).
+const MAX_SLICES_QUEUED: usize = 64;
+
 pub struct Shared {
     pub fps_millihz: AtomicU32,
     pub decode_window: Mutex<DecodeWindow>,
     pub host_client: Mutex<Option<Arc<nightjar_core::http::HostClient>>>,
     pub frames: Mutex<VecDeque<Decoded>>,
+    /// Slices of frames still arriving, for the raced presenter (beam race only), oldest first.
+    pub slices: Mutex<VecDeque<super::pyrowave::SliceReady>>,
     /// The pacer's queue (`Pacer::with_backlog`), reachable from the decoder thread for `evict_oldest`.
     pub pacer_backlog: Arc<Mutex<VecDeque<super::present::Pending>>>,
     pub notices: Mutex<Vec<Notice>>,
@@ -146,6 +151,7 @@ impl Shared {
             decode_window: Mutex::new(DecodeWindow::default()),
             host_client: Mutex::new(None),
             frames: Mutex::new(VecDeque::new()),
+            slices: Mutex::new(VecDeque::new()),
             pacer_backlog: Default::default(),
             notices: Mutex::new(Vec::new()),
             decoder_name: Mutex::new(String::new()),
@@ -206,6 +212,17 @@ impl Shared {
 
     pub fn wake(&self) {
         (self.waker)();
+    }
+
+    /// Hands slices that finished decoding to the presenter and wakes it. The queue is bounded: a
+    /// presenter that does not keep up loses the oldest, which it would have dropped as stale.
+    fn push_slices(&self, slices: Vec<super::pyrowave::SliceReady>) {
+        if slices.is_empty() { return; }
+        let mut queue = lock(&self.slices);
+        queue.extend(slices);
+        while queue.len() > MAX_SLICES_QUEUED { queue.pop_front(); }
+        drop(queue);
+        self.wake();
     }
 }
 
@@ -414,6 +431,7 @@ impl VideoDecoder for Decoder {
         if let Some(decoder) = &mut self.pyrowave {
             let start = session::now_us();
             decoder.chunk(first, flags, payload);
+            self.shared.push_slices(decoder.take_slices());
             self.shared.counters.early_us_total.fetch_add(session::now_us() - start, Ordering::Relaxed);
         }
     }
@@ -450,7 +468,7 @@ impl VideoDecoder for Decoder {
             self.shared.count_race(&output.race);
             let decoded = Decoded { picture: output.picture, setup, rtp: frame.rtp_timestamp, number: frame.number, receive_us: frame.receive_time_us,
                 enqueue_us: frame.enqueue_time_us, input_us: start, ready_us, host_latency: frame.host_processing_latency,
-                early, first_block_us: output.first_block_us, race: output.race, bands: output.bands };
+                early, first_block_us: output.first_block_us, race: output.race, bands: output.bands, race_seq: output.race_seq };
             let mut frames = lock(&self.shared.frames);
             frames.push_back(decoded);
             while frames.len() > self.shared.queue_limit { frames.pop_front(); counters.replaced.fetch_add(1, Ordering::Relaxed); }
@@ -500,6 +518,7 @@ impl VideoDecoder for Decoder {
                         first_block_us: 0,
                         race: Default::default(),
                         bands: Vec::new(),
+                        race_seq: 0,
                     };
                     let mut frames = lock(&self.shared.frames);
                     frames.push_back(decoded);

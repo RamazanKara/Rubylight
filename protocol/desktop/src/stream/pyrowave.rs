@@ -448,6 +448,17 @@ pub struct Output {
     /// The slices decoded for the frame, in order (empty unless the beam race is on).
     pub bands: Vec<BandReady>,
     pub race: RaceReport,
+    /// The sequence number of the frame's slices (`SliceReady::seq`); 0 when it had none.
+    pub race_seq: u64,
+}
+
+/// A slice of a frame still being received, whose decode has finished: rows `band.first_row..
+/// band.end_row` can be drawn from the plane set `pin` holds once `band.fence_value` is signalled.
+/// The frame's final decode follows in its `Output`.
+pub struct SliceReady {
+    pub seq: u64,
+    pub band: BandReady,
+    pub pin: super::gpu_planes::Pin,
 }
 
 /// A slice of the picture whose decode has finished: rows `first_row..end_row` of the frame being
@@ -614,6 +625,14 @@ impl Pyrowave {
         }
     }
 
+    /// The slices decoded while the frame in flight arrived, since the last call.
+    pub fn take_slices(&mut self) -> Vec<SliceReady> {
+        match self {
+            Self::Cpu(_) => Vec::new(),
+            Self::Gpu(stream) => stream.take_slices(),
+        }
+    }
+
     /// Where the picture of the last `frame` came from, also after a frame that failed (the
     /// early and fallback counters count those too).
     pub fn source(&self) -> Source {
@@ -631,7 +650,7 @@ impl Pyrowave {
                 decoder.coefficients(data).map_err(|e| Failure::Frame(e.into()))?;
                 let frame = decoder.coefficient_frame().map_err(Failure::Frame)?;
                 Ok(Output { picture: Picture::Frame(frame), loss_percent: decoder.loss_percent, first_block_us: decoder.first_block_us,
-                    bands: Vec::new(), race: RaceReport::default() })
+                    bands: Vec::new(), race: RaceReport::default(), race_seq: 0 })
             }
             Self::Gpu(stream) => stream.frame(data, evict),
         }
@@ -731,12 +750,18 @@ struct Race {
     ordered_run: u32,
     /// This frame may be sliced (the last frames were in order).
     slicing: bool,
+    /// The frame in flight, counted from 1 (slices and the frame's `Output` carry it).
+    seq: u64,
+    /// Slices decoded and not yet taken by the decoder thread.
+    events: Vec<SliceReady>,
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
 impl Race {
     fn begin_frame(&mut self) {
         self.plan.begin_frame();
+        self.seq += 1;
+        self.events.clear();
         self.header_pushed = false;
         self.lease = None;
         self.bands.clear();
@@ -815,6 +840,8 @@ impl GpuStream {
             no_plane: false,
             ordered_run: ORDERED_FRAMES_TO_RESUME,
             slicing: true,
+            seq: 0,
+            events: Vec::new(),
         });
     }
 
@@ -887,13 +914,24 @@ impl GpuStream {
             }
         }
         let Some((lease, after)) = &race.lease else { return };
-        match gpu.decode(lease.set(), *after).and_then(|fence| gpu.wait(fence, GPU_DECODE_TIMEOUT).map(|()| fence)) {
-            Ok(fence_value) => race.bands.push(BandReady {
-                slice: due.slice as u8, first_row: due.first_row, end_row: due.end_row, fence_value, ready_us: nightjar_core::session::now_us(),
-            }),
+        // The slices already drawn from the set (by the presenter) are waited for as well.
+        let wait = (*after).max(planes.wait_for(lease.set()));
+        match gpu.decode(lease.set(), wait).and_then(|fence| gpu.wait(fence, GPU_DECODE_TIMEOUT).map(|()| fence)) {
+            Ok(fence_value) => {
+                let band = BandReady {
+                    slice: due.slice as u8, first_row: due.first_row, end_row: due.end_row, fence_value, ready_us: nightjar_core::session::now_us(),
+                };
+                race.bands.push(band);
+                race.events.push(SliceReady { seq: race.seq, band, pin: lease.pin() });
+            }
             Err(error) => race.failure = Some(format!("PyroWave GPU decode failed: {error}")),
         }
         stages.add(GPU_SLICES, step);
+    }
+
+    /// The slices decoded since the last call, for the presenter.
+    pub fn take_slices(&mut self) -> Vec<SliceReady> {
+        self.race.as_mut().map(|race| std::mem::take(&mut race.events)).unwrap_or_default()
     }
 
     #[cfg(not(windows))]
@@ -957,6 +995,8 @@ impl GpuStream {
         let step = Instant::now();
         #[cfg(windows)]
         let fence_value = {
+            // Draws of the frame's slices from this set come first.
+            let after = after.max(self.planes.wait_for(lease.set()));
             let fence_value = self.gpu.decode(lease.set(), after).map_err(|e| Failure::Device(format!("PyroWave GPU decode failed: {e}")))?;
             self.stages.add(GPU_SUBMIT, step);
             let step = Instant::now();
@@ -988,6 +1028,7 @@ impl GpuStream {
         };
         #[cfg(not(windows))]
         let (race, bands) = (RaceReport::default(), Vec::new());
+        let race_seq = if race.slices > 0 { self.race.as_ref().map_or(0, |race| race.seq) } else { 0 };
         Ok(Output {
             picture: Picture::GpuPlanes {
                 lease,
@@ -998,6 +1039,7 @@ impl GpuStream {
             first_block_us,
             bands,
             race,
+            race_seq,
         })
     }
 
@@ -1337,6 +1379,8 @@ mod tests {
             no_plane: false,
             ordered_run: ORDERED_FRAMES_TO_RESUME,
             slicing: true,
+            seq: 0,
+            events: Vec::new(),
         }
     }
 

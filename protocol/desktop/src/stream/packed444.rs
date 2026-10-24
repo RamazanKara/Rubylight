@@ -588,6 +588,7 @@ mod tests {
                     first_block_us: 0,
                     race: Default::default(),
                     bands: Vec::new(),
+                    race_seq: 0,
                 };
                 let ten_bit = format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
                 let mut parameters = [128, 64, 128, 64, u32::from(ten_bit), 1, 1, 0, 1.0f32.to_bits(), 0, 0, 0];

@@ -28,11 +28,15 @@ use super::pyrowave_sdk::GpuConfig;
 pub struct Pool {
     free: VecDeque<usize>,
     after: Vec<u64>,
+    /// Readers that hold a set without holding its lease (a slice waiting to be drawn): a set
+    /// released while one holds it goes back to the pool when the last of them lets go.
+    pins: Vec<u32>,
+    released: Vec<bool>,
 }
 
 impl Pool {
     pub fn new(sets: usize) -> Self {
-        Self { free: (0..sets).collect(), after: vec![0; sets] }
+        Self { free: (0..sets).collect(), after: vec![0; sets], pins: vec![0; sets], released: vec![false; sets] }
     }
 
     pub fn acquire(&mut self) -> Option<(usize, u64)> {
@@ -44,7 +48,32 @@ impl Pool {
     pub fn release(&mut self, set: usize, after: Option<u64>) {
         debug_assert!(!self.free.contains(&set), "plane set {set} freed twice");
         if let Some(value) = after { self.after[set] = self.after[set].max(value); }
-        self.free.push_back(set);
+        if self.pins[set] > 0 { self.released[set] = true; } else { self.free.push_back(set); }
+    }
+
+    /// A reader holds `set` until `unpin`.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn pin(&mut self, set: usize) {
+        self.pins[set] += 1;
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn unpin(&mut self, set: usize) {
+        debug_assert!(self.pins[set] > 0, "plane set {set} unpinned more than pinned");
+        self.pins[set] = self.pins[set].saturating_sub(1);
+        if self.pins[set] == 0 && std::mem::take(&mut self.released[set]) { self.free.push_back(set); }
+    }
+
+    /// The reuse-fence value a decode into `set` has to wait for now.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn after(&self, set: usize) -> u64 {
+        self.after[set]
+    }
+
+    /// A draw read `set` and will signal `value`: whatever decodes into it next waits for that.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn read_until(&mut self, set: usize, value: u64) {
+        self.after[set] = self.after[set].max(value);
     }
 
     #[cfg(test)]
@@ -101,6 +130,52 @@ impl Planes {
     pub fn next_reuse_value(&self) -> u64 {
         self.reuse_value.fetch_add(1, Ordering::Relaxed) + 1
     }
+
+    /// What a decode into `set` has to wait for on the reuse fence right now: the draws that read
+    /// it so far, which a slice's draw adds to while the frame is still being decoded.
+    pub fn wait_for(&self, set: usize) -> u64 {
+        self.pool().after(set)
+    }
+
+    pub fn textures(&self, set: usize) -> &[ID3D11Texture2D; 3] {
+        &self.sets[set]
+    }
+
+    pub fn decode_fence(&self) -> &ID3D11Fence {
+        &self.decode_fence
+    }
+
+    pub fn reuse_fence(&self) -> &ID3D11Fence {
+        &self.reuse_fence
+    }
+}
+
+/// A reader of a plane set that is not its owner (a slice waiting to be drawn while its frame is
+/// still decoding): the set is not reused until the reader is dropped, even if the frame is
+/// abandoned and its lease dropped.
+#[cfg(windows)]
+pub struct Pin {
+    planes: Arc<Planes>,
+    set: usize,
+}
+
+#[cfg(windows)]
+impl Pin {
+    pub fn set(&self) -> usize { self.set }
+
+    pub fn planes(&self) -> &Arc<Planes> { &self.planes }
+
+    /// A draw from the set will signal `value` on the reuse fence: the next decode waits for it.
+    pub fn read_until(&self, value: u64) {
+        self.planes.pool().read_until(self.set, value);
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Pin {
+    fn drop(&mut self) {
+        self.planes.pool().unpin(self.set);
+    }
 }
 
 /// One plane set held by a picture.
@@ -131,6 +206,12 @@ impl Lease {
 
     pub fn reuse_fence(&self) -> &ID3D11Fence {
         &self.planes.reuse_fence
+    }
+
+    /// A reader for the slices of the frame that will fill this set.
+    pub fn pin(&self) -> Pin {
+        self.planes.pool().pin(self.set);
+        Pin { planes: self.planes.clone(), set: self.set }
     }
 
     /// Gives the set back after the presenter queued a `Signal` of `value` on the reuse fence
@@ -192,6 +273,10 @@ impl Planes {
         Some((Lease { planes: self.clone(), set, freed: AtomicBool::new(false) }, 0))
     }
 }
+
+/// There are no slices to read on this platform.
+#[cfg(unix)]
+pub struct Pin;
 
 /// One plane set held by a picture.
 #[cfg(unix)]
@@ -255,6 +340,42 @@ mod tests {
             pool.release(set, value);
         }
         assert_eq!(pool.acquire(), Some((0, 5)), "an unshown picture or an older value never lowers the wait");
+    }
+
+    #[test]
+    fn a_pinned_set_is_not_reused_until_its_readers_let_go() {
+        let mut pool = Pool::new(1);
+        let (set, _) = pool.acquire().unwrap();
+        pool.pin(set);
+        pool.pin(set);
+        pool.release(set, Some(4));
+        assert_eq!(pool.acquire(), None, "released while read: not free yet");
+        pool.unpin(set);
+        assert_eq!(pool.acquire(), None, "one reader left");
+        pool.unpin(set);
+        assert_eq!(pool.acquire(), Some((0, 4)), "free when the last reader lets go, with the wait it was released with");
+    }
+
+    #[test]
+    fn a_reader_that_lets_go_of_a_held_set_does_not_free_it() {
+        let mut pool = Pool::new(1);
+        let (set, _) = pool.acquire().unwrap();
+        pool.pin(set);
+        pool.unpin(set);
+        assert_eq!(pool.acquire(), None, "the lease still holds it");
+        pool.release(set, None);
+        assert_eq!(pool.acquire(), Some((0, 0)));
+    }
+
+    #[test]
+    fn a_slice_draw_raises_the_wait_of_the_next_decode_into_the_set() {
+        let mut pool = Pool::new(1);
+        let (set, _) = pool.acquire().unwrap();
+        pool.read_until(set, 3);
+        pool.read_until(set, 2);
+        assert_eq!(pool.after(set), 3, "never lowered");
+        pool.release(set, Some(1));
+        assert_eq!(pool.acquire(), Some((0, 3)));
     }
 
     #[cfg(unix)]

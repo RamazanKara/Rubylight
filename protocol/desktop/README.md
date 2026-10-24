@@ -39,6 +39,10 @@ the import tables, system libraries left out) into `dist/`, so it runs on a PC w
 With `-FfmpegDir <prefix>` the exe is built against the decode-only FFmpeg that
 `ffmpeg-decode-only.sh <ffmpeg 8 source> <prefix>` builds in an MSYS2 UCRT64 shell (libavcodec
 and libavutil with the H.264, HEVC and AV1 decoders, their D3D11VA paths and dav1d).
+The script also checks that no import is left outside the zip or Windows itself (the Visual C++ runtime counts as
+missing), then starts the unpacked exe with only the Windows folders on `PATH`. `-Version` names the zip after a release
+version; the release workflow builds it that way (`nightjar-desktop-<version>-windows-x86_64.zip`), and
+`package-linux.sh -v` does the same for the Linux tar.gz.
 
 ### Linux
 

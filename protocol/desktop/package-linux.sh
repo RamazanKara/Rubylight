@@ -2,11 +2,14 @@
 # Builds a release nightjar and packs it as a tar.gz, with the PyroWave SDK the GPU decoder
 # loads at run time when one is given (the Linux counterpart of package-windows.ps1):
 #
-#   package-linux.sh [-s <PyroWave SDK folder from scripts/build-pyrowave-sdk.sh>] [-o <folder>] [-t <target dir>]
+#   package-linux.sh [-s <PyroWave SDK folder from scripts/build-pyrowave-sdk.sh>] [-o <folder>] [-t <target dir>] [-v <version>]
 #
 # Needs the packages from README.md ("Building", Linux). SDL3 is linked statically (see
 # Cargo.toml); FFmpeg's libavcodec and libavutil and libopus come from the system, so the
-# package lists what `ldd` finds for them and the target machine needs the same sonames.
+# package lists what `ldd` finds for them (and, on Debian and Ubuntu, the packages that own
+# them, in LINUX-RUNTIME.txt) and the target machine needs the same sonames. -v names the
+# package after a release version instead of the crate's (the release workflow passes the
+# app version); the archive is nightjar-desktop-<version>-linux-<arch>.tar.gz.
 #
 # With -s the package carries libpyrowave-shared.so next to the executable (nothing links it, the
 # client loads it by path at run time), its build-info.txt as pyrowave-sdk-build-info.txt and
@@ -20,11 +23,13 @@ workspace=$(cd "$here/.." && pwd)
 sdk=
 out=$workspace/../dist
 target=$workspace/target
-while getopts "s:o:t:" opt; do
+version=
+while getopts "s:o:t:v:" opt; do
 	case $opt in
 		s) sdk=$OPTARG ;;
 		o) out=$OPTARG ;;
 		t) target=$OPTARG ;;
+		v) version=$OPTARG ;;
 		*) exit 2 ;;
 	esac
 done
@@ -55,7 +60,7 @@ fi
 (cd "$workspace" && cargo build --release -p nightjar-desktop --locked --target-dir "$target")
 exe=$target/release/nightjar
 
-version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$workspace/Cargo.toml" | head -n1)
+[[ -n $version ]] || version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$workspace/Cargo.toml" | head -n1)
 arch=$(uname -m)
 name=nightjar-desktop-$version-linux-$arch
 stage=$out/$name
@@ -71,6 +76,30 @@ fi
 cp "$here/README.md" "$stage/"
 # What the machine running it needs besides the C library.
 ldd "$stage/nightjar" | sed -n 's/^[[:space:]]*\(lib[^ ]*\) => .*/\1/p' | sort >"$stage/system-libraries.txt"
+{
+	echo "Nightjar for Linux links these shared libraries directly (SDL3 is built in); the"
+	echo "packages that provide them bring the rest. system-libraries.txt has the full ldd list."
+	echo
+	while read -r lib; do
+		owner=
+		if command -v dpkg >/dev/null; then
+			path=$(ldd "$stage/nightjar" | sed -n "s/^[[:space:]]*$lib => \([^ ]*\) .*/\1/p")
+			owner=$(dpkg -S "$(readlink -f "$path")" 2>/dev/null | head -n1 | cut -d: -f1) || true
+		fi
+		echo "  $lib${owner:+  (Debian/Ubuntu package $owner)}"
+	done < <(readelf -d "$stage/nightjar" | sed -n 's/.*(NEEDED).*Shared library: \[\(lib[^]]*\)\].*/\1/p' | sort | grep -vE '^lib(c|m|dl|pthread|rt|gcc_s|stdc\+\+)\.so')
+	echo
+	echo "SDL3 loads the X11 or Wayland, PulseAudio/PipeWire/ALSA and udev libraries of the desktop"
+	echo "at run time; a desktop installation has them."
+	echo
+	if [[ -n $sdk ]]; then
+		echo "PyroWave GPU decoding also needs a Vulkan 1.3 driver and the Vulkan loader (libvulkan1)."
+	else
+		echo "This package does not carry the PyroWave SDK: PyroWave GPU decoding needs"
+		echo "libpyrowave-shared.so beside the executable (see README.md), a Vulkan 1.3 driver and"
+		echo "the Vulkan loader (libvulkan1)."
+	fi
+} >"$stage/LINUX-RUNTIME.txt"
 tar -C "$out" -czf "$out/$name.tar.gz" "$name"
 
 (cd "$stage" && ls -l | tail -n +2 | awk '{printf "%12d  %s\n", $5, $9}')

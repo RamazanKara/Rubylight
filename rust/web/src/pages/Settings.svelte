@@ -14,6 +14,7 @@
     computeChanges,
     currentValues,
     differsFromDefault,
+    foldStatus,
     isSet,
     effective,
     has,
@@ -368,10 +369,11 @@
 {#snippet groups(list: Group[])}
   {#each list as group (group.name)}
     {#if FOLDED_GROUPS.has(group.name)}
+      {@const fold = foldStatus(group.settings, edits, config, pending)}
       <!-- Opened by the user; an unsaved change inside opens it too. -->
       <details
         class="group fold"
-        open={foldOpen[group.name] === true || group.settings.some((setting) => pending.has(setting.key))}
+        open={foldOpen[group.name] === true || fold.mustOpen}
         ontoggle={(event) => {
           foldOpen[group.name] = event.currentTarget.open;
         }}
@@ -379,7 +381,9 @@
         <summary>
           <Icon name="chevron" size={15} />
           {group.name}
-          <span class="count">{group.settings.length} {group.settings.length === 1 ? 'setting' : 'settings'}</span>
+          <span class="count">
+            {group.settings.length} {group.settings.length === 1 ? 'setting' : 'settings'}{fold.customized ? `, ${fold.customized} customized` : ''}{fold.unsaved ? `, ${fold.unsaved} unsaved` : ''}
+          </span>
         </summary>
         {#each group.settings as setting (setting)}
           {@render row(setting, !visible(setting))}

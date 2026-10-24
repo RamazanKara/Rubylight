@@ -324,7 +324,7 @@ const video: Setting[] = [
     description:
       'Lowers the bitrate when a Moonlight device reports video loss, then slowly raises it again while traffic is sustained and latency is stable.',
     details:
-      'Includes error correction and audio in the network budget. Requires observed client feedback; a device that adjusts its own bitrate takes control. H.264, HEVC and AV1 only. Changes apply on the next connection. It replaces Lower the bitrate when the link cannot carry it, and a device that sets its own bitrate takes over bitrate control.',
+      'Includes error correction and audio in the network budget. Requires observed client feedback; a device that adjusts its own bitrate takes control. H.264, HEVC and AV1 only. Changes apply on the next connection. It replaces Lower the bitrate when the link cannot carry it.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },

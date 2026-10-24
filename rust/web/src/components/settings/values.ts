@@ -401,6 +401,21 @@ export function differsFromDefault(setting: Setting, edits: Edits, stored: Confi
   return next !== null && !sameValue(meaning(setting, next), meaning(setting, patchValue(setting, setting.default)));
 }
 
+/**
+ * What a folded group's summary shows: how many settings differ from their default, how many have an unsaved
+ * change, and whether the group must be open so that an unsaved change stays visible.
+ */
+export function foldStatus(
+  settings: Setting[],
+  edits: Edits,
+  stored: Config,
+  pending: ReadonlySet<string>,
+): { customized: number; unsaved: number; mustOpen: boolean } {
+  const customized = new Set(settings.filter(setting => differsFromDefault(setting, edits, stored)).map(setting => setting.key)).size;
+  const unsaved = settings.filter(setting => pending.has(setting.key)).length;
+  return { customized, unsaved, mustOpen: unsaved > 0 };
+}
+
 /** Whether the key has a value of its own once the edits are saved, whatever that value is. */
 export function isSet(setting: Setting, edits: Edits, stored: Config): boolean {
   return patchValue(setting, has(edits, setting.key) ? edits[setting.key] : stored[setting.key]) !== null;

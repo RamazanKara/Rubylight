@@ -306,15 +306,15 @@ impl StreamSettings {
     pub fn to_wire(&self) -> (VideoSettings, AudioSettings) {
         (
             VideoSettings {
-                width: self.width,
-                height: self.height,
-                fps: self.fps,
+                width: self.width.into(),
+                height: self.height.into(),
+                fps: self.fps.into(),
                 codec: self.codec.name().into(),
-                bitrate_kbps: self.bitrate_kbps,
+                bitrate_kbps: self.bitrate_kbps.into(),
                 hdr: self.hdr,
             },
             AudioSettings {
-                channels: self.audio_channels,
+                channels: self.audio_channels.into(),
                 sample_rate: Some(AUDIO_SAMPLE_RATE),
             },
         )
@@ -423,13 +423,18 @@ impl HostCapabilities {
     ) -> Result<StreamSettings, ProtocolError> {
         let codec =
             Codec::parse(&video.codec).ok_or_else(|| unsupported("Unsupported video codec"))?;
-        let mode = ModeSpec::find(video.width, video.height)
+        // Negative or huge numbers are unsupported settings: they map to a
+        // value no mode, rate, bitrate or channel count has.
+        let size = |n: i64| u32::try_from(n).unwrap_or(u32::MAX);
+        let (width, height, fps) = (size(video.width), size(video.height), size(video.fps));
+        let (bitrate_kbps, channels) = (size(video.bitrate_kbps), size(audio.channels));
+        let mode = ModeSpec::find(width, height)
             .filter(|m| !self.frame_rates.rates(m.width, m.height).is_empty())
             .ok_or_else(|| unsupported("Unsupported resolution"))?;
         if !self
             .frame_rates
             .rates(mode.width, mode.height)
-            .contains(&video.fps)
+            .contains(&fps)
         {
             return Err(unsupported("Unsupported frame rate"));
         }
@@ -453,12 +458,12 @@ impl HostCapabilities {
                 }));
             }
         }
-        if !AUDIO_CHANNELS.contains(&audio.channels) {
+        if !AUDIO_CHANNELS.contains(&channels) {
             return Err(unsupported(
                 "Unsupported audio channel count: use 2, 6 or 8",
             ));
         }
-        if !BITRATE_RANGE_KBPS.contains(&video.bitrate_kbps) {
+        if !BITRATE_RANGE_KBPS.contains(&bitrate_kbps) {
             return Err(unsupported(format!(
                 "Bitrate must be between {} and {} kbps",
                 BITRATE_RANGE_KBPS.start(),
@@ -466,19 +471,37 @@ impl HostCapabilities {
             )));
         }
         Ok(StreamSettings {
-            width: video.width,
-            height: video.height,
-            fps: video.fps,
+            width,
+            height,
+            fps,
             codec,
-            bitrate_kbps: video.bitrate_kbps,
+            bitrate_kbps,
             hdr: video.hdr,
-            audio_channels: audio.channels,
+            audio_channels: channels,
         })
     }
 }
 
-/// A HEVC level (Main tier) as the SDP `level-id`: `general_level_idc`, which
-/// is 30 times the level number.
+/// The tier of a level. Main is what a decoder is guaranteed to take; High
+/// is used only when no Main-tier level has the bitrate for the stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tier {
+    Main,
+    High,
+}
+
+impl Tier {
+    /// HEVC `tier-flag` and AV1 `tier` in the SDP: 0 for Main, 1 for High.
+    pub fn flag(self) -> u32 {
+        match self {
+            Self::Main => 0,
+            Self::High => 1,
+        }
+    }
+}
+
+/// A HEVC level as the SDP `level-id`: `general_level_idc`, which is 30 times
+/// the level number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HevcLevel {
     pub name: &'static str,
@@ -492,110 +515,161 @@ pub struct Av1Level {
     pub level_idx: u32,
 }
 
-struct HevcLimits {
-    level: HevcLevel,
-    max_luma_ps: u64,
-    max_luma_sr: u64,
+/// The limits of one level that decide whether it holds a stream.
+struct Limits {
+    max_pic_size: u64,
+    max_h_size: u64,
+    max_v_size: u64,
+    /// Luma samples per second.
+    max_sample_rate: u64,
+    /// Bitrate in kbps for the Main and the High tier.
+    max_kbps_main: u64,
+    max_kbps_high: u64,
 }
 
-const fn hevc(name: &'static str, level_id: u32, max_luma_ps: u64, max_luma_sr: u64) -> HevcLimits {
-    HevcLimits {
-        level: HevcLevel { name, level_id },
-        max_luma_ps,
-        max_luma_sr,
+impl Limits {
+    fn holds_picture(&self, width: u64, height: u64, fps: u64) -> bool {
+        width * height <= self.max_pic_size
+            && width <= self.max_h_size
+            && height <= self.max_v_size
+            && width * height * fps <= self.max_sample_rate
     }
 }
 
-/// H.265 table A.8; the Main tier and the High tier share these limits.
-const HEVC_LEVELS: [HevcLimits; 13] = [
-    hevc("1", 30, 36_864, 552_960),
-    hevc("2", 60, 122_880, 3_686_400),
-    hevc("2.1", 63, 245_760, 7_372_800),
-    hevc("3", 90, 552_960, 16_588_800),
-    hevc("3.1", 93, 983_040, 33_177_600),
-    hevc("4", 120, 2_228_224, 66_846_720),
-    hevc("4.1", 123, 2_228_224, 133_693_440),
-    hevc("5", 150, 8_912_896, 267_386_880),
-    hevc("5.1", 153, 8_912_896, 534_773_760),
-    hevc("5.2", 156, 8_912_896, 1_069_547_520),
-    hevc("6", 180, 35_651_584, 1_069_547_520),
-    hevc("6.1", 183, 35_651_584, 2_139_095_040),
-    hevc("6.2", 186, 35_651_584, 4_278_190_080),
-];
-
-struct Av1Limits {
-    level: Av1Level,
-    max_pic_size: u64,
-    max_h_size: u64,
-    max_v_size: u64,
-    max_display_rate: u64,
+/// The lowest entry, then tier, that holds the stream. Every Main-tier level is
+/// tried before any High tier one.
+fn pick<L: Copy>(
+    levels: &[(L, Limits)],
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate_kbps: u32,
+) -> Option<(L, Tier)> {
+    let (w, h, f, kbps) = (
+        u64::from(width),
+        u64::from(height),
+        u64::from(fps),
+        u64::from(bitrate_kbps),
+    );
+    let holds = |limits: &Limits| limits.holds_picture(w, h, f);
+    levels
+        .iter()
+        .find(|(_, l)| holds(l) && kbps <= l.max_kbps_main)
+        .map(|(level, _)| (*level, Tier::Main))
+        .or_else(|| {
+            levels
+                .iter()
+                .find(|(_, l)| holds(l) && kbps <= l.max_kbps_high)
+                .map(|(level, _)| (*level, Tier::High))
+        })
 }
 
-const fn av1(
+const fn hevc(
     name: &'static str,
-    level_idx: u32,
+    level_id: u32,
+    max_luma_ps: u64,
+    max_luma_sr: u64,
+    max_kbps_main: u64,
+    max_kbps_high: u64,
+) -> (HevcLevel, Limits) {
+    (
+        HevcLevel { name, level_id },
+        Limits {
+            max_pic_size: max_luma_ps,
+            // Each side is at most sqrt(8 * MaxLumaPs).
+            max_h_size: isqrt(8 * max_luma_ps),
+            max_v_size: isqrt(8 * max_luma_ps),
+            max_sample_rate: max_luma_sr,
+            max_kbps_main,
+            max_kbps_high,
+        },
+    )
+}
+
+/// The integer square root, rounded down.
+const fn isqrt(n: u64) -> u64 {
+    let mut root = 0;
+    while (root + 1) * (root + 1) <= n {
+        root += 1;
+    }
+    root
+}
+
+/// H.265 tables A.8 and A.9, from level 4.1 up to 5.2. Below 4.1 a Samsung
+/// decoder may refuse the offer, as the reference host found, and above 5.2
+/// is 8K. A stream bigger than 5.2 holds has no level here.
+const HEVC_LEVELS: [(HevcLevel, Limits); 4] = [
+    hevc("4.1", 123, 2_228_224, 133_693_440, 20_000, 50_000),
+    hevc("5", 150, 8_912_896, 267_386_880, 25_000, 100_000),
+    hevc("5.1", 153, 8_912_896, 534_773_760, 40_000, 160_000),
+    hevc("5.2", 156, 8_912_896, 1_069_547_520, 60_000, 240_000),
+];
+
+const fn av1(name: &'static str, level_idx: u32, limits: Limits) -> (Av1Level, Limits) {
+    (Av1Level { name, level_idx }, limits)
+}
+
+const fn limits(
     max_pic_size: u64,
     max_h_size: u64,
     max_v_size: u64,
-    max_display_rate: u64,
-) -> Av1Limits {
-    Av1Limits {
-        level: Av1Level { name, level_idx },
+    max_sample_rate: u64,
+    max_kbps_main: u64,
+    max_kbps_high: u64,
+) -> Limits {
+    Limits {
         max_pic_size,
         max_h_size,
         max_v_size,
-        max_display_rate,
+        max_sample_rate,
+        max_kbps_main,
+        max_kbps_high,
     }
 }
 
-/// AV1 spec annex A. Levels 2.2, 2.3, 3.2, 3.3, 4.2 and 4.3 are undefined,
-/// and 5.3 has the display rate of 5.2, so 5.2 always wins.
-const AV1_LEVELS: [Av1Limits; 12] = [
-    av1("2.0", 0, 147_456, 2_048, 1_152, 4_423_680),
-    av1("2.1", 1, 278_784, 2_816, 1_584, 8_363_520),
-    av1("3.0", 4, 665_856, 4_352, 2_448, 19_975_680),
-    av1("3.1", 5, 1_065_024, 5_504, 3_096, 31_950_720),
-    av1("4.0", 8, 2_359_296, 6_144, 3_456, 70_778_880),
-    av1("4.1", 9, 2_359_296, 6_144, 3_456, 141_557_760),
-    av1("5.0", 12, 8_912_896, 8_192, 4_352, 267_386_880),
-    av1("5.1", 13, 8_912_896, 8_192, 4_352, 534_773_760),
-    av1("5.2", 14, 8_912_896, 8_192, 4_352, 1_069_547_520),
-    av1("6.0", 16, 35_651_584, 16_384, 8_704, 1_069_547_520),
-    av1("6.1", 17, 35_651_584, 16_384, 8_704, 2_139_095_040),
-    av1("6.2", 18, 35_651_584, 16_384, 8_704, 4_278_190_080),
+/// AV1 spec annex A, from level 4.1 up to 5.2. Levels 4.2 and 4.3 are
+/// undefined, and 5.3 has the limits of 5.2, so 5.2 always wins.
+const AV1_LEVELS: [(Av1Level, Limits); 4] = [
+    av1(
+        "4.1",
+        9,
+        limits(2_359_296, 6_144, 3_456, 141_557_760, 20_000, 50_000),
+    ),
+    av1(
+        "5.0",
+        12,
+        limits(8_912_896, 8_192, 4_352, 267_386_880, 30_000, 100_000),
+    ),
+    av1(
+        "5.1",
+        13,
+        limits(8_912_896, 8_192, 4_352, 534_773_760, 40_000, 160_000),
+    ),
+    av1(
+        "5.2",
+        14,
+        limits(8_912_896, 8_192, 4_352, 1_069_547_520, 60_000, 240_000),
+    ),
 ];
 
-/// The lowest HEVC level, Main tier, that holds this picture size and rate.
-/// `None` when no level does. For `level-id` in the HEVC fmtp: 4.1 at
-/// 1080p60, 5 at 1440p60 or 1080p120, 5.1 at 4K60 or 1440p120, 5.2 at 4K120.
-pub fn hevc_level(width: u32, height: u32, fps: u32) -> Option<HevcLevel> {
-    let (w, h) = (u64::from(width), u64::from(height));
-    let (size, rate) = (w * h, w * h * u64::from(fps));
-    HEVC_LEVELS
-        .iter()
-        // Each side is at most sqrt(8 * MaxLumaPs).
-        .find(|l| {
-            size <= l.max_luma_ps
-                && rate <= l.max_luma_sr
-                && w * w <= 8 * l.max_luma_ps
-                && h * h <= 8 * l.max_luma_ps
-        })
-        .map(|l| l.level)
+/// The lowest HEVC level, not below 4.1, whose picture size, sample rate and
+/// Main-tier bitrate hold the stream; if no Main-tier level has the bitrate,
+/// the lowest level of the High tier that does. For the HEVC fmtp:
+/// `level-id` and `tier-flag`. `None` when even 5.2 High is too small.
+/// At a bitrate of 10 Mbps this gives 4.1 at 1080p60, 5 at 1440p60 or
+/// 1080p120, 5.1 at 4K60 or 1440p120 and 5.2 at 4K120.
+pub fn hevc_level(
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate_kbps: u32,
+) -> Option<(HevcLevel, Tier)> {
+    pick(&HEVC_LEVELS, width, height, fps, bitrate_kbps)
 }
 
-/// The lowest AV1 `seq_level_idx` that holds this picture size and rate.
-pub fn av1_level(width: u32, height: u32, fps: u32) -> Option<Av1Level> {
-    let (w, h) = (u64::from(width), u64::from(height));
-    let (size, rate) = (w * h, w * h * u64::from(fps));
-    AV1_LEVELS
-        .iter()
-        .find(|l| {
-            size <= l.max_pic_size
-                && w <= l.max_h_size
-                && h <= l.max_v_size
-                && rate <= l.max_display_rate
-        })
-        .map(|l| l.level)
+/// The same for AV1: `level-idx` and `tier`.
+pub fn av1_level(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Option<(Av1Level, Tier)> {
+    pick(&AV1_LEVELS, width, height, fps, bitrate_kbps)
 }
 
 #[cfg(test)]
@@ -623,11 +697,11 @@ mod tests {
         hdr: bool,
     ) -> VideoSettings {
         VideoSettings {
-            width,
-            height,
-            fps,
+            width: width.into(),
+            height: height.into(),
+            fps: fps.into(),
             codec: codec.into(),
-            bitrate_kbps: kbps,
+            bitrate_kbps: kbps.into(),
             hdr,
         }
     }
@@ -641,7 +715,7 @@ mod tests {
 
     fn refuse(host: &HostCapabilities, v: VideoSettings, channels: u32) -> String {
         let audio = AudioSettings {
-            channels,
+            channels: channels.into(),
             sample_rate: None,
         };
         let error = host.validate(&v, &audio).unwrap_err();
@@ -1025,7 +1099,7 @@ mod tests {
         let v = video(1920, 1080, 60, "h264", 20000, false);
         for channels in [2, 6, 8] {
             let audio = AudioSettings {
-                channels,
+                channels: channels.into(),
                 sample_rate: None,
             };
             assert_eq!(host.validate(&v, &audio).unwrap().audio_channels, channels);
@@ -1044,70 +1118,124 @@ mod tests {
         assert!(host.validate(&asked, &stereo()).is_err());
     }
 
-    #[test]
-    fn hevc_levels_match_the_protocol_examples() {
-        let level = |w, h, fps| hevc_level(w, h, fps).unwrap();
-        assert_eq!(
-            (level(1920, 1080, 60).name, level(1920, 1080, 60).level_id),
-            ("4.1", 123)
-        );
-        assert_eq!(
-            (level(2560, 1440, 60).name, level(2560, 1440, 60).level_id),
-            ("5", 150)
-        );
-        assert_eq!(
-            (level(1920, 1080, 120).name, level(1920, 1080, 120).level_id),
-            ("5", 150)
-        );
-        assert_eq!(
-            (level(3840, 2160, 60).name, level(3840, 2160, 60).level_id),
-            ("5.1", 153)
-        );
-        assert_eq!(
-            (level(2560, 1440, 120).name, level(2560, 1440, 120).level_id),
-            ("5.1", 153)
-        );
-        assert_eq!(
-            (level(3840, 2160, 120).name, level(3840, 2160, 120).level_id),
-            ("5.2", 156)
-        );
+    /// HEVC level name, id and tier flag at 10 Mbps unless a rate is given.
+    fn hevc(w: u32, h: u32, fps: u32, kbps: u32) -> (&'static str, u32, u32) {
+        let (level, tier) = hevc_level(w, h, fps, kbps).unwrap();
+        (level.name, level.level_id, tier.flag())
+    }
+
+    fn av1(w: u32, h: u32, fps: u32, kbps: u32) -> (&'static str, u32, u32) {
+        let (level, tier) = av1_level(w, h, fps, kbps).unwrap();
+        (level.name, level.level_idx, tier.flag())
     }
 
     #[test]
-    fn hevc_levels_for_the_rest_of_the_mode_table() {
-        assert_eq!(hevc_level(1280, 720, 30).unwrap().name, "3.1");
-        assert_eq!(hevc_level(1280, 720, 60).unwrap().name, "4");
-        assert_eq!(hevc_level(1280, 720, 120).unwrap().name, "4.1");
-        assert_eq!(hevc_level(1920, 1080, 30).unwrap().name, "4");
-        assert_eq!(hevc_level(1920, 1080, 90).unwrap().name, "5");
-        assert_eq!(hevc_level(2560, 1440, 30).unwrap().name, "5");
-        assert_eq!(hevc_level(2560, 1440, 90).unwrap().name, "5.1");
-        assert_eq!(hevc_level(3840, 2160, 30).unwrap().name, "5");
-        assert_eq!(hevc_level(3840, 2160, 90).unwrap().name, "5.2");
-        // Beyond every level.
-        assert_eq!(hevc_level(16384, 16384, 60), None);
-        // Every offered mode has a level.
+    fn hevc_levels_match_the_protocol_examples() {
+        assert_eq!(hevc(1920, 1080, 60, 10_000), ("4.1", 123, 0));
+        assert_eq!(hevc(2560, 1440, 60, 10_000), ("5", 150, 0));
+        assert_eq!(hevc(1920, 1080, 120, 10_000), ("5", 150, 0));
+        assert_eq!(hevc(3840, 2160, 60, 10_000), ("5.1", 153, 0));
+        assert_eq!(hevc(2560, 1440, 120, 10_000), ("5.1", 153, 0));
+        assert_eq!(hevc(3840, 2160, 120, 10_000), ("5.2", 156, 0));
+    }
+
+    #[test]
+    fn hevc_levels_never_drop_below_4_1() {
+        // The reference floors at 4.1: a Samsung decoder may refuse a lower offer.
+        assert_eq!(hevc(1920, 1080, 30, 10_000), ("4.1", 123, 0));
+        assert_eq!(hevc(1280, 720, 30, 10_000), ("4.1", 123, 0));
+        assert_eq!(hevc(1280, 720, 60, 10_000), ("4.1", 123, 0));
+        assert_eq!(hevc(1280, 720, 120, 10_000), ("4.1", 123, 0));
+        assert_eq!(hevc(1920, 1080, 30, 100_000).2, 1);
+    }
+
+    #[test]
+    fn hevc_levels_take_the_bitrate_into_account() {
+        // 1080p60 fits level 4.1, but 50 Mbps is over its 20 Mbps Main tier.
+        assert_eq!(hevc(1920, 1080, 60, 20_000), ("4.1", 123, 0));
+        assert_eq!(hevc(1920, 1080, 60, 20_001), ("5", 150, 0));
+        assert_eq!(hevc(1920, 1080, 60, 50_000), ("5.2", 156, 0));
+        // 4K120 at 100 Mbps is over every Main tier: 5.2 High.
+        assert_eq!(hevc(3840, 2160, 120, 60_000), ("5.2", 156, 0));
+        assert_eq!(hevc(3840, 2160, 120, 100_000), ("5.2", 156, 1));
+        // 1080p30 HDR at its usual bitrate stays at 4.1.
+        assert_eq!(hevc(1920, 1080, 30, 20_000), ("4.1", 123, 0));
+        // Picture size or rate beyond 5.2 has no level at any bitrate.
+        assert_eq!(hevc_level(16384, 16384, 60, 10_000), None);
+        assert_eq!(hevc_level(3840, 2160, 240, 10_000), None);
+    }
+
+    #[test]
+    fn every_offered_mode_has_a_level_across_the_bitrate_range() {
         for mode in &MODES {
             for fps in FRAME_RATES {
-                assert!(hevc_level(mode.width, mode.height, fps).is_some());
-                assert!(av1_level(mode.width, mode.height, fps).is_some());
+                for kbps in [10_000, 50_000, 100_000] {
+                    assert!(hevc_level(mode.width, mode.height, fps, kbps).is_some());
+                    assert!(av1_level(mode.width, mode.height, fps, kbps).is_some());
+                }
             }
         }
     }
 
     #[test]
-    fn av1_levels_follow_the_same_examples() {
-        let idx = |w, h, fps| av1_level(w, h, fps).unwrap().level_idx;
-        assert_eq!(idx(1920, 1080, 60), 9); // 4.1
-        assert_eq!(idx(2560, 1440, 60), 12); // 5.0
-        assert_eq!(idx(1920, 1080, 120), 12); // 5.0
-        assert_eq!(idx(3840, 2160, 60), 13); // 5.1
-        assert_eq!(idx(2560, 1440, 120), 13); // 5.1
-        assert_eq!(idx(3840, 2160, 120), 14); // 5.2
-        assert_eq!(av1_level(3840, 2160, 120).unwrap().name, "5.2");
-        assert_eq!(idx(1280, 720, 30), 5); // 3.1
-        assert_eq!(idx(1280, 720, 60), 8); // 4.0
-        assert_eq!(idx(1920, 1080, 30), 8); // 4.0
-        assert_eq!(av1_level(100_000, 100_000, 30), None);
+    fn av1_levels_follow_the_same_rules() {
+        assert_eq!(av1(1920, 1080, 60, 10_000), ("4.1", 9, 0));
+        assert_eq!(av1(1920, 1080, 30, 10_000), ("4.1", 9, 0));
+        assert_eq!(av1(1280, 720, 30, 10_000), ("4.1", 9, 0));
+        assert_eq!(av1(2560, 1440, 60, 10_000), ("5.0", 12, 0));
+        assert_eq!(av1(1920, 1080, 120, 10_000), ("5.0", 12, 0));
+        assert_eq!(av1(3840, 2160, 60, 10_000), ("5.1", 13, 0));
+        assert_eq!(av1(2560, 1440, 120, 10_000), ("5.1", 13, 0));
+        assert_eq!(av1(3840, 2160, 120, 10_000), ("5.2", 14, 0));
+        assert_eq!(av1(1920, 1080, 60, 50_000), ("5.2", 14, 0));
+        assert_eq!(av1(3840, 2160, 120, 100_000), ("5.2", 14, 1));
+        assert_eq!(av1_level(100_000, 100_000, 30, 10_000), None);
+    }
+
+    #[test]
+    fn out_of_range_numbers_are_unsupported_settings() {
+        let host = host(FULL);
+        let good = video(1920, 1080, 60, "h264", 20000, false);
+        let bad = [
+            VideoSettings {
+                width: -1920,
+                ..good.clone()
+            },
+            VideoSettings {
+                height: -1,
+                ..good.clone()
+            },
+            VideoSettings {
+                width: i64::MAX,
+                ..good.clone()
+            },
+            VideoSettings {
+                fps: -60,
+                ..good.clone()
+            },
+            VideoSettings {
+                fps: 1 << 40,
+                ..good.clone()
+            },
+            VideoSettings {
+                bitrate_kbps: -20000,
+                ..good.clone()
+            },
+            VideoSettings {
+                bitrate_kbps: i64::MAX,
+                ..good.clone()
+            },
+        ];
+        for v in bad {
+            let error = host.validate(&v, &stereo()).unwrap_err();
+            assert_eq!(error.code, ErrorCode::UnsupportedSettings, "{v:?}");
+        }
+        let audio = AudioSettings {
+            channels: -2,
+            sample_rate: None,
+        };
+        let error = host.validate(&good, &audio).unwrap_err();
+        assert_eq!(error.code, ErrorCode::UnsupportedSettings);
+        assert!(host.validate(&good, &stereo()).is_ok());
     }
 }

@@ -370,10 +370,15 @@ impl ConnectionTable {
     }
 
     /// The connection proved itself as `client_id`. Any other connection of
-    /// the same client is replaced, and its stream, if any, stops.
-    pub fn authenticate(&mut self, id: u64, client_id: &str) -> Vec<Dropped> {
-        if self.state(id).is_none() {
-            return Vec::new();
+    /// the same client is replaced, and its stream, if any, stops. A
+    /// connection that is already authenticated or streaming is refused with
+    /// `already-authenticated` and left as it is, so a second `authenticate`
+    /// can't end a running stream's state.
+    pub fn authenticate(&mut self, id: u64, client_id: &str) -> Result<Vec<Dropped>, ErrorCode> {
+        match self.state(id) {
+            None => return Ok(Vec::new()),
+            Some(ConnectionState::Unauthenticated) => {}
+            Some(_) => return Err(ErrorCode::AlreadyAuthenticated),
         }
         let mut dropped = Vec::new();
         self.entries.retain(|(other, state)| {
@@ -391,7 +396,7 @@ impl ConnectionTable {
                 client_id: client_id.to_string(),
             };
         }
-        dropped
+        Ok(dropped)
     }
 
     /// A stream started or ended on an authenticated connection.
@@ -770,10 +775,10 @@ mod tests {
     fn unauthenticated_connections_never_displace_a_stream() {
         let mut table = ConnectionTable::default();
         table.open(1);
-        table.authenticate(1, "tv");
+        table.authenticate(1, "tv").unwrap();
         table.set_streaming(1, true);
         table.open(2);
-        table.authenticate(2, "other");
+        table.authenticate(2, "other").unwrap();
         // Fill and overflow with strangers, many times over.
         let mut dropped = Vec::new();
         for id in 100..140 {
@@ -799,7 +804,7 @@ mod tests {
         for id in 1..=8 {
             table.open(id);
         }
-        table.authenticate(8, "tv");
+        table.authenticate(8, "tv").unwrap();
         assert_eq!(table.unauthenticated(), 7);
         assert!(table.open(9).is_empty());
     }
@@ -808,10 +813,10 @@ mod tests {
     fn a_reconnecting_client_replaces_its_old_connection() {
         let mut table = ConnectionTable::default();
         table.open(1);
-        table.authenticate(1, "tv");
+        table.authenticate(1, "tv").unwrap();
         table.set_streaming(1, true);
         table.open(2);
-        let dropped = table.authenticate(2, "tv");
+        let dropped = table.authenticate(2, "tv").unwrap();
         assert_eq!(
             dropped,
             vec![Dropped {
@@ -832,9 +837,9 @@ mod tests {
         for id in 1..=3 {
             table.open(id);
         }
-        table.authenticate(1, "tv");
+        table.authenticate(1, "tv").unwrap();
         table.set_streaming(1, true);
-        table.authenticate(2, "phone");
+        table.authenticate(2, "phone").unwrap();
         assert_eq!(
             table.drop_client("tv"),
             vec![Dropped {
@@ -850,12 +855,45 @@ mod tests {
     }
 
     #[test]
+    fn authenticating_twice_leaves_the_connection_as_it_was() {
+        let mut table = ConnectionTable::default();
+        table.open(1);
+        table.authenticate(1, "tv").unwrap();
+        table.set_streaming(1, true);
+        // A second authenticate, as the same or another client, is refused
+        // and the stream state survives.
+        for client in ["tv", "other"] {
+            assert_eq!(
+                table.authenticate(1, client),
+                Err(ErrorCode::AlreadyAuthenticated)
+            );
+            assert_eq!(
+                table.state(1),
+                Some(&ConnectionState::Streaming {
+                    client_id: "tv".into()
+                })
+            );
+        }
+        table.set_streaming(1, false);
+        assert_eq!(
+            table.authenticate(1, "other"),
+            Err(ErrorCode::AlreadyAuthenticated)
+        );
+        assert_eq!(
+            table.state(1),
+            Some(&ConnectionState::Authenticated {
+                client_id: "tv".into()
+            })
+        );
+    }
+
+    #[test]
     fn streaming_flag_only_applies_after_authentication() {
         let mut table = ConnectionTable::default();
         table.open(1);
         table.set_streaming(1, true);
         assert_eq!(table.state(1), Some(&ConnectionState::Unauthenticated));
-        table.authenticate(1, "tv");
+        table.authenticate(1, "tv").unwrap();
         table.set_streaming(1, true);
         table.set_streaming(1, false);
         assert_eq!(
@@ -864,7 +902,7 @@ mod tests {
                 client_id: "tv".into()
             })
         );
-        assert!(table.authenticate(99, "x").is_empty());
+        assert!(table.authenticate(99, "x").unwrap().is_empty());
     }
 
     #[test]

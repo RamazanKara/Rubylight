@@ -6,6 +6,7 @@
 //! `type`. Fields we don't know are ignored on the way in, so a client newer
 //! than this host still parses; a wrong version is refused.
 use super::capabilities::CapabilitiesBody;
+use serde::de::{Deserializer, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
@@ -132,17 +133,68 @@ impl fmt::Display for ProtocolError {
 
 impl std::error::Error for ProtocolError {}
 
+/// An integer of any sign and size. Out-of-range numbers are the client's
+/// settings being unsupported (`unsupported-settings`), not a malformed
+/// message, so they must get past parsing: one above `i64::MAX` saturates.
+fn any_integer<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+    struct Integer;
+    impl Visitor<'_> for Integer {
+        type Value = i64;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("an integer")
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<i64, E> {
+            Ok(value)
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<i64, E> {
+            Ok(i64::try_from(value).unwrap_or(i64::MAX))
+        }
+    }
+    deserializer.deserialize_any(Integer)
+}
+
+/// A credential that never shows in `Debug` output (and so never in a log).
+/// It serializes as the plain string.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for Secret {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 /// The `video` object of `start-session` and `switch-session`, and of
 /// `session-status`. The codec stays a string so that an unknown one is
 /// `unsupported-settings`, not a malformed message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoSettings {
-    pub width: u32,
-    pub height: u32,
-    pub fps: u32,
+    #[serde(deserialize_with = "any_integer")]
+    pub width: i64,
+    #[serde(deserialize_with = "any_integer")]
+    pub height: i64,
+    #[serde(deserialize_with = "any_integer")]
+    pub fps: i64,
     pub codec: String,
-    pub bitrate_kbps: u32,
+    #[serde(deserialize_with = "any_integer")]
+    pub bitrate_kbps: i64,
     pub hdr: bool,
 }
 
@@ -150,7 +202,8 @@ pub struct VideoSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioSettings {
-    pub channels: u32,
+    #[serde(deserialize_with = "any_integer")]
+    pub channels: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample_rate: Option<u32>,
 }
@@ -428,7 +481,7 @@ pub enum ServerMessage {
     Authenticated,
     Paired {
         client_id: String,
-        client_secret: String,
+        client_secret: Secret,
     },
     GatewayStatus {
         gateway_name: String,
@@ -510,7 +563,7 @@ impl ServerMessage {
     pub fn paired(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
         Self::Paired {
             client_id: client_id.into(),
-            client_secret: client_secret.into(),
+            client_secret: Secret(client_secret.into()),
         }
     }
 
@@ -589,6 +642,35 @@ mod tests {
         let again: Value = serde_json::from_str(&message.to_json()).unwrap();
         assert_eq!(original, again, "{text}");
         message
+    }
+
+    #[test]
+    fn debug_output_never_shows_the_client_secret() {
+        let secret = "9f8e7d6c5b4a39281706f5e4d3c2b1a0";
+        let message = ServerMessage::paired("client-1", secret);
+        assert!(!format!("{message:?}").contains(secret));
+        assert!(format!("{message:?}").contains("<redacted>"));
+        // The wire form still carries it.
+        assert!(message.to_json().contains(secret));
+    }
+
+    #[test]
+    fn negative_and_huge_numbers_parse_so_validation_can_refuse_them() {
+        let text = r#"{"version":2,"type":"start-session","appId":"0","video":{"width":-1,"height":1080,
+            "fps":99999999999,"codec":"h264","bitrateKbps":-5,"hdr":false},
+            "audio":{"channels":-2}}"#;
+        match parse_client_message(text).unwrap() {
+            ClientMessage::StartSession { video, audio, .. } => {
+                assert_eq!(video.width, -1);
+                assert_eq!(video.fps, 99_999_999_999);
+                assert_eq!(video.bitrate_kbps, -5);
+                assert_eq!(audio.channels, -2);
+            }
+            other => panic!("{other:?}"),
+        }
+        // A non-number is still an invalid message.
+        let text = text.replace("\"width\":-1", "\"width\":\"wide\"");
+        assert_eq!(parse_err(&text), ErrorCode::InvalidMessage);
     }
 
     #[test]

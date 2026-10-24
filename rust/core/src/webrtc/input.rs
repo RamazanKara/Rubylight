@@ -143,6 +143,20 @@ fn to_i16(value: f64) -> i16 {
     value.round() as i16
 }
 
+/// Add `delta` to the carried remainder and take out the whole pixels, as
+/// the `i16` Moonlight carries; the fraction stays for the next message.
+/// Motion beyond `i16` saturates and the excess is dropped.
+fn take_whole(remainder: &mut f64, delta: f64) -> i16 {
+    let total = *remainder + delta;
+    // A NaN cannot come from JSON; 0 is the safe answer.
+    let whole = if total.is_nan() { 0. } else { total.trunc() };
+    *remainder = total - whole;
+    if remainder.is_nan() || remainder.abs() >= 1. {
+        *remainder = 0.;
+    }
+    whole as i16
+}
+
 /// The Windows virtual key of a `KeyboardEvent.code`, and whether the key is
 /// the extended twin of that VK.
 pub fn virtual_key(code: &str) -> Option<(u16, bool)> {
@@ -397,6 +411,9 @@ pub struct InputChannel {
     height: i16,
     held: HeldInput,
     unknown_codes: u64,
+    /// Sub-pixel motion not yet sent, per axis, so that fractional
+    /// `movementX/Y` from a high-resolution mouse adds up instead of rounding to nothing.
+    remainder: (f64, f64),
 }
 
 impl InputChannel {
@@ -409,6 +426,7 @@ impl InputChannel {
             height: clamp(height),
             held: HeldInput::default(),
             unknown_codes: 0,
+            remainder: (0., 0.),
         }
     }
 
@@ -460,7 +478,10 @@ impl InputChannel {
             InputMessage::Text { text } if text.is_empty() => Vec::new(),
             InputMessage::Text { text } => vec![Input::Text(text)],
             InputMessage::MouseMove { dx, dy } => {
-                let (x, y) = (to_i16(dx), to_i16(dy));
+                let (x, y) = (
+                    take_whole(&mut self.remainder.0, dx),
+                    take_whole(&mut self.remainder.1, dy),
+                );
                 if x == 0 && y == 0 {
                     Vec::new()
                 } else {
@@ -703,11 +724,45 @@ mod tests {
                 y: i16::MIN
             }]
         );
+        // Whole pixels go out now; the fraction waits (see the next test).
         assert_eq!(
             relative("1.6", "-2.4"),
-            vec![Input::Relative { x: 2, y: -2 }]
+            vec![Input::Relative { x: 1, y: -2 }]
         );
-        assert_eq!(relative("0", "0.2"), vec![]);
+    }
+
+    #[test]
+    fn fractional_motion_accumulates_per_axis() {
+        let mut input = channel();
+        let mut relative = |dx: &str, dy: &str| {
+            input
+                .handle(&format!(
+                    r#"{{"v":1,"type":"mouse-move","dx":{dx},"dy":{dy}}}"#
+                ))
+                .unwrap()
+        };
+        // 0.4 steps: nothing, nothing, then one pixel when the sum passes 1.
+        assert_eq!(relative("0.4", "-0.4"), vec![]);
+        assert_eq!(relative("0.4", "-0.4"), vec![]);
+        assert_eq!(
+            relative("0.4", "-0.4"),
+            vec![Input::Relative { x: 1, y: -1 }]
+        );
+        // 0.2 is left over on each axis; two more steps make 1.0 again.
+        assert_eq!(relative("0.4", "0"), vec![]);
+        assert_eq!(relative("0.4", "0"), vec![Input::Relative { x: 1, y: 0 }]);
+        // The two axes carry separate remainders.
+        assert_eq!(relative("0", "-0.4"), vec![]);
+        // Total motion over many steps is not lost: 25 * 0.4 = 10.
+        let mut sum = 0i32;
+        for _ in 0..25 {
+            for event in relative("0.4", "0") {
+                if let Input::Relative { x, .. } = event {
+                    sum += i32::from(x);
+                }
+            }
+        }
+        assert_eq!(sum, 10);
     }
 
     #[test]

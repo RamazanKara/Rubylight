@@ -479,6 +479,81 @@ fn a_short_rtt_excursion_on_the_wifi_arm_is_no_cut_but_a_real_queue_is() {
     }
 }
 
+/// Re-review 2026-10-24: the reordering baseline had no time decay. After 20 s
+/// with 2 of 80 data packets missing, 10 s with 10 missing and five clean
+/// minutes, a queue with 8 missing a frame never cut (without the 10 s spell
+/// it cut in 1.4 s). It also had no cap: a flat-RTT share of loss is not
+/// reordering.
+#[test]
+fn an_old_spell_of_flat_rtt_loss_does_not_hide_a_queue_later() {
+    // (missing per frame in the spell, seconds, seconds of silence, queue missing)
+    for (spell, spell_s, quiet_s, queue, cut) in [(0, 0, 0, 8, true), (10, 10, 300, 8, true)] {
+        let mut rig = Rig::new(40_000);
+        rig.run(20_000, |lr, frame, now| rebuilt_data(lr, frame, 2, now));
+        if spell > 0 {
+            rig.run(spell_s * 1_000, |lr, frame, now| {
+                rebuilt_data(lr, frame, spell, now)
+            });
+        }
+        rig.clean(quiet_s * 1_000);
+        assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+        rig.rtt = Duration::from_millis(60);
+        rig.run(20_000, |lr, frame, now| rebuilt_data(lr, frame, queue, now));
+        assert_eq!(
+            rig.cuts() > 0,
+            cut,
+            "spell {spell} for {spell_s} s, quiet {quiet_s} s, queue {queue}: {:?}",
+            rig.changes
+        );
+    }
+}
+
+#[test]
+fn a_flat_rtt_share_over_what_reordering_produces_is_not_the_baseline() {
+    // Data 32, parity 16: 12 data packets missing is 0.375 and still rebuilt.
+    fn block(lr: &mut LinkRate, frame: u32, missing: u16, now: Instant) {
+        lr.on_status(
+            &Status {
+                frame,
+                highest_received: 0,
+                next_contiguous: 0,
+                missing_before_highest: 0,
+                data: 32,
+                parity: 16,
+                received_data: 32 - missing,
+                received_parity: 16,
+                percentage: 50,
+                block: 0,
+                blocks: 1,
+            },
+            now,
+        );
+    }
+    let mut rig = Rig::new(40_000);
+    rig.run(30_000, |lr, frame, now| block(lr, frame, 12, now));
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+    rig.rtt = Duration::from_millis(60);
+    rig.run(10_000, |lr, frame, now| block(lr, frame, 12, now));
+    assert!(rig.cuts() > 0, "{:?}", rig.changes);
+}
+
+/// Re-review 2026-10-24: the excess counted every rise of its running sum and
+/// never gave back a fall, so noise around the baseline built up: data missing
+/// alternating 0 and 16 of 80 against a learned 0.1 cut 40,000 -> 28,542 ->
+/// 19,349 in 1.8 s.
+#[test]
+fn noise_around_the_reordering_baseline_never_adds_up() {
+    let mut rig = Rig::new(40_000);
+    rig.run(10_000, |lr, frame, now| rebuilt_data(lr, frame, 8, now));
+    rig.rtt = Duration::from_millis(60);
+    let mut n = 0u32;
+    rig.run(20_000, |lr, frame, now| {
+        n += 1;
+        rebuilt_data(lr, frame, if n.is_multiple_of(2) { 0 } else { 16 }, now)
+    });
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+}
+
 #[test]
 fn a_five_percent_burst_in_one_window_does_not_cut() {
     let mut rig = Rig::new(40_000);

@@ -109,6 +109,19 @@ const MAX_LOSS_SHARE: f64 = 0.75;
 /// Rebuilt blocks the running share of reordered data packets averages over.
 const REORDER_BLOCKS: f64 = 64.;
 
+/// The running reordering share fades toward zero with this time constant
+/// while no flat-RTT block renews it, so a spell of heavy loss in the past does
+/// not hide a queue now.
+const REORDER_FADE: Duration = Duration::from_secs(20);
+
+/// A silence this long between rebuilt blocks fades the baseline even while
+/// the RTT is up.
+const REORDER_GAP: Duration = Duration::from_secs(1);
+
+/// What reordering produces at most: the Wi-Fi arm learns 0.18. Over this a
+/// flat-RTT share is loss, and does not raise the baseline.
+const REORDER_MAX_SHARE: f64 = 0.2;
+
 /// How far below the baseline the excess of rebuilt data loss may sink, in
 /// packets, so that a run of clean blocks pays for the next noisy ones.
 const EXCESS_CREDIT_CAP: i64 = 64;
@@ -438,7 +451,9 @@ pub struct LinkRate {
     /// excess over it seen while the RTT is up, in packets (see
     /// [`Self::on_status`]).
     reorder_share: f64,
+    reorder_at: Option<Instant>,
     excess_credit: i64,
+    excess_high: i64,
     last_sent: Option<u32>,
     ring: Box<[Sent]>,
     events: Events,
@@ -494,7 +509,9 @@ impl LinkRate {
             rebuilt_data_missing: 0,
             static_picture: false,
             reorder_share: 0.,
+            reorder_at: None,
             excess_credit: 0,
+            excess_high: 0,
             last_sent: None,
             ring: Box::default(),
             events: Events::default(),
@@ -643,22 +660,34 @@ impl LinkRate {
             self.rebuilt_data_missing += u64::from(data_missing);
             let data = u64::from(status.data.max(1));
             let elevated = self.rtt_elevated();
+            // The baseline fades with the time since the last block that
+            // renewed it; while the RTT is up only a silence counts, or a
+            // long queue would fade its own baseline and cut itself.
+            if let Some(at) = self.reorder_at.replace(now) {
+                let dt = now.saturating_duration_since(at);
+                if !elevated || dt >= REORDER_GAP {
+                    self.reorder_share *= (-dt.as_secs_f64() / REORDER_FADE.as_secs_f64()).exp();
+                }
+            }
             if !elevated {
                 // What this path reorders, learned while nothing queues.
-                self.reorder_share +=
-                    (f64::from(data_missing) / data as f64 - self.reorder_share) / REORDER_BLOCKS;
+                let share = (f64::from(data_missing) / data as f64).min(REORDER_MAX_SHARE);
+                self.reorder_share += (share - self.reorder_share) / REORDER_BLOCKS;
                 self.excess_credit = 0;
+                self.excess_high = 0;
             }
             // Reordering does not stop when the RTT rises for a moment (a roam,
             // a competing flow): only the packets over what the flat RTT
-            // already showed are a queue. The excess is a running sum that
-            // noise around the baseline cancels, so one short excursion adds
-            // nothing and a standing queue's extra loss adds up.
+            // already showed are a queue. The excess is a running sum; only
+            // what it rises over its own high-water mark counts, so noise
+            // around the baseline counts nothing however long it goes on, and
+            // a standing queue's extra loss adds up.
             let excess = if elevated {
                 let expected = (self.reorder_share * data as f64).round() as i64;
                 let credit = (self.excess_credit + i64::from(data_missing) - expected)
                     .max(-EXCESS_CREDIT_CAP);
-                let counted = credit.max(0) - self.excess_credit.max(0);
+                let counted = (credit - self.excess_high).max(0);
+                self.excess_high = self.excess_high.max(credit);
                 self.excess_credit = credit;
                 u64::try_from(counted).unwrap_or(0)
             } else {

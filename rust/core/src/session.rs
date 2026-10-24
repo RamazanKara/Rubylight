@@ -2259,6 +2259,10 @@ impl<P, A> Clone for Launch<P, A> {
     }
 }
 impl<P, A> Launch<P, A> {
+    /// The /launch or /resume query asked for HDR (`hdrMode=1`).
+    pub fn hdr_requested(&self) -> bool {
+        self.options.get("hdrMode").is_some_and(|v| v == "1")
+    }
     /// RTSP may wait for network input after authorization. Its identity
     /// snapshot must not keep a canceled launch's display, limiter or audio
     /// route alive while a replacement launch prepares new resources.

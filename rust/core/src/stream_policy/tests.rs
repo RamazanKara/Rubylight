@@ -1993,3 +1993,54 @@ fn a_source_alternating_between_two_cadences_is_claimed_at_the_stream_rate() {
     assert!(steady_rate(&previous) > 120.5);
     assert!(wait(&claims) < wait(&previous));
 }
+/// A client's ten-bit request after RTSP, as `from_sdp` leaves it.
+fn ten_bit_request() -> Negotiated {
+    Negotiated {
+        hdr: true,
+        ..Default::default()
+    }
+}
+/// What the launch decided, then what RTSP negotiated, as the host applies them.
+fn negotiate_color(mut stream: Negotiated, launch_hdr: bool, config: &Config) -> Negotiated {
+    infer_sdr_10bit(&mut stream, launch_hdr);
+    apply_color(&mut stream, config);
+    stream
+}
+#[test]
+fn a_ten_bit_request_without_an_hdr_launch_is_ten_bit_sdr() {
+    let mut stream = ten_bit_request();
+    assert!(infer_sdr_10bit(&mut stream, false));
+    assert!(stream.sdr_10bit && !stream.hdr && stream.ten_bit());
+    // The host option changes nothing for it, and the inference is idempotent.
+    let stream = negotiate_color(
+        ten_bit_request(),
+        false,
+        &Config::parse("prefer_sdr_10bit=true\n").unwrap(),
+    );
+    assert!(stream.sdr_10bit && !stream.hdr);
+    let mut again = stream.clone();
+    assert!(!infer_sdr_10bit(&mut again, false));
+    assert!(again.sdr_10bit && !again.hdr);
+}
+#[test]
+fn a_ten_bit_request_from_an_hdr_launch_stays_hdr() {
+    let stream = negotiate_color(ten_bit_request(), true, &Config::default());
+    assert!(stream.hdr && !stream.sdr_10bit);
+    assert!(!infer_sdr_10bit(&mut ten_bit_request(), true));
+}
+#[test]
+fn prefer_sdr_10bit_still_turns_an_hdr_launch_into_ten_bit_sdr() {
+    let config = Config::parse("prefer_sdr_10bit=true\n").unwrap();
+    let stream = negotiate_color(ten_bit_request(), true, &config);
+    assert!(stream.sdr_10bit && !stream.hdr);
+}
+#[test]
+fn an_eight_bit_request_is_neither_hdr_nor_ten_bit() {
+    let config = Config::parse("prefer_sdr_10bit=true\n").unwrap();
+    for launch_hdr in [false, true] {
+        let mut stream = Negotiated::default();
+        assert!(!infer_sdr_10bit(&mut stream, launch_hdr));
+        let stream = negotiate_color(stream, launch_hdr, &config);
+        assert!(!stream.hdr && !stream.sdr_10bit && !stream.ten_bit());
+    }
+}

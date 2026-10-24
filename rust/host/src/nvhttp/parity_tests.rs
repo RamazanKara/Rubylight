@@ -1236,3 +1236,41 @@ fn input_and_monitor_roles_resolve_without_starting_an_app_or_preparing_hardware
     assert!(f.host.current_app.lock().unwrap().is_none());
     assert!(session.launch.preparation.lock().unwrap().is_none());
 }
+
+#[test]
+fn a_ten_bit_format_without_hdr_mode_at_launch_streams_ten_bit_sdr() {
+    use butterpollo_core::{rtsp::Negotiated, stream_policy::infer_sdr_10bit};
+    let f = Fixture::new();
+    let client = f.client(0);
+    let sdp = b"a=x-nv-vqos[0].bitStreamFormat:1\na=x-nv-video[0].dynamicRangeMode:1\n";
+    // /launch and /resume carry the same query, so both build the session here.
+    for (query, asked, expected) in [
+        (None, false, (false, true)),
+        (Some("0"), false, (false, true)),
+        (Some("1"), true, (true, false)),
+    ] {
+        let args: Args = query
+            .into_iter()
+            .map(|v| ("hdrMode".to_string(), v.to_string()))
+            .collect();
+        let launch = build_launch_session(
+            &f.connection(true),
+            &args,
+            client.clone(),
+            1,
+            Role::Stream,
+            [0; 16],
+            1,
+        );
+        assert_eq!(launch.hdr_requested(), asked, "{query:?}");
+        let mut negotiated = Negotiated::from_sdp(sdp).unwrap();
+        assert!(negotiated.hdr);
+        infer_sdr_10bit(&mut negotiated, launch.hdr_requested());
+        assert_eq!(
+            (negotiated.hdr, negotiated.sdr_10bit),
+            expected,
+            "{query:?}"
+        );
+        assert!(negotiated.ten_bit());
+    }
+}

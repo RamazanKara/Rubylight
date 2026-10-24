@@ -767,10 +767,22 @@ impl SendDrop {
 }
 /// `prefer_sdr_10bit` streams an HDR request as ten-bit SDR.
 pub fn apply_color(stream: &mut Negotiated, config: &Config) {
-    stream.sdr_10bit = stream.hdr && config.boolean("prefer_sdr_10bit", false);
-    if stream.sdr_10bit {
+    if stream.hdr && config.boolean("prefer_sdr_10bit", false) {
+        stream.sdr_10bit = true;
         stream.hdr = false;
     }
+}
+/// The protocol has no flag for ten-bit SDR: a client that wants it sends
+/// `dynamicRangeMode=1` in RTSP without `hdrMode=1` at launch. Such a stream
+/// is ten-bit SDR, so the display stays as launched. Returns whether it was
+/// inferred; a launch that asked for HDR is left alone.
+pub fn infer_sdr_10bit(stream: &mut Negotiated, launch_hdr: bool) -> bool {
+    let inferred = stream.hdr && !launch_hdr;
+    if inferred {
+        stream.sdr_10bit = true;
+        stream.hdr = false;
+    }
+    inferred
 }
 pub fn apply(stream: &mut Negotiated, launch_millihz: u32, config: &Config) {
     // The stream runs at the rate its request asks for, as in Vibepollo,

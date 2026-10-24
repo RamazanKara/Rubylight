@@ -88,7 +88,7 @@ fn setup(width: usize, height: usize, full: bool, ten: bool, range: i32) -> Vide
 }
 
 fn decoded(output: Output, setup: VideoSetup) -> Decoded {
-    Decoded { picture: output.picture, setup, rtp: 0, number: 0, receive_us: 0, enqueue_us: 0, input_us: 0, ready_us: 0, host_latency: 0, early: 0, first_block_us: 0, bands: Vec::new(), race: Default::default() }
+    Decoded { picture: output.picture, setup, rtp: 0, number: 0, receive_us: 0, enqueue_us: 0, input_us: 0, ready_us: 0, host_latency: 0, early: 0, first_block_us: 0, bands: Vec::new(), race: Default::default(), race_seq: 0 }
 }
 
 fn gpu_decoder(case: &Case, slots: usize) -> Pyrowave {
@@ -99,7 +99,7 @@ fn gpu_decoder(case: &Case, slots: usize) -> Pyrowave {
 
 /// Uploads `decoded` the way the presenter does and reads the texture back as RGBA32F.
 fn present(rig: &Rig, texture: &mut VideoTexture, decoded: &Decoded) -> Vec<f32> {
-    assert!(texture.upload(rig.renderer, decoded), "upload failed: {:?} {}", texture.failure, crate::sdl::error());
+    assert!(texture.upload(rig.renderer, decoded, None), "upload failed: {:?} {}", texture.failure, crate::sdl::error());
     // SAFETY: The texture belongs to the live renderer; the surfaces are destroyed here.
     unsafe {
         assert!(SDL_SetRenderTarget(rig.renderer, texture.texture), "{}", crate::sdl::error());

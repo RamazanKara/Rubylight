@@ -122,6 +122,7 @@ impl Latency {
     }
 
     /// One present: `ready_us` when its slice was ready, `issued_us` and `returned_us` around the call.
+    #[cfg(any(windows, test))]
     pub fn record(&mut self, ready_us: u64, issued_us: u64, returned_us: u64, now_us: u64) {
         self.push(issued_us.saturating_sub(ready_us), returned_us.saturating_sub(issued_us), now_us);
     }
@@ -304,6 +305,8 @@ enum State {
     /// Planned, the scan not started.
     Waiting,
     /// The scan runs; slices are presented as they are ready.
+    // Entered by `take`, which only the Windows presenter and the tests call.
+    #[cfg_attr(not(any(windows, test)), allow(dead_code))]
     Scanning,
     /// Not raced: presented whole on the final decode.
     Whole,
@@ -445,6 +448,7 @@ impl<T> Racer<T> {
     }
 
     /// The slices to draw and present now, if the scan starts or a slice is waiting.
+    #[cfg(any(windows, test))]
     pub fn take(&mut self, now_us: u64) -> Vec<(BandReady, T)> {
         match self.state {
             State::Waiting if self.plan.is_some_and(|plan| now_us >= plan.start_us) => {
@@ -462,6 +466,7 @@ impl<T> Racer<T> {
 
     /// When a slice that was ready at `ready_us` could have been presented: not before the scan was
     /// due to start, which the plan delays on purpose. The wake the latency statistics see starts here.
+    #[cfg(any(windows, test))]
     pub fn presentable_us(&self, ready_us: u64) -> u64 {
         ready_us.max(self.due_start_us)
     }

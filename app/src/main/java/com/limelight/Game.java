@@ -24,6 +24,7 @@ import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.touch.TouchContext;
 import com.limelight.binding.input.virtual_controller.VirtualController;
+import com.limelight.binding.video.CrashAccounting;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.DecoderSetupFailure;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
@@ -37,6 +38,7 @@ import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.Sdr10Policy;
+import com.limelight.binding.video.StagedStreamExit;
 import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.HostCapabilityCache;
@@ -238,7 +240,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private com.limelight.ui.AdaptiveLayout adaptiveLayout;
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
-    private Thread connectionStopThread;
+    private volatile Thread connectionStopThread;
     private StreamRecoveryPolicy recoveryPolicy = new StreamRecoveryPolicy(0, 0);
     private long connectedAt = -1;
     private int recoveryAppId;
@@ -413,12 +415,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             new android.hardware.display.DisplayManager.DisplayListener() {
                 @Override public void onDisplayAdded(int displayId) {}
                 @Override public void onDisplayRemoved(int displayId) {
+                    Display video = getVideoDisplay();
+                    if (video.getDisplayId() == displayId) noteVideoDisplay(video, true);
                     if (externalPresentation != null && externalPresentation.getDisplay().getDisplayId() == displayId) {
                         returnVideoToDevice();
                     }
                 }
                 @Override public void onDisplayChanged(int displayId) {
                     Display display = getVideoDisplay();
+                    if (display.getDisplayId() == displayId) noteVideoDisplay(display, false);
                     if (conn != null && display.getDisplayId() == displayId) {
                         updateInputPollingRate();
                         // Also fires when a foldable moves the stream to its other screen.
@@ -585,6 +590,33 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
+    // The PC (or this device) ended the stream. A decoder failure after that is the stream going
+    // away, not a decoder crash.
+    private volatile boolean streamTerminated;
+    // Experimental: a TV that loses its HDMI signal takes the decoder down with it. When the video
+    // display last changed or went away (uptimeMillis, -1 never) and whether it is off now.
+    private volatile long lastVideoDisplayEventMs = -1;
+    private volatile boolean videoDisplayOff;
+    private volatile Boolean androidTv;
+
+    private boolean isAndroidTv() {
+        Boolean tv = androidTv;
+        if (tv == null) {
+            tv = getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
+                    getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+            androidTv = tv;
+        }
+        return tv;
+    }
+
+    private boolean streamEnding() {
+        return streamTerminated || hostExitRequested || connectionStopThread != null;
+    }
+
+    private void noteVideoDisplay(Display display, boolean removed) {
+        lastVideoDisplayEventMs = SystemClock.uptimeMillis();
+        videoDisplayOff = removed || !display.isValid() || display.getState() == Display.STATE_OFF;
+    }
 
     private WifiManager.WifiLock highPerfWifiLock;
     private WifiManager.WifiLock lowLatencyWifiLock;
@@ -892,6 +924,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     public void notifyCrash(Exception e) {
                         // The MediaCodec instance is going down due to a crash
                         // let's tell the user something when they open the app again
+
+                        // A stream that is ending, or a TV that just lost its display, is not a decoder
+                        // crash: counting it would disable features and reset settings next time.
+                        CrashAccounting.Verdict verdict = CrashAccounting.classify(streamEnding(),
+                                isAndroidTv(), SystemClock.uptimeMillis(), lastVideoDisplayEventMs, videoDisplayOff);
+                        if (verdict != CrashAccounting.Verdict.COUNT) {
+                            LimeLog.warning("Decoder failure not counted as a crash (" +
+                                    (verdict == CrashAccounting.Verdict.DISPLAY_LOST ? "display lost" : "stream ending") +
+                                    "): " + e);
+                            return;
+                        }
 
                         // We must use commit because the app will crash when we return from this function
                         synchronized (tombstonePrefs) {
@@ -5861,6 +5904,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void connectionTerminated(final int reportedErrorCode) {
         LimeLog.info("Stream disconnected");
+        streamTerminated = true;
         final boolean exitRequested = hostExitRequested;
         if (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
             LimeLog.info("Connection terminated: the PC ended the stream");

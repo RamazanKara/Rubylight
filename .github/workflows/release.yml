@@ -1,0 +1,174 @@
+name: Release
+
+# A pushed v* tag builds the signed release APKs and bundle and attaches them to
+# the GitHub release for that tag (created here when it does not exist yet).
+# Main's own CI (android.yml) already tested the commit: tag a commit whose
+# main run is green. The signing key and passwords are repository secrets,
+# see "Releasing from CI" in docs/building.md.
+#
+# Run it by hand with dry_run (the default) to build and verify without
+# publishing; this is the first step before a real tag.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and verify only; publish nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # -e -o pipefail
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write # uploads to the release for this tag
+    env:
+      # The SHA-256 of the Nightjar release certificate (public). Updates only
+      # work with this signing identity, so a build signed by anything else
+      # must never be published.
+      EXPECTED_CERT_SHA256: 312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b
+      # Only a tag push (or a manual run on a tag with dry_run off) publishes.
+      PUBLISH: ${{ github.ref_type == 'tag' && !inputs.dry_run }}
+    steps:
+      - name: Check the signing secrets
+        env:
+          NIGHTJAR_KEYSTORE_B64: ${{ secrets.NIGHTJAR_KEYSTORE_B64 }}
+          NIGHTJAR_KEYSTORE_PASSWORD: ${{ secrets.NIGHTJAR_KEYSTORE_PASSWORD }}
+          NIGHTJAR_KEY_ALIAS: ${{ secrets.NIGHTJAR_KEY_ALIAS }}
+          NIGHTJAR_KEY_PASSWORD: ${{ secrets.NIGHTJAR_KEY_PASSWORD }}
+        run: |
+          missing=
+          for name in NIGHTJAR_KEYSTORE_B64 NIGHTJAR_KEYSTORE_PASSWORD NIGHTJAR_KEY_ALIAS NIGHTJAR_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. Add them under Settings > Secrets and variables > Actions (docs/building.md, Releasing from CI), then re-run this workflow."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Check the tag against the app version
+        run: |
+          version=$(sed -n 's/^ *versionName "\(.*\)"$/\1/p' app/build.gradle | head -n 1)
+          if [ -z "$version" ]; then
+            echo "::error::no versionName in app/build.gradle"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match versionName \"$version\" in app/build.gradle"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Rust Android targets
+        run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+      - name: Decode the keystore
+        env:
+          NIGHTJAR_KEYSTORE_B64: ${{ secrets.NIGHTJAR_KEYSTORE_B64 }}
+        run: |
+          umask 077
+          printf '%s' "$NIGHTJAR_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nightjar-release.keystore"
+      - name: Build the signed release
+        # app/build.gradle reads these four (BP_*) variables and fails the
+        # release build when any is missing; it never falls back to the debug key.
+        env:
+          BP_KEYSTORE: ${{ runner.temp }}/nightjar-release.keystore
+          BP_KEYSTORE_PASSWORD: ${{ secrets.NIGHTJAR_KEYSTORE_PASSWORD }}
+          BP_KEY_ALIAS: ${{ secrets.NIGHTJAR_KEY_ALIAS }}
+          BP_KEY_PASSWORD: ${{ secrets.NIGHTJAR_KEY_PASSWORD }}
+        run: bash gradlew --no-daemon --max-workers=2 :app:assembleNonRootRelease :app:assembleRootRelease :app:bundleNonRootRelease
+      - name: Verify the signature and the app IDs
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
+          aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)
+          check() { # apk, application ID
+            "$apksigner" verify --print-certs "$1" | tee certs.txt | grep -i 'certificate SHA-256'
+            digests=$(sed -n 's/^Signer #[0-9]* certificate SHA-256 digest: //p' certs.txt)
+            if [ "$digests" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::$1 is not signed by the Nightjar release certificate"
+              exit 1
+            fi
+            package=$("$aapt2" dump packagename "$1")
+            if [ "$package" != "$2" ]; then
+              echo "::error::the application ID of $1 is $package, not $2"
+              exit 1
+            fi
+          }
+          check app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk com.butterpollo.client
+          check app/build/outputs/apk/root/release/app-root-release.apk com.butterpollo.client.root
+          # The bundle is signed like a jar. aapt2 cannot read its application ID;
+          # it comes from the same nonRoot variant as the checked APK.
+          bundle=app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab
+          fingerprints=$(keytool -printcert -jarfile "$bundle" | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
+          if [ "$fingerprints" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::$bundle is not signed by the Nightjar release certificate"
+            exit 1
+          fi
+      # Nothing after the build needs the key.
+      - name: Remove the keystore
+        run: rm -f "$RUNNER_TEMP/nightjar-release.keystore"
+      - name: Publish to the release
+        if: ${{ env.PUBLISH == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir out
+          cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk "out/nightjar-$VERSION.apk"
+          cp app/build/outputs/apk/root/release/app-root-release.apk "out/nightjar-$VERSION-root.apk"
+          cp app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab "out/nightjar-$VERSION.aab"
+          # R8 map and native symbols of the non-root build, for reading this release's crash traces.
+          cp app/build/outputs/mapping/nonRootRelease/mapping.txt "out/nightjar-$VERSION-mapping.txt"
+          cp app/build/outputs/native-debug-symbols/nonRootRelease/native-debug-symbols.zip "out/nightjar-$VERSION-native-debug-symbols.zip"
+          (cd out && sha256sum nightjar-* > "SHA256SUMS-$VERSION.txt")
+          flags=()
+          if [[ $VERSION == *-* ]]; then flags+=(--prerelease --latest=false); fi
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            # CI replaces assets only on a draft; a published release keeps what it has.
+            if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" = true ]; then
+              clobber=(--clobber)
+            else
+              clobber=()
+              existing=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+              for file in out/*; do
+                if grep -qxF "$(basename "$file")" <<< "$existing"; then
+                  echo "::error::$GITHUB_REF_NAME is published and already has $(basename "$file"). CI replaces assets only on a draft release: make it a draft first, or delete that asset by hand."
+                  exit 1
+                fi
+              done
+            fi
+            gh release upload "$GITHUB_REF_NAME" out/* "${clobber[@]}"
+            if [ "${#flags[@]}" != 0 ]; then gh release edit "$GITHUB_REF_NAME" "${flags[@]}"; fi
+          else
+            gh release create "$GITHUB_REF_NAME" out/* --verify-tag --title "Nightjar $VERSION" \
+              --notes "Signed by CI with the Nightjar release key. SHA-256 hashes are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
+          fi
+          echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+      - name: Dry run result
+        if: ${{ env.PUBLISH != 'true' }}
+        run: echo "::notice::dry run of $VERSION built and verified; nothing was published"
+      # Fallback: the keystore is already gone after the build unless a step failed.
+      - name: Remove the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/nightjar-release.keystore"

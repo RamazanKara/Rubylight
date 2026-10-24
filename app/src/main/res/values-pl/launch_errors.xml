@@ -4,4 +4,6 @@
     <string name="startup_launch_cancelled">Uruchamianie anulowane.</string>
     <string name="startup_confirmation_timed_out">Upłynął limit czasu potwierdzenia. Uruchom kafelek ponownie, aby spróbować jeszcze raz.</string>
     <string name="startup_confirmation_rejected">Sesja hosta zmieniła się lub potwierdzenie wygasło. Uruchom kafelek ponownie.</string>
+    <string name="decoder_setup_rejected">Dekoder wideo tego urządzenia (%1$s) nie mógł uruchomić %2$s w %3$dx%4$d przy %5$d FPS: %6$s. Przyczyną nie jest host. W ustawieniach spróbuj H.264, niższej rozdzielczości lub niższej liczby klatek na sekundę. Jeśli problem się powtarza, użyj opcji „Zgłoś problem”.</string>
+    <string name="decoder_setup_none">To urządzenie nie ma dekodera wideo dla %1$s. Wybierz w ustawieniach inny kodek wideo.</string>
 </resources>

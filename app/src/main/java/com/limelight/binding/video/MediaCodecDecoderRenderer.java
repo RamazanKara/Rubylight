@@ -79,6 +79,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private byte optimalSlicesPerFrame;
     private boolean refFrameInvalidationActive;
     private int initialWidth, initialHeight;
+    // Why the last setup() failed, for the stream dialog; null when it did not. The last codec
+    // exception stays here too, because configure() is retried and only the final one matters.
+    private volatile DecoderSetupFailure setupFailure;
+    private Throwable lastConfigureError;
     private Packed444 packing;
     private boolean packingFailed;
     // Mid-stream reconfigure (0x5532): the adaptive-playback maximum, which grows when a larger
@@ -1529,6 +1533,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 decoderDiagnostics);
     }
 
+    // The stack trace only reached logcat; the problem report keeps what the codec said.
+    private void noteConfigureError(MediaCodecInfo decoder, MediaFormat format, Exception e) {
+        e.printStackTrace();
+        lastConfigureError = e;
+        LimeLog.warning("Decoder " + decoder.getName() + " rejected " + format + ": " + DecoderSetupFailure.describe(e));
+    }
+
     private boolean tryConfigureDecoder(MediaCodecInfo selectedDecoderInfo, MediaFormat format, boolean throwOnCodecError) {
         boolean configured = false;
         try {
@@ -1537,17 +1548,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.info("Using codec " + selectedDecoderInfo.getName() + " for hardware decoding " + format.getString(MediaFormat.KEY_MIME));
             configured = true;
         } catch (IllegalArgumentException e) {
-            e.printStackTrace();
+            noteConfigureError(selectedDecoderInfo, format, e);
             if (throwOnCodecError) {
                 throw e;
             }
         } catch (IllegalStateException e) {
-            e.printStackTrace();
+            noteConfigureError(selectedDecoderInfo, format, e);
             if (throwOnCodecError) {
                 throw e;
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            noteConfigureError(selectedDecoderInfo, format, e);
             if (throwOnCodecError) {
                 throw new RuntimeException(e);
             }
@@ -1560,6 +1571,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return configured;
     }
 
+    /** Why the last setup() failed, or null. Stage failures from the decoder carry only a code. */
+    public DecoderSetupFailure getSetupFailure() {
+        return setupFailure;
+    }
+
     public int initializeDecoder(boolean throwOnCodecError) {
         String mimeType;
         MediaCodecInfo selectedDecoderInfo;
@@ -1570,6 +1586,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             if (avcDecoder == null) {
                 LimeLog.severe("No available AVC decoder!");
+                setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.NO_DECODER, null, mimeType,
+                        initialWidth, initialHeight, refreshRate, null);
                 return -1;
             }
 
@@ -1607,6 +1625,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             if (hevcDecoder == null) {
                 LimeLog.severe("No available HEVC decoder!");
+                setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.NO_DECODER, null, mimeType,
+                        initialWidth, initialHeight, refreshRate, null);
                 return -2;
             }
 
@@ -1618,6 +1638,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             if (av1Decoder == null) {
                 LimeLog.severe("No available AV1 decoder!");
+                setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.NO_DECODER, null, mimeType,
+                        initialWidth, initialHeight, refreshRate, null);
                 return -2;
             }
 
@@ -1666,6 +1688,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     continue;
                 }
                 // We couldn't even configure a decoder without any low latency options
+                setupFailure = new DecoderSetupFailure(DecoderSetupFailure.Kind.REJECTED, selectedDecoderInfo.getName(),
+                        mimeType, initialWidth, initialHeight, refreshRate, lastConfigureError);
+                LimeLog.severe("Decoder setup failed: " + setupFailure);
                 return -5;
             }
         }
@@ -1695,6 +1720,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (stopping) {
                 return -1;
             }
+            setupFailure = null;
+            lastConfigureError = null;
             this.initialWidth = width;
             this.initialHeight = height;
             this.maxDecodeWidth = this.expectedWidth = this.streamWidth = width;

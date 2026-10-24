@@ -4,4 +4,6 @@
     <string name="startup_launch_cancelled">已取消啟動。</string>
     <string name="startup_confirmation_timed_out">確認逾時。請再次啟動該圖塊以重試。</string>
     <string name="startup_confirmation_rejected">主機工作階段已變更或確認已過期。請再次啟動該圖塊。</string>
+    <string name="decoder_setup_rejected">此裝置的視訊解碼器（%1$s）無法啟動 %2$s（%3$dx%4$d，%5$d FPS）：%6$s。原因不在主機。請在設定中嘗試 H.264、較低的解析度或較低的幀率。若問題持續，請使用「回報問題」。</string>
+    <string name="decoder_setup_none">此裝置沒有 %1$s 的視訊解碼器。請在設定中選擇其他視訊編解碼器。</string>
 </resources>

@@ -25,6 +25,7 @@ import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.touch.TouchContext;
 import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.CrashListener;
+import com.limelight.binding.video.DecoderSetupFailure;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.DisplayRefreshDiagnostics;
@@ -5765,11 +5766,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         messages.alert(getResources().getText(R.string.video_decoder_init_failed), Toast.LENGTH_LONG);
                     }
 
-                    String dialogText = connectionErrorMessage != null ? connectionErrorMessage :
+                    // A decoder that rejected the stream is this device's failure, not the host's, and
+                    // no port or host advice applies to it.
+                    DecoderSetupFailure decoderFailure = decoderRenderer == null ? null : decoderRenderer.getSetupFailure();
+                    boolean decoderFailed = decoderFailure != null && stage.contains("video");
+                    String dialogText = decoderFailed ? decoderFailure.message(Game.this) :
+                            connectionErrorMessage != null ? connectionErrorMessage :
                             getString(errorCode == 0 ? R.string.startup_connection_failed :
                                     R.string.startup_host_error, errorCode);
 
-                    if (portFlags != 0) {
+                    if (portFlags != 0 && !decoderFailed) {
                         dialogText += "\n\n" + getResources().getString(R.string.check_ports_msg) + "\n" +
                                 MoonBridge.stringifyPortFlags(portFlags, "\n");
                     }

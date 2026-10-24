@@ -4,7 +4,7 @@ The desktop client: a Moonlight-protocol game-streaming client on the shared Rus
 (`nightjar-core`). Like the Android app it works with Sunshine, Apollo, Vibepollo, Rubylight
 and GeForce Experience; host-specific extras follow the host's capabilities.
 
-Status: preview. It pairs, lists and launches apps, and streams with
+Status: Experimental. It pairs, lists and launches apps, and streams with
 hardware decoding, VRR pacing, audio, keyboard, mouse and controllers. See
 [What works](#what-works) for the details and the gaps.
 

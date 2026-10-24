@@ -117,6 +117,8 @@ Requires **Android 5.0 or newer**. PyroWave needs Android 10+, a 64-bit device a
 3. Select your PC on the same network and enter the PIN shown on your phone in your host's settings or web UI.
 4. If your host has per-device permissions, enable your device and allow application listing, viewing, launching and the input types you use. Open your library and tap a game. With a Rubylight 3.0 host, Nightjar opens on [Home](docs/console.md) and you can turn on Host control for the device to close games and change Radeon settings. See [pairing and permissions](docs/pairing.md).
 
+**Android TV and Fire TV.** Install AFTVnews' [Downloader](https://www.aftvnews.com/downloader/) from your TV's app store, enter the code **`<code>`** in its URL field and install the APK it downloads. You can also type the link directly: `https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk`. Both always fetch the latest release. Allow Downloader to install unknown apps when prompted. If neither works, sideload the APK from the [releases page](https://github.com/RamazanKara/nightjar/releases/latest).
+
 Coming from Rubylight Android? Nightjar is the same app under a new name. It installs over Rubylight Android 0.5.0 and keeps your PCs, pairings and settings.
 
 ## Docs

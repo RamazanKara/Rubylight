@@ -26,6 +26,14 @@ impl ScanReport {
 
 type Calibration = Arc<Mutex<Option<Result<Beam, CalibrationError>>>>;
 
+/// "median 0.95 ms, longest 5.1 ms" of the delays, or what it was when none began.
+fn delays(delays: &[u64]) -> String {
+    if delays.is_empty() { return "never".into(); }
+    let mut sorted = delays.to_vec();
+    sorted.sort_unstable();
+    format!("median {:.2} ms, longest {:.2} ms ({} of the tested presents)", sorted[sorted.len() / 2] as f64 / 1e6, sorted[sorted.len() - 1] as f64 / 1e6, sorted.len())
+}
+
 /// How the stream's window sits on its display, read by the presenter.
 #[derive(Clone, Copy, Debug)]
 pub struct Surroundings {
@@ -45,6 +53,9 @@ pub struct RaceProbe {
     calibration: Calibration,
     scanline_ok: bool,
     presents: u32,
+    check_said: bool,
+    /// Delay from each tested present to the first reading of the picture, for the summary line (ns).
+    delays: Vec<u64>,
     #[cfg(windows)]
     scan: Option<super::scanline::Scanline>,
 }
@@ -75,6 +86,13 @@ impl RaceProbe {
                     beam.scan_ns as f64 / 1e6, beam.rows, beam.blank_rows, beam.lines_per_ms, beam.refresh_hz, beam.vblank_fraction * 100.0, beam.scans
                 );
             }
+        }
+        if !self.check_said && !self.check.running() {
+            self.check_said = true;
+            eprintln!(
+                "nightjar: beam race: restart check over {} presents: {} tested, {} did not start a scan within {} ms; scan began after {}",
+                self.check.frames, self.check.tested, self.check.missed, super::scanline::RESTART_WINDOW_NS / 1_000_000, delays(&self.delays)
+            );
         }
         let display_hz = match &self.beam { Some(Ok(beam)) => beam.refresh_hz, _ => 0.0 };
         self.verdict = decide(&Evidence {
@@ -118,6 +136,8 @@ mod win {
                 calibration: Calibration::default(),
                 scanline_ok: scan.is_some(),
                 presents: 0,
+                check_said: false,
+                delays: Vec::new(),
                 scan,
             };
             match &probe.scan {
@@ -166,6 +186,8 @@ mod win {
                     // Another display has another scan: measure it again.
                     eprintln!("nightjar: beam race: the window moved to another monitor, measuring it again");
                     self.check = RestartCheck::default();
+                    self.check_said = false;
+                    self.delays.clear();
                     self.beam = None;
                     self.calibrate_in_background(window);
                 }
@@ -182,6 +204,7 @@ mod win {
                             if active { break; }
                         }
                     }
+                    if let Some(first) = after.iter().find(|s| !s.vblank) { self.delays.push(first.at_ns.saturating_sub(before.at_ns)); }
                     self.check.push(restart(&before, &after, beam));
                 } else if self.check.running() {
                     self.check.push(Restart::NotTested);
@@ -204,6 +227,8 @@ impl RaceProbe {
             calibration: Calibration::default(),
             scanline_ok: false,
             presents: 0,
+            check_said: false,
+            delays: Vec::new(),
         };
         probe.decide(around);
         probe

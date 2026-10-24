@@ -161,17 +161,19 @@ pub fn calibrate(samples: &[Sample], picture_rows: u32) -> Result<Beam, Calibrat
 pub enum Restart {
     /// The display was not in its blanking at the present, so the check says nothing.
     NotTested,
-    /// A new scan began within 0.5 ms of the present.
+    /// A new scan began within the window after the present.
     Began,
     /// No new scan began in time.
     Missed,
 }
 
-/// How long after a present a new scan has to begin (ns).
-pub const RESTART_WINDOW_NS: u64 = 500_000;
+/// How long after a present a new scan has to begin (ns). Measured on a 240 Hz VRR display with
+/// direct scanout: the scan begins about 1 ms after the present call (median 0.95 ms, 89% under
+/// 1.5 ms, 92% under 2 ms, the rest up to 6 ms), because the flip waits for the GPU work.
+pub const RESTART_WINDOW_NS: u64 = 3_000_000;
 
 /// The check for one present: `before` was read just before the present call, `after` are the
-/// readings in the 0.5 ms that followed it. A present while the display idles in its blanking
+/// readings in the window that followed it. A present while the display idles in its blanking
 /// starts a new scan at once when the present is scanned out directly on a variable refresh
 /// display, so the first reading that is not in the blanking must be within the first 5% of the
 /// picture's rows.
@@ -189,7 +191,9 @@ pub fn restart(before: &Sample, after: &[Sample], beam: &Beam) -> Restart {
 /// the display was idling in its blanking, so a stream that never lets the display idle is
 /// given up on after `CHECK_FRAMES` presents.
 pub const CHECK_TESTED: u32 = 30;
-pub const CHECK_MISSES: u32 = 3;
+/// A present whose scan starts late is normal (see the window), so a third of the tested presents
+/// have to miss before the check fails; a compositor-paced present misses most of them.
+pub const CHECK_MISSES: u32 = 9;
 pub const CHECK_FRAMES: u32 = 300;
 
 /// The restart check over the first presents of a stream.
@@ -315,16 +319,17 @@ pub fn decide(e: &Evidence) -> Verdict {
         Some(Err(_)) => return Verdict::Off(Reason::NoScan, capability),
         Some(Ok(beam)) => beam,
     };
+    if !e.fullscreen {
+        // A window that does not cover its display goes through the desktop compositor as far as
+        // the race is concerned: whatever the scan does, it does not start with our presents.
+        return Verdict::Off(Reason::Composed, capability);
+    }
     if e.check.failed() {
         // A fixed refresh scans all the time whatever is presented: the blanking is a small share
         // of the readings although the stream runs well below the display's top rate.
         let fixed = e.content_hz > 0.0 && e.display_hz > 0.0 && e.content_hz < e.display_hz * 0.7 && beam.vblank_fraction < 0.3;
-        if fixed || !e.fullscreen {
-            capability.vrr = !fixed;
-            return Verdict::Off(if fixed { Reason::NoVrr } else { Reason::Composed }, capability);
-        }
-        capability.vrr = true;
-        return Verdict::Off(Reason::Composed, capability);
+        capability.vrr = !fixed;
+        return Verdict::Off(if fixed { Reason::NoVrr } else { Reason::Composed }, capability);
     }
     if e.check.starved() {
         // Enough presents went by without the display ever idling in its blanking.
@@ -579,11 +584,10 @@ mod tests {
     }
 
     #[test]
-    fn three_misses_in_the_tested_presents_fail_the_check() {
+    fn a_third_of_the_tested_presents_missing_fails_the_check() {
         let mut check = RestartCheck::default();
         for _ in 0..10 { check.push(Restart::Began); }
-        check.push(Restart::Missed);
-        check.push(Restart::Missed);
+        for _ in 0..CHECK_MISSES - 1 { check.push(Restart::Missed); }
         assert!(!check.failed() && check.running());
         check.push(Restart::Missed);
         assert!(check.failed() && !check.running() && !check.passed());
@@ -616,7 +620,7 @@ mod tests {
 
     fn missed() -> RestartCheck {
         let mut check = RestartCheck::default();
-        for _ in 0..4 { check.push(Restart::Missed); }
+        for _ in 0..CHECK_MISSES { check.push(Restart::Missed); }
         check
     }
 
@@ -636,6 +640,10 @@ mod tests {
         assert_eq!(line(Evidence { beam: Some(Err(CalibrationError::NoScan)), ..evidence() }), "off (no scan seen)");
         assert_eq!(line(Evidence { check: missed(), ..evidence() }), "off (composed)", "a borderless window whose presents wait for the compositor");
         assert_eq!(line(Evidence { check: missed(), fullscreen: false, ..evidence() }), "off (composed)", "windowed");
+        // A window is composed whatever the check saw, and before the check has finished.
+        assert_eq!(line(Evidence { fullscreen: false, ..evidence() }), "off (composed)");
+        assert_eq!(line(Evidence { fullscreen: false, check: RestartCheck::default(), ..evidence() }), "off (composed)");
+        assert_eq!(line(Evidence { fullscreen: false, beam: Some(Ok(beam(0.13))), ..evidence() }), "off (composed)", "a windowed fixed refresh");
         // A fixed refresh scans all the time: little blanking at a stream rate far below the top rate.
         assert_eq!(line(Evidence { check: missed(), beam: Some(Ok(beam(0.05))), ..evidence() }), "off (no VRR)");
         // At the display's own rate the two cannot be told apart, so a miss is composition.

@@ -93,7 +93,16 @@ pub const LOSS_MIN_PACKETS: u64 = 100;
 /// lost keyframe per request), so three frames took 4 s on the 2026-10-24
 /// `r50-hevc-hi` arm (75 Mbps into 50 Mbit/s) and the stream lost its first
 /// 5.8 s. A cut with no measured share goes to [`MIN_CUT_PERCENT`] then.
+///
+/// The events of the watch count whether or not they fall inside the fence
+/// (the fence only keeps them out of the cut's evidence): two of them at least
+/// [`WATCH_EVENT_GAP`] apart show the latch failed, and the next admitted event
+/// cuts. A keyframe sent inside the fence that nothing was reported about
+/// may be one that never got through (the same 2026-10-24 arm, where the
+/// client asked again 100 ms and 1.3 s after the latch and lost 321 frames).
 pub const LATCH_WATCH: Duration = Duration::from_secs(4);
+/// Events of a latch watch closer together than this are one burst.
+pub const WATCH_EVENT_GAP: Duration = Duration::from_millis(100);
 /// Frames lost on send (WSAENOBUFS and the like) that cut (E3).
 pub const SEND_LOSS_FRAMES: usize = 3;
 /// Network-classified keyframe requests that cut (E4): from a client that
@@ -438,6 +447,9 @@ pub struct LinkRate {
     /// Keyframes sent since the latch of the latch being watched, with whether
     /// the client reported each unrecoverable.
     watch_keyframes: Vec<WatchedKeyframe>,
+    /// Unrecoverable frames (with their number) and network keyframe requests
+    /// since the latch being watched, inside the fence or not.
+    watch_events: Vec<(Instant, Option<u32>)>,
     /// Rebuilt blocks seen, their packets and those of them reported missing
     /// before the block was rebuilt (data only), for the snapshot: on a path
     /// that reorders, nearly every block is "missing" its trailing packets.
@@ -504,6 +516,7 @@ impl LinkRate {
             latch_watch: None,
             latch_at: None,
             watch_keyframes: Vec::new(),
+            watch_events: Vec::new(),
             rebuilt_blocks: 0,
             rebuilt_packets: 0,
             rebuilt_data_missing: 0,
@@ -729,6 +742,7 @@ impl LinkRate {
                 k.failed = true;
             }
         }
+        self.watch_event(Some(frame), now);
         if self.admits(Some(frame), now) {
             Events::distinct(&mut self.events.unrecoverable, now, frame);
             self.events.lost(frame);
@@ -738,6 +752,36 @@ impl LinkRate {
                 self.events.latch_failed = true;
             }
         }
+    }
+
+    /// An unrecoverable frame or network request under a latch watch. Two,
+    /// [`WATCH_EVENT_GAP`] or more apart, fail the latch. A frame sent before
+    /// the latch is not evidence about it.
+    fn watch_event(&mut self, frame: Option<u32>, now: Instant) {
+        let Some(latched) = self.latch_at.filter(|_| self.watching(now)) else {
+            return;
+        };
+        if let Some(frame) = frame {
+            if self
+                .sent(frame)
+                .and_then(|s| s.at)
+                .is_some_and(|at| at < latched)
+                || self.watch_events.iter().any(|(_, seen)| *seen == Some(frame))
+            {
+                return;
+            }
+        }
+        if self
+            .watch_events
+            .iter()
+            .any(|(at, _)| now.saturating_duration_since(*at) >= WATCH_EVENT_GAP)
+        {
+            self.events.latch_failed = true;
+        }
+        if self.watch_events.len() >= EVENT_CAP {
+            self.watch_events.remove(0);
+        }
+        self.watch_events.push((now, frame));
     }
 
     /// The host is sending `frame` as a keyframe.
@@ -775,12 +819,16 @@ impl LinkRate {
     /// the network, not the host or the decoder queue, caused it. Feeds E4,
     /// and only from a client that has sent no FEC status.
     pub fn on_keyframe_request(&mut self, network: bool, now: Instant) {
-        if !network || !self.is_active() || !self.admits(None, now) {
+        if !network || !self.is_active() {
+            return;
+        }
+        self.watch_event(None, now);
+        if !self.admits(None, now) {
             return;
         }
         // Under a latch watch a request from a client that reports FEC status
         // counts when no keyframe has got through since the latch.
-        if self.watching(now) && !self.keyframe_arrived(now) {
+        if self.watching(now) && (self.events.latch_failed || !self.keyframe_arrived(now)) {
             self.events.latch_failed = true;
         } else if self.fec_status_seen && !self.probe_unconfirmed(now) {
             return;
@@ -853,6 +901,7 @@ impl LinkRate {
         self.latch_watch = None;
         self.latch_at = None;
         self.watch_keyframes.clear();
+        self.watch_events.clear();
         let wait = MIN_FENCE.max(self.rtt * 2 + FENCE_MARGIN);
         self.fence = Some(Fence {
             frame: self.last_sent.map(|f| f.wrapping_add(1 + PIPELINE_FRAMES)),

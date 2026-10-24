@@ -1042,6 +1042,142 @@ fn a_keyframe_sent_inside_the_fence_that_arrived_whole_makes_one_event_no_cut() 
     assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
 }
 
+/// 2026-10-24, `r50-hevc-hi` (59 Mbps into 50 Mbit/s): the keyframe answering
+/// the latch was sent inside the fence and never reported (its packets did not
+/// get through), so it counted as arrived, and the client's requests 100 ms and
+/// 1.3 s after the latch were each "one event". The stream lost its first 5 s.
+/// Two events in the watch, 100 ms or more apart, are proof the latch failed
+/// whether or not they fall inside the fence; the next admitted event cuts deep.
+#[test]
+fn two_events_in_the_latch_watch_even_inside_the_fence_cut_deep() {
+    for fec in [true, false] {
+        let mut rig = Rig::new(58_988);
+        if fec {
+            rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+        } else {
+            rig.clean(300);
+        }
+        let latched = rig.ms;
+        rig.lr.on_latch(rig.now(), true, true);
+        rig.clean(20);
+        let (frame, now) = (rig.frame, rig.now());
+        rig.lr.on_keyframe_sent(frame, now);
+        // The client asks again 100 ms after the latch (inside the fence), and
+        // 1.2 s later.
+        rig.clean(80);
+        rig.lr.on_keyframe_request(true, rig.now());
+        rig.clean(1_100);
+        assert!(rig.changes.is_empty(), "fec {fec}: {:?}", rig.changes);
+        rig.lr.on_keyframe_request(true, rig.now());
+        rig.clean(300);
+        assert_eq!(rig.cuts(), 1, "fec {fec}: {:?}", rig.changes);
+        let (at, cut) = rig.changes[0];
+        assert!(at - latched < 1_500, "cut {} ms after the latch", at - latched);
+        assert_eq!(cut.reason, "keyframe_requests");
+        assert!(cut.to_kbps <= 58_988 / 2, "{cut:?}");
+    }
+    // The same with lost frames: one inside the fence, one after it.
+    let mut rig = Rig::new(58_988);
+    rig.clean(300);
+    rig.lr.on_latch(rig.now(), true, true);
+    rig.clean(20);
+    let (frame, now) = (rig.frame, rig.now());
+    rig.lr.on_keyframe_sent(frame, now);
+    rig.clean(80);
+    let (frame, now) = (rig.frame, rig.now());
+    unrecoverable(&mut rig.lr, frame, now);
+    rig.clean(1_100);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+    let (frame, now) = (rig.frame, rig.now());
+    unrecoverable(&mut rig.lr, frame, now);
+    rig.clean(300);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
+    assert!(rig.changes[0].1.to_kbps <= 58_988 / 2, "{:?}", rig.changes);
+}
+
+/// One burst is one event: several frames reported lost inside 100 ms of each
+/// other, in the fence or after it, are not two.
+#[test]
+fn a_burst_inside_100_ms_is_one_event_in_the_latch_watch() {
+    let mut rig = Rig::new(58_988);
+    rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+    rig.lr.on_latch(rig.now(), true, true);
+    rig.clean(20);
+    let (frame, now) = (rig.frame, rig.now());
+    rig.lr.on_keyframe_sent(frame, now);
+    rig.clean(1_000);
+    // Two lost frames and a request within 60 ms; the fence is over, so they
+    // are admitted, but they are one burst (and fewer than three frames).
+    let mut left = 2;
+    rig.run(PERIOD_MS * 2 + 1, |lr, frame, now| {
+        if left > 0 {
+            left -= 1;
+            unrecoverable(lr, frame, now);
+        }
+    });
+    rig.lr.on_keyframe_request(true, rig.now());
+    rig.clean(2_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+    // A burst of three frames inside the fence is one event too (the fence
+    // admits none of them).
+    let mut rig = Rig::new(58_988);
+    rig.clean(300);
+    rig.lr.on_latch(rig.now(), true, true);
+    rig.clean(20);
+    let (frame, now) = (rig.frame, rig.now());
+    rig.lr.on_keyframe_sent(frame, now);
+    let mut left = 3;
+    rig.run(PERIOD_MS * 3, |lr, frame, now| {
+        if left > 0 {
+            left -= 1;
+            unrecoverable(lr, frame, now);
+        }
+    });
+    rig.clean(1_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+}
+
+/// The r50 shape end to end: a keyframe sent right after the latch that is never
+/// reported lost (nothing of it came through), then frames lost from there on,
+/// reported at the rate a client waiting for a keyframe reports (one in 15). The
+/// cut must come within 1.5 s of the first loss.
+#[test]
+fn a_standing_overload_after_a_latch_cuts_within_a_second_and_a_half() {
+    for fec in [true, false] {
+        let mut rig = Rig::new(58_988);
+        if fec {
+            rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+        } else {
+            rig.clean(300);
+        }
+        let latched = rig.ms;
+        rig.lr.on_latch(rig.now(), true, true);
+        rig.clean(20);
+        let (frame, now) = (rig.frame, rig.now());
+        rig.lr.on_keyframe_sent(frame, now);
+        rig.clean(80);
+        // The client asks again every 1.2 s; one frame in 15 is reported lost.
+        let mut n = 0u32;
+        rig.run(4_000, |lr, frame, now| {
+            n += 1;
+            if n % 70 == 0 {
+                lr.on_keyframe_request(true, now);
+            }
+            if n % 15 == 0 {
+                unrecoverable(lr, frame, now);
+            }
+        });
+        let first = rig.changes.first().expect("a cut");
+        assert!(
+            first.0 - latched < 1_600,
+            "fec {fec}: cut {} ms after the latch: {:?}",
+            first.0 - latched,
+            rig.changes
+        );
+        assert!(first.1.to_kbps <= 58_988 / 2, "{:?}", first.1);
+    }
+}
+
 #[test]
 fn a_stray_unrecoverable_frame_long_after_a_latch_is_not_a_cut() {
     let mut rig = Rig::new(40_000);

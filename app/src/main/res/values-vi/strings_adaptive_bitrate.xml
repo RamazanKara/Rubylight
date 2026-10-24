@@ -9,5 +9,5 @@
     <string name="stream_auto_bitrate_status">Tốc độ bit tự động: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Máy chủ đang bận. Hãy thử lại sau giây lát.</string>
     <string name="title_auto_bitrate">Tốc độ bit tự động</string>
-    <string name="dialog_auto_bitrate">Giảm tốc độ bit khi kết nối hoặc thiết bị không theo kịp, rồi tăng lại khi ổn định. Không bao giờ vượt quá tốc độ bit video. Đây là mặc định cho mọi PC; menu stream có thể đổi riêng cho một PC.</string>
+    <string name="dialog_auto_bitrate">Giảm tốc độ bit khi kết nối hoặc thiết bị không theo kịp, rồi tăng lại khi ổn định. Không bao giờ vượt quá tốc độ bit của stream. Đây là mặc định cho mọi PC; menu stream có thể đổi riêng cho một PC.</string>
 </resources>

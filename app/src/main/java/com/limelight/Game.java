@@ -3773,7 +3773,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (!foreground || !connected || hostActionInProgress) {
                 return;
             }
-            setAdaptiveBitrateEnabled(false, true);
+            // A manual bitrate stops automatic bitrate for this session only; the saved choice stays.
+            setAdaptiveBitrateEnabled(false, false);
+            qualityAutoBitrate = false;
             bitrateDialog.dismiss();
             hostActionInProgress = true;
             final int generation = foregroundGeneration;
@@ -3939,6 +3941,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private String adaptiveBitratePreferences() {
         return (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ?
                 AutoBitrateChoice.PYROWAVE_STORE : AutoBitrateChoice.CODEC_STORE;
+    }
+
+    /** Whether the stream starts with automatic bitrate: this PC's choice, else the Settings switch. */
+    boolean autoBitrateAtStart() {
+        return supportsAdaptiveBitrate() &&
+                AutoBitrateChoice.isOn(this, adaptiveBitratePreferences(), getIntent().getStringExtra(EXTRA_PC_UUID));
     }
 
     private void setAdaptiveBitrateEnabled(boolean enabled, boolean remember) {
@@ -6053,8 +6061,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
                 currentBitrate = prefConfig.bitrate;
                 warnIfBelowPyroWaveFloor(currentBitrate);
-                if (supportsAdaptiveBitrate() && AutoBitrateChoice.isOn(Game.this, adaptiveBitratePreferences(),
-                        getIntent().getStringExtra(EXTRA_PC_UUID))) {
+                if (autoBitrateAtStart()) {
                     setAdaptiveBitrateEnabled(true, false);
                 }
                 startAdaptiveQuality();

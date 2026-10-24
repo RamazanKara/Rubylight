@@ -28,9 +28,16 @@ public final class AutoBitrateChoice {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(SETTINGS_KEY, false);
     }
 
-    /** The stream menu's toggle: this PC only. */
+    /** The stream menu's toggle: this PC only. Only a choice that differs from the Settings switch is kept. */
     public static void setForPc(Context context, String store, String pcUuid, boolean on) {
-        context.getSharedPreferences(store, Context.MODE_PRIVATE).edit().putBoolean(pcUuid, on).apply();
+        boolean byDefault = PreferenceManager.getDefaultSharedPreferences(context).getBoolean(SETTINGS_KEY, false);
+        SharedPreferences.Editor edit = context.getSharedPreferences(store, Context.MODE_PRIVATE).edit();
+        if (on == byDefault) {
+            edit.remove(pcUuid);
+        } else {
+            edit.putBoolean(pcUuid, on);
+        }
+        edit.apply();
     }
 
     /** The Settings switch changed: every PC follows it again. */

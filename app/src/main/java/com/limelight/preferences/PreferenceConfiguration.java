@@ -231,6 +231,10 @@ public class PreferenceConfiguration {
             com.limelight.nvstream.AdaptiveQualityController.Mode.OFF;
     public int qualityMinShortEdge = 720, qualityMinFps = 30;
     /** Automatic bitrate for PCs without a choice of their own; see {@link AutoBitrateChoice}. */
+    /**
+     * A snapshot of the Settings switch, read for the settings-keys test. Production code must use
+     * {@link AutoBitrateChoice#isOn}, which also honours a PC's own choice.
+     */
     public boolean autoBitrate;
     public volatile boolean enablePerfOverlay;
     public boolean enableLatencyToast;

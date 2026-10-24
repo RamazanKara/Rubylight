@@ -9,5 +9,5 @@
     <string name="stream_auto_bitrate_status">Débit automatique : %1$.1f Mbit/s</string>
     <string name="stream_bitrate_busy">Hôte occupé. Réessayez dans un instant.</string>
     <string name="title_auto_bitrate">Débit automatique</string>
-    <string name="dialog_auto_bitrate">Baisse le débit quand la connexion ou l’appareil ne suit plus, puis le remonte quand la situation s’améliore. Il ne dépasse jamais le débit vidéo. C’est le réglage par défaut de tous les PC ; le menu du flux peut le changer pour un seul PC.</string>
+    <string name="dialog_auto_bitrate">Baisse le débit quand la connexion ou l’appareil ne suit plus, puis le remonte quand la situation s’améliore. Il ne dépasse jamais le débit du flux. C’est le réglage par défaut de tous les PC ; le menu du flux peut le changer pour un seul PC.</string>
 </resources>

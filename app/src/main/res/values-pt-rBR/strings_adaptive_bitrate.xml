@@ -9,5 +9,5 @@
     <string name="stream_auto_bitrate_status">Taxa de bits automática: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host ocupado. Tente novamente em instantes.</string>
     <string name="title_auto_bitrate">Taxa de bits automática</string>
-    <string name="dialog_auto_bitrate">Reduz a taxa de bits quando a conexão ou o dispositivo não dá conta e a aumenta de novo quando melhora. Nunca passa da taxa de bits do vídeo. É o padrão para todos os PCs; o menu da transmissão pode mudá-lo para um só PC.</string>
+    <string name="dialog_auto_bitrate">Reduz a taxa de bits quando a conexão ou o dispositivo não dá conta e a aumenta de novo quando melhora. Nunca passa da taxa de bits da transmissão. É o padrão para todos os PCs; o menu da transmissão pode mudá-lo para um só PC.</string>
 </resources>

@@ -132,12 +132,29 @@ public class AutoBitrateSettingTest {
 
     @Test
     public void aRemovedPcLeavesNoChoiceBehind() {
+        prefs().edit().putBoolean(AutoBitrateChoice.SETTINGS_KEY, true).commit();
         AutoBitrateChoice.setForPc(app(), AutoBitrateChoice.CODEC_STORE, "a", false);
         AutoBitrateChoice.setForPc(app(), AutoBitrateChoice.PYROWAVE_STORE, "a", false);
-        prefs().edit().putBoolean(AutoBitrateChoice.SETTINGS_KEY, true).commit();
         assertFalse(on(AutoBitrateChoice.CODEC_STORE, "a"));
         AutoBitrateChoice.forget(app(), "a");
         assertTrue(on(AutoBitrateChoice.CODEC_STORE, "a"));
         assertTrue(on(AutoBitrateChoice.PYROWAVE_STORE, "a"));
+    }
+
+    @Test
+    public void onlyAChoiceThatDiffersFromTheSettingsSwitchIsStored() {
+        SharedPreferences codec = app().getSharedPreferences(AutoBitrateChoice.CODEC_STORE, Context.MODE_PRIVATE);
+        // Switch off: turning it on for a PC is an override, turning it off again is not.
+        AutoBitrateChoice.setForPc(app(), AutoBitrateChoice.CODEC_STORE, "a", true);
+        assertTrue(codec.contains("a"));
+        AutoBitrateChoice.setForPc(app(), AutoBitrateChoice.CODEC_STORE, "a", false);
+        assertFalse(codec.contains("a"));
+        // Switch on: the other way round.
+        prefs().edit().putBoolean(AutoBitrateChoice.SETTINGS_KEY, true).commit();
+        AutoBitrateChoice.setForPc(app(), AutoBitrateChoice.CODEC_STORE, "a", true);
+        assertFalse(codec.contains("a"));
+        AutoBitrateChoice.setForPc(app(), AutoBitrateChoice.CODEC_STORE, "a", false);
+        assertTrue(codec.contains("a"));
+        assertFalse(on(AutoBitrateChoice.CODEC_STORE, "a"));
     }
 }

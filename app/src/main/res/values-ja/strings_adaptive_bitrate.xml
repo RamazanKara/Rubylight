@@ -9,5 +9,5 @@
     <string name="stream_auto_bitrate_status">自動ビットレート: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">ホストがビジー状態です。しばらくしてからもう一度お試しください。</string>
     <string name="title_auto_bitrate">自動ビットレート</string>
-    <string name="dialog_auto_bitrate">回線や端末が追いつかないときはビットレートを下げ、安定したら元に戻します。映像のビットレートを超えることはありません。これはすべての PC の既定値で、ストリームメニューから PC ごとに変更できます。</string>
+    <string name="dialog_auto_bitrate">回線や端末が追いつかないときはビットレートを下げ、安定したら元に戻します。ストリームのビットレートを超えることはありません。これはすべての PC の既定値で、ストリームメニューから PC ごとに変更できます。</string>
 </resources>

@@ -9,5 +9,5 @@
     <string name="stream_auto_bitrate_status">Automatic bitrate: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host busy. Try again in a moment.</string>
     <string name="title_auto_bitrate">Automatic bitrate</string>
-    <string name="dialog_auto_bitrate">Lowers the bitrate when your connection or device can\'t keep up, and raises it again when things recover. It never goes above the Video bitrate. This is the default for every PC; the stream menu can change it for one PC.</string>
+    <string name="dialog_auto_bitrate">Lowers the bitrate when your connection or device can\'t keep up, and raises it again when things recover. It never goes above the stream\'s bitrate. This is the default for every PC; the stream menu can change it for one PC.</string>
 </resources>

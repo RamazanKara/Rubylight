@@ -156,6 +156,13 @@ public final class PerformanceOverlay {
         return context.getString(label) + ": " + compactText.subSequence(2, compactText.length());
     }
 
+    /** The compact line's description, with the host's lowered-bitrate notice after it when there is one. */
+    public static String describeCompact(Context context, CharSequence compactText, LinkNoticeStatus status) {
+        String description = describeCompact(context, compactText);
+        if (description == null || status == null) return description;
+        return description + ". " + linkNoticeText(context, status);
+    }
+
     public static CharSequence debugText(Context context, String video, String network, String decode) {
         SpannableStringBuilder text = new SpannableStringBuilder();
         appendSection(text, context.getString(R.string.overlay_video), video);
@@ -174,6 +181,23 @@ public final class PerformanceOverlay {
         int start = text.length();
         for (String note : notes) text.append('\n').append(note);
         text.setSpan(new ForegroundColorSpan(0xffc1c4d2), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return text;
+    }
+
+    /** "Host lowered the bitrate to 9 Mbps: network", the line the overlay shows while the host holds it down. */
+    public static String linkNoticeText(Context context, LinkNoticeStatus status) {
+        Locale locale = context.getResources().getConfiguration().locale;
+        return context.getString(R.string.link_notice_lowered, status.currentMbps(locale));
+    }
+
+    /** The overlay with the host's lowered-bitrate notice as a last line in amber; the overlay itself when there is none. */
+    public static CharSequence withLinkNotice(Context context, CharSequence base, LinkNoticeStatus status) {
+        if (status == null) return base;
+        SpannableStringBuilder text = new SpannableStringBuilder(base);
+        int start = text.length();
+        text.append('\n').append(linkNoticeText(context, status));
+        text.setSpan(new ForegroundColorSpan(healthColor(Health.FAIR)), start, text.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }
 

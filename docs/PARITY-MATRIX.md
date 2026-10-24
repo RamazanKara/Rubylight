@@ -78,6 +78,7 @@ Status words: **same** (both engines do it and tests cover the Rust side), **C o
 | Clipboard, server commands | Yes | Same | Server commands (0x3000) through `sendServerCommand`. Clipboard transfer is Java and HTTP, so engine-neutral. |
 | Radeon and native-API extensions, session actions | Yes | Same | HTTP and Java side; the Rust crate has its own `native_api` client with its own tests. |
 | Host timing (0x5536), clock sync (0x5537), present clock, phase lock (0x5530), display caps (0x5531), reconfigure (0x5532), cursor shapes (0x5540) | Yes | Same | Used by phase-lock, automatic resolution, cursor shapes and the host-join columns of the timing CSV. |
+| Link notice (0x5538): the host says when it lowers the bitrate for the network | No | Yes | The Rust engine asks and the overlay (all three modes) shows "Host lowered the bitrate to X Mbps: network" until the host is back at the requested rate; the C engine does not support it and never asks. Tests `link_notices_are_requested_and_heard`, `a_link_notice_reaches_java_as_state_and_bitrates`, `GamePerformanceOverlayTest`. Device pending. |
 | Input-only sessions | Yes | Same | |
 | Remote monitor sessions | Yes | Same | The fallback was removed: no input is sent and the start wiggle is skipped. Server commands and controller audio messages still go out on the control stream, the same as in the C engine, which only skips the input stream. Test `a_remote_monitor_connection_sends_no_input_at_all`. |
 | Network grace period | Yes | Same | |

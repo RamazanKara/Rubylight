@@ -30,6 +30,7 @@ import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.DisplayRefreshDiagnostics;
 import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.LatencyProbe;
+import com.limelight.binding.video.LinkNoticeStatus;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
@@ -438,6 +439,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         MoonBridge.sendHostTimingRequest(true);
     }
 
+    // Asks a host that announces link notices (0x5538) to say when it lowers the video bitrate
+    // because of the network, once per connection. The overlay then shows it until the host is
+    // back at the requested rate. The C engine does not support it.
+    private void requestLinkNotice() {
+        linkNotice = null;
+        if (conn == null || !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_LINK_NOTICE)) {
+            return;
+        }
+        MoonBridge.sendLinkNoticeRequest(true);
+    }
+
     // Reports the output's HDR capabilities to Rubylight 2.2.0+ hosts. Keep luminance fixed on
     // that output: brightness changes must not reconfigure HDR on older hosts.
     private void reportDisplayCaps() {
@@ -545,6 +557,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private CharSequence debugPerformanceText = "";
     private CharSequence statisticsPerformanceText = "";
     private CharSequence compactPerformanceText = "";
+    // What the host last said about holding the bitrate down for the network; null when it has not.
+    private LinkNoticeStatus linkNotice;
     // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
     private String overlayMode = PerformanceOverlay.MODE_COMPACT;
     private TextView streamMenuHint;
@@ -3094,9 +3108,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (text.length() == 0) {
             text = compact ? "● " + getString(R.string.overlay_compact_waiting) : getString(R.string.stats_waiting);
         }
+        text = PerformanceOverlay.withLinkNotice(this, text, linkNotice);
         performanceOverlayView.setText(text);
         performanceOverlayView.setContentDescription(compact ?
-                PerformanceOverlay.describeCompact(this, compactPerformanceText) : null);
+                PerformanceOverlay.describeCompact(this, compactPerformanceText, linkNotice) : null);
     }
 
     // The on-screen gamepad, its layout button, per-game buttons and the key toolbar stay uncovered.
@@ -5984,6 +5999,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 startReconfigureTracking();
                 requestHostTiming();
+                requestLinkNotice();
                 updateHostCursorShapes();
                 if (!conn.canSendInput()) {
                     if (gameTouchControls != null) gameTouchControls.hideForPip(true);
@@ -6178,6 +6194,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void setControllerLED(short controllerNumber, byte r, byte g, byte b) {
         controllerHandler.handleSetControllerLED(controllerNumber, r, g, b);
+    }
+
+    @Override
+    public void linkNotice(int state, int ceilingKbps, int currentKbps) {
+        LinkNoticeStatus status = LinkNoticeStatus.parse(state, ceilingKbps, currentKbps);
+        runOnUiThread(() -> {
+            linkNotice = status;
+            if (performanceOverlayView != null) updatePerformanceOverlay();
+        });
     }
 
     @Override

@@ -228,6 +228,41 @@ public class PerformanceOverlayTest {
     }
 
     @Test
+    public void aLoweredBitrateIsAmberLastLineInEveryModeAndNothingWithoutANotice() {
+        Context context = context(Locale.US);
+        LinkNoticeStatus status = LinkNoticeStatus.parse(LinkNoticeStatus.STATE_LIMITED, 150_000, 37_500);
+        CharSequence compact = PerformanceOverlay.compactText(context, 119.94f, 120, 8, 0.14f, 4.6f);
+        CharSequence with = PerformanceOverlay.withLinkNotice(context, compact, status);
+        assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss\nHost lowered the bitrate to 38 Mbps: network", with.toString());
+        assertEquals(0xff69db7c, dotColor(with));
+        android.text.Spanned spanned = (android.text.Spanned) with;
+        android.text.style.ForegroundColorSpan[] amber = spanned.getSpans(compact.length(), with.length(),
+                android.text.style.ForegroundColorSpan.class);
+        assertEquals(1, amber.length);
+        assertEquals(0xffffc857, amber[0].getForegroundColor());
+        assertEquals(compact.length(), spanned.getSpanStart(amber[0]));
+        assertSame(compact, PerformanceOverlay.withLinkNotice(context, compact, null));
+        String statistics = PerformanceOverlay.statisticsText(context, "AV1", 60, 60, 20, 0, 8, 1, 2, -1, 4, 1, false).toString();
+        assertTrue(PerformanceOverlay.withLinkNotice(context, statistics, status).toString()
+                .endsWith("Decode: 4.00 ms · Display wait: 1.00 ms\nHost lowered the bitrate to 38 Mbps: network"));
+    }
+
+    @Test
+    public void theNoticeSaysMbpsInTheUsersLocaleAndTheCompactDescriptionCarriesIt() {
+        LinkNoticeStatus floor = LinkNoticeStatus.parse(LinkNoticeStatus.STATE_FLOOR, 150_000, 4_500);
+        assertEquals("Host lowered the bitrate to 4.5 Mbps: network",
+                PerformanceOverlay.linkNoticeText(context(Locale.US), floor));
+        assertEquals("Host hat die Bitrate auf 4,5 Mbit/s gesenkt: Netzwerk",
+                PerformanceOverlay.linkNoticeText(context(Locale.GERMANY), floor));
+        CharSequence compact = PerformanceOverlay.compactText(context(Locale.US), 119.94f, 120, 8, 0.14f, 4.6f);
+        assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss. Host lowered the bitrate to 4.5 Mbps: network",
+                PerformanceOverlay.describeCompact(context(Locale.US), compact, floor));
+        assertEquals(PerformanceOverlay.describeCompact(context(Locale.US), compact),
+                PerformanceOverlay.describeCompact(context(Locale.US), compact, null));
+        assertNull(PerformanceOverlay.describeCompact(context(Locale.US), "", floor));
+    }
+
+    @Test
     public void compactLeavesOutUnmeasuredValuesAndWaitsWithoutAnyReading() {
         for (float missing : new float[] {-1, Float.NaN, Float.POSITIVE_INFINITY}) {
             assertEquals("● 60.0 FPS · 0.0% loss",

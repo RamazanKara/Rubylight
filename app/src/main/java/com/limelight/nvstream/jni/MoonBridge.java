@@ -385,6 +385,9 @@ public class MoonBridge {
     private static native boolean cSendControllerAudio(int kind, byte[] payload);
     public static native long openUsbMicrophone(int fd, int endpoint, int interval);
     public static native int readUsbMicrophone(long handle, byte[] samples);
+    public static void bridgeClLinkNotice(int state, int ceilingKbps, int currentKbps) {
+        if (connectionListener != null) connectionListener.linkNotice(state, ceilingKbps, currentKbps);
+    }
     public static void bridgeClHostTiming(byte[] payload) {
         VideoDecoderRenderer renderer = videoRenderer;
         HostTimingReport report = HostTimingReport.parse(payload);
@@ -730,6 +733,15 @@ public class MoonBridge {
         return rustStream ? RustBridge.sendHostTimingRequest(enabled) : cSendHostTimingRequest(enabled);
     }
     private static native boolean cSendHostTimingRequest(boolean enabled);
+
+    // Link notice (0x5538, docs/control-messages.md in the Rubylight host): the host says when it
+    // lowers the video bitrate because of the network. Only the Rust engine asks for it; the C
+    // engine does not support it and this returns false.
+    public static final int CONTROL_MESSAGE_LINK_NOTICE = 0x5538;
+
+    public static boolean sendLinkNoticeRequest(boolean enabled) {
+        return rustStream && RustBridge.sendLinkNoticeRequest(enabled);
+    }
 
     // Clock sync (0x5537) and timestamp presentation (protocol/core/src/present_clock.rs); see
     // android_present_clock.c. Times are System.nanoTime().

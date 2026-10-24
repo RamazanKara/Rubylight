@@ -5,6 +5,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">Perte %1$s %%</string>
     <string name="overlay_compact_waiting">En attente de la vidéo</string>
+    <string name="link_notice_lowered">L\'hôte a réduit le débit à %1$s Mbit/s : réseau</string>
     <string name="overlay_health_good">Stream correct</string>
     <string name="overlay_health_fair">Stream en difficulté</string>
     <string name="overlay_health_poor">Stream médiocre</string>

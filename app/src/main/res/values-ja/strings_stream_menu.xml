@@ -5,6 +5,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">損失 %1$s%%</string>
     <string name="overlay_compact_waiting">映像を待機中</string>
+    <string name="link_notice_lowered">ホストがビットレートを %1$s Mbps に下げました: ネットワーク</string>
     <string name="overlay_health_good">ストリーム良好</string>
     <string name="overlay_health_fair">ストリーム不安定</string>
     <string name="overlay_health_poor">ストリーム不良</string>

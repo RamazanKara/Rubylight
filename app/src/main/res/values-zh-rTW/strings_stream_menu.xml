@@ -5,6 +5,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">遺失 %1$s%%</string>
     <string name="overlay_compact_waiting">正在等待影像</string>
+    <string name="link_notice_lowered">主機已將位元率降至 %1$s Mbps：網路</string>
     <string name="overlay_health_good">串流良好</string>
     <string name="overlay_health_fair">串流不穩</string>
     <string name="overlay_health_poor">串流不佳</string>

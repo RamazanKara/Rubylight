@@ -109,6 +109,7 @@ final class RustBridge {
     static native int sendMicrophonePcm(short[] pcm, int samples);
     static native boolean requestReconfigure(int width, int height, int fpsMillihz);
     static native boolean sendHostTimingRequest(boolean enabled);
+    static native boolean sendLinkNoticeRequest(boolean enabled);
     static native boolean sendClockSyncProbe();
     static native void presentClockStart(int minIntervalUs);
     static native void presentClockStop();

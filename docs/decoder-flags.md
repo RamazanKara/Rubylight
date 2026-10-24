@@ -23,11 +23,11 @@ The code comments next to each ported key credit the fork they come from, and th
 | Qualcomm keys on `c2.qti`, `OMX.qcom` | low-latency, picture order 1, SW fence, output fence, fence type | Same, then `picture-order.enable` = 0 and `frame-drop.enable` = 1 on every try | The five keys | The five keys, then `frame-drop.enable` = 1 on tries 0 to 2, and the `c2.qcom` prefix. `picture-order` = 0 is not ported (see the Retroid section) |
 | `OMX.qcom` only | None | `dpb-output-delay.enable` = 0, `picture-type.enable` = 0 | None | The same two, tries 0 to 2 |
 | Operating rate and priority on Snapdragon | Operating rate, except where upstream saw crashes | Both, always | Operating rate except Adreno 620, else priority | Same as before (see "Left alone") |
-| MediaTek preset (`c2.mtk`, `OMX.MTK`) | 17 `vendor.mtk` keys, boost level 1 | Same, boost and DVFS level 2, `vendor.mtk.vdec.pq` = 0, `ultra-low-latency` removed | `low-latency.mode`, `cpu.boost.mode` and the `.value` forms | The whole preset with the fork's values, by name on every Android version, tries 0 to 3 |
-| MediaTek operating rate and priority | Operating rate on its RFI lists | Both | Priority only | Both, with the preset |
-| NVIDIA Tegra keys (`OMX.Nvidia`, `c2.nvidia`) | Four keys: `media.low-latency.enable`, `vendor.low-latency.enable`, `disable-output-reorder`, `vendor.nvidia.disable-output-reorder` | Same, plus operating rate and priority | None | The four keys, operating rate and priority, tries 0 to 3 |
+| MediaTek preset (`c2.mtk`, `OMX.MTK`) | 17 `vendor.mtk` keys, boost level 1 | Same, boost and DVFS level 2, `vendor.mtk.vdec.pq` = 0, `ultra-low-latency` removed | `low-latency.mode`, `cpu.boost.mode` and the `.value` forms | The whole preset with the fork's values, by name on Android 8 and newer, tries 0 and 1 (the plain vendor switches get try 2). `cpu.boost.mode` = 2 reaches every MediaTek decoder that declares the key, not only the preset's |
+| MediaTek operating rate and priority | Operating rate on its RFI lists | Both | Priority only | Both, behind the performance hints like the Snapdragon rate |
+| NVIDIA Tegra keys (`OMX.Nvidia`, `c2.nvidia`) | Four keys: `media.low-latency.enable`, `vendor.low-latency.enable`, `disable-output-reorder`, `vendor.nvidia.disable-output-reorder` | Same, plus operating rate and priority | None | The four keys on tries 0 to 3, and the operating rate behind the performance hints (as Artemis; the priority is the generic non-Qualcomm hint) |
 | RFI (reference frame invalidation) | Exynos, Qualcomm, NVIDIA, Amlogic and Fire OS lists | Adds `c2.mtk` and `omx.mtk` for AVC and HEVC, `c2.qcom` for HEVC | `omx.mtk` and `c2.mtk` only on Fire OS and GX6 PowerVR | The fork's additions, behind the same GLES 3 check as the Qualcomm entries |
-| RFI detection by declared vendor switch | Known low-latency switches | Adds eight MediaTek switches (`low-latency.strict.enable`, `early.output.enable`, `no.reorder.enable`, `disable.reorder`, `output.delay.frames`, `dpb.output.delay.frames`, `buffer.fetch.timeout.ms`, `no.clock.adjust`) | Known switches | The eight, detected only and never set |
+| RFI detection by declared vendor switch | Known low-latency switches | Adds eight MediaTek switches | Known switches | Five of them (`low-latency.strict.enable`, `early.output.enable`, `no.reorder.enable`, `disable.reorder`, `no.clock.adjust`), for HEVC RFI only, detected and never set. The delay and timeout knobs (`output.delay.frames`, `dpb.output.delay.frames`, `buffer.fetch.timeout.ms`) are no evidence of low latency and are left out; the AV1 whitelist is unchanged |
 | LFR "Prefer Lower Delays" | None | Off by default. Latest-frame output path, frame pacing "lowest latency", synchronous codec, short dequeue wait | Not needed (see below) | Not added as a setting |
 | Declared vendor parameters (Android 12 and newer), reasserting keys after `start()`, applied and dropped keys logged | Not used or logged | Post-start `low-latency` through `setParameters`, key audit log | Declared keys, reassert, overlay | Same, plus the exact applied and dropped keys in the log and report |
 
@@ -67,11 +67,12 @@ One combined check on 2026-10-24 for the Snapdragon part: the 1080p60 HEVC fixtu
 
 Nightjar's own devices are a Retroid Pocket 6 (Snapdragon), an emulator and a Linux NUC. Only the Snapdragon keys can be measured here, so everything below is labelled Experimental: it follows the forks and is covered by unit tests (`DecoderTuningKeysTest`, a test per decoder name for the keys and for RFI), not by a run on that hardware:
 
-- **MediaTek**: the whole preset, boost and DVFS level 2, `pq` = 0, operating rate and priority on `c2.mtk` and `OMX.MTK`, RFI for `c2.mtk` and `omx.mtk`, the eight detect-only switches.
-- **NVIDIA Tegra**: the four keys, operating rate and priority on `OMX.Nvidia` and `c2.nvidia`.
+- **MediaTek**: the whole preset, boost and DVFS level 2, `pq` = 0, operating rate and priority on `c2.mtk` and `OMX.MTK` (behind the performance hints), RFI for `c2.mtk` and `omx.mtk`, the five detect-only switches. `cpu.boost.mode` = 2 goes to every MediaTek decoder that declares it.
+- **NVIDIA Tegra**: the four keys on `OMX.Nvidia` and `c2.nvidia`, and the operating rate behind the performance hints.
 - **`low-latency` before Android 11** on every decoder. Decoders that do not know the key ignore it, and a decoder that rejects the format loses it on the next try.
 - **`c2.qcom` prefix** for Snapdragon decoders under that name, including RFI for HEVC.
 - **`OMX.qcom` extras** (`dpb-output-delay`, `picture-type`): old Snapdragons only.
+- **`frame-drop.enable` on Snapdragons other than the 8 Gen 2.** Only the Retroid's 8 Gen 2 was run; the key is sent to every Qualcomm decoder on tries 0 to 2.
 
 Each is covered by a test per decoder name, and by one for the fallback ladder (the keys drop out of later tries), the vendor switch (off means none sent) and the Android 12 declared-parameter path.
 

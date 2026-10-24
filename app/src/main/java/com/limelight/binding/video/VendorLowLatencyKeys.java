@@ -18,12 +18,12 @@ final class VendorLowLatencyKeys {
     // The whole MediaTek preset, set on MediaTek decoders by name. Experimental: no MediaTek device here.
     static final Map<String, Integer> MEDIATEK;
     // MediaTek switches whose presence on a decoder shows it handles low-latency streams (reference
-    // frame invalidation); they are detected, never set.
+    // frame invalidation); they are detected for HEVC RFI only, never set. Delay and timeout
+    // knobs (buffer.fetch.timeout.ms, the output delay frame counts) are no evidence of that.
     static final String[] MEDIATEK_DETECT_ONLY = {
             "vendor.mtk.vdec.low-latency.strict.enable", "vendor.mtk.vdec.early.output.enable",
             "vendor.mtk.vdec.no.reorder.enable", "vendor.mtk.vdec.disable.reorder",
-            "vendor.mtk.vdec.output.delay.frames", "vendor.mtk.vdec.dpb.output.delay.frames",
-            "vendor.mtk.vdec.buffer.fetch.timeout.ms", "vendor.mtk.vdec.no.clock.adjust"};
+            "vendor.mtk.vdec.no.clock.adjust"};
 
     static {
         Map<String, Integer> known = new LinkedHashMap<>();

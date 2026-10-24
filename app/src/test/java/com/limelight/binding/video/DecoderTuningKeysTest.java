@@ -98,8 +98,11 @@ public class DecoderTuningKeysTest {
             assertEquals(name, 2, format.getInteger("vendor.mtk.vdec.dvfs.level"));
             assertEquals(name, 4, format.getInteger("vendor.mtk.vdec.buffer.fetch.timeout.ms"));
             assertEquals(name, 0, format.getInteger("vendor.mtk.vdec.pq"));
-            assertEquals(name, Short.MAX_VALUE, format.getInteger(MediaFormat.KEY_OPERATING_RATE));
-            assertEquals(name, 0, format.getInteger(MediaFormat.KEY_PRIORITY));
+            // The rate and priority pair sits behind the performance hints.
+            assertAbsent(name, format, MediaFormat.KEY_OPERATING_RATE, MediaFormat.KEY_PRIORITY);
+            MediaFormat hinted = tune(name, 0, true);
+            assertEquals(name, Short.MAX_VALUE, hinted.getInteger(MediaFormat.KEY_OPERATING_RATE));
+            assertEquals(name, 0, hinted.getInteger(MediaFormat.KEY_PRIORITY));
             assertEquals(name, name.startsWith("OMX"), format.containsKey("vdec-lowlatency"));
             assertAbsent(name, format, QTI_KEYS);
             assertAbsent(name, format, TEGRA_KEYS);
@@ -109,10 +112,21 @@ public class DecoderTuningKeysTest {
 
     @Test
     public void mediaTekPresetDropsOutOnTheFallbackTries() {
-        MediaFormat last = tune("c2.mtk.hevc.decoder", 4, false);
-        assertAbsent("try 4", last, MTK_KEYS);
-        assertFalse(last.containsKey(MediaFormat.KEY_OPERATING_RATE));
+        for (int attempt = 0; attempt <= 4; attempt++) {
+            MediaFormat format = tune("c2.mtk.hevc.decoder", attempt, true);
+            for (String key : MTK_KEYS) {
+                assertEquals("try " + attempt + " " + key, attempt < 2, format.containsKey(key));
+            }
+            assertEquals("try " + attempt, attempt < 3, format.containsKey(MediaFormat.KEY_OPERATING_RATE));
+        }
         assertAbsent("vendor switch off", tuneWithoutVendorKeys("c2.mtk.hevc.decoder"), MTK_KEYS);
+    }
+
+    @Test
+    @Config(sdk = 24)
+    public void mediaTekPresetNeedsVendorKeySupport() {
+        // Fire OS 5 OMX.MTK builds on Android 5.1 and 7 have no vendor format keys.
+        assertAbsent("Android 7", tune("OMX.MTK.VIDEO.DECODER.HEVC", 0, false), MTK_KEYS);
     }
 
     @Test
@@ -143,9 +157,11 @@ public class DecoderTuningKeysTest {
     }
 
     @Test
-    public void tegraDecodersAlsoGetTheTopRateAndRealTimePriority() {
-        MediaFormat format = tune("OMX.Nvidia.h265.decode", 0, false);
+    public void tegraDecodersGetTheTopRateOnlyBehindThePerformanceHints() {
+        assertAbsent("hints off", tune("OMX.Nvidia.h265.decode", 0, false), MediaFormat.KEY_OPERATING_RATE, MediaFormat.KEY_PRIORITY);
+        MediaFormat format = tune("OMX.Nvidia.h265.decode", 0, true);
         assertEquals(Short.MAX_VALUE, format.getInteger(MediaFormat.KEY_OPERATING_RATE));
+        // The priority is the generic non-Qualcomm hint, not part of the Tegra keys.
         assertEquals(0, format.getInteger(MediaFormat.KEY_PRIORITY));
     }
 
@@ -168,6 +184,34 @@ public class DecoderTuningKeysTest {
         MediaCodecInfo decoder = decoder("c2.acme.hevc.decoder", "vendor.mtk.vdec.early.output.enable");
         assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, true, false));
         assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, false, false));
+    }
+
+    @Test
+    @Config(sdk = 34)
+    public void mediaTekDelayKnobsAreNoEvidenceAndAv1SelectionIsUnchanged() {
+        for (String knob : new String[] {"vendor.mtk.vdec.buffer.fetch.timeout.ms", "vendor.mtk.vdec.output.delay.frames",
+                "vendor.mtk.vdec.dpb.output.delay.frames"}) {
+            MediaCodecInfo decoder = decoder("c2.acme.hevc.decoder", knob);
+            assertFalse(knob, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, true, false));
+        }
+        // The fork's RFI switches do not make a decoder pass the AV1 whitelist.
+        MediaCodecInfo mtkSwitch = decoder("c2.acme.av1.decoder", "vendor.mtk.vdec.early.output.enable");
+        assertFalse(MediaCodecHelper.isDecoderWhitelistedForAv1(mtkSwitch));
+        // A known low-latency switch still does.
+        assertTrue(MediaCodecHelper.isDecoderWhitelistedForAv1(
+                decoder("c2.acme.av1.decoder", "vendor.low-latency.enable")));
+    }
+
+    @Test
+    @Config(sdk = 33)
+    public void theRetroidDecoderGetsExactlyThisKeySet() {
+        MediaCodecInfo decoder = decoder("c2.qti.hevc.decoder.low_latency", QTI_KEYS);
+        MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        assertTrue(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, 0, true, true, true, false));
+        java.util.Set<String> expected = new java.util.HashSet<>(Arrays.asList(QTI_KEYS));
+        expected.addAll(Arrays.asList(MediaFormat.KEY_MIME, MediaFormat.KEY_WIDTH, MediaFormat.KEY_HEIGHT,
+                MediaFormat.KEY_LOW_LATENCY, MediaFormat.KEY_OPERATING_RATE, "vendor.qti-ext-dec-frame-drop.enable"));
+        assertEquals(expected, format.getKeys());
     }
 
     @Test
@@ -260,6 +304,7 @@ public class DecoderTuningKeysTest {
         assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.MTK.VIDEO.DECODER.HEVC"));
         assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.Nvidia.h264.decode"));
         assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("OMX.amlogic.hevc.decoder.awesome"));
+        assertTrue(MediaCodecHelper.isExperimentalVendorDecoder("c2.qcom.hevc.decoder"));
         assertFalse(MediaCodecHelper.isExperimentalVendorDecoder("c2.qti.hevc.decoder.low_latency"));
         assertFalse(MediaCodecHelper.isExperimentalVendorDecoder("c2.android.hevc.decoder"));
     }
@@ -269,7 +314,8 @@ public class DecoderTuningKeysTest {
                 MediaCodecHelper.class, "vendorParameterCache");
         parameters.put(name, Arrays.asList(declaredVendorParameters));
         MediaFormat capabilities = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
-        return MediaCodecInfoBuilder.newBuilder().setName(name).setCapabilities(
+        return MediaCodecInfoBuilder.newBuilder().setName(name).setIsHardwareAccelerated(true).setIsSoftwareOnly(false)
+                .setCapabilities(
                 CodecCapabilitiesBuilder.newBuilder().setMediaFormat(capabilities)
                         .setProfileLevels(new CodecProfileLevel[0])
                         .setColorFormats(new int[] {CodecCapabilities.COLOR_FormatYUV420Flexible}).build()).build();

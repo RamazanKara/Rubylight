@@ -1485,6 +1485,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             updateDecoderDiagnostics();
         } catch (RuntimeException e) {
             LimeLog.warning("Decoder diagnostics unavailable: " + e);
+            decoderDiagnostics = "";
         }
     }
 

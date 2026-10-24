@@ -898,6 +898,9 @@ pub struct Streaming {
     latency: race::Latency,
     /// The user's margin ahead of the beam in ms, 0 for the automatic one.
     race_margin_ms: u32,
+    /// False under `NIGHTJAR_BEAM_RACE_PRESENT=0`: the display is probed and the picture's age at the
+    /// middle row is recorded, but whole pictures are presented (the A side of an A/B run).
+    race_present: bool,
     /// The stream's setup as the last frame showed it, which slice draws need before a frame has.
     race_setup: Option<session::VideoSetup>,
     pub overlay_visible: bool,
@@ -1023,6 +1026,7 @@ impl Streaming {
             predictor: None,
             latency: race::Latency::default(),
             race_margin_ms: hint_override("NIGHTJAR_BEAM_RACE_MARGIN_MS", settings.beam_race_margin_ms),
+            race_present: std::env::var("NIGHTJAR_BEAM_RACE_PRESENT").as_deref() != Ok("0"),
             race_setup: None,
             overlay_visible: settings.overlay,
             overlay: Overlay::default(),
@@ -1719,7 +1723,7 @@ impl Streaming {
             let dst = viewport(size, (w, h), self.settings.video_scaling, self.settings.align_video_top);
             race::Scan::for_picture(&beam, delta_ns, size.1 as u32, dst.y.max(0.0) as u32, dst.h as u32)
         });
-        match (self.pacer.mode, self.race_scan.is_some()) {
+        match (self.pacer.mode, self.race_scan.is_some() && self.race_present) {
             (PacingMode::Immediate, true) => {
                 self.pacer.mode = PacingMode::BeamRace;
                 eprintln!("nightjar: beam race: presenting slices ahead of the beam");
@@ -1765,7 +1769,7 @@ impl Streaming {
         self.needs_redraw = false;
         self.racer.presented(flipped.issued_us, &scan);
         for (band, _) in &batch {
-            self.latency.record(band.ready_us, flipped.issued_us, flipped.returned_us, flipped.returned_us);
+            self.latency.record(self.racer.presentable_us(band.ready_us), flipped.issued_us, flipped.returned_us, flipped.returned_us);
         }
         true
     }
@@ -1933,7 +1937,7 @@ impl Streaming {
 
     /// A frame is on the screen: closes it in the racer, teaches the predictor its slice times and
     /// gives the timing CSV what the beam race columns need (empty with the race off).
-    fn finish_frame(&mut self, decoded: &pipeline::Decoded, raced: bool, issued_us: u64, _returned_us: u64) -> crate::timing_csv::Presented {
+    fn finish_frame(&mut self, decoded: &pipeline::Decoded, raced: bool, issued_us: u64, returned_us: u64) -> crate::timing_csv::Presented {
         let mut timeline = crate::timing_csv::Presented::default();
         if !self.facts.beam_race { return timeline; }
         if decoded.bands.len() >= 2 {
@@ -1941,6 +1945,8 @@ impl Streaming {
             self.predictor.get_or_insert_with(|| seeded_predictor(facts)).learn(&decoded.bands);
         }
         let mut presents = vec![issued_us];
+        // The picture's own present costs what a slice's does, whether or not the frame was raced.
+        self.latency.record_call(issued_us, returned_us, returned_us);
         if let (true, Some(scan)) = (raced, self.race_scan) {
             self.racer.presented(issued_us, &scan);
             let record = self.racer.done();
@@ -2515,6 +2521,13 @@ impl Streaming {
             let c = &self.shared.counters;
             eprintln!("nightjar: beam race: {}", race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
                 c.race_unordered.load(Ordering::Relaxed)));
+            eprintln!("nightjar: beam race: presenter, {}", self.raced_line());
+            eprintln!("nightjar: beam race: present timing, wake {} us, call p50 {} us p95 {} us (slowest {} us), spread {} us, margin {} us ahead of the beam",
+                self.latency.wake_us(), self.latency.call_us(), self.latency.call_p95_us(), self.latency.slowest_call_us(), self.latency.spread_us(),
+                self.latency.margin_us(self.race_margin_ms));
+            let skipped = self.racer.totals.skipped;
+            eprintln!("nightjar: beam race: frames not raced: {} with under 1 ms to gain, {} not in slices, {} with the first slice missed",
+                skipped[0], skipped[1], skipped[2]);
         }
         self.session.stop();
     }

@@ -153,6 +153,79 @@ so a slow call counts against the window's 10 ms in the longest figure but not i
 `timing_summary.py` prints its `PresentMode` counts and the leg's `race_reason` counts. Settings
 go in with `-ExtraA @{ beam_race = $true; window_mode = 'Borderless'; vrr = $true; present_at_host_times = $false }`.
 
+## The raced presenter
+
+With the capability probe on and a restart delay measured, the pacing mode goes from `Immediate` to
+`Beam race` (the overlay's Pacing line; `PacingMode::BeamRace`, `stream/race.rs` and `stream/mod.rs`).
+With `beam_race` off, or the probe off, the mode never changes and nothing here runs.
+
+A frame still being received is presented in pieces. A tearing present on an idle variable refresh
+display restarts the scan, and the first picture row is on the screen `delta` (the probe's median
+restart delay) after the call, row `r` `r * row_ns` after that. So the first slice is presented at the
+scan start `t0`, and each later slice is presented as it is ready, before the beam reaches its first
+row; each present draws the persistent video texture again (a scissor on the slice's rows, the rows
+above are still there) and presents it.
+
+- `t0` is chosen per frame (`race::plan`). Slice `i` ready at `e_i` (relative to the first) must satisfy
+  `e_i + wake + call + margin <= t0 + delta + R_i`, where `R_i` is when the beam reaches its row. The
+  slice ready times come from the pace hint for the first frames and from the frames shown after
+  (`Predictor`, weight 1/8). A frame is raced only when `first_ready + span + wake - t0` is at least
+  1 ms, otherwise it is presented whole on its final decode and the overlay says "pace leaves under
+  1 ms to gain".
+- `wake` is the median time from a slice being ready (or the scan being due, when the plan holds it on
+  purpose) to its present call, `call` the median call, both over the last 240 presents, folded every
+  5 s (`Latency`). The whole pictures' present calls teach `call` before the first slice goes out.
+  The margin is the p99 minus p50 of wake plus call, plus one 1 ms host batch, or the "Beam race
+  margin (ms)" setting (`beam_race_margin_ms`, `NIGHTJAR_BEAM_RACE_MARGIN_MS`) when it is not 0.
+- A slice that is ready after the beam passed its first row is late: it is counted (once per slice),
+  the rest of the frame is held, and the whole picture is presented on the final decode. A frame
+  whose first slice was not the picture's first, or that was not row ordered, is presented whole with
+  the reason on the overlay. The final decode of a raced frame draws only the rows after the last
+  slice presented.
+- The decode of a plane set must not overwrite rows a draw still reads: the presenter pins the set
+  of each slice it is handed (`gpu_planes::Pin`), the draw signals the set's reuse fence, and the
+  next decode into the set waits for it (`Planes::wait_for`).
+- The stream rows are the display's rows scaled to the window (`Scan::for_picture`); a letterboxed
+  picture adds its top offset to the delay.
+
+The overlay's "Raced presenter" line reads "N raced, M whole, K late slices in J frames", with
+"; last whole: <reason>" and "N never finished" when they apply, or "off, pacing is X" and "off until
+the display check passes". The client log prints the same at the end, with the count of frames per
+reason and the wake, call and margin it ended with.
+
+Four more timing CSV columns say how each frame went to the screen (empty when the race is off or
+the scan is not known): `scan_start_ns` (the first present's issue time plus delta), `present_ns` (the
+issue time of every present of the frame, `|` separated, up to 8), `mid_row_age_ns` (when the beam
+reaches the middle row minus when the slice that holds it was ready, for raced frames and whole ones
+alike) and `late_slices`. `ready_us` is when the decoder finished the slice, which stands in for when
+its last packet arrived (the two differ by about the slice's decode, 0.2 ms). Setting
+`NIGHTJAR_BEAM_RACE_PRESENT=0` keeps everything but the mode switch: the probe runs and
+`mid_row_age_ns` is recorded for whole pictures, the A side of a comparison.
+
+Measured (60 s loopback, 1080p60 PyroWave 399 Mbps, pace 900, `NIGHTJAR_STREAM_LOCATION=local`,
+borderless fullscreen on the 5120x1440 240 Hz VRR display, one run per side):
+
+| | raced | whole (`NIGHTJAR_BEAM_RACE_PRESENT=0`) |
+|---|---|---|
+| frames raced | 2965 of 3470 (462 skipped for gain, mostly while the margin settled) | 0 |
+| late slices | 5 in 5 frames of 13880 slices (0.04%) | |
+| mid-row age p50 / p95 / p99 (ms) | 4.89 / 6.04 / 6.53 (raced frames alone 4.81 / 5.99) | 5.53 / 6.13 / 6.41 |
+| receive_to_present p50 / p95 (ms) | 8.46 / 9.36 | 7.96 / 8.62 |
+| presents per frame | 2.40 | 1.00 |
+| PresentMon | Independent Flip 99.7% (21 composed overlay, 6 composed) | |
+| present call p50 / p95 | 260 / 316 us (wake 0.97 ms, margin 2.3 ms) | 209 / 315 us |
+
+The raced frame shows its middle row 0.64 ms (median) earlier, and its last rows later: the frame as a
+whole reaches the screen 0.5 ms after a whole-picture present does (the extra slice draws and the
+rows-only final), so the race trades the bottom for the top. At 1080p and pace 900 the slices of a
+frame arrive over 6.5 ms and the scan takes 4.1 ms, which is why the gain is about 1 ms.
+The `SDL_RenderPresent` call is the only present path (raw `Present1(0, ALLOW_TEARING)` on SDL's
+swap chain was not tried; brief 4).
+
+Known limits. A texture re-created or resized between the slices and the final decode leaves the top
+rows black for that frame. The first frame is presented whole (the stream's setup is not known before
+it). The Unix build does not race (the plane pins and slice draws are Windows only; not built here).
+
 ## Tests
 
 - `stream::pyrowave::tests`: the slice plan on 1080p row-ordered and index-ordered frames, and
@@ -165,3 +238,8 @@ go in with `-ExtraA @{ beam_race = $true; window_mode = 'Borderless'; vrr = $tru
   restart check, and each reason.
 - `timing_csv`: the three scan columns.
 - `scripts/test_timing_summary.py`: the PresentMode and verdict counts.
+- `stream::race::tests`: the scheduler on synthetic traces (gain test, margin, the scan start for
+  each slice, the first frames from the pace), the scissor maths, the mid-row age for raced and
+  whole frames, the racer states (late slice, late final, abandoned frame, whole when not row
+  ordered), and what the latency window folds.
+- `timing_csv`: the four presented columns.

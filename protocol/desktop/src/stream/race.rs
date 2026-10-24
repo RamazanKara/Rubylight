@@ -92,6 +92,9 @@ fn percentile(sorted: &[u64], per_mille: usize) -> u64 {
     sorted[(sorted.len() * per_mille / 1000).min(sorted.len() - 1)]
 }
 
+/// The wake of a present that has no slice ready time (a whole picture).
+const NO_WAKE: u64 = u64::MAX;
+
 /// What the presents of slices cost, folded every few seconds from the last window.
 pub struct Latency {
     samples: VecDeque<(u64, u64)>,
@@ -120,8 +123,17 @@ impl Latency {
 
     /// One present: `ready_us` when its slice was ready, `issued_us` and `returned_us` around the call.
     pub fn record(&mut self, ready_us: u64, issued_us: u64, returned_us: u64, now_us: u64) {
+        self.push(issued_us.saturating_sub(ready_us), returned_us.saturating_sub(issued_us), now_us);
+    }
+
+    /// A present of a whole picture, which says what the call costs before any slice was presented.
+    pub fn record_call(&mut self, issued_us: u64, returned_us: u64, now_us: u64) {
+        self.push(NO_WAKE, returned_us.saturating_sub(issued_us), now_us);
+    }
+
+    fn push(&mut self, wake_us: u64, call_us: u64, now_us: u64) {
         if self.samples.len() == RING { self.samples.pop_front(); }
-        self.samples.push_back((issued_us.saturating_sub(ready_us), returned_us.saturating_sub(issued_us)));
+        self.samples.push_back((wake_us, call_us));
         if self.folded_us == 0 || (self.folded_us != u64::MAX && now_us.saturating_sub(self.folded_us) >= REFRESH_US && self.samples.len() >= 20) {
             self.fold(now_us);
         }
@@ -130,19 +142,34 @@ impl Latency {
     fn fold(&mut self, now_us: u64) {
         if self.samples.len() < 8 { return; }
         self.folded_us = now_us;
-        let mut wake: Vec<u64> = self.samples.iter().map(|s| s.0).collect();
+        let mut wake: Vec<u64> = self.samples.iter().map(|s| s.0).filter(|&w| w != NO_WAKE).collect();
         let mut call: Vec<u64> = self.samples.iter().map(|s| s.1).collect();
-        let mut total: Vec<u64> = self.samples.iter().map(|s| s.0 + s.1).collect();
-        wake.sort_unstable();
+        let mut total: Vec<u64> = self.samples.iter().filter(|s| s.0 != NO_WAKE).map(|s| s.0 + s.1).collect();
         call.sort_unstable();
-        total.sort_unstable();
-        self.wake_us = percentile(&wake, 500);
         self.call_us = percentile(&call, 500);
-        self.spread_us = percentile(&total, 990).saturating_sub(percentile(&total, 500));
+        if wake.len() >= 8 {
+            wake.sort_unstable();
+            total.sort_unstable();
+            self.wake_us = percentile(&wake, 500);
+            self.spread_us = percentile(&total, 990).saturating_sub(percentile(&total, 500));
+        } else {
+            // Only whole pictures were presented: the call's own spread, the wake as guessed.
+            self.spread_us = percentile(&call, 990).saturating_sub(self.call_us);
+        }
     }
 
     pub fn wake_us(&self) -> u64 { self.wake_us }
     pub fn call_us(&self) -> u64 { self.call_us }
+    pub fn spread_us(&self) -> u64 { self.spread_us }
+
+    /// The slowest present call in the window (us), for the end-of-stream line.
+    pub fn slowest_call_us(&self) -> u64 { self.samples.iter().map(|s| s.1).max().unwrap_or(0) }
+    /// The present call's p95 over the window (us), for the end-of-stream line.
+    pub fn call_p95_us(&self) -> u64 {
+        let mut call: Vec<u64> = self.samples.iter().map(|s| s.1).collect();
+        call.sort_unstable();
+        if call.is_empty() { 0 } else { percentile(&call, 950) }
+    }
 
     /// The margin ahead of the beam (us): how much a present varies plus one host batch, or the
     /// user's own value when the setting is not 0.
@@ -233,6 +260,14 @@ impl Skip {
             Skip::Missed => "first slice missed",
         }
     }
+
+    fn index(self) -> usize {
+        match self {
+            Skip::NoGain => 0,
+            Skip::Unsliced => 1,
+            Skip::Missed => 2,
+        }
+    }
 }
 
 /// The scan start for a frame whose first slice was ready at `first_ready_us`, or why not. The
@@ -310,6 +345,8 @@ pub struct Totals {
     pub abandoned: u64,
     /// The reason of the last frame that was not raced.
     pub last_skip: Option<Skip>,
+    /// Frames not raced, by reason (`Skip::NoGain`, `Unsliced`, `Missed`).
+    pub skipped: [u64; 3],
 }
 
 /// The raced presenter's state for the frame in flight. `T` is what a slice carries to the draw
@@ -322,6 +359,8 @@ pub struct Racer<T> {
     covered: u32,
     plan: Option<Plan>,
     start_us: u64,
+    /// When the scan of the frame in flight was due to start (us), 0 before it is planned.
+    due_start_us: u64,
     last_scan_end_us: u64,
     ready: Vec<BandReady>,
     record: Record,
@@ -330,7 +369,7 @@ pub struct Racer<T> {
 
 impl<T> Default for Racer<T> {
     fn default() -> Self {
-        Self { seq: 0, state: State::Fresh, queued: Vec::new(), covered: 0, plan: None, start_us: 0, last_scan_end_us: 0, ready: Vec::new(), record: Record::default(), totals: Totals::default() }
+        Self { seq: 0, state: State::Fresh, queued: Vec::new(), covered: 0, plan: None, start_us: 0, due_start_us: 0, last_scan_end_us: 0, ready: Vec::new(), record: Record::default(), totals: Totals::default() }
     }
 }
 
@@ -390,6 +429,7 @@ impl<T> Racer<T> {
         self.queued.clear();
         self.covered = 0;
         self.start_us = 0;
+        self.due_start_us = 0;
         self.ready.clear();
         self.record = Record::default();
     }
@@ -410,6 +450,7 @@ impl<T> Racer<T> {
             State::Waiting if self.plan.is_some_and(|plan| now_us >= plan.start_us) => {
                 self.state = State::Scanning;
                 self.start_us = now_us;
+                self.due_start_us = self.plan.map_or(now_us, |plan| plan.start_us);
             }
             State::Scanning => {}
             _ => return Vec::new(),
@@ -417,6 +458,12 @@ impl<T> Racer<T> {
         let batch = std::mem::take(&mut self.queued);
         for (band, _) in &batch { self.covered = self.covered.max(band.end_row); }
         batch
+    }
+
+    /// When a slice that was ready at `ready_us` could have been presented: not before the scan was
+    /// due to start, which the plan delays on purpose. The wake the latency statistics see starts here.
+    pub fn presentable_us(&self, ready_us: u64) -> u64 {
+        ready_us.max(self.due_start_us)
     }
 
     /// A present of the frame was issued and returned.
@@ -458,7 +505,10 @@ impl<T> Racer<T> {
         self.queued.clear();
         let record = std::mem::take(&mut self.record);
         if record.raced && record.late == 0 { self.totals.raced += 1; } else { self.totals.whole += 1; }
-        if record.skip.is_some() { self.totals.last_skip = record.skip; }
+        if let Some(skip) = record.skip {
+            self.totals.last_skip = Some(skip);
+            self.totals.skipped[skip.index()] += 1;
+        }
         record
     }
 
@@ -599,6 +649,19 @@ mod tests {
     }
 
     #[test]
+    fn whole_pictures_teach_the_call_before_any_slice_was_presented() {
+        let mut latency = Latency::default();
+        assert_eq!((latency.wake_us(), latency.call_us()), (300, 1200), "guessed before anything was timed");
+        for i in 0..100u64 {
+            latency.record_call(100, 100 + 250 + if i % 20 == 0 { 700 } else { 0 }, 1_000 + i);
+        }
+        latency.record_call(100, 350, 6_000_000);
+        assert_eq!(latency.call_us(), 250);
+        assert_eq!(latency.wake_us(), 300, "the wake stays as guessed without slice presents");
+        assert_eq!(latency.margin_us(0), 700 + HOST_BATCH_US);
+    }
+
+    #[test]
     fn the_predictor_is_seeded_from_the_pace_and_then_learns_the_frames() {
         // 831 KB at 900 Mbps: 7.4 ms on the wire.
         let predictor = Predictor::seeded(4, 1080, 831_000.0, 900);
@@ -649,6 +712,18 @@ mod tests {
         assert_eq!(racer.finish(1, last.first_row, last.ready_us + 100, &scan, &latency), Final::Rows(810, 1080));
         let record = racer.done();
         assert_eq!((record.late, record.raced, record.presents_us.len()), (0, true, 3));
+    }
+
+    #[test]
+    fn the_wake_of_a_slice_starts_when_the_scan_was_due_not_when_it_was_ready() {
+        let (mut racer, predictor, bands) = racer_with_frame(12_000);
+        let (scan, latency) = (scan(), quiet());
+        racer.observe(3, bands[0], 0, 50_100, &scan, &predictor, &latency, 1100);
+        let start = racer.due_us().unwrap();
+        assert!(start > bands[0].ready_us + 500, "the plan waits on purpose");
+        racer.take(start + 60);
+        assert_eq!(racer.presentable_us(bands[0].ready_us), start, "the wait is not a wake");
+        assert_eq!(racer.presentable_us(start + 900), start + 900, "a slice ready after the start is timed from then");
     }
 
     #[test]
@@ -708,6 +783,7 @@ mod tests {
         assert_eq!(racer.due_us(), None);
         assert_eq!(racer.finish(1, 810, 50_900, &scan, &latency), Final::Whole);
         assert_eq!(racer.done().skip, Some(Skip::NoGain));
+        assert_eq!((racer.totals.skipped, racer.totals.whole), ([1, 0, 0], 1), "counted by reason");
     }
 
     #[test]

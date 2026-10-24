@@ -97,7 +97,8 @@ A D3D12-only host and virtual-display-only streaming are not offered. That work 
 | Nightjar desktop, Linux | Experimental | The desktop app was not run. `nightjar-cli` ran on the NUC (Debian 13, 1 GbE, VAAPI decode) | [Link speeds](../rust/PERFORMANCE.md#october-23-behaviour-across-client-link-speeds) | 3.0 beta.1, 2026-10-23 |
 | Moonlight 6.2.0 (stock), Windows | Tested | Radeon 780M laptop over Wi-Fi, 1080p60 HEVC SDR, two 165 s sessions | [Performance overview](performance.md#october-12-229-measurements) and [Oct 12](../rust/PERFORMANCE.md#october-12-single-pass-d3d11-420-conversion) | 2.2.8 and 2.2.9, 2026-10-12. Not re-run on 3.0 |
 | moonlight-common-c client, Linux (stands in for stock Moonlight on another PC) | Tested | NUC on wired LAN: PIN pairing, then 60 s of HEVC 1080p60, every frame decoded | [Alpha.1 gate](../rust/PERFORMANCE.md#october-22-30-alpha1-hardware-gate) | 3.0 alpha.1, 2026-10-22 |
-| Moonlight on phones (Android, iOS) and other stock clients | Expected | None | "Not tested yet: stock Moonlight on a phone" in the alpha.1, alpha.2 and alpha.3 notes | - |
+| Moonlight Android 12.2 on a phone | Tested | Retroid Pocket 6, Wi-Fi 5 GHz | HEVC 1080p60: 59.7 fps mean over 80 s of host stream timings, encode 3.11 ms, host processing 0.40 ms, 0.00 % network drops, no errors | 3.0 main, 2026-10-24 |
+| Moonlight on iOS and other stock clients | Expected | None | Not run | - |
 
 ## 5. Radeon 3D settings (ADLX)
 

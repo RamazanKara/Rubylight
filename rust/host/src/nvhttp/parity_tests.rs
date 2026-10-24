@@ -1238,22 +1238,27 @@ fn input_and_monitor_roles_resolve_without_starting_an_app_or_preparing_hardware
 }
 
 #[test]
-fn a_ten_bit_format_without_hdr_mode_at_launch_streams_ten_bit_sdr() {
+fn launch_and_resume_queries_decide_whether_a_ten_bit_format_is_sdr() {
     use butterpollo_core::{rtsp::Negotiated, stream_policy::infer_sdr_10bit};
     let f = Fixture::new();
     let client = f.client(0);
-    let sdp = b"a=x-nv-vqos[0].bitStreamFormat:1\na=x-nv-video[0].dynamicRangeMode:1\n";
-    // /launch and /resume carry the same query, so both build the session here.
-    for (query, asked, expected) in [
-        (None, false, (false, true)),
-        (Some("0"), false, (false, true)),
-        (Some("1"), true, (true, false)),
+    let sdp = b"a=x-nv-vqos[0].bitStreamFormat:1
+a=x-nv-video[0].dynamicRangeMode:1
+";
+    // (resume, hdrMode, streams ten-bit SDR rather than HDR)
+    for (resume, query, sdr) in [
+        (false, None, true),
+        (false, Some("0"), true),
+        (false, Some("1"), false),
+        (true, None, false),
+        (true, Some("0"), true),
+        (true, Some("1"), false),
     ] {
         let args: Args = query
             .into_iter()
             .map(|v| ("hdrMode".to_string(), v.to_string()))
             .collect();
-        let launch = build_launch_session(
+        let mut launch = build_launch_session(
             &f.connection(true),
             &args,
             client.clone(),
@@ -1262,14 +1267,14 @@ fn a_ten_bit_format_without_hdr_mode_at_launch_streams_ten_bit_sdr() {
             [0; 16],
             1,
         );
-        assert_eq!(launch.hdr_requested(), asked, "{query:?}");
+        launch.resumed = resume;
         let mut negotiated = Negotiated::from_sdp(sdp).unwrap();
         assert!(negotiated.hdr);
-        infer_sdr_10bit(&mut negotiated, launch.hdr_requested());
+        infer_sdr_10bit(&mut negotiated, launch.ten_bit_sdr_requested());
         assert_eq!(
             (negotiated.hdr, negotiated.sdr_10bit),
-            expected,
-            "{query:?}"
+            (!sdr, sdr),
+            "resume={resume} hdrMode={query:?}"
         );
         assert!(negotiated.ten_bit());
     }

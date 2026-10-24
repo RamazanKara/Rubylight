@@ -2000,16 +2000,16 @@ fn ten_bit_request() -> Negotiated {
         ..Default::default()
     }
 }
-/// What the launch decided, then what RTSP negotiated, as the host applies them.
-fn negotiate_color(mut stream: Negotiated, launch_hdr: bool, config: &Config) -> Negotiated {
-    infer_sdr_10bit(&mut stream, launch_hdr);
+/// What the launch asked for, then what RTSP negotiated, as the host applies them.
+fn negotiate_color(mut stream: Negotiated, sdr_requested: bool, config: &Config) -> Negotiated {
+    infer_sdr_10bit(&mut stream, sdr_requested);
     apply_color(&mut stream, config);
     stream
 }
 #[test]
 fn a_ten_bit_request_without_an_hdr_launch_is_ten_bit_sdr() {
     let mut stream = ten_bit_request();
-    assert!(infer_sdr_10bit(&mut stream, false));
+    assert!(infer_sdr_10bit(&mut stream, true));
     assert!(stream.sdr_10bit && !stream.hdr && stream.ten_bit());
     // The host option changes nothing for it, and the inference is idempotent.
     let stream = negotiate_color(
@@ -2019,28 +2019,28 @@ fn a_ten_bit_request_without_an_hdr_launch_is_ten_bit_sdr() {
     );
     assert!(stream.sdr_10bit && !stream.hdr);
     let mut again = stream.clone();
-    assert!(!infer_sdr_10bit(&mut again, false));
+    assert!(!infer_sdr_10bit(&mut again, true));
     assert!(again.sdr_10bit && !again.hdr);
 }
 #[test]
 fn a_ten_bit_request_from_an_hdr_launch_stays_hdr() {
-    let stream = negotiate_color(ten_bit_request(), true, &Config::default());
+    let stream = negotiate_color(ten_bit_request(), false, &Config::default());
     assert!(stream.hdr && !stream.sdr_10bit);
-    assert!(!infer_sdr_10bit(&mut ten_bit_request(), true));
+    assert!(!infer_sdr_10bit(&mut ten_bit_request(), false));
 }
 #[test]
 fn prefer_sdr_10bit_still_turns_an_hdr_launch_into_ten_bit_sdr() {
     let config = Config::parse("prefer_sdr_10bit=true\n").unwrap();
-    let stream = negotiate_color(ten_bit_request(), true, &config);
+    let stream = negotiate_color(ten_bit_request(), false, &config);
     assert!(stream.sdr_10bit && !stream.hdr);
 }
 #[test]
 fn an_eight_bit_request_is_neither_hdr_nor_ten_bit() {
     let config = Config::parse("prefer_sdr_10bit=true\n").unwrap();
-    for launch_hdr in [false, true] {
+    for sdr_requested in [false, true] {
         let mut stream = Negotiated::default();
-        assert!(!infer_sdr_10bit(&mut stream, launch_hdr));
-        let stream = negotiate_color(stream, launch_hdr, &config);
+        assert!(!infer_sdr_10bit(&mut stream, sdr_requested));
+        let stream = negotiate_color(stream, sdr_requested, &config);
         assert!(!stream.hdr && !stream.sdr_10bit && !stream.ten_bit());
     }
 }

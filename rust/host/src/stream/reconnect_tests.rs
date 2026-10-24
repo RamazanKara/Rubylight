@@ -190,6 +190,9 @@ impl Fixture {
             key: None,
         };
         *s.encoder.write().unwrap() = "reconnect fixture".into();
+        // As the encoder does once it has the display's metadata: the control
+        // worker then sends the HDR mode message (0x010e).
+        s.set_display_hdr_metadata(butterpollo_core::hdr::Metadata::default());
         while !h.stop.load(Ordering::Acquire) && !s.stopping() {
             let peer = media
                 .peers
@@ -296,7 +299,7 @@ impl Harness {
         let mut h = crate::state::Host::load(directory.clone(), directory.clone(), None)?;
         let fixture = Arc::new(Fixture::default());
         Arc::get_mut(&mut h).unwrap().reconnect_fixture = Some(fixture.clone());
-        h.codecs.store(1, Ordering::Release);
+        h.codecs.store(1 | 0x200, Ordering::Release);
         h.startup_codecs.send_replace(true);
         let app = App::desktop();
         *h.apps.write().unwrap() = vec![app.clone()];
@@ -380,18 +383,29 @@ impl Harness {
         Ok(harness)
     }
     async fn launch_response(&self, client: usize, resume: bool) -> Result<String> {
+        self.launch_response_hdr(client, resume, None).await
+    }
+    /// A launch or resume with the given `hdrMode` query (absent for `None`).
+    async fn launch_response_hdr(
+        &self,
+        client: usize,
+        resume: bool,
+        hdr_mode: Option<&str>,
+    ) -> Result<String> {
         let endpoint = if resume { "resume" } else { "launch" };
         let key = hex::encode(crypto::random::<16>());
         let app = self.h.apps.read().unwrap()[0].id();
+        let mut query = vec![
+            ("appid", app.to_string()),
+            ("rikey", key),
+            ("rikeyid", "1".into()),
+            ("corever", "1".into()),
+            ("mode", "640x480x60".into()),
+        ];
+        query.extend(hdr_mode.map(|mode| ("hdrMode", mode.to_string())));
         Ok(self.clients[client]
             .get(format!("https://127.0.0.1:{}/{endpoint}", self.ports.https))
-            .query(&[
-                ("appid", app.to_string()),
-                ("rikey", key),
-                ("rikeyid", "1".into()),
-                ("corever", "1".into()),
-                ("mode", "640x480x60".into()),
-            ])
+            .query(&query)
             .send()
             .await?
             .error_for_status()?
@@ -399,7 +413,15 @@ impl Harness {
             .await?)
     }
     async fn launch(&self, client: usize, resume: bool) -> Result<Launch> {
-        let response = self.launch_response(client, resume).await?;
+        self.launch_hdr(client, resume, None).await
+    }
+    async fn launch_hdr(
+        &self,
+        client: usize,
+        resume: bool,
+        hdr_mode: Option<&str>,
+    ) -> Result<Launch> {
+        let response = self.launch_response_hdr(client, resume, hdr_mode).await?;
         assert!(
             response.contains("status_code=\"200\""),
             "resume={resume}: {response}"
@@ -485,7 +507,16 @@ impl Harness {
         launch: &Launch,
         encryption: u32,
     ) -> Result<(Arc<Session>, Client)> {
-        self.rtsp(launch, 1, "ANNOUNCE", &format!("a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\na=x-ss-general.encryptionEnabled:{encryption}\r\n")).await?;
+        self.play_announcing(launch, encryption, "").await
+    }
+    /// Plays after an ANNOUNCE that carries the extra SDP lines `sdp`.
+    async fn play_announcing(
+        &self,
+        launch: &Launch,
+        encryption: u32,
+        sdp: &str,
+    ) -> Result<(Arc<Session>, Client)> {
+        self.rtsp(launch, 1, "ANNOUNCE", &format!("a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\na=x-ss-general.encryptionEnabled:{encryption}\r\n{sdp}")).await?;
         self.rtsp(launch, 2, "PLAY", "").await?;
         let session = self.h.sessions.lock().unwrap().active[&launch.id].clone();
         let client = Client::new(self.ports, launch.clone())?;
@@ -649,6 +680,8 @@ struct Client {
     reason: Arc<AtomicU32>,
     /// Link notices (0x5538) the host sent, with their arrival times.
     notices: Notices,
+    /// HDR mode messages (0x010e) the host sent.
+    hdr_modes: Notices,
     /// Plain control messages for the worker to send, reliable.
     outbox: Arc<Mutex<Vec<Vec<u8>>>>,
     worker: Option<thread::JoinHandle<Result<()>>>,
@@ -661,6 +694,7 @@ impl Client {
         let frames = Arc::new(AtomicUsize::new(0));
         let reason = Arc::new(AtomicU32::new(0));
         let notices = Arc::new(Mutex::new(Vec::new()));
+        let hdr_modes = Notices::default();
         let outbox = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let mut host = Host::new(
             LossySocket {
@@ -684,6 +718,7 @@ impl Client {
             reason.clone(),
         );
         let (worker_notices, worker_outbox) = (notices.clone(), outbox.clone());
+        let worker_hdr_modes = hdr_modes.clone();
         let worker = thread::spawn(move || -> Result<()> {
             let mut next_ping = Instant::now();
             let mut buffer = [0; 2048];
@@ -700,6 +735,12 @@ impl Client {
                                 u32::from_be_bytes(payload[..4].try_into()?),
                                 Ordering::Release,
                             );
+                        }
+                        if kind == 0x010e {
+                            worker_hdr_modes
+                                .lock()
+                                .unwrap()
+                                .push((Instant::now(), payload.clone()));
                         }
                         if kind == butterpollo_core::link_notice::LINK_NOTICE_MESSAGE_TYPE {
                             worker_notices
@@ -757,6 +798,7 @@ impl Client {
             frames,
             reason,
             notices,
+            hdr_modes,
             outbox,
             worker: Some(worker),
         })
@@ -1742,4 +1784,50 @@ async fn a_cancel_while_a_launch_waits_for_its_client_ends_the_session() -> Resu
     h.h.session_flush();
     assert!(!journal.exists());
     h.finish().await
+}
+
+/// A client that negotiates a ten-bit format (`dynamicRangeMode:1`) after a
+/// launch or resume: the stream is HDR only when the query asked for it, or
+/// for a /resume without `hdrMode`. Otherwise it is ten-bit SDR whose `hdr`
+/// (the part the prepared display compares) is off, so the display prepared
+/// for the launch is kept, and the client is told HDR is off.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_ten_bit_format_streams_sdr_unless_the_launch_or_a_bare_resume_wants_hdr() -> Result<()> {
+    // (resume, hdrMode, streams ten-bit SDR rather than HDR)
+    for (resume, hdr_mode, sdr) in [
+        (false, None, true),
+        (false, Some("0"), true),
+        (false, Some("1"), false),
+        (true, None, false),
+        (true, Some("0"), true),
+        (true, Some("1"), false),
+    ] {
+        let case = format!("resume={resume} hdrMode={hdr_mode:?}");
+        let h = Harness::new(10_000, 1).await?;
+        let launch = if resume {
+            let first = h.launch(0, false).await?;
+            let (_, client) = h.play(&first).await?;
+            drop(client);
+            h.launch_hdr(0, true, hdr_mode).await?
+        } else {
+            h.launch_hdr(0, false, hdr_mode).await?
+        };
+        let sdp = "a=x-nv-vqos[0].bitStreamFormat:1\r\na=x-nv-video[0].dynamicRangeMode:1\r\n";
+        let (session, client) = h.play_announcing(&launch, 0, sdp).await?;
+        let config = &session.config;
+        assert!(config.ten_bit(), "{case}");
+        assert_eq!((config.hdr, config.sdr_10bit), (!sdr, sdr), "{case}");
+        until("HDR mode message", WAIT, || {
+            !client.hdr_modes.lock().unwrap().is_empty()
+        })
+        .await;
+        assert_eq!(
+            client.hdr_modes.lock().unwrap()[0].1[0],
+            u8::from(!sdr),
+            "{case}"
+        );
+        h.end(&session, client).await?;
+        h.finish().await?;
+    }
+    Ok(())
 }

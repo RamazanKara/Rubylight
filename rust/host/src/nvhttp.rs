@@ -1200,6 +1200,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         }
         let mut launch =
             build_launch_session(&connection, &args, client, app_id, role, key, key_id);
+        launch.resumed = resume;
         launch.background = Some(validate_background_launch(&h, &launch)?);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
@@ -1538,6 +1539,7 @@ fn build_launch_session(
         rtsp_counter: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(1)),
         rtsp_received: Default::default(),
         preparation: Default::default(),
+        resumed: false,
         vrr_requested: args.get("vrr").is_some_and(|s| s == "1")
             || args.get("client_vrr").is_some_and(|s| s == "1")
             || args.get("clientVrrRequested").is_some_and(|s| s == "1"),

@@ -266,12 +266,12 @@ async fn connection(
                             config.integer("max_bitrate", 0)
                         ),
                     );
-                    // A ten-bit format without an HDR launch is ten-bit SDR, packed
+                    // A ten-bit format that the launch did not ask to be HDR is ten-bit SDR, packed
                     // 4:4:4 included: its encoder codes SDR ten-bit either way and
                     // its startup probe asks for `sdr_10bit`.
                     if butterpollo_core::stream_policy::infer_sdr_10bit(
                         &mut negotiated,
-                        launch.hdr_requested(),
+                        launch.ten_bit_sdr_requested(),
                     ) {
                         tracing::info!(
                             client = %launch.client.name,

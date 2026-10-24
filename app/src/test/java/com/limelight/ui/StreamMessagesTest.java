@@ -83,4 +83,24 @@ public class StreamMessagesTest {
         messages.note(null);
         assertEquals(Arrays.asList("A"), messages.notes());
     }
+
+    @Test
+    public void aKeyedStatusIsReplacedByItsKeyAndRemovedWhenItClears() {
+        StreamMessages messages = new StreamMessages(context);
+        messages.note("External display: frames are shown as soon as they arrive.");
+        assertTrue(messages.status("refresh", "Screen stays at 60 Hz."));
+        assertFalse("The same text is not a change", messages.status("refresh", "Screen stays at 60 Hz."));
+        assertTrue(messages.status("hdr", "HDR was asked for, but the PC reports SDR."));
+        assertEquals(Arrays.asList("External display: frames are shown as soon as they arrive.",
+                "Screen stays at 60 Hz.", "HDR was asked for, but the PC reports SDR."), messages.notes());
+
+        assertTrue(messages.status("refresh", "Screen stays at 90 Hz."));
+        assertEquals(Arrays.asList("External display: frames are shown as soon as they arrive.",
+                "Screen stays at 90 Hz.", "HDR was asked for, but the PC reports SDR."), messages.notes());
+
+        assertTrue(messages.status("refresh", null));
+        assertFalse("Clearing what is not shown is no change", messages.status("refresh", ""));
+        assertTrue(messages.status("hdr", ""));
+        assertEquals(Arrays.asList("External display: frames are shown as soon as they arrive."), messages.notes());
+    }
 }

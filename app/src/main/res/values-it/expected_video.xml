@@ -1,0 +1,15 @@
+<resources>
+    <string name="refresh_diag_no_mode">Lo stream richiede %1$s Hz, ma questo schermo offre solo %2$s Hz e funziona a %3$s Hz.</string>
+    <string name="refresh_diag_not_seamless">Lo schermo resta a %2$s Hz invece dei %1$s Hz richiesti: il cambio oscurerebbe l’immagine per un istante (modalità: %3$s Hz).</string>
+    <string name="refresh_diag_user_limit">Lo schermo resta a %2$s Hz invece dei %1$s Hz richiesti: l’impostazione della frequenza di aggiornamento di Android consente al massimo %3$s Hz.</string>
+    <string name="refresh_diag_battery_saver">Lo schermo resta a %2$s Hz invece dei %1$s Hz richiesti: il risparmio energetico la limita.</string>
+    <string name="refresh_diag_thermal">Lo schermo resta a %2$s Hz invece dei %1$s Hz richiesti: il dispositivo è caldo e la limita a 60 Hz.</string>
+    <string name="refresh_diag_unexplained">Lo schermo resta a %2$s Hz invece dei %1$s Hz richiesti. Android non indica alcun motivo (modalità: %3$s Hz).</string>
+    <string name="stream_vrr_old_android">La frequenza variabile richiede Android 16, quindi lo schermo funziona alla frequenza massima.</string>
+    <string name="stream_vrr_no_arr">Questo schermo non ha una frequenza di aggiornamento adattiva, quindi funziona alla frequenza massima.</string>
+    <string name="stream_hdr_mode_unsupported">Questa modalità dello schermo non può mostrare l’HDR, quindi lo stream è in SDR.</string>
+    <string name="stream_hdr_not_negotiated">È stato richiesto l’HDR, ma il PC non ha inviato video HDR, quindi lo stream è in SDR.</string>
+    <string name="stream_hdr_host_sdr">È stato richiesto l’HDR, ma il PC segnala SDR. Attiva l’HDR in Windows per lo schermo in streaming.</string>
+    <string name="stream_hdr_no_metadata">L’HDR è attivo, ma il PC non ha inviato dati di mastering, quindi la luminosità potrebbe risultare errata.</string>
+    <string name="stream_hdr_output_not_pq">L’HDR è attivo, ma il decoder di questo dispositivo segnala un’uscita senza HDR, quindi i colori potrebbero apparire spenti.</string>
+</resources>

@@ -28,6 +28,7 @@ import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.DisplayRefreshDiagnostics;
+import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.LatencyProbe;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
@@ -423,6 +424,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             };
     // Whether this stream asked for HDR (setting on, HDR10 display and decoder).
     private boolean streamHdr;
+    // Why HDR is off although the setting is on, null when it is not (see refuseHdr).
+    private String hdrRefusalText;
+    private HdrPolicy.Status lastHdrStatus = HdrPolicy.Status.QUIET;
     private DisplayCapsReporter displayCapsReporter;
 
     // Asks a host that sends per-frame timing reports (0x5536) for them, once per connection.
@@ -450,15 +454,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // getHdrCapabilities() returns null on some devices (Lenovo Mirage Solo, Android 8.0).
             Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
             if (hdrCaps != null) {
-                int[] hdrTypes = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ?
-                        display.getMode().getSupportedHdrTypes() : hdrCaps.getSupportedHdrTypes();
-                for (int hdrType : hdrTypes) {
-                    if (hdrType == Display.HdrCapabilities.HDR_TYPE_HDR10 ||
-                            hdrType == Display.HdrCapabilities.HDR_TYPE_HLG) {
-                        displayHdr = true;
-                        break;
-                    }
-                }
+                // The same HDR10 test as the request: HLG alone does not make this an HDR10 output.
+                displayHdr = HdrPolicy.displayRefusal(display, true) == HdrPolicy.Refusal.NONE;
                 maxNits = hdrCaps.getDesiredMaxLuminance();
                 maxAverageNits = hdrCaps.getDesiredMaxAverageLuminance();
                 minNits = hdrCaps.getDesiredMinLuminance();
@@ -491,6 +488,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Follows the content rate measured from the host's frame times (checkbox_content_rate_frame_rate).
     private final com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote contentRateVote =
             new com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote();
+    // Whether the vote above allowed only seamless switches (the content rate vote, and every vote on API 30).
+    private boolean appSurfaceSeamlessOnly;
+    // Tells why the screen did not follow the vote (see RefreshSwitchDiagnosis); created once connected.
+    private com.limelight.binding.video.RefreshSwitchMonitor refreshSwitchMonitor;
+    private final Runnable pollRefreshSwitch = new Runnable() {
+        @Override public void run() {
+            if (!connected || isFinishing()) return;
+            checkRefreshSwitch();
+            checkHdrStatus();
+            bitrateHandler.postDelayed(this, 1000);
+        }
+    };
     private final Runnable pollContentRateVote = new Runnable() {
         @Override public void run() {
             if (!connected || isFinishing()) return;
@@ -846,29 +855,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Check if the user has enabled HDR
         boolean willStreamHdr = false;
         if (mediaStream && prefConfig.enableHdr) {
-            // Start our HDR checklist
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                Display display = getVideoDisplay();
-                Display.HdrCapabilities hdrCaps = getVideoDisplay().getHdrCapabilities();
-
-                // We must now ensure our display is compatible with HDR10
-                if (hdrCaps != null) {
-                    // getHdrCapabilities() returns null on Lenovo Lenovo Mirage Solo (vega), Android 8.0
-                    for (int hdrType : hdrCaps.getSupportedHdrTypes()) {
-                        if (hdrType == Display.HdrCapabilities.HDR_TYPE_HDR10) {
-                            willStreamHdr = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (!willStreamHdr) {
-                    hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_display_unsupported);
-                }
-            }
-            else {
-                hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_android_unsupported);
-            }
+            HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(getVideoDisplay(), true);
+            willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
+            if (!willStreamHdr) refuseHdr(refusal);
         }
 
         // Check if the user has enabled performance stats overlay
@@ -920,10 +909,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         });
 
         // Don't stream HDR if the decoder can't support it
-        if (willStreamHdr && !decoderRenderer.isHevcMain10Hdr10Supported() && !decoderRenderer.isAv1Main10Supported() &&
-                !decoderRenderer.isPyroWaveSupported()) {
-            willStreamHdr = false;
-            hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_decoder_unsupported);
+        if (willStreamHdr) {
+            HdrPolicy.Refusal refusal = HdrPolicy.decoderRefusal(decoderRenderer.isHevcMain10Hdr10Supported(),
+                    decoderRenderer.isAv1Main10Supported(), decoderRenderer.isPyroWaveSupported());
+            if (refusal != HdrPolicy.Refusal.NONE) {
+                willStreamHdr = false;
+                refuseHdr(refusal);
+            }
         }
         streamHdr = willStreamHdr;
 
@@ -1683,8 +1675,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 Build.VERSION.SDK_INT, prefConfig.vrr, arrSupported);
         logDisplayRefreshPolicy(display, arrSupported);
         if (prefConfig.vrr) {
+            com.limelight.binding.video.DisplayFrameRatePolicy.ArrState arr =
+                    com.limelight.binding.video.DisplayFrameRatePolicy.arrState(Build.VERSION.SDK_INT, true, arrSupported);
             LimeLog.info(useArr ? "VRR: ARR (Android automatic policy)" :
-                    "VRR: max Hz (ARR unavailable)");
+                    "VRR: max Hz (ARR unavailable: " + arr + ")");
+            // Asked for and not granted: the status line says why, in place of a silent fallback.
+            if (arr == com.limelight.binding.video.DisplayFrameRatePolicy.ArrState.ANDROID_TOO_OLD) {
+                messages.note(getString(R.string.stream_vrr_old_android));
+            } else if (arr == com.limelight.binding.video.DisplayFrameRatePolicy.ArrState.PANEL_WITHOUT_ARR) {
+                messages.note(getString(R.string.stream_vrr_no_arr));
+            }
         }
 
         if (useArr && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
@@ -5667,6 +5667,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         qualityAutoBitrate = false;
         bitrateHandler.removeCallbacks(sampleStreamHealth);
         bitrateHandler.removeCallbacks(pollContentRateVote);
+        bitrateHandler.removeCallbacks(pollRefreshSwitch);
+        messages.status("refresh", null);
+        messages.status("hdr", null);
         if (wifiDiagnostics != null) wifiDiagnostics.stop();
         pyroWaveBitrate = null;
         displayCapsReporter = null;
@@ -5963,6 +5966,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 bitrateHandler.postDelayed(sampleStreamHealth, 1000);
                 bitrateHandler.removeCallbacks(pollContentRateVote);
                 if (prefConfig.contentRateFrameRate) bitrateHandler.postDelayed(pollContentRateVote, 1000);
+                if (refreshSwitchMonitor == null) {
+                    refreshSwitchMonitor = new com.limelight.binding.video.RefreshSwitchMonitor(Game.this);
+                }
+                bitrateHandler.removeCallbacks(pollRefreshSwitch);
+                bitrateHandler.postDelayed(pollRefreshSwitch, 1000);
                 if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
                 wifiDiagnostics.start();
                 connectedAt = SystemClock.elapsedRealtime();
@@ -6132,6 +6140,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     // A lasting fact about this PC or device: the status line, and a message once per PC.
+    // The reason HDR was left off although the setting is on: a toast once per PC, and the status line each stream.
+    private void refuseHdr(HdrPolicy.Refusal refusal) {
+        int text;
+        switch (refusal) {
+            case ANDROID_TOO_OLD: text = R.string.stream_hdr_android_unsupported; break;
+            case MODE_WITHOUT_HDR10: text = R.string.stream_hdr_mode_unsupported; break;
+            case DECODER_WITHOUT_HDR10: text = R.string.stream_hdr_decoder_unsupported; break;
+            case DISPLAY_WITHOUT_HDR10: text = R.string.stream_hdr_display_unsupported; break;
+            default: return;
+        }
+        LimeLog.warning("HDR requested but not used: " + refusal);
+        hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, text);
+        hdrRefusalText = getString(text);
+    }
+
     private void hostNotice(HostNotices.Notice notice, int text) {
         messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), notice, getString(text));
     }
@@ -6309,12 +6332,51 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
                     changeStrategy);
             appSurfaceFrameRateVote = frameRate;
+            appSurfaceSeamlessOnly = changeStrategy == Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS;
         }
         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // No strategy on API 30: the two-argument vote only ever switches seamlessly.
             surface.setFrameRate(frameRate,
                     Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
             appSurfaceFrameRateVote = frameRate;
+            appSurfaceSeamlessOnly = true;
+        }
+    }
+
+    // When the screen has stayed off the rate voted for, says why on the overlay's status line.
+    private void checkRefreshSwitch() {
+        if (refreshSwitchMonitor == null) return;
+        String text = refreshSwitchMonitor.poll(SystemClock.uptimeMillis(), getVideoDisplay(),
+                surfaceCreated && !useArr ? appSurfaceFrameRateVote : null, appSurfaceSeamlessOnly);
+        if (messages.status("refresh", text)) updatePerformanceOverlay();
+    }
+
+    // HDR was asked for and not granted, or granted and not delivered: say so on the status line
+    // for as long as it lasts, besides the once-per-PC toast, and log it.
+    private void checkHdrStatus() {
+        String text = hdrRefusalText;
+        if (text == null && streamHdr && decoderRenderer != null) {
+            int format = decoderRenderer.getActiveVideoFormat();
+            HdrPolicy.Status status = format == 0 ? HdrPolicy.Status.WAITING : HdrPolicy.status(true,
+                    (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, decoderRenderer.getHostHdrReport(),
+                    decoderRenderer.getHdrMetadataState(), decoderRenderer.getDecodedTransfer());
+            int res = hdrStatusText(status);
+            if (res != 0) text = getString(res);
+            if (status != lastHdrStatus) {
+                lastHdrStatus = status;
+                if (res != 0) LimeLog.warning("HDR requested but " + status);
+            }
+        }
+        if (messages.status("hdr", text)) updatePerformanceOverlay();
+    }
+
+    static int hdrStatusText(HdrPolicy.Status status) {
+        switch (status) {
+            case NOT_NEGOTIATED: return R.string.stream_hdr_not_negotiated;
+            case HOST_SDR: return R.string.stream_hdr_host_sdr;
+            case NO_METADATA: return R.string.stream_hdr_no_metadata;
+            case OUTPUT_NOT_PQ: return R.string.stream_hdr_output_not_pq;
+            default: return 0;
         }
     }
 

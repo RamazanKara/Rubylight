@@ -8,6 +8,24 @@ public final class DisplayFrameRatePolicy {
         return vrr && sdk >= 36 && arrSupported;
     }
 
+    public enum ArrState {
+        /** VRR was not asked for. */
+        NOT_REQUESTED,
+        /** Android's automatic policy decides the refresh rate. */
+        IN_USE,
+        /** VRR was asked for on Android before 16, which has no adaptive refresh API: the maximum rate is voted. */
+        ANDROID_TOO_OLD,
+        /** Android 16 or newer, but this screen does not report ARR support: the maximum rate is voted. */
+        PANEL_WITHOUT_ARR
+    }
+
+    /** Why the stream does or does not run on ARR, so the overlay can name the reason for the maximum-rate fallback. */
+    public static ArrState arrState(int sdk, boolean vrr, boolean arrSupported) {
+        if (!vrr) return ArrState.NOT_REQUESTED;
+        if (useAdaptiveRefreshRate(sdk, true, arrSupported)) return ArrState.IN_USE;
+        return sdk < 36 ? ArrState.ANDROID_TOO_OLD : ArrState.PANEL_WITHOUT_ARR;
+    }
+
     /**
      * Whether the surface's frame rate vote follows the content rate the host's frame times
      * show. It needs the setting, a host that announced clock sync (Rubylight; any other host

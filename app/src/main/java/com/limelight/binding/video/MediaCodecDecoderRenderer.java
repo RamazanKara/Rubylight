@@ -62,8 +62,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private final ArrayList<byte[]> spsBuffers = new ArrayList<>();
     private final ArrayList<byte[]> ppsBuffers = new ArrayList<>();
     private boolean submittedCsd;
-    private byte[] currentHdrMetadata;
-    private Boolean currentHdrMode;
+    private volatile byte[] currentHdrMetadata;
+    private volatile Boolean currentHdrMode;
 
     private int nextInputBufferIndex = -1;
     private ByteBuffer nextInputBuffer;
@@ -121,7 +121,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int codecRecoveryAttempts = 0;
 
     private MediaFormat inputFormat;
-    private MediaFormat outputFormat;
+    private volatile MediaFormat outputFormat;
     private MediaFormat configuredFormat;
 
     private boolean needsBaselineSpsHack;
@@ -1260,11 +1260,32 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private boolean packedHdrAvailable() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false;
-        Display.HdrCapabilities capabilities = outputDisplay.getHdrCapabilities();
-        if (capabilities != null) for (int type : capabilities.getSupportedHdrTypes()) {
-            if (type == Display.HdrCapabilities.HDR_TYPE_HDR10) return true;
+        return HdrPolicy.hasHdr10(HdrPolicy.displayHdrTypes(outputDisplay));
+    }
+
+    /** The host's last HDR report, null until it has sent one. */
+    public Boolean getHostHdrReport() {
+        return currentHdrMode;
+    }
+
+    public HdrPolicy.Metadata getHdrMetadataState() {
+        return HdrPolicy.metadata(currentHdrMetadata);
+    }
+
+    /**
+     * The colour transfer the decoder reports for its output, or null when there is none to judge:
+     * before the first frame, on the PyroWave and packed paths (their output is not the codec's),
+     * or when the decoder leaves the key out.
+     */
+    public Integer getDecodedTransfer() {
+        MediaFormat format = outputFormat;
+        if (format == null || packing != null || upscaler != null ||
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ||
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.N ||
+                !format.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
+            return null;
         }
-        return false;
+        return format.getInteger(MediaFormat.KEY_COLOR_TRANSFER);
     }
 
     @Override

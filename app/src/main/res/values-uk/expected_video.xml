@@ -1,0 +1,15 @@
+<resources>
+    <string name="refresh_diag_no_mode">Потік просить %1$s Гц, але цей екран пропонує лише %2$s Гц і працює на %3$s Гц.</string>
+    <string name="refresh_diag_not_seamless">Екран залишається на %2$s Гц замість запитаних %1$s Гц: перемикання ненадовго погасило б зображення (режими: %3$s Гц).</string>
+    <string name="refresh_diag_user_limit">Екран залишається на %2$s Гц замість запитаних %1$s Гц: налаштування частоти оновлення Android дозволяє щонайбільше %3$s Гц.</string>
+    <string name="refresh_diag_battery_saver">Екран залишається на %2$s Гц замість запитаних %1$s Гц: її обмежує режим енергозбереження.</string>
+    <string name="refresh_diag_thermal">Екран залишається на %2$s Гц замість запитаних %1$s Гц: пристрій гарячий і обмежує її до 60 Гц.</string>
+    <string name="refresh_diag_unexplained">Екран залишається на %2$s Гц замість запитаних %1$s Гц. Android не називає причину (режими: %3$s Гц).</string>
+    <string name="stream_vrr_old_android">Змінна частота потребує Android 16, тому екран працює на максимальній частоті.</string>
+    <string name="stream_vrr_no_arr">Цей екран не має адаптивної частоти оновлення, тому працює на максимальній частоті.</string>
+    <string name="stream_hdr_mode_unsupported">Цей режим екрана не може показувати HDR, тому потік іде в SDR.</string>
+    <string name="stream_hdr_not_negotiated">HDR запитано, але ПК не надіслав HDR-відео, тому потік іде в SDR.</string>
+    <string name="stream_hdr_host_sdr">HDR запитано, але ПК повідомляє SDR. Увімкніть HDR у Windows для екрана, що транслюється.</string>
+    <string name="stream_hdr_no_metadata">HDR увімкнено, але ПК не надіслав дані мастерингу, тому яскравість може виглядати неправильно.</string>
+    <string name="stream_hdr_output_not_pq">HDR увімкнено, але декодер цього пристрою повідомляє вивід без HDR, тому кольори можуть виглядати блідими.</string>
+</resources>

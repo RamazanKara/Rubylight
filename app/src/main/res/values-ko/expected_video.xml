@@ -1,0 +1,15 @@
+<resources>
+    <string name="refresh_diag_no_mode">스트림은 %1$s Hz를 원하지만 이 화면은 %2$s Hz만 지원하며 현재 %3$s Hz로 동작합니다.</string>
+    <string name="refresh_diag_not_seamless">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.전환하면 화면이 잠시 꺼집니다(모드: %3$s Hz).</string>
+    <string name="refresh_diag_user_limit">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.Android 주사율 설정이 최대 %3$s Hz까지만 허용합니다.</string>
+    <string name="refresh_diag_battery_saver">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.절전 모드가 제한합니다.</string>
+    <string name="refresh_diag_thermal">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.기기가 뜨거워 60 Hz로 제한됩니다.</string>
+    <string name="refresh_diag_unexplained">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.Android가 이유를 알려주지 않습니다(모드: %3$s Hz).</string>
+    <string name="stream_vrr_old_android">가변 주사율에는 Android 16이 필요하므로 화면은 최고 주사율로 동작합니다.</string>
+    <string name="stream_vrr_no_arr">이 화면은 적응형 주사율을 지원하지 않아 최고 주사율로 동작합니다.</string>
+    <string name="stream_hdr_mode_unsupported">이 화면 모드는 HDR을 표시할 수 없어 스트림은 SDR입니다.</string>
+    <string name="stream_hdr_not_negotiated">HDR을 요청했지만 PC가 HDR 영상을 보내지 않아 스트림은 SDR입니다.</string>
+    <string name="stream_hdr_host_sdr">HDR을 요청했지만 PC가 SDR로 보고합니다. Windows에서 스트리밍하는 디스플레이의 HDR을 켜세요.</string>
+    <string name="stream_hdr_no_metadata">HDR은 켜져 있지만 PC가 마스터링 데이터를 보내지 않아 밝기가 이상하게 보일 수 있습니다.</string>
+    <string name="stream_hdr_output_not_pq">HDR은 켜져 있지만 이 기기의 디코더가 HDR이 아닌 출력을 보고해 색이 바래 보일 수 있습니다.</string>
+</resources>

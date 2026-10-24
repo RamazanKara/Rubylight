@@ -1,0 +1,15 @@
+<resources>
+    <string name="refresh_diag_no_mode">Der Stream möchte %1$s Hz, aber dieser Bildschirm bietet nur %2$s Hz und läuft mit %3$s Hz.</string>
+    <string name="refresh_diag_not_seamless">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Ein Wechsel würde das Bild kurz schwarz schalten (Modi: %3$s Hz).</string>
+    <string name="refresh_diag_user_limit">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Die Android-Einstellung für die Bildwiederholrate erlaubt höchstens %3$s Hz.</string>
+    <string name="refresh_diag_battery_saver">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Der Energiesparmodus begrenzt sie.</string>
+    <string name="refresh_diag_thermal">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Das Gerät ist heiß und begrenzt sie auf 60 Hz.</string>
+    <string name="refresh_diag_unexplained">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz. Android nennt keinen Grund (Modi: %3$s Hz).</string>
+    <string name="stream_vrr_old_android">Variable Bildwiederholrate braucht Android 16, daher läuft der Bildschirm mit der höchsten Rate.</string>
+    <string name="stream_vrr_no_arr">Dieser Bildschirm hat keine adaptive Bildwiederholrate, daher läuft er mit der höchsten Rate.</string>
+    <string name="stream_hdr_mode_unsupported">Dieser Bildschirmmodus kann kein HDR zeigen, daher läuft der Stream in SDR.</string>
+    <string name="stream_hdr_not_negotiated">HDR wurde angefordert, aber der PC hat kein HDR-Video gesendet, daher läuft der Stream in SDR.</string>
+    <string name="stream_hdr_host_sdr">HDR wurde angefordert, aber der PC meldet SDR. Aktiviere in Windows HDR für den gestreamten Bildschirm.</string>
+    <string name="stream_hdr_no_metadata">HDR ist an, aber der PC hat keine Mastering-Daten gesendet, daher kann die Helligkeit falsch wirken.</string>
+    <string name="stream_hdr_output_not_pq">HDR ist an, aber der Decoder dieses Geräts meldet eine Ausgabe ohne HDR, daher können die Farben blass wirken.</string>
+</resources>

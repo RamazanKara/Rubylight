@@ -54,6 +54,7 @@ import com.limelight.LimeLog;
 import com.limelight.PcView;
 import com.limelight.R;
 import com.limelight.binding.video.GpuDriverStore;
+import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.DecoderBenchmark;
@@ -1949,19 +1950,9 @@ public class StreamSettings extends NightjarActivity {
                 removeSetting("checkbox_enable_hdr");
             }
             else {
-                Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
-
-                // We must now ensure our display is compatible with HDR10
-                boolean foundHdr10 = false;
-                if (hdrCaps != null) {
-                    // getHdrCapabilities() returns null on Lenovo Lenovo Mirage Solo (vega), Android 8.0
-                    for (int hdrType : hdrCaps.getSupportedHdrTypes()) {
-                        if (hdrType == Display.HdrCapabilities.HDR_TYPE_HDR10) {
-                            foundHdr10 = true;
-                            break;
-                        }
-                    }
-                }
+                // We must now ensure our display is compatible with HDR10 (the capabilities are
+                // null on some devices, e.g. Lenovo Mirage Solo, Android 8.0)
+                boolean foundHdr10 = HdrPolicy.hasHdr10(HdrPolicy.displayHdrTypes(display));
 
                 if (!foundHdr10) {
                     LimeLog.info("Excluding HDR toggle based on display capabilities");

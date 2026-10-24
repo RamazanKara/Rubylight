@@ -112,4 +112,22 @@ public class DisplayFrameRatePolicyTest {
         assertEquals(0f, vote.next(3_000, 60_000), 0f);
         assertEquals(60f, vote.next(4_000, 60_000), 0f);
     }
+
+    @Test
+    public void aVrrRequestThatArrCannotServeSaysWhyItFellBackToTheTopRate() {
+        // Not asked for: nothing to explain, whatever the device is.
+        for (int sdk : new int[] {30, 36}) {
+            assertEquals(DisplayFrameRatePolicy.ArrState.NOT_REQUESTED, DisplayFrameRatePolicy.arrState(sdk, false, true));
+            assertEquals(DisplayFrameRatePolicy.ArrState.NOT_REQUESTED, DisplayFrameRatePolicy.arrState(sdk, false, false));
+        }
+        // Before Android 16 there is no ARR, with or without a capable panel.
+        for (int sdk : new int[] {21, 30, 31, 34, 35}) {
+            assertEquals(DisplayFrameRatePolicy.ArrState.ANDROID_TOO_OLD, DisplayFrameRatePolicy.arrState(sdk, true, true));
+            assertEquals(DisplayFrameRatePolicy.ArrState.ANDROID_TOO_OLD, DisplayFrameRatePolicy.arrState(sdk, true, false));
+        }
+        // On Android 16 the panel decides.
+        assertEquals(DisplayFrameRatePolicy.ArrState.IN_USE, DisplayFrameRatePolicy.arrState(36, true, true));
+        assertEquals(DisplayFrameRatePolicy.ArrState.PANEL_WITHOUT_ARR, DisplayFrameRatePolicy.arrState(36, true, false));
+        assertEquals(DisplayFrameRatePolicy.ArrState.PANEL_WITHOUT_ARR, DisplayFrameRatePolicy.arrState(37, true, false));
+    }
 }

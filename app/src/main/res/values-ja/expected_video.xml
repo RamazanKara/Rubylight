@@ -1,0 +1,15 @@
+<resources>
+    <string name="refresh_diag_no_mode">ストリームは%1$s Hzを求めていますが、この画面は%2$s Hzしか対応しておらず、現在は%3$s Hzで動作しています。</string>
+    <string name="refresh_diag_not_seamless">画面は要求された%1$s Hzではなく%2$s Hzのままです。切り替えると一瞬映像が途切れます（モード：%3$s Hz）。</string>
+    <string name="refresh_diag_user_limit">画面は要求された%1$s Hzではなく%2$s Hzのままです。Androidのリフレッシュレート設定が最大%3$s Hzに制限しています。</string>
+    <string name="refresh_diag_battery_saver">画面は要求された%1$s Hzではなく%2$s Hzのままです。バッテリーセーバーが制限しています。</string>
+    <string name="refresh_diag_thermal">画面は要求された%1$s Hzではなく%2$s Hzのままです。端末が高温のため60 Hzに制限されています。</string>
+    <string name="refresh_diag_unexplained">画面は要求された%1$s Hzではなく%2$s Hzのままです。Androidは理由を示していません（モード：%3$s Hz）。</string>
+    <string name="stream_vrr_old_android">可変リフレッシュレートにはAndroid 16が必要なため、画面は最高のレートで動作します。</string>
+    <string name="stream_vrr_no_arr">この画面は可変リフレッシュレートに対応していないため、最高のレートで動作します。</string>
+    <string name="stream_hdr_mode_unsupported">この画面モードはHDRを表示できないため、ストリームはSDRです。</string>
+    <string name="stream_hdr_not_negotiated">HDRを要求しましたが、PCがHDR映像を送らなかったため、ストリームはSDRです。</string>
+    <string name="stream_hdr_host_sdr">HDRを要求しましたが、PCはSDRと報告しています。Windowsでストリーミング中のディスプレイのHDRをオンにしてください。</string>
+    <string name="stream_hdr_no_metadata">HDRはオンですが、PCがマスタリングデータを送らなかったため、明るさが正しく見えない場合があります。</string>
+    <string name="stream_hdr_output_not_pq">HDRはオンですが、この端末のデコーダーがHDRではない出力を報告しているため、色が薄く見える場合があります。</string>
+</resources>

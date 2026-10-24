@@ -2599,8 +2599,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                             releaseOutputFrame(lastIndex, System.nanoTime());
                                         }
                                     }
-                                    // Artemis counts the frame it presents, once it has been released.
-                                    frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
+                                    // Artemis counts the frame it presents. Its decode time ended when the
+                                    // decoder returned it; release and pacing waits are not decode time.
+                                    frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
                                     reportPhaseSlack(System.nanoTime());
 
                                     activeWindowVideoStats.totalFramesRendered++;
@@ -2630,8 +2631,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                         videoDecoder.releaseOutputBuffer(droppedIndex, false);
                                     }
                                     // Artemis counts a queued frame unless queuing it dropped an older one.
+                                    // Its decode time ended when the decoder returned it.
                                     if (droppedIndex == null) {
-                                        frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
+                                        frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
                                     }
                                 }
                             }

@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">Kitaplıkta ekrana daha fazla oyun sığdırır.</string>
     <string name="title_quick_resume">Hızlı sürdürme</string>
     <string name="summary_quick_resume">Oyun çalıştıran bir bilgisayara dokunmak, kitaplığını açmak yerine sizi doğrudan oyuna geri götürür.</string>
-    <string name="title_checkbox_enable_sops">Oyun ayarlarını optimize et</string>
-    <string name="summary_checkbox_enable_sops">Ana bilgisayarın bir oyunun ayarlarını yayına göre düzenlemesine izin verir. Neyin değişeceğine ana bilgisayar karar verir.</string>
+    <string name="title_checkbox_enable_sops">Oyun optimizasyonu ipucu</string>
+    <string name="summary_checkbox_enable_sops">Bilgisayara, bu yayın için bir oyunun ayarlarını optimize edip edemeyeceğini bildirir. Rubylight bu seçimi yalnızca bilgisayarda çalıştırdığınız komutlara SUNSHINE_CLIENT_ENABLE_SOPS olarak iletir. Diğer ana bilgisayarlar oyun ayarlarını kendileri değiştirebilir.</string>
     <string name="title_checkbox_host_audio">Sesi ana bilgisayarda çal</string>
-    <string name="title_unlock_fps">Tüm kare hızlarının kilidini aç</string>
-    <string name="summary_unlock_fps">Olası takılmalarla birlikte 90 ve 120 FPS’ye izin verir.</string>
+    <string name="title_unlock_fps">Tüm kare hızlarını göster</string>
     <string name="title_checkbox_reduce_refresh_rate">Daha düşük yenileme hızına izin ver</string>
     <string name="summary_checkbox_reduce_refresh_rate">Biraz gecikme pahasına güç tasarrufu sağlar.</string>
     <string name="title_checkbox_disable_warnings">Bağlantı uyarılarını gizle</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">Bu cihazda HDR ekran ve bilgisayarın ekranında HDR’nin açık olması gerekir.</string>
     <string name="title_full_range">Tam aralıklı videoyu zorla</string>
     <string name="summary_full_range">Yalnızca bilgisayar ve bu ekran tam aralıklı renk kullanıyorsa açın. Aksi takdirde karanlık ve parlak alanlarda ayrıntı kaybolur.</string>
-    <string name="title_enable_perf_overlay">Performans katmanını göster</string>
-    <string name="summary_enable_perf_overlay">Yayın hızını, gecikmeyi ve kare kaybını canlı gösterir. Yayın menüsünden de gösterebilirsiniz.</string>
     <string name="title_enable_post_stream_toast">Yayından sonra kod çözme süresini göster</string>
     <string name="summary_enable_post_stream_toast">Yayın bittiğinde ortalama kod çözme süresini gösterir.</string>
     <string name="title_rust_engine">Yeni yayın motoru</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">Her kareyi birkaç milisaniye tutar; böylece kare ağın ulaştırdığı anda değil, oyunun çizdiği anda görünür. Özellikle uyarlanabilir yenileme hızında dalgalanmayı azaltır. Kare zamanlamasının yerini alır. PyroWave ile kullanılmaz.</string>
     <string name="title_content_rate_frame_rate">Ekranı oyunun kare hızına uydur</string>
     <string name="summary_content_rate_frame_rate">Android’e oyunun gerçekte hangi kare hızında çalıştığını bildirir; böylece uygun moda sahip bir ekran, kararmadan o moda geçebilir. Kare zamanlarını gönderen bir bilgisayar ve «Daha düşük yenileme hızına izin ver» gerekir; en fazla 2 saniyede bir değişir. PyroWave ve uyarlanabilir yenileme ile kullanılmaz.</string>
-    <string name="title_virtual_display_scale">Ana bilgisayar işleme ölçeği</string>
-    <string name="summary_virtual_display_scale">Aktarılan video boyutunu değil, bilgisayarın işleme çözünürlüğünü değiştirir. Daha az piksel gönderip bu cihazda ölçeklendirmek için yayın çözünürlüğünü düşürün.</string>
+    <string name="title_virtual_display_scale">Bilgisayarın işleme çözünürlüğü</string>
+    <string name="summary_virtual_display_scale">Bilgisayarın işlediği çözünürlüğün yayın çözünürlüğüne oranı (yüzde). İletilen videonun boyutu değişmez. Daha az piksel gönderip bu cihazda büyütmek için yayın çözünürlüğünü düşürün.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">henüz veri yok</string>
     <string name="title_export_latency_csv">Gecikme CSV’sini dışa aktar</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">Bağlantıyı kes ve bilgisayardaki uygulamayı çalışır durumda bırak</string>
     <string name="title_upscaling">İstemci tarafı ölçeklendirme</string>
     <string name="upscaling_off">Kapalı</string>
-    <string name="upscaling_bilinear">Çift doğrusal</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
+    <string name="upscaling_bilinear">Yumuşak</string>
+    <string name="upscaling_fsr1">Keskin (FSR)</string>
+    <string name="upscaling_sgsr1">Keskin, Snapdragon (SGSR)</string>
     <string name="summary_upscaling">Daha düşük çözünürlüklü SDR videoyu ekranınızın boyutunda yeniden oluşturur. Önce yayın çözünürlüğünü düşürün. PyroWave, hem FSR hem SGSR seçiminde SGSR kullanır. Daha fazla pil tüketir.</string>
     <string name="title_upscaling_sharpness">Ölçeklendirme keskinliği</string>
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR keskinleştirme: %0 kapalı, %100 en yüksek; sonraki yayında geçerli olur, SGSR yeniden oluşturma her zaman etkindir.</string>
@@ -416,10 +413,7 @@
     <string name="keyboard_shortcuts_replace_button">Değiştir</string>
     <string name="keyboard_shortcuts_exported">Kısayollar dışa aktarıldı.</string>
     <string name="keyboard_shortcuts_file_error">Kısayol dosyası okunamadı veya yazılamadı. Dosya erişimini kontrol edin ve en fazla 32 kısayol içeren geçerli bir kısayol dışa aktarımı kullanın.</string>
-    <string name="title_disable_hevc_low_latency">HEVC düşük gecikme bayraklarını kapat</string>
-    <string name="summary_disable_hevc_low_latency">HEVC videosu takılıyor veya donuyorsa deneyin. Her cihazda HEVC için Android ve yonga seti düşük gecikme bayraklarını kapatır. Diğer kodekler ve kod çözücü performans ipuçları kendi ayarlarını korur. Sonraki yayında uygulanır.</string>
-    <string name="title_always_dark">Her zaman koyu</string>
-    <string name="summary_always_dark">Sistem açık temada olsa bile uygulama, menüler ve iletişim kutularında koyu gri tema kullanır. OLED siyahı tamamen siyah yapar.</string>
+    <string name="title_disable_hevc_low_latency">HEVC düşük gecikme bayrakları</string>
+    <string name="summary_disable_hevc_low_latency">HEVC videosu takılıyor veya donuyorsa kapatın. Kapalıyken HEVC için isteğe bağlı Android ve yonga seti düşük gecikme bayrakları ile referans kare geçersiz kılma atlanır. Gerekli uyumluluk bayrakları eski Fire TV kod çözücülerinde korunur. Diğer kodekler ve kod çözücü performans ipuçları kendi ayarlarını korur. Sonraki yayında geçerli olur.</string>
     <string name="title_oled_black">OLED siyahı</string>
-    <string name="summary_oled_black">Sistem açık temada olsa bile uygulama, menüler ve iletişim kutularında tamamen siyah arka plan kullanır.</string>
 </resources>

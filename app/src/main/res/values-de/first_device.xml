@@ -14,8 +14,7 @@
     <string name="stream_presets_help">Nativ streamt in Auflösung und Bildrate dieses Bildschirms, mit allen Latenz-Einstellungen an.\nAkku sparen behält die Auflösung bei 30 FPS.\nPC-Profile haben weiterhin Vorrang.</string>
     <string name="summary_frame_pacing">Wäge ohne VRR zwischen Latenz und flüssigem Bild ab.</string>
     <string name="summary_language">Wähle die Sprache der App.</string>
-    <string name="overlay_mode">Leistungsanzeige</string>
-    <string name="overlay_mode_help">Kompakt zeigt eine Zeile: angezeigte FPS, Netzwerk-Umlaufzeit (RTT) und Bildverlust, mit einem Punkt, der gelb oder rot wird, wenn der Stream hakt. Statistik zeigt aktuelle Stream-Messwerte. Debug ergänzt Zeitperzentile und Decoder-Diagnosen; für alle Details scrollen. Alle drei Modi sind jederzeit verfügbar.</string>
+    <string name="overlay_mode_help">Aus blendet die Anzeige aus. Kompakt zeigt eine Zeile: angezeigte FPS, Netzwerk-Umlaufzeit (RTT) und Bildverlust, mit einem Punkt, der gelb oder rot wird, wenn der Stream hakt. Statistik zeigt aktuelle Stream-Messwerte. Debug ergänzt Zeitperzentile und Decoder-Diagnosen; für alle Details scrollen. Du kannst sie auch im Stream-Menü ändern.</string>
     <string name="overlay_statistics">Statistik</string>
     <string name="overlay_debug">Debug</string>
     <string name="overlay_copy">Werte kopieren</string>
@@ -40,11 +39,6 @@
     <string name="perf_overlay_thermal_normal">normal</string>
     <string name="perf_overlay_thermal_warm">warm, Bitrate wird gehalten</string>
     <string name="perf_overlay_thermal_hot">heiß, Last wird reduziert</string>
-    <string-array name="overlay_mode_names">
-        <item>@string/overlay_compact</item>
-        <item>@string/overlay_statistics</item>
-        <item>@string/overlay_debug</item>
-    </string-array>
     <string name="connection_test_title">Verbindungstest</string>
     <string name="connection_test_intro">Teste Tempo und Latenz zum PC.\nVerbraucht bis zu 32 MiB, auch im Mobilfunk.</string>
     <string name="connection_test_running">Test läuft… Abbrechen beendet den Test.</string>

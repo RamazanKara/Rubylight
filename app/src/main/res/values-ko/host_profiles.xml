@@ -11,7 +11,7 @@
     <string name="host_profile_native">화면 크기(이 화면에 맞춤)</string>
     <string name="host_profile_refresh">프레임 속도(FPS)</string>
     <string name="host_profile_bitrate">비트레이트(Mbps)</string>
-    <string name="host_profile_scale">호스트 렌더링 배율(%)</string>
+    <string name="host_profile_scale">PC 렌더링 해상도(%)</string>
     <string name="host_profile_codec">동영상 코덱</string>
     <string name="host_profile_virtual_display">호스트 가상 디스플레이</string>
     <string name="host_profile_hdr">HDR</string>

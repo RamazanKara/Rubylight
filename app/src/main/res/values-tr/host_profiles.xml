@@ -11,7 +11,7 @@
     <string name="host_profile_native">Ekran boyutu (bu ekranı izler)</string>
     <string name="host_profile_refresh">Kare hızı (FPS)</string>
     <string name="host_profile_bitrate">Bit hızı (Mbps)</string>
-    <string name="host_profile_scale">Ana bilgisayar işleme ölçeği (%)</string>
+    <string name="host_profile_scale">Bilgisayarın işleme çözünürlüğü (%)</string>
     <string name="host_profile_codec">Video codec’i</string>
     <string name="host_profile_virtual_display">Ana bilgisayar sanal ekranı</string>
     <string name="host_profile_hdr">HDR</string>

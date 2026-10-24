@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">僅顯示支援的影格速率</string>
+    <string name="title_adaptive_quality_setting">同時降低解析度或影格速率</string>
+    <string name="summary_adaptive_quality_setting">當網路、解碼緩慢或過熱影響串流時，會降低解析度或影格速率，恢復後再逐步提高。不適用於 PyroWave。</string>
+    <string name="title_low_latency_customize">自訂</string>
+    <string name="low_latency_customize_closed">選擇要開啟哪些低延遲項目</string>
+    <string name="low_latency_customize_open">隱藏個別開關</string>
+    <string name="settings_category_compatibility">相容性</string>
+    <string name="summary_sops_short">傳給電腦上的指令</string>
+    <string name="title_performance_overlay">效能覆蓋層</string>
+    <string name="overlay_off">關閉</string>
+    <string name="title_theme">主題</string>
+    <string name="theme_system">跟隨系統</string>
+    <string name="theme_dark">深色</string>
+</resources>

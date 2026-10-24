@@ -11,7 +11,7 @@
     <string name="host_profile_native">螢幕大小 (跟隨這個螢幕)</string>
     <string name="host_profile_refresh">影格速率 (FPS)</string>
     <string name="host_profile_bitrate">位元速率 (Mbps)</string>
-    <string name="host_profile_scale">主機轉譯比例 (%)</string>
+    <string name="host_profile_scale">電腦轉譯解析度 (%)</string>
     <string name="host_profile_codec">視訊轉碼器</string>
     <string name="host_profile_virtual_display">主機虛擬顯示器</string>
     <string name="host_profile_hdr">HDR</string>

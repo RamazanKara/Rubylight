@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">Afficher seulement les fréquences d’images prises en charge</string>
+    <string name="title_adaptive_quality_setting">Baisser aussi la résolution ou la fréquence d’images</string>
+    <string name="summary_adaptive_quality_setting">Quand le réseau, un décodage lent ou la chaleur empêchent le stream de bien tourner, baisse la résolution ou la fréquence d’images, puis les remonte au retour à la normale. Ne s’applique pas à PyroWave.</string>
+    <string name="title_low_latency_customize">Personnaliser</string>
+    <string name="low_latency_customize_closed">Choisir les éléments de faible latence actifs</string>
+    <string name="low_latency_customize_open">Masquer les options individuelles</string>
+    <string name="settings_category_compatibility">Compatibilité</string>
+    <string name="summary_sops_short">Transmis aux commandes du PC</string>
+    <string name="title_performance_overlay">Superposition des performances</string>
+    <string name="overlay_off">Désactivée</string>
+    <string name="title_theme">Thème</string>
+    <string name="theme_system">Système</string>
+    <string name="theme_dark">Sombre</string>
+</resources>

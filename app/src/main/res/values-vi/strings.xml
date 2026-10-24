@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">Hiển thị nhiều trò chơi hơn trên màn hình thư viện.</string>
     <string name="title_quick_resume">Tiếp tục nhanh</string>
     <string name="summary_quick_resume">Chạm vào PC đang chạy trò chơi sẽ đưa bạn thẳng vào lại trò chơi thay vì mở thư viện của PC đó.</string>
-    <string name="title_checkbox_enable_sops">Tối ưu hóa cài đặt trò chơi</string>
-    <string name="summary_checkbox_enable_sops">Cho phép máy chủ điều chỉnh cài đặt của trò chơi cho stream. Máy chủ quyết định những gì thay đổi.</string>
+    <string name="title_checkbox_enable_sops">Gợi ý tối ưu hóa trò chơi</string>
+    <string name="summary_checkbox_enable_sops">Cho PC biết có được tối ưu hóa cài đặt của trò chơi cho stream này hay không. Rubylight chỉ chuyển lựa chọn này, dưới dạng SUNSHINE_CLIENT_ENABLE_SOPS, cho các lệnh bạn chạy trên PC. Các máy chủ khác có thể tự thay đổi cài đặt trò chơi.</string>
     <string name="title_checkbox_host_audio">Phát âm thanh trên PC chủ</string>
-    <string name="title_unlock_fps">Mở khóa mọi tốc độ khung hình</string>
-    <string name="summary_unlock_fps">Cho phép 90 và 120 FPS, có thể bị giật.</string>
+    <string name="title_unlock_fps">Hiện mọi tốc độ khung hình</string>
     <string name="title_checkbox_reduce_refresh_rate">Cho phép tần số quét thấp hơn</string>
     <string name="summary_checkbox_reduce_refresh_rate">Tiết kiệm điện nhưng tăng độ trễ một chút.</string>
     <string name="title_checkbox_disable_warnings">Ẩn cảnh báo kết nối</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">Cần màn hình HDR trên thiết bị này và đã bật HDR cho màn hình của PC.</string>
     <string name="title_full_range">Buộc dùng video dải màu đầy đủ</string>
     <string name="summary_full_range">Chỉ dùng khi cả PC và màn hình này đều dùng màu dải đầy đủ. Nếu không, vùng tối và vùng sáng sẽ mất chi tiết.</string>
-    <string name="title_enable_perf_overlay">Hiện lớp phủ hiệu năng</string>
-    <string name="summary_enable_perf_overlay">Hiển thị trực tiếp tốc độ stream, độ trễ và tỷ lệ mất khung hình. Bạn cũng có thể hiện lớp phủ từ menu stream.</string>
     <string name="title_enable_post_stream_toast">Hiện thời gian giải mã sau khi stream</string>
     <string name="summary_enable_post_stream_toast">Hiển thị thời gian giải mã trung bình khi stream kết thúc.</string>
     <string name="title_rust_engine">Công cụ stream mới</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">Giữ mỗi khung hình vài mili giây để nó hiện ra đúng lúc trò chơi vẽ, thay vì lúc mạng gửi tới. Giảm dao động, nhất là với tần số quét thích ứng. Thay thế cách điều nhịp khung hình. Không dùng với PyroWave.</string>
     <string name="title_content_rate_frame_rate">Khớp màn hình với tốc độ khung hình của trò chơi</string>
     <string name="summary_content_rate_frame_rate">Báo cho Android tốc độ khung hình mà trò chơi thật sự chạy, để màn hình có chế độ phù hợp có thể chuyển sang mà không bị đen màn hình. Cần một PC gửi thời điểm khung hình và tùy chọn «Cho phép tần số quét thấp hơn»; chỉ thay đổi tối đa 2 giây một lần. Không dùng với PyroWave hoặc tần số quét thích ứng.</string>
-    <string name="title_virtual_display_scale">Tỷ lệ kết xuất trên máy chủ</string>
-    <string name="summary_virtual_display_scale">Thay đổi độ phân giải kết xuất của PC, không phải kích thước video được truyền. Để gửi ít điểm ảnh hơn và nâng cấp độ phân giải trên thiết bị này, hãy giảm Độ phân giải stream.</string>
+    <string name="title_virtual_display_scale">Độ phân giải kết xuất trên PC</string>
+    <string name="summary_virtual_display_scale">Phần trăm độ phân giải stream mà PC kết xuất. Kích thước video truyền đi không đổi. Để gửi ít điểm ảnh hơn và phóng to trên thiết bị này, hãy giảm độ phân giải stream.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">chưa có dữ liệu</string>
     <string name="title_export_latency_csv">Xuất CSV độ trễ</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">Ngắt kết nối và giữ ứng dụng trên PC tiếp tục chạy</string>
     <string name="title_upscaling">Nâng cấp độ phân giải trên thiết bị</string>
     <string name="upscaling_off">Tắt</string>
-    <string name="upscaling_bilinear">Song tuyến tính</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
+    <string name="upscaling_bilinear">Mượt</string>
+    <string name="upscaling_fsr1">Sắc nét (FSR)</string>
+    <string name="upscaling_sgsr1">Sắc nét, Snapdragon (SGSR)</string>
     <string name="summary_upscaling">Tái tạo video SDR độ phân giải thấp hơn theo kích thước màn hình của bạn. Trước tiên hãy giảm Độ phân giải stream. PyroWave dùng SGSR cho cả lựa chọn FSR và SGSR. Tốn pin hơn.</string>
     <string name="title_upscaling_sharpness">Độ sắc nét khi nâng cấp</string>
     <string name="summary_upscaling_sharpness" formatted="false">Làm sắc nét FSR/SGSR: 0% là tắt, 100% là tối đa; áp dụng cho stream tiếp theo, quá trình tái tạo SGSR luôn hoạt động.</string>
@@ -416,10 +413,7 @@
     <string name="keyboard_shortcuts_replace_button">Thay thế</string>
     <string name="keyboard_shortcuts_exported">Đã xuất phím tắt.</string>
     <string name="keyboard_shortcuts_file_error">Không thể đọc hoặc ghi tệp phím tắt. Hãy kiểm tra quyền truy cập tệp và dùng tệp phím tắt đã xuất hợp lệ có tối đa 32 phím tắt.</string>
-    <string name="title_disable_hevc_low_latency">Tắt cờ độ trễ thấp HEVC</string>
-    <string name="summary_disable_hevc_low_latency">Thử bật nếu video HEVC bị giật hoặc treo. Tắt cờ độ trễ thấp của Android và chipset cho HEVC trên mọi thiết bị. Các codec khác và gợi ý hiệu năng bộ giải mã giữ nguyên cài đặt riêng. Có hiệu lực ở phiên truyền tiếp theo.</string>
-    <string name="title_always_dark">Luôn tối</string>
-    <string name="summary_always_dark">Dùng giao diện xám tối trong ứng dụng, menu và hộp thoại, kể cả khi hệ thống dùng giao diện sáng. Đen OLED làm nó đen hoàn toàn.</string>
+    <string name="title_disable_hevc_low_latency">Cờ độ trễ thấp HEVC</string>
+    <string name="summary_disable_hevc_low_latency">Hãy tắt nếu video HEVC bị giật hoặc đứng hình. Khi tắt, HEVC bỏ qua các cờ độ trễ thấp tùy chọn của Android và chipset cùng việc vô hiệu hóa khung hình tham chiếu. Các cờ tương thích bắt buộc vẫn được giữ trên bộ giải mã Fire TV cũ. Các codec khác và gợi ý hiệu năng của bộ giải mã giữ cài đặt riêng. Áp dụng cho stream tiếp theo.</string>
     <string name="title_oled_black">Đen OLED</string>
-    <string name="summary_oled_black">Dùng nền đen hoàn toàn trong ứng dụng, menu và hộp thoại, kể cả khi hệ thống dùng giao diện sáng.</string>
 </resources>

@@ -14,8 +14,7 @@
     <string name="stream_presets_help">Natywny strumieniuje w rozdzielczości i częstotliwości odświeżania tego ekranu ze wszystkimi ustawieniami niskiego opóźnienia włączonymi.\nOszczędzanie baterii zachowuje tę rozdzielczość przy 30 FPS.\nProfile komputerów nadal mają pierwszeństwo.</string>
     <string name="summary_frame_pacing">Równoważy czas reakcji i płynność, gdy VRR jest wyłączone.</string>
     <string name="summary_language">Wybierz język aplikacji.</string>
-    <string name="overlay_mode">Tryb nakładki wydajności</string>
-    <string name="overlay_mode_help">Kompaktowa pokazuje jedną linię: wyświetlane FPS, czas odpowiedzi sieci (RTT) i utratę klatek, za kropką, która zmienia kolor na bursztynowy lub czerwony, gdy strumień ma problemy. Statystyki pokazują bieżące pomiary strumienia. Debugowanie dodaje percentyle czasów i diagnostykę dekodera; przewiń, aby zobaczyć wszystkie szczegóły. Wszystkie trzy tryby są zawsze dostępne.</string>
+    <string name="overlay_mode_help">Wyłączone ukrywa nakładkę. Kompaktowa pokazuje jedną linię: wyświetlane FPS, czas odpowiedzi sieci (RTT) i utratę klatek, za kropką, która zmienia kolor na bursztynowy lub czerwony, gdy strumień ma problemy. Statystyki pokazują bieżące pomiary strumienia. Debugowanie dodaje percentyle czasów i diagnostykę dekodera; przewiń, aby zobaczyć wszystkie szczegóły. Możesz ją też zmienić w menu strumienia.</string>
     <string name="overlay_statistics">Statystyki</string>
     <string name="overlay_debug">Debugowanie</string>
     <string name="overlay_copy">Kopiuj statystyki</string>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">対応するフレームレートのみ表示</string>
+    <string name="title_adaptive_quality_setting">解像度やフレームレートも下げる</string>
+    <string name="summary_adaptive_quality_setting">ネットワーク、デコードの遅れ、発熱でストリームが乱れるときに、解像度またはフレームレートを下げ、回復すると元に戻します。PyroWave には適用されません。</string>
+    <string name="title_low_latency_customize">カスタマイズ</string>
+    <string name="low_latency_customize_closed">低遅延の各項目のオンとオフを選択</string>
+    <string name="low_latency_customize_open">個別のスイッチを隠す</string>
+    <string name="settings_category_compatibility">互換性</string>
+    <string name="summary_sops_short">PC 上のコマンドに渡されます</string>
+    <string name="title_performance_overlay">パフォーマンス オーバーレイ</string>
+    <string name="overlay_off">オフ</string>
+    <string name="title_theme">テーマ</string>
+    <string name="theme_system">システム</string>
+    <string name="theme_dark">ダーク</string>
+</resources>

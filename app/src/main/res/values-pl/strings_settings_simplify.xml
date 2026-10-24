@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">Pokaż tylko obsługiwane liczby klatek</string>
+    <string name="title_adaptive_quality_setting">Obniżaj też rozdzielczość lub liczbę klatek</string>
+    <string name="summary_adaptive_quality_setting">Gdy sieć, wolne dekodowanie lub przegrzanie przeszkadzają w strumieniu, obniża rozdzielczość lub liczbę klatek, a po poprawie przywraca je. Nie dotyczy PyroWave.</string>
+    <string name="title_low_latency_customize">Dostosuj</string>
+    <string name="low_latency_customize_closed">Wybierz, które części niskich opóźnień są włączone</string>
+    <string name="low_latency_customize_open">Ukryj pojedyncze przełączniki</string>
+    <string name="settings_category_compatibility">Zgodność</string>
+    <string name="summary_sops_short">Przekazywane poleceniom na komputerze</string>
+    <string name="title_performance_overlay">Nakładka wydajności</string>
+    <string name="overlay_off">Wyłączona</string>
+    <string name="title_theme">Motyw</string>
+    <string name="theme_system">Systemowy</string>
+    <string name="theme_dark">Ciemny</string>
+</resources>

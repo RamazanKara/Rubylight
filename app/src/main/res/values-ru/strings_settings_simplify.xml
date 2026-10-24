@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">Показывать только поддерживаемые частоты кадров</string>
+    <string name="title_adaptive_quality_setting">Также снижать разрешение или частоту кадров</string>
+    <string name="summary_adaptive_quality_setting">Если сеть, медленное декодирование или перегрев мешают трансляции, снижает разрешение или частоту кадров, а потом возвращает их, когда всё налаживается. Не работает с PyroWave.</string>
+    <string name="title_low_latency_customize">Настроить</string>
+    <string name="low_latency_customize_closed">Выберите, какие части режима низкой задержки включены</string>
+    <string name="low_latency_customize_open">Скрыть отдельные переключатели</string>
+    <string name="settings_category_compatibility">Совместимость</string>
+    <string name="summary_sops_short">Передаётся командам на ПК</string>
+    <string name="title_performance_overlay">Оверлей производительности</string>
+    <string name="overlay_off">Выкл.</string>
+    <string name="title_theme">Тема</string>
+    <string name="theme_system">Системная</string>
+    <string name="theme_dark">Тёмная</string>
+</resources>

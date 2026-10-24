@@ -14,8 +14,7 @@
     <string name="stream_presets_help">Nativo transmite a la resolución y frecuencia de actualización de esta pantalla con todos los ajustes de latencia activados.\nAhorro de batería mantiene esa resolución a 30 FPS.\nLos perfiles de PC siguen teniendo prioridad.</string>
     <string name="summary_frame_pacing">Equilibra el tiempo de respuesta y la fluidez cuando VRR está desactivado.</string>
     <string name="summary_language">Elige el idioma de la aplicación.</string>
-    <string name="overlay_mode">Modo de superposición de rendimiento</string>
-    <string name="overlay_mode_help">Compacta muestra una línea: FPS mostrados, tiempo de ida y vuelta de la red (RTT) y pérdida de fotogramas, tras un punto que se vuelve ámbar o rojo cuando la transmisión tiene problemas. Estadísticas muestra mediciones de la transmisión en directo. Depuración añade percentiles de tiempos y diagnóstico del decodificador; desplázate para ver todos los detalles. Los tres modos están siempre disponibles.</string>
+    <string name="overlay_mode_help">Desactivada oculta la superposición. Compacta muestra una línea: FPS mostrados, tiempo de ida y vuelta de la red (RTT) y pérdida de fotogramas, tras un punto que se vuelve ámbar o rojo cuando la transmisión tiene problemas. Estadísticas muestra mediciones de la transmisión en directo. Depuración añade percentiles de tiempos y diagnóstico del decodificador; desplázate para ver todos los detalles. También puedes cambiarla desde el menú de la transmisión.</string>
     <string name="overlay_statistics">Estadísticas</string>
     <string name="overlay_debug">Depuración</string>
     <string name="overlay_copy">Copiar estadísticas</string>

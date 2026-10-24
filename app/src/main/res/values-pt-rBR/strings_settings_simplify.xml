@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">Mostrar só as taxas de quadros compatíveis</string>
+    <string name="title_adaptive_quality_setting">Reduzir também a resolução ou a taxa de quadros</string>
+    <string name="summary_adaptive_quality_setting">Quando a rede, uma decodificação lenta ou o calor atrapalham a transmissão, reduz a resolução ou a taxa de quadros e os aumenta de novo quando a situação melhora. Não se aplica ao PyroWave.</string>
+    <string name="title_low_latency_customize">Personalizar</string>
+    <string name="low_latency_customize_closed">Escolha quais partes da baixa latência ficam ativas</string>
+    <string name="low_latency_customize_open">Ocultar as chaves individuais</string>
+    <string name="settings_category_compatibility">Compatibilidade</string>
+    <string name="summary_sops_short">Repassado aos comandos no PC</string>
+    <string name="title_performance_overlay">Sobreposição de desempenho</string>
+    <string name="overlay_off">Desativada</string>
+    <string name="title_theme">Tema</string>
+    <string name="theme_system">Sistema</string>
+    <string name="theme_dark">Escuro</string>
+</resources>

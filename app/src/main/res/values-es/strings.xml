@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">Muestra más juegos en pantalla en la biblioteca.</string>
     <string name="title_quick_resume">Reanudación rápida</string>
     <string name="summary_quick_resume">Al tocar un PC que está ejecutando un juego, vuelves directamente al juego en lugar de abrir su biblioteca.</string>
-    <string name="title_checkbox_enable_sops">Optimizar ajustes del juego</string>
-    <string name="summary_checkbox_enable_sops">Permite que el servidor ajuste la configuración de un juego para la transmisión. El servidor decide qué cambia.</string>
+    <string name="title_checkbox_enable_sops">Sugerencia de optimización de juegos</string>
+    <string name="summary_checkbox_enable_sops">Indica al PC si puede optimizar los ajustes de un juego para esta transmisión. Rubylight solo pasa la elección, como SUNSHINE_CLIENT_ENABLE_SOPS, a los comandos que ejecutes en el PC. Otros servidores pueden cambiar por sí mismos los ajustes del juego.</string>
     <string name="title_checkbox_host_audio">Reproducir audio en el PC servidor</string>
-    <string name="title_unlock_fps">Desbloquear todas las velocidades de fotogramas</string>
-    <string name="summary_unlock_fps">Permite 90 y 120 FPS, con posibles tirones.</string>
+    <string name="title_unlock_fps">Mostrar todas las velocidades de fotogramas</string>
     <string name="title_checkbox_reduce_refresh_rate">Permitir una frecuencia de actualización menor</string>
     <string name="summary_checkbox_reduce_refresh_rate">Ahorra energía a costa de algo de retraso.</string>
     <string name="title_checkbox_disable_warnings">Ocultar avisos de conexión</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">Requiere una pantalla HDR en este dispositivo y HDR activado en la pantalla del PC.</string>
     <string name="title_full_range">Forzar vídeo de rango completo</string>
     <string name="summary_full_range">Úsalo solo si el PC y esta pantalla usan color de rango completo. De lo contrario, las zonas oscuras y claras pierden detalle.</string>
-    <string name="title_enable_perf_overlay">Mostrar superposición de rendimiento</string>
-    <string name="summary_enable_perf_overlay">Muestra en directo la velocidad, el retraso y la pérdida de fotogramas de la transmisión. También puedes mostrarla desde el menú de transmisión.</string>
     <string name="title_enable_post_stream_toast">Mostrar tiempo de decodificación al terminar</string>
     <string name="summary_enable_post_stream_toast">Muestra el tiempo medio de decodificación cuando termina una transmisión.</string>
     <string name="title_rust_engine">Nuevo motor de transmisión</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">Retiene cada fotograma unos milisegundos para que aparezca cuando el juego lo dibujó, no cuando lo entregó la red. Suaviza las variaciones, sobre todo con frecuencia adaptativa. Sustituye al ritmo de fotogramas. No se usa con PyroWave.</string>
     <string name="title_content_rate_frame_rate">Ajustar la pantalla a la tasa del juego</string>
     <string name="summary_content_rate_frame_rate">Indica a Android la tasa de fotogramas real del juego para que una pantalla con un modo adecuado cambie a ella sin quedarse en negro. Requiere un PC que envíe tiempos de fotograma y «Permitir una frecuencia de actualización menor»; cambia como máximo una vez cada 2 segundos. No se usa con PyroWave ni con frecuencia adaptativa.</string>
-    <string name="title_virtual_display_scale">Escala de renderizado del servidor</string>
-    <string name="summary_virtual_display_scale">Cambia la resolución de renderizado del PC, no el tamaño del vídeo transmitido. Para enviar menos píxeles y escalarlos en este dispositivo, reduce la resolución de transmisión.</string>
+    <string name="title_virtual_display_scale">Resolución de renderizado del PC</string>
+    <string name="summary_virtual_display_scale">Porcentaje de la resolución de transmisión con el que renderiza el PC. El tamaño del vídeo transmitido no cambia. Para enviar menos píxeles y escalarlos en este dispositivo, reduce la resolución de transmisión.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">aún no hay datos</string>
     <string name="title_export_latency_csv">Exportar CSV de latencia</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">Desconectar y mantener la aplicación del PC en ejecución</string>
     <string name="title_upscaling">Escalado en el cliente</string>
     <string name="upscaling_off">Desactivado</string>
-    <string name="upscaling_bilinear">Bilineal</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
+    <string name="upscaling_bilinear">Suave</string>
+    <string name="upscaling_fsr1">Nítido (FSR)</string>
+    <string name="upscaling_sgsr1">Nítido, Snapdragon (SGSR)</string>
     <string name="summary_upscaling">Reconstruye el vídeo SDR de menor resolución al tamaño de tu pantalla. Primero reduce la resolución de transmisión. PyroWave usa SGSR tanto si eliges FSR como SGSR. Consume más batería.</string>
     <string name="title_upscaling_sharpness">Nitidez del escalado</string>
     <string name="summary_upscaling_sharpness" formatted="false">Enfoque de FSR/SGSR: 0%: sin enfoque; 100%: máximo. Se aplica en la próxima transmisión; la reconstrucción SGSR siempre está activa.</string>
@@ -416,10 +413,7 @@
     <string name="keyboard_shortcuts_replace_button">Sustituir</string>
     <string name="keyboard_shortcuts_exported">Atajos exportados.</string>
     <string name="keyboard_shortcuts_file_error">No se ha podido leer o escribir el archivo de atajos. Comprueba el acceso a archivos y usa una exportación de atajos válida con 32 atajos como máximo.</string>
-    <string name="title_disable_hevc_low_latency">Desactivar opciones de baja latencia HEVC</string>
-    <string name="summary_disable_hevc_low_latency">Prueba esta opción si el vídeo HEVC da tirones o se congela. Desactiva las opciones de baja latencia de Android y del chipset para HEVC en cualquier dispositivo. Los demás códecs y los ajustes de rendimiento del decodificador conservan su configuración. Se aplica a la próxima transmisión.</string>
-    <string name="title_always_dark">Siempre oscuro</string>
-    <string name="summary_always_dark">Usa el tema gris oscuro en la app, los menús y los diálogos, incluso con el tema claro del sistema. Negro OLED lo vuelve negro puro.</string>
+    <string name="title_disable_hevc_low_latency">Opciones de baja latencia HEVC</string>
+    <string name="summary_disable_hevc_low_latency">Desactívalo si el vídeo HEVC da tirones o se congela. Desactivado omite las opciones opcionales de baja latencia de Android y del chipset y la invalidación de fotogramas de referencia para HEVC. Las opciones de compatibilidad necesarias se conservan en decodificadores Fire TV antiguos. Los demás códecs y los ajustes de rendimiento del decodificador conservan su configuración. Se aplica a la próxima transmisión.</string>
     <string name="title_oled_black">Negro OLED</string>
-    <string name="summary_oled_black">Usa fondos de negro puro en la app, los menús y los diálogos, incluso con el tema claro del sistema.</string>
 </resources>

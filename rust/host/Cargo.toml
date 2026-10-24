@@ -43,6 +43,8 @@ igd-next = { version = "=0.17.1", default-features = false, features = ["aio_tok
 if-addrs = "=0.15.0"
 xmltree = "=0.10.3"
 xml-rs = "0.8"
+# WebRTC media transport (Sans-IO), see docs/webrtc-design.md. Exact pin: H.265 and AV1 are hidden API.
+str0m = { version = "=0.24.1", default-features = false, features = ["rust-crypto"] }
 
 [build-dependencies]
 embed-resource = "3.0.12"

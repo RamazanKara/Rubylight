@@ -35,6 +35,7 @@ mod updater;
 mod video_send;
 mod web;
 mod web_sessions;
+mod webrtc;
 
 use anyhow::{Context, Result};
 use clap::Parser;

@@ -644,6 +644,33 @@ struct Window {
     timing_n: u32,
 }
 
+/// The overlay's host lines. "Host processing" is the average of the video frame header's per-frame
+/// processing time, the same number Artemis and Moonlight show. It must stay that: users compare it
+/// with those clients. The host timing reports' present to last packet sent includes the network
+/// send and reads several times higher, so it only ever goes under its own "Host to network" label,
+/// and a report never replaces or feeds the "Host processing" value.
+fn host_lines(w: &Window) -> Vec<(String, String)> {
+    let avg = |sum: f64, n: u32| if n > 0 { sum / f64::from(n) } else { 0.0 };
+    let mut lines = Vec::new();
+    if w.host_latency_n > 0 {
+        lines.push((
+            "Host processing".into(),
+            format!("{:.1} ms", avg(w.host_latency as f64, w.host_latency_n) / 10.0),
+        ));
+    }
+    if w.timing_n > 0 {
+        lines.push((
+            "Host to network".into(),
+            format!(
+                "{:.1} ms present to send, {:.1} ms encode",
+                avg(w.timing_host_us as f64, w.timing_n) / 1000.0,
+                avg(w.timing_encode_us as f64, w.timing_n) / 1000.0
+            ),
+        ));
+    }
+    lines
+}
+
 #[derive(Default, Clone)]
 pub struct Overlay {
     pub lines: Vec<(String, String)>,
@@ -1690,21 +1717,7 @@ impl Streaming {
         if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync {
             lines.push(("Phase lock".into(), self.phase.lead_us.map_or_else(|| "Waiting for display timing".into(), |lead| format!("{:.2} ms lead", f64::from(lead) / 1000.0))));
         }
-        if w.timing_n > 0 {
-            lines.push((
-                "Host".into(),
-                format!(
-                    "{:.1} ms present to send, {:.1} ms encode",
-                    avg(w.timing_host_us as f64, w.timing_n) / 1000.0,
-                    avg(w.timing_encode_us as f64, w.timing_n) / 1000.0
-                ),
-            ));
-        } else if w.host_latency_n > 0 {
-            lines.push((
-                "Host".into(),
-                format!("{:.1} ms processing", avg(w.host_latency as f64, w.host_latency_n) / 10.0),
-            ));
-        }
+        lines.extend(host_lines(&w));
         if w.latency_n > 0 {
             lines.push((
                 "Latency".into(),
@@ -2186,6 +2199,28 @@ mod tests {
     fn terminations_read_well() {
         assert!(termination_text(0).is_none());
         assert!(termination_text(-100).unwrap().contains("UDP"));
+    }
+}
+
+#[cfg(test)]
+mod host_line_tests {
+    use super::*;
+
+    #[test]
+    fn host_processing_is_the_header_average_and_a_host_report_never_changes_it() {
+        // Header values are in 100 us units: 3 frames of 5, 5 and 5 are 0.5 ms.
+        let header = Window { host_latency: 15, host_latency_n: 3, ..Default::default() };
+        let lines = host_lines(&header);
+        assert_eq!(lines, vec![("Host processing".to_owned(), "0.5 ms".to_owned())]);
+        // Reports say 5.0 ms present to send: a separate line, the processing line is unchanged.
+        let both = Window { timing_host_us: 15_000, timing_encode_us: 1_200, timing_n: 3, ..header };
+        let lines = host_lines(&both);
+        assert_eq!(lines[0], ("Host processing".to_owned(), "0.5 ms".to_owned()));
+        assert_eq!(lines[1].0, "Host to network");
+        assert_eq!(lines[1].1, "5.0 ms present to send, 0.4 ms encode");
+        // Reports alone never produce a "Host processing" line.
+        let reports = Window { timing_host_us: 15_000, timing_encode_us: 1_200, timing_n: 3, ..Default::default() };
+        assert!(host_lines(&reports).iter().all(|(label, _)| label != "Host processing"));
     }
 }
 

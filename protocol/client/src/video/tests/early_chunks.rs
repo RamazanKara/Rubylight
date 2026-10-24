@@ -323,3 +323,23 @@ fn duplicates_never_differ_from_the_plain_path() {
         assert_chunks_make_the_frames(&early_events);
     }
 }
+
+/// The android engine hands `host_processing_latency` to Nightjar's "Host processing" line, which
+/// must be the video frame header's value in 100 us units, like Artemis and moonlight-common-c read
+/// it. A host timing report (control message 0x5536) never reaches this field.
+#[test]
+fn the_frame_carries_the_header_host_processing_in_100_us_units() {
+    let mut host = Blocks::new();
+    let mut rx = records(false);
+    let mut events = Vec::new();
+    let mut blocks = host.frame(&[6], 3);
+    // The first packet of a frame starts with [flag byte, latency low, latency high]: 0.5 ms.
+    blocks[0][0][33] = 5;
+    blocks[0][0][34] = 0;
+    for packet in blocks.iter().flatten() {
+        rx.receive(packet, 7, &mut events);
+    }
+    let frames = frames(&events);
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].host_processing_latency, 5);
+}

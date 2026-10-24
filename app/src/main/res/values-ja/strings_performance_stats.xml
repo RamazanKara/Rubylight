@@ -8,7 +8,7 @@
     <string name="stats_throughput">映像データ: %1$s Mbps · 損失: %2$s%%</string>
     <string name="stats_network">ネットワーク RTT: %1$s ms（±%2$s ms）</string>
     <string name="stats_host">ホストの処理: %1$s ms</string>
-    <string name="stats_host_split">ホストの処理: %1$s ms + 送信 %2$s ms</string>
+    <string name="stats_host_network">ホストからネットワーク: %1$s ms</string>
     <string name="stats_client">デコード: %1$s ms · 表示待ち: %2$s ms</string>
     <string name="hardware_title">ホストのハードウェア（全 GPU）</string>
     <string name="hardware_cpu">ホストの CPU: %1$s%%</string>

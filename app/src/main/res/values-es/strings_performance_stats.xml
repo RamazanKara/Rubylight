@@ -8,7 +8,7 @@
     <string name="stats_throughput">Carga de vídeo: %1$s Mbps · Pérdida: %2$s %%</string>
     <string name="stats_network">RTT de red: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Procesamiento del servidor: %1$s ms</string>
-    <string name="stats_host_split">Procesamiento del servidor: %1$s ms + envío %2$s ms</string>
+    <string name="stats_host_network">Servidor a la red: %1$s ms</string>
     <string name="stats_client">Decodificación: %1$s ms · Espera de pantalla: %2$s ms</string>
     <string name="hardware_title">Hardware del servidor (todas las GPUs)</string>
     <string name="hardware_cpu">CPU del servidor: %1$s %%</string>

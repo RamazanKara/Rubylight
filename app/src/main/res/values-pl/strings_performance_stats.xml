@@ -8,7 +8,7 @@
     <string name="stats_throughput">Dane wideo: %1$s Mbps · Utrata: %2$s%%</string>
     <string name="stats_network">RTT sieci: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Przetwarzanie na hoście: %1$s ms</string>
-    <string name="stats_host_split">Przetwarzanie na hoście: %1$s ms + wysyłanie %2$s ms</string>
+    <string name="stats_host_network">Host do sieci: %1$s ms</string>
     <string name="stats_client">Dekodowanie: %1$s ms · Oczekiwanie na wyświetlenie: %2$s ms</string>
     <string name="hardware_title">Sprzęt hosta (wszystkie GPU)</string>
     <string name="hardware_cpu">CPU hosta: %1$s%%</string>

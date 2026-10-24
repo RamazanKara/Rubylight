@@ -1708,6 +1708,18 @@ fn keyframe_requests_while_the_picture_is_static_do_not_fail_a_pending_probe() {
             .any(|(_, c)| c.kind == ChangeKind::ProbeFailed);
         assert_eq!(failed, busy, "busy {busy}: {:?}", rig.kinds());
     }
+    // A step confirmed a moment ago is the same.
+    let mut rig = Rig::new(59_000);
+    rig.clean(2_000);
+    rig.lr.pending = [None; PENDING_CAP];
+    rig.lr.confirmed = Some(Confirmed {
+        before: rig.lr.good,
+        rate: rig.lr.good,
+        at: rig.now(),
+    });
+    assert!(rig.lr.probe_unconfirmed(rig.now()));
+    rig.lr.static_picture = true;
+    assert!(!rig.lr.probe_unconfirmed(rig.now()));
 }
 
 #[test]

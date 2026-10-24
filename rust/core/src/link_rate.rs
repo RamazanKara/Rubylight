@@ -809,10 +809,10 @@ impl LinkRate {
     /// requests made when next to nothing is sent are not the step's doing.
     fn probe_unconfirmed(&self, now: Instant) -> bool {
         !self.static_picture
-            && self.pending.iter().any(Option::is_some)
-            || self
-                .confirmed
-                .is_some_and(|c| now.saturating_duration_since(c.at) < EVIDENCE_WINDOW)
+            && (self.pending.iter().any(Option::is_some)
+                || self
+                    .confirmed
+                    .is_some_and(|c| now.saturating_duration_since(c.at) < EVIDENCE_WINDOW))
     }
 
     /// Whether a latch is still being judged (see [`LATCH_WATCH`]).

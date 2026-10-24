@@ -650,17 +650,21 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     std::fs::rename(&temporary, path)
 }
 
+/// The platform config directory, or `NIGHTJAR_CONFIG_DIR`. Not created here.
+pub fn config_dir() -> std::io::Result<PathBuf> {
+    match std::env::var_os("NIGHTJAR_CONFIG_DIR") {
+        Some(dir) => Ok(PathBuf::from(dir)),
+        None => directories::ProjectDirs::from("", "", "Nightjar")
+            .map(|d| d.config_dir().to_path_buf())
+            .ok_or_else(|| std::io::Error::other("no config directory")),
+    }
+}
+
 impl Store {
     /// The platform config directory, or `NIGHTJAR_CONFIG_DIR` (used by tests and the
     /// end-to-end harness).
     pub fn open() -> std::io::Result<Self> {
-        let dir = match std::env::var_os("NIGHTJAR_CONFIG_DIR") {
-            Some(dir) => PathBuf::from(dir),
-            None => directories::ProjectDirs::from("", "", "Nightjar")
-                .map(|d| d.config_dir().to_path_buf())
-                .ok_or_else(|| std::io::Error::other("no config directory"))?,
-        };
-        Self::at(dir)
+        Self::at(config_dir()?)
     }
 
     pub fn at(dir: PathBuf) -> std::io::Result<Self> {

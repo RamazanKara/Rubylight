@@ -17,6 +17,8 @@ mod gamepad;
 mod gui;
 mod hosts;
 mod keymap;
+mod logfile;
+mod logpipe;
 mod media;
 mod network;
 mod network_test;
@@ -141,6 +143,9 @@ fn main() {
         };
         std::process::exit(stream::pyrowave_mode::package_check(std::path::Path::new(&report)));
     }
+    // After the package check, which must not write to the user's log.
+    logpipe::start();
+    let _log = logpipe::Guard;
     if let Err(e) = run() {
         eprintln!("nightjar: {e}");
         let text = std::ffi::CString::new(e).unwrap_or_default();
@@ -153,6 +158,7 @@ fn main() {
                 std::ptr::null_mut(),
             )
         };
+        logpipe::shutdown();
         std::process::exit(1);
     }
 }
@@ -340,6 +346,7 @@ fn run() -> Result<(), String> {
     eprintln!("nightjar: leaving");
     app.shutdown();
     if app.autostream.as_ref().is_some_and(|a| a.failed) {
+        logpipe::shutdown();
         std::process::exit(2);
     }
     Ok(())
@@ -859,6 +866,11 @@ impl App {
                 if self.shortcut_file.is_none() {
                     let export = matches!(command, Command::ExportShortcuts);
                     self.shortcut_file = Some((export, sdl::choose_json_file(self.window, export)));
+                }
+            }
+            Command::OpenLogs => {
+                if let Err(e) = logfile::open_folder() {
+                    self.launcher.message(tr("Could not open the logs folder"), e);
                 }
             }
             Command::CancelPair => self.hosts.cancel_pairing(),

@@ -139,11 +139,18 @@ pub(super) type Route = (LUID, u32);
 /// the maker code is RBY and the instance ends in the target id as its UID.
 pub(super) fn is_virtual_monitor(path: &str, target: u32) -> bool {
     let parts: Vec<_> = path.split('#').collect();
+    is_rubylight_monitor(path)
+        && parts[2]
+            .to_ascii_lowercase()
+            .ends_with(&format!("&uid{target}"))
+}
+/// Whether a monitor device path names a Rubylight virtual display (maker RBY).
+pub(super) fn is_rubylight_monitor(path: &str) -> bool {
+    let parts: Vec<_> = path.split('#').collect();
     parts.len() >= 3
         && parts[1]
             .get(..3)
             .is_some_and(|maker| maker.eq_ignore_ascii_case("RBY"))
-        && parts[2].ends_with(&format!("&UID{target}"))
 }
 fn monitor_id(path: &str) -> String {
     static IDS: std::sync::LazyLock<
@@ -293,6 +300,8 @@ fn keep_active_modes(paths: &[DISPLAYCONFIG_PATH_INFO]) -> Vec<DISPLAYCONFIG_PAT
         })
         .collect()
 }
+/// Desktop sources an adapter drives at most.
+const MAX_DESKTOP_SOURCES: u32 = 4;
 /// The active paths plus one route that switches `target` on, or None while
 /// the target is not connected. Active paths keep their mode indices, so the
 /// other displays keep their timings, positions and clone groups; Windows
@@ -323,10 +332,33 @@ fn activation_paths(
     }
     let occupied: std::collections::BTreeSet<_> =
         active.iter().filter(|p| !ours(p)).map(source).collect();
-    let mut route = **available
-        .iter()
-        .find(|p| !occupied.contains(&source(p)))
-        .context("no free desktop source for the virtual display")?;
+    // Windows lists a display that is on only at the source it is on (the
+    // panel's, when it came up cloned); the sources it does not list are free
+    // to ask for, up to the four an adapter drives.
+    let free_offered = available.iter().find(|p| !occupied.contains(&source(p)));
+    let mut route = match free_offered {
+        Some(p) => **p,
+        None => {
+            let template = *available[0];
+            let (low, high) = (
+                template.sourceInfo.adapterId.LowPart,
+                template.sourceInfo.adapterId.HighPart,
+            );
+            let free = (0..MAX_DESKTOP_SOURCES)
+                .find(|id| !occupied.contains(&(low, high, *id)))
+                .with_context(|| {
+                    let offered: Vec<_> = available.iter().map(|p| **p).collect();
+                    format!(
+                        "no free desktop source for the virtual display (offered routes: {}; sources in use: {:?})",
+                        describe_paths(&offered),
+                        occupied
+                    )
+                })?;
+            let mut route = template;
+            route.sourceInfo.id = free;
+            route
+        }
+    };
     switch_on_route(&mut route);
     let mut paths: Vec<_> = active.iter().filter(|p| !ours(p)).copied().collect();
     paths.push(route);
@@ -1344,8 +1376,42 @@ mod tests {
             active[1],
             active[2],
             path(vdd, 1, 5, 4, true, true),
+            path(vdd, 2, 6, 4, true, true),
+            path(vdd, 3, 7, 4, true, true),
         ];
         assert!(activation_paths(&busy, &all, &[(vdd, 2)]).is_err());
+    }
+
+    /// A display Windows brought up cloned with the panel lists only that
+    /// one route; switching it on asks for a source of its own.
+    #[test]
+    fn a_cloned_display_is_moved_to_a_source_of_its_own() {
+        let gpu = LUID {
+            LowPart: 7,
+            HighPart: 0,
+        };
+        let path = |source, target, active| {
+            let mut path = DISPLAYCONFIG_PATH_INFO::default();
+            path.sourceInfo.adapterId = gpu;
+            path.sourceInfo.id = source;
+            path.targetInfo.adapterId = gpu;
+            path.targetInfo.id = target;
+            path.targetInfo.targetAvailable = true.into();
+            path.flags = if active { DISPLAYCONFIG_PATH_ACTIVE } else { 0 };
+            path
+        };
+        let active = [path(1, 10, true), path(1, 20, true)];
+        let paths = activation_paths(&active, &active, &[(gpu, 20)])
+            .unwrap()
+            .unwrap();
+        assert_eq!(paths.len(), 2);
+        assert_eq!(paths[0].sourceInfo.id, 1);
+        assert_eq!((paths[1].targetInfo.id, paths[1].sourceInfo.id), (20, 0));
+        // Every source taken by other displays: nothing to move it to.
+        let busy: Vec<_> = (0..4).map(|s| path(s, 10 + s, true)).collect();
+        let mut all = busy.clone();
+        all.push(path(1, 20, true));
+        assert!(activation_paths(&busy, &all, &[(gpu, 20)]).is_err());
     }
 
     /// Windows lists a virtual display under the render adapter while it is

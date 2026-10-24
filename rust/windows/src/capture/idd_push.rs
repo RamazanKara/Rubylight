@@ -1695,6 +1695,7 @@ mod tests {
             adapter: (3, 0),
             target: 2,
             wudf_pid: 55,
+            listed: None,
             registration: 7,
         };
         let scope = FenceScope::new(&monitor, (9, 0));

@@ -308,8 +308,12 @@ impl Drop for Remote {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Owned {
     pub session_id: u64,
+    /// The adapter and target the driver reported.
     pub adapter: (u32, i32),
     pub target: u32,
+    /// Where Windows lists the display while it is on, when that is another
+    /// adapter and target than the driver's.
+    pub listed: Option<((u32, i32), u32)>,
     pub wudf_pid: u32,
     /// One actual monitor registration, unchanged by capture reopen or cloning `Owned`.
     pub registration: u64,
@@ -328,7 +332,8 @@ pub(super) fn register(mut owned: Owned) {
 }
 
 /// Windows can list a display under another adapter and target than the
-/// driver reported; captures find the display by the listed ones.
+/// driver reported, and under the driver's again after a layout change; a
+/// capture finds the display by either.
 pub(super) fn rehome(session_id: u64, adapter: (u32, i32), target: u32) {
     if let Some(owned) = OWNED
         .lock()
@@ -336,9 +341,20 @@ pub(super) fn rehome(session_id: u64, adapter: (u32, i32), target: u32) {
         .iter_mut()
         .find(|o| o.session_id == session_id)
     {
-        owned.adapter = adapter;
-        owned.target = target;
+        owned.listed =
+            ((adapter, target) != (owned.adapter, owned.target)).then_some((adapter, target));
     }
+}
+
+/// The adapters and targets other sessions' displays go by.
+pub(super) fn others(session_id: u64) -> Vec<((u32, i32), u32)> {
+    OWNED
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|o| o.session_id != session_id)
+        .flat_map(|o| [(o.adapter, o.target)].into_iter().chain(o.listed))
+        .collect()
 }
 
 pub(super) fn unregister(session_id: u64) {
@@ -347,23 +363,24 @@ pub(super) fn unregister(session_id: u64) {
 
 fn find(all: &[Owned], adapter: (u32, i32), target: u32) -> Option<Owned> {
     all.iter()
-        .find(|o| o.adapter == adapter && o.target == target)
+        .find(|o| {
+            (o.adapter == adapter && o.target == target) || o.listed == Some((adapter, target))
+        })
         .copied()
+}
+
+/// The registered monitor among those shown as `name`. Displays duplicated
+/// on one desktop share the name, so the physical one can come first.
+fn owned_among(all: &[Owned], monitors: &[Monitor], name: &str) -> Option<Owned> {
+    monitors
+        .iter()
+        .filter(|m| m.display_name.eq_ignore_ascii_case(name))
+        .find_map(|m| find(all, (m.adapter.LowPart, m.adapter.HighPart), m.target))
 }
 
 /// The Rubylight monitor behind the GDI display `name`, if this process created it.
 pub fn owned_display(name: &str) -> Result<Option<Owned>> {
-    let Some(monitor) = monitors()?
-        .into_iter()
-        .find(|m| m.display_name.eq_ignore_ascii_case(name))
-    else {
-        return Ok(None);
-    };
-    Ok(find(
-        &OWNED.lock().unwrap(),
-        (monitor.adapter.LowPart, monitor.adapter.HighPart),
-        monitor.target,
-    ))
+    Ok(owned_among(&OWNED.lock().unwrap(), &monitors()?, name))
 }
 
 #[cfg(test)]
@@ -399,6 +416,7 @@ mod tests {
             adapter: (0x1234, 0),
             target: 260,
             wudf_pid: 99,
+            listed: None,
             registration: 1,
         };
         let b = Owned {
@@ -406,6 +424,7 @@ mod tests {
             adapter: (0x1234, 0),
             target: 261,
             wudf_pid: 99,
+            listed: None,
             registration: 2,
         };
         let all = [a, b];
@@ -422,6 +441,7 @@ mod tests {
             adapter: (0x1234, 0),
             target: u32::MAX - 17,
             wudf_pid: 99,
+            listed: None,
             registration: 0,
         };
         let current = || {
@@ -454,6 +474,7 @@ mod tests {
             adapter: (0x3822_0001, 0),
             target: 258,
             wudf_pid: 99,
+            listed: None,
             registration: 0,
         };
         register(monitor);
@@ -466,7 +487,60 @@ mod tests {
         assert_eq!(found.session_id, monitor.session_id);
         assert_ne!(found.registration, 0);
         assert_eq!(found.wudf_pid, 99);
-        assert_eq!(find(&all, (0x3822_0001, 0), 258), None, "no longer there");
+        // Windows lists it at the driver's pair again while it is off, or after
+        // a layout step: the capture still finds it.
+        assert_eq!(
+            find(&all, (0x3822_0001, 0), 258).map(|o| o.session_id),
+            Some(monitor.session_id)
+        );
         assert_eq!(find(&all, (1, 0), 1), None);
+    }
+
+    #[test]
+    fn rehoming_to_the_drivers_own_pair_keeps_one_identity() {
+        let monitor = Owned {
+            session_id: u64::MAX - 21,
+            adapter: (0x3822_0001, 0),
+            target: 258,
+            wudf_pid: 99,
+            listed: None,
+            registration: 0,
+        };
+        register(monitor);
+        rehome(monitor.session_id, (0x10687, 0), 117_440_770);
+        let elsewhere = others(u64::MAX - 22);
+        rehome(monitor.session_id, (0x3822_0001, 0), 258);
+        let back = OWNED
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|o| o.session_id == monitor.session_id)
+            .copied()
+            .unwrap();
+        unregister(monitor.session_id);
+        assert!(elsewhere.contains(&((0x3822_0001, 0), 258)));
+        assert!(elsewhere.contains(&((0x10687, 0), 117_440_770)));
+        assert_eq!(back.listed, None);
+    }
+
+    #[test]
+    fn a_duplicated_display_is_found_even_when_the_physical_one_is_listed_first() {
+        let ours = Owned {
+            session_id: 5,
+            adapter: (0x3822_0001, 0),
+            target: 258,
+            wudf_pid: 99,
+            listed: Some(((0x10687, 0), 117_440_770)),
+            registration: 1,
+        };
+        let listing = |adapter: u32, target: u32| Monitor {
+            target,
+            ..crate::display::monitor("m", adapter, false)
+        };
+        // Both are on desktop source 0 and share its GDI name.
+        let monitors = [listing(0x10687, 256), listing(0x10687, 117_440_770)];
+        assert_eq!(owned_among(&[ours], &monitors, r"\\.\display1"), Some(ours));
+        assert_eq!(owned_among(&[ours], &monitors[..1], r"\\.\DISPLAY1"), None);
+        assert_eq!(owned_among(&[ours], &monitors, r"\\.\DISPLAY2"), None);
     }
 }

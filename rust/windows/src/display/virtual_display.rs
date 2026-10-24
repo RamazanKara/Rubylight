@@ -6,7 +6,7 @@ use super::modes::{
     supported_modes,
 };
 use super::rubylight_vdd::{self, Control};
-use super::topology::{Route, activate_target, is_virtual_monitor};
+use super::topology::{Route, activate_target, is_rubylight_monitor, is_virtual_monitor};
 use super::*;
 use butterpollo_core::virtual_output::{DisplayProvider, Mode};
 
@@ -365,8 +365,14 @@ fn heartbeat(
 /// the display there. On some systems (the Ryzen 7 8845HS laptop with a
 /// Radeon 780M) it lists it under the render adapter with another target id;
 /// the monitor's own device path keeps the driver's target id as its UID. A
-/// route without a device path cannot identify the display yet.
-fn listed(monitors: &[Monitor], adapter: LUID, target: u32) -> Option<&Monitor> {
+/// route without a device path cannot identify the display yet, and one that
+/// another session's display goes by (`others`) is never taken.
+fn listed<'a>(
+    monitors: &'a [Monitor],
+    adapter: LUID,
+    target: u32,
+    others: &[((u32, i32), u32)],
+) -> Option<&'a Monitor> {
     let named = || {
         monitors
             .iter()
@@ -374,25 +380,34 @@ fn listed(monitors: &[Monitor], adapter: LUID, target: u32) -> Option<&Monitor> 
     };
     named()
         .find(|m| m.adapter == adapter && m.target == target)
-        .or_else(|| named().find(|m| is_virtual_monitor(&m.monitor_device_path, target)))
-}
-/// Where the display is connected, if it is: the route the driver reported,
-/// else the one Windows lists the display under.
-fn connected_route(adapter: LUID, target: u32) -> Option<(LUID, u32)> {
-    let all = Topology::query_all().ok()?;
-    let available = |adapter: LUID, target: u32| {
-        all.paths.iter().any(|p| {
-            p.targetInfo.adapterId == adapter
-                && p.targetInfo.id == target
-                && p.targetInfo.targetAvailable.as_bool()
+        .or_else(|| {
+            named().find(|m| {
+                is_virtual_monitor(&m.monitor_device_path, target)
+                    && !others.contains(&((m.adapter.LowPart, m.adapter.HighPart), m.target))
+            })
         })
-    };
-    if available(adapter, target) {
-        return Some((adapter, target));
-    }
-    let monitors = all.monitors();
-    let m = listed(&monitors, adapter, target)?;
-    available(m.adapter, m.target).then_some((m.adapter, m.target))
+}
+/// Whether a display shares its desktop with a physical display: Windows
+/// listed the new virtual display duplicated on the panel's source. A stream
+/// mode set on that source would change the panel.
+fn cloned_with_physical(monitors: &[Monitor], display: &Monitor) -> bool {
+    monitors.iter().any(|m| {
+        m.adapter == display.adapter
+            && m.source == display.source
+            && !m
+                .monitor_device_path
+                .eq_ignore_ascii_case(&display.monitor_device_path)
+            && !is_rubylight_monitor(&m.monitor_device_path)
+    })
+}
+/// Whether any of the display's routes is connected.
+fn connected(routes: &[Route]) -> bool {
+    Topology::query_all().is_ok_and(|all| {
+        all.paths.iter().any(|p| {
+            p.targetInfo.targetAvailable.as_bool()
+                && routes.contains(&(p.targetInfo.adapterId, p.targetInfo.id))
+        })
+    })
 }
 /// Why the display did not come up, with what the last attempt to switch it
 /// on came to.
@@ -475,6 +490,7 @@ impl VirtualDisplay {
             adapter: (reply.adapter_luid_low, reply.adapter_luid_high),
             target: reply.target_id,
             wudf_pid: reply.wudf_pid,
+            listed: None,
             registration: 0, // Assigned by register after this successful ADD.
         });
         Ok((
@@ -498,41 +514,36 @@ impl VirtualDisplay {
         let mut next_check = Instant::now();
         // What the last attempt to switch it on came to.
         let mut activation = String::from("not tried");
+        // The display while Windows has it duplicated on a physical display.
+        let mut duplicated: Option<Monitor> = None;
+        let others = rubylight_vdd::others(self.id);
         while Instant::now() < deadline {
             if let Ok(monitors) = monitors()
-                && let Some(m) = listed(&monitors, luid, target)
+                && let Some(m) = listed(&monitors, luid, target, &others)
             {
-                if (m.adapter, m.target) != (luid, target) {
-                    tracing::info!(
-                        driver_target = target,
-                        listed_target = m.target,
-                        "Windows lists the new virtual display under another adapter and target than the driver reported"
-                    );
-                    rubylight_vdd::rehome(
-                        self.id,
-                        (m.adapter.LowPart, m.adapter.HighPart),
-                        m.target,
-                    );
+                if !cloned_with_physical(&monitors, m) {
+                    return self.adopt(m.clone());
                 }
-                self.name = m.display_name.clone();
-                self.resolved_target = Some(m.clone());
-                self.last_feed = Instant::now();
-                return Ok(());
+                // Not ready: the stream's mode would change the physical
+                // display. Give it a desktop of its own.
+                duplicated = Some(m.clone());
             }
             if Instant::now() >= next_check {
                 next_check = Instant::now() + Duration::from_millis(250);
-                let route = connected_route(luid, target);
-                if let Some((adapter, id)) = route {
+                let mut routes = vec![(luid, target)];
+                routes.extend(duplicated.iter().map(|m| (m.adapter, m.target)));
+                if duplicated.is_some() || connected(&routes) {
                     let since = *connected_since.get_or_insert_with(Instant::now);
                     if since.elapsed() >= Duration::from_secs(1) {
                         next_check = Instant::now() + Duration::from_secs(1);
-                        match activate_target(&[(adapter, id)]) {
+                        match activate_target(&routes) {
                             Ok(Some(kept_timings)) => {
                                 activation = "Windows accepted the layout".into();
                                 self.switched_on = true;
                                 tracing::info!(
                                     kept_timings,
-                                    "Windows left the new virtual display switched off; switched it on beside the current displays"
+                                    duplicated = duplicated.is_some(),
+                                    "switched the new virtual display on beside the current displays"
                                 )
                             }
                             Ok(None) => activation = "no route to switch on".into(),
@@ -553,7 +564,36 @@ impl VirtualDisplay {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
+        if let Some(m) = duplicated {
+            // The layout step of the stream separates it again; this is not a
+            // reason to refuse the stream.
+            tracing::warn!(
+                switching_on = activation,
+                "the new virtual display stays duplicated with a physical display"
+            );
+            return self.adopt(m);
+        }
         bail!(not_active(connected_since.is_some(), &activation))
+    }
+    /// Take `m`, the monitor Windows lists for the new display, as the
+    /// display's own.
+    fn adopt(&mut self, m: Monitor) -> Result<()> {
+        if let Some((luid, target)) = self.driver_route
+            && (m.adapter, m.target) != (luid, target)
+        {
+            tracing::info!(
+                driver_adapter = luid.LowPart,
+                driver_target = target,
+                listed_adapter = m.adapter.LowPart,
+                listed_target = m.target,
+                "Windows lists the new virtual display under another adapter and target than the driver reported"
+            );
+            rubylight_vdd::rehome(self.id, (m.adapter.LowPart, m.adapter.HighPart), m.target);
+        }
+        self.name = m.display_name.clone();
+        self.resolved_target = Some(m);
+        self.last_feed = Instant::now();
+        Ok(())
     }
     pub(super) fn owns_monitor(&self, monitor: &Monitor) -> bool {
         self.resolved_target.as_ref().is_some_and(|owned| {
@@ -1144,7 +1184,8 @@ mod tests {
             .resolved_target
             .clone()
             .context("virtual display unresolved")?;
-        let ours = |m: &Monitor| m.adapter == owned.adapter && m.target == owned.target;
+        let routes = display.routes()?;
+        let ours = |m: &Monitor| routes.contains(&(m.adapter, m.target));
         // Device, width, height, refresh and desktop position.
         type Timing = (String, u32, u32, u32, i32, i32);
         let timings = || -> Result<Vec<Timing>> {
@@ -1172,9 +1213,7 @@ mod tests {
         let off: Vec<_> = active
             .paths
             .iter()
-            .filter(|p| {
-                !(p.targetInfo.adapterId == owned.adapter && p.targetInfo.id == owned.target)
-            })
+            .filter(|p| !routes.contains(&(p.targetInfo.adapterId, p.targetInfo.id)))
             .copied()
             .collect();
         // SAFETY: The retained paths and queried modes remain valid for this synchronous display configuration call.
@@ -1271,6 +1310,7 @@ mod tests {
                     std::thread::sleep(Duration::from_millis(100));
                 }
                 let owned = display.hotplug_monitor()?.clone();
+                let routes = display.routes()?;
                 set_hdr(&owned, true)?;
                 display
                     .finish_hotplug("test recovery after HDR")
@@ -1295,8 +1335,7 @@ mod tests {
                 drop(display);
                 let deadline = Instant::now() + Duration::from_secs(10);
                 while Topology::query_all()?.paths.iter().any(|path| {
-                    path.targetInfo.adapterId == owned.adapter
-                        && path.targetInfo.id == owned.target
+                    routes.contains(&(path.targetInfo.adapterId, path.targetInfo.id))
                         && path.targetInfo.targetAvailable.as_bool()
                 }) {
                     anyhow::ensure!(Instant::now() < deadline, "owned display did not depart");
@@ -1374,7 +1413,7 @@ mod tests {
             117_440_770,
         );
         let found = |monitors: &[Monitor], target| {
-            listed(monitors, luid(942_669_753), target).map(|m| m.target)
+            listed(monitors, luid(942_669_753), target, &[]).map(|m| m.target)
         };
         assert_eq!(
             found(&[panel.clone(), ours.clone()], 258),
@@ -1390,7 +1429,54 @@ mod tests {
         // A route without a device path cannot identify the display yet.
         let unnamed = listing("", 942_669_753, 258);
         assert_eq!(found(std::slice::from_ref(&unnamed), 258), None);
-        assert_eq!(found(&[unnamed, ours], 258), Some(117_440_770));
+        assert_eq!(found(&[unnamed, ours.clone()], 258), Some(117_440_770));
+        // The pair another session's display goes by is never taken.
+        let taken = [((0x10687, 0), 117_440_770)];
+        assert_eq!(
+            listed(std::slice::from_ref(&ours), luid(942_669_753), 258, &taken).map(|m| m.target),
+            None
+        );
+    }
+    #[test]
+    fn a_display_on_the_panels_source_is_duplicated_and_not_ready() {
+        let listing = |path: &str, target, source| Monitor {
+            monitor_device_path: path.into(),
+            target,
+            source,
+            ..crate::display::monitor("m", 0x10687, false)
+        };
+        let panel = listing(r"\\?\DISPLAY#LEN8ABA#5&277e72b4&0&UID256#{g}", 256, 0);
+        let ours = listing(
+            r"\\?\DISPLAY#RBY0001#1&28a6823a&0&UID258#{g}",
+            117_440_770,
+            0,
+        );
+        let other_virtual = listing(
+            r"\\?\DISPLAY#RBY0001#1&28a6823a&0&UID259#{g}",
+            117_440_771,
+            0,
+        );
+        assert!(cloned_with_physical(&[panel.clone(), ours.clone()], &ours));
+        // Alone, on a source of its own, or duplicated with a virtual display only.
+        assert!(!cloned_with_physical(std::slice::from_ref(&ours), &ours));
+        let own_source = Monitor {
+            source: 1,
+            ..ours.clone()
+        };
+        assert!(!cloned_with_physical(
+            &[panel.clone(), own_source.clone()],
+            &own_source
+        ));
+        assert!(!cloned_with_physical(&[other_virtual, ours.clone()], &ours));
+        // Another adapter's source 0 is another desktop source.
+        let elsewhere = Monitor {
+            adapter: LUID {
+                LowPart: 1,
+                HighPart: 0,
+            },
+            ..panel
+        };
+        assert!(!cloned_with_physical(&[elsewhere, ours.clone()], &ours));
     }
     #[test]
     fn virtual_monitor_paths_name_the_driver_target_in_their_uid() {
@@ -1401,6 +1487,11 @@ mod tests {
         assert!(is_virtual_monitor(&path.replace("RBY", "rby"), 258));
         assert!(!is_virtual_monitor(path, 25), "a prefix of the id");
         assert!(!is_virtual_monitor(path, 58), "a suffix of the id");
+        assert!(is_virtual_monitor(&path.replace("UID", "uid"), 258));
+        let longer = path.replace("UID258", "UID2580");
+        assert!(!is_virtual_monitor(&longer, 258), "UID2580 is not 258");
+        assert!(is_virtual_monitor(&longer, 2580));
+        assert!(!is_virtual_monitor(path, 2580), "UID258 is not 2580");
         assert!(!is_virtual_monitor(&path.replace("RBY", "LEN"), 258));
         assert!(!is_virtual_monitor("", 258));
         assert!(

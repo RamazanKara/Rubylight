@@ -3959,7 +3959,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 pyroWaveBitrate = new PyroWaveBitrateController(0, 0, streamFps,
                         SystemClock.uptimeMillis());
             } else {
-                adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis(), 0, 0,
+                adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis(),
                         prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
             }
             // The preference includes FEC/audio, while runtime changes use encoder Kbps.
@@ -4001,11 +4001,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             adaptiveBitrateClaimFailures = 0;
                             long now = SystemClock.uptimeMillis();
                             if (details != null) {
-                                // The bitrate the stream started at (the bitrate setting, after profiles) is the ceiling;
-                                // no minimum or maximum, so the built-in floor applies.
+                                // The bitrate the stream started at (the bitrate setting, after profiles) is the
+                                // ceiling; the built-in floor applies.
                                 int ceiling = Math.max(details.initialEncoderBitrateKbps, applied);
                                 if (controller != null) adaptiveBitrate = new AdaptiveBitrateController(ceiling, applied, streamFps, now,
-                                        0, 0,
                                         prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
                                 if (pyroController != null) pyroWaveBitrate = new PyroWaveBitrateController(ceiling, applied, streamFps, now);
                             } else {

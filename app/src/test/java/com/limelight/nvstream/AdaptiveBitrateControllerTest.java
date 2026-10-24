@@ -273,99 +273,17 @@ public class AdaptiveBitrateControllerTest {
 
     @Test
     public void withoutLimitsSustainedLossStillReachesTheBuiltInFloor() {
-        // Nothing set means the old behavior: 2 Mbps, whatever the stream bitrate.
+        // The built-in floor is 2 Mbps whatever the stream bitrate.
         assertEquals(AdaptiveBitrateController.DEFAULT_FLOOR_KBPS,
                 lowestRateUnderSustainedLoss(new AdaptiveBitrateController(40000, 40000, 60, 0), 40000));
         assertEquals(AdaptiveBitrateController.DEFAULT_FLOOR_KBPS,
-                lowestRateUnderSustainedLoss(new AdaptiveBitrateController(40000, 40000, 60, 0, 0, 0), 40000));
+                lowestRateUnderSustainedLoss(new AdaptiveBitrateController(40000, 40000, 60, 0), 40000));
     }
 
     @Test
-    public void minimumReplacesTheBuiltInFloor() {
-        assertEquals(20000,
-                lowestRateUnderSustainedLoss(new AdaptiveBitrateController(40000, 40000, 60, 0, 20000, 0), 40000));
-        // A minimum below the built-in floor is honored too.
-        assertEquals(1000,
-                lowestRateUnderSustainedLoss(new AdaptiveBitrateController(40000, 40000, 60, 0, 1000, 0), 40000));
-    }
-
-    @Test
-    public void minimumAboveTheStreamBitrateNeverLowersIt() {
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 10000, 60, 0, 15000, 0);
-        for (long now = 1000; now <= 60000; now += 1000) {
-            assertEquals(0, controller.sample(now, true, true, 10, 2));
-        }
-    }
-
-    @Test
-    public void minimumKeepsHotPhoneAndSlowDecoderStepsAtHalfAtLeast() {
-        // Decoder pressure already stops at half the ceiling; a higher minimum wins over that.
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(40000, 40000, 60, 0, 30000, 0);
-        controller.setThermalLevel(2);
-        int current = 40000;
-        for (long now = 1000; now <= 300000; now += 1000) {
-            int target = controller.sample(now, true, false, 0, 2);
-            if (target != 0) {
-                controller.applied(target, target, now);
-                current = target;
-            }
-        }
-        assertEquals(30000, current);
-    }
-
-    @Test
-    public void maximumLowersAStreamThatStartsAboveIt() {
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(80000, 80000, 60, 0, 0, 30000);
-        assertEquals(0, controller.sample(2000, true, false, 0, 2));
-        assertEquals(30000, controller.sample(3000, true, false, 0, 2));
-        controller.applied(30000, 30000, 3000);
-        // Healthy video never raises it past the maximum again.
-        for (long now = 4000; now <= 120000; now += 1000) {
-            assertEquals(0, controller.sample(now, true, false, 0, 2, 0, 0));
-        }
-    }
-
-    @Test
-    public void maximumRequestRepeatsWhenTheHostDidNotApplyIt() {
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(80000, 80000, 60, 0, 0, 30000);
-        assertEquals(30000, controller.sample(3000, true, false, 0, 2));
-        controller.applied(30000, 80000, 3000);
-        assertEquals(0, controller.sample(5000, true, false, 0, 2));
-        assertEquals(30000, controller.sample(6000, true, false, 0, 2));
-    }
-
-    @Test
-    public void recoveryStopsAtTheMaximum() {
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(40000, 20000, 60, 0, 0, 25000);
-        int current = 20000;
-        for (long now = 1000; now <= 600000; now += 1000) {
-            int target = controller.sample(now, true, false, 0, 2, 0, 0);
-            if (target != 0) {
-                controller.applied(target, target, now);
-                current = target;
-            }
-        }
-        assertEquals(25000, current);
-    }
-
-    @Test
-    public void maximumBelowMinimumYieldsToTheMinimum() {
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(80000, 80000, 60, 0, 40000, 20000);
-        assertEquals(40000, controller.sample(3000, true, false, 0, 2));
-    }
-
-    @Test
-    public void maximumAboveTheStreamBitrateChangesNothing() {
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 10000, 60, 0, 0, 150000);
-        for (long now = 1000; now <= 60000; now += 1000) {
-            assertEquals(0, controller.sample(now, true, false, 0, 2, 0, 0));
-        }
-    }
-
-    @Test
-    public void hostRoundingAboveTheCeilingIsNotRequestedAgainWhenTheMaximumIsHigher() {
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 60, 0, 0, 30000);
-        // The host applied a little more than requested; the maximum did not lower anything.
+    public void hostRoundingAboveTheCeilingIsNotRequestedAgain() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 60, 0);
+        // The host applied a little more than requested.
         controller.applied(20000, 20500, 0);
         for (long now = 1000; now <= 60000; now += 1000) {
             assertEquals("no repeated request at " + now, 0, controller.sample(now, true, false, 0, 2, 0, 0));
@@ -576,37 +494,28 @@ public class AdaptiveBitrateControllerTest {
     public void sustainedLossStopsAtTheResolutionAwareFloor() {
         AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
         assertEquals(AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 60, hevc),
-                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 60, 0, 0, 0, 1920, 1080, hevc), 60000));
+                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 60, 0, 1920, 1080, hevc), 60000));
         assertEquals(2000,
-                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 30, 0, 0, 0, 1280, 720, hevc), 60000));
+                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 30, 0, 1280, 720, hevc), 60000));
     }
 
     @Test
     public void builtInFloorStaysUnderHalfTheStartingRateSoCongestionCanStillCut() {
         AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
         assertEquals(10000,
-                lowestUnderLoss(new AdaptiveBitrateController(20000, 20000, 120, 0, 0, 0, 3840, 2160, hevc), 20000));
+                lowestUnderLoss(new AdaptiveBitrateController(20000, 20000, 120, 0, 3840, 2160, hevc), 20000));
         assertEquals(1000,
-                lowestUnderLoss(new AdaptiveBitrateController(1000, 1000, 60, 0, 0, 0, 3840, 2160, hevc), 1000));
-    }
-
-    @Test
-    public void minimumOverridesTheResolutionAwareFloor() {
-        AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
-        assertEquals(3000,
-                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 60, 0, 3000, 0, 1920, 1080, hevc), 60000));
-        assertEquals(30000,
-                lowestUnderLoss(new AdaptiveBitrateController(60000, 60000, 60, 0, 30000, 0, 1920, 1080, hevc), 60000));
+                lowestUnderLoss(new AdaptiveBitrateController(1000, 1000, 60, 0, 3840, 2160, hevc), 1000));
     }
 
     @Test
     public void floorFollowsAResolutionAndFrameRateChange() {
         AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
-        AdaptiveBitrateController down = new AdaptiveBitrateController(80000, 80000, 60, 0, 0, 0, 3840, 2160, hevc);
+        AdaptiveBitrateController down = new AdaptiveBitrateController(80000, 80000, 60, 0, 3840, 2160, hevc);
         down.setStreamSize(1280, 720);
         down.setFrameRate(30);
         assertEquals(2000, lowestUnderLoss(down, 80000));
-        AdaptiveBitrateController up = new AdaptiveBitrateController(80000, 80000, 30, 0, 0, 0, 1280, 720, hevc);
+        AdaptiveBitrateController up = new AdaptiveBitrateController(80000, 80000, 30, 0, 1280, 720, hevc);
         up.setStreamSize(1920, 1080);
         up.setFrameRate(60);
         assertEquals(AdaptiveBitrateController.builtInFloorKbps(1920, 1080, 60, hevc), lowestUnderLoss(up, 80000));
@@ -702,7 +611,7 @@ public class AdaptiveBitrateControllerTest {
     @Test
     public void aFloorRaisedAboveTheCurrentRateStillLetsLossCut() {
         AdaptiveBitrateController.Codec hevc = AdaptiveBitrateController.Codec.HEVC;
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(80000, 80000, 30, 0, 0, 0, 3840, 2160, hevc);
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(80000, 80000, 30, 0, 3840, 2160, hevc);
         // Automatic quality dropped to 720p30 and congestion cut the rate there; then 1440p60 comes back.
         controller.setStreamSize(1280, 720);
         controller.applied(3000, 3000, 0);

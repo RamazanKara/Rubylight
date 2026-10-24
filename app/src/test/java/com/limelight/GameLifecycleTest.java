@@ -281,8 +281,6 @@ public class GameLifecycleTest {
         com.limelight.nvstream.AdaptiveBitrateController controller = ReflectionHelpers.getField(activity, "adaptiveBitrate");
         // No minimum or maximum any more: the bitrate the stream started at is the ceiling, the floor the built-in one.
         assertEquals(38988, (int) ReflectionHelpers.getField(controller, "ceilingKbps"));
-        assertEquals(0, (int) ReflectionHelpers.getField(controller, "maxLimitKbps"));
-        assertEquals(0, (int) ReflectionHelpers.getField(controller, "minLimitKbps"));
         assertEquals(com.limelight.nvstream.AdaptiveBitrateController.DEFAULT_FLOOR_KBPS,
                 (int) ReflectionHelpers.getField(controller, "floorKbps"));
     }

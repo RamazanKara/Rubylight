@@ -129,6 +129,14 @@ Noise (`linkspeed.py noise`): the same package against itself differs by 0.05 to
 
 Not run here: PyroWave, real Wi-Fi, the loss-memory scenario (`--keep-memory` is in place for B8).
 
+## October 24: link-rate false cuts and the knee hold (link-fix)
+
+Own measurements on the RX 7900 XT dev box (`linkspeed.py`, release package, noise content, 45 s arms, loss memory reset, NUC client with tc shaping), main against `link-fix`.
+
+- **Wi-Fi arm** (150 Mbit/s, 3 +/- 2 ms delay, 0.5 % loss, HEVC 1080p60 at 14,988 kbps): the old controller counted the data packets a reordering path had not delivered yet when the client reported a rebuilt block (about 14 % of the data) as loss and cut to the 2,415 kbps floor in 15 changes. Now 0 changes, 0 % lost, p50 16.6 ms; a 1.5 s RTT excursion from 20 to 60 ms on the same model is no cut either, and a standing queue with extra loss still is (unit tests).
+- **`r50-hevc-hi`** (50 Mbit/s, 50 ms queue, 75 Mbps asked): a probe that fails, or a cut with a queue standing in the path, now holds probes under the failed rate for 20 s, so the stream stops climbing into the next queue. Loss after the start-up: 0.74, 1.43, 1.86 and 1.04 % in four runs, and 1.90 and 1.82 % in two more on the final build; p50 22.5 to 24.9 ms against 31 to 42 ms on main; longest freeze 0.2 to 0.5 s.
+- **Cost:** the quiet hold makes a recovery after a link dip slower. On `step-80-10-80` the stream is back at 90 % of its old rate at 53.6 to 61.7 s on `link-fix` against 50.6 to 54.1 s on main, up to 8 s later (the unit-test deadline is 65 s).
+
 ## October 24: near-link tuning, three steps tried and reverted (L6)
 
 Three changes to the link-rate controller that apply only while it is `Limited`, each behind an internal config key (`link_rate_pace_limited`, `link_rate_headroom_percent`, `link_rate_tight_encoder`), measured against the unchanged build and kept only if loss or freezes improved and the p50 was no worse:

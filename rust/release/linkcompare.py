@@ -253,12 +253,15 @@ def pacing_values(run):
     return sorted({v for _, v in run.get('pacing_kbps_series') or [] if v})
 
 
-def pacing_series_equal(a, b):
-    """The distinct pacing rates match; a run from before the harness recorded the series has none
-    to compare, so it matches anything."""
-    if 'pacing_kbps_series' not in a or 'pacing_kbps_series' not in b:
+def pacing_series_equal(run, baseline):
+    """The distinct pacing rates match. Only a baseline from before the harness recorded the series
+    may lack it (the pacing line alone is compared then); a run without it against a baseline with
+    it is a difference, or a candidate whose series was lost would pass."""
+    if 'pacing_kbps_series' not in baseline:
         return True
-    return pacing_values(a) == pacing_values(b)
+    if 'pacing_kbps_series' not in run:
+        return False
+    return pacing_values(run) == pacing_values(baseline)
 
 
 # ---- verdicts -----------------------------------------------------------------------------------

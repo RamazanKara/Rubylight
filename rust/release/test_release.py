@@ -385,6 +385,14 @@ class LinkCompare(unittest.TestCase):
         slower = self.run_dict(pacing_selected=['network pacing selected pacing_bps=30000000'])
         self.assertEqual(self.failed(self.judge2('hz-r1000-hevc-20', [old] * 2, [slower] * 2)), ['pacing'])
 
+    def test_a_candidate_without_the_pacing_series_fails_against_a_baseline_with_it(self):
+        lost = self.run_dict()
+        del lost['pacing_kbps_series']
+        a = [self.run_dict()] * 2
+        row = self.judge2('hz-r1000-hevc-20', a, [lost] * 2)
+        self.assertFalse(row['pacing_equal'])
+        self.assertEqual(self.failed(row), ['pacing'])
+
     def test_a_field_new_on_one_side_of_the_pacing_line_is_not_a_difference(self):
         old = 'network pacing selected pacing_bps=800000000 wire_budget_bps=20173441 link_bps=2500000000 configured_kbps=0'
         new = 'network pacing selected pacing_bps=800000000 wire_budget_bps=20173441 link_bps=2500000000 client_link_mbps=0 configured_kbps=0'

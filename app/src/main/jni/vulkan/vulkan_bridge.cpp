@@ -18,17 +18,11 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeProbe(JNIEnv*, jclas
     return VulkanRenderer::probe() ? JNI_TRUE : JNI_FALSE;
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_limelight_binding_video_VulkanRendererBridge_nativeProbePyrowave(JNIEnv*, jclass) {
-    return VulkanRenderer::probePyrowave() ? JNI_TRUE : JNI_FALSE;
-}
-
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeCreate(
         JNIEnv* env, jclass, jobject outputSurface, jint streamWidth, jint streamHeight, jint streamFps,
         jint framePacing, jint jitterBuffer, jint ditherMode, jint colorspace, jboolean fullRange, jboolean tenBit,
-        jboolean pyrowave, jboolean pyrowaveCenterChroma, jint pyrowaveLateFrames, jfloat displayRefreshHz,
-        jstring codec, jstring decoderName, jstring traceDirectory, jboolean frontBuffer, jboolean pyrowaveGpuBoost) {
+        jfloat displayRefreshHz, jstring codec, jstring decoderName, jstring traceDirectory, jboolean frontBuffer) {
     ANativeWindow* output = ANativeWindow_fromSurface(env, outputSurface);
     if (!output) {
         return 0;
@@ -44,12 +38,8 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeCreate(
     config.colorspace = colorspace;
     config.fullRange = fullRange;
     config.tenBit = tenBit;
-    config.pyrowave = pyrowave;
-    config.pyrowaveCenterChroma = pyrowaveCenterChroma;
-    config.pyrowaveLateFrames = pyrowaveLateFrames;
     config.displayRefreshHz = displayRefreshHz;
     config.frontBuffer = frontBuffer;
-    config.pyrowaveGpuBoost = pyrowaveGpuBoost;
     auto toString = [env](jstring string) {
         std::string value;
         if (string) {
@@ -116,58 +106,6 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeSetVsyncOffset(JNIEn
     }
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_limelight_binding_video_VulkanRendererBridge_nativeSubmitPyrowaveFrame(
-        JNIEnv* env, jclass, jlong handle, jbyteArray data, jint length, jlong hostPtsUs, jlong lastPacketUs,
-        jintArray missingRanges, jintArray recordStartOffsets, jint partialKind) {
-    VulkanRenderer* renderer = fromHandle(handle);
-    if (!renderer || length <= 0) {
-        return JNI_FALSE;
-    }
-
-    // Copied out rather than held with critical access, since the decode can wait on the GPU. A
-    // frame is at most a few MB, so the copy is cheap next to the decode.
-    static thread_local std::vector<uint8_t> frame;
-    frame.resize(static_cast<size_t>(length));
-    env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte*>(frame.data()));
-    if (env->ExceptionCheck()) {
-        return JNI_FALSE;
-    }
-    // Offset and length pairs of the parts of a partial frame that didn't arrive
-    static thread_local std::vector<vkr::PyrowaveDecoder::Gap> gaps;
-    gaps.clear();
-    if (missingRanges) {
-        const jsize count = env->GetArrayLength(missingRanges) / 2;
-        std::vector<jint> ranges(static_cast<size_t>(count) * 2);
-        env->GetIntArrayRegion(missingRanges, 0, count * 2, ranges.data());
-        for (jsize i = 0; i < count; i++) {
-            if (ranges[i * 2] >= 0 && ranges[i * 2 + 1] > 0) {
-                gaps.push_back({static_cast<size_t>(ranges[i * 2]), static_cast<size_t>(ranges[i * 2 + 1])});
-            }
-        }
-    }
-
-    // In record framing, the offsets where records start in it
-    static thread_local std::vector<size_t> recordStarts;
-    recordStarts.clear();
-    if (recordStartOffsets) {
-        const jsize count = env->GetArrayLength(recordStartOffsets);
-        std::vector<jint> offsets(static_cast<size_t>(count));
-        env->GetIntArrayRegion(recordStartOffsets, 0, count, offsets.data());
-        for (jint offset : offsets) {
-            if (offset >= 0) {
-                recordStarts.push_back(static_cast<size_t>(offset));
-            }
-        }
-    }
-
-    return renderer->submitPyrowaveFrame(frame.data(), frame.size(), gaps.data(), gaps.size(),
-                                         recordStartOffsets ? &recordStarts : nullptr,
-                                         static_cast<vkr::PyrowaveDecoder::Partial>(partialKind), hostPtsUs * 1000,
-                                         lastPacketUs)
-           ? JNI_TRUE : JNI_FALSE;
-}
-
 extern "C" JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeNoteReceived(
         JNIEnv*, jclass, jlong handle, jlong hostPtsUs, jlong receiveUs, jlong enqueueUs, jchar hostProcessingLatency) {
@@ -209,12 +147,6 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeTakeCaptureLatency(J
             latency.presented.totalNs, latency.presented.frames, latency.presented.unsynced,
     };
     env->SetLongArrayRegion(out, 0, 6, values);
-}
-
-extern "C" JNIEXPORT jlong JNICALL
-Java_com_limelight_binding_video_VulkanRendererBridge_nativeTakeDecodedNs(JNIEnv*, jclass, jlong handle) {
-    VulkanRenderer* renderer = fromHandle(handle);
-    return renderer ? static_cast<jlong>(renderer->takeDecodedNs()) : 0;
 }
 
 extern "C" JNIEXPORT jstring JNICALL

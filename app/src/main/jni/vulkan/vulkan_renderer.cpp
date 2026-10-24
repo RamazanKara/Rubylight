@@ -35,7 +35,7 @@ namespace {
         float uvClamp[4];
         float params[4];
         float params2[4];
-        float ycbcr[4];
+        float ycbcr[4];  // Unused: the shaders keep the layout from when PyroWave shared them
     };
 
     constexpr float kOutputPassthrough = 0.0f;
@@ -130,9 +130,6 @@ namespace {
         VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
     };
 
-    // The newest Vulkan a PyroWave instance and device use, where they have it
-    constexpr uint32_t kPyrowaveApiVersion = VK_API_VERSION_1_3;
-
     // Checks the parts of a physical device we can't run without
     bool deviceIsSuitable(VkApi& vk, VkPhysicalDevice device) {
         VkPhysicalDeviceProperties props;
@@ -177,17 +174,13 @@ bool VulkanRenderer::ConversionKey::operator==(const ConversionKey& other) const
            filter == other.filter;
 }
 
-VkInstance VulkanRenderer::createVkInstance(VkApi& vk, bool pyrowave, bool* hasColorspaceExt, InstanceSetup& setup,
+VkInstance VulkanRenderer::createVkInstance(VkApi& vk, bool* hasColorspaceExt, InstanceSetup& setup,
                                             bool frontBuffer) {
     uint32_t version = 0;
     if (vk.vkEnumerateInstanceVersion(&version) != VK_SUCCESS || version < VK_API_VERSION_1_1) {
         ALOGI("Vulkan instance version too old");
         return VK_NULL_HANDLE;
     }
-    // PyroWave's Vulkan backend runs on 1.1 with extensions, and uses what's core up to 1.3
-    // where the device has it
-    const uint32_t apiVersion = pyrowave ? std::min(version, kPyrowaveApiVersion) : VK_API_VERSION_1_1;
-
     uint32_t count = 0;
     vk.vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
     std::vector<VkExtensionProperties> available(count);
@@ -216,7 +209,7 @@ VkInstance VulkanRenderer::createVkInstance(VkApi& vk, bool pyrowave, bool* hasC
 
     setup.app.pApplicationName = "Moonlight";
     setup.app.pEngineName = "Moonlight";
-    setup.app.apiVersion = apiVersion;
+    setup.app.apiVersion = VK_API_VERSION_1_1;
 
     setup.info.pApplicationInfo = &setup.app;
     setup.info.enabledExtensionCount = static_cast<uint32_t>(setup.extensions.size());
@@ -231,31 +224,10 @@ VkInstance VulkanRenderer::createVkInstance(VkApi& vk, bool pyrowave, bool* hasC
     return instance;
 }
 
-bool VulkanRenderer::prepareDevice(VkApi& vk, VkPhysicalDevice device, uint32_t queueFamily, bool pyrowave,
-                                   bool hdrMetadata, bool displayTiming, DeviceSetup& setup) {
-    uint32_t familyCount = 0;
-    vk.vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, nullptr);
-    std::vector<VkQueueFamilyProperties> families(familyCount);
-    vk.vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, families.data());
-
+void VulkanRenderer::prepareDevice(uint32_t queueFamily, bool hdrMetadata, bool displayTiming, DeviceSetup& setup) {
     setup.queue.queueFamilyIndex = queueFamily;
     setup.queue.queueCount = 1;
-    // To compare where PyroWave decodes: adb shell setprop debug.moonlight.pyrowave_queue low (its
-    // own queue below rendering, the default), equal (its own queue, same priority) or shared
-    // (rendering's queue). On a Pixel 10 Pro at 60 fps, a tenth of decodes take 10-16 ms instead
-    // of 6, in streaks of a few frames, whichever queue they're on; shared also showed a few
-    // times more frames late to the screen, a render waiting behind a decode.
-    char queueMode[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.moonlight.pyrowave_queue", queueMode);
-    if (pyrowave && strcmp(queueMode, "shared") != 0 && queueFamily < familyCount &&
-            families[queueFamily].queueCount >= 2) {
-        setup.queue.queueCount = 2;
-        setup.priorities[0] = strcmp(queueMode, "equal") == 0 ? 1.0f : 0.0f;
-    }
-    if (pyrowave && queueMode[0] != 0) {
-        ALOGI("PyroWave queue: %s was asked for", queueMode);
-    }
-    setup.queue.pQueuePriorities = setup.priorities;
+    setup.queue.pQueuePriorities = &setup.priority;
 
     setup.extensions.assign(std::begin(kRequiredDeviceExtensions), std::end(kRequiredDeviceExtensions));
     if (hdrMetadata) {
@@ -266,27 +238,12 @@ bool VulkanRenderer::prepareDevice(VkApi& vk, VkPhysicalDevice device, uint32_t 
         setup.extensions.push_back(VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME);
     }
 
-    if (pyrowave) {
-        // PyroWave sees what the device has enabled, so give it all the device supports
-        VkPhysicalDeviceProperties props;
-        vk.vkGetPhysicalDeviceProperties(device, &props);
-        if (!setup.pyrowave.query(vk, device, std::min(props.apiVersion, kPyrowaveApiVersion))) {
-            ALOGI("%s can't run PyroWave", props.deviceName);
-            return false;
-        }
-        setup.extensions.insert(setup.extensions.end(), setup.pyrowave.extensions.begin(),
-                                setup.pyrowave.extensions.end());
-        setup.info.pNext = &setup.pyrowave.features2;
-    }
-    else {
-        setup.ycbcr.samplerYcbcrConversion = VK_TRUE;
-        setup.info.pNext = &setup.ycbcr;
-    }
+    setup.ycbcr.samplerYcbcrConversion = VK_TRUE;
+    setup.info.pNext = &setup.ycbcr;
     setup.info.queueCreateInfoCount = 1;
     setup.info.pQueueCreateInfos = &setup.queue;
     setup.info.enabledExtensionCount = static_cast<uint32_t>(setup.extensions.size());
     setup.info.ppEnabledExtensionNames = setup.extensions.data();
-    return true;
 }
 
 bool VulkanRenderer::probe() {
@@ -301,7 +258,7 @@ bool VulkanRenderer::probe() {
 
     bool hasColorspaceExt = false;
     InstanceSetup setup;
-    VkInstance instance = createVkInstance(vk, false, &hasColorspaceExt, setup);
+    VkInstance instance = createVkInstance(vk, &hasColorspaceExt, setup);
     if (instance == VK_NULL_HANDLE) {
         return false;
     }
@@ -324,83 +281,6 @@ bool VulkanRenderer::probe() {
     return suitable;
 }
 
-bool VulkanRenderer::probePyrowave() {
-    VkApi vk;
-    if (!loadNdkApi() || !PyrowaveDecoder::loadLibrary() || !vk.loadGlobal()) {
-        return false;
-    }
-
-    bool hasColorspaceExt = false;
-    InstanceSetup instanceSetup;
-    VkInstance instance = createVkInstance(vk, true, &hasColorspaceExt, instanceSetup);
-    if (instance == VK_NULL_HANDLE) {
-        return false;
-    }
-
-    // Set PyroWave up on a device made as the renderer would make it, and have it make a
-    // decoder there. That's the only sure way to know it can run.
-    bool supported = false;
-    if (vk.loadInstance(instance)) {
-        uint32_t count = 0;
-        vk.vkEnumeratePhysicalDevices(instance, &count, nullptr);
-        std::vector<VkPhysicalDevice> devices(count);
-        vk.vkEnumeratePhysicalDevices(instance, &count, devices.data());
-        for (VkPhysicalDevice physicalDevice : devices) {
-            if (!deviceIsSuitable(vk, physicalDevice)) {
-                continue;
-            }
-
-            uint32_t familyCount = 0;
-            vk.vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, nullptr);
-            std::vector<VkQueueFamilyProperties> families(familyCount);
-            vk.vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, families.data());
-            uint32_t family = 0;
-            while (family < familyCount && !(families[family].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
-                family++;
-            }
-
-            DeviceSetup deviceSetup;
-            if (family == familyCount ||
-                    !prepareDevice(vk, physicalDevice, family, true, false, false, deviceSetup)) {
-                continue;
-            }
-            VkDevice device = VK_NULL_HANDLE;
-            if (vk.vkCreateDevice(physicalDevice, &deviceSetup.info, nullptr, &device) != VK_SUCCESS) {
-                continue;
-            }
-            if (vk.loadDevice(device)) {
-                std::mutex queueMutex;
-                PyrowaveDecoder::DeviceInfo info;
-                info.instance = instance;
-                info.physicalDevice = physicalDevice;
-                info.device = device;
-                info.instanceInfo = &instanceSetup.info;
-                info.deviceInfo = &deviceSetup.info;
-                vk.vkGetDeviceQueue(device, family, 0, &info.queue);
-                info.queueFamily = family;
-                info.queueMutex = &queueMutex;
-                info.timelineSemaphores = deviceSetup.pyrowave.timelineSemaphores;
-                supported = PyrowaveDecoder::create(vk, info, 64, 64, false) != nullptr;
-                vk.vkDeviceWaitIdle(device);
-                vk.vkDestroyDevice(device, nullptr);
-            }
-            else {
-                auto destroyDevice = reinterpret_cast<PFN_vkDestroyDevice>(
-                        vk.vkGetInstanceProcAddr(instance, "vkDestroyDevice"));
-                if (destroyDevice) {
-                    destroyDevice(device, nullptr);
-                }
-            }
-            if (supported) {
-                break;
-            }
-        }
-    }
-
-    vk.vkDestroyInstance(instance, nullptr);
-    return supported;
-}
-
 std::unique_ptr<VulkanRenderer> VulkanRenderer::create(ANativeWindow* output, const RendererConfig& config) {
     const NdkApi* ndk = loadNdkApi();
     if (!ndk) {
@@ -420,56 +300,7 @@ VulkanRenderer::VulkanRenderer(const NdkApi* ndk, const RendererConfig& config)
       pacer_(static_cast<PacingMode>(config.framePacing), config.streamFps,
              config.displayRefreshHz > 1.0f ? static_cast<int64_t>(1e9 / config.displayRefreshHz) : 16'666'667,
              static_cast<JitterBuffer>(config.jitterBuffer)) {
-    // The presets, from 144 fps lowest latency runs on a link the stream nearly filled. The
-    // margin covers frames that arrive late taking longer than most to decode: the frames
-    // around them are late too, so they wait behind them. Without one, four in ten frames cut
-    // were still late; 1 ms left one in eight, 2 ms with a 30% minimum one in a hundred, and
-    // each extra millisecond cut about a tenth more of the frames.
-    //
-    // The same trade applies to frames that lost packets: shown blurrier with less of them, or
-    // dropped, which on a link that lost about a frame in 130 (a Pixel 10 Pro at 60 fps) was
-    // about half of its stutters. Off and Sharper keep PyroWave's default of nine tenths.
-    switch (config.pyrowaveLateFrames) {
-    case 0:  // Off
-        partialEnabled_ = false;
-        lostFrameMinPercent_ = 90;
-        break;
-    case 1:  // Sharper
-        partialMinPercent_ = 50;
-        partialMarginNs_ = 1'000'000;
-        lostFrameMinPercent_ = 90;
-        break;
-    case 3:  // Smoother
-        partialMinPercent_ = 25;
-        partialMarginNs_ = 3'000'000;
-        lostFrameMinPercent_ = 50;
-        break;
-    case 4:  // Smoothest: any frame with its coarsest levels is shown, however blurred, and
-             // frames are cut early enough to cover most of a slow decode
-        partialMinPercent_ = 10;
-        partialMarginNs_ = 5'000'000;
-        lostFrameMinPercent_ = 0;
-        break;
-    default:  // Balanced
-        partialMinPercent_ = 30;
-        partialMarginNs_ = 2'000'000;
-        lostFrameMinPercent_ = 75;
-        break;
-    }
-
     char value[PROP_VALUE_MAX] = {};
-    if (__system_property_get("debug.moonlight.partial", value) > 0) {
-        partialEnabled_ = atoi(value) != 0;
-    }
-    if (__system_property_get("debug.moonlight.partial_min_pct", value) > 0) {
-        partialMinPercent_ = std::clamp(atoi(value), 0, 100);
-    }
-    if (__system_property_get("debug.moonlight.partial_margin_us", value) > 0) {
-        partialMarginNs_ = static_cast<int64_t>(std::clamp(atoi(value), -20000, 20000)) * 1000;
-    }
-    if (__system_property_get("debug.moonlight.partial_lost_pct", value) > 0) {
-        lostFrameMinPercent_ = std::clamp(atoi(value), 0, 100);
-    }
     // The setting asks for a front buffer aligned to the scan; to force a mode either way,
     // adb shell setprop debug.moonlight.front_buffer 0 (off), 1 (drawn on arrival, tearing) or 2.
     // The setting only takes it for host frame timing, which paces the front buffer's draws, and
@@ -482,29 +313,11 @@ VulkanRenderer::VulkanRenderer(const NdkApi* ndk, const RendererConfig& config)
         frontBufferRequested_ = atoi(value) != 0;
         frontBufferAligned_ = atoi(value) == 2;
     }
-    // PyroWave decodes on a device of its own with a front buffer, which needs the draws to
-    // interrupt them; adb shell setprop debug.moonlight.pyrowave_device own (always) or shared
-    // (never) to choose
-    pyrowaveOwnDeviceRequested_ = frontBufferRequested_;
-    if (__system_property_get("debug.moonlight.pyrowave_device", value) > 0) {
-        if (strcmp(value, "own") == 0) {
-            pyrowaveOwnDeviceRequested_ = true;
-        }
-        else if (strcmp(value, "shared") == 0) {
-            pyrowaveOwnDeviceRequested_ = false;
-        }
-    }
     if (frontBufferAligned_ && __system_property_get("debug.moonlight.front_buffer_lead_us", value) > 0) {
         fixedAlignedLeadNs_ = static_cast<int64_t>(std::clamp(atoi(value), 0, 20000)) * 1000;
     }
     if (frontBufferRequested_) {
         ALOGI("Front buffer asked for%s", frontBufferAligned_ ? ", aligned to the scan" : "");
-    }
-    ALOGI("PyroWave frames that lost packets shown with at least %d%% of their blocks", lostFrameMinPercent_);
-    ALOGI("Late PyroWave frames cut short: %s", partialEnabled_ ? "on" : "off");
-    if (partialEnabled_) {
-        ALOGI("Cut with %d%% of their packets in, %lld us margin", partialMinPercent_,
-              static_cast<long long>(partialMarginNs_ / 1000));
     }
 }
 
@@ -543,34 +356,8 @@ bool VulkanRenderer::init(ANativeWindow* output) {
         }
     }
 
-    if (config_.pyrowave ? !createPyrowaveDecoder() : !createImageReader()) {
+    if (!createImageReader()) {
         return false;
-    }
-
-    // Work for the GPU between PyroWave decodes, so it keeps its clock up (GpuKeepBusy), with the
-    // PyroWave GPU boost setting. To switch it on or off whatever the setting says:
-    // adb shell setprop debug.moonlight.gpu_keep_busy 1 (or 0). Each piece of it takes about
-    // adb shell setprop debug.moonlight.gpu_keep_busy_chunk_us 500, with
-    // adb shell setprop debug.moonlight.gpu_keep_busy_groups 4 workgroups.
-    if (config_.pyrowave) {
-        char value[PROP_VALUE_MAX] = {};
-        bool keepBusy = config_.pyrowaveGpuBoost;
-        if (__system_property_get("debug.moonlight.gpu_keep_busy", value) > 0) {
-            keepBusy = atoi(value) != 0;
-            ALOGI("GPU keep-busy %s was asked for", keepBusy ? "on" : "off");
-        }
-        if (keepBusy) {
-            int64_t chunkNs = 500'000;
-            if (__system_property_get("debug.moonlight.gpu_keep_busy_chunk_us", value) > 0 && atoi(value) > 0) {
-                chunkNs = static_cast<int64_t>(std::clamp(atoi(value), 100, 5000)) * 1000;
-            }
-            uint32_t groups = 4;
-            if (__system_property_get("debug.moonlight.gpu_keep_busy_groups", value) > 0 && atoi(value) > 0) {
-                groups = static_cast<uint32_t>(std::clamp(atoi(value), 1, 1024));
-            }
-            keepBusyGroups_ = keepBusy_.start(vk_, instance_, physicalDevice_, queueFamily_, globalPriorityExt_, chunkNs,
-                                           groups) ? groups : 0;
-        }
     }
 
     // To try a present delay or guard rather than the ones learned (PresentScheduler):
@@ -604,11 +391,11 @@ bool VulkanRenderer::init(ANativeWindow* output) {
     char configuration[512];
     snprintf(configuration, sizeof(configuration),
              "mode=%d,jitterBuffer=%d,presentAhead=%d,streamFps=%d,width=%d,height=%d,periodNs=%lld,refreshHz=%.3f,tenBit=%d,dither=%d,"
-             "perfHintUs=%lld,gpuPriority=%s,gpuKeepBusy=%u,keepAliveMs=%lld,codec=%s,decoder=%s",
+             "perfHintUs=%lld,gpuPriority=%s,keepAliveMs=%lld,codec=%s,decoder=%s",
              config_.framePacing, config_.jitterBuffer, presentAhead_ ? 1 : 0, config_.streamFps, config_.streamWidth, config_.streamHeight,
              static_cast<long long>(pacer_.vsyncPeriodNs()), config_.displayRefreshHz, config_.tenBit ? 1 : 0,
              config_.ditherMode, static_cast<long long>(perfHintTargetNs / 1000), highPriorityQueue_ ? "high" : "default",
-             keepBusyGroups_, static_cast<long long>(keepAliveNs_ / 1'000'000), config_.codec.c_str(), config_.decoderName.c_str());
+             static_cast<long long>(keepAliveNs_ / 1'000'000), config_.codec.c_str(), config_.decoderName.c_str());
     trace_.start(config_.traceDirectory, configuration);
     traceRecording_ = trace_.recording();
 
@@ -631,7 +418,7 @@ bool VulkanRenderer::init(ANativeWindow* output) {
 }
 
 bool VulkanRenderer::createInstance() {
-    instance_ = createVkInstance(vk_, config_.pyrowave, &hasColorspaceExt_, instanceSetup_, frontBufferRequested_);
+    instance_ = createVkInstance(vk_, &hasColorspaceExt_, instanceSetup_, frontBufferRequested_);
     if (instance_ == VK_NULL_HANDLE || !vk_.loadInstance(instance_)) {
         return false;
     }
@@ -674,7 +461,6 @@ bool VulkanRenderer::pickDevice() {
                 vk_.vkEnumerateDeviceExtensionProperties(device, nullptr, &extCount, extensions.data());
                 hasHdrMetadataExt_ = hasExtension(extensions, VK_EXT_HDR_METADATA_EXTENSION_NAME);
                 hasDisplayTimingExt_ = hasExtension(extensions, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME);
-                hasExternalMemoryFdExt_ = hasExtension(extensions, VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
                 hasSharedPresentExt_ = frontBufferRequested_ &&
                         hasExtension(extensions, VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME) &&
                         std::any_of(instanceSetup_.extensions.begin(), instanceSetup_.extensions.end(), [](const char* name) {
@@ -702,10 +488,7 @@ bool VulkanRenderer::pickDevice() {
 }
 
 bool VulkanRenderer::createDevice() {
-    if (!prepareDevice(vk_, physicalDevice_, queueFamily_, config_.pyrowave, hasHdrMetadataExt_, hasDisplayTimingExt_,
-                       deviceSetup_)) {
-        return false;
-    }
+    prepareDevice(queueFamily_, hasHdrMetadataExt_, hasDisplayTimingExt_, deviceSetup_);
     // Before the global priority extension, which is taken off the end if refused
     if (hasSharedPresentExt_) {
         deviceSetup_.extensions.push_back(VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME);
@@ -716,33 +499,13 @@ bool VulkanRenderer::createDevice() {
         ALOGW("Front buffer asked for, but the device has no shared presentable images");
     }
 
-    // PyroWave on a device of its own: this one only renders, on one queue, and imports the
-    // planes' memory
-    const bool ownDecodeDevice = config_.pyrowave && pyrowaveOwnDeviceRequested_ && hasExternalMemoryFdExt_;
-    if (config_.pyrowave && pyrowaveOwnDeviceRequested_ && !hasExternalMemoryFdExt_) {
-        ALOGW("PyroWave on its own device asked for, but the device can't share memory between devices");
-    }
-    if (ownDecodeDevice) {
-        deviceSetup_.queue.queueCount = 1;
-        deviceSetup_.priorities[0] = 1.0f;
-        deviceSetup_.extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
-        deviceSetup_.info.enabledExtensionCount = static_cast<uint32_t>(deviceSetup_.extensions.size());
-        deviceSetup_.info.ppEnabledExtensionNames = deviceSetup_.extensions.data();
-    }
-
     // Our queues at high global priority, so the GPU runs a render (one small draw, due at a
     // vsync) ahead of other apps' work, and can preempt it. Android only lets some apps have
     // it, and a driver refuses the device when it won't, so it's tried and dropped if refused.
-    // Not for PyroWave, whose decodes share the queue family and so the priority: they keep the
-    // GPU busy most of each frame, and ahead of the compositor's own GPU work they held up the
-    // screen. On an iPlay 70 mini Ultra at 500 Mbps and 144 fps, about one in ten wake-ups from
-    // the host's idle desktop left the screen unchanged for 80 ms; at the default priority, none
-    // in 36. With PyroWave on a device of its own, the decodes stay at the default priority.
-    // To choose: adb shell setprop debug.moonlight.gpu_priority default (never) or high (always)
+    // To switch it off: adb shell setprop debug.moonlight.gpu_priority default
     char priorityMode[PROP_VALUE_MAX] = {};
     __system_property_get("debug.moonlight.gpu_priority", priorityMode);
-    const bool tryHighPriority = globalPriorityExt_ && strcmp(priorityMode, "default") != 0 &&
-            (!config_.pyrowave || ownDecodeDevice || strcmp(priorityMode, "high") == 0);
+    const bool tryHighPriority = globalPriorityExt_ && strcmp(priorityMode, "default") != 0;
     if (tryHighPriority) {
         deviceSetup_.globalPriority.globalPriority = VK_QUEUE_GLOBAL_PRIORITY_HIGH_KHR;
         deviceSetup_.queue.pNext = &deviceSetup_.globalPriority;
@@ -785,48 +548,8 @@ bool VulkanRenderer::createDevice() {
         hasDisplayTimingExt_ = false;
     }
 
-    if (deviceSetup_.queue.queueCount >= 2) {
-        vk_.vkGetDeviceQueue(device_, queueFamily_, 0, &decodeQueue_);
-        vk_.vkGetDeviceQueue(device_, queueFamily_, 1, &queue_);
-    }
-    else {
-        vk_.vkGetDeviceQueue(device_, queueFamily_, 0, &queue_);
-    }
-    if (ownDecodeDevice) {
-        createDecodeDevice();
-    }
+    vk_.vkGetDeviceQueue(device_, queueFamily_, 0, &queue_);
     return true;
-}
-
-void VulkanRenderer::createDecodeDevice() {
-    // As PyroWave's share of our device would be, on one queue at the default priority
-    if (!prepareDevice(vk_, physicalDevice_, queueFamily_, true, false, false, decodeDeviceSetup_)) {
-        return;
-    }
-    decodeDeviceSetup_.queue.queueCount = 1;
-    decodeDeviceSetup_.priorities[0] = 1.0f;
-    decodeDeviceSetup_.extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
-    decodeDeviceSetup_.info.enabledExtensionCount = static_cast<uint32_t>(decodeDeviceSetup_.extensions.size());
-    decodeDeviceSetup_.info.ppEnabledExtensionNames = decodeDeviceSetup_.extensions.data();
-
-    VkDevice device = VK_NULL_HANDLE;
-    const VkResult result = vk_.vkCreateDevice(physicalDevice_, &decodeDeviceSetup_.info, nullptr, &device);
-    if (result != VK_SUCCESS) {
-        ALOGW("Couldn't make a device for PyroWave to decode on (%d); decoding on the render device's queue", result);
-        return;
-    }
-    decodeVk_ = vk_;
-    if (!decodeVk_.loadDevice(device)) {
-        auto destroyDevice = reinterpret_cast<PFN_vkDestroyDevice>(vk_.vkGetInstanceProcAddr(instance_, "vkDestroyDevice"));
-        if (destroyDevice) {
-            destroyDevice(device, nullptr);
-        }
-        return;
-    }
-    decodeDevice_ = device;
-    decodeVk_.vkGetDeviceQueue(decodeDevice_, queueFamily_, 0, &decodeDeviceQueue_);
-    ALOGI("PyroWave decodes on a device of its own, at the default GPU priority; rendering at %s",
-          highPriorityQueue_ ? "high priority" : "the default priority");
 }
 
 bool VulkanRenderer::createFrameResources() {
@@ -869,114 +592,7 @@ bool VulkanRenderer::createShaderModules() {
     if (vk_.vkCreateShaderModule(device_, &info, nullptr, &fragShader_) != VK_SUCCESS) {
         return false;
     }
-    if (config_.pyrowave) {
-        info.codeSize = sizeof(kVideoPlanarFragSpv);
-        info.pCode = kVideoPlanarFragSpv;
-        if (vk_.vkCreateShaderModule(device_, &info, nullptr, &planarFragShader_) != VK_SUCCESS) {
-            return false;
-        }
-    }
     return true;
-}
-
-bool VulkanRenderer::createPyrowaveDecoder() {
-    PyrowaveDecoder::DeviceInfo info;
-    info.instance = instance_;
-    info.physicalDevice = physicalDevice_;
-    info.device = device_;
-    info.instanceInfo = &instanceSetup_.info;
-    info.deviceInfo = &deviceSetup_.info;
-    info.queue = decodeQueue_ ? decodeQueue_ : queue_;
-    info.queueFamily = queueFamily_;
-    info.queueMutex = &queueMutex_;
-    info.timestampValidBits = timestampValidBits_;
-    info.timestampPeriodNs = timestampPeriodNs_;
-    info.timelineSemaphores = deviceSetup_.pyrowave.timelineSemaphores;
-    if (decodeDevice_) {
-        info.device = decodeDevice_;
-        info.deviceInfo = &decodeDeviceSetup_.info;
-        info.queue = decodeDeviceQueue_;
-        info.queueMutex = &decodeDeviceQueueMutex_;
-        info.renderDevice = device_;
-        info.renderVk = &vk_;
-    }
-    else if (decodeQueue_) {
-        ALOGI("PyroWave decodes on its own queue, %s rendering",
-              deviceSetup_.priorities[0] < deviceSetup_.priorities[1] ? "below" : "level with");
-    }
-    pyrowave_ = PyrowaveDecoder::create(decodeDevice_ ? decodeVk_ : vk_, info, config_.streamWidth,
-                                        config_.streamHeight, config_.tenBit);
-    if (!pyrowave_) {
-        return false;
-    }
-    pyrowave_->setLostFrameMinBlocks(lostFrameMinPercent_ / 100.0f);
-
-    const VkDescriptorSetLayout setLayout = pyrowave_->setLayout();
-    VkPushConstantRange range {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants)};
-    VkPipelineLayoutCreateInfo layoutInfo {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    layoutInfo.setLayoutCount = 1;
-    layoutInfo.pSetLayouts = &setLayout;
-    layoutInfo.pushConstantRangeCount = 1;
-    layoutInfo.pPushConstantRanges = &range;
-    if (vk_.vkCreatePipelineLayout(device_, &layoutInfo, nullptr, &planarPipelineLayout_) != VK_SUCCESS) {
-        return false;
-    }
-
-    pyrowaveWaiter_ = std::thread(&VulkanRenderer::pyrowaveWaiterMain, this);
-    return true;
-}
-
-void VulkanRenderer::pyrowaveWaiterMain() {
-    // Frames are timed from here, as they are on the image reader's thread
-    raiseThreadPriority("PyroWave wait");
-    perfHint_.addThread();
-
-    for (;;) {
-        FramePtr frame;
-        {
-            std::unique_lock<std::mutex> lock(decodingMutex_);
-            decodingCv_.wait(lock, [this] { return decodingQuit_ || !decoding_.empty(); });
-            if (decodingQuit_) {
-                return;
-            }
-            frame = std::move(decoding_.front());
-            decoding_.pop_front();
-        }
-
-        const VkResult result = pyrowave_->waitDecoded(frame->readyValue, kFenceTimeoutNs);
-        if (result != VK_SUCCESS) {
-            ALOGE("PyroWave decode didn't finish: %d", result);
-            continue;
-        }
-
-        frame->timing.arrivalNs = nowNs();
-
-        // What decoding took, without the waits: the CPU's share of it, then its run on the GPU.
-        // A decode can start on the GPU before the one before ends, so its run is counted from
-        // then. Untimed on the GPU, it's until the decode was done, waits and all.
-        int64_t gpuStartNs = 0;
-        int64_t gpuEndNs = 0;
-        if (!pyrowave_->gpuTimes(frame->readyValue, &gpuStartNs, &gpuEndNs) || gpuEndNs < gpuStartNs) {
-            gpuStartNs = 0;
-            gpuEndNs = 0;
-        }
-        const int64_t cpuNs = frame->decodeQueuedNs - frame->decodeStartNs - frame->decodeTimes.waitedNs;
-        if (gpuEndNs != 0) {
-            const int64_t runStartNs = std::max(gpuStartNs, lastDecodeGpuEndNs_);
-            decodedNs_ += cpuNs + std::max<int64_t>(gpuEndNs - runStartNs, 0);
-            lastDecodeGpuEndNs_ = std::max(gpuEndNs, lastDecodeGpuEndNs_);
-        }
-        else {
-            decodedNs_ += frame->timing.arrivalNs - frame->decodeStartNs;
-        }
-        // Without a trace, this needn't hold up the render thread
-        if (traceRecording_.load(std::memory_order_relaxed)) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            trace_.decoded(frame->timing.hostPtsNs, frame->decodeStartNs, frame->decodeQueuedNs,
-                           frame->timing.arrivalNs, frame->decodeTimes, gpuStartNs, gpuEndNs);
-        }
-        enqueueFrame(std::move(frame));
-    }
 }
 
 void VulkanRenderer::waitIdle() {
@@ -1007,16 +623,6 @@ bool VulkanRenderer::createImageReader() {
 VulkanRenderer::~VulkanRenderer() {
     stop();
 
-    if (pyrowaveWaiter_.joinable()) {
-        {
-            std::lock_guard<std::mutex> lock(decodingMutex_);
-            decodingQuit_ = true;
-        }
-        decodingCv_.notify_one();
-        pyrowaveWaiter_.join();
-        decoding_.clear();
-    }
-
     if (reader_) {
         ndk_->AImageReader_setImageListener(reader_, nullptr);
     }
@@ -1040,14 +646,6 @@ VulkanRenderer::~VulkanRenderer() {
     }
 
     if (device_) {
-        // Every frame has given its planes back
-        pyrowave_.reset();
-        if (decodeDevice_) {
-            decodeVk_.vkDestroyDevice(decodeDevice_, nullptr);
-            decodeDevice_ = VK_NULL_HANDLE;
-        }
-        if (planarPipelineLayout_) vk_.vkDestroyPipelineLayout(device_, planarPipelineLayout_, nullptr);
-        if (planarFragShader_) vk_.vkDestroyShaderModule(device_, planarFragShader_, nullptr);
         destroyConversion();
         for (int i = 0; i < kFramesInFlight; i++) {
             if (fences_[i]) vk_.vkDestroyFence(device_, fences_[i], nullptr);
@@ -1078,8 +676,6 @@ void VulkanRenderer::stop() {
         return;
     }
     stopped_ = true;
-
-    keepBusy_.stop();
 
     if (renderThread_.joinable()) {
         quit_ = true;
@@ -1169,11 +765,7 @@ void VulkanRenderer::setJitterBuffer(JitterBuffer jitterBuffer) {
 std::string VulkanRenderer::rendererText() {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    std::string text = "Vulkan " + outputDescription_;
-    if (pyrowave_) {
-        text += pyrowave_->fragmentPath() ? ", fragment path" : ", compute path";
-    }
-    return text;
+    return "Vulkan " + outputDescription_;
 }
 
 std::string VulkanRenderer::pacingText() {
@@ -1300,67 +892,6 @@ void VulkanRenderer::onImageAvailable() {
     }
 }
 
-bool VulkanRenderer::submitPyrowaveFrame(const uint8_t* data, size_t size, const PyrowaveDecoder::Gap* gaps,
-                                         size_t gapCount, const std::vector<size_t>* recordStarts,
-                                         PyrowaveDecoder::Partial partial, int64_t hostPtsNs, int64_t lastPacketUs) {
-    // Frames queue up behind this thread, so it gets the render thread's priority
-    static thread_local bool prioritized = false;
-    if (!prioritized) {
-        prioritized = true;
-        raiseThreadPriority("PyroWave decode");
-    }
-    if (pyrowaveDecodeTid_.exchange(gettid()) != gettid()) {
-        perfHint_.addThread();
-    }
-    const int64_t startNs = nowNs();
-    if (!pyrowave_) {
-        return false;
-    }
-    bool deadlineEnabled;
-    int64_t deadlineOffsetUs;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (closing_) {
-            return false;
-        }
-        deadlineEnabled = partialDeadlineEnabled_;
-        deadlineOffsetUs = partialDeadlineOffsetUs_;
-        if (partial != PyrowaveDecoder::Partial::None) {
-            trace_.partial(hostPtsNs, static_cast<int>(partial));
-        }
-    }
-    if (deadlineEnabled != partialDeadlineSent_ || (deadlineEnabled && deadlineOffsetUs != partialDeadlineSentUs_)) {
-        LiSetPartialFrameDeadline(deadlineEnabled, deadlineOffsetUs, partialMinPercent_);
-        partialDeadlineSent_ = deadlineEnabled;
-        partialDeadlineSentUs_ = deadlineOffsetUs;
-    }
-
-    uint64_t readyValue = 0;
-    PyrowaveDecoder::DecodeTimes times;
-    PyrowavePlanes* planes = pyrowave_->decode(data, size, gaps, gapCount, recordStarts, partial,
-                                               &readyValue, &times);
-    if (!planes) {
-        return false;
-    }
-
-    // The decode is only queued on the GPU. The waiting thread passes the frame on once it's done.
-    auto frame = std::make_shared<VideoFrame>(pyrowave_.get(), planes, readyValue);
-    frame->timing.hostPtsNs = hostPtsNs;
-    frame->decodeStartNs = startNs;
-    frame->decodeQueuedNs = nowNs();
-    frame->decodeTimes = times;
-    frame->lastPacketUs = lastPacketUs;
-    {
-        std::lock_guard<std::mutex> lock(decodingMutex_);
-        if (decodingQuit_) {
-            return false;
-        }
-        decoding_.push_back(std::move(frame));
-    }
-    decodingCv_.notify_one();
-    return true;
-}
-
 void VulkanRenderer::enqueueFrame(FramePtr frame) {
     noteDecoded(*frame);
 
@@ -1371,9 +902,6 @@ void VulkanRenderer::enqueueFrame(FramePtr frame) {
             return;
         }
         pacer_.onFrameArrived(frame->timing);
-        if (frame->lastPacketUs != 0) {
-            updatePartialDeadline(*frame);
-        }
         trace_.frame(frame->timing, pending_.size() + 1, queueOverflowDrops_);
         pending_.push_back(std::move(frame));
         while (pending_.size() > pacer_.maxQueued()) {
@@ -1396,30 +924,6 @@ void VulkanRenderer::enqueueFrame(FramePtr frame) {
         wake(kWakeFrame);
     }
     // Frames in `dropped` are released here, outside the lock
-}
-
-// A frame still arriving when it should be ready to show is cut short then, rather than shown a
-// vsync late: PyroWave sends the coarsest detail first, so it's missing only its finest. On a
-// link the stream nearly fills, the last packets of some frames come late even though their
-// first come on time. The deadline is the frame's due time less how long frames take from their
-// last packet to being decoded (FramePacer::partialDeadlineOffsetNs()). Under mutex_.
-void VulkanRenderer::updatePartialDeadline(const VideoFrame& frame) {
-    // moonlight-common-c's clock is CLOCK_MONOTONIC_RAW, which runs a little apart from ours
-    const int64_t commonToLocalNs = nowNs() - static_cast<int64_t>(LiGetMicroseconds()) * 1000;
-    const int64_t lastPacketNs = frame.lastPacketUs * 1000 + commonToLocalNs;
-    if (frame.timing.arrivalNs >= lastPacketNs) {
-        pacer_.addReadyCost(frame.timing.arrivalNs - lastPacketNs);
-    }
-
-    int64_t offsetNs, readyByNs, readyCostNs;
-    partialDeadlineEnabled_ = partialEnabled_ &&
-            pacer_.partialDeadlineOffsetNs(frame.timing, &offsetNs, &readyByNs, &readyCostNs);
-    if (partialDeadlineEnabled_) {
-        // Host timestamps are the same on both sides; the deadline is on moonlight-common-c's clock
-        partialDeadlineOffsetUs_ = (offsetNs - partialMarginNs_ - commonToLocalNs) / 1000;
-        trace_.partialDeadline(frame.timing.hostPtsNs, readyByNs, readyCostNs, commonToLocalNs,
-                               partialDeadlineOffsetUs_);
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1861,19 +1365,10 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
         return false;
     }
 
-    // A PyroWave frame's planes, or MediaCodec's buffer imported into Vulkan
-    const bool planar = frame->planes != nullptr;
-    ImportedBuffer* imported = nullptr;
-    if (planar) {
-        if (!ensurePlanarPipeline()) {
-            return false;
-        }
-    }
-    else {
-        imported = importBuffer(frame->buffer);
-        if (!imported || !ensurePipeline()) {
-            return false;
-        }
+    // MediaCodec's buffer, imported into Vulkan
+    ImportedBuffer* imported = importBuffer(frame->buffer);
+    if (!imported || !ensurePipeline()) {
+        return false;
     }
 
     const int slot = static_cast<int>(frameCounter_ % kFramesInFlight);
@@ -1931,8 +1426,8 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
 
     // Where the picture is within the buffer, which the decoder may pad
     PushConstants pc {};
-    const uint32_t width = planar ? pyrowave_->width() : imported->width;
-    const uint32_t height = planar ? pyrowave_->height() : imported->height;
+    const uint32_t width = imported->width;
+    const uint32_t height = imported->height;
     const float bufferWidth = static_cast<float>(width);
     const float bufferHeight = static_cast<float>(height);
     AImageCropRect crop = frame->crop;
@@ -1969,17 +1464,6 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     pc.params[3] = contentPeakNits;
     pc.params2[0] = kSdrWhiteNits;
     pc.params2[1] = static_cast<float>(std::max(quarterTurns(preTransform_), 0));
-    if (planar) {
-        // PyroWave is always full range, in the colorspace we asked for, or BT.2020 for HDR
-        const int colorspace = hdrActive_ ? 2 : config_.colorspace;
-        pc.ycbcr[0] = colorspace == 0 ? 0.299f : colorspace == 2 ? 0.2627f : 0.2126f;
-        pc.ycbcr[1] = colorspace == 0 ? 0.114f : colorspace == 2 ? 0.0593f : 0.0722f;
-        // Gray chroma as the host's 8-bit UNORM target stores it; 16-bit is as good as 0.5
-        pc.ycbcr[2] = pyrowave_->tenBit() ? 0.5f : 128.0f / 255.0f;
-        // This fork's Sunshine sites chroma with the left luma sample of each pair (MPEG-2
-        // style); the nonary host sites it at the center of each 2x2 quad
-        pc.ycbcr[3] = config_.pyrowaveCenterChroma ? 0.0f : 0.5f / bufferWidth;
-    }
 
     VkCommandBuffer cmd = commandBuffers_[slot];
     vk_.vkResetCommandBuffer(cmd, 0);
@@ -1993,50 +1477,18 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
         vk_.vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool_, kTimestampsPerFrame * slot);
     }
 
-    // Take the decoder's buffer from the foreign (non-Vulkan) queue family. PyroWave's planes
-    // are ours and stay in GENERAL, and the wait for their decode makes its writes visible.
+    // Take the decoder's buffer from the foreign (non-Vulkan) queue family
     VkImageMemoryBarrier acquire {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    if (!planar) {
-        acquire.srcAccessMask = 0;
-        acquire.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        acquire.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        acquire.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        acquire.srcQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
-        acquire.dstQueueFamilyIndex = queueFamily_;
-        acquire.image = imported->image;
-        acquire.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vk_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                 0, 0, nullptr, 0, nullptr, 1, &acquire);
-    }
-    // PyroWave decoding on a device of its own: its planes from that device, whose decode into
-    // them was done before the frame was passed on
-    const bool ownDecodeDevice = planar && pyrowave_->ownDevice();
-    VkImageMemoryBarrier planeBarriers[3] {};
-    if (ownDecodeDevice) {
-        for (int i = 0; i < 3; i++) {
-            planeBarriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            planeBarriers[i].srcAccessMask = 0;
-            planeBarriers[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            planeBarriers[i].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-            planeBarriers[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-            planeBarriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
-            planeBarriers[i].dstQueueFamilyIndex = queueFamily_;
-            planeBarriers[i].image = frame->planes->renderImages[i];
-            planeBarriers[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        }
-        vk_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                 0, 0, nullptr, 0, nullptr, 3, planeBarriers);
-    }
-    // Without timeline semaphores, nothing below waits for the decode on the GPU: it was waited
-    // for on its fence before the frame got here, and this makes its writes visible
-    const bool waitDecode = planar && !ownDecodeDevice && pyrowave_->timeline() != VK_NULL_HANDLE;
-    if (planar && !ownDecodeDevice && !waitDecode) {
-        VkMemoryBarrier decoded {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-        decoded.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-        decoded.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vk_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                 0, 1, &decoded, 0, nullptr, 0, nullptr);
-    }
+    acquire.srcAccessMask = 0;
+    acquire.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    acquire.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    acquire.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    acquire.srcQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
+    acquire.dstQueueFamilyIndex = queueFamily_;
+    acquire.image = imported->image;
+    acquire.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vk_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &acquire);
     if (timed) {
         vk_.vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestampPool_, kTimestampsPerFrame * slot + 1);
     }
@@ -2051,11 +1503,10 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     VkRect2D scissor {{0, 0}, extent_};
     vk_.vkCmdSetViewport(cmd, 0, 1, &viewport);
     vk_.vkCmdSetScissor(cmd, 0, 1, &scissor);
-    const VkPipelineLayout layout = planar ? planarPipelineLayout_ : pipelineLayout_;
-    const VkDescriptorSet descriptorSet = planar ? frame->planes->descriptorSet : imported->descriptorSet;
-    vk_.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, planar ? planarPipeline_ : pipeline_);
-    vk_.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &descriptorSet, 0, nullptr);
-    vk_.vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+    vk_.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    vk_.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1,
+                                &imported->descriptorSet, 0, nullptr);
+    vk_.vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(pc), &pc);
     vk_.vkCmdDraw(cmd, 3, 1, 0, 0);
     vk_.vkCmdEndRenderPass(cmd);
@@ -2064,52 +1515,31 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     }
 
     // Hand the buffer back to the decoder
-    if (!planar) {
-        VkImageMemoryBarrier release = acquire;
-        release.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        release.dstAccessMask = 0;
-        release.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        release.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        release.srcQueueFamilyIndex = queueFamily_;
-        release.dstQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
-        vk_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                                 0, 0, nullptr, 0, nullptr, 1, &release);
-    }
-    // And back to the decode device. It's only given new planes once this render's fence is done.
-    if (ownDecodeDevice) {
-        for (int i = 0; i < 3; i++) {
-            planeBarriers[i].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            planeBarriers[i].dstAccessMask = 0;
-            planeBarriers[i].srcQueueFamilyIndex = queueFamily_;
-            planeBarriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
-        }
-        vk_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                                 0, 0, nullptr, 0, nullptr, 3, planeBarriers);
-    }
+    VkImageMemoryBarrier release = acquire;
+    release.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    release.dstAccessMask = 0;
+    release.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    release.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    release.srcQueueFamilyIndex = queueFamily_;
+    release.dstQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
+    vk_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &release);
 
     if (timed) {
         vk_.vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestampPool_, kTimestampsPerFrame * slot + 3);
     }
     vk_.vkEndCommandBuffer(cmd);
 
-    // The swapchain image, and for PyroWave the decode into the planes. Timed, everything waits
-    // for the image, so the start timestamp shows when it was free; only a draw's vertex work
-    // could otherwise go ahead of it, which for one triangle is nothing. A decode on a device of
-    // its own was waited for before the frame got here, and its timeline is on that device.
-    const VkSemaphore waitSemaphores[2] = {imageAcquired_[slot], waitDecode ? pyrowave_->timeline() : VK_NULL_HANDLE};
-    const VkPipelineStageFlags waitStages[2] = {
-            timed ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
-    const uint64_t waitValues[2] = {0, frame->readyValue};
-    VkTimelineSemaphoreSubmitInfo timelineInfo {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
-    timelineInfo.waitSemaphoreValueCount = 2;
-    timelineInfo.pWaitSemaphoreValues = waitValues;
+    // The swapchain image. Timed, everything waits for the image, so the start timestamp shows
+    // when it was free; only a draw's vertex work could otherwise go ahead of it, which for one
+    // triangle is nothing.
+    const VkPipelineStageFlags waitStage =
+            timed ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
     VkSubmitInfo submit {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.pNext = waitDecode ? &timelineInfo : nullptr;
-    submit.waitSemaphoreCount = waitDecode ? 2 : 1;
-    submit.pWaitSemaphores = waitSemaphores;
-    submit.pWaitDstStageMask = waitStages;
+    submit.waitSemaphoreCount = 1;
+    submit.pWaitSemaphores = &imageAcquired_[slot];
+    submit.pWaitDstStageMask = &waitStage;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &cmd;
     submit.signalSemaphoreCount = 1;
@@ -2213,9 +1643,7 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
         lastNewFrameNs_ = lastPresentNs_;
     }
     current_ = frame;
-    if (imported) {
-        imported->lastUsed = frameCounter_;
-    }
+    imported->lastUsed = frameCounter_;
     frameCounter_++;
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -2812,21 +2240,10 @@ bool VulkanRenderer::ensurePipeline() {
     return createPipeline(pipelineLayout_, fragShader_, &pipeline_);
 }
 
-bool VulkanRenderer::ensurePlanarPipeline() {
-    if (planarPipeline_) {
-        return true;
-    }
-    return createPipeline(planarPipelineLayout_, planarFragShader_, &planarPipeline_);
-}
-
 void VulkanRenderer::destroyPipelines() {
     if (pipeline_) {
         vk_.vkDestroyPipeline(device_, pipeline_, nullptr);
         pipeline_ = VK_NULL_HANDLE;
-    }
-    if (planarPipeline_) {
-        vk_.vkDestroyPipeline(device_, planarPipeline_, nullptr);
-        planarPipeline_ = VK_NULL_HANDLE;
     }
 }
 

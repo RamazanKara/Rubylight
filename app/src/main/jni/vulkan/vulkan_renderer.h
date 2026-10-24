@@ -16,12 +16,10 @@
 #include <vector>
 
 #include "frame_pacer.h"
-#include "gpu_keep_busy.h"
 #include "ndk_api.h"
 #include "pacer_trace.h"
 #include "perf_hint.h"
 #include "present_scheduler.h"
-#include "pyrowave_decoder.h"
 #include "vk_api.h"
 
 namespace vkr {
@@ -37,25 +35,18 @@ struct RendererConfig {
     bool fullRange = false;
     bool tenBit = false;       // The stream is 10-bit
     float displayRefreshHz = 60.0f;
-    bool pyrowave = false;     // The stream is PyroWave, decoded by the renderer rather than MediaCodec
-    bool pyrowaveCenterChroma = false;  // From the nonary host: 4:2:0 chroma sited at the center
-    int pyrowaveLateFrames = 2;  // PreferenceConfiguration.PYROWAVE_LATE_FRAMES_*
     bool frontBuffer = false;    // A front buffer aligned to the scan, where the device has one
-    bool pyrowaveGpuBoost = false;  // Keep the GPU busy between PyroWave decodes (GpuKeepBusy)
-    std::string codec;           // h264, hevc, av1 or pyrowave, for pacer traces
-    std::string decoderName;     // The MediaCodec decoder, empty for PyroWave, for pacer traces
+    std::string codec;           // h264, hevc or av1, for pacer traces
+    std::string decoderName;     // The MediaCodec decoder, for pacer traces
     std::string traceDirectory;  // Where pacer traces go when enabled (see PacerTrace)
 };
 
 // Decoded frame held until it is replaced on screen and the GPU is done with it: an image from
-// the image reader, or planes PyroWave decoded into
+// the image reader
 struct VideoFrame {
     VideoFrame(const NdkApi* ndk, AImage* image) : ndk(ndk), image(image) {}
-    VideoFrame(PyrowaveDecoder* decoder, PyrowavePlanes* planes, uint64_t readyValue)
-        : pyrowave(decoder), planes(planes), readyValue(readyValue) {}
     ~VideoFrame() {
         if (image) ndk->AImage_delete(image);
-        if (planes) pyrowave->release(planes);
     }
     VideoFrame(const VideoFrame&) = delete;
     VideoFrame& operator=(const VideoFrame&) = delete;
@@ -63,14 +54,6 @@ struct VideoFrame {
     const NdkApi* ndk = nullptr;
     AImage* image = nullptr;
     AHardwareBuffer* buffer = nullptr;  // Owned by image
-
-    PyrowaveDecoder* pyrowave = nullptr;
-    PyrowavePlanes* planes = nullptr;
-    uint64_t readyValue = 0;  // Timeline value the decode into the planes signals
-    int64_t decodeStartNs = 0;   // Handed to the renderer
-    int64_t decodeQueuedNs = 0;  // Decode queued on the GPU
-    PyrowaveDecoder::DecodeTimes decodeTimes;  // Where the time until then went
-    int64_t lastPacketUs = 0;    // When its last packet arrived, on moonlight-common-c's clock
 
     // Where the capture latency statistics count from, on our clock: the host's capture with clock
     // sync, or else its first packet arriving less the host's processing time. Zero when the host
@@ -84,41 +67,24 @@ struct VideoFrame {
 };
 using FramePtr = std::shared_ptr<VideoFrame>;
 
-// Renders MediaCodec output, or decodes and renders PyroWave, with Vulkan.
+// Renders MediaCodec output with Vulkan.
 //
 // MediaCodec writes into an AImageReader. Each frame's AHardwareBuffer is imported into
 // Vulkan without a copy, converted from YCbCr by the sampler, dithered, and drawn to a
 // swapchain on the output surface. A dedicated thread presents on Choreographer vsyncs, with
 // FramePacer choosing the frame for each one.
-//
-// PyroWave frames are handed over whole instead, and decoded on the renderer's own device into
-// Y, Cb and Cr planes that a second pipeline converts. They're paced and drawn like any other.
 class VulkanRenderer {
 public:
     // Whether this device can run the renderer at all
     static bool probe();
-
-    // Whether the renderer can decode PyroWave here: the library loads, and the GPU can run it
-    static bool probePyrowave();
 
     // Returns null if the renderer can't run on this device or surface
     static std::unique_ptr<VulkanRenderer> create(ANativeWindow* output, const RendererConfig& config);
 
     ~VulkanRenderer();
 
-    // Surface MediaCodec writes into. Owned by the renderer. Null for PyroWave.
+    // Surface MediaCodec writes into. Owned by the renderer.
     ANativeWindow* decoderWindow() const { return decoderWindow_; }
-
-    // Decodes a PyroWave frame, which may have lost some of its data (gaps) or been cut short,
-    // and queues it to be shown. lastPacketUs is when its last packet arrived, on
-    // moonlight-common-c's clock. False if it couldn't be decoded.
-    //
-    // Also tells moonlight-common-c when to cut short frames still arriving (see
-    // updatePartialDeadline()). It's called on moonlight-common-c's decoder thread, which stops
-    // before the video stream does.
-    bool submitPyrowaveFrame(const uint8_t* data, size_t size, const PyrowaveDecoder::Gap* gaps, size_t gapCount,
-                             const std::vector<size_t>* recordStarts, PyrowaveDecoder::Partial partial,
-                             int64_t hostPtsNs, int64_t lastPacketUs);
 
     void setHdrMode(bool enabled, const uint8_t* metadata, size_t metadataLength);
 
@@ -141,11 +107,6 @@ public:
     bool frontBufferUnavailable() const { return frontBufferUnavailable_; }
     // The swapchain is a front buffer
     bool frontBufferActive() const { return frontBuffer_; }
-
-    // Total PyroWave decode time since the last call, leaving out waits: each frame's CPU work,
-    // then its run on the GPU. Where the GPU can't time it, from handing the frame to the renderer
-    // until the GPU was done with it.
-    int64_t takeDecodedNs() { return decodedNs_.exchange(0); }
 
     // Capture latency since the last call: the time from each frame's origin (see
     // VideoFrame::originNs) until it was decoded, and until it reached the screen. Frames measured
@@ -196,29 +157,25 @@ private:
         bool operator==(const ConversionKey& other) const;
     };
 
-    // Create infos kept for the device's life, which PyroWave reads when it shares the device
+    // Create infos kept for the device's life
     struct InstanceSetup {
         VkApplicationInfo app {VK_STRUCTURE_TYPE_APPLICATION_INFO};
         std::vector<const char*> extensions;
         VkInstanceCreateInfo info {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     };
     struct DeviceSetup {
-        // With two queues, PyroWave decodes on the first (Granite, its Vulkan backend, takes
-        // queue 0 for itself) and we render on the second, ahead of it
-        float priorities[2] = {1.0f, 1.0f};
+        float priority = 1.0f;
         VkDeviceQueueCreateInfo queue {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         std::vector<const char*> extensions;
         VkPhysicalDeviceSamplerYcbcrConversionFeatures ycbcr {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES};
-        PyrowaveDeviceFeatures pyrowave;
         VkDeviceCreateInfo info {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         // Chained to `queue` when the queues are created at a higher global priority
         VkDeviceQueueGlobalPriorityCreateInfoKHR globalPriority {VK_STRUCTURE_TYPE_DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO_KHR};
     };
 
-    static VkInstance createVkInstance(VkApi& vk, bool pyrowave, bool* hasColorspaceExt, InstanceSetup& setup,
+    static VkInstance createVkInstance(VkApi& vk, bool* hasColorspaceExt, InstanceSetup& setup,
                                        bool frontBuffer = false);
-    static bool prepareDevice(VkApi& vk, VkPhysicalDevice device, uint32_t queueFamily, bool pyrowave,
-                              bool hdrMetadata, bool displayTiming, DeviceSetup& setup);
+    static void prepareDevice(uint32_t queueFamily, bool hdrMetadata, bool displayTiming, DeviceSetup& setup);
 
     struct HdrMetadata {
         VkHdrMetadataEXT vk {VK_STRUCTURE_TYPE_HDR_METADATA_EXT};
@@ -234,8 +191,6 @@ private:
     bool createFrameResources();
     bool createShaderModules();
     bool createImageReader();
-    bool createPyrowaveDecoder();
-    void pyrowaveWaiterMain();
 
     void renderThreadMain();
     static void onVsyncThunk(int64_t frameTimeNanos, void* data);
@@ -275,11 +230,9 @@ private:
     bool ensureConversion(const ConversionKey& key);
     void destroyConversion();
     bool ensurePipeline();
-    bool ensurePlanarPipeline();
     bool createPipeline(VkPipelineLayout layout, VkShaderModule fragShader, VkPipeline* pipeline);
     void destroyPipelines();
-    // Every use of the queue is under queueMutex_, since PyroWave submits to it from the
-    // decoding thread
+    // Every use of the queue is under queueMutex_
     void waitIdle();
     ImportedBuffer* importBuffer(AHardwareBuffer* buffer);
     void destroyImport(AHardwareBuffer* buffer, ImportedBuffer& imported);
@@ -297,29 +250,6 @@ private:
     VkPhysicalDevice physicalDevice_ = VK_NULL_HANDLE;
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
-    // PyroWave's queue, so a render doesn't wait behind the next frame's decode. Null when the
-    // family has only one, which both then share. Either way queueMutex_ covers every queue.
-    VkQueue decodeQueue_ = VK_NULL_HANDLE;
-    // PyroWave decoding on a device of its own, with a front buffer (or as
-    // debug.moonlight.pyrowave_device says). A device's queues share one GPU priority, and the GPU
-    // finishes a decode before starting a draw queued behind it at the same priority: on an
-    // iPlay 70 mini Ultra at 144 fps, front buffer draws queued while a decode ran started
-    // p50 3.2 ms (p90 4.5 ms) late and tore anywhere on the screen. With the decodes on a device
-    // at the default priority, rendering has high priority, and the GPU interrupts a decode for
-    // a draw: those draws started p50 0.3 ms (p90 0.6 ms) after being handed over, as on an idle
-    // GPU, and nothing tore. Decodes took 1.2 ms longer, being interrupted, but frames reached
-    // the screen as soon after their last packet (p50 14.6 ms against 14.4 ms). Decodes stay at
-    // the default priority, so they don't hold up the compositor either. The planes' memory is
-    // shared between the devices (PyrowaveDecoder::DeviceInfo).
-    bool pyrowaveOwnDeviceRequested_ = false;
-    bool hasExternalMemoryFdExt_ = false;
-    VkDevice decodeDevice_ = VK_NULL_HANDLE;
-    VkApi decodeVk_;
-    DeviceSetup decodeDeviceSetup_;
-    VkQueue decodeDeviceQueue_ = VK_NULL_HANDLE;
-    std::mutex decodeDeviceQueueMutex_;
-    // Makes decodeDevice_, or leaves it null if it can't
-    void createDecodeDevice();
     std::mutex queueMutex_;
     InstanceSetup instanceSetup_;
     DeviceSetup deviceSetup_;
@@ -346,9 +276,6 @@ private:
     // our queues got high priority with it (createDevice())
     const char* globalPriorityExt_ = nullptr;
     bool highPriorityQueue_ = false;
-    // Work keeping the GPU busy between PyroWave decodes, if switched on (gpu_keep_busy.h)
-    GpuKeepBusy keepBusy_;
-    uint32_t keepBusyGroups_ = 0;  // Its workgroups, 0 when off
     uint64_t nextPresentId_ = 1;
 
     // Render thread: which vsync each present should reach the screen at
@@ -403,21 +330,6 @@ private:
     VkShaderModule vertShader_ = VK_NULL_HANDLE;
     VkShaderModule fragShader_ = VK_NULL_HANDLE;
     std::unordered_map<AHardwareBuffer*, ImportedBuffer> imports_;
-
-    // PyroWave's planes, converted from YCbCr in the shader
-    std::unique_ptr<PyrowaveDecoder> pyrowave_;
-    VkShaderModule planarFragShader_ = VK_NULL_HANDLE;
-    VkPipelineLayout planarPipelineLayout_ = VK_NULL_HANDLE;
-    VkPipeline planarPipeline_ = VK_NULL_HANDLE;
-
-    // PyroWave frames whose decode is queued on the GPU. A thread waits for each to finish
-    // before it goes to the pacer, as MediaCodec's frames do, so the pacer times frames that can
-    // be shown, and the thread handing frames over is free to decode the next.
-    std::thread pyrowaveWaiter_;
-    std::mutex decodingMutex_;
-    std::condition_variable decodingCv_;
-    std::deque<FramePtr> decoding_;
-    bool decodingQuit_ = false;
 
     // Per frame in flight
     VkCommandPool commandPool_ = VK_NULL_HANDLE;
@@ -513,12 +425,6 @@ private:
     // the GPU and 0.3 ms to submit), leads of 0.8 ms and, at 144 fps, 1.25 ms tore a sliver at
     // the edge where the scan starts, on every frame (the GPU started within 0.1 ms of the same
     // time each draw), and a lead of 1.8 ms didn't tear.
-    //
-    // A PyroWave stream decodes on the same GPU, which finishes a decode before starting a draw
-    // queued behind it: with 4.5 ms decodes at 144 fps, draws started up to 5 ms late and tore
-    // anywhere on the screen. Holding decodes back until the draws were done cost 4-8 ms of
-    // latency, since the GPU clocks down to stay about 65% busy decoding whatever the frame
-    // rate (decodes took 8.9 ms at 72 fps), so PyroWave can tear with a front buffer.
     static constexpr int64_t kAlignedGpuStartNs = 1'500'000;
     static constexpr int64_t kAlignedDefaultLeadNs = 1'500'000;
     static constexpr size_t kAlignedLeadSamples = 64;
@@ -532,27 +438,6 @@ private:
     PacerTrace trace_;
     std::deque<FramePtr> pending_;
     uint64_t queueOverflowDrops_ = 0;
-
-    // The deadline frames still arriving are cut short at (LiSetPartialFrameDeadline()), worked
-    // out as frames arrive and handed to moonlight-common-c with the next frame submitted
-    void updatePartialDeadline(const VideoFrame& frame);
-    bool partialDeadlineEnabled_ = false;
-    int64_t partialDeadlineOffsetUs_ = 0;
-    // What moonlight-common-c was last told. Only on its decoder thread. Taken as set at first,
-    // since a renderer before this one may have set a deadline, so the first frame clears it.
-    bool partialDeadlineSent_ = true;
-    int64_t partialDeadlineSentUs_ = 0;
-    // From the PyroWave late frames setting (config.pyrowaveLateFrames): whether frames are cut,
-    // only with at least this share of their packets in, and how much earlier than they must
-    // be. debug.moonlight.partial (0 off, 1 on), debug.moonlight.partial_min_pct and
-    // debug.moonlight.partial_margin_us override it, with adb shell setprop. Read when the
-    // renderer is made.
-    bool partialEnabled_ = true;
-    int partialMinPercent_ = 30;
-    int64_t partialMarginNs_ = 2'000'000;
-    // Also from the setting, or debug.moonlight.partial_lost_pct: the share of its blocks a frame
-    // that lost packets must still have to be shown (PyrowaveDecoder::setLostFrameMinBlocks())
-    int lostFrameMinPercent_ = 75;
 
     // Running totals of skipped frames as the overlay last sampled them, for a count over the
     // last kRecentSkipsNs
@@ -570,7 +455,6 @@ private:
     bool hdrActive_ = false;
 
     std::atomic<uint32_t> presentedFrames_ {0};
-    std::atomic<int64_t> decodedNs_ {0};
 
     // Capture latency statistics. Frames' origins wait here, by host timestamp, until they're
     // decoded.
@@ -584,18 +468,13 @@ private:
     std::map<int64_t, FrameOrigin> origins_;
     CaptureLatency captureLatency_;
 
-    // The PyroWave waiting thread's: when the last decode it timed ended on the GPU
-    int64_t lastDecodeGpuEndNs_ = 0;
-
     // Whether trace_ is recording, read without mutex_. Writes are still made under it.
     std::atomic<bool> traceRecording_ {false};
 
     // The threads that render, present and pass frames on, which renders report to (perf_hint.h).
-    // The image reader and PyroWave decode threads join on their first frame, checked by thread id
-    // since the decode thread can outlive a renderer.
+    // The image reader thread joins on its first frame, checked by thread id.
     PerfHint perfHint_;
     std::atomic<pid_t> imageReaderTid_ {0};
-    std::atomic<pid_t> pyrowaveDecodeTid_ {0};
 };
 
 }  // namespace vkr

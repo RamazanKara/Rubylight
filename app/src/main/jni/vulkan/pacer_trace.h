@@ -5,7 +5,6 @@
 #include <string>
 
 #include "frame_pacer.h"
-#include "pyrowave_decoder.h"
 
 namespace vkr {
 
@@ -73,7 +72,7 @@ namespace vkr {
 //                                    acquiredNs,drawnNs: after taking MediaCodec's buffer from
 //                                    the decoder (its layout change) and after drawing, so the
 //                                    run splits into taking the buffer, drawing, and handing it
-//                                    back. For PyroWave, which has neither, all three are close.
+//                                    back.
 //   N,hostPtsNs,receiveNs,enqueueNs,queuedNs,commonToLocalNs,hostProcessingNs,rttMs
 //                                    a frame's network timing from moonlight-common-c: when its
 //                                    first packet arrived and when it was fully assembled, on
@@ -84,31 +83,6 @@ namespace vkr {
 //                                    capture-to-send time for it (0 if not reported), and the
 //                                    estimated network round trip (0 if not known yet). Traces
 //                                    from before these were added have only the first three.
-//   D,hostPtsNs,startNs,queuedNs,doneNs,waitedNs,gpuStartNs,gpuEndNs,pushNs,recordNs,submitNs,
-//     pyrowaveSubmitNs,pyrowaveSubmits
-//                                    a PyroWave frame's decode: handed to the renderer, queued on
-//                                    the GPU, and finished there (then it arrives, as F). waitedNs
-//                                    is how much of start to queued was waiting for the queue or
-//                                    for our commands to be free. gpuStartNs and gpuEndNs are when
-//                                    it ran on the GPU, on its clock as for G, or 0 if the GPU
-//                                    can't time it; gpuStartNs - queuedNs isn't meaningful, but a
-//                                    late start against the G lines is a wait behind rendering.
-//                                    A decode's start can come before the end of the one before,
-//                                    which it overlaps.
-//                                    pushNs, recordNs and submitNs split up the CPU's share, as
-//                                    PyrowaveDecoder::DecodeTimes does; what's left of start to
-//                                    queued is the renderer's and taking planes. Of recordNs,
-//                                    PyroWave held the queue for pyrowaveSubmitNs, over
-//                                    pyrowaveSubmits times. Traces from before these were added
-//                                    have only the first four, seven or ten.
-//   K,hostPtsNs,kind                 a partial PyroWave frame handed to the renderer: 1 it lost
-//                                    packets, 2 it was cut short at its deadline
-//   L,hostPtsNs,readyByNs,readyCostNs,commonToLocalNs,offsetUs
-//                                    the deadline for cutting frames short, worked out from the
-//                                    frame that just arrived (F): when it had to be ready by, the
-//                                    percentile of ready costs, CLOCK_MONOTONIC minus
-//                                    moonlight-common-c's clock, and the offset after a frame's
-//                                    host timestamp handed to moonlight-common-c (on its clock)
 //
 // Every call must be made with the renderer's lock held.
 class PacerTrace {
@@ -140,11 +114,6 @@ public:
     void gpuTimes(uint64_t presentId, int64_t gpuStartNs, int64_t gpuEndNs, int64_t acquiredNs, int64_t drawnNs);
     void received(int64_t hostPtsNs, int64_t receiveNs, int64_t enqueueNs, int64_t queuedNs, int64_t commonToLocalNs,
                   int64_t hostProcessingNs, uint32_t rttMs);
-    void decoded(int64_t hostPtsNs, int64_t startNs, int64_t queuedNs, int64_t doneNs,
-                 const PyrowaveDecoder::DecodeTimes& times, int64_t gpuStartNs, int64_t gpuEndNs);
-    void partial(int64_t hostPtsNs, int kind);
-    void partialDeadline(int64_t hostPtsNs, int64_t readyByNs, int64_t readyCostNs, int64_t commonToLocalNs,
-                         int64_t offsetUs);
 
 private:
     void summarize(int64_t vsyncNs, const FramePacer& pacer);

@@ -839,9 +839,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VULKAN_JITTER_BUFFER, 0, getPreferredColorSpace(),
                 getPreferredColorRange() == MoonBridge.COLOR_RANGE_FULL,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
-                false, false, 0, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                         outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate(),
-                vulkanCodecName(), videoDecoder.getName(), null, false, false);
+                vulkanCodecName(), videoDecoder.getName(), null, false);
         if (renderer != null) {
             LimeLog.info("Using Vulkan renderer");
             renderer.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());

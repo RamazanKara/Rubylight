@@ -1,4 +1,11 @@
-Imported verbatim from MoreOrLessSoftware/moonlight-android, app/src/main/jni/vulkan at
-3e6665e (2026-10-22), minus its tests/ and Android.mk. Nightjar's changes are in this
-directory's Android.mk and li_compat.{h,cpp} only, so a later sync is a plain copy.
-VulkanRendererBridge.java is the fork's, unchanged.
+Adapted from MoreOrLessSoftware/moonlight-android (app/src/main/jni/vulkan and
+VulkanRendererBridge.java) at 3e6665e7d192ac5e7f639f8f8172cda04701924e.
+
+Differences from the fork, so a later sync is a diff against it rather than a copy:
+- Left out: pyrowave_decoder, pyrowave_bitstream, gpu_keep_busy, the planar and keep-busy
+  shaders, the fork's host-side tests, and everything in the renderer, bridge and pacer trace
+  that only they used. Nightjar decodes PyroWave in pyrowave-renderer.
+- Android.mk and li_compat.{h,cpp} are Nightjar's: the fork builds against its own
+  moonlight-common-c branch, upstream lacks LiGetHostTimeOnLocalClock, so li_compat stubs it.
+- frame_pacer, present_scheduler and the pacing parts of vulkan_renderer are the fork's own
+  and are meant to be replaced by Nightjar's present scheduler later.

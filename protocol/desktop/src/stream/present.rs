@@ -1,11 +1,13 @@
 //! Showing decoded pictures: the video texture, and when each picture goes to the screen.
 //!
-//! Three pacing modes:
+//! Four pacing modes:
 //! - host times (VRR): each picture is shown at the PC's frame time plus a steady delay
 //!   ([`PresentClock`]), so the display refreshes at the game's cadence instead of the
 //!   network's. Presents are immediate (tearing allowed) at the scheduled time.
 //! - immediate: shown as soon as decoded (lowest latency; tears without VRR).
 //! - vsync: the newest picture at each refresh.
+//! - beam race: immediate, and a picture still being received is shown slice by slice just ahead
+//!   of the display's beam (`stream::race`); chosen once the display is known to allow it.
 //!
 //! The D3D11 path copies the decoder's surface into the renderer's NV12 texture on the GPU
 //! (as moonlight-qt's d3d11va renderer does when it cannot bind decoder surfaces directly);
@@ -29,6 +31,9 @@ const PLANES_DECODE_DEADLINE: std::time::Duration = std::time::Duration::from_mi
 pub enum PacingMode {
     HostTimes,
     Immediate,
+    /// Immediate, with the slices of a frame presented ahead of the beam (B10 step 4). Never
+    /// chosen by `pacing`: the stream switches to it when the display's probe allows.
+    BeamRace,
     Vsync,
 }
 
@@ -37,6 +42,7 @@ impl PacingMode {
         match self {
             PacingMode::HostTimes => "VRR, PC frame times",
             PacingMode::Immediate => "Immediate",
+            PacingMode::BeamRace => "Beam race",
             PacingMode::Vsync => "V-Sync",
         }
     }
@@ -325,12 +331,15 @@ impl VideoTexture {
         true
     }
 
-    /// Puts a decoded picture into the texture.
-    pub fn upload(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded) -> bool {
+    /// Puts a decoded picture into the texture; `rows` are the only rows of a GPU-decoded picture
+    /// to draw when the rows above them are there already (the raced presenter).
+    pub fn upload(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, rows: Option<(u32, u32)>) -> bool {
         #[cfg(windows)]
         if let media::Picture::GpuPlanes { lease, fence_value } = &decoded.picture {
-            return self.upload_planes(renderer, decoded, lease, *fence_value, None);
+            return self.upload_planes(renderer, decoded, lease, *fence_value, rows);
         }
+        #[cfg(not(windows))]
+        let _ = rows;
         #[cfg(unix)]
         if let media::Picture::GpuPlanes { lease } = &decoded.picture {
             return self.upload_planes(renderer, decoded, lease);

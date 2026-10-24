@@ -103,7 +103,7 @@ fn gpu_decoder(rig: &Rig, case: &Case, slots: usize) -> Pyrowave {
 
 /// Uploads `decoded` the way the presenter does and reads the texture back as RGBA32F.
 fn present(rig: &Rig, texture: &mut VideoTexture, decoded: &Decoded) -> Vec<f32> {
-    assert!(texture.upload(rig.renderer, decoded), "upload failed: {:?} {}", texture.failure, crate::sdl::error());
+    assert!(texture.upload(rig.renderer, decoded, None), "upload failed: {:?} {}", texture.failure, crate::sdl::error());
     // SAFETY: The texture belongs to the live renderer; the surfaces are destroyed here.
     unsafe {
         assert!(SDL_SetRenderTarget(rig.renderer, texture.texture), "{}", crate::sdl::error());
@@ -372,7 +372,7 @@ fn a_decode_that_never_finishes_is_a_loud_presenter_error() {
     let mut texture = VideoTexture::default();
     texture.set_hdr_mode(false, None);
     let started = std::time::Instant::now();
-    assert!(!texture.upload(rig.renderer, &decoded(output, setup)));
+    assert!(!texture.upload(rig.renderer, &decoded(output, setup), None));
     let failure = texture.failure.take().expect("the presenter says why");
     assert!(failure.contains("PyroWave GPU decoding failed"), "{failure}");
     assert!(started.elapsed() < std::time::Duration::from_secs(5), "the wait has a deadline");

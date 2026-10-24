@@ -46,8 +46,17 @@ pub struct Scan {
 }
 
 impl Scan {
-    pub fn new(beam: &Beam, delta_ns: u64) -> Self {
-        Self { rows: beam.rows, row_ns: 1e6 / beam.lines_per_ms, delta_us: delta_ns / 1000 }
+    /// The scan for a picture of `picture_rows` rows that the display shows in `height` of its own
+    /// rows from row `top` (a picture scaled to fit the screen, letterboxed or not): the beam spends
+    /// `height / picture_rows` of its row time on each of the picture's rows, and `top` rows before them.
+    pub fn for_picture(beam: &Beam, delta_ns: u64, picture_rows: u32, top: u32, height: u32) -> Self {
+        let beam_row_ns = 1e6 / beam.lines_per_ms;
+        let rows = picture_rows.max(1);
+        Self {
+            rows,
+            row_ns: beam_row_ns * f64::from(height.max(1)) / f64::from(rows),
+            delta_us: ((delta_ns as f64 + f64::from(top) * beam_row_ns) / 1000.0) as u64,
+        }
     }
 
     /// When the beam is on picture row `row`, for a scan whose present was issued at `start_us`.
@@ -189,6 +198,7 @@ impl Predictor {
     pub fn len(&self) -> usize { self.offsets_us.len() }
 
     /// Whether the offsets come from frames shown and not from the pace.
+    #[cfg(test)]
     pub fn learned(&self) -> bool { self.learned }
 
     /// The predicted offset of the last slice from the first one (us); 0 with none.
@@ -325,9 +335,11 @@ impl<T> Default for Racer<T> {
 }
 
 impl<T> Racer<T> {
+    #[cfg(test)]
     pub fn seq(&self) -> u64 { self.seq }
 
     /// The scan of the frame in flight started at this time (us), if it did.
+    #[cfg(test)]
     pub fn scan_start_us(&self) -> Option<u64> {
         matches!(self.state, State::Scanning | State::Held).then_some(self.start_us)
     }
@@ -335,6 +347,7 @@ impl<T> Racer<T> {
     /// Takes a slice ready at `band.ready_us` of frame `seq`. A slice of an older frame is dropped.
     /// `now_us` is when the presenter sees it. Returns what to do with the frame the slice
     /// belongs to when this is its first slice.
+    #[allow(clippy::too_many_arguments)] // the frame's view of the scan, the plans and the clock, passed as they are
     pub fn observe(&mut self, seq: u64, band: BandReady, payload: T, now_us: u64, scan: &Scan, predictor: &Predictor, latency: &Latency, margin_us: u64) {
         if seq < self.seq { return; }
         if seq > self.seq {
@@ -450,6 +463,7 @@ impl<T> Racer<T> {
     }
 
     /// The slices of the frame as seen so far.
+    #[cfg(test)]
     pub fn slices(&self) -> &[BandReady] { &self.ready }
 }
 
@@ -493,6 +507,25 @@ mod tests {
         assert_eq!(scan.reaches_us(10_000, 0), 10_800);
         assert_eq!(scan.reaches_us(10_000, 540), 10_800 + 1728);
         assert_eq!(scan.ends_us(10_000), 10_800 + 3456);
+    }
+
+    #[test]
+    fn a_scaled_or_letterboxed_picture_gets_its_share_of_the_beam() {
+        let beam = Beam {
+            rows: 1440, blank_rows: 60, total_rows: 1500, scan_ns: 4_166_667, refresh_hz: 240.0, lines_per_ms: 360.0,
+            vblank_fraction: 0.04, scans: 20, idle_from: 1000, longest_idle_ns: 9_000_000,
+        };
+        // 1080 rows shown over 1440 display rows: 4/3 of the beam's 2.78 us per row for each.
+        let fit = Scan::for_picture(&beam, 800_000, 1080, 0, 1440);
+        assert_eq!(fit.rows, 1080);
+        assert!((fit.row_ns - 3703.7).abs() < 0.1, "{}", fit.row_ns);
+        assert_eq!(fit.delta_us, 800);
+        // Black bars of 90 rows above the picture delay its first row by their beam time.
+        let boxed = Scan::for_picture(&beam, 800_000, 1080, 90, 1260);
+        assert_eq!(boxed.delta_us, 800 + 250);
+        assert!((boxed.row_ns - 3240.7).abs() < 0.1, "{}", boxed.row_ns);
+        let whole = Scan::for_picture(&beam, 0, 1440, 0, 1440).ends_us(0);
+        assert!(whole.abs_diff(4000) <= 1, "a picture that fills the display takes its rows' time: {whole}");
     }
 
     #[test]

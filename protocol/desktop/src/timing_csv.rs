@@ -29,6 +29,13 @@
 //! `no VRR`, `no idle at this frame rate`, `no VRR scan restart`, the words of
 //! `stream::scanline::Reason`; empty while it is being checked); all empty when the beam race is
 //! off.
+//! Four more describe how the frame was put on the screen (docs/beam-racing.md, "Raced
+//! presenter"), all empty when the beam race is off or the display's scan is not known:
+//! `scan_start_ns` (when the first picture row was expected on the screen: the first present's
+//! issue time plus the measured start delay), `present_ns` (the issue time of each present of the
+//! frame, `|` separated, a raced frame has several), `mid_row_age_ns` (when the beam reaches the
+//! middle row minus when the slice that holds it was ready, for raced frames and for frames shown
+//! whole alike) and `late_slices` (slices the beam had already passed when they were ready).
 //! The seven present-scheduler columns Android appends to the host's (`sched_vsync_ns` to
 //! `drop_reason`) are empty here, so a reader that goes by name sees the same header.
 //!
@@ -77,10 +84,11 @@ pub const SCHEDULER_COLUMNS: [&str; 7] = [
 ];
 
 /// The desktop's own columns after those.
-pub const EXTRA_COLUMNS: [&str; 16] = [
+pub const EXTRA_COLUMNS: [&str; 20] = [
     "early", "first_block_ns", "due_ns", "present_begin_ns", "present_count", "stat_present_count", "stat_present_refresh",
     "stat_sync_refresh", "stat_sync_ns", "slices_decoded", "first_slice_ready_ns", "last_slice_ready_ns", "row_ordered",
     "scan_line_at_present", "in_vblank_at_present", "race_reason",
+    "scan_start_ns", "present_ns", "mid_row_age_ns", "late_slices",
 ];
 
 pub fn header() -> String {
@@ -122,8 +130,37 @@ pub struct Row {
     pub race: RaceReport,
     /// The display's beam at the present and whether racing it can work (empty when the race is off).
     pub scan: ScanReport,
+    /// How the frame went to the screen (empty when the race is off).
+    pub presented: Presented,
     /// The swap chain's counters and vblank time just after the present call (0 when unknown).
     pub flip: Flip,
+}
+
+/// Presents of one frame a row keeps; a raced frame has its slices and the rest (at most four
+/// slices, the last rows, a whole picture after a late slice).
+pub const PRESENTS: usize = 8;
+
+/// When and how a frame was put on the screen, for the beam race columns.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Presented {
+    /// When the first picture row was expected on the screen (us), 0 when the scan is not known.
+    pub scan_start_us: u64,
+    /// The issue times of the frame's presents (us); the first `count` are set.
+    pub presents_us: [u64; PRESENTS],
+    pub count: u8,
+    /// The age of the picture at the middle row when the beam reaches it (ns).
+    pub mid_row_age_ns: Option<i64>,
+    /// Slices that came after the beam had passed their rows; None when the frame was not under the racer.
+    pub late_slices: Option<u32>,
+}
+
+impl Presented {
+    /// The issue times of the presents, as many as a row keeps.
+    pub fn set_presents(&mut self, times_us: &[u64]) {
+        let kept = times_us.len().min(PRESENTS);
+        self.presents_us[..kept].copy_from_slice(&times_us[..kept]);
+        self.count = kept as u8;
+    }
 }
 
 /// `IDXGISwapChain::GetFrameStatistics` and the chain's present count, read after a present.
@@ -138,7 +175,7 @@ pub struct Flip {
 }
 
 enum Message {
-    Row(Row),
+    Row(Box<Row>),
     Reports(Vec<(HostTiming, Option<HostTimingExtra>)>),
 }
 
@@ -179,7 +216,7 @@ impl TimingCsv {
 
     /// Queues one row. Never blocks; a full queue counts the row as lost.
     pub fn row(&self, row: Row) {
-        self.send(Message::Row(row));
+        self.send(Message::Row(Box::new(row)));
     }
 
     /// Hands over the records of a 0x5536 report.
@@ -344,7 +381,7 @@ pub fn extra_fields(row: &Row) -> String {
     let flip = &row.flip;
     let race = &row.race;
     format!(
-        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         row.early, timestamp(row.first_block_us), timestamp(row.due_us), timestamp(row.begin_us), count(flip.present_count),
         count(flip.stat_present_count), count(flip.stat_present_refresh), count(flip.stat_sync_refresh), timestamp(flip.stat_sync_us),
         count(u32::from(race.slices)), timestamp(race.first_ready_us), timestamp(race.last_ready_us),
@@ -352,6 +389,10 @@ pub fn extra_fields(row: &Row) -> String {
         row.scan.line.map_or_else(String::new, |line| line.to_string()),
         row.scan.vblank.map_or("", |vblank| if vblank { "1" } else { "0" }),
         row.scan.reason,
+        timestamp(row.presented.scan_start_us),
+        row.presented.presents_us[..usize::from(row.presented.count)].iter().map(|&us| timestamp(us)).collect::<Vec<_>>().join("|"),
+        row.presented.mid_row_age_ns.map_or_else(String::new, |ns| ns.to_string()),
+        row.presented.late_slices.map_or_else(String::new, |n| n.to_string()),
     )
 }
 
@@ -399,6 +440,7 @@ mod tests {
             begin_us: 0,
             race: RaceReport::default(),
             scan: ScanReport::default(),
+            presented: Presented::default(),
             flip: Flip::default(),
         }
     }
@@ -469,8 +511,8 @@ mod tests {
         assert_eq!(lines.len(), 3, "{text}");
         assert_eq!(format!("{}\n", lines[0]), header());
         let tail = |line: &str| line.split(',').skip(OWN_COLUMNS.len()).collect::<Vec<_>>().join(",");
-        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,");
-        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,");
+        assert_eq!(tail(lines[1]), "1000000,2000000,2000100,2000300,2000500,2000800,2000900,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,,,,,");
+        assert_eq!(tail(lines[2]), "1000000,,,,,,,-5000,800,,,,,,,,1,1000900000,,,,,,,,,,,,,,,,,,");
         for line in &lines {
             assert_eq!(line.split(',').count(), header().trim_end().split(',').count());
         }
@@ -478,16 +520,16 @@ mod tests {
 
     #[test]
     fn the_early_columns_say_how_the_frame_was_decoded() {
-        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,,,,,,,,,,,,,,,");
-        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,,,,,,,,,,,,,,,");
-        assert_eq!(extra_fields(&row()), "1,1000900000,,,,,,,,,,,,,,");
+        assert_eq!(extra_fields(&Row { early: 0, first_block_us: 0, ..row() }), "0,,,,,,,,,,,,,,,,,,,");
+        assert_eq!(extra_fields(&Row { early: 2, first_block_us: 0, ..row() }), "2,,,,,,,,,,,,,,,,,,,");
+        assert_eq!(extra_fields(&row()), "1,1000900000,,,,,,,,,,,,,,,,,,");
         let timed = Row {
             due_us: 1_008_000,
             begin_us: 1_008_100,
             flip: Flip { present_count: 7, stat_present_count: 6, stat_present_refresh: 100, stat_sync_refresh: 101, stat_sync_us: 1_009_500 },
             ..row()
         };
-        assert_eq!(extra_fields(&timed), "1,1000900000,1008000000,1008100000,7,6,100,101,1009500000,,,,,,,");
+        assert_eq!(extra_fields(&timed), "1,1000900000,1008000000,1008100000,7,6,100,101,1009500000,,,,,,,,,,,");
         // Rows come back in the order they went in, each with its own columns.
         let path = std::env::temp_dir().join(format!("nightjar-timing-early-{}", std::process::id()));
         let csv = TimingCsv::create(&path).unwrap();
@@ -507,25 +549,43 @@ mod tests {
             race: RaceReport { slices, first_ready_us: 1_003_000, last_ready_us: 1_004_400, ordered },
             ..row()
         };
-        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 7).take(4).collect::<Vec<_>>().join(",");
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 11).take(4).collect::<Vec<_>>().join(",");
         assert_eq!(tail(&raced(4, RaceReport::ORDERED)), "4,1003000000,1004400000,1");
         assert_eq!(tail(&raced(1, RaceReport::UNORDERED)), "1,1003000000,1004400000,0", "a frame that left the row order says so");
         assert_eq!(tail(&row()), ",,,", "the race off leaves the columns empty");
-        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 7..EXTRA_COLUMNS.len() - 3];
+        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 11..EXTRA_COLUMNS.len() - 7];
         assert_eq!(names, ["slices_decoded", "first_slice_ready_ns", "last_slice_ready_ns", "row_ordered"]);
     }
 
     #[test]
     fn the_scan_columns_say_where_the_beam_was_and_why_racing_is_off() {
-        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 3).collect::<Vec<_>>().join(",");
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 7).take(3).collect::<Vec<_>>().join(",");
         let scan = |line, vblank, reason| Row { scan: ScanReport { line, vblank, reason }, ..row() };
         assert_eq!(tail(&scan(Some(412), Some(false), "on")), "412,0,on");
         assert_eq!(tail(&scan(Some(7), Some(true), "no VRR scan restart")), "7,1,no VRR scan restart");
         assert_eq!(tail(&scan(None, None, "no scanline")), ",,no scanline", "no reading, but the reason stays");
         assert_eq!(tail(&scan(Some(90), Some(true), "")), "90,1,", "no verdict yet");
         assert_eq!(tail(&row()), ",,", "the race off leaves the columns empty");
-        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 3..];
+        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 7..EXTRA_COLUMNS.len() - 4];
         assert_eq!(names, ["scan_line_at_present", "in_vblank_at_present", "race_reason"]);
+    }
+
+    #[test]
+    fn the_presented_columns_say_how_the_frame_went_to_the_screen() {
+        let tail = |row: &Row| extra_fields(row).split(',').skip(EXTRA_COLUMNS.len() - 4).collect::<Vec<_>>().join(",");
+        let mut presented = Presented { scan_start_us: 2_000_800, mid_row_age_ns: Some(3_200_000), late_slices: Some(0), ..Default::default() };
+        presented.set_presents(&[2_000_000, 2_001_400, 2_002_900, 2_004_100]);
+        assert_eq!(tail(&Row { presented, ..row() }), "2000800000,2000000000|2001400000|2002900000|2004100000,3200000,0");
+        // A frame shown whole has one present and may have a picture older than the slice was ready.
+        let mut whole = Presented { scan_start_us: 2_000_800, mid_row_age_ns: Some(-10), late_slices: None, ..Default::default() };
+        whole.set_presents(&[2_000_000]);
+        assert_eq!(tail(&Row { presented: whole, ..row() }), "2000800000,2000000000,-10,");
+        assert_eq!(tail(&row()), ",,,", "the race off leaves the columns empty");
+        let mut many = Presented::default();
+        many.set_presents(&[1; 20]);
+        assert_eq!(usize::from(many.count), PRESENTS, "a row keeps as many presents as it has room for");
+        let names = &EXTRA_COLUMNS[EXTRA_COLUMNS.len() - 4..];
+        assert_eq!(names, ["scan_start_ns", "present_ns", "mid_row_age_ns", "late_slices"]);
     }
 
     #[test]
@@ -578,6 +638,7 @@ mod tests {
                 begin_us: 0,
                 race: RaceReport::default(),
                 scan: ScanReport::default(),
+                presented: Presented::default(),
                 flip: Flip::default(),
             });
         }

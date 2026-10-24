@@ -71,6 +71,8 @@ pub struct RaceProbe {
     delays: Vec<u64>,
     /// The longest the display has idled so far (ns), which the check keeps its tests clear of.
     longest_idle_ns: u64,
+    /// The median of `delays` (ns), 0 with none.
+    delay_ns: u64,
     #[cfg(windows)]
     scan: Option<super::scanline::Scanline>,
     #[cfg(windows)]
@@ -91,6 +93,7 @@ impl RaceProbe {
             check_said: false,
             delays: Vec::new(),
             longest_idle_ns: 0,
+            delay_ns: 0,
             #[cfg(windows)]
             scan: None,
             #[cfg(windows)]
@@ -103,6 +106,15 @@ impl RaceProbe {
 
     /// The overlay's value for the "Beam race" line.
     pub fn line(&self) -> String { self.verdict.line() }
+
+    /// The beam and how long a tearing present on an idle display takes to start the scan (ns),
+    /// when racing is possible: the verdict is on and a present that began a scan was timed.
+    pub fn racing(&self) -> Option<(Beam, u64)> {
+        match self.verdict {
+            Verdict::On(beam, capability) if capability.on() && self.delay_ns > 0 => Some((beam, self.delay_ns)),
+            _ => None,
+        }
+    }
 
     fn log_change(&mut self) {
         let line = self.verdict.line();
@@ -124,6 +136,7 @@ impl RaceProbe {
                 self.check = RestartCheck::default();
                 self.check_said = false;
                 self.delays.clear();
+                self.delay_ns = 0;
                 self.longest_idle_ns = 0;
                 self.beam = None;
                 if follow == Follow::Lost {
@@ -307,7 +320,12 @@ mod win {
                 // A result for the monitor the window has left says nothing about this one.
                 if outcome.generation != self.generation { continue; }
                 if self.check.running() {
-                    if let Some(delay) = outcome.delay_ns { self.delays.push(delay); }
+                    if let Some(delay) = outcome.delay_ns {
+                        self.delays.push(delay);
+                        let mut sorted = self.delays.clone();
+                        sorted.sort_unstable();
+                        self.delay_ns = sorted[sorted.len() / 2];
+                    }
                     self.check.push(outcome.restart);
                 }
             }

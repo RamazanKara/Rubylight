@@ -608,7 +608,7 @@ mod tests {
                         parameters[6] = matrix as u32;
                         assert!(reference.draw(renderer, target, decoded.picture.frame().unwrap(), &parameters));
                         if !hdr {
-                            assert!(video.upload(renderer, &decoded));
+                            assert!(video.upload(renderer, &decoded, None));
                             assert!(video.texture.is_null(), "direct presentation allocated an intermediate RGB texture");
                         }
                         for (width, height) in [(128, 64), (240, 160), (99, 59)] {
@@ -688,7 +688,7 @@ mod tests {
                                 max_content_light_level: peak,
                                 ..Default::default()
                             }));
-                            assert!(video.upload(renderer, &decoded));
+                            assert!(video.upload(renderer, &decoded, None));
                             assert_eq!(video.texture.is_null(), direct && peak == 320 && available == 16.0);
                             assert!(video.draw(renderer, &viewport((128, 64), (99, 59), crate::config::VideoScaling::Fit, false)));
                             assert!(SDL_RenderPresent(renderer));

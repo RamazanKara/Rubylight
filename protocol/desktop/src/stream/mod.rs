@@ -121,6 +121,11 @@ pub struct Facts {
     pub beam_race: bool,
     /// Why the beam race setting did nothing on this stream, if it was on and did not run.
     pub beam_race_off: Option<&'static str>,
+    /// The slices a frame is decoded in when the beam race is on (0 when not).
+    pub race_slices: u32,
+    /// The pace the host sends the picture at (Mbps), the raced presenter's first guess at when
+    /// slices are ready.
+    pub pace_mbps: u32,
     pub app_name: String,
     pub host_name: String,
 }
@@ -739,6 +744,8 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         early_without_records: early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
             outcome.pyrowave_records_enabled) == EarlyState::NoRecords,
         beam_race_off: beam.reason(),
+        race_slices: slices,
+        pace_mbps,
         beam_race: slices > 0 && early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
             outcome.pyrowave_records_enabled) == EarlyState::On,
         app_name: plan.app.name.clone(),
@@ -859,6 +866,19 @@ impl RtpClock {
     }
 }
 
+/// What the raced presenter guesses of a stream's slice times before it has seen a frame.
+fn seeded_predictor(facts: &Facts) -> race::Predictor {
+    let frame_bytes = f64::from(facts.bitrate_kbps.max(1)) * 1000.0 / 8.0 / f64::from(facts.fps.max(1));
+    race::Predictor::seeded(facts.race_slices, facts.height.max(1) as u32, frame_bytes, facts.pace_mbps)
+}
+
+/// A present of the texture: when the call was issued and returned (us), and the beam around it.
+struct Flipped {
+    issued_us: u64,
+    returned_us: u64,
+    scan: Option<race_probe::ScanReport>,
+}
+
 pub struct Streaming {
     pub session: Session,
     pub shared: Arc<Shared>,
@@ -870,6 +890,16 @@ pub struct Streaming {
     phase: phase::Phase,
     /// Whether racing the display's beam can work here, once the beam race is on and a picture is shown.
     race_probe: Option<race_probe::RaceProbe>,
+    /// The picture on the display's beam, while racing it is possible (see `sync_race`).
+    race_scan: Option<race::Scan>,
+    /// The frame in flight under the raced presenter, and what it plans from.
+    racer: race::Racer<gpu_planes::Pin>,
+    predictor: Option<race::Predictor>,
+    latency: race::Latency,
+    /// The user's margin ahead of the beam in ms, 0 for the automatic one.
+    race_margin_ms: u32,
+    /// The stream's setup as the last frame showed it, which slice draws need before a frame has.
+    race_setup: Option<session::VideoSetup>,
     pub overlay_visible: bool,
     pub overlay: Overlay,
     /// What the host last said about holding the bitrate down for the network; `None` while it has not.
@@ -988,6 +1018,12 @@ impl Streaming {
             upscale_failed: false,
             phase: phase::Phase::default(),
             race_probe: None,
+            race_scan: None,
+            racer: race::Racer::default(),
+            predictor: None,
+            latency: race::Latency::default(),
+            race_margin_ms: hint_override("NIGHTJAR_BEAM_RACE_MARGIN_MS", settings.beam_race_margin_ms),
+            race_setup: None,
             overlay_visible: settings.overlay,
             overlay: Overlay::default(),
             link_notice: None,
@@ -1614,8 +1650,11 @@ impl Streaming {
                 }
             }
         }
+        // Frames first: the slices of every frame taken here were queued before the frame was.
         let frames: Vec<_> = lock(&self.shared.frames).drain(..).collect();
+        let slices: Vec<_> = lock(&self.shared.slices).drain(..).collect();
         for decoded in frames {
+            if decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 { self.race_setup = Some(decoded.setup); }
             if let Some(frame) = decoded.picture.frame().filter(|_| decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0) {
                 let info = frame.info();
                 self.facts.width = info.width;
@@ -1634,6 +1673,7 @@ impl Streaming {
             self.last_arrival = Some((decoded.rtp, decoded.receive_us));
             self.pacer.accept(decoded);
         }
+        self.observe_slices(slices);
         if self.pending_mode.is_some_and(|(_, at)| at.elapsed() >= Duration::from_secs(5)) {
             self.pending_mode = None;
             self.quality_policy = None;
@@ -1648,7 +1688,12 @@ impl Streaming {
 
     /// How long the loop may sleep before the next picture is due.
     pub fn wait(&self) -> Wait {
-        match self.pacer.next_due() {
+        let racing = if self.pacer.mode == PacingMode::BeamRace { self.racer.due_us() } else { None };
+        let due = match (self.pacer.next_due(), racing) {
+            (Some(picture), Some(slice)) => Some(picture.min(slice)),
+            (picture, slice) => picture.or(slice),
+        };
+        match due {
             Some(due) => {
                 let now = session::now_us();
                 if due <= now {
@@ -1661,47 +1706,77 @@ impl Streaming {
         }
     }
 
-    /// Shows the due picture, if any. Returns whether something was drawn.
-    pub fn present(
-        &mut self,
-        renderer: *mut SDL_Renderer,
-        mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
-    ) -> bool {
-        if self.texture.is_hdr() && !crate::sdl::hdr_available(renderer) {
-            self.texture.destroy();
-            self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
-            self.needs_redraw = true;
+    /// Works out whether the display allows racing slices and, if so, how the picture sits on its
+    /// beam; switches the pacing between `Immediate` and `BeamRace` when that changes.
+    fn sync_race(&mut self, renderer: *mut SDL_Renderer) {
+        if !self.facts.beam_race { return; }
+        let timing = self.race_probe.as_ref().and_then(race_probe::RaceProbe::racing);
+        let size = self.texture.size();
+        self.race_scan = timing.filter(|_| size.0 > 0 && size.1 > 0).map(|(beam, delta_ns)| {
+            let (mut w, mut h) = (0, 0);
+            // SAFETY: the live renderer belongs to the presenting thread.
+            unsafe { SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h) };
+            let dst = viewport(size, (w, h), self.settings.video_scaling, self.settings.align_video_top);
+            race::Scan::for_picture(&beam, delta_ns, size.1 as u32, dst.y.max(0.0) as u32, dst.h as u32)
+        });
+        match (self.pacer.mode, self.race_scan.is_some()) {
+            (PacingMode::Immediate, true) => {
+                self.pacer.mode = PacingMode::BeamRace;
+                eprintln!("nightjar: beam race: presenting slices ahead of the beam");
+            }
+            (PacingMode::BeamRace, false) => {
+                self.pacer.mode = PacingMode::Immediate;
+                eprintln!("nightjar: beam race: the display no longer allows racing, presenting whole pictures");
+            }
+            _ => {}
         }
+    }
+
+    /// Takes the slices the decoder finished since the last call into the racer.
+    fn observe_slices(&mut self, slices: Vec<pyrowave::SliceReady>) {
+        // Anything the racer does not take is dropped here, which lets go of its plane set.
+        let (Some(scan), PacingMode::BeamRace, Some(_)) = (self.race_scan, self.pacer.mode, self.race_setup) else { return };
+        let margin = self.latency.margin_us(self.race_margin_ms);
         let now = session::now_us();
-        let (picture, dropped) = self.pacer.take_due(now);
-        self.window.dropped_pacing += dropped;
-        self.shared.counters.replaced.fetch_add(u64::from(dropped), Ordering::Relaxed);
-        let has_picture = picture.is_some();
-        if !has_picture && !self.needs_redraw {
-            return false;
+        let facts = &self.facts;
+        let predictor = self.predictor.get_or_insert_with(|| seeded_predictor(facts));
+        for ready in slices {
+            self.racer.observe(ready.seq, ready.band, ready.pin, now, &scan, predictor, &self.latency, margin);
         }
-        let begin = session::now_us();
-        if let Some(p) = &picture {
-            if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync && self.focused && !self.menu_visible {
-                let timing = phase::timing(renderer, self.plan.display.refresh_hz);
-                if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing) {
-                    let _ = self.session.send(ClientMessage::PhaseLockReport(report));
-                }
-            } else { self.phase.reset(); }
-            if !self.texture.upload(renderer, &p.decoded) {
-                if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
-                    let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
-                    self.exit = Some(Exit::Ended(Some(reason)));
-                } else if p.decoded.setup.chroma_packing != 0 {
-                    self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
-                } else {
-                    self.show_toast(trf("Cannot show {} pictures", &[&p.decoded.picture.format_name()]));
-                }
-            }
-            if !self.first_frame {
-                self.first_frame = true;
+    }
+
+    /// Presents the slices of the frame being received that are due: the first at the planned
+    /// scan start, the others as they are ready. Returns whether it presented.
+    #[cfg(windows)]
+    fn present_slices(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), now: u64) -> bool {
+        if self.pacer.mode != PacingMode::BeamRace { return false; }
+        let (Some(scan), Some(setup)) = (self.race_scan, self.race_setup) else { return false };
+        let batch = self.racer.take(now);
+        if batch.is_empty() { return false; }
+        for (band, pin) in &batch {
+            let Some(rows) = race::scissor(band.first_row, band.end_row, setup.height as u32) else { continue };
+            if !self.texture.upload_slice(renderer, setup, pin, band.fence_value, rows) {
+                let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
+                self.exit = Some(Exit::Ended(Some(reason)));
+                return true;
             }
         }
+        let flipped = self.render_flip(renderer, draw_overlay, true);
+        self.needs_redraw = false;
+        self.racer.presented(flipped.issued_us, &scan);
+        for (band, _) in &batch {
+            self.latency.record(band.ready_us, flipped.issued_us, flipped.returned_us, flipped.returned_us);
+        }
+        true
+    }
+
+    #[cfg(not(windows))]
+    fn present_slices(&mut self, _renderer: *mut SDL_Renderer, _draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), _now: u64) -> bool {
+        false
+    }
+
+    /// Draws the texture and the overlay and presents. `probe` reads the beam around the present.
+    fn render_flip(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), probe: bool) -> Flipped {
         // SAFETY: drawing on a live renderer.
         unsafe {
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -1736,22 +1811,84 @@ impl Streaming {
         }
         draw_overlay(self, renderer);
         // The beam race probe reads the scan line around the present (nothing when the race is off).
-        if self.facts.beam_race && has_picture && self.race_probe.is_none() {
+        if self.facts.beam_race && probe && self.race_probe.is_none() {
             self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps)));
         }
-        let beam_before = self.race_probe.as_ref().filter(|_| has_picture).and_then(race_probe::RaceProbe::before);
+        let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
+        let issued_us = session::now_us();
         // SAFETY: a live renderer.
         unsafe { SDL_RenderPresent(renderer) };
-        let presented = session::now_us();
+        let returned_us = session::now_us();
         let mode_tears = self.pacer.mode != PacingMode::Vsync;
         let fps = f64::from(self.facts.fps);
-        let scan = self.race_probe.as_mut().filter(|_| has_picture).map(|probe| {
+        let scan = self.race_probe.as_mut().filter(|_| probe).map(|probe| {
             probe.after_present(renderer, beam_before, mode_tears, fps);
             probe.report(beam_before)
         });
+        Flipped { issued_us, returned_us, scan }
+    }
+
+    /// Shows the due picture, if any. Returns whether something was drawn.
+    pub fn present(
+        &mut self,
+        renderer: *mut SDL_Renderer,
+        mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
+    ) -> bool {
+        if self.texture.is_hdr() && !crate::sdl::hdr_available(renderer) {
+            self.texture.destroy();
+            self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
+            self.needs_redraw = true;
+        }
+        self.sync_race(renderer);
+        // The slices of a frame still being received go out ahead of the beam.
+        let sliced = self.present_slices(renderer, &mut draw_overlay, session::now_us());
+        let now = session::now_us();
+        let (picture, dropped) = self.pacer.take_due(now);
+        self.window.dropped_pacing += dropped;
+        self.shared.counters.replaced.fetch_add(u64::from(dropped), Ordering::Relaxed);
+        let has_picture = picture.is_some();
+        if !has_picture && !self.needs_redraw {
+            return sliced;
+        }
+        let begin = session::now_us();
+        // Whether the frame is under the racer, and which rows of it are left to draw.
+        let mut raced = false;
+        let mut rows = None;
+        if let Some(p) = &picture {
+            if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync && self.focused && !self.menu_visible {
+                let timing = phase::timing(renderer, self.plan.display.refresh_hz);
+                if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing) {
+                    let _ = self.session.send(ClientMessage::PhaseLockReport(report));
+                }
+            } else { self.phase.reset(); }
+            if let (PacingMode::BeamRace, Some(scan), true) = (self.pacer.mode, self.race_scan, p.decoded.race_seq != 0) {
+                raced = true;
+                let first_row = p.decoded.bands.last().map_or(0, |band| band.first_row);
+                if let race::Final::Rows(first, end) = self.racer.finish(p.decoded.race_seq, first_row, begin, &scan, &self.latency) {
+                    rows = race::scissor(first, end, p.decoded.setup.height as u32);
+                }
+            }
+            if !self.texture.upload(renderer, &p.decoded, rows) {
+                if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+                    let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
+                    self.exit = Some(Exit::Ended(Some(reason)));
+                } else if p.decoded.setup.chroma_packing != 0 {
+                    self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
+                } else {
+                    self.show_toast(trf("Cannot show {} pictures", &[&p.decoded.picture.format_name()]));
+                }
+            }
+            if !self.first_frame {
+                self.first_frame = true;
+            }
+        }
+        let flipped = self.render_flip(renderer, &mut draw_overlay, has_picture);
+        let presented = flipped.returned_us;
+        let scan = flipped.scan;
         let flip = if self.timing_csv.is_some() && picture.is_some() { phase::present_stats(renderer) } else { Default::default() };
         self.needs_redraw = false;
         if let Some(p) = picture {
+            let timeline = self.finish_frame(&p.decoded, raced, flipped.issued_us, flipped.returned_us);
             let w = &mut self.window;
             w.shown += 1;
             w.render_us += presented - begin;
@@ -1776,6 +1913,7 @@ impl Streaming {
                     first_block_us: d.first_block_us,
                     race: d.race,
                     scan: scan.unwrap_or_default(),
+                    presented: timeline,
                     due_us: p.present_us,
                     begin_us: begin,
                     flip,
@@ -1791,6 +1929,46 @@ impl Streaming {
             }
         }
         true
+    }
+
+    /// A frame is on the screen: closes it in the racer, teaches the predictor its slice times and
+    /// gives the timing CSV what the beam race columns need (empty with the race off).
+    fn finish_frame(&mut self, decoded: &pipeline::Decoded, raced: bool, issued_us: u64, _returned_us: u64) -> crate::timing_csv::Presented {
+        let mut timeline = crate::timing_csv::Presented::default();
+        if !self.facts.beam_race { return timeline; }
+        if decoded.bands.len() >= 2 {
+            let facts = &self.facts;
+            self.predictor.get_or_insert_with(|| seeded_predictor(facts)).learn(&decoded.bands);
+        }
+        let mut presents = vec![issued_us];
+        if let (true, Some(scan)) = (raced, self.race_scan) {
+            self.racer.presented(issued_us, &scan);
+            let record = self.racer.done();
+            timeline.late_slices = Some(record.late);
+            presents = record.presents_us;
+        }
+        timeline.set_presents(&presents);
+        if let Some(scan) = self.race_scan {
+            let first = presents.first().copied().unwrap_or(issued_us);
+            timeline.scan_start_us = scan.reaches_us(first, 0);
+            timeline.mid_row_age_ns = race::mid_row_age_ns(&scan, first, &decoded.bands);
+        }
+        timeline
+    }
+
+    /// The overlay's value for the raced presenter: what it did, and why it did not when it did not.
+    fn raced_line(&self) -> String {
+        let totals = self.racer.totals;
+        match self.pacer.mode {
+            PacingMode::BeamRace => {
+                let mut line = format!("{} raced, {} whole, {} late slices in {} frames", totals.raced, totals.whole, totals.late_slices, totals.late_frames);
+                if totals.abandoned > 0 { line.push_str(&format!(", {} never finished", totals.abandoned)); }
+                if let Some(skip) = totals.last_skip { line.push_str(&format!("; last whole: {}", skip.label())); }
+                line
+            }
+            _ if self.race_probe.as_ref().is_some_and(|probe| probe.racing().is_some()) => format!("off, pacing is {}", self.pacer.mode.label()),
+            _ => "off until the display check passes".into(),
+        }
     }
 
     /// Recomputes the overlay text once a second. Returns whether it changed.
@@ -1901,6 +2079,9 @@ impl Streaming {
         if self.facts.beam_race {
             lines.push(("Race slices".into(), race_line(c.race_frames.load(Ordering::Relaxed), c.race_slices.load(Ordering::Relaxed),
                 c.race_unordered.load(Ordering::Relaxed))));
+        }
+        if self.facts.beam_race {
+            lines.push(("Raced presenter".into(), self.raced_line()));
         }
         lines.push((
             "Render".into(),

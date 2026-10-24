@@ -310,7 +310,6 @@ pub struct RaceCapability {
 }
 
 impl RaceCapability {
-    #[allow(dead_code)] // the race itself (B10 step 4, brief 3) reads the beam; the probe and the tests do for now
     pub fn on(&self) -> bool { self.tearing && self.vrr && self.flip_inferred && self.scanline }
 }
 

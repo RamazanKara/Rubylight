@@ -196,16 +196,14 @@ impl Lease {
         &self.planes
     }
 
+    #[cfg(test)]
     pub fn textures(&self) -> &[ID3D11Texture2D; 3] {
         &self.planes.sets[self.set]
     }
 
+    #[cfg(test)]
     pub fn decode_fence(&self) -> &ID3D11Fence {
         &self.planes.decode_fence
-    }
-
-    pub fn reuse_fence(&self) -> &ID3D11Fence {
-        &self.planes.reuse_fence
     }
 
     /// A reader for the slices of the frame that will fill this set.

@@ -89,4 +89,12 @@ public class ReleaseInfoTest {
         assertFalse(ReleaseInfo.parse(release("v0.8.0-rc.1", "null", false, false)).isUpdateFor("0.7.0"));
         assertFalse(ReleaseInfo.parse(release("nightly", "null", false, false)).isUpdateFor("0.7.0"));
     }
+
+    @Test
+    public void a_3_0_release_candidate_user_is_offered_only_the_final_3_0() throws Exception {
+        assertFalse(ReleaseInfo.parse(release("v3.0.0-rc.1", "null", false, true)).isUpdateFor("0.8.0"));
+        assertFalse(ReleaseInfo.parse(release("v0.8.1", "null", false, false)).isUpdateFor("3.0.0-rc.1"));
+        assertTrue(ReleaseInfo.parse(release("v3.0.0", "null", false, false)).isUpdateFor("3.0.0-rc.1"));
+        assertTrue(ReleaseInfo.parse(release("v3.0.0", "null", false, false)).isUpdateFor("0.8.0"));
+    }
 }

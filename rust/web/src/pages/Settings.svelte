@@ -781,7 +781,7 @@
   .fold {
     border-top: 1px solid var(--line);
   }
-  .fold summary {
+  .fold > summary {
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -791,18 +791,22 @@
     cursor: pointer;
     list-style: none;
   }
-  .fold summary::-webkit-details-marker {
+  .fold > summary::-webkit-details-marker {
     display: none;
   }
-  .fold summary:hover {
+  .fold > summary:hover {
     background: var(--sunken);
   }
-  .fold summary :global(svg) {
+  .fold > summary :global(svg) {
     color: var(--muted);
     transition: transform 0.12s;
   }
-  .fold[open] summary :global(svg) {
+  .fold[open] > summary :global(svg) {
     transform: rotate(90deg);
+  }
+  /* Undo the open Advanced section's turn of every chevron inside it. */
+  .fold:not([open]) > summary :global(svg) {
+    transform: none;
   }
   .fold > :global(.setting) {
     border-top: 1px solid var(--line);
@@ -875,13 +879,13 @@
       grid-template-columns: minmax(0, 1fr);
     }
     .group-title,
-    .fold summary,
+    .fold > summary,
     .advanced summary {
       padding-left: var(--space-4);
       padding-right: var(--space-4);
     }
     .show-keys,
-    .fold summary,
+    .fold > summary,
     .advanced summary {
       min-height: 44px;
     }

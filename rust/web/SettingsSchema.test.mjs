@@ -258,7 +258,7 @@ test('an unset virtual display mode keeps the OS-dependent default without hidin
   const key = 'virtual_display_mode';
   const setting = settings.get(key);
   assert.equal(effective(setting, {}, {}), '');
-  assert.equal(describeDefault(setting).text, 'Default (one for each device; off on Windows 10)');
+  assert.equal(describeDefault(setting).text, 'Default (one for each device)');
   assert.deepEqual(computeChanges(settings, { [key]: 'per_client' }, {}), { [key]: 'per_client' });
   assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'disabled' }), { [key]: null });
 });

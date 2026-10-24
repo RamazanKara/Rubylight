@@ -55,7 +55,7 @@ export const settings: Setting[] = [
     control: {
       kind: 'select',
       options: [
-        { value: '', label: 'Default (one for each device; off on Windows 10)' },
+        { value: '', label: 'Default (one for each device)' },
         { value: 'disabled', label: 'Off, stream a monitor' },
         { value: 'per_client', label: 'One for each device' },
         { value: 'shared', label: 'One shared by all devices' },

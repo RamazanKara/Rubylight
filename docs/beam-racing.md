@@ -1,5 +1,12 @@
 # Beam racing (Rubylight 3.0 plan, B10 step 4)
 
+Experimental and opt-in. It missed its default-on gate on loopback (the numbers and the decision are
+in [pyrowave-decode.md](pyrowave-decode.md#beam-racing-measured-opt-in-helps-the-median-at-low-pace-not-p95-worse-receive_to_present-at-high-pace));
+the wired NUC legs are untested. Turn it on with the `beam_race` setting or `NIGHTJAR_BEAM_RACE=1`.
+`NIGHTJAR_BEAM_RACE=0` forces it off. `beam_race_margin_ms` (`NIGHTJAR_BEAM_RACE_MARGIN_MS`),
+`NIGHTJAR_BEAM_RACE_SLICES` and `NIGHTJAR_BEAM_RACE_PRESENT=0` (probe and slices, whole presents) are
+for measurement runs.
+
 The Nightjar desktop client can decode a PyroWave picture in slices, top to bottom, while the
 rest of the frame is still arriving, so the top of the picture is on the GPU before the bottom
 has left the network. It needs three things: the host sending the row order, early decode
@@ -35,7 +42,7 @@ for, because the SDK keeps one payload buffer. The final decode of the complete 
 last slice and always runs, so the picture on screen is the whole frame's, never a prefix.
 
 Each slice is a `BandReady` (slice number, first and end row, decode fence value, when it was
-seen to finish) on the decoded picture. The presenter does not use them yet.
+seen to finish) on the decoded picture. The raced presenter draws from them (below).
 
 A frame that arrives out of row order (a host that does not send it, or loss that reorders
 more than one packet) has `row_ordered` false, is never sliced from the first violation on, and
@@ -243,3 +250,7 @@ it). The Unix build does not race (the plane pins and slice draws are Windows on
   whole frames, the racer states (late slice, late final, abandoned frame, whole when not row
   ordered), and what the latency window folds.
 - `timing_csv`: the four presented columns.
+- `stream::tests::the_beam_race_off_asks_for_nothing` and `stream::pipeline::tests`: with the setting
+  off (or the link or decoder unable to race) no row order is requested, early decode stays as the user
+  set it, no slices are asked for (so no probe is created and no slice reaches the presenter) and
+  nothing wakes the presenter; `sdp` tests: no `pyrowaveRowOrder` line without the request.

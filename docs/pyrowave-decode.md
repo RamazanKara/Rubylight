@@ -451,3 +451,78 @@ What it shows:
 Verdict: the keep rule fails (the p99 gain is not separable from noise, one B leg lost fps, and `input_to_output_ms` p50 is worse when nothing is queued), so the change is reverted. The GPU decoder removes the CPU decode time that builds the backlog, and skipping stays an option there if a slow decode ever queues frames.
 
 Not measured: 1440p and 4K, the early-decode leg, and a forced backlog (for example a throttled decoder) that would exercise the skip on purpose. The Nightjar timing CSV leaves its fps columns blank, so shown fps above is the rendered frames over their span.
+
+## Beam racing: measured, opt-in (helps the median at low pace, not p95, worse `receive_to_present` at high pace)
+
+The idea: with the host sending each row of blocks with the data it depends on (`pyrowaveRowOrder`),
+decode the picture in slices while it is still on the wire and present each slice before the display's
+beam reaches its rows, so a high PyroWave bitrate stops costing the time a whole frame takes to arrive.
+It was built in three pieces and measured against presenting whole pictures. It missed its default-on
+gate on loopback, so it ships as an experimental opt-in: the `beam_race` setting (off by default) or
+`NIGHTJAR_BEAM_RACE=1`. Off, it costs nothing: no row order is asked of the host, no scan line probe
+runs, no slice is decoded or handed over, frames decode and present as without it
+([beam-racing.md](beam-racing.md)). On, a stream that cannot race says why in the log and on the stats
+overlay instead of quietly presenting whole pictures.
+
+What the pieces showed, all on this PC (RX 7900 XT) with the Nightjar desktop client in borderless
+fullscreen on the 5120x1440 240 Hz VRR display, loopback, 1080p60 PyroWave at 399 Mbps:
+
+- **Slice decodes** (brief 1) worked: with the row order, the first of four slices was decoded 1.65 ms
+  (p50) after the frame's first packet against 6.5 ms for the frame on the wire, the final decode
+  byte-identical to a whole decode and every slice exact on its rows. The early-decode leg's "0
+  frames decoded ahead" was the client not parsing a `3.0.0-beta` host version (fixed, stays).
+- **The probe** (brief 2): a tearing present on this display restarts the scan after a median 0.91 ms,
+  the scan takes 4.17 ms over 1440 rows, and Independent Flip held for 98% of presents (PresentMon).
+- **The raced presenter** (brief 3): slices presented ahead of the beam, scheduled from the pace hint
+  and the observed arrival slope, with a measured margin. 2965 of 3470 frames raced in the first run,
+  late slices under 0.1%.
+
+The gate (short form, 60 s runs, ABBA, two runs a side, the first 300 frames of each run dropped,
+raced against whole, `NIGHTJAR_BEAM_RACE_PRESENT=0` as the whole side). The model is a gain of
+`min(W, S)` minus the margin, where `W` is the frame's time on the wire at the pace (7.4 ms at pace
+900, 3.17 ms at 2100) and `S` the scan (4.17 ms). The keep rule asks for a gain of at least
+`min(W/2, S/2)` on the mid-row age (when the beam reaches the middle row minus when the slice holding
+it was ready), median and p95, with `receive_to_present` p95 no worse, late slices under 1%, no
+composed presents and no hang.
+
+| Leg | Required gain | Mid-row age p50 whole -> raced | p95 whole -> raced | `receive_to_present` p95 whole -> raced | Late slices | Frames raced |
+|---|---|---|---|---|---|---|
+| 1: pace 900 | 2.08 ms | 5.32 -> 3.93 ms (gain 1.40) | 5.98 -> 5.33 (gain 0.65) | 8.64 -> 8.61 | 0.061% | 5301 of 6578 |
+| 2: pace 2100 | 1.58 ms | 4.18 -> 3.47 ms (gain 0.71) | 4.79 -> 4.19 (gain 0.60) | 4.59 -> 5.19 (worse) | 0.000% | 6344 of 6582 |
+| 5: pace 900, 0.1% loss | (leg 1's) | 5.30 -> 3.91 ms (gain 1.39) | 5.88 -> 5.45 (gain 0.44) | 8.33 -> 8.53 | 0.015% | 2646 of 3292 (one run a side) |
+
+Every run exited 0 with no hang, no dropped frames and no decoder errors, and PresentMon counted the
+same handful of composed presents on both sides (4 to 6 `Composed: Flip` a run at the start, and the
+overlay's 20 to 25 `Hardware Composed`). Leg 1 and leg 2 miss the rule on both the median and the p95,
+leg 2 also on `receive_to_present`, so it does not become the default. Legs 3, 4 and 7 (the NUC, 2.5 GbE, a
+windowed run) were not run.
+
+Why the gain is small. Only the mid-row of the picture is better; the rest of the frame is not. The
+last rows reach the screen later than a whole present puts them (extra draws per slice, and a final
+draw of the remaining rows), `receive_to_present` p50 is 0.5 ms worse at pace 2100, and the overlay,
+when on, costs about 0.2 ms per present (egui draws it on every present, a raced frame has 2.4 of
+them). A frame is raced only when its slices arrive over more than about 1 ms, and the host sends
+in 1 ms batches, so at pace 2100 (W = 3.2 ms) there is little left to win. A margin sweep at pace 900
+(`beam_race_margin_ms` 1.5, 1.0 and 0.5, one 40 s run each) gave mid-row age p50 4.42, 3.74 and 3.60
+ms and p95 5.29, 5.35 and 5.22 ms with 3, 3 and 5 late slices: a smaller margin gains a little at the
+median and nothing at the p95.
+
+Tried to cut the cost of a raced frame (a scissored draw per slice, a GPU sync per slice, a raw
+`Present1(0, ALLOW_TEARING)` instead of `SDL_RenderPresent`), keeping what measured lower: drawing
+consecutive slices of one plane set in a single pass and presenting a finished picture before starting
+another slice helped a little and is in the gate numbers; the raw `Present1` and skipping the flush did
+not move them.
+
+Caveats on the numbers. Loopback puts the host's encoder and the client's decoder and present on the one
+GPU, so a raced frame competes with the encode of the next one; and the host sends in batches, so
+slices arrive in steps of about 1 ms instead of continuously. Both make the race look worse than it
+would on a separate client over a wired link, which is the case the idea is for; that run (the NUC,
+1 GbE and 2.5 GbE) is not done, and the leg here reads `receive_to_present` over loopback only. The
+number to beat on that link is the same rule.
+
+Decision: kept as an opt-in, off by default, not shipped as the default. The median picture age
+gains 1.4 ms at pace 900 and 0.7 ms at pace 2100, which is less than the rule asked for, and the p95
+gains little. The wired NUC legs (3, 4 and 7), where the idea is meant to pay, are not run: until they
+are, the setting is labelled experimental and nothing recommends it. To try it, set `beam_race` in the
+settings file or run with `NIGHTJAR_BEAM_RACE=1`; `NIGHTJAR_BEAM_RACE_PRESENT=0` keeps the probe and the
+slices but presents whole pictures (the measurement's "whole" side).

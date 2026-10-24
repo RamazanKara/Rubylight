@@ -308,6 +308,40 @@ fn inside(polygon: &[(f32, f32)], x: f32, y: f32) -> bool {
     inside
 }
 
+/// A number field a controller or the arrow keys can leave. egui's `DragValue` edits as soon as it has
+/// focus and steps on Up and Down, so those keys changed the value and the user was stuck on the row.
+/// Here Up and Down stay with focus navigation like every other row, and Left and Right step the value
+/// by `step` (the caret does not move; typing replaces the whole number).
+pub fn step_value<N: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut N,
+    range: std::ops::RangeInclusive<N>,
+    step: f64,
+    style: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
+    let id = ui.next_auto_id();
+    if ui.is_enabled() && ui.memory(|m| m.has_focus(id)) {
+        let steps = ui.input_mut(|i| {
+            // Focus has already moved on these (egui reads them before the frame); the field must not step too.
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
+            i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight) as i64
+                - i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft) as i64
+        });
+        if steps != 0 {
+            let (low, high) = (range.start().to_f64(), range.end().to_f64());
+            *value = N::from_f64((value.to_f64() + steps as f64 * step).clamp(low, high));
+        }
+    }
+    let response = ui.add(style(egui::DragValue::new(value).range(range)));
+    if ui.is_enabled() && response.has_focus() {
+        // Its text field has just locked every arrow key to the caret; give Up and Down back to focus.
+        let filter = egui::EventFilter { horizontal_arrows: true, ..Default::default() };
+        ui.memory_mut(|m| m.set_focus_lock_filter(id, filter));
+    }
+    response
+}
+
 /// The mark as straight RGBA pixels, `size` square: the amber moon with the night bird cut
 /// out, 4x4 supersampled.
 pub fn logo_rgba(size: usize) -> Vec<u8> {
@@ -366,6 +400,87 @@ mod tests {
         // The body is solid, the sky above the wings is not.
         assert!(inside(&bird, 54.5, 60.0));
         assert!(!inside(&bird, 54.0, 32.0));
+    }
+
+    /// A button, a stepped number field and a button in one column, in a headless egui context.
+    struct Column {
+        ctx: egui::Context,
+        value: u32,
+        time: f64,
+        ids: [egui::Id; 3],
+    }
+
+    impl Column {
+        fn new(value: u32) -> Self {
+            let mut column = Self { ctx: egui::Context::default(), value, time: 1.0, ids: [egui::Id::NULL; 3] };
+            column.frame(Vec::new());
+            column.frame(Vec::new());
+            column
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) {
+            self.time += 0.1;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 300.0))),
+                time: Some(self.time),
+                events,
+                ..Default::default()
+            };
+            let (value, ids) = (&mut self.value, &mut self.ids);
+            let mut output = self.ctx.run_ui(input, |ui| {
+                ids[0] = ui.button("above").id;
+                ids[1] = step_value(ui, value, 1000..=5000, 500.0, |d| d.suffix(" kbps")).id;
+                ids[2] = ui.button("below").id;
+            });
+            output.textures_delta.clear();
+        }
+
+        fn press(&mut self, key: egui::Key) {
+            self.frame(crate::gui::tap(key).to_vec());
+            self.frame(Vec::new());
+        }
+
+        fn focus_field(&mut self) {
+            let field = self.ids[1];
+            self.ctx.memory_mut(|m| m.request_focus(field));
+            self.frame(Vec::new());
+            self.frame(Vec::new());
+            assert_eq!(self.ctx.memory(|m| m.focused()), Some(field));
+        }
+
+        fn focused(&self) -> Option<egui::Id> {
+            self.ctx.memory(|m| m.focused())
+        }
+    }
+
+    #[test]
+    fn up_and_down_leave_a_number_field_without_changing_it() {
+        let mut column = Column::new(3000);
+        column.focus_field();
+        column.press(egui::Key::ArrowDown);
+        assert_eq!(column.focused(), Some(column.ids[2]), "Down moves to the row below");
+        assert_eq!(column.value, 3000, "Down does not step the field");
+        column.focus_field();
+        column.press(egui::Key::ArrowUp);
+        assert_eq!(column.focused(), Some(column.ids[0]), "Up moves to the row above");
+        assert_eq!(column.value, 3000, "Up does not step the field");
+    }
+
+    #[test]
+    fn left_and_right_step_a_number_field_inside_its_range() {
+        let mut column = Column::new(4500);
+        column.focus_field();
+        column.press(egui::Key::ArrowRight);
+        assert_eq!(column.value, 5000);
+        column.press(egui::Key::ArrowRight);
+        assert_eq!(column.value, 5000, "the top of the range holds");
+        assert_eq!(column.focused(), Some(column.ids[1]), "Right keeps the field focused");
+        column.press(egui::Key::ArrowLeft);
+        column.press(egui::Key::ArrowLeft);
+        assert_eq!(column.value, 4000);
+        assert_eq!(column.focused(), Some(column.ids[1]), "Left keeps the field focused");
+        for _ in 0..10 { column.press(egui::Key::ArrowLeft); }
+        assert_eq!(column.value, 1000, "the bottom of the range holds");
     }
 
     fn luminance(c: Color32) -> f64 {

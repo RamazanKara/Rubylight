@@ -1513,7 +1513,7 @@ impl Launcher {
                 });
             });
             row(ui, "Mobile data bitrate limit", "Also applies to metered Wi-Fi or Ethernet, after all profile, PC and game overrides. 0 means no limit.", |ui| {
-                ui.add(egui::DragValue::new(&mut self.profiles.mobile_limit_kbps).range(0..=500_000).speed(100).suffix(" kbps"))
+                step_value(ui, &mut self.profiles.mobile_limit_kbps, 0..=500_000, 1000.0, |d| d.speed(100).suffix(" kbps"))
             });
             section(ui, "Saved profiles");
             for profile in &self.profiles.entries {
@@ -1627,9 +1627,9 @@ impl Launcher {
             if s.width != 0 {
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["width", "height"], "Custom resolution", "Width and height in pixels.", |ui, s| {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        ui.add(egui::DragValue::new(&mut s.width).range(320..=7680));
+                        step_value(ui, &mut s.width, 320..=7680, 16.0, |d| d);
                         ui.label("×");
-                        ui.add(egui::DragValue::new(&mut s.height).range(240..=4320));
+                        step_value(ui, &mut s.height, 240..=4320, 16.0, |d| d);
                     }).response
                 });
             }
@@ -1696,10 +1696,10 @@ impl Launcher {
             });
             if s.adaptive_quality != crate::config::QualityMode::Off {
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["quality_min_short_edge"], "Minimum resolution", "Shortest edge, in pixels. Never increases the selected stream size.", |ui, s| {
-                    ui.add(egui::DragValue::new(&mut s.quality_min_short_edge).range(256..=2160).speed(2).suffix(" px"))
+                    step_value(ui, &mut s.quality_min_short_edge, 256..=2160, 8.0, |d| d.speed(2).suffix(" px"))
                 });
                 setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["quality_min_fps"], "Minimum frame rate", "Automatic quality stays above this rate.", |ui, s| {
-                    ui.add(egui::DragValue::new(&mut s.quality_min_fps).range(15..=240).suffix(" fps"))
+                    step_value(ui, &mut s.quality_min_fps, 15..=240, 5.0, |d| d.suffix(" fps"))
                 });
             }
             // The GPU decoder's probe runs in the background, on the renderer's adapter and the HDR

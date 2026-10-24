@@ -1471,7 +1471,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             }
                         }
                         ui.horizontal(|ui| {
-                            ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::DragValue::new(&mut s.bitrate_kbps).range(1..=2_000_000).speed(100).suffix(" kbps"));
+                            ui.add_enabled_ui(!s.adaptive_bitrate && !s.bitrate_busy, |ui| theme::step_value(ui, &mut s.bitrate_kbps, 1..=2_000_000, 1000.0, |d| d.speed(100).suffix(" kbps")));
                             if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new(tr("Apply bitrate"))).clicked() {
                                 s.set_bitrate();
                             }
@@ -1488,11 +1488,11 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         if quality != s.quality_mode { s.set_quality(quality); }
                         ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
                             ui.horizontal(|ui| {
-                                ui.add(egui::DragValue::new(&mut s.requested_mode.width).range(256..=8192).speed(2));
+                                theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
                                 ui.label("×");
-                                ui.add(egui::DragValue::new(&mut s.requested_mode.height).range(256..=8192).speed(2));
+                                theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
                                 let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
-                                if ui.add(egui::DragValue::new(&mut fps).range(10.0..=500.0).suffix(" fps").max_decimals(3)).changed() {
+                                if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
                                     s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
                                 }
                             });

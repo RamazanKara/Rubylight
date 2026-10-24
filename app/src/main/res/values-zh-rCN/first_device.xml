@@ -14,7 +14,7 @@
     <string name="stream_presets_help">“原生”以此屏幕的分辨率和刷新率串流，并开启所有延迟设置。\n“省电”保持该分辨率，帧率为 30 fps。\n电脑配置仍然优先。</string>
     <string name="summary_frame_pacing">在 VRR 关闭时平衡响应速度和流畅度。</string>
     <string name="summary_language">选择应用使用的语言。</string>
-    <string name="overlay_mode_help">“关闭”会隐藏叠加层。“精简”显示一行信息：显示 FPS、网络往返时间（RTT）和丢帧率，前面有一个圆点，串流不稳定时会变为琥珀色或红色。“统计信息”显示实时串流测量数据。“调试”会增加计时百分位数和解码器诊断信息；滚动可查看所有详细信息。也可以在串流菜单中更改。</string>
+    <string name="overlay_mode_help">“关闭”会隐藏叠加层。“精简”显示一行信息：渲染 FPS、网络往返时间（RTT）和丢帧率，前面有一个圆点，串流不稳定时会变为琥珀色或红色。“统计信息”显示实时串流测量数据。“调试”会增加计时百分位数和解码器诊断信息；滚动可查看所有详细信息。也可以在串流菜单中更改。</string>
     <string name="overlay_statistics">统计信息</string>
     <string name="overlay_debug">调试</string>
     <string name="overlay_copy">复制统计信息</string>
@@ -24,7 +24,7 @@
     <string name="overlay_network">网络</string>
     <string name="overlay_decode">解码</string>
     <string name="overlay_host">主机</string>
-    <string name="perf_overlay_releasedfps">送往显示：%1$.2f FPS</string>
+    <string name="perf_overlay_onscreenfps">屏幕显示：%1$s</string>
     <string name="perf_overlay_shownfps">已渲染：%1$s</string>
     <string name="perf_overlay_presentdrops">估计显示丢帧：%1$d</string>
     <string name="perf_overlay_low_latency">低延迟模式：%1$s</string>

@@ -22,6 +22,9 @@ class FrameLatencyStats {
     private static final int MAX_COMPLETED = 4096;
     private static final long CALLBACK_TIMEOUT_NS = 5000000000L;
     private static final long FPS_WINDOW_NS = 2000000000L;
+    // getFrameRates() indexes: frames submitted for display, and frames the compositor confirmed.
+    static final int RENDERED_STAGE = 1;
+    static final int PRESENTED_STAGE = 2;
     // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency, 4 host processing
     // (the video frame header's value, the one Artemis and Moonlight show), 5 to 7 the host's queue,
     // encode and send split and 8 its present to last packet sent (only from host timing reports).
@@ -62,6 +65,7 @@ class FrameLatencyStats {
 
     private final LinkedHashMap<Long, Frame> pending = new LinkedHashMap<>();
     private final HashMap<Integer, Frame> outputs = new HashMap<>();
+    private Frame lastRenderRelease;
     private final ArrayDeque<Frame> completed = new ArrayDeque<>();
     private final long[][] samples = new long[STAGES][WINDOW_SIZE];
     private final long[][] sampleTimes = new long[STAGES][WINDOW_SIZE];
@@ -223,21 +227,20 @@ class FrameLatencyStats {
     // (the decoder beat the bookkeeping) keeps its earlier start.
     synchronized void onDecoderQueued(long ptsUs, long queuedNs) {
         artemisQueuedNs.put(ptsUs, queuedNs);
-        Frame early = pending.get(ptsUs);
-        if (early != null && early.outputNs != 0) {
-            artemisOutputNs.put(ptsUs, early.outputNs);
+        Frame frame = pending.get(ptsUs);
+        if (frame != null && frame.outputNs != 0) {
+            artemisOutputNs.put(ptsUs, frame.outputNs);
         }
-        recordDecoderQueued(ptsUs, queuedNs);
+        recordDecoderQueued(frame, queuedNs);
     }
 
     // PyroWave measures CPU submission separately and never consumes the MediaCodec hand-off
     // counter. Keep its precise queue/completion samples without retaining unused boxed entries.
     synchronized void onPyroWaveDecoderQueued(long ptsUs, long queuedNs) {
-        recordDecoderQueued(ptsUs, queuedNs);
+        recordDecoderQueued(pending.get(ptsUs), queuedNs);
     }
 
-    private void recordDecoderQueued(long ptsUs, long queuedNs) {
-        Frame frame = pending.get(ptsUs);
+    private void recordDecoderQueued(Frame frame, long queuedNs) {
         if (frame == null) {
             return;
         }
@@ -248,7 +251,8 @@ class FrameLatencyStats {
     }
 
     synchronized void onDecoderOutput(int index, long ptsUs, long outputNs) {
-        if (artemisQueuedNs.containsKey(ptsUs)) {
+        // PyroWave never fills the map, so its outputs skip the lookup (and its boxing) entirely.
+        if (!artemisQueuedNs.isEmpty() && artemisQueuedNs.containsKey(ptsUs)) {
             // Decode time ends here, when the decoder hands the frame back.
             artemisOutputNs.put(ptsUs, outputNs);
         }
@@ -283,7 +287,8 @@ class FrameLatencyStats {
             frame.awaitingRender = render && hasRenderCallback;
             if (render) {
                 renderCallbacksAvailable = hasRenderCallback;
-                recordFrameTime(1, releaseNs);
+                recordFrameTime(RENDERED_STAGE, releaseNs);
+                lastRenderRelease = frame;
             }
             if (vrr && render && frame.outputNs > 0 && releaseNs >= frame.outputNs) {
                 frame.previousReleaseNs = lastReleaseNs;
@@ -296,6 +301,29 @@ class FrameLatencyStats {
                 latencyProbe.onFrameRendered(frame.receiveNs, releaseNs);
                 finish(frame, "render_unavailable");
             }
+        }
+    }
+
+    /**
+     * releaseOutputBuffer() threw after onOutputReleased(render = true) had counted the frame as
+     * submitted: take it back, so rendered FPS only counts frames the codec accepted.
+     */
+    synchronized void onReleaseFailed(long releaseNs) {
+        Frame frame = lastRenderRelease;
+        if (frame == null || frame.releaseNs != releaseNs) {
+            return;
+        }
+        lastRenderRelease = null;
+        long[] times = frameTimes[RENDERED_STAGE];
+        int last = (frameTimePositions[RENDERED_STAGE] + times.length - 1) % times.length;
+        if (times[last] == releaseNs) {
+            times[last] = 0;
+        }
+        frame.awaitingRender = false;
+        if (pending.get(frame.ptsUs) == frame) {
+            finish(frame, "release_failed");
+        } else if ("render_unavailable".equals(frame.status)) {
+            frame.status = "release_failed";
         }
     }
 
@@ -378,6 +406,7 @@ class FrameLatencyStats {
         resetDecodeTiming();
         artemisQueuedNs.clear();
         artemisOutputNs.clear();
+        lastRenderRelease = null;
         fpsStartNs = 0;
         for (long[] times : frameTimes) Arrays.fill(times, 0);
     }

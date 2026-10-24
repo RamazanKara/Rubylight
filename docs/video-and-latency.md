@@ -52,7 +52,7 @@ The Debug overlay's **ARR** or **max Hz** label identifies the refresh policy se
 
 **Match the screen to the game's frame rate** (off by default) makes the frame rate vote follow the game. From the host's frame timestamps Nightjar measures the rate the game presents at (the median interval over one second). After it has held within 3% for two seconds, the rate is voted to Android with `Surface.setFrameRate`, seamless changes only, so the screen can move to a mode that divides it evenly (60 Hz for a 60 fps game in a 120 fps stream) without going blank. A new rate must also hold for two seconds, differ by more than 3% from the last vote and arrive at least two seconds after it. It needs a host that announces clock sync (Rubylight) and Android 11 or newer, and is skipped with VRR, a TextureView and PyroWave. With **Allow lower refresh rate** off the vote never goes below the rate that setting keeps, so the game's rate can then only raise it; turn that option on (or choose Balanced with FPS limit or Smoothest video) for the vote to lower the screen. A screen with no matching seamless mode stays where it is, and `Display refresh` entries in Report a problem show each vote.
 
-Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (currently Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, released and rendered FPS separately from panel refresh.
+Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (currently Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, rendered and on-screen FPS separately from panel refresh.
 
 ## Video scaling
 
@@ -130,7 +130,8 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 | Debug metric | Meaning and interpretation |
 | --- | --- |
 | Resolution, codec, HDR/chroma, decoder | Actual negotiated stream and selected decoder; compare with requested settings. |
-| Received / released / rendered FPS | Frames received, outputs released and frames submitted for display. Rendered FPS counts every frame released for rendering, whether or not the platform reports a render callback, so it is available on devices without callbacks. Low rendered FPS with healthy receive/decode rates points toward frames dropped before display. |
+| Received / rendered FPS | Frames received and frames submitted for display. Rendered FPS counts every frame released for rendering, whether or not the platform reports a render callback, so it is available on devices without callbacks. Low rendered FPS with healthy receive/decode rates points toward frames dropped before display. |
+| On screen FPS | Frames the platform confirmed through render callbacks. Shown only when the device reports them. Rendered FPS well above on screen FPS points toward frames the compositor dropped or delayed; the compact overlay's dot also uses this rate when it is available. |
 | Estimated display drops / present drops | Released frames without an observed presentation callback after five seconds. |
 | Network latency / variation | Control-channel round-trip time and its variation in milliseconds. |
 | Network frame loss | Frames lost through the transport/recovery path, expressed as a percentage; separate from local decoder/display drops. |

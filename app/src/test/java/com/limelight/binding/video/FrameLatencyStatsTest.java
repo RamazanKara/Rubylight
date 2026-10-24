@@ -471,6 +471,28 @@ public class FrameLatencyStatsTest {
     }
 
     @Test
+    public void renderedFpsTakesBackAFrameWhoseReleaseThrew() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        long startNs = 1000000000L;
+        for (int i = 1; i <= 3; i++) {
+            long base = startNs + i * 100000000L;
+            stats.onFrameReceived(base);
+            stats.onDecoderInput(i, i, base, base, base + 1000000, (char) 0);
+            stats.onDecoderQueued(i, base + 1000000);
+            stats.onDecoderOutput(i, i, base + 3000000);
+            long releaseNs = base + 4000000;
+            stats.onOutputReleased(i, releaseNs, true, true);
+            // releaseOutputBuffer() throws for frame 2 after it was counted as submitted.
+            if (i == 2) stats.onReleaseFailed(releaseNs);
+        }
+        assertEquals(2, stats.getFrameRates(startNs + 1100000000L)[1], 0.001f);
+        // A stale or repeated notification changes nothing.
+        stats.onReleaseFailed(12345);
+        stats.onReleaseFailed(startNs + 200000000L + 4000000);
+        assertEquals(2, stats.getFrameRates(startNs + 1100000000L)[1], 0.001f);
+    }
+
+    @Test
     public void absentAndInvalidQueueTimestampsDoNotInventQueueWait() throws Exception {
         FrameLatencyStats stats = new FrameLatencyStats();
         for (long enqueueNs : new long[] {0, 4000000}) {

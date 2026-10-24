@@ -14,7 +14,7 @@
     <string name="stream_presets_help">Nativo transmite na resolução e taxa de atualização desta tela com todas as configurações de latência ativadas.\nEconomia de bateria mantém essa resolução a 30 fps.\nOs perfis de PC continuam tendo prioridade.</string>
     <string name="summary_frame_pacing">Equilibra o tempo de resposta e a fluidez quando o VRR está desativado.</string>
     <string name="summary_language">Escolha o idioma usado pelo app.</string>
-    <string name="overlay_mode_help">Desativado oculta a sobreposição. Compacta mostra uma linha: FPS exibidos, tempo de ida e volta da rede (RTT) e perda de quadros, atrás de um ponto que fica âmbar ou vermelho quando a transmissão tem dificuldades. Estatísticas mostra medições da transmissão em tempo real. Depuração adiciona percentis de tempo e diagnósticos do decodificador; role para ver todos os detalhes. Você também pode alterá-la no menu da transmissão.</string>
+    <string name="overlay_mode_help">Desativado oculta a sobreposição. Compacta mostra uma linha: FPS renderizados, tempo de ida e volta da rede (RTT) e perda de quadros, atrás de um ponto que fica âmbar ou vermelho quando a transmissão tem dificuldades. Estatísticas mostra medições da transmissão em tempo real. Depuração adiciona percentis de tempo e diagnósticos do decodificador; role para ver todos os detalhes. Você também pode alterá-la no menu da transmissão.</string>
     <string name="overlay_statistics">Estatísticas</string>
     <string name="overlay_debug">Depuração</string>
     <string name="overlay_copy">Copiar estatísticas</string>
@@ -24,7 +24,7 @@
     <string name="overlay_network">Rede</string>
     <string name="overlay_decode">Decodificação</string>
     <string name="overlay_host">Host</string>
-    <string name="perf_overlay_releasedfps">Liberados para exibição: %1$.2f FPS</string>
+    <string name="perf_overlay_onscreenfps">Na tela: %1$s</string>
     <string name="perf_overlay_shownfps">Renderizados: %1$s</string>
     <string name="perf_overlay_presentdrops">Quadros perdidos na exibição (estimativa): %1$d</string>
     <string name="perf_overlay_low_latency">Modo de baixa latência: %1$s</string>

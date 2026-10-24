@@ -14,7 +14,7 @@
     <string name="stream_presets_help">Native diffuse à la résolution et à la fréquence de rafraîchissement de cet écran, avec tous les réglages de latence activés.\nÉconomiseur de batterie garde cette résolution à 30 FPS.\nLes profils de PC restent prioritaires.</string>
     <string name="summary_frame_pacing">Équilibre entre réactivité et fluidité quand le VRR est désactivé.</string>
     <string name="summary_language">Choisissez la langue utilisée par l’application.</string>
-    <string name="overlay_mode_help">Désactivée masque la superposition. Compact affiche une seule ligne : FPS affichés, aller-retour réseau (RTT) et perte d’images, derrière un point qui devient orange ou rouge quand le stream est en difficulté. Statistiques affiche les mesures du stream en direct. Débogage ajoute des centiles de timing et des diagnostics du décodeur ; faites défiler pour voir tous les détails. Vous pouvez aussi la changer depuis le menu du stream.</string>
+    <string name="overlay_mode_help">Désactivée masque la superposition. Compact affiche une seule ligne : FPS rendus, aller-retour réseau (RTT) et perte d’images, derrière un point qui devient orange ou rouge quand le stream est en difficulté. Statistiques affiche les mesures du stream en direct. Débogage ajoute des centiles de timing et des diagnostics du décodeur ; faites défiler pour voir tous les détails. Vous pouvez aussi la changer depuis le menu du stream.</string>
     <string name="overlay_statistics">Statistiques</string>
     <string name="overlay_debug">Débogage</string>
     <string name="overlay_copy">Copier les stats</string>
@@ -24,7 +24,7 @@
     <string name="overlay_network">Réseau</string>
     <string name="overlay_decode">Décodage</string>
     <string name="overlay_host">Hôte</string>
-    <string name="perf_overlay_releasedfps">Envoyées à l’affichage : %1$.2f FPS</string>
+    <string name="perf_overlay_onscreenfps">À l’écran : %1$s</string>
     <string name="perf_overlay_shownfps">Rendues : %1$s</string>
     <string name="perf_overlay_presentdrops">Images perdues à l’affichage (estimation) : %1$d</string>
     <string name="perf_overlay_low_latency">Mode faible latence : %1$s</string>

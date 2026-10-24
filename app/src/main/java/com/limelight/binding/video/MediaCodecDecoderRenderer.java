@@ -980,6 +980,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
+    /** Whether releaseOutputFrame() renders the frame; after an upscaler failure it drops it. */
+    private boolean rendersOnRelease() {
+        return upscaler == null || upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE;
+    }
+
     private void releaseOutputFrame(int index, long presentationTimeNs) {
         GlesUpscaler current = upscaler;
         if (current != null && upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) {
@@ -2342,8 +2347,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 nextOutputBuffer = outputBufferQueue.poll();
             }
             if (nextOutputBuffer != null) {
+                long releaseNs = System.nanoTime();
                 try {
-                    frameLatencyStats.onOutputReleased(nextOutputBuffer, System.nanoTime(), true,
+                    frameLatencyStats.onOutputReleased(nextOutputBuffer, releaseNs, rendersOnRelease(),
                             upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
                     releaseOutputFrame(nextOutputBuffer, System.nanoTime());
 
@@ -2351,6 +2357,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             nextFrameTimeNanos, frameTimeNanos, fpsMilliHz);
                     activeWindowVideoStats.totalFramesRendered++;
                 } catch (IllegalStateException ignored) {
+                    // The frame was counted as submitted before the release threw.
+                    frameLatencyStats.onReleaseFailed(releaseNs);
                     try {
                         // Try to avoid leaking the output buffer by releasing it without rendering
                         videoDecoder.releaseOutputBuffer(nextOutputBuffer, false);
@@ -2491,7 +2499,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                       int inFlightCount) {
             long nowNs = System.nanoTime();
             frameLatencyStats.onScheduled(heldIndex, planned ? dueNs : 0, holdNs, late, inFlightCount);
-            frameLatencyStats.onOutputReleased(heldIndex, nowNs, true,
+            frameLatencyStats.onOutputReleased(heldIndex, nowNs, rendersOnRelease(),
                     upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
             releaseOutputFrame(heldIndex, releaseNs);
         }
@@ -2577,7 +2585,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                         lastPtsUs = releaseScheduled(lastIndex, lastPtsUs, drained > 0);
                                     }
                                     else {
-                                        frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
+                                        frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), rendersOnRelease(),
                                                 upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
                                         if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
                                                 prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
@@ -3024,7 +3032,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             float[] frameRates = frameLatencyStats.getFrameRates(System.nanoTime());
             // Rendered FPS counts frames submitted for display, like other Moonlight clients;
             // compositor confirmations (stage 2) only feed the latency diagnostics.
-            String shownFps = metric(frameRates[1], " FPS");
+            String shownFps = metric(PerformanceOverlay.renderedFps(frameRates), " FPS");
             long presentDrops = frameLatencyStats.getPresentDrops();
             boolean mediaCodec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
             long rttInfo = MoonBridge.getEstimatedRttInfo();
@@ -3053,8 +3061,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             video.append(context.getString(R.string.perf_overlay_incomingfps,
                     frameRates[0])).append('\n');
-            video.append(context.getString(R.string.perf_overlay_releasedfps, frameRates[1])).append('\n');
             video.append(context.getString(R.string.perf_overlay_shownfps, shownFps)).append('\n');
+            if (frameRates[2] >= 0) {
+                video.append(context.getString(R.string.perf_overlay_onscreenfps,
+                        metric(frameRates[2], " FPS"))).append('\n');
+            }
             video.append(context.getString(R.string.perf_overlay_presentdrops, presentDrops)).append('\n');
             video.append((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0 ? "YUV 4:4:4" : "YUV 4:2:0");
             if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
@@ -3098,12 +3109,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             decode.append('\n').append(latencyOverlay);
             double[][] timings = latencySummary;
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
-                    PerformanceOverlay.statisticsText(context, stream, frameRates[1],
+                    PerformanceOverlay.statisticsText(context, stream, PerformanceOverlay.renderedFps(frameRates),
                             frameRates[0], receivedVideoMbps, fps.lossPercent,
                             networkMs, varianceMs, shownHostProcessingMs,
                             PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
                             frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2), !mediaCodec),
-                    PerformanceOverlay.compactText(context, frameRates[1], frameRates[0], networkMs,
+                    PerformanceOverlay.compactText(context, PerformanceOverlay.renderedFps(frameRates),
+                            PerformanceOverlay.healthFps(frameRates), frameRates[0], networkMs,
                             fps.lossPercent, decodeTimeMs));
         }
     }

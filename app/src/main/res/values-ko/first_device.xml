@@ -14,7 +14,7 @@
     <string name="stream_presets_help">기본 해상도는 모든 지연 시간 설정을 켠 상태로 이 화면의 해상도와 주사율로 스트리밍합니다.\n배터리 절약은 같은 해상도를 30fps로 유지합니다.\nPC 프로필이 여전히 우선 적용됩니다.</string>
     <string name="summary_frame_pacing">VRR이 꺼져 있을 때 응답 속도와 부드러움의 균형을 조정합니다.</string>
     <string name="summary_language">앱에서 사용할 언어를 선택합니다.</string>
-    <string name="overlay_mode_help">사용 안함은 오버레이를 숨깁니다. 간단히는 표시 FPS, 네트워크 왕복 시간(RTT), 프레임 손실을 한 줄로 보여주며, 스트림이 불안정하면 앞의 점이 주황색이나 빨간색으로 바뀝니다. 통계는 실시간 스트림 측정값을 보여줍니다. 디버그는 타이밍 백분위수와 디코더 진단 정보를 추가합니다. 스크롤하면 모든 세부 정보를 볼 수 있습니다. 스트림 메뉴에서도 변경할 수 있습니다.</string>
+    <string name="overlay_mode_help">사용 안함은 오버레이를 숨깁니다. 간단히는 렌더링 FPS, 네트워크 왕복 시간(RTT), 프레임 손실을 한 줄로 보여주며, 스트림이 불안정하면 앞의 점이 주황색이나 빨간색으로 바뀝니다. 통계는 실시간 스트림 측정값을 보여줍니다. 디버그는 타이밍 백분위수와 디코더 진단 정보를 추가합니다. 스크롤하면 모든 세부 정보를 볼 수 있습니다. 스트림 메뉴에서도 변경할 수 있습니다.</string>
     <string name="overlay_statistics">통계</string>
     <string name="overlay_debug">디버그</string>
     <string name="overlay_copy">통계 복사</string>
@@ -24,7 +24,7 @@
     <string name="overlay_network">네트워크</string>
     <string name="overlay_decode">디코딩</string>
     <string name="overlay_host">호스트</string>
-    <string name="perf_overlay_releasedfps">표시로 전달: %1$.2f FPS</string>
+    <string name="perf_overlay_onscreenfps">화면 표시: %1$s</string>
     <string name="perf_overlay_shownfps">렌더링: %1$s</string>
     <string name="perf_overlay_presentdrops">예상 표시 누락: %1$d</string>
     <string name="perf_overlay_low_latency">저지연 모드: %1$s</string>

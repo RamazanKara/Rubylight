@@ -593,9 +593,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // The PC (or this device) ended the stream. A decoder failure after that is the stream going
     // away, not a decoder crash.
     private volatile boolean streamTerminated;
-    // Experimental: a TV that loses its HDMI signal takes the decoder down with it. When the video
-    // display last changed or went away (uptimeMillis, -1 never) and whether it is off now.
-    private volatile long lastVideoDisplayEventMs = -1;
+    // Experimental: a TV that loses its HDMI signal takes the decoder down with it. Whether the
+    // video display is off, invalid or gone, as of its last change.
     private volatile boolean videoDisplayOff;
     private volatile Boolean androidTv;
 
@@ -610,14 +609,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean streamEnding() {
-        return streamTerminated || hostExitRequested || exiting || connectionStopThread != null;
+        // hostExitRequested is left out: a failed quit keeps it set for 15 s while still streaming.
+        return streamTerminated || exiting || connectionStopThread != null;
     }
 
     private void noteVideoDisplay(Display display, boolean removed) {
-        long now = SystemClock.uptimeMillis();
-        lastVideoDisplayEventMs = now;
-        videoDisplayOff = removed || !display.isValid() || display.getState() == Display.STATE_OFF;
-        stagedExit.onDisplayChanged(now);
+        videoDisplayOff = removed || !display.isValid() || display.getState() != Display.STATE_ON;
+        stagedExit.onDisplayChanged(SystemClock.uptimeMillis());
     }
 
     // Experimental: on Android TV, an HDR stream ends in stages (stop and release the decoder and
@@ -631,6 +629,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // "is this stream ending" check in this class holds while the exit is staged.
     private volatile boolean exiting;
     private boolean exitFinished;
+    private boolean stagedExitStopDone;
 
     @Override
     public boolean isFinishing() {
@@ -678,12 +677,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (exitFinished || isDestroyed()) return;
         long now = SystemClock.uptimeMillis();
         Thread stopping = connectionStopThread;
-        if (stopping == null || !stopping.isAlive()) stagedExit.onStopFinished();
+        if ((stopping == null || !stopping.isAlive()) && !stagedExitStopDone) {
+            stagedExitStopDone = true;
+            stagedExit.onStopFinished();
+            if (stagedExit.stopTimedOut()) LimeLog.info("Exit: connection stop finished late");
+        }
         switch (stagedExit.poll(now)) {
             case RELEASE_OUTPUT:
                 LimeLog.info(stagedExit.stopTimedOut() ?
                         "Exit: connection stop still running after " + StagedStreamExit.STOP_TIMEOUT_MS +
-                                " ms, releasing the video output anyway" :
+                                " ms, releasing the video output anyway and waiting for it before the mode restore" :
                         "Exit: decoder released, releasing the video output");
                 releaseVideoOutput();
                 break;
@@ -705,12 +708,26 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Tears the video surface down, which ends the HDR output. The stop thread has released
     // the decoder by now (or timed out; the surface callbacks then stop it as they always do).
     private void releaseVideoOutput() {
+        // Where the display is now stays requested until RESTORE_DISPLAY_MODE: on Android 12+ the
+        // refresh rate may have been switched by the surface's frame-rate vote, which would
+        // otherwise be dropped together with the HDR output.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                android.view.Window window = getVideoWindow();
+                WindowManager.LayoutParams attributes = window.getAttributes();
+                attributes.preferredDisplayModeId = getVideoDisplay().getMode().getModeId();
+                window.setAttributes(attributes);
+            } catch (RuntimeException e) {
+                LimeLog.warning("Exit: could not pin the display mode: " + e);
+            }
+        }
         if (streamView != null) streamView.setVisibility(View.GONE);
         if (renderView != null && renderView != streamView) renderView.setVisibility(View.GONE);
     }
 
-    // Gives back what prepareDisplayForRendering() and the frame-rate votes asked of the display,
-    // instead of leaving it to the window going away at the same time as something else.
+    // Gives back what prepareDisplayForRendering() and the pin above asked of the display, instead
+    // of leaving it to the window going away at the same time as something else. The surface is
+    // gone by now, so its frame-rate vote went with it.
     private void restoreDisplayMode() {
         try {
             android.view.Window window = getVideoWindow();
@@ -718,11 +735,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) attributes.preferredDisplayModeId = 0;
             attributes.preferredRefreshRate = 0;
             window.setAttributes(attributes);
-            Surface surface = videoSurface;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surface != null && surface.isValid()) {
-                surface.setFrameRate(0, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
-            }
-            appSurfaceFrameRateVote = null;
         } catch (RuntimeException e) {
             LimeLog.warning("Exit: could not restore the display mode: " + e);
         }
@@ -1038,7 +1050,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         // A stream that is ending, or a TV that just lost its display, is not a decoder
                         // crash: counting it would disable features and reset settings next time.
                         CrashAccounting.Verdict verdict = CrashAccounting.classify(streamEnding(),
-                                isAndroidTv(), SystemClock.uptimeMillis(), lastVideoDisplayEventMs, videoDisplayOff);
+                                isAndroidTv(), videoDisplayOff);
                         if (verdict != CrashAccounting.Verdict.COUNT) {
                             LimeLog.warning("Decoder failure not counted as a crash (" +
                                     (verdict == CrashAccounting.Verdict.DISPLAY_LOST ? "display lost" : "stream ending") +

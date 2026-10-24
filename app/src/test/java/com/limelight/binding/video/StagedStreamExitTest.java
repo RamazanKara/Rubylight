@@ -49,6 +49,32 @@ public class StagedStreamExitTest {
     }
 
     @Test
+    public void lateStopHoldsTheModeRestoreWhileTheCapAllows() {
+        StagedStreamExit exit = new StagedStreamExit();
+        exit.begin(0);
+        long released = StagedStreamExit.STOP_TIMEOUT_MS;
+        assertEquals(Action.RELEASE_OUTPUT, exit.poll(released));
+        assertTrue(exit.stopTimedOut());
+
+        // The display is quiet, but the decoder release is still running.
+        assertEquals(Action.WAIT, exit.poll(released + StagedStreamExit.DISPLAY_QUIET_MS));
+        assertEquals(Action.WAIT, exit.poll(released + StagedStreamExit.DISPLAY_SETTLE_MAX_MS - 1));
+        exit.onStopFinished();
+        exit.onDisplayChanged(released + 1500);
+        assertEquals(Action.WAIT, exit.poll(released + 1500 + StagedStreamExit.DISPLAY_QUIET_MS - 1));
+        assertEquals(Action.RESTORE_DISPLAY_MODE, exit.poll(released + 1500 + StagedStreamExit.DISPLAY_QUIET_MS));
+    }
+
+    @Test
+    public void stopThatNeverFinishesStillRestoresAtTheCap() {
+        StagedStreamExit exit = new StagedStreamExit();
+        exit.begin(0);
+        long released = StagedStreamExit.STOP_TIMEOUT_MS;
+        assertEquals(Action.RELEASE_OUTPUT, exit.poll(released));
+        assertEquals(Action.RESTORE_DISPLAY_MODE, exit.poll(released + StagedStreamExit.DISPLAY_SETTLE_MAX_MS));
+    }
+
+    @Test
     public void displayChangesPushTheSettleOutUntilTheCap() {
         StagedStreamExit exit = new StagedStreamExit();
         exit.begin(0);

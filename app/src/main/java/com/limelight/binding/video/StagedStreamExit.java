@@ -63,7 +63,7 @@ public final class StagedStreamExit {
         return stage;
     }
 
-    /** True if the connection stop was given up on after {@link #STOP_TIMEOUT_MS}. */
+    /** True if the connection stop was still running after {@link #STOP_TIMEOUT_MS}. */
     public boolean stopTimedOut() {
         return stopTimedOut;
     }
@@ -87,6 +87,9 @@ public final class StagedStreamExit {
                 enter(Stage.DISPLAY_SETTLE, nowMs);
                 return Action.RELEASE_OUTPUT;
             case DISPLAY_SETTLE:
+                // A stop that timed out may still be releasing the decoder; that release must not
+                // land during the mode restore, so keep waiting for it while the cap allows.
+                if (!stopFinished && nowMs - stageStartMs < DISPLAY_SETTLE_MAX_MS) return Action.WAIT;
                 if (!settled(nowMs, DISPLAY_QUIET_MS, DISPLAY_SETTLE_MAX_MS)) return Action.WAIT;
                 enter(Stage.MODE_SETTLE, nowMs);
                 return Action.RESTORE_DISPLAY_MODE;

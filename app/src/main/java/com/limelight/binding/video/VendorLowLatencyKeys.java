@@ -19,7 +19,7 @@ final class VendorLowLatencyKeys {
     static final Map<String, Integer> MEDIATEK;
     // The Samsung Exynos preset, set on Exynos decoders by name. Experimental: no Exynos device here.
     static final Map<String, Integer> EXYNOS;
-    // Google Codec2 frame rate key, read by Android 17 and newer (API 36). Experimental: no Tensor device here.
+    // Google Codec2 frame rate key, read by Android 16 (API 36) and newer, the level Moonlight X gates it on. Experimental: no Tensor device here.
     static final String GOOGLE_FRAME_RATE = "vendor.google.frame-rate.value";
     // MediaTek switches whose presence on a decoder shows it handles low-latency streams (reference
     // frame invalidation); they are detected for HEVC RFI only, never set. Delay and timeout

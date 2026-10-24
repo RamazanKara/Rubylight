@@ -712,10 +712,11 @@ public class MediaCodecHelper {
         }
 
         // Google Codec2 (Tensor) decoders run at the most they can do for the stream's size, with
-        // real-time priority, and on Android 17 and newer also get the frame rate by their own key.
-        // The rate comes from the decoder's own capabilities, so it can meet it.
+        // real-time priority, and on Android 16 (API 36) and newer also get the frame rate by their
+        // own key. The rate comes from the decoder's own capabilities, so it can meet it. Behind
+        // the performance hints like the other priority-0 decoders.
         // Experimental: we have no Tensor device to run this on.
-        if (useVendorOptions && tryNumber < 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+        if (useVendorOptions && performanceHints && tryNumber < 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
                 isDecoderInList(googleDecoderPrefixes, decoderInfo.getName())) {
             int rate = googleOperatingRate(videoFormat, decoderInfo);
             videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, rate);
@@ -813,25 +814,34 @@ public class MediaCodecHelper {
 
     /**
      * Operating rate for a Google Codec2 decoder: the most it reports for the stream's size, at
-     * least 120 and the stream's frame rate, at most 960. Moonlight X (GPL-3.0) asks for the
-     * decoder's maximum because a rate equal to the stream's makes each frame take most of a
-     * frame interval (about 8 ms at 120 FPS on a Pixel 10).
+     * most 960 and never above what it declares. Without capabilities for the size the rate is
+     * the stream's frame rate, at least 120. Moonlight X (GPL-3.0) asks for the decoder's maximum
+     * because a rate equal to the stream's makes each frame take most of a frame interval (about
+     * 8 ms at 120 FPS on a Pixel 10).
      */
     static int googleOperatingRate(MediaFormat format, MediaCodecInfo decoderInfo) {
         int fps = format.containsKey(MediaFormat.KEY_FRAME_RATE) ? format.getInteger(MediaFormat.KEY_FRAME_RATE) : 60;
-        int rate = Math.max(120, fps);
         try {
             MediaCodecInfo.VideoCapabilities caps = decoderInfo
                     .getCapabilitiesForType(format.getString(MediaFormat.KEY_MIME)).getVideoCapabilities();
             int width = format.getInteger(MediaFormat.KEY_WIDTH);
             int height = format.getInteger(MediaFormat.KEY_HEIGHT);
             if (caps != null && caps.isSizeSupported(width, height)) {
-                rate = Math.max(rate, (int) Math.min(caps.getSupportedFrameRatesFor(width, height).getUpper(), 960));
+                return googleOperatingRate(fps, caps.getSupportedFrameRatesFor(width, height).getUpper());
             }
         } catch (Exception e) {
             // Keep the rate from the stream
         }
-        return rate;
+        return googleOperatingRate(fps, null);
+    }
+
+    /** The rate for a stream frame rate and the decoder's declared maximum at that size (null: none). */
+    static int googleOperatingRate(int fps, Double capsUpper) {
+        if (capsUpper == null) {
+            return Math.max(120, fps);
+        }
+        // The 120 floor only applies to a decoder that declares at least that much.
+        return (int) Math.max(1, Math.min(capsUpper, 960));
     }
 
     /**

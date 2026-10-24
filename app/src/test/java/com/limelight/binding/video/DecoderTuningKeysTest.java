@@ -296,27 +296,28 @@ public class DecoderTuningKeysTest {
     @Test
     public void tensorDecodersRunAtTheirMostAndTheStreamRateCountsAtLeast() {
         for (String name : new String[] {"c2.google.hevc.decoder", "c2.google.h264.decoder", "c2.google.av1.decoder"}) {
-            MediaFormat format = tune(name, 0, false);
+            MediaFormat format = tune(name, 0, true);
             assertEquals(name, 120, format.getInteger(MediaFormat.KEY_OPERATING_RATE));
             assertEquals(name, 0, format.getInteger(MediaFormat.KEY_PRIORITY));
             assertAbsent(name, format, EXYNOS_KEYS);
             assertAbsent(name, format, QTI_KEYS);
             assertAbsent(name, format, MTK_KEYS);
-            // The frame rate key is Android 17 only.
+            // The frame rate key is Android 16 (API 36) and newer.
             assertFalse(name, format.containsKey(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
         }
         MediaFormat fast = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
         fast.setInteger(MediaFormat.KEY_FRAME_RATE, 240);
-        MediaCodecHelper.setDecoderLowLatencyOptions(fast, decoder("c2.google.hevc.decoder"), 0, true, true, false, false);
+        MediaCodecHelper.setDecoderLowLatencyOptions(fast, decoder("c2.google.hevc.decoder"), 0, true, true, true, false);
         assertEquals(240, fast.getInteger(MediaFormat.KEY_OPERATING_RATE));
     }
 
     @Test
     public void tensorKeysFollowTheFallbackLadderAndTheVendorSwitch() {
         for (int attempt = 0; attempt <= 3; attempt++) {
-            MediaFormat format = tune("c2.google.hevc.decoder", attempt, false);
+            MediaFormat format = tune("c2.google.hevc.decoder", attempt, true);
             assertEquals("try " + attempt, attempt < 2, format.containsKey(MediaFormat.KEY_OPERATING_RATE));
-            assertEquals("try " + attempt, attempt < 2, format.containsKey(MediaFormat.KEY_PRIORITY));
+            // The performance hints give every non-Qualcomm decoder priority 0 through try 2.
+            assertEquals("try " + attempt, attempt < 3, format.containsKey(MediaFormat.KEY_PRIORITY));
         }
         assertAbsent("vendor switch off", tuneWithoutVendorKeys("c2.google.hevc.decoder"),
                 MediaFormat.KEY_OPERATING_RATE, MediaFormat.KEY_PRIORITY, VendorLowLatencyKeys.GOOGLE_FRAME_RATE);
@@ -324,18 +325,41 @@ public class DecoderTuningKeysTest {
 
     @Test
     @Config(sdk = 35)
-    public void tensorDecodersGetTheirFrameRateKeyOnAndroidSeventeenOnTheFirstTryOnly() {
+    public void tensorDecodersGetTheirFrameRateKeyOnAndroidSixteenOnTheFirstTryOnly() {
         // Robolectric has no API 36 yet, so the level is raised on the Build class itself.
         int before = android.os.Build.VERSION.SDK_INT;
         ReflectionHelpers.setStaticField(android.os.Build.VERSION.class, "SDK_INT", 36);
         try {
-            MediaFormat first = tune("c2.google.hevc.decoder", 0, false);
+            MediaFormat first = tune("c2.google.hevc.decoder", 0, true);
             assertEquals(120, first.getInteger(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
-            assertFalse(tune("c2.google.hevc.decoder", 1, false).containsKey(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
-            assertFalse(tune("c2.exynos.hevc.decoder", 0, false).containsKey(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
+            assertFalse(tune("c2.google.hevc.decoder", 1, true).containsKey(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
+            assertFalse(tune("c2.exynos.hevc.decoder", 0, true).containsKey(VendorLowLatencyKeys.GOOGLE_FRAME_RATE));
         } finally {
             ReflectionHelpers.setStaticField(android.os.Build.VERSION.class, "SDK_INT", before);
         }
+    }
+
+    @Test
+    public void tensorRateAndPriorityNeedThePerformanceHints() {
+        MediaFormat format = tune("c2.google.hevc.decoder", 0, false);
+        assertAbsent("hints off", format, MediaFormat.KEY_OPERATING_RATE, MediaFormat.KEY_PRIORITY,
+                VendorLowLatencyKeys.GOOGLE_FRAME_RATE);
+    }
+
+    @Test
+    public void tensorOperatingRateStaysWithinWhatTheDecoderDeclares() {
+        // Below the 120 floor the decoder's own ceiling wins; the floor needs a decoder that reaches it.
+        assertEquals(60, MediaCodecHelper.googleOperatingRate(60, 60.0));
+        assertEquals(60, MediaCodecHelper.googleOperatingRate(30, 60.0));
+        assertEquals(60, MediaCodecHelper.googleOperatingRate(90, 60.0));
+        assertEquals(120, MediaCodecHelper.googleOperatingRate(60, 120.0));
+        // Above it the decoder's maximum sets the rate, capped at 960.
+        assertEquals(480, MediaCodecHelper.googleOperatingRate(60, 480.0));
+        assertEquals(480, MediaCodecHelper.googleOperatingRate(240, 480.0));
+        assertEquals(960, MediaCodecHelper.googleOperatingRate(60, 2000.0));
+        // No capabilities for the size: the stream's rate, at least 120.
+        assertEquals(120, MediaCodecHelper.googleOperatingRate(60, null));
+        assertEquals(240, MediaCodecHelper.googleOperatingRate(240, null));
     }
 
     @Test

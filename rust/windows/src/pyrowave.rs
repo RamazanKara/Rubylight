@@ -411,11 +411,15 @@ impl Notice {
 }
 /// The text of the warning for a frame sent in index order though row order was asked for.
 fn row_order_dropped_message(packet_size: usize) -> String {
-    format!("PyroWave row order was dropped for frames that do not fit the wire budget at a packet size of {packet_size}. Raise the bitrate or turn the client's beam racing off.")
+    format!(
+        "PyroWave row order was dropped for frames that do not fit the wire budget at a packet size of {packet_size}. Raise the bitrate or turn the client's beam racing off."
+    )
 }
 /// The text of the warning for a frame over the transport limit.
 fn frame_size_message(limit: usize) -> String {
-    format!("PyroWave frames were dropped: over the transport limit of {limit} bytes. Lower bitrate or resolution.")
+    format!(
+        "PyroWave frames were dropped: over the transport limit of {limit} bytes. Lower bitrate or resolution."
+    )
 }
 pub struct Encoder {
     warnings: Arc<butterpollo_core::session::Warnings>,
@@ -877,9 +881,20 @@ impl Encoder {
                         framed
                     } else {
                         if self.config.pyrowave_row_order {
-                            self.warnings.event("pyrowave_row_order", row_order_dropped_message(self.config.packet_size), butterpollo_core::session::EVENT_PERIOD);
-                            if self.row_order_notice.due(Instant::now(), butterpollo_core::session::EVENT_PERIOD) {
-                                tracing::warn!("PyroWave row order dropped: {} bytes framed ({} unframed) against a budget of {budget} bytes and a wire allowance of {allowance} bytes", framed.len(), raw.len());
+                            self.warnings.event(
+                                "pyrowave_row_order",
+                                row_order_dropped_message(self.config.packet_size),
+                                butterpollo_core::session::EVENT_PERIOD,
+                            );
+                            if self
+                                .row_order_notice
+                                .due(Instant::now(), butterpollo_core::session::EVENT_PERIOD)
+                            {
+                                tracing::warn!(
+                                    "PyroWave row order dropped: {} bytes framed ({} unframed) against a budget of {budget} bytes and a wire allowance of {allowance} bytes",
+                                    framed.len(),
+                                    raw.len()
+                                );
                             }
                         }
                         raw.to_vec()
@@ -895,9 +910,19 @@ impl Encoder {
                 )?
             };
             if bytes.len() > limit {
-                self.warnings.event("pyrowave_frame_size", frame_size_message(limit), butterpollo_core::session::EVENT_PERIOD);
-                if self.size_notice.due(Instant::now(), butterpollo_core::session::EVENT_PERIOD) {
-                    tracing::warn!("PyroWave frame of {} bytes dropped over the transport limit of {limit}", bytes.len());
+                self.warnings.event(
+                    "pyrowave_frame_size",
+                    frame_size_message(limit),
+                    butterpollo_core::session::EVENT_PERIOD,
+                );
+                if self
+                    .size_notice
+                    .due(Instant::now(), butterpollo_core::session::EVENT_PERIOD)
+                {
+                    tracing::warn!(
+                        "PyroWave frame of {} bytes dropped over the transport limit of {limit}",
+                        bytes.len()
+                    );
                 }
                 return Ok(vec![]);
             }

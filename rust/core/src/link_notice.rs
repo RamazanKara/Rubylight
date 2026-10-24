@@ -292,7 +292,10 @@ mod tests {
         assert_eq!(LinkNotice::decode(&bytes), Some(limited(92_000)));
         // More than a tenth: sent when the second is up.
         notices.note(limited(80_000));
-        assert_eq!(notices.take(t + CALM_INTERVAL + Duration::from_millis(500)), None);
+        assert_eq!(
+            notices.take(t + CALM_INTERVAL + Duration::from_millis(500)),
+            None
+        );
         let bytes = notices
             .take(t + CALM_INTERVAL + INTERVAL)
             .expect("a big move is sent after the second");

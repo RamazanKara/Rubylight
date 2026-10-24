@@ -1529,18 +1529,88 @@ fn probes_stop_under_the_rate_that_failed_for_the_quiet_hold() {
 fn a_link_that_improves_clears_the_knee_and_the_rate_climbs_back() {
     // 50 Mbit/s for 15 s, then 150: the probe that failed at 50 keeps the
     // stream under it for the quiet hold, and one small step past it, then the
-    // usual climb, finds the room.
+    // usual climb, finds the room. Without the knee cleared on the step that
+    // passes it, the near-knee steps (a twentieth every two seconds) go on to
+    // the ceiling and the stream gets there 15 s later.
     for feedback in [20., 80.] {
         let link = Link::new(|t| if t < 15. { 50e6 } else { 150e6 });
         let mut sim = Sim::new(q(link, 50.), 60_000, feedback);
         sim.run(75.);
         let what = format!("fb {feedback}");
         let back = sim.reaches(15., 54_000).unwrap_or(f64::MAX);
-        assert!(back <= 15. + 20. + 12., "{what}: 90 % at {back:.1} s");
+        assert!(back <= 40., "{what}: 90 % at {back:.1} s");
         assert!(
             sim.frame_loss(40., 75.) < 0.005,
             "{what}: {}",
             sim.frame_loss(40., 75.)
         );
     }
+}
+
+/// The 2026-10-24 `r50-hevc-hi@4` run: a probe to 41.6 Mbps on a 50 Mbit/s link
+/// started a storm of recovery keyframes (38 in 3.5 s, a freeze of 3.7 s). The
+/// client sent FEC status, so its keyframe requests were not evidence (E4), and
+/// a keyframe lost whole is not reported as an unrecoverable frame: the probe
+/// was judged failed only when ordinary frames were reported 4 s in.
+#[test]
+fn a_storm_of_keyframe_requests_fails_the_probe_that_is_pending() {
+    let mut rig = Rig::new(59_000);
+    rig.clean(2_000);
+    rig.lose_three();
+    rig.clean(500);
+    rig.until_probe();
+    rig.until_probe();
+    let start = rig.ms;
+    let before = rig.changes.len();
+    let mut n = 0u32;
+    // A request every 7 frames (115 ms), as in the log, and no FEC report.
+    rig.run(1_500, |lr, _, now| {
+        n += 1;
+        if n.is_multiple_of(7) {
+            lr.on_keyframe_request(true, now);
+        }
+    });
+    let (at, change) = rig.changes[before..]
+        .iter()
+        .find(|(_, c)| c.kind == ChangeKind::ProbeFailed)
+        .unwrap_or_else(|| panic!("no failed probe: {:?}", rig.kinds()));
+    assert!(*at - start < 700, "failed after {} ms", at - start);
+    assert_eq!(change.reason, "keyframe_requests");
+}
+
+#[test]
+fn keyframe_requests_without_a_pending_probe_or_with_fewer_than_three_are_not_a_cut() {
+    // A healthy link: a client that reports FEC status asks for a few keyframes.
+    let mut rig = Rig::new(59_000);
+    rig.clean(2_000);
+    rig.run(10, |lr, frame, now| repaired(lr, frame, 2, now));
+    let mut n = 0u32;
+    rig.run(10_000, |lr, _, now| {
+        n += 1;
+        if n.is_multiple_of(7) {
+            lr.on_keyframe_request(true, now);
+        }
+    });
+    assert!(rig.changes.is_empty(), "{:?}", rig.kinds());
+    // A probe pending, and only two requests inside the window.
+    let mut rig = Rig::new(59_000);
+    rig.clean(2_000);
+    rig.lose_three();
+    rig.clean(500);
+    rig.until_probe();
+    let before = rig.changes.len();
+    let mut n = 0u32;
+    rig.run(1_500, |lr, _, now| {
+        n += 1;
+        if n == 10 || n == 17 {
+            lr.on_keyframe_request(true, now);
+        }
+    });
+    assert!(
+        rig.changes[before..]
+            .iter()
+            .all(|(_, c)| c.kind != ChangeKind::ProbeFailed && c.kind != ChangeKind::StepDown),
+        "{:?}",
+        rig.kinds()
+    );
 }

@@ -96,8 +96,10 @@ pub const LOSS_MIN_PACKETS: u64 = 100;
 pub const LATCH_WATCH: Duration = Duration::from_secs(4);
 /// Frames lost on send (WSAENOBUFS and the like) that cut (E3).
 pub const SEND_LOSS_FRAMES: usize = 3;
-/// Network-classified keyframe requests that cut, only from a client that
-/// sends no FEC status (E4).
+/// Network-classified keyframe requests that cut (E4): from a client that
+/// sends no FEC status, or from any client while a probe step is unconfirmed.
+/// A storm of recovery keyframes after a probe (38 in 3.5 s on r50-hevc-hi)
+/// is not reported as unrecoverable frames, so the requests are the evidence.
 pub const KEYFRAME_REQUESTS: usize = 3;
 /// The loss share a cut will believe. Losses come in bursts, and the share is
 /// measured up to the newest lost frame, so a short window can read 100% on a
@@ -702,7 +704,7 @@ impl LinkRate {
         // counts when no keyframe has got through since the latch.
         if self.watching(now) && !self.keyframe_arrived(now) {
             self.events.latch_failed = true;
-        } else if self.fec_status_seen {
+        } else if self.fec_status_seen && !self.probe_unconfirmed(now) {
             return;
         }
         if self.events.requests.len() >= EVENT_CAP {
@@ -752,6 +754,15 @@ impl LinkRate {
     }
 
     /// Whether a latch is still being judged (see [`LATCH_WATCH`]).
+    /// A probe step is unconfirmed, or was confirmed within the evidence
+    /// window: whatever breaks now is likely the step.
+    fn probe_unconfirmed(&self, now: Instant) -> bool {
+        self.pending.iter().any(Option::is_some)
+            || self
+                .confirmed
+                .is_some_and(|c| now.saturating_duration_since(c.at) < EVIDENCE_WINDOW)
+    }
+
     fn watching(&self, now: Instant) -> bool {
         self.latch_watch.is_some_and(|until| now < until)
     }
@@ -873,7 +884,8 @@ impl LinkRate {
             ("fec_loss_share", true)
         } else if evidence.send_losses >= SEND_LOSS_FRAMES {
             ("send_losses", true)
-        } else if (!self.fec_status_seen && evidence.keyframe_requests >= KEYFRAME_REQUESTS)
+        } else if ((!self.fec_status_seen || self.probe_unconfirmed(now))
+            && evidence.keyframe_requests >= KEYFRAME_REQUESTS)
             || (latch_failed && evidence.keyframe_requests > 0)
         {
             ("keyframe_requests", false)

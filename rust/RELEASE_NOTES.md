@@ -9,6 +9,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 ## Unreleased
 
 - **Radeon settings that could not be put back are retried on time.** The host retries settings it could not restore once a minute; a console page that read the Radeon state more often than that put the retry off for as long as it stayed open.
+- **Packed 4:4:4 is no longer refused when its first frame is slow.** On an RX 7900 XT the packed check's first 1080p frame sometimes took 4.7 seconds to upload and convert before the AMD encoder had it. The host counted that time against the encoder, dropped the frame and refused the stream with "packed encoder failed to return frame 1", which looked like 1080p at 120 fps being unsupported. A frame's two-second limit now starts when the encoder accepts it, in streams too, so a slow conversion no longer drops a frame the encoder has not had time to return. The host log now lists the packed 4:4:4 modes offered to clients at start, warns about each one whose check failed and why, and writes one "packed 4:4:4 stream" line with the packing version, coded size and bit depth when such a stream starts. With full chroma on, /serverinfo now carries `Packed444Modes`, the same mask the host sends in DESCRIBE (1 HEVC 8-bit, 2 HEVC 10-bit, 4 AV1 8-bit, 8 AV1 10-bit), so a client can leave out a mode the host does not offer before it launches.
 
 ## New in 3.0.0-rc.2
 

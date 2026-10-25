@@ -402,6 +402,50 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
 }
 
 #[tokio::test]
+async fn serverinfo_carries_the_packed_444_modes_only_when_packed_is_on() {
+    use butterpollo_core::packed444::mode_bit;
+    let f = Fixture::new();
+    let client = f.client(0x071f1f00);
+    let packed = |config: &'static str| {
+        let host = f.host.clone();
+        let connection = f.connection(true);
+        let client = client.clone();
+        async move {
+            let config = butterpollo_core::config::Config::parse(config).unwrap();
+            let root = document(serverinfo_response(
+                &host,
+                &connection,
+                &config,
+                Some(&client),
+                true,
+                String::new(),
+                0,
+                false,
+            ))
+            .await;
+            root.get_child("Packed444Modes")
+                .map(|element| element.get_text().unwrap_or_default().into_owned())
+        }
+    };
+    // A client could ask for 10-bit packed, be refused at ANNOUNCE and lose
+    // the session; it now sees the startup probe's result before /launch.
+    f.host.packed_modes.store(0, Ordering::Release);
+    assert_eq!(
+        packed("experimental_packed_444=true").await.as_deref(),
+        Some("0")
+    );
+    f.host
+        .packed_modes
+        .store(mode_bit(1, false) | mode_bit(2, true), Ordering::Release);
+    assert_eq!(
+        packed("experimental_packed_444=true").await.as_deref(),
+        Some("9")
+    );
+    assert_eq!(packed("experimental_packed_444=false").await, None);
+    assert_eq!(packed("").await, None);
+}
+
+#[tokio::test]
 async fn successful_launch_and_resume_xml_include_driver_readiness_and_the_called_endpoint() {
     for (reply, resume) in [("gamesession", false), ("resume", true)] {
         for ready in [false, true] {

@@ -705,13 +705,23 @@ impl Host {
                     chroma_packing: butterpollo_core::packed444::VERSION,
                     ..Default::default()
                 };
+                let probing = std::time::Instant::now();
                 match butterpollo_windows::codec_probe::packed(config, &negotiated) {
                     Ok(()) => packed_modes |= butterpollo_core::packed444::mode_bit(codec, ten_bit),
-                    Err(error) => {
-                        tracing::debug!(%error, codec, ten_bit, "packed 4:4:4 unavailable")
-                    }
+                    // Packed 4:4:4 is opt-in: a mode the user turned on but
+                    // clients are not offered must show in the log.
+                    Err(error) => tracing::warn!(
+                        error = %format!("{error:#}"),
+                        mode = packed_mode_names(butterpollo_core::packed444::mode_bit(codec, ten_bit)),
+                        elapsed_ms = probing.elapsed().as_millis() as u64,
+                        "packed 4:4:4 probe failed; clients are not offered this mode"
+                    ),
                 }
             }
+            tracing::info!(
+                modes = packed_mode_names(packed_modes),
+                "packed 4:4:4 modes offered to clients"
+            );
         }
         self.packed_modes
             .store(packed_modes, std::sync::atomic::Ordering::Release);
@@ -1018,6 +1028,26 @@ impl Host {
         Ok((access, refresh, csrf, refresh_deadline.saturating_sub(wall)))
     }
 }
+/// Names of the packed 4:4:4 modes in a `packed444Modes` mask.
+fn packed_mode_names(modes: u8) -> String {
+    let names: Vec<_> = [
+        (1, false, "HEVC 8-bit"),
+        (1, true, "HEVC 10-bit"),
+        (2, false, "AV1 8-bit"),
+        (2, true, "AV1 10-bit"),
+    ]
+    .into_iter()
+    .filter(|&(codec, ten_bit, _)| {
+        modes & butterpollo_core::packed444::mode_bit(codec, ten_bit) != 0
+    })
+    .map(|(_, _, name)| name)
+    .collect();
+    if names.is_empty() {
+        "none".into()
+    } else {
+        names.join(", ")
+    }
+}
 /// The app library. One that cannot be read as a library starts the host
 /// with no apps, as in Vibepollo, rather than keeping the host and its web
 /// console down; the file is copied beside it so a later save cannot lose it.
@@ -1055,6 +1085,15 @@ fn load_library(path: &std::path::Path, default: Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn packed_modes_are_logged_by_name() {
+        assert_eq!(super::packed_mode_names(0), "none");
+        assert_eq!(super::packed_mode_names(1 | 4), "HEVC 8-bit, AV1 8-bit");
+        assert_eq!(
+            super::packed_mode_names(butterpollo_core::packed444::ALL_MODES),
+            "HEVC 8-bit, HEVC 10-bit, AV1 8-bit, AV1 10-bit"
+        );
+    }
     #[test]
     fn settings_of_removed_encoders_and_limiters_migrate_with_one_warning() {
         use super::test_support::Fixture;

@@ -1305,6 +1305,17 @@ impl Media {
             .ok()
             .map(|mode| mode.dmDisplayFrequency);
         tracing::info!(width=s.config.width,height=s.config.height,fps=f64::from(s.config.fps_millihz())/1000.,requested_fps=s.config.fps,bitrate_kbps=s.bitrate.load(Ordering::Relaxed),configured_bitrate_kbps=s.config.configured_bitrate_kbps,codec=s.config.codec,hdr=s.config.hdr,ten_bit=s.config.ten_bit(),full_range=s.config.full_range(),color_matrix=s.config.color_matrix(),vrr=s.config.vrr_low_latency,packet_size=s.config.packet_size,pyrowave_records=s.config.pyrowave_records,pyrowave_row_order=s.config.pyrowave_row_order,requested_capture=%prepared.capture(),requested_encoder=c.get("encoder","auto"),encoder=encoder.as_ref().unwrap().backend(),adapter=%first.gpu.display.adapter,source_width=first.width,source_height=first.height,source_refresh_hz,source_pixel=?first.pixel,"stream configured");
+        if s.config.chroma_packing != 0 {
+            let (coded_width, coded_height) = s.config.coded_size();
+            tracing::info!(
+                packing_version = s.config.chroma_packing,
+                codec = s.config.codec,
+                coded_width,
+                coded_height,
+                bit_depth = if s.config.ten_bit() { 10 } else { 8 },
+                "packed 4:4:4 stream"
+            );
+        }
         let minimum = butterpollo_core::pyrowave::minimum_kbps(
             s.config.width,
             s.config.height,

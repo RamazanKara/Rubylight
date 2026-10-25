@@ -299,9 +299,17 @@ async fn connection(
                             "requested packed codec or bit depth failed the host hardware probe"
                         );
                         // Initialize the requested coded geometry and rate before accepting PLAY.
-                        butterpollo_windows::codec_probe::packed(&config, &negotiated).context(
-                            "packed encoder cannot support the requested dimensions and frame rate",
-                        )?;
+                        butterpollo_windows::codec_probe::packed(&config, &negotiated)
+                            .with_context(|| {
+                                format!(
+                                    "packed 4:4:4 probe failed for {}x{} at {} fps, {}-bit {}",
+                                    negotiated.width,
+                                    negotiated.height,
+                                    negotiated.fps,
+                                    if negotiated.ten_bit() { 10 } else { 8 },
+                                    if negotiated.codec == 2 { "AV1" } else { "HEVC" },
+                                )
+                            })?;
                     }
                     negotiated.mic = mics.lock().unwrap().remove(&launch.id);
                     if negotiated.mic

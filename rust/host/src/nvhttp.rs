@@ -588,6 +588,16 @@ fn serverinfo_response(
                 .to_string(),
         ),
     ];
+    // DESCRIBE's `packed444Modes` mask, from the startup probe, so a client
+    // can leave out a packed mode before /launch instead of after it.
+    if config.boolean("experimental_packed_444", false) {
+        fields.push((
+            "Packed444Modes",
+            h.packed_modes
+                .load(std::sync::atomic::Ordering::Acquire)
+                .to_string(),
+        ));
+    }
     fields.extend(commands.into_iter().map(|name| ("ServerCommand", name)));
     xml(200, &fields, None)
 }

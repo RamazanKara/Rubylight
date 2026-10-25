@@ -620,6 +620,59 @@ public class HomeShellTest {
         }
     }
 
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionHomeKeepsItsTabBeforeAnyLibraryIsSavedAndUpFromTheShelvesLandsOnIt() throws Exception {
+        // Home opens before its first library is on disk (a new PC, cleared data, the demo's first start).
+        assertTrue(new File(new File(context.getFilesDir(), "console-library"), "tower.json").delete());
+        assertFalse(ShellBar.homeAvailable(context));
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            View homeButton = home.findViewById(R.id.shell_home);
+            assertEquals("the current tab stays in the bar", View.VISIBLE, homeButton.getVisibility());
+            assertTrue(homeButton.isSelected());
+            showHosts(home, 14, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            controller.pause().resume();
+            assertEquals("and stays when Home comes back", View.VISIBLE, homeButton.getVisibility());
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            View card = shelves.cardView(list(home), new ConsoleHomeAdapter.Cursor(0, 9));
+            assertNotNull("a card in the first shelf", card);
+            assertTrue(card.requestFocus());
+            View end = walkUp(home, card, 40);
+            assertSame("Up lands on Home, not on " + end, homeButton, end);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionTheHeroShowsTheFirstCardWhileNoCardHasFocus() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            RecyclerView list = showHosts(home, 3, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            // Started from a touch (or adb), no card takes focus until a key is pressed.
+            Object root = ReflectionHelpers.callInstanceMethod(home.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode",
+                    ReflectionHelpers.ClassParameter.from(boolean.class, true));
+            assertTrue(list.isInTouchMode());
+            ReflectionHelpers.callInstanceMethod(home, "focusFirstCard",
+                    ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100));
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            assertNull("no card has focus", shelves.focusedCard(list));
+            ConsoleHomeAdapter.Cursor first = shelves.initialFocus();
+            HomeAmbience ambience = ReflectionHelpers.getField(home, "ambience");
+            assertEquals("the hero follows the card focus would start on", shelves.keyAt(first), ambience.current());
+            assertEquals(shelves.itemAt(first).game.title,
+                    ((TextView) home.findViewById(R.id.home_hero_title)).getText().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** Lets Home's worker and the main looper run until the condition holds. */
     private static void await(java.util.function.BooleanSupplier done) throws Exception {
         long end = System.currentTimeMillis() + 5000;

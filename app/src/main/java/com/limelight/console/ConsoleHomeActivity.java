@@ -472,6 +472,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             return;
         }
         if (list.isInTouchMode()) {
+            // No card takes focus until a key is pressed, but the hero is not left blank: it shows the card focus would start on.
+            if (ambience != null && shelves.focusedCard(list) == null) ambience.refresh(shelves.itemAt(first));
             return;
         }
         focusPending = false;

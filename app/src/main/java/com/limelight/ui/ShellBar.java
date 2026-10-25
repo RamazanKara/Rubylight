@@ -31,7 +31,7 @@ import com.limelight.preferences.StreamSettings;
  * <li>Back from a destination that is not the root goes to the root; Back on the root leaves the app.
  * <li>Switching destinations replaces the current one instead of stacking: the root is brought back with
  *     CLEAR_TOP and SINGLE_TOP, and a screen that is not the root finishes when it opens a sibling.
- * <li>Home is hidden while no host has a library to show.
+ * <li>Home is hidden while no host has a library to show, except on Home's own screens.
  * </ul>
  */
 public final class ShellBar {
@@ -111,11 +111,15 @@ public final class ShellBar {
         refresh(activity);
     }
 
-    /** Shows or hides Home; screens call it when they come back, since a library can appear while they are away. */
+    /**
+     * Shows or hides Home; screens call it when they come back, since a library can appear while they are away.
+     * On Home's own screens the tab stays: Home opens before its first library is saved (a new PC, cleared data), and
+     * a hidden current tab left the bar without it and sent Up from the shelves to PCs.
+     */
     public static void refresh(Activity activity) {
         View home = activity.findViewById(R.id.shell_home);
         if (home != null) {
-            home.setVisibility(homeAvailable(activity) ? View.VISIBLE : View.GONE);
+            home.setVisibility(home.isSelected() || homeAvailable(activity) ? View.VISIBLE : View.GONE);
         }
     }
 

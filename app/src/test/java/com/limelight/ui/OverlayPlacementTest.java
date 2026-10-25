@@ -64,9 +64,13 @@ public class OverlayPlacementTest {
 
     @Test
     public void aCoveredPreferredCornerFallsBackThroughTheOtherSpotsWithoutRepeating() {
-        // Bottom end is wanted but a control sits there: top start, the first of the usual order, is free.
+        // A centre spot has no mirror: top centre is wanted but covered; the usual order's first free spot follows.
         Rect bottomEnd = OverlayPlacement.bounds(OverlayPlacement.Spot.BOTTOM_END, AREA, WIDTH, HEIGHT, false);
+        Rect topCentre = OverlayPlacement.bounds(OverlayPlacement.Spot.TOP_CENTER, AREA, WIDTH, HEIGHT, false);
         assertEquals(OverlayPlacement.Spot.TOP_START, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                Collections.singletonList(topCentre), OverlayPlacement.Spot.TOP_CENTER, false));
+        // Bottom end is wanted but a control sits there: its mirror, top end, is free.
+        assertEquals(OverlayPlacement.Spot.TOP_END, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
                 Collections.singletonList(bottomEnd), OverlayPlacement.Spot.BOTTOM_END, false));
         // Every spot covered, the preferred one the least: it stays.
         List<Rect> all = new ArrayList<>();
@@ -77,6 +81,26 @@ public class OverlayPlacementTest {
         }
         assertEquals(OverlayPlacement.Spot.BOTTOM_END, OverlayPlacement.choose(AREA, WIDTH, HEIGHT, all,
                 OverlayPlacement.Spot.BOTTOM_END, false));
+    }
+
+    @Test
+    public void aCoveredCornerTriesItsVerticalMirrorBeforeTheUsualOrder() {
+        Rect bottomEnd = OverlayPlacement.bounds(OverlayPlacement.Spot.BOTTOM_END, AREA, WIDTH, HEIGHT, false);
+        Rect bottomStart = OverlayPlacement.bounds(OverlayPlacement.Spot.BOTTOM_START, AREA, WIDTH, HEIGHT, false);
+        assertEquals(OverlayPlacement.Spot.TOP_END, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                Collections.singletonList(bottomEnd), OverlayPlacement.Spot.BOTTOM_END, false));
+        Rect topEnd = OverlayPlacement.bounds(OverlayPlacement.Spot.TOP_END, AREA, WIDTH, HEIGHT, false);
+        assertEquals(OverlayPlacement.Spot.BOTTOM_END, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                Collections.singletonList(topEnd), OverlayPlacement.Spot.TOP_END, false));
+        assertEquals(OverlayPlacement.Spot.TOP_START, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                Collections.singletonList(bottomStart), OverlayPlacement.Spot.BOTTOM_START, false));
+        // Both bottom end and its mirror covered: the usual order, top start first.
+        assertEquals(OverlayPlacement.Spot.TOP_START, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                Arrays.asList(bottomEnd, topEnd), OverlayPlacement.Spot.BOTTOM_END, false));
+        // The default keeps the old order: top start covered goes to top end, not bottom start.
+        Rect topStart = OverlayPlacement.bounds(OverlayPlacement.Spot.TOP_START, AREA, WIDTH, HEIGHT, false);
+        assertEquals(OverlayPlacement.Spot.TOP_END, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                Collections.singletonList(topStart), OverlayPlacement.Spot.TOP_START, false));
     }
 
     @Test

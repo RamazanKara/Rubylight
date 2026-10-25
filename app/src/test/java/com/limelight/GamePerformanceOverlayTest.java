@@ -170,6 +170,22 @@ public class GamePerformanceOverlayTest {
     }
 
     @Test
+    public void theLayoutPassKeepsTheChosenCornerAndAlignsTheTextAfterAModeChange() {
+        Game game = laidOut();
+        android.view.View scroll = game.findViewById(R.id.performanceOverlayScroll);
+        android.view.ViewGroup parent = (android.view.ViewGroup) scroll.getParent();
+        ReflectionHelpers.callInstanceMethod(game, "attachOverlayPlacement",
+                ReflectionHelpers.ClassParameter.from(android.view.ViewGroup.class, parent));
+        TextView overlay = game.findViewById(R.id.performanceOverlay);
+        ReflectionHelpers.setField(game, "overlayCorner", OverlayPlacement.Corner.TOP_RIGHT);
+        setMode(game, "statistics");
+        parent.getViewTreeObserver().dispatchOnGlobalLayout();
+        android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) scroll.getLayoutParams();
+        assertEquals(Gravity.TOP | Gravity.END, params.gravity);
+        assertEquals(Gravity.END, overlay.getGravity() & Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK);
+    }
+
+    @Test
     public void choosingOffHidesTheOverlayAndKeepsTheModeAndPosition() {
         Game game = laidOut();
         setMode(game, "debug");

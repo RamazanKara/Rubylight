@@ -948,8 +948,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         overlayMode = PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(this)
                 .getString("performance_overlay_mode", PerformanceOverlay.MODE_COMPACT));
         overlayCorner = com.limelight.ui.OverlayPlacement.Corner.parse(prefConfig.overlayPosition);
-        com.limelight.ui.OverlayPlacement.attach(performanceOverlayScroll, (android.view.ViewGroup) streamView.getParent(),
-                this::collectOverlayObstacles, () -> overlayCorner, this::alignOverlayText);
+        attachOverlayPlacement((android.view.ViewGroup) streamView.getParent());
         updatePerformanceOverlay();
 
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
@@ -3322,6 +3321,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (spot != null) alignOverlayText(spot);
     }
 
+    private void attachOverlayPlacement(android.view.ViewGroup parent) {
+        com.limelight.ui.OverlayPlacement.attach(performanceOverlayScroll, parent,
+                this::collectOverlayObstacles, () -> overlayCorner, this::alignOverlayText);
+    }
+
     // Lines of different widths hug the side the overlay sits on. Set only when the side changes.
     private void alignOverlayText(com.limelight.ui.OverlayPlacement.Spot spot) {
         int side = spot == com.limelight.ui.OverlayPlacement.Spot.TOP_END ||
@@ -3354,6 +3358,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (gameTouchControls != null) gameTouchControls.collectVisibleBounds(parent, out);
         if (isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(keyboardOverlay, parent, out);
         if (isPcKeyboardVisible()) com.limelight.ui.OverlayPlacement.addVisible(pcKeyboard, parent, out);
+        // The poor-connection warning sits top right: the overlay keeps out of its way.
+        com.limelight.ui.OverlayPlacement.addVisible(notificationOverlayView, parent, out);
     }
 
     private CharSequence hardwarePerformanceText(boolean debug) {

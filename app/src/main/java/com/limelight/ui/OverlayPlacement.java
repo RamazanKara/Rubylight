@@ -65,16 +65,22 @@ public final class OverlayPlacement {
     }
 
     /**
-     * The preferred spot unless something covers it there; then the first spot that covers nothing, in the
-     * order top-start, top-end, top centre, bottom-start, bottom-end. When every spot covers a control, the
+     * The preferred spot unless something covers it there; then, for a corner other than top start, its
+     * vertical mirror; then the first spot that covers nothing, in the order top-start, top-end, top
+     * centre, bottom-start, bottom-end. When every spot covers a control, the
      * one covering the least (the preferred spot on a tie).
      */
     static Spot choose(Rect area, int width, int height, List<Rect> obstacles, Spot preferred, boolean rtl) {
         Spot best = preferred;
         long bestCovered = Long.MAX_VALUE;
-        for (int i = -1; i < PREFERENCE.length; i++) {
-            Spot spot = i < 0 ? preferred : PREFERENCE[i];
-            if (i >= 0 && spot == preferred) continue;
+        // The default top start keeps the old order. Another corner tries its vertical mirror next, so a
+        // bottom-right choice with controls on screen moves to top right before it jumps across.
+        Spot mirror = preferred == Spot.TOP_END ? Spot.BOTTOM_END : preferred == Spot.BOTTOM_END ? Spot.TOP_END
+                : preferred == Spot.BOTTOM_START ? Spot.TOP_START : null;
+        int skipped = mirror == null ? 1 : 2;
+        for (int i = -skipped; i < PREFERENCE.length; i++) {
+            Spot spot = i == -skipped ? preferred : i < 0 ? mirror : PREFERENCE[i];
+            if (i >= 0 && (spot == preferred || spot == mirror)) continue;
             Rect bounds = bounds(spot, area, width, height, rtl);
             long covered = 0;
             for (Rect obstacle : obstacles) {

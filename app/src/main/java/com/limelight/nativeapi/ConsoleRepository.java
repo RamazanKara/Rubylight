@@ -422,9 +422,13 @@ public final class ConsoleRepository {
         return null;
     }
 
-    /** By the stored stable id first; the app id only for a star or a game that has no id. */
+    /**
+     * By the stored stable id first; the app id only for a star or a game that has no id. A game the host has not
+     * added is never the starred one: it has no app id, and an empty key would match its 0.
+     */
     private static ConsoleSnapshot.Source findStarred(ConsoleSnapshot.Host host, FavouritesStore.Favourite favourite) {
         for (ConsoleSnapshot.Source source : host.sources) {
+            if (!source.added) continue;
             String id = source.stableId();
             if (favourite.key.isEmpty() || id.isEmpty() ? source.appId == favourite.appId : id.equals(favourite.key)) {
                 return source;

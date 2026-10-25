@@ -428,7 +428,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
 
     private void setFavourite(HomeModel.GameCard card, boolean starred) {
         final ConsoleRepository repo = repository;
-        if (repo == null) return;
+        if (repo == null || card.notAdded()) return;
         final String key = card.source != null ? card.source.stableId() : "";
         worker.execute(() -> {
             try {

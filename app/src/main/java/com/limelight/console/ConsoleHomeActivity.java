@@ -551,9 +551,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         });
     }
 
-    /** The long-press menu of a game card: star or unstar it. */
-    private void askFavourite(HomeModel.GameCard card) {
-        if (repository == null) {
+    /** The long-press menu of a game card: star or unstar it. A game not added has no app id to star. */
+    void askFavourite(HomeModel.GameCard card) {
+        if (repository == null || card.notAdded()) {
             return;
         }
         boolean remove = card.favourite;
@@ -570,7 +570,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
      */
     private void setFavourite(HomeModel.GameCard card, boolean starred) {
         final ConsoleRepository repo = repository;
-        if (repo == null) {
+        if (repo == null || card.notAdded()) {
             return;
         }
         final List<ComputerDetails> hosts = feed.hosts();

@@ -465,6 +465,38 @@ public class HomeShellTest {
         }
     }
 
+    @Test
+    public void aGameTheHostHasNotAddedOffersNoStar() throws Exception {
+        ActivityController<Home> controller = home();
+        ConsoleRig rig = new ConsoleRig(temporary.newFolder());
+        try {
+            Home home = controller.get();
+            ReflectionHelpers.setField(home, "repository", rig.repository);
+            rig.transport.reply("tower", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\","
+                    + "\"library.unadded\"],\"permissions\":{\"list\":true,\"view\":true,\"launch\":true}}"));
+            rig.transport.reply("tower", "library", ok(library("t", HomeLibraryRowsTest.game(1, "Portal", "steam", true,
+                    null), HomeLibraryRowsTest.found("Hades", "epic"))));
+            rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
+            HomeModel model = HomeModel.of(rig.repository.refresh(Collections.singletonList(
+                    nativeHost("tower", "Tower", true))), new HashSet<>(Collections.singletonList("tower")));
+            HomeModel.GameCard portal = null;
+            HomeModel.GameCard hades = null;
+            for (HomeModel.GameCard card : model.allGames) {
+                if (card.title.equals("Portal")) portal = card;
+                if (card.title.equals("Hades")) hades = card;
+            }
+            assertTrue(hades.notAdded());
+
+            home.askFavourite(hades);
+            assertNull("no menu for a game without an app id", ShadowDialog.getLatestDialog());
+            home.askFavourite(portal);
+            assertNotNull(ShadowDialog.getLatestDialog());
+        } finally {
+            rig.close();
+            controller.pause().stop().destroy();
+        }
+    }
+
     private static RecyclerView list(Home home) {
         return home.findViewById(R.id.console_list);
     }

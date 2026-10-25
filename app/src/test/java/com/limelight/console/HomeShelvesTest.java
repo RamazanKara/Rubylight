@@ -192,16 +192,54 @@ public class HomeShelvesTest {
         assertEquals("and on the same one", focused, adapter.keyAt(at));
     }
 
+    /** A model of the hosts alone: no favourites, no library, so those shelves leave the list and their holders are recycled. */
+    private HomeModel hostsOnly() throws Exception {
+        rig.transport.reply("tower", "library", ok(library("t1")));
+        for (int i = 0; i < 8; i++) rig.repository.setFavourite("tower", "Tower", "t-" + i, 100 + i, "Game " + i, false);
+        return HomeModel.of(rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true))),
+                new HashSet<>(Collections.singletonList("tower")));
+    }
+
+    @Test
+    public void aShelfRecycledAndBroughtBackStaysWhereTheUserScrolledItOnARefresh() throws Exception {
+        card(1, 8);
+        int saved = firstVisible(1);
+        assertTrue(saved > 0);
+        // The library leaves the list, which recycles its holder (and keeps where it was), then comes back at that place.
+        adapter.submit(hostsOnly());
+        layout();
+        adapter.submit(model);
+        layout();
+        assertEquals("the library is back where it was left", saved, firstVisible(1));
+
+        // The user scrolls it on to another card; that, not the place saved at the recycle, is where a refresh must keep it.
+        View eleventh = card(1, 11);
+        assertTrue(eleventh.requestFocus());
+        layout();
+        int first = firstVisible(1);
+        int offset = offsetOf(1);
+        assertTrue("further along than it was saved", first > saved);
+        String focused = adapter.keyAt(adapter.focusedCard(list));
+
+        for (int i = 0; i < 3; i++) {
+            adapter.submit(model);
+            layout();
+        }
+
+        assertEquals("the same first card", first, firstVisible(1));
+        assertEquals("at the same offset", offset, offsetOf(1));
+        ConsoleHomeAdapter.Cursor at = adapter.focusedCard(list);
+        assertNotNull("focus stayed on a card", at);
+        assertEquals("and on the same one", focused, adapter.keyAt(at));
+    }
+
     @Test
     public void aShelfThatTakesAHolderSetsItToItsOwnPlaceNotTheLastOnes() throws Exception {
         card(1, 8);
         int first = firstVisible(1);
         assertTrue(first > 0);
         // Only the PCs remain: their shelf takes up a holder that showed the scrolled library.
-        rig.transport.reply("tower", "library", ok(library("t1")));
-        for (int i = 0; i < 8; i++) rig.repository.setFavourite("tower", "Tower", "t-" + i, 100 + i, "Game " + i, false);
-        HomeModel hosts = HomeModel.of(rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true))),
-                new HashSet<>(Collections.singletonList("tower")));
+        HomeModel hosts = hostsOnly();
         adapter.submit(hosts);
         layout();
         assertEquals(1, adapter.rowCount());

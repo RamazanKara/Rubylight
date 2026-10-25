@@ -271,7 +271,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     static boolean fromGamepad(android.view.KeyEvent event) {
-        return (event.getSource() & android.view.InputDevice.SOURCE_GAMEPAD) == android.view.InputDevice.SOURCE_GAMEPAD;
+        // A pad's D-pad and sticks often arrive as SOURCE_JOYSTICK keys, without the gamepad bit.
+        int source = event.getSource();
+        return (source & android.view.InputDevice.SOURCE_GAMEPAD) == android.view.InputDevice.SOURCE_GAMEPAD
+                || (source & android.view.InputDevice.SOURCE_JOYSTICK) == android.view.InputDevice.SOURCE_JOYSTICK;
     }
 
     @Override

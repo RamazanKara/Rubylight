@@ -224,6 +224,10 @@ public class FavouritesShelvesTest {
         ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
                 android.view.KeyEvent.KEYCODE_BUTTON_A, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_GAMEPAD)));
         assertTrue(hints.getText().toString(), hints.getText().toString().startsWith("A\u00a0"));
+        // A pad's D-pad arrives as a joystick-source key; it must not flip the hints back to a remote's.
+        ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_JOYSTICK)));
+        assertTrue(hints.getText().toString(), hints.getText().toString().startsWith("A\u00a0"));
         ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
                 android.view.KeyEvent.KEYCODE_DPAD_CENTER)));
         assertTrue(hints.getText().toString().contains("OK"));

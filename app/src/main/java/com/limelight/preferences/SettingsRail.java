@@ -63,6 +63,8 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
         this.rail = rail;
         this.bar = bar;
         this.pane = pane;
+        // The still radial light is the window's, so it reaches the screen's edges past the content's TV margin.
+        activity.getWindow().setBackgroundDrawableResource(R.drawable.tv_settings_canvas);
         rail.getViewTreeObserver().addOnPreDrawListener(this);
     }
 

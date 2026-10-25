@@ -110,8 +110,10 @@ public class SettingsRailTest {
         assertEquals(View.VISIBLE, bar.getVisibility());
         assertEquals("a TV opens on Input", middleOf(screen, "input"), barMiddle(screen), 1f);
         assertFalse(rail(screen).sliding());
-        View canvas = ((ViewGroup) screen.findViewById(android.R.id.content)).getChildAt(0);
-        assertNotNull("the canvas is the still radial light", canvas.getBackground());
+        android.graphics.drawable.Drawable canvas = screen.getWindow().getDecorView().getBackground();
+        assertTrue("the window is the still radial light", canvas instanceof android.graphics.drawable.GradientDrawable
+                && ((android.graphics.drawable.GradientDrawable) canvas).getGradientType()
+                == android.graphics.drawable.GradientDrawable.RADIAL_GRADIENT);
     }
 
     @Test

@@ -137,6 +137,9 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
         frame.setScaleY(1);
         frame.setTranslationX(0);
         frame.setTranslationY(0);
+        // A card that was gliding or rising with its screen's first rows is a still, opaque card again.
+        card.setTranslationY(0);
+        card.setAlpha(1f);
         // The focus scale belongs to the card's state; a card that is not selected has none left over.
         if (!card.isSelected() && !card.isFocused()) {
             // The ring, glow and title fade with the state too: a recycled card shows none of them.

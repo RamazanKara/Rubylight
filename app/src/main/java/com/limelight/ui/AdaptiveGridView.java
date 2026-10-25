@@ -1,11 +1,16 @@
 package com.limelight.ui;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
+import android.view.animation.AnimationUtils;
 import android.widget.GridView;
 
 import com.limelight.R;
@@ -36,6 +41,25 @@ public class AdaptiveGridView extends GridView {
     private boolean smallIcons;
     /** Tells a held key from a press, so a long run across the grid does not queue a focus tween per card. */
     private final FastTravel travel = new FastTravel();
+
+    /** A row change glides: the content jumps as the list lays it out, then every card eases from its old place. */
+    private static final long GLIDE_MS = 180;
+    /** How long after a key its scrolling counts as the key's: past it a scroll is a touch fling, which never glides. */
+    private static final long GLIDE_WINDOW_MS = 250;
+    private static final int NO_OFFSET = Integer.MIN_VALUE;
+    private int contentY = NO_OFFSET;
+    private long glideUntil;
+    private float glideOffset;
+    private ValueAnimator glide;
+    private int glideCount;
+
+    /** The first cards of a screen rise in, staggered; a key or a touch ends it. */
+    private static final int ENTER_CARDS = 10;
+    private static final long ENTER_MS = 220;
+    private static final long ENTER_STAGGER_MS = 18;
+    private static final float ENTER_RISE_DP = 24;
+    private java.util.List<View> entering;
+    private final Runnable enterDone = () -> entering = null;
 
     public AdaptiveGridView(Context context) {
         super(context);
@@ -102,9 +126,148 @@ public class AdaptiveGridView extends GridView {
             }
         }
         markAction(null);
+        endEnter();
         revealPending = movesSelection(keyCode);
-        if (revealPending) travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
-        return super.onKeyDown(keyCode, event);
+        if (revealPending) {
+            long now = SystemClock.uptimeMillis();
+            travel.onMove(event.getRepeatCount(), now);
+            contentY = contentY();
+            glideUntil = now + GLIDE_WINDOW_MS;
+        }
+        boolean handled = super.onKeyDown(keyCode, event);
+        // The list may already have scrolled inside the key, or does so in the layout that follows.
+        if (revealPending) noteScroll();
+        return handled;
+    }
+
+    /** True while a key is held or presses follow each other quickly: screens skip their tweens then. */
+    public boolean isFastTravel() {
+        return travel.isActive(SystemClock.uptimeMillis());
+    }
+
+    /** Where the first row's top is in the whole list, so two readings differ by exactly what the list scrolled. */
+    private int contentY() {
+        if (getChildCount() == 0 || getNumColumns() <= 0) return NO_OFFSET;
+        View first = getChildAt(0);
+        int row = getFirstVisiblePosition() / getNumColumns();
+        return row * (first.getHeight() + getVerticalSpacing()) - first.getTop();
+    }
+
+    /** Takes the list's scroll since the last reading and, when a key caused it, starts the glide over it. */
+    private void noteScroll() {
+        int before = contentY;
+        contentY = contentY();
+        if (before == NO_OFFSET || contentY == NO_OFFSET || contentY == before) return;
+        if (SystemClock.uptimeMillis() > glideUntil) return;
+        int delta = contentY - before;
+        if (computers || !isTelevision() || Math.abs(delta) > getHeight() || travel.isActive(SystemClock.uptimeMillis())
+                || Motion.reduced(getContext())) {
+            endGlide();
+            return;
+        }
+        // The cards moved up by delta, so each starts that far below where it now is.
+        glideOffset += delta;
+        applyGlide();
+        if (glide != null) {
+            ValueAnimator previous = glide;
+            glide = null;
+            previous.cancel();
+        }
+        ValueAnimator animator = ValueAnimator.ofFloat(glideOffset, 0f);
+        animator.setDuration(GLIDE_MS);
+        animator.setInterpolator(AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_std));
+        animator.addUpdateListener(animation -> {
+            glideOffset = (float) animation.getAnimatedValue();
+            applyGlide();
+        });
+        animator.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                if (glide == animation) {
+                    glide = null;
+                    glideOffset = 0;
+                    applyGlide();
+                }
+            }
+        });
+        glide = animator;
+        glideCount++;
+        animator.start();
+    }
+
+    /** How many glides this grid has started; tests read it because a paused test looper does not tick animators. */
+    public int glideCount() {
+        return glideCount;
+    }
+
+    private void applyGlide() {
+        for (int i = 0; i < getChildCount(); i++) getChildAt(i).setTranslationY(glideOffset);
+    }
+
+    private void endGlide() {
+        ValueAnimator running = glide;
+        glide = null;
+        if (running != null) running.cancel();
+        if (glideOffset != 0) {
+            glideOffset = 0;
+            applyGlide();
+        }
+    }
+
+    /**
+     * Brings a screen's first cards in: up to ten of the visible ones rise 24 dp and fade in, a diagonal wave from the
+     * first. Meant for the first time a screen fills, once its list has been handed to the grid. Nothing with Reduce motion.
+     */
+    public void playEnter() {
+        if (computers || !isTelevision() || Motion.reduced(getContext())) return;
+        getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                getViewTreeObserver().removeOnPreDrawListener(this);
+                startEnter();
+                return true;
+            }
+        });
+    }
+
+    private void startEnter() {
+        endEnter();
+        int count = Math.min(getChildCount(), ENTER_CARDS);
+        if (count == 0 || !isAttachedToWindow()) return;
+        int columns = Math.max(1, getNumColumns());
+        float rise = ENTER_RISE_DP * getResources().getDisplayMetrics().density;
+        android.view.animation.Interpolator settle = AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_emph_dec);
+        java.util.List<View> cards = new java.util.ArrayList<>(count);
+        long longest = 0;
+        for (int i = 0; i < count; i++) {
+            View card = getChildAt(i);
+            long delay = ENTER_STAGGER_MS * (i / columns + i % columns);
+            card.setAlpha(0f);
+            card.setTranslationY(rise);
+            card.animate().alpha(1f).translationY(0f).setStartDelay(delay).setDuration(ENTER_MS).setInterpolator(settle);
+            cards.add(card);
+            longest = Math.max(longest, delay);
+        }
+        entering = cards;
+        postDelayed(enterDone, longest + ENTER_MS + 50);
+    }
+
+    /** Puts the rising cards where they are going, at once. */
+    private void endEnter() {
+        java.util.List<View> cards = entering;
+        if (cards == null) return;
+        entering = null;
+        removeCallbacks(enterDone);
+        for (View card : cards) {
+            card.animate().cancel();
+            card.setAlpha(1f);
+            card.setTranslationY(glideOffset);
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        endEnter();
+        endGlide();
+        super.onDetachedFromWindow();
     }
 
     /**
@@ -122,7 +285,10 @@ public class AdaptiveGridView extends GridView {
         int dy = 0;
         if (bottom - top > getHeight() || top < 0) dy = top;
         else if (bottom > getHeight()) dy = bottom - getHeight();
-        if (dy != 0) scrollListBy(dy);
+        if (dy != 0) {
+            scrollListBy(dy);
+            noteScroll();
+        }
     }
 
     /**
@@ -165,6 +331,7 @@ public class AdaptiveGridView extends GridView {
     public boolean dispatchTouchEvent(android.view.MotionEvent event) {
         int action = event.getActionMasked();
         if (action == android.view.MotionEvent.ACTION_DOWN) {
+            endEnter();
             secondaryGesture = false;
             OnItemLongClickListener listener = getOnItemLongClickListener();
             int position = pointToPosition((int) event.getX(), (int) event.getY());
@@ -200,9 +367,13 @@ public class AdaptiveGridView extends GridView {
             // A held key puts every card straight into the state it is in: the new one focused, the old one at rest.
             for (int i = 0; i < getChildCount(); i++) FastTravel.settle(getChildAt(i));
         }
+        if (glideOffset != 0) applyGlide();
         if (revealPending) {
+            noteScroll();
             removeCallbacks(revealSelection);
             post(revealSelection);
+        } else {
+            contentY = contentY();
         }
     }
 

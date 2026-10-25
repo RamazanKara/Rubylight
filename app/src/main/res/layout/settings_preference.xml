@@ -26,6 +26,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_xs"
+            android:maxLines="@integer/settings_summary_lines"
+            android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Nightjar.Supporting"
             android:textColor="@color/text_on_surface_variant" />
     </LinearLayout>

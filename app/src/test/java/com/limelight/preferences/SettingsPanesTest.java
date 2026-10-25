@@ -187,6 +187,37 @@ public class SettingsPanesTest {
     }
 
     @Test @Config(qualifiers = TV)
+    public void rightEntersThePaneOnItsFirstRowAndLeftComesBackToTheRowItLeft() {
+        ActivityController<StreamSettings> controller = open();
+        try {
+            StreamSettings screen = controller.get();
+            ListView list = sections(screen);
+            list.setSelection(row(list, "audio"));
+            settle(screen);
+            org.robolectric.shadows.ShadowDialog.reset();
+            key(screen, KeyEvent.KEYCODE_DPAD_RIGHT);
+            settle(screen);
+            ListView pane = content(screen);
+            assertTrue("Right enters the pane", pane.hasFocus());
+            assertFalse(sections(screen).hasFocus());
+            assertNull("the key's release opens no explanation", org.robolectric.shadows.ShadowDialog.getLatestDialog());
+            int first = PaneFocus.target(-1, pane.getCount(), pane.getAdapter()::isEnabled);
+            assertEquals("the first focusable row", first, pane.getSelectedItemPosition());
+            int last = PaneFocus.target(pane.getCount() - 1, pane.getCount(), pane.getAdapter()::isEnabled);
+            pane.setSelection(last);
+            settle(screen);
+            key(screen, KeyEvent.KEYCODE_DPAD_LEFT);
+            settle(screen);
+            assertTrue("Left returns to the section", sections(screen).hasFocus());
+            assertEquals("audio", ((Preference) sections(screen).getSelectedItem()).getKey());
+            key(screen, KeyEvent.KEYCODE_DPAD_RIGHT);
+            settle(screen);
+            assertTrue(content(screen).hasFocus());
+            assertEquals("back on the row it was left on", last, content(screen).getSelectedItemPosition());
+        } finally { controller.pause().stop().destroy(); }
+    }
+
+    @Test @Config(qualifiers = TV)
     public void backInTheContentPaneReturnsToTheListBeforeLeaving() {
         ActivityController<StreamSettings> controller = open();
         try {

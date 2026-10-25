@@ -89,7 +89,9 @@ impl Resampler {
         self.queue.clear();
         self.phase = 0.;
     }
-    pub fn push(&mut self, frame: &[f32]) {
+    /// Queues one frame, and returns how many frames of the oldest audio the 100 ms cap
+    /// discarded to make room.
+    pub fn push(&mut self, frame: &[f32]) -> usize {
         debug_assert_eq!(frame.len(), self.channels);
         self.queue.extend(
             frame
@@ -101,22 +103,25 @@ impl Resampler {
             let excess = self.queue.len() - limit;
             self.queue.drain(..excess);
             self.phase = 0.;
+            return excess / self.channels;
         }
+        0
     }
     /// Drop the oldest queued audio back to `target_ms` once more than
     /// `limit_ms` is queued. A late tick leaves extra audio behind, and
     /// each tick sends one packet, so the delay it added stayed until the
-    /// 100 ms bound; clock drift crept up to that bound as well.
-    pub fn bound(&mut self, limit_ms: u32, target_ms: u32) -> bool {
+    /// 100 ms bound; clock drift crept up to that bound as well. Returns the
+    /// frames dropped, at this resampler's input rate.
+    pub fn bound(&mut self, limit_ms: u32, target_ms: u32) -> usize {
         let frames = |ms: u32| (self.rate as usize * ms as usize / 1000).max(1);
         let queued = self.queue.len() / self.channels;
         if queued <= frames(limit_ms) {
-            return false;
+            return 0;
         }
         let excess = queued - frames(target_ms).min(queued);
         self.queue.drain(..excess * self.channels);
         self.phase = 0.;
-        true
+        excess
     }
     pub fn read(&mut self, frames: usize) -> Option<Vec<f32>> {
         if frames == 0 {
@@ -416,12 +421,23 @@ mod tests {
             r.push(&[i as f32 / 1e6, 0.]);
         }
         // 50 ms queued: within a 60 ms limit nothing is dropped.
-        assert!(!r.bound(60, 10));
-        assert!(r.bound(30, 10));
+        assert_eq!(r.bound(60, 10), 0);
+        // 50 ms down to 10 ms drops 40 ms.
+        assert_eq!(r.bound(30, 10), 48 * 40);
         assert_eq!(r.queue.len() / 2, 480);
         // The newest audio is kept.
         let last = r.read(480).unwrap();
         assert_eq!(last[last.len() - 2], (48 * 50 - 1) as f32 / 1e6);
+    }
+    #[test]
+    fn the_hundred_millisecond_cap_reports_the_frames_it_drops() {
+        for rate in [44100u32, 48000] {
+            let mut r = Resampler::new(rate, 2).unwrap();
+            let cap = rate as usize / 10;
+            let dropped: usize = (0..cap + 300).map(|_| r.push(&[0.1, 0.1])).sum();
+            assert_eq!(dropped, 300, "{rate} Hz");
+            assert_eq!(r.queue.len() / 2, cap);
+        }
     }
     #[test]
     fn host_audio_loss_counts_only_skips_a_late_read_explains() {

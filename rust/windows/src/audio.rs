@@ -141,6 +141,7 @@ impl Loopback {
                     matrix,
                     input: vec![0.; f.nChannels as usize],
                     output: vec![0.; output_channels],
+                    trimmed: 0,
                 },
                 buffer,
                 drained: None,
@@ -219,6 +220,7 @@ impl Loopback {
                     matrix,
                     input: vec![0.; 2],
                     output: vec![0.; output_channels],
+                    trimmed: 0,
                 },
                 buffer,
                 drained: None,
@@ -266,6 +268,12 @@ impl Loopback {
         self.delivered
             .take()
             .map(|frames| std::time::Duration::from_secs_f64(frames as f64 / f64::from(self.rate)))
+    }
+    /// How much captured audio this host discarded since the last call (a backlog trimmed
+    /// after a late wake, or the 100 ms cap), in 48 kHz samples. Windows delivered it, so
+    /// `take_delivered` does not count it; it is a gap in the stream all the same.
+    pub fn take_trimmed(&mut self) -> u64 {
+        self.samples.take_trimmed(self.rate)
     }
     pub fn read(&mut self, frames: usize) -> Result<Option<Vec<f32>>> {
         anyhow::ensure!(
@@ -319,8 +327,15 @@ struct CaptureSamples {
     matrix: Vec<Vec<f32>>,
     input: Vec<f32>,
     output: Vec<f32>,
+    /// Frames, at the resampler's input rate, this host discarded from the queue since
+    /// they were last taken: audio Windows delivered and nothing sent.
+    trimmed: u64,
 }
 impl CaptureSamples {
+    /// The audio discarded since the last call, as 48 kHz samples of a device running at `rate`.
+    fn take_trimmed(&mut self, rate: u32) -> u64 {
+        std::mem::take(&mut self.trimmed) * 48_000 / u64::from(rate)
+    }
     /// # Safety
     /// Unless silent or null, `data` holds `count` interleaved frames in this
     /// capture's validated sample format and remains readable throughout.
@@ -367,14 +382,16 @@ impl CaptureSamples {
             for (dest, row) in self.output.iter_mut().zip(&self.matrix) {
                 *dest = self.input.iter().zip(row).map(|(v, gain)| v * gain).sum();
             }
-            self.resampler.push(&self.output);
+            self.trimmed += self.resampler.push(&self.output) as u64;
         }
     }
     fn read(&mut self, frames: usize) -> Option<Vec<f32>> {
         // Steady state queues under one WASAPI period plus a packet;
         // keep two packets once a stall left more than 30 ms.
         let packet_ms = (frames / 48).max(1) as u32;
-        if self.resampler.bound((packet_ms * 3).max(30), packet_ms * 2) {
+        let dropped = self.resampler.bound((packet_ms * 3).max(30), packet_ms * 2);
+        if dropped > 0 {
+            self.trimmed += dropped as u64;
             tracing::debug!("audio capture backlog dropped");
         }
         self.resampler.read(frames)
@@ -618,6 +635,7 @@ mod tests {
             matrix: butterpollo_core::audio::mix_matrix(2, 3, 2).unwrap(),
             input: vec![0.; 2],
             output: vec![0.; 2],
+            trimmed: 0,
         }
     }
 
@@ -694,6 +712,68 @@ mod tests {
             assert!((stereo[0] - expected).abs() < 1e-6, "frame {frame}");
             assert!((stereo[1] + expected).abs() < 1e-6, "frame {frame}");
         }
+    }
+
+    /// What a late audio thread leaves: `queued_ms` of audio waiting when it wakes, all read in
+    /// one pass. Returns the packets read and the samples discarded, both at 48 kHz.
+    fn late_wake(rate: u32, queued_ms: usize, packet_ms: usize) -> (usize, u64) {
+        let mut samples = capture_samples(rate);
+        let frames = rate as usize * queued_ms / 1000;
+        let input = vec![0.1; frames * 2];
+        // Windows hands over its 10 ms chunks as they come; the thread has not read any yet.
+        for chunk in input.chunks(rate as usize / 100 * 2) {
+            captured(&mut samples, chunk, 0);
+        }
+        let mut packets = 0;
+        while samples.read(packet_ms * 48).is_some() {
+            packets += 1;
+        }
+        (packets, samples.take_trimmed(rate))
+    }
+
+    #[test]
+    fn a_late_wake_reports_the_backlog_it_trims_so_the_stream_keeps_its_time() {
+        for rate in [48_000, 44_100] {
+            for (queued_ms, packet_ms) in [(100, 5), (60, 5), (45, 10), (100, 20)] {
+                let (packets, trimmed) = late_wake(rate, queued_ms, packet_ms);
+                // Every millisecond woken up late is either a packet or counted as trimmed.
+                // At 48 kHz that is exact. A fractional rate may leave up to two packets queued
+                // unread (still in the stream, not lost).
+                let accounted = packets * packet_ms * 48 + trimmed as usize;
+                let queued = queued_ms * 48;
+                let unread = if rate == 48_000 {
+                    0
+                } else {
+                    2 * packet_ms * 48
+                };
+                assert!(
+                    accounted <= queued && queued - accounted <= unread,
+                    "{rate} Hz, {queued_ms} ms, {packet_ms} ms packets: {packets} packets, {trimmed} trimmed"
+                );
+                assert!(trimmed > 0, "{rate} Hz, {queued_ms} ms");
+            }
+        }
+    }
+
+    #[test]
+    fn a_wake_within_the_limit_trims_nothing() {
+        for (queued_ms, packet_ms) in [(25, 5), (30, 5), (30, 10), (60, 20)] {
+            let (packets, trimmed) = late_wake(48_000, queued_ms, packet_ms);
+            assert_eq!(trimmed, 0, "{queued_ms} ms, {packet_ms} ms packets");
+            assert_eq!(packets, queued_ms / packet_ms);
+        }
+    }
+
+    #[test]
+    fn the_hundred_millisecond_cap_is_reported_as_trimmed_too() {
+        let mut samples = capture_samples(48_000);
+        // 150 ms pushed before any read: the cap keeps the newest 100 ms.
+        for _ in 0..15 {
+            captured(&mut samples, &vec![0.1; 480 * 2], 0);
+        }
+        assert_eq!(samples.take_trimmed(48_000), 50 * 48);
+        // Taken once: a second call has nothing new.
+        assert_eq!(samples.take_trimmed(48_000), 0);
     }
 
     #[test]

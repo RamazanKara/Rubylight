@@ -9,7 +9,7 @@ mod encoder_tests;
 mod game_audio;
 mod qos;
 pub(crate) mod slices;
-use audio_sink::{AudioSink, GameStreamAudio, WebRtcAudio};
+use audio_sink::{AudioPace, AudioSink, GameStreamAudio, WebRtcAudio};
 use qos::Tagged;
 #[cfg(test)]
 pub(crate) mod reconnect_tests;
@@ -3004,12 +3004,12 @@ impl Media {
         let frames = 48 * usize::from(s.config.audio_packet_ms);
         let start = Instant::now();
         let interval = Duration::from_millis(u64::from(s.config.audio_packet_ms));
-        // When audio last arrived, and when an idle endpoint's next silence is due.
-        let mut heard = Instant::now();
         let mut loss = butterpollo_core::audio::HostLoss::default();
+        // Packet deadlines, silence for a quiet endpoint, and where each packet sits in the
+        // stream in 48 kHz samples; the WebRTC RTP clock follows that, not wall time.
+        let mut pace = AudioPace::new(Instant::now(), interval, frames);
         let mut last_loss = None;
         let mut upkeep: Option<RouteUpkeep> = None;
-        let mut next = Instant::now();
         let timer = butterpollo_windows::timing::Timer::new()?;
         let silence = vec![0.; frames * s.config.audio_channels as usize];
         while !s.stopping() && !h.stop.load(Ordering::Acquire) {
@@ -3020,7 +3020,7 @@ impl Media {
                 // Audio events wake immediately. Before the silence threshold,
                 // an expired packet deadline must not turn this into a 1 ms poll.
                 Some(capturing) => capturing.wait(
-                    next.max(heard + Duration::from_millis(50))
+                    pace.due()
                         .saturating_duration_since(Instant::now())
                         .clamp(Duration::from_millis(1), Duration::from_millis(5)),
                 ),
@@ -3134,6 +3134,7 @@ impl Media {
                             "audio_capture",
                             format!("Audio capture interrupted ({error:#}); {recovery}"),
                         );
+                        pace.host_dropped(capturing.take_trimmed());
                         capture = None;
                     }
                 }
@@ -3145,6 +3146,9 @@ impl Media {
                     // A skip no late read explains is the endpoint falling
                     // quiet and starting again.
                     let skipped = delivered.unwrap_or_default();
+                    // Windows dropped this audio: the RTP clock keeps its length as a gap for
+                    // the receiver to conceal.
+                    pace.windows_dropped(lost, skipped);
                     if waited > capturing.buffer() || !skipped.is_zero() {
                         tracing::debug!(
                             waited_ms = waited.as_secs_f64() * 1000.,
@@ -3155,25 +3159,15 @@ impl Media {
                         );
                     }
                 }
+                // Audio the host itself trimmed after a late wake was delivered, so the
+                // skip count above does not hold it; the stream still lost its time.
+                pace.host_dropped(capturing.take_trimmed());
             }
             let now = Instant::now();
-            if !packets.is_empty() {
-                heard = now;
-                next = now + interval;
-            } else if now >= next
-                && now.saturating_duration_since(heard) >= Duration::from_millis(50)
-            {
-                // WASAPI delivers roughly 10 ms chunks; allow for scheduling jitter
-                // before treating a quiet capture queue as an idle endpoint.
-                packets.push(silence.clone());
-                next += interval;
-                if next < now {
-                    next = now + interval;
-                }
-            }
+            let positions = pace.stamp(now, &mut packets, &silence);
             if ready {
-                for samples in &packets {
-                    for _ in 0..output.send(&opus.encode(samples)?, now)? {
+                for (samples, at) in packets.iter().zip(positions) {
+                    for _ in 0..output.send(&opus.encode(samples)?, now, at)? {
                         loss.unsent();
                     }
                 }

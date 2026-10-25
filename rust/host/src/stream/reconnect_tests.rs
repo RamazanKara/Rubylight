@@ -234,13 +234,20 @@ impl Fixture {
         let mut claims = butterpollo_core::performance::Claims::default();
         let codec = s.config.codec;
         let mut first = true;
+        let mut position = 0u64;
         let result = (|| -> Result<()> {
             while !h.stop.load(Ordering::Acquire) && !s.stopping() {
                 require_hdr_source(s, || self.display_in_hdr(), true)?;
                 // Two 5 ms packets per tick; the payload names the layout the encoder would use.
                 let payload = webrtc_tests::audio_payload(&layout);
                 for _ in 0..2 {
-                    super::audio_sink::AudioSink::send(&mut audio, &payload, Instant::now())?;
+                    super::audio_sink::AudioSink::send(
+                        &mut audio,
+                        &payload,
+                        Instant::now(),
+                        position,
+                    )?;
+                    position += 240;
                 }
                 let idr = s.idr.swap(false, Ordering::AcqRel) || first;
                 first = false;

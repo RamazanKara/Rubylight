@@ -127,6 +127,9 @@ jobs:
           echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
           tar -xf ffmpeg.tar.xz
           bash protocol/desktop/ffmpeg-decode-only.sh "$PWD/ffmpeg-$FFMPEG_VERSION" "$PWD/ffprefix"
+      - name: Check the FFmpeg source note
+        run: |
+          grep -qx "SHA-256: $FFMPEG_SHA256" ffprefix/licenses-ffmpeg/SOURCE.txt || { echo "::error::ffprefix/licenses-ffmpeg/SOURCE.txt has no SHA-256 $FFMPEG_SHA256"; exit 1; }
       - name: PyroWave SDK cache
         id: sdk-cache
         if: github.ref_type != 'tag'
@@ -261,11 +264,17 @@ jobs:
           echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
           tar -xf ffmpeg.tar.xz
           # The script needs an MSYS2 UCRT64 shell; a login shell sets its PATH up.
-          # Git Bash does not hand its environment to MSYS2's runtime: set it with MSYS2's own env, and
-          # pass the workspace as an argument, or the login shell starts in its home directory.
-          /c/msys64/usr/bin/env.exe MSYSTEM=UCRT64 CHERE_INVOKING=1 /c/msys64/usr/bin/bash.exe -l -c \
+          # Git Bash does not hand its environment to MSYS2's runtime: set it with MSYS2's own env
+          # (FFMPEG_SHA256 too, for licenses-ffmpeg/SOURCE.txt), and pass the workspace as an
+          # argument, or the login shell starts in its home directory.
+          /c/msys64/usr/bin/env.exe MSYSTEM=UCRT64 CHERE_INVOKING=1 FFMPEG_SHA256="$FFMPEG_SHA256" /c/msys64/usr/bin/bash.exe -l -c \
             'cd "$(cygpath -u "$1")" && bash protocol/desktop/ffmpeg-decode-only.sh "$PWD/ffmpeg-$2" "$PWD/ffprefix"' \
             _ "$(cygpath -w "$PWD")" "$FFMPEG_VERSION"
+      # A cached prefix from before the hash reached the script would ship a source note without it.
+      - name: Check the FFmpeg source note
+        shell: bash
+        run: |
+          grep -qx "SHA-256: $FFMPEG_SHA256" ffprefix/licenses-ffmpeg/SOURCE.txt || { echo "::error::ffprefix/licenses-ffmpeg/SOURCE.txt has no SHA-256 $FFMPEG_SHA256"; exit 1; }
       - name: PyroWave SDK cache
         id: sdk-cache
         if: github.ref_type != 'tag'

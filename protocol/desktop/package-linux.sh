@@ -116,7 +116,7 @@ ldd "$stage/nightjar" | grep -v " => $stage/" | sed -n 's/^[[:space:]]*\(lib[^ ]
 	echo "The libraries in lib/ need some more of the system's (libva and what it needs); they are listed too."
 	echo
 	# The executable's direct libraries and those of the shipped ones, minus what lib/ has.
-	needed=$({ readelf -d "$stage/nightjar"; for lib in "$stage"/lib/lib*.so.*.*; do readelf -d "$lib"; done; } |
+	needed=$({ readelf -d "$stage/nightjar"; for lib in "$stage"/lib/lib*.so.*; do [[ -L $lib ]] || readelf -d "$lib"; done; } |
 		sed -n 's/.*(NEEDED).*Shared library: \[\(lib[^]]*\)\].*/\1/p' | sort -u)
 	while read -r lib; do
 		[[ ! -e $stage/lib/$lib ]] || continue

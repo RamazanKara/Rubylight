@@ -90,8 +90,10 @@ What str0m needs from us:
   - answer for 6 or 8 channels: `a=rtpmap:<pt> multiopus/48000/<6|8>` at the offered audio PT with
     `a=fmtp:<pt> channel_mapping=<m>;num_streams=<s>;coupled_streams=<c>;...`. libwebrtc's own layouts
     are 5.1 `0,4,1,2,3,5`, 4 streams, 2 coupled, and 7.1 `0,6,1,2,3,4,5,7`, 5 streams, 3 coupled. The
-    host takes the stream count, coupled count and mapping when libopus can encode them (every stream
-    mapped, coupled pairs complete, canonical channel order), rewrites the line back to
+    host takes the stream count, coupled count and mapping when libopus can create an encoder with
+    them: at least one stream, no more coupled streams than streams, every mapping entry below
+    `streams + coupled` (or 255, a silent channel), and every stream's channels mapped, both of a
+    coupled one. Any such order is taken, canonical or not, and so is a duplicate entry. It rewrites the line back to
     `opus/48000/2` with the protocol fmtp before str0m parses it, and configures the Opus encoder with
     exactly that layout (`OpusLayout` with a custom layout). Unknown or extra fmtp keys are ignored;
   - a stereo answer to a surround request, a changed channel count or an invalid layout is an error.

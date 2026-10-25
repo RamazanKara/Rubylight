@@ -462,11 +462,13 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
             }
         }
         (true, Some((_, line))) if rtpmap_is(&line, "opus/48000/2") => bail!(
-            "the {n}-channel request was answered with stereo opus/48000/2; a surround client              answers multiopus/48000/{n} with its own layout, and the host never falls back to stereo",
+            "the {n}-channel request was answered with stereo opus/48000/2; a surround client \
+             answers multiopus/48000/{n} with its own layout, and the host never falls back to stereo",
             n = spec.audio.channels
         ),
         (true, _) => bail!(
-            "the answer to the {n}-channel request is not multiopus/48000/{n}              (only Chromium-based receivers decode it)",
+            "the answer to the {n}-channel request is not multiopus/48000/{n} \
+             (only Chromium-based receivers decode it)",
             n = spec.audio.channels
         ),
     }
@@ -1093,12 +1095,8 @@ mod tests {
                 &format!("a=rtpmap:111 multiopus/48000/{channels}"),
             );
             let answer = munge_answer(&answer, channels, &multiopus_fmtp(&chrome_layout(channels)));
-            let (text, info) = check_answer(&answer, &s).unwrap_or_else(|e| {
-                panic!(
-                    "{e}
-{answer}"
-                )
-            });
+            let (text, info) =
+                check_answer(&answer, &s).unwrap_or_else(|e| panic!("{e}\n{answer}"));
             // What str0m parses is plain stereo Opus again, with nothing of the multistream.
             assert!(text.contains("a=rtpmap:111 opus/48000/2"));
             assert!(!text.contains("multiopus") && !text.contains("channel_mapping"));
@@ -1259,6 +1257,106 @@ mod tests {
         assert!(err.contains("not a number"), "{err}");
         let err = refused("channel_mapping=0,1,2,3,4,5;num_streams=lots;coupled_streams=2");
         assert!(err.contains("num_streams is not a number"), "{err}");
+    }
+
+    #[test]
+    fn a_non_canonical_but_valid_mapping_is_kept_and_a_duplicate_one_libopus_takes_too() {
+        // Any permutation is the receiver's to choose; only what libopus refuses is refused.
+        let s = surround_spec(6);
+        let (_, info) = check_answer(
+            &chrome_answer(
+                &s,
+                6,
+                "channel_mapping=5,3,1,0,2,4;num_streams=4;coupled_streams=2",
+            ),
+            &s,
+        )
+        .unwrap();
+        assert_eq!(info.audio_layout.unwrap().mapping, [5, 3, 1, 0, 2, 4]);
+        // Three streams, two coupled: five decoded channels, and input channel 5 duplicates
+        // decoded channel 4. libopus encodes from the first and ignores the second.
+        let (_, info) = check_answer(
+            &chrome_answer(
+                &s,
+                6,
+                "channel_mapping=0,1,2,3,4,4;num_streams=3;coupled_streams=2",
+            ),
+            &s,
+        )
+        .unwrap();
+        assert_eq!(info.audio_layout.unwrap().mapping, [0, 1, 2, 3, 4, 4]);
+        // The boundary: decoded channel 5 does not exist with five decoded channels.
+        let refused = check_answer(
+            &chrome_answer(
+                &s,
+                6,
+                "channel_mapping=0,1,2,3,4,5;num_streams=3;coupled_streams=2",
+            ),
+            &s,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            refused.contains("outside the 5 decoded channels"),
+            "{refused}"
+        );
+    }
+
+    /// libopus's `validate_layout` and `validate_encoder_layout`, as the multistream encoder
+    /// applies them when it is created with these parameters.
+    fn libopus_creates_an_encoder(streams: i32, coupled: i32, mapping: &[u8]) -> bool {
+        if coupled > streams || streams < 1 || coupled < 0 || streams > 255 - coupled {
+            return false;
+        }
+        let decoded = streams + coupled;
+        if mapping.iter().any(|&m| i32::from(m) >= decoded && m != 255) {
+            return false;
+        }
+        let mapped = |channel: i32| mapping.iter().any(|&m| i32::from(m) == channel);
+        (0..streams).all(|stream| {
+            if stream < coupled {
+                mapped(2 * stream) && mapped(2 * stream + 1)
+            } else {
+                mapped(stream + coupled)
+            }
+        })
+    }
+
+    #[test]
+    fn an_answered_layout_is_accepted_exactly_when_libopus_can_encode_it() {
+        let mut checked = 0;
+        // Stereo in full, and the surround layouts that matter: Chromium's, Moonlight's and
+        // the in-between ones around them.
+        let mut cases: Vec<(usize, i32, i32)> = (0..=3)
+            .flat_map(|streams| (0..=4).map(move |coupled| (2, streams, coupled)))
+            .collect();
+        cases.extend([(6, 4, 2), (6, 3, 2), (6, 5, 1), (6, 2, 2)]);
+        for (channels, streams, coupled) in cases {
+            // Every mapping over the ids that exist, one beyond them, and silence.
+            let ids: Vec<u8> = (0..=(streams + coupled) as u8).chain([255]).collect();
+            let mut mapping = vec![0usize; channels];
+            loop {
+                let entries: Vec<u8> = mapping.iter().map(|&i| ids[i]).collect();
+                let list: Vec<String> = entries.iter().map(u8::to_string).collect();
+                let fmtp = format!(
+                    "a=fmtp:111 channel_mapping={};num_streams={streams};coupled_streams={coupled}",
+                    list.join(",")
+                );
+                assert_eq!(
+                    answered_layout(&fmtp, channels).is_ok(),
+                    libopus_creates_an_encoder(streams, coupled, &entries),
+                    "{channels} channels: {fmtp}"
+                );
+                checked += 1;
+                // The next mapping, odometer style.
+                let Some(at) = mapping.iter().position(|&i| i + 1 < ids.len()) else {
+                    break;
+                };
+                mapping[at] += 1;
+                mapping[..at].fill(0);
+            }
+        }
+        assert!(checked > 100_000, "{checked}");
     }
 
     #[test]

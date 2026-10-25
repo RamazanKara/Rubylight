@@ -51,11 +51,11 @@ public class DiskAssetLoaderTest {
 
     @Test
     public void aCoverIsDecodedInItsOwnShapeNotSqueezedIntoAPoster() {
-        assertArrayEquals("a banner stays a banner", new int[] {360, 168}, DiskAssetLoader.targetSize(920, 430));
-        assertArrayEquals("a square stays square", new int[] {360, 360}, DiskAssetLoader.targetSize(600, 600));
-        assertArrayEquals("2:3 fills the box", new int[] {360, 540}, DiskAssetLoader.targetSize(600, 900));
-        assertArrayEquals("3:4 is limited by its width", new int[] {360, 480}, DiskAssetLoader.targetSize(600, 800));
+        assertArrayEquals("a banner stays a banner", new int[] {300, 140}, DiskAssetLoader.targetSize(920, 430));
+        assertArrayEquals("a square stays square", new int[] {300, 300}, DiskAssetLoader.targetSize(600, 600));
+        assertArrayEquals("2:3 fills the box", new int[] {300, 450}, DiskAssetLoader.targetSize(600, 900));
+        assertArrayEquals("3:4 is limited by its width", new int[] {300, 400}, DiskAssetLoader.targetSize(600, 800));
         assertArrayEquals("a small cover is not enlarged", new int[] {200, 300}, DiskAssetLoader.targetSize(200, 300));
-        assertArrayEquals("unknown sizes fall back to the box", new int[] {360, 540}, DiskAssetLoader.targetSize(0, 0));
+        assertArrayEquals("unknown sizes fall back to the box", new int[] {300, 450}, DiskAssetLoader.targetSize(0, 0));
     }
 }

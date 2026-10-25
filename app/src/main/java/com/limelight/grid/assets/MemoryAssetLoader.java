@@ -8,8 +8,9 @@ import java.lang.ref.SoftReference;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class MemoryAssetLoader {
+    // Covers decode at 300x450, an eighth larger than the old 300x400, so the budget is an eighth larger too.
     private static final int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
-    private static final LruCache<String, ScaledBitmap> memoryCache = new LruCache<String, ScaledBitmap>(maxMemory / 16) {
+    private static final LruCache<String, ScaledBitmap> memoryCache = new LruCache<String, ScaledBitmap>(maxMemory / 14) {
         @Override
         protected int sizeOf(String key, ScaledBitmap bitmap) {
             // Sizeof returns kilobytes

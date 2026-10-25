@@ -7,6 +7,8 @@ public class ScaledBitmap {
     public int originalHeight;
 
     public Bitmap bitmap;
+    /** The tiny blurred copy a letterboxed cover sits on (see ArtFit), built with the cover; null for a cropped one. */
+    public Bitmap backdrop;
 
     public ScaledBitmap() {}
 

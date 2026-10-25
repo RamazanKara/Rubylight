@@ -238,7 +238,7 @@ public class CachedAppAssetLoader {
                                     return;
                                 }
                                 // Fade in the new box art
-                                imageView.setImageBitmap(bitmap.bitmap);
+                                showArt(imageView, bitmap);
                                 imageView.startAnimation(AnimationUtils.loadAnimation(imageView.getContext(), R.anim.boxart_fadein));
                             }
 
@@ -249,12 +249,21 @@ public class CachedAppAssetLoader {
                     }
                     else {
                         // View is invisible already, so just fade in the new art
-                        imageView.setImageBitmap(bitmap.bitmap);
+                        showArt(imageView, bitmap);
                         imageView.startAnimation(AnimationUtils.loadAnimation(imageView.getContext(), R.anim.boxart_fadein));
                         imageView.setVisibility(View.VISIBLE);
                     }
                 }
             }
+        }
+    }
+
+    /** A cover goes onto its view with the backdrop built for it, so binding does no bitmap work. */
+    private static void showArt(ImageView imageView, ScaledBitmap art) {
+        if (imageView instanceof com.limelight.ui.PosterImageView) {
+            ((com.limelight.ui.PosterImageView) imageView).setArt(art.bitmap, art.backdrop);
+        } else {
+            imageView.setImageBitmap(art.bitmap);
         }
     }
 
@@ -357,7 +366,7 @@ public class CachedAppAssetLoader {
         if (bmp != null) {
             // Show the bitmap immediately
             imgView.setVisibility(View.VISIBLE);
-            imgView.setImageBitmap(bmp.bitmap);
+            showArt(imgView, bmp);
 
             textView.setVisibility(View.GONE);
             return true;

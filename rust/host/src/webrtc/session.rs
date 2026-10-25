@@ -1080,7 +1080,7 @@ impl Actor {
                 bitrate_kbps: settings.bitrate_kbps,
             },
             audio: AudioMode::request(settings.audio_channels as usize)?,
-            // NACK and RTX are compared with keyframe recovery alone in B5.
+            // NACK and RTX, on by default; `webrtc_rtx = false` leaves recovery to keyframes.
             rtx: self.h.config.read().unwrap().webrtc_rtx(),
         };
         let mut rtc = sdp::rtc_config(&spec)?.build(Instant::now());

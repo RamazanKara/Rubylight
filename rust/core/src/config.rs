@@ -492,8 +492,8 @@ impl Config {
     }
     /// Whether the WebRTC offer carries NACK and RTX, so a lost video packet is resent
     /// (`webrtc_rtx = false` turns it off). On by default: at 0.1 % datagram loss it kept 60 fps
-    /// with no freeze where keyframe recovery alone dropped to 42 fps with 3 to 17 freezes, and on
-    /// a clean link it changes nothing (rust/PERFORMANCE.md).
+    /// with no freeze where keyframe recovery alone dropped to 36 to 43 fps with 3 to 18 freezes,
+    /// and on a clean link it changes nothing (rust/PERFORMANCE.md).
     pub fn webrtc_rtx(&self) -> bool {
         self.boolean("webrtc_rtx", true)
     }

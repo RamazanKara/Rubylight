@@ -27,6 +27,16 @@ const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '');
 const output = option('out', process.env.BUTTERPOLLO_TEST_ARTIFACTS || path.join(hostSupport.defaults.root, 'runs', stamp));
 const ctx = {results: {}, notes: []};
 
+// What must be undone if the run ends any way but the normal one: Ctrl+C, a closed console, a
+// crash. Each entry is synchronous, because it runs while the process exits. A run killed outright
+// leaves it to the next start (`recoverFromEarlierRun`).
+const cleanups = new Set();
+function onExit(fn) { cleanups.add(fn); return () => cleanups.delete(fn); }
+function runCleanups() { for (const fn of [...cleanups]) { cleanups.delete(fn); try { fn(); } catch {} } }
+process.on('exit', runCleanups);
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK', 'SIGHUP']) process.on(signal, () => { runCleanups(); process.exit(130); });
+const killTree = pid => { if (pid) { try { execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {stdio: 'ignore'}); } catch {} } };
+
 const signalling = host => `ws://127.0.0.1:${host.o.webrtcPort}`;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -115,9 +125,17 @@ function streamResult({first, last, g2g, host, offset, extra}) {
   return {seconds: elapsed, video, audio, glassToGlass: g2g, host: log.summary, hostInput: log.inputs.at(-1) || null, hostWarnings: log.errors, ...extra};
 }
 
+// Playwright does not expose the browser's process id; the browser itself knows it.
+async function browserPid(browser) {
+  const cdp = await browser.newBrowserCDPSession();
+  const {processInfo} = await cdp.send('SystemInfo.getProcessInfo');
+  return processInfo.find(p => p.type === 'browser')?.id;
+}
+
 // Above every other window, so nothing hides the time code from the capture.
-function pinClock() {
-  execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'webrtc_client', 'topmost.ps1'), '-Marker', 'rl-e2e-clock'], {stdio: 'pipe'});
+function pinClock(clock) {
+  execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'webrtc_client', 'topmost.ps1'),
+    '-Marker', 'rl-e2e-clock', '-ProcessId', String(clock.pid)], {stdio: 'pipe'});
 }
 
 async function openClock() {
@@ -131,17 +149,21 @@ async function openClock() {
   const cdp = await context.newCDPSession(page);
   const {windowId} = await cdp.send('Browser.getWindowForTarget');
   await cdp.send('Browser.setWindowBounds', {windowId, bounds: {left: 0, top: 0, width: 1500, height: 720, windowState: 'normal'}});
-  pinClock();
-  return {browser, page};
+  const pid = await browserPid(browser);
+  const clock = {browser, page, pid, forget: onExit(() => killTree(pid))};
+  pinClock(clock);
+  return clock;
 }
 
 async function launchClient(kind, extraArgs = []) {
   const executablePath = kind === 'chrome' ? support.chromePath() : support.edgePath();
   assert(executablePath, `${kind} is not installed`);
   const browser = await chromium.launch({executablePath, headless: true, args: support.clientArgs(extraArgs)});
+  const pid = await browserPid(browser);
+  const forget = onExit(() => killTree(pid));
   const context = await browser.newContext({viewport: {width: 1280, height: 720}, ignoreHTTPSErrors: true});
   for (const name of ['clock.js', 'probe.js']) await context.addInitScript({content: script(name)});
-  return {browser, context};
+  return {browser, context, forget};
 }
 
 async function saveFrame(page, name) {
@@ -163,9 +185,9 @@ async function browserSession(host) {
   const results = {};
   const staticServer = await support.startStatic(STATIC_PORT);
   const webClient = await support.startWebClient(WEB_PORT);
+  const forgetWebClient = onExit(webClient.stop);
   let clock, session;
   try {
-    clock = await openClock();
     session = await launchClient('edge');
     await session.context.addInitScript({content: script('fakepad.js')});
     const page = await session.context.newPage();
@@ -191,6 +213,8 @@ async function browserSession(host) {
     await page.selectOption('#setting-codec', 'h264');
     const settings = await page.evaluate(() => ['setting-mode', 'setting-fps', 'setting-codec', 'setting-bitrate'].map(id => document.getElementById(id).value));
     await hostSupport.assertRealHostIdle();
+    // Only now: the clock window sits on top of everything, and nothing before this needs it.
+    clock = await openClock();
     const offset = fs.statSync(host.log).size;
     const t0 = Date.now();
     await page.click('button.app >> nth=0');
@@ -237,6 +261,7 @@ async function browserSession(host) {
   } finally {
     await session?.browser.close().catch(() => {});
     await clock?.browser.close().catch(() => {});
+    session?.forget(); clock?.forget(); forgetWebClient();
     webClient.stop(); staticServer.stop();
   }
   return results;
@@ -253,6 +278,27 @@ function sinkFormat() {
   return JSON.parse(execFileSync(TONE_EXE, ['--format'], {encoding: 'utf8'}));
 }
 
+// The format the sink had before a surround leg changed it, kept until it is put back.
+const SINK_RESTORE = path.join(hostSupport.defaults.root, 'sink-restore.json');
+function restoreSink(before) {
+  execFileSync(TONE_EXE, ['--restore', before]);
+  fs.rmSync(SINK_RESTORE, {force: true});
+}
+
+// A run that was killed outright (power, taskkill /F) cannot clean up. The next one does it before
+// anything else: the sink gets its old format back and the old test host, tone player and browser
+// client server are stopped.
+function recoverFromEarlierRun() {
+  const notes = [];
+  if (fs.existsSync(SINK_RESTORE)) {
+    try { restoreSink(JSON.parse(fs.readFileSync(SINK_RESTORE, 'utf8')).before); notes.push('restored the sink format an earlier run left'); }
+    catch (error) { throw new Error(`${SINK_RESTORE} is there but the sink could not be restored: ${error.message}`); }
+  }
+  const killed = support.killLeftovers({hostDir: hostSupport.defaults.staging, toneExe: TONE_EXE, webPort: WEB_PORT});
+  if (killed.length) notes.push(`stopped leftovers of an earlier run: ${killed.join(', ')}`);
+  return notes;
+}
+
 // Our protocol v2 client (rust/tests/webrtc_client/client.js) streams with a
 // forced codec and channel count; the browser is Edge, or Chrome with the
 // H.265 receive flag for HEVC. `check` runs against the connected page.
@@ -262,9 +308,8 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
   await host.grantAll();
   const result = {codec, channels, browser: kind};
   const staticServer = await support.startStatic(STATIC_PORT);
-  let clock, session, tone, sinkRestore;
+  let clock, session, tone, sinkRestore, forgetSink, forgetTone;
   try {
-    clock = await openClock();
     session = await launchClient(kind, browserArgs);
     const page = await session.context.newPage();
     const pageErrors = [];
@@ -285,6 +330,9 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
         // No default device is touched: capture_only keeps the host away from them.
         result.sinkBefore = sinkFormat();
         sinkRestore = JSON.parse(execFileSync(TONE_EXE, ['--set-channels', String(channels)], {encoding: 'utf8'})).before;
+        // On disk at once, so a run that dies from here on still gets the sink back at the next start.
+        fs.writeFileSync(SINK_RESTORE, JSON.stringify({before: sinkRestore, date: new Date().toISOString()}));
+        forgetSink = onExit(() => restoreSink(sinkRestore));
         const format = result.sink = sinkFormat();
         if (format.channels !== channels || !format.float) {
           result.status = 'not-established';
@@ -292,6 +340,7 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
           return result;
         }
       }
+      clock = await openClock();
       const offset = fs.statSync(host.log).size;
       const t0 = Date.now();
       const started = await page.evaluate(options => RlClient.start(options), {
@@ -302,10 +351,11 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
       await page.waitForFunction(async () => ((await RlProbe.sample()).video || {}).framesDecoded > 30, null, {timeout: 30000, polling: 500});
       await page.evaluate(() => { RlProbe.collect(1000); RlProbe.startG2g(document.getElementById('video')); });
       tone = spawn(TONE_EXE, [String(seconds + 30)], {stdio: 'ignore', windowsHide: true});
+      forgetTone = onExit(() => killTree(tone.pid));
       await wait(4000);
       const first = await page.evaluate(() => RlProbe.sample());
       await page.evaluate(() => { RlProbe.g2g.length = 0; RlProbe.g2gRejected = 0; });
-      pinClock();
+      pinClock(clock);
       await wait(seconds * 1000 - 4000);
       result.check = await toneCheck(page, channels);
       await saveFrame(page, `${codec}-${channels}ch`);
@@ -330,9 +380,11 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
     }
   } finally {
     try { tone?.kill(); } catch {}
-    if (sinkRestore) { try { execFileSync(TONE_EXE, ['--restore', sinkRestore]); result.sinkRestored = true; } catch (error) { result.sinkRestored = String(error.message); } }
+    forgetTone?.();
+    if (sinkRestore) { try { restoreSink(sinkRestore); forgetSink(); result.sinkRestored = true; } catch (error) { result.sinkRestored = String(error.message); } }
     await session?.browser.close().catch(() => {});
     await clock?.browser.close().catch(() => {});
+    session?.forget(); clock?.forget();
     staticServer.stop();
   }
   return result;
@@ -394,8 +446,10 @@ const ourLegs = {
 (async () => {
   fs.mkdirSync(output, {recursive: true});
   await hostSupport.assertRealHostIdle();
+  ctx.notes.push(...recoverFromEarlierRun());
   const settings = hostSupport.prepare();
   const host = new hostSupport.TestHost(settings);
+  const forgetHost = onExit(() => host.kill());
   let failed = false;
   try {
     await host.start();
@@ -413,6 +467,7 @@ const ourLegs = {
     }
   } finally {
     await host.stop();
+    forgetHost();
     fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({date: new Date().toISOString(), legs: ctx.results, notes: ctx.notes}, null, 2));
   }
   console.log('result:', path.join(output, 'result.json'));

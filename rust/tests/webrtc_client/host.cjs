@@ -116,7 +116,13 @@ class TestHost {
     if (!this.child || this.child.exitCode !== null) return;
     try { await this.api('POST', '/api/quit', {}); } catch {}
     const code = await Promise.race([this.exited, new Promise(r => setTimeout(() => r(null), 8000))]);
-    if (code === null) { try { execFileSync('taskkill', ['/PID', String(this.child.pid), '/T', '/F'], {stdio: 'ignore'}); } catch {} }
+    if (code === null) this.kill();
+  }
+
+  // Synchronous, for the exit handlers.
+  kill() {
+    if (!this.child || this.child.exitCode !== null) return;
+    try { execFileSync('taskkill', ['/PID', String(this.child.pid), '/T', '/F'], {stdio: 'ignore'}); } catch {}
   }
 
   request(method, route, body, headers = {}) {

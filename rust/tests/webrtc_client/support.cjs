@@ -48,7 +48,13 @@ async function startWebClient(port) {
   if (!fs.existsSync(path.join(CLIENT_DIR, 'package.json'))) {
     fs.mkdirSync(CLIENT_DIR, {recursive: true});
     const git = (...a) => execFileSync('git', ['-C', CLIENT_DIR, ...a], {stdio: 'pipe'});
-    git('init', '-q'); git('remote', 'add', 'origin', CLIENT_REPO); git('fetch', '-q', 'origin'); git('checkout', '-q', CLIENT_PIN);
+    try {
+      git('init', '-q'); git('remote', 'add', 'origin', CLIENT_REPO); git('fetch', '-q', 'origin'); git('checkout', '-q', CLIENT_PIN);
+    } catch (error) {
+      // A half-made checkout has a .git but no package.json, and the next run would trust it.
+      fs.rmSync(CLIENT_DIR, {recursive: true, force: true});
+      throw error;
+    }
   }
   const head = execFileSync('git', ['-C', CLIENT_DIR, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim();
   if (!head.startsWith(CLIENT_PIN)) throw new Error(`the browser client is at ${head}, not ${CLIENT_PIN}`);
@@ -58,12 +64,38 @@ async function startWebClient(port) {
   return {url: `http://127.0.0.1:${port}`, head, stop: () => { try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {stdio: 'ignore'}); } catch {} }};
 }
 
+// What a run that was killed outright left behind: its test host, its tone player and the browser
+// client's server. Found by executable path and by the harness's own port, so nothing else
+// is touched. Returns what it stopped.
+function killLeftovers({hostDir, toneExe, webPort}) {
+  const quote = text => `'${text.replace(/'/g, "''")}'`;
+  const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$hostDir = ${quote(hostDir)}; $toneExe = ${quote(toneExe)}; $killed = @()
+foreach ($p in Get-CimInstance Win32_Process) {
+  $exe = $p.ExecutablePath
+  if (-not $exe) { continue }
+  if ($exe.StartsWith($hostDir + '\', [StringComparison]::OrdinalIgnoreCase) -or $exe -ieq $toneExe) {
+    Stop-Process -Id $p.ProcessId -Force; $killed += $p.Name
+  }
+}
+foreach ($c in Get-NetTCPConnection -LocalPort ${Number(webPort)} -State Listen) {
+  taskkill /PID $c.OwningProcess /T /F | Out-Null; $killed += "port ${Number(webPort)}"
+}
+$killed -join ','`;
+  const out = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {encoding: 'utf8'}).trim();
+  return out ? out.split(',') : [];
+}
+
+// Whether `file` is below `dir`: a sibling that merely starts with the same letters is not.
+const isInside = (dir, file) => file.startsWith(dir + path.sep);
+
 // Serves rust/tests/webrtc_client (our client page, the clock page, scripts).
 function startStatic(port) {
   const types = {'.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css'};
   const server = http.createServer((request, response) => {
     const file = path.join(here, path.normalize(decodeURIComponent(new URL(request.url, 'http://x').pathname)).replace(/^([\\/])+/, ''));
-    if (!file.startsWith(here) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { response.writeHead(404); response.end(); return; }
+    if (!isInside(here, file) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { response.writeHead(404); response.end(); return; }
     response.writeHead(200, {'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store'});
     response.end(fs.readFileSync(file));
   });
@@ -96,4 +128,4 @@ function hostLog(logPath, offset = 0) {
   return {summary, timings, inputs, text, errors: lines.filter(l => /\b(ERROR|WARN)\b/.test(l)).slice(0, 40)};
 }
 
-module.exports = {edgePath, chromePath, clientArgs, startWebClient, startStatic, hostLog, fields, mean, pct, waitForPort, CLIENT_PIN};
+module.exports = {edgePath, chromePath, clientArgs, startWebClient, killLeftovers, isInside, startStatic, hostLog, fields, mean, pct, waitForPort, CLIENT_PIN};

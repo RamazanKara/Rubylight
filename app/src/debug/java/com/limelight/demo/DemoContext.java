@@ -13,8 +13,18 @@ import java.io.File;
 
 // Keep capture preferences and artwork separate from the user's hosts and settings.
 public final class DemoContext extends ContextWrapper {
+    /** Set by the launcher's "--ez tv true": a handheld lays its screens out as a TV does, so a real GPU can measure them. */
+    static boolean forceTelevision;
+
     public DemoContext(Context base) {
-        super(base);
+        super(forceTelevision ? television(base) : base);
+    }
+
+    private static Context television(Context base) {
+        Configuration configuration = new Configuration(base.getResources().getConfiguration());
+        if ((configuration.uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION) return base;
+        configuration.uiMode = (configuration.uiMode & ~Configuration.UI_MODE_TYPE_MASK) | Configuration.UI_MODE_TYPE_TELEVISION;
+        return base.createConfigurationContext(configuration);
     }
 
     @Override public Context getApplicationContext() {

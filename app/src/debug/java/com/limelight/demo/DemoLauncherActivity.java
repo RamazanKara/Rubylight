@@ -36,6 +36,7 @@ public final class DemoLauncherActivity extends Activity {
             finish();
             return;
         }
+        DemoContext.forceTelevision = getIntent().getBooleanExtra("tv", false);
         DemoFixtures.smallTiles = getIntent().getBooleanExtra("small", true);
         DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));

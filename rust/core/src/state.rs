@@ -64,8 +64,12 @@ pub fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     atomic_write(path, &serde_json::to_vec_pretty(value)?)
 }
 fn default_permission() -> u32 {
-    0x071f1f00
+    FIRST_DEVICE_PERMISSION
 }
+/// What the first device paired to a host may do: everything.
+pub const FIRST_DEVICE_PERMISSION: u32 = 0x071f1f00;
+/// What every later device may do until the administrator grants more: view only.
+pub const LATER_DEVICE_PERMISSION: u32 = 0x03000000;
 fn enabled() -> bool {
     true
 }
@@ -139,8 +143,8 @@ impl Client {
         (is_lower_hex(id, CLIENT_ID_BYTES) && is_lower_hex(secret, SECRET_BYTES))
             .then_some((id, secret))
     }
-    /// A device the administrator approved over WebRTC signalling, with the
-    /// permissions of an ordinary device and a new UUID.
+    /// A device the administrator approved over WebRTC signalling, with a new
+    /// UUID. [`PairedState::add_webrtc`] sets its permissions.
     pub fn paired_over_webrtc(name: String, client_id: &str, secret: &str) -> Self {
         Self {
             name,
@@ -277,11 +281,25 @@ impl PairedState {
             if c.is_webrtc() {
                 let id = c.webrtc().map(|(id, _)| id.to_string()).unwrap_or_default();
                 if !webrtc_ids.insert(id) {
+                    // Two records with one client ID would be two owners of
+                    // one secret; keep the first, and the second in the file.
+                    tracing::warn!(
+                        device = %c.name,
+                        "WebRTC device repeats an earlier device's client ID; skipped"
+                    );
+                    skipped.push(serde_json::to_value(&c)?);
                     continue;
                 }
                 if !ids.insert(c.uuid.clone()) {
                     c.uuid = uuid::Uuid::new_v4().to_string();
                     ids.insert(c.uuid.clone());
+                }
+                if let Some(overrides) = c
+                    .extra
+                    .get_mut("config_overrides")
+                    .and_then(Value::as_object_mut)
+                {
+                    crate::config::replace_retired(overrides.iter_mut());
                 }
                 unique.push(c);
                 continue;
@@ -396,7 +414,17 @@ impl PairedState {
             .iter()
             .find(|c| c.is_webrtc() && c.webrtc().is_some_and(|(id, _)| id == client_id))
     }
-    /// Pair a WebRTC device. `client` must be a WebRTC device ([`Client::is_webrtc`]).
+    /// The permissions of a device paired now, for both protocols: everything
+    /// when no device of any kind is paired, view only after that.
+    pub fn new_device_permission(&self) -> u32 {
+        if self.clients.is_empty() {
+            FIRST_DEVICE_PERMISSION
+        } else {
+            LATER_DEVICE_PERMISSION
+        }
+    }
+    /// Pair a WebRTC device. `client` must be a WebRTC device ([`Client::is_webrtc`]);
+    /// its `perm` is replaced by [`Self::new_device_permission`].
     /// The oldest WebRTC devices beyond `keep` are unpaired in the same save;
     /// their UUIDs are returned.
     pub fn add_webrtc(&mut self, path: &Path, client: Client, keep: usize) -> Result<Vec<String>> {
@@ -414,6 +442,8 @@ impl PairedState {
         {
             bail!("duplicate client");
         }
+        let mut client = client;
+        client.perm = next.new_device_permission();
         next.clients.push(client);
         // Clients are stored oldest first, so the surplus is at the front.
         let webrtc: Vec<String> = next
@@ -710,6 +740,76 @@ mod tests {
         assert!(reloaded.webrtc_client(&"01".repeat(16)).is_none());
         // The same client ID or UUID can't be added twice.
         assert!(s.add_webrtc(&p, webrtc_client(3, "C"), 2).is_err());
+    }
+    fn phone(name: &str) -> Client {
+        let identity = crypto::Identity::generate().unwrap();
+        serde_json::from_value(
+            json!({"name":name,"uuid":format!("phone-{name}"),"cert":identity.certificate,"perm":FIRST_DEVICE_PERMISSION}),
+        )
+        .unwrap()
+    }
+    fn perm_of(s: &PairedState, name: &str) -> u32 {
+        s.clients.iter().find(|c| c.name == name).unwrap().perm
+    }
+    #[test]
+    fn the_first_device_of_either_kind_gets_everything_and_later_ones_view_only() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        // A TV first, then a phone: the phone is a later device.
+        let mut s = PairedState::load(&p).unwrap();
+        assert_eq!(s.new_device_permission(), FIRST_DEVICE_PERMISSION);
+        s.add_webrtc(&p, webrtc_client(1, "TV"), 32).unwrap();
+        assert_eq!(perm_of(&s, "TV"), FIRST_DEVICE_PERMISSION);
+        assert_eq!(s.new_device_permission(), LATER_DEVICE_PERMISSION);
+        // A phone first, then a TV.
+        let p = d.path().join("other.json");
+        let mut s = PairedState::load(&p).unwrap();
+        s.add(&p, phone("Phone")).unwrap();
+        s.add_webrtc(&p, webrtc_client(2, "TV"), 32).unwrap();
+        assert_eq!(perm_of(&s, "TV"), LATER_DEVICE_PERMISSION);
+        // Two TVs: the first of them may do everything, the second may not,
+        // whatever permissions the record arrived with.
+        let p = d.path().join("tvs.json");
+        let mut s = PairedState::load(&p).unwrap();
+        s.add_webrtc(&p, webrtc_client(3, "One"), 32).unwrap();
+        s.add_webrtc(&p, webrtc_client(4, "Two"), 32).unwrap();
+        assert_eq!(perm_of(&s, "One"), FIRST_DEVICE_PERMISSION);
+        assert_eq!(perm_of(&s, "Two"), LATER_DEVICE_PERMISSION);
+        let reloaded = PairedState::load(&p).unwrap();
+        assert_eq!(perm_of(&reloaded, "Two"), LATER_DEVICE_PERMISSION);
+    }
+    #[test]
+    fn a_repeated_webrtc_client_id_is_skipped_but_kept_in_the_file() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let first = serde_json::to_value(webrtc_client(1, "First")).unwrap();
+        let mut second = serde_json::to_value(webrtc_client(1, "Second")).unwrap();
+        second["uuid"] = json!("web-other");
+        write_json(&p, &json!({"root":{"named_devices":[first, second.clone()]}})).unwrap();
+        let s = PairedState::load(&p).unwrap();
+        assert_eq!(s.clients.len(), 1);
+        assert_eq!(s.clients[0].name, "First");
+        s.save(&p).unwrap();
+        let saved = load_json(&p, Value::Null).unwrap();
+        assert!(
+            saved["root"]["named_devices"]
+                .as_array()
+                .unwrap()
+                .contains(&second)
+        );
+    }
+    #[test]
+    fn a_webrtc_devices_retired_overrides_are_replaced_on_load() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let mut tv = serde_json::to_value(webrtc_client(1, "TV")).unwrap();
+        tv["config_overrides"] = json!({"gamepad": "ds4"});
+        write_json(&p, &json!({"root":{"named_devices":[tv]}})).unwrap();
+        let s = PairedState::load(&p).unwrap();
+        assert_eq!(
+            s.clients[0].extra["config_overrides"],
+            json!({"gamepad": "vhf_ds4"})
+        );
     }
     #[test]
     fn a_device_without_a_certificate_or_valid_webrtc_credentials_is_still_skipped() {

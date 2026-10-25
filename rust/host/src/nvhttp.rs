@@ -989,11 +989,7 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
             Step::Secret(secret) => {
                 p.finish(secret)?;
                 let mut state = h.paired.write().unwrap();
-                let perm = if state.clients.is_empty() {
-                    0x071f1f00
-                } else {
-                    0x03000000
-                };
+                let perm = state.new_device_permission();
                 state.add(
                     &h.paired_path,
                     Client {

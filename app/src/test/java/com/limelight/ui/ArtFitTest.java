@@ -45,6 +45,26 @@ public class ArtFitTest {
     }
 
     @Test
+    public void aCoverInGreyHasGreyBandsWhetherTheFilterOrTheArtComesFirst() {
+        try (var controller = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
+            FrameLayout frame = new FrameLayout(controller.get());
+            PosterImageView image = new PosterImageView(controller.get());
+            frame.addView(image);
+            android.graphics.ColorFilter grey = new android.graphics.ColorMatrixColorFilter(new android.graphics.ColorMatrix());
+            Bitmap banner = solid(460, 215, Color.GREEN);
+
+            // A card is bound (filter set) before its cover has loaded.
+            image.setColorFilter(grey);
+            image.setArt(banner, ArtFit.backdropFor(banner));
+            assertSame(grey, frame.getBackground().getColorFilter());
+
+            // Bound again for an installed game: the bands take their colour back.
+            image.setColorFilter(null);
+            assertNull(frame.getBackground().getColorFilter());
+        }
+    }
+
+    @Test
     public void aPosterViewCropsPosterArtAndLetterboxesEverythingElseOverTheBandsItIsGiven() {
         try (var controller = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
             FrameLayout frame = new FrameLayout(controller.get());

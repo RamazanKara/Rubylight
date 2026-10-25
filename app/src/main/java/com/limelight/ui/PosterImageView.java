@@ -2,6 +2,7 @@ package com.limelight.ui;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.ColorFilter;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 
@@ -41,5 +42,13 @@ public class PosterImageView extends AppCompatImageView {
     public void setImageDrawable(Drawable drawable) {
         super.setImageDrawable(drawable);
         ArtFit.apply(this, drawable, pendingBackdrop);
+        ArtFit.filterBackdrop(this, getColorFilter());
+    }
+
+    /** The filter reaches the letterbox bands too: a game not installed is grey from edge to edge. */
+    @Override
+    public void setColorFilter(ColorFilter filter) {
+        super.setColorFilter(filter);
+        ArtFit.filterBackdrop(this, filter);
     }
 }

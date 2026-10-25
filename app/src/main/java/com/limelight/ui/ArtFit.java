@@ -191,14 +191,31 @@ public final class ArtFit {
             paint.setAlpha(alpha);
         }
 
+        private ColorFilter filter;
+
         @Override
         public void setColorFilter(ColorFilter filter) {
+            this.filter = filter;
             paint.setColorFilter(filter);
+            invalidateSelf();
+        }
+
+        @Override
+        public ColorFilter getColorFilter() {
+            return filter;
         }
 
         @Override
         public int getOpacity() {
             return PixelFormat.OPAQUE;
+        }
+    }
+
+    /** Gives the bands behind a cover the cover's own filter, so a cover in grey has grey bands. */
+    static void filterBackdrop(ImageView image, ColorFilter filter) {
+        ViewParent parent = image.getParent();
+        if (parent instanceof View && ((View) parent).getBackground() instanceof Backdrop) {
+            ((View) parent).getBackground().setColorFilter(filter);
         }
     }
 }

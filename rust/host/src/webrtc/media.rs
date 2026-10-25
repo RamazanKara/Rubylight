@@ -1022,6 +1022,29 @@ impl AudioSender {
     }
 }
 
+/// The `control` channel of a [`MediaHandle`], for the input worker. Like [`AudioSender`] it does
+/// not own the transport: a message sent after the handle closed is counted in `channel_dropped`.
+#[derive(Clone)]
+pub struct ControlSender {
+    tx: Sender<Command>,
+    shared: Arc<Shared>,
+}
+
+impl ControlSender {
+    /// Never blocks. False when the transport is gone.
+    pub fn send(&self, data: Vec<u8>, binary: bool) -> bool {
+        if self.tx.send(Command::Control { data, binary }).is_err() {
+            self.shared
+                .counters
+                .channel_dropped
+                .fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        self.shared.notify();
+        true
+    }
+}
+
 fn queue_audio(shared: &Shared, tx: &Sender<Command>, packet: AudioPacket) -> Submit {
     if shared.pending_audio.fetch_add(1, Ordering::AcqRel) >= shared.options.audio_queue
         || tx.send(Command::Audio(packet)).is_err()
@@ -1220,6 +1243,15 @@ impl MediaHandle {
                 .counters
                 .channel_dropped
                 .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// The control-channel end of the transport for the input worker (rumble, mouse-mode), which
+    /// does not own the handle.
+    pub fn control_sender(&self) -> ControlSender {
+        ControlSender {
+            tx: self.tx.clone(),
+            shared: self.shared.clone(),
         }
     }
 

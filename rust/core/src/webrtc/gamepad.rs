@@ -369,6 +369,8 @@ struct Pad {
 
 #[derive(Debug)]
 struct Controller {
+    /// What the client announced, to tell a repeat of it from a real change.
+    announced: Connected,
     slot: u8,
     capabilities: u16,
     last_seq: Option<u64>,
@@ -449,8 +451,20 @@ impl Gamepads {
     }
 
     /// A controller appears. It gets the lowest free slot and an arrival
-    /// event; a controller that reconnects under the same ID is replaced.
+    /// event; a controller that reconnects under the same ID with a different
+    /// description is replaced. The same announcement again changes nothing: a
+    /// client that announces on both channels must not replug the pad.
     pub fn connect(&mut self, connected: &Connected) -> Outcome {
+        if self
+            .controllers
+            .get(&connected.controller_id)
+            .is_some_and(|known| known.announced == *connected)
+        {
+            return Outcome {
+                accepted: true,
+                actions: Vec::new(),
+            };
+        }
         let mut actions = Vec::new();
         self.remove(connected.controller_id, &mut actions);
         let Some(slot) = self.slots.iter().position(Option::is_none) else {
@@ -474,6 +488,7 @@ impl Gamepads {
         self.controllers.insert(
             connected.controller_id,
             Controller {
+                announced: connected.clone(),
                 slot: slot as u8,
                 capabilities,
                 last_seq: None,
@@ -919,10 +934,35 @@ mod tests {
     }
 
     #[test]
-    fn a_reconnect_replaces_the_controller() {
+    fn the_same_announcement_again_leaves_the_pad_plugged() {
         let mut pads = Gamepads::new();
         pads.connect(&connected(3));
+        let before = pads.state(&state(3, 1, button::A), Instant::now());
+        assert!(!inputs(&before).is_empty());
+        // A client that announces on both channels sends it twice.
         let out = pads.connect(&connected(3));
+        assert!(out.accepted);
+        assert!(out.actions.is_empty(), "{:?}", out.actions);
+        assert_eq!(pads.active_mask(), 1);
+        assert_eq!(pads.slot(3), Some(0));
+        // The pad kept its sequence: the next snapshot continues, not restarts.
+        assert!(inputs(&pads.state(&state(3, 1, button::A), Instant::now())).is_empty());
+        assert!(!inputs(&pads.state(&state(3, 2, button::B), Instant::now())).is_empty());
+        // After a disconnect it is a new pad again.
+        pads.disconnect(3);
+        assert!(matches!(
+            inputs(&pads.connect(&connected(3)))[..],
+            [Input::Arrival { id: 0, .. }]
+        ));
+    }
+
+    #[test]
+    fn a_reconnect_with_another_description_replaces_the_controller() {
+        let mut pads = Gamepads::new();
+        pads.connect(&connected(3));
+        let mut changed = connected(3);
+        changed.dual_rumble = !changed.dual_rumble;
+        let out = pads.connect(&changed);
         assert!(out.accepted);
         // The old pad is neutralised first, then the new one announced.
         let inputs = inputs(&out);

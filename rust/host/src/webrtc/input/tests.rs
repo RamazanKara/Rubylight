@@ -131,6 +131,30 @@ fn button(button: u8, down: bool) -> Input {
 }
 
 #[test]
+fn a_pad_announced_on_both_channels_is_plugged_in_once() {
+    let mut r = rig(u32::MAX);
+    // The control channel and the gamepad channel each carry the same announcement.
+    r.pad(3, 0);
+    r.state(3, 1, A, 1., 5);
+    r.pad(3, 10);
+    r.state(3, 2, A, 1., 15);
+    let events = r.events();
+    let arrivals = events
+        .iter()
+        .filter(|e| matches!(e, Input::Arrival { .. }))
+        .count();
+    assert_eq!(arrivals, 1, "{events:?}");
+    // No neutral state in between either: the pad was never unplugged.
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e, Input::Controller { active: 0, .. })),
+        "{events:?}"
+    );
+    assert_eq!(r.core.pads.active_mask(), 1);
+}
+
+#[test]
 fn a_gamepad_arrives_reports_and_leaves_through_the_injector() {
     let mut r = rig(u32::MAX);
     r.pad(3, 0);

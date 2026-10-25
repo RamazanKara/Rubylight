@@ -6139,8 +6139,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     MoonBridge.stringifyPortFlags(portFlags, "\n");
                         }
 
-                        if (foreground) {
+                        boolean portTestBlocked = portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE &&
+                                portTestResult != 0;
+                        if (foreground && (stoppedStreamResumeIntent != null ||
+                                StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked))) {
                             showReconnectDialog(R.string.conn_terminated_title, message);
+                        } else if (foreground) {
+                            // The host went away or the connection was lost: nothing to act on, so
+                            // go back to the list and say why where it outlives this screen.
+                            Toast.makeText(getApplicationContext(),
+                                    getString(R.string.conn_terminated_title) + "\n" +
+                                            message.replace("\n\n", "\n"), Toast.LENGTH_LONG).show();
+                            finish();
                         } else if (stoppedStreamResumeIntent == null) {
                             finish();
                         }

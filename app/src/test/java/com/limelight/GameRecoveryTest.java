@@ -270,9 +270,14 @@ public class GameRecoveryTest {
             });
             try {
                 game.connectionTerminated(-1);
-                assertFalse(game.isFinishing());
+                // With recovery off the stream closes and says why in a message that outlives it.
+                assertEquals(!recoveryEnabled, game.isFinishing());
                 assertEquals(recoveryEnabled, ReflectionHelpers.getField(game, "pendingRecovery") != null);
-                assertEquals(!recoveryEnabled, ReflectionHelpers.getField(game, "streamMenu") != null);
+                assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+                if (!recoveryEnabled) {
+                    String toast = org.robolectric.shadows.ShadowToast.getTextOfLatestToast();
+                    assertTrue(toast, toast.contains("Connection Terminated") && toast.contains("-1"));
+                }
                 assertTrue(LimeLog.getRedactedLog().contains("Connection terminated: -1"));
             } finally {
                 cleanupRecovery(game);
@@ -337,8 +342,10 @@ public class GameRecoveryTest {
             // The stream outlived the time a dropped stream takes to report.
             org.robolectric.shadows.ShadowLooper.idleMainLooper(16, java.util.concurrent.TimeUnit.SECONDS);
             game.connectionTerminated(-1);
-            assertFalse(game.isFinishing());
-            assertNotNull(ReflectionHelpers.getField(game, "streamMenu"));
+            // Not a graceful exit: the reason shows in a message that outlives the stream.
+            assertTrue(game.isFinishing());
+            String toast = org.robolectric.shadows.ShadowToast.getTextOfLatestToast();
+            assertTrue(toast, toast.contains("Connection Terminated") && toast.contains("-1"));
         } finally {
             cleanupRecovery(game);
         }
@@ -423,7 +430,7 @@ public class GameRecoveryTest {
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void explicitHostFailuresNeverBecomeGracefulExitsEvenWhenTheHostIsIdle() {
-        for (int error : new int[] {MoonBridge.ML_ERROR_PROTECTED_CONTENT, MoonBridge.ML_ERROR_FRAME_CONVERSION, 503}) {
+        for (int error : new int[] {MoonBridge.ML_ERROR_PROTECTED_CONTENT, MoonBridge.ML_ERROR_FRAME_CONVERSION}) {
             Game game = establishedGame();
             ReflectionHelpers.setField(game, "conn", new MuteConnection() {
                 @Override public boolean hasEndedSession() { throw new AssertionError("Explicit failure probed the host"); }
@@ -433,6 +440,30 @@ public class GameRecoveryTest {
                 assertFalse(game.isFinishing());
                 assertNotNull(ReflectionHelpers.getField(game, "streamMenu"));
                 assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aHostShutdownOrLostConnectionReturnsToTheListWithAMessageInsteadOfADialog() {
+        // -1 is an ENet disconnect, 110 a connection timeout, 503 and 0x80030020 reasons from the PC.
+        for (int error : new int[] {-1, 110, 10054, 503, 0x80030020}) {
+            Game game = establishedGame();
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+            prefs.autoReconnect = false;
+            ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+                @Override public boolean hasEndedSession() { return false; }
+            });
+            try {
+                game.connectionTerminated(error);
+                assertTrue("code " + error, game.isFinishing());
+                assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+                assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+                String toast = org.robolectric.shadows.ShadowToast.getTextOfLatestToast();
+                assertTrue(toast, toast.contains("The connection was terminated."));
             } finally {
                 cleanupRecovery(game);
             }

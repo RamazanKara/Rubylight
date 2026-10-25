@@ -61,4 +61,97 @@ public class AdaptiveGridViewTest {
             assertEquals(2, grid.getNumColumns());
         }
     }
+
+    @Test
+    public void theEndDirectionPastTheLastCardReachesTheScreensOwnButton() {
+        try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup().visible()) {
+            UiNavigationTest.Screen screen = controller.get();
+            android.widget.LinearLayout container = new android.widget.LinearLayout(screen);
+            AdaptiveGridView grid = new AdaptiveGridView(screen);
+            android.widget.Button add = new android.widget.Button(screen);
+            container.setOrientation(android.widget.LinearLayout.VERTICAL);
+            container.addView(grid, new android.widget.LinearLayout.LayoutParams(1000, 600));
+            container.addView(add);
+            screen.setContentView(container);
+            grid.setColumnPolicy(true, false);
+            grid.setEndFocusTarget(add);
+            grid.setAdapter(new ArrayAdapter<>(screen, android.R.layout.simple_list_item_1, new String[] {"A", "B", "C"}));
+            measure(container, 1000, 800);
+            assertTrue(grid.requestFocusFromTouch());
+            measure(container, 1000, 800);
+            grid.setSelection(2);
+            measure(container, 1000, 800);
+            assertEquals(2, grid.getSelectedItemPosition());
+            grid.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertTrue("the button takes focus", add.hasFocus());
+        }
+    }
+
+    /** A one-column grid of fixed-height cards, to see where the selection ends up after a key. */
+    private static AdaptiveGridView gridOf(UiNavigationTest.Screen screen, int viewportHeight, int... cardHeights) {
+        FrameLayout container = new FrameLayout(screen);
+        AdaptiveGridView grid = new AdaptiveGridView(screen);
+        container.addView(grid, new FrameLayout.LayoutParams(1000, viewportHeight));
+        screen.setContentView(container);
+        grid.setColumnPolicy(true, false);
+        grid.setAdapter(new android.widget.BaseAdapter() {
+            @Override public int getCount() { return cardHeights.length; }
+            @Override public Object getItem(int position) { return position; }
+            @Override public long getItemId(int position) { return position; }
+            @Override public View getView(int position, View convertView, android.view.ViewGroup parent) {
+                View card = convertView != null ? convertView : new View(screen);
+                card.setLayoutParams(new android.widget.AbsListView.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT, cardHeights[position]));
+                return card;
+            }
+        });
+        measure(container, 1000, viewportHeight);
+        assertEquals(1, grid.getNumColumns());
+        return grid;
+    }
+
+    private static void press(AdaptiveGridView grid, int keyCode) {
+        grid.onKeyDown(keyCode, new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode));
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        measure((View) grid.getParent(), 1000, grid.getHeight());
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+    }
+
+    @Test
+    public void aCardSelectedByTheKeysEndsFullyInsideTheGridWithRoomForItsFocusRing() {
+        try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup().visible()) {
+            // 2 dp per px at xhdpi: the grid keeps 8 dp = 16 px around the card.
+            AdaptiveGridView grid = gridOf(controller.get(), 500, 300, 300, 300, 300);
+            int margin = 16;
+            assertTrue(grid.requestFocusFromTouch());
+            grid.setSelection(0);
+            measure((View) grid.getParent(), 1000, 500);
+            press(grid, android.view.KeyEvent.KEYCODE_DPAD_DOWN);
+            View selected = grid.getSelectedView();
+            assertEquals(1, grid.getSelectedItemPosition());
+            assertTrue("bottom " + selected.getBottom() + " + margin <= " + grid.getHeight(),
+                    selected.getBottom() + margin <= grid.getHeight());
+            press(grid, android.view.KeyEvent.KEYCODE_DPAD_DOWN);
+            selected = grid.getSelectedView();
+            assertEquals(2, grid.getSelectedItemPosition());
+            assertTrue(selected.getBottom() + margin <= grid.getHeight());
+            press(grid, android.view.KeyEvent.KEYCODE_DPAD_UP);
+            selected = grid.getSelectedView();
+            assertEquals(1, grid.getSelectedItemPosition());
+            assertTrue("top " + selected.getTop(), selected.getTop() >= margin);
+        }
+    }
+
+    @Test
+    public void aCardTallerThanTheGridAlignsToItsTop() {
+        try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup().visible()) {
+            AdaptiveGridView grid = gridOf(controller.get(), 500, 200, 900);
+            assertTrue(grid.requestFocusFromTouch());
+            grid.setSelection(0);
+            measure((View) grid.getParent(), 1000, 500);
+            press(grid, android.view.KeyEvent.KEYCODE_DPAD_DOWN);
+            assertEquals(1, grid.getSelectedItemPosition());
+            assertEquals("aligned to the top with the focus margin", 16, grid.getSelectedView().getTop());
+        }
+    }
 }

@@ -1,5 +1,6 @@
 #include "Limelight-internal.h"
 #include "android_microphone.h"
+#include "android_input_only_ping_thread.h"
 
 bool AndroidInputOnly;
 bool AndroidRemoteMonitor;
@@ -26,11 +27,32 @@ static int androidStopInputStream(void) {
     return AndroidRemoteMonitor ? 0 : stopInputStream();
 }
 
-// Keep the core's queue initialization/teardown for control-channel callbacks, but never
-// start media decoders, receive threads or missing-video timers for an input-only session.
-#define startVideoStream(ctx, flags) (AndroidInputOnly ? 0 : startVideoStream(ctx, flags))
+// Native input-only sends the video ping and nothing else of the video stream: the ping thread
+// is the whole video side, so Vibepollo and Apollo hosts see the client they wait for.
+static RL_INPUT_ONLY_PING inputOnlyPing = RL_INPUT_ONLY_PING_INIT;
+
+// Keeps the core's queue initialization/teardown for control-channel callbacks, but never starts
+// media decoders, receive threads or missing-video timers for an input-only session.
+static int androidStartVideoStream(void* context, int flags) {
+    if (!AndroidInputOnly) {
+        return startVideoStream(context, flags);
+    }
+    rlInputOnlyPingStart(&inputOnlyPing);
+    return 0;
+}
+
+static void androidStopVideoStream(void) {
+    if (AndroidInputOnly) {
+        rlInputOnlyPingStop(&inputOnlyPing);
+    }
+    else {
+        stopVideoStream();
+    }
+}
+
+#define startVideoStream(ctx, flags) androidStartVideoStream(ctx, flags)
 #define startAudioStream(ctx, flags) (AndroidInputOnly ? 0 : startAudioStream(ctx, flags))
-#define stopVideoStream() do { if (!AndroidInputOnly) stopVideoStream(); } while (0)
+#define stopVideoStream() androidStopVideoStream()
 #define stopAudioStream() do { if (!AndroidInputOnly) stopAudioStream(); } while (0)
 #define startInputStream() androidStartInputStream()
 #define stopInputStream() androidStopInputStream()

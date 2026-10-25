@@ -71,14 +71,18 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
         TextView txtView = convertView.findViewById(R.id.grid_text);
         ProgressBar prgView = convertView.findViewById(R.id.grid_spinner);
 
-        if (layoutId == R.layout.app_grid_item || layoutId == R.layout.app_grid_item_small) {
+        boolean appTile = layoutId == R.layout.app_grid_item || layoutId == R.layout.app_grid_item_small;
+        resetRecycledState(convertView, imgView, appTile);
+
+        if (appTile) {
             View artwork = (View) imgView.getParent();
-            boolean compact = layoutId == R.layout.app_grid_item &&
-                    viewGroup instanceof AdaptiveGridView && ((AdaptiveGridView) viewGroup).hasShortViewport();
+            boolean small = layoutId == R.layout.app_grid_item_small;
+            boolean shortViewport = viewGroup instanceof AdaptiveGridView && ((AdaptiveGridView) viewGroup).hasShortViewport();
             int width = viewGroup instanceof android.widget.GridView ? ((android.widget.GridView) viewGroup).getColumnWidth() : 0;
-            int height = !compact && width > 0 ? Math.round(width * 4f / 3) :
-                    Math.round((compact ? 112 : layoutId == R.layout.app_grid_item_small ? 144 : 224) *
-                            context.getResources().getDisplayMetrics().density);
+            boolean television = (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                    == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+            int height = TileSizing.artHeightPx(width, shortViewport, television, small,
+                    context.getResources().getDisplayMetrics().density);
             ViewGroup.LayoutParams params = artwork.getLayoutParams();
             if (params.height != height) {
                 params.height = height;
@@ -108,5 +112,32 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
             });
         }
         return convertView;
+    }
+
+    /**
+     * A recycled card may still carry the end of its last cover's fade, a scale or offset, or a scale type
+     * that was set for another cover. The cover is then drawn off the frame it is sized for, so every bind
+     * starts from the layout's own state; the title fallback and the load guard are rebound by populateView.
+     */
+    static void resetRecycledState(View card, ImageView cover, boolean appTile) {
+        cover.clearAnimation();
+        // Only the app layouts crop their cover; the other layouts keep the scale type they inflate with.
+        if (appTile) cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        cover.setImageMatrix(null);
+        cover.setScaleX(1);
+        cover.setScaleY(1);
+        cover.setTranslationX(0);
+        cover.setTranslationY(0);
+        cover.setAlpha(1f);
+        View frame = (View) cover.getParent();
+        frame.setScaleX(1);
+        frame.setScaleY(1);
+        frame.setTranslationX(0);
+        frame.setTranslationY(0);
+        // The focus scale belongs to the card's state; a card that is not selected has none left over.
+        if (!card.isSelected() && !card.isFocused()) {
+            android.animation.StateListAnimator animator = card.getStateListAnimator();
+            if (animator != null) animator.jumpToCurrentState();
+        }
     }
 }

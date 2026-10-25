@@ -181,6 +181,52 @@ public class UiNavigationTest {
     }
 
     @Test
+    public void aKeyPressedOnAnotherViewOrLeftArmedHereNeverOpensTheExplanation() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            android.widget.LinearLayout container = new android.widget.LinearLayout(screen);
+            container.setOrientation(android.widget.LinearLayout.VERTICAL);
+            android.widget.Button other = new android.widget.Button(screen);
+            ListView list = new ListView(screen);
+            View row = screen.getLayoutInflater().inflate(R.layout.settings_preference, list, false);
+            AtomicInteger helpCount = new AtomicInteger();
+            row.setTag(R.id.preference_help, (Runnable) helpCount::incrementAndGet);
+            list.setAdapter(new BaseAdapter() {
+                @Override public int getCount() { return 1; }
+                @Override public Object getItem(int position) { return position; }
+                @Override public long getItemId(int position) { return position; }
+                @Override public View getView(int position, View recycled, ViewGroup parent) { return row; }
+            });
+            UiNavigation.bindPreferences(list);
+            container.addView(other, new android.widget.LinearLayout.LayoutParams(200, 100));
+            container.addView(list, new android.widget.LinearLayout.LayoutParams(600, 400));
+            screen.setContentView(container);
+            other.requestFocus();
+            layout(screen);
+            // Pressed on the other view, which takes the key and moves focus to the list, then released there.
+            other.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+            list.requestFocus();
+            list.setSelection(0);
+            layout(screen);
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertEquals(0, helpCount.get());
+            // Pressed here, then focus left before the release: the release that comes back is not a press.
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+            other.requestFocus();
+            list.requestFocus();
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertEquals(0, helpCount.get());
+            // A whole press still explains the row.
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertEquals(1, helpCount.get());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void f1OpensTheBundledHelp() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();
         try {
@@ -226,6 +272,9 @@ public class UiNavigationTest {
             list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER));
             list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER));
             assertEquals(1, toggles.get());
+            // A key released here after it was pressed elsewhere (Right from the section list) explains nothing.
+            assertTrue(list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT)));
+            assertEquals(1, helpCount.get());
             // A disabled row still explains itself, which says why it is unavailable.
             row.setEnabled(false);
             assertTrue(list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F1)));
@@ -430,13 +479,13 @@ public class UiNavigationTest {
             layout(screen);
             View first = grid.getChildAt(0);
             first.jumpDrawablesToCurrentState();
-            assertEquals(1.04f, first.getScaleX(), 0.001f);
+            assertEquals(1.03f, first.getScaleX(), 0.001f);
             press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
             layout(screen);
             first.jumpDrawablesToCurrentState();
             grid.getSelectedView().jumpDrawablesToCurrentState();
             assertEquals(1f, first.getScaleX(), 0.001f);
-            assertEquals(1.04f, grid.getSelectedView().getScaleX(), 0.001f);
+            assertEquals(1.03f, grid.getSelectedView().getScaleX(), 0.001f);
             for (int key : new int[]{KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE}) {
                 press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
                 assertTrue(grid.isActionMarked());

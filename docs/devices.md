@@ -70,6 +70,7 @@ Measured values are median decode times in milliseconds from the decoder benchma
 | Samsung Galaxy S25 Ultra | Snapdragon 8 Elite (SM8750) | 16 | 0.60 | 0.55 | 0.39 | picture order, output fence | Nightjar 0.7.13, 120 Hz. [#11](https://github.com/RamazanKara/nightjar/issues/11) |
 | OnePlus 13 | Snapdragon 8 Elite (SM8750) | 16 | 0.88 | 0.73 | 1.58 | picture order, output fence | Nightjar 0.7.6, 120 Hz. [#6](https://github.com/RamazanKara/nightjar/issues/6) |
 | Alldocube iPlay 70 Mini Ultra | Snapdragon 7+ Gen 3 (SM7675) | 14 | 1.35 | 1.10 | — | picture order, output fence | Nightjar 0.7.13, 144 Hz. [#10](https://github.com/RamazanKara/nightjar/issues/10) |
+| NVIDIA Shield Pro | darcy | 11 | 1.83 | 2.06 | — | — | Nightjar 3.1.0, 59.94 Hz. [#32](https://github.com/RamazanKara/nightjar/issues/32) |
 | iQOO 7 | Snapdragon 865 or 870 (SM8250) | 14 | 2.42 | 2.83 | — | None | Nightjar 0.8.0, 120 Hz. [#25](https://github.com/RamazanKara/nightjar/issues/25) |
 | OPPO Reno 10 Pro+ | Snapdragon 8+ Gen 1 (SM8475) | 16 | 4.48 | 4.26 | — | picture order | Nightjar 0.8.0; no latency test. Slower than the Snapdragon 870 phone (#25); being looked into. [#23](https://github.com/RamazanKara/nightjar/issues/23) |
 | Realme GT 7T | MediaTek MT6899 | 16 | 4.87 | 4.27 | 8.31 | CPU boost | Nightjar 0.7.18, 120 Hz. [#18](https://github.com/RamazanKara/nightjar/issues/18) |

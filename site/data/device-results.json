@@ -656,6 +656,78 @@
           }
         }
       }
+    },
+    {
+      "issue": 32,
+      "added": "2026-10-25",
+      "name": "NVIDIA Shield Pro",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "3.1.0",
+          "build": 353
+        },
+        "device": {
+          "manufacturer": "NVIDIA",
+          "model": "SHIELD Android TV",
+          "codename": "mdarcy",
+          "socManufacturer": null,
+          "socModel": null,
+          "hardware": "darcy",
+          "board": "darcy",
+          "android": "11",
+          "sdk": 30,
+          "gpu": "NVIDIA Tegra"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "OMX.Nvidia.h264.decode",
+              "medianDecodeMs": 1.83,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": null
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "OMX.Nvidia.h265.decode",
+              "medianDecodeMs": 2.06,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": null
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 59.94,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 256,
+          "frameIntervalMs": {
+            "samples": 598,
+            "mean": 16.68,
+            "p95": 16.68,
+            "p99": 16.69
+          },
+          "frameCallbackDelayMs": {
+            "samples": 599,
+            "mean": 0.2,
+            "p95": 0.3,
+            "p99": 0.79
+          },
+          "inputDispatchAgeMs": null,
+          "timerWakeupDelayMs": {
+            "samples": 99,
+            "mean": 0.09,
+            "p95": 1,
+            "p99": 1
+          }
+        }
+      }
     }
   ]
 }

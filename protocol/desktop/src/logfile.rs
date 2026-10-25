@@ -178,11 +178,14 @@ impl Stamper {
 
 /// Decodes UTF-8 that arrives in arbitrary chunks (for a console that wants UTF-16): an
 /// incomplete sequence at the end of a chunk waits for the next one, bad bytes become U+FFFD.
+// Only the Windows console forwarder uses it.
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Default)]
 pub struct Utf8Carry {
     pending: Vec<u8>,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 impl Utf8Carry {
     pub fn push(&mut self, bytes: &[u8]) -> String {
         self.pending.extend_from_slice(bytes);

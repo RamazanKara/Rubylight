@@ -133,6 +133,9 @@ public class StreamSettings extends NightjarActivity {
     private boolean focusRow;
     private String previewSection;
     private boolean swallowReturnKeyUp;
+    private boolean swallowEnterKeyUp;
+    /** The row each section's pane had selected when focus last left it, so entering it again returns there. */
+    private final java.util.Map<String, Integer> paneSelection = new java.util.HashMap<>();
     private String returnSearchQuery;
     private String returnSearchSection;
     private TextView contextLabel;
@@ -143,7 +146,9 @@ public class StreamSettings extends NightjarActivity {
     private final Handler navigationHandler = new Handler();
     private final Runnable searchUpdate = this::renderSearch;
     private final Runnable sectionPreview = () -> {
-        if (previewSection != null && searchQuery.isEmpty()) showSection(previewSection);
+        String key = previewSection;
+        previewSection = null;
+        if (key != null && searchQuery.isEmpty()) showSection(key);
     };
 
     /** The intent for {@link #open}; {@code section} and {@code focusKey} may be null. */
@@ -218,6 +223,7 @@ public class StreamSettings extends NightjarActivity {
     void reloadSettings() {
         navigationHandler.removeCallbacks(searchUpdate);
         navigationHandler.removeCallbacks(sectionPreview);
+        previewSection = null;
         searchPending = false;
         if (isFinishing() || isDestroyed()) return;
         if (stateSaved) {
@@ -277,30 +283,46 @@ public class StreamSettings extends NightjarActivity {
     private void focusSectionList() {
         ListView list = sectionList();
         if (list == null) return;
+        ListView content = twoPane ? listOf(R.id.stream_settings) : null;
+        if (content != null && section != null && content.hasFocus()) {
+            paneSelection.put(section, content.getSelectedItemPosition());
+        }
         markSection();
         int position = RootFragment.positionOf(list, section);
         if (position >= 0) list.setSelection(position);
         list.requestFocus();
     }
 
+    /** Moves focus into the right pane, onto the row it was left on or else its first focusable row. */
+    private void focusContentPane(ListView list) {
+        list.requestFocus();
+        android.widget.ListAdapter adapter = list.getAdapter();
+        if (adapter == null) return;
+        Integer remembered = section == null ? null : paneSelection.get(section);
+        int position = PaneFocus.target(remembered == null ? -1 : remembered, adapter.getCount(), adapter::isEnabled);
+        if (position >= 0) list.setSelection(position);
+    }
+
     /** Called when a section row is selected: the right pane follows after a short pause, so a fast scroll does not rebuild it per row. */
     void previewSection(String key) {
-        if (!twoPane || !searchQuery.isEmpty() || key.equals(section)) return;
-        previewSection = key;
+        if (!twoPane || !searchQuery.isEmpty()) return;
         navigationHandler.removeCallbacks(sectionPreview);
-        navigationHandler.postDelayed(sectionPreview, 100);
+        // Back on the section already shown: nothing is pending any more.
+        previewSection = key.equals(section) ? null : key;
+        if (previewSection != null) navigationHandler.postDelayed(sectionPreview, 100);
     }
 
     /** Opens a section from its row; {@code enter} moves focus into it, which is what Center does after the D-pad. */
     void activateSection(String key, boolean enter) {
         navigationHandler.removeCallbacks(sectionPreview);
+        previewSection = null;
         if (twoPane && enter) {
             enterPane = true;
             if (key.equals(section) && searchQuery.isEmpty()) {
                 ListView list = listOf(R.id.stream_settings);
                 if (list != null) {
                     enterPane = false;
-                    list.requestFocus();
+                    focusContentPane(list);
                 }
                 return;
             }
@@ -729,6 +751,29 @@ public class StreamSettings extends NightjarActivity {
 
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        // Right (Left in RTL) from the list of sections enters the pane on a known row: the focus search would
+        // pick whichever row is nearest, and the key's release must not reach the row that gets focus.
+        int towardPane = getResources().getConfiguration().getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ?
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT : android.view.KeyEvent.KEYCODE_DPAD_RIGHT;
+        if (twoPane && event.getKeyCode() == towardPane && event.hasNoModifiers()) {
+            if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                View owner = focusOwner();
+                ListView sections = sectionList();
+                ListView content = listOf(R.id.stream_settings);
+                if (owner != null && sections != null && content != null && owner == sections && searchQuery.isEmpty()) {
+                    swallowEnterKeyUp = true;
+                    if (event.getRepeatCount() == 0) {
+                        // The pane follows the selected row after a pause: a press inside it opens the row's section.
+                        if (previewSection != null && !previewSection.equals(section)) activateSection(previewSection, true);
+                        else focusContentPane(content);
+                    }
+                    return true;
+                }
+            } else if (event.getAction() == android.view.KeyEvent.ACTION_UP && swallowEnterKeyUp) {
+                swallowEnterKeyUp = false;
+                return true;
+            }
+        }
         if (super.dispatchKeyEvent(event)) return true;
         // Left (Right in RTL) from the content pane returns to the list; rows that use the key, such as a slider, ran first.
         int towardList = getResources().getConfiguration().getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ?
@@ -821,6 +866,11 @@ public class StreamSettings extends NightjarActivity {
             list.requestFocus();
             // The window may hand focus to the first focusable (the toolbar) once it is laid out; take it back.
             list.post(() -> {
+                // A pane that was opened to be entered is not attached when it asks, so it did not get focus.
+                if (contentPane && !list.hasFocus() && list.isAttachedToWindow()) {
+                    ((StreamSettings) activity).focusContentPane(list);
+                    return;
+                }
                 View owner = activity.findViewById(android.R.id.content).findFocus();
                 View toolbar = activity.findViewById(R.id.settings_toolbar);
                 boolean onToolbar = owner != null && toolbar instanceof ViewGroup && isWithin((ViewGroup) toolbar, owner);
@@ -831,7 +881,7 @@ public class StreamSettings extends NightjarActivity {
         list.setDividerHeight(0);
         list.setSelector(R.drawable.list_focus_row);
         // Rows reach the edges and carry the screen gutter themselves (layout/settings_*.xml).
-        list.setPadding(0, 0, 0, view.getResources().getDimensionPixelSize(R.dimen.space_l));
+        list.setPadding(0, 0, 0, view.getResources().getDimensionPixelSize(R.dimen.grid_padding_bottom));
         list.setClipToPadding(false);
     }
 

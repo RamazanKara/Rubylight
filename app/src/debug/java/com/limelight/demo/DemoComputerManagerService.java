@@ -19,12 +19,13 @@ public final class DemoComputerManagerService extends ComputerManagerService {
     static final String ACTION_PC_SETTINGS = "com.limelight.demo.PC_SETTINGS";
     static final String SETTINGS_ADDRESS = "192.0.2.10";
 
-    private final List<ComputerDetails> computers = DemoFixtures.computers();
+    private final List<ComputerDetails> computers = DemoAsleep.apply(DemoFixtures.computers());
     private final ComputerManagerBinder binder = new FixtureBinder(false);
     private final ComputerManagerBinder settingsBinder = new FixtureBinder(true);
 
     private final class FixtureBinder extends ComputerManagerBinder {
         private final boolean addressed;
+        private ComputerManagerListener listener;
 
         FixtureBinder(boolean addressed) {
             this.addressed = addressed;
@@ -33,9 +34,15 @@ public final class DemoComputerManagerService extends ComputerManagerService {
         @Override public boolean isPersistent() { return false; }
         @Override public boolean waitForReady() { return true; }
         @Override public void startPolling(ComputerManagerListener listener) {
+            stopPolling();
+            this.listener = listener;
+            DemoAsleep.listen(listener);
             for (ComputerDetails computer : computers) listener.notifyComputerUpdated(computer);
         }
-        @Override public void stopPolling() { }
+        @Override public void stopPolling() {
+            if (listener != null) DemoAsleep.unlisten(listener);
+            listener = null;
+        }
         @Override public void waitForPollingStopped() { }
         @Override public String getUniqueId() { return "nightjar-demo"; }
         @Override public ComputerDetails getComputer(String uuid) {

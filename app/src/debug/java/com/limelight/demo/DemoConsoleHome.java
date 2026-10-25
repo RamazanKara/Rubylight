@@ -33,6 +33,47 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
             optionsOpened = true;
             openOptions(0);
         }
+        // "--es state choose --ez asleep true": opens Open World, which both the Living-room PC and the Laptop have.
+        if (!optionsOpened && "choose".equals(getIntent().getStringExtra("state"))) {
+            optionsOpened = true;
+            choose(0);
+        }
+    }
+
+    /** Never a real packet from the demo; with "--ez asleep true" the Laptop answers a few seconds later. */
+    @Override protected void sendWake(com.limelight.nvstream.http.ComputerDetails computer) {
+        DemoAsleep.wake(computer);
+    }
+
+    /** Presses the Open World card that is on two PCs once Home has painted it, so Home asks which PC. */
+    private void choose(int attempt) {
+        androidx.recyclerview.widget.RecyclerView list = findViewById(R.id.console_list);
+        android.view.View card = cardOf(list, "Open World, ", getString(R.string.console_card_on_hosts, 2));
+        if (card != null) {
+            card.performClick();
+            return;
+        }
+        if (attempt == 3 && list.getAdapter() != null && list.getAdapter().getItemCount() > 0) {
+            list.scrollToPosition(list.getAdapter().getItemCount() - 1);
+        }
+        if (attempt < 30) list.postDelayed(() -> choose(attempt + 1), 300);
+    }
+
+    /** The laid-out card whose description starts with the title and names the PCs it is on, else null. */
+    private static android.view.View cardOf(android.view.View view, String title, String where) {
+        CharSequence description = view.getContentDescription();
+        if (description != null && description.toString().startsWith(title) && description.toString().contains(where)
+                && view.isClickable()) {
+            return view;
+        }
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                android.view.View found = cardOf(group.getChildAt(i), title, where);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     /** Presses the three dots on the Living-room PC's card once Home has painted it. */

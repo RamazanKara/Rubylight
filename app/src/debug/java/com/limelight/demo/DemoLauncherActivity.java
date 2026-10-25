@@ -48,7 +48,9 @@ public final class DemoLauncherActivity extends Activity {
         DemoFixtures.smallTiles = getIntent().getBooleanExtra("small", true);
         DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
-        DemoFixtures.nativeApiHost = "native".equals(getIntent().getStringExtra("host"));
+        // "--ez asleep true": the Laptop is away with a saved library and wakes a few seconds after Wake (DemoAsleep).
+        boolean asleep = getIntent().getBooleanExtra("asleep", false);
+        DemoFixtures.nativeApiHost = "native".equals(getIntent().getStringExtra("host")) || asleep;
         DemoConsole.hostControl = getIntent().getBooleanExtra("control", true);
         String stars = getIntent().getStringExtra("stars");
         DemoConsole.starred = stars == null || stars.isEmpty() ? new int[0]
@@ -57,6 +59,7 @@ public final class DemoLauncherActivity extends Activity {
         DemoConsole.racingRuns = !"idle".equals(getIntent().getStringExtra("session"));
         try {
             DemoFixtures.prepare(this);
+            DemoAsleep.prepare(this, asleep);
         } catch (IOException e) {
             throw new IllegalStateException("Demo assets missing; run scripts/demo/generate-assets.ps1", e);
         }
@@ -66,7 +69,7 @@ public final class DemoLauncherActivity extends Activity {
         DemoFixtures.studioAddress = "pair".equals(screen);
         Class<?> target;
         DemoConsole.hostAdds = getIntent().getBooleanExtra("add", true);
-        if ("home".equals(screen) || "options".equals(screen)) target = DemoConsoleHome.class;
+        if ("home".equals(screen) || "options".equals(screen) || "choose".equals(screen)) target = DemoConsoleHome.class;
         // "--es state allgames --es filter store:steam": All games under a filter (with --es host native).
         else if ("allgames".equals(screen)) target = DemoAllGames.class;
         else if ("detail".equals(screen)) target = DemoGameDetail.class;
@@ -99,6 +102,13 @@ public final class DemoLauncherActivity extends Activity {
                 .putExtra(GameDetailActivity.EXTRA_HOST_NAME, "Living-room PC")
                 .putExtra(GameDetailActivity.EXTRA_APP_ID, getIntent().getIntExtra("app", 2))
                 .putExtra(GameDetailActivity.EXTRA_TITLE, DemoConsole.titleOf(getIntent().getIntExtra("app", 2)));
+        if (asleep && "detail".equals(screen)) {
+            // The Laptop's own game, so the page offers Wake PC and play.
+            intent.putExtra(GameDetailActivity.EXTRA_HOST_UUID, DemoAsleep.LAPTOP_UUID)
+                    .putExtra(GameDetailActivity.EXTRA_HOST_NAME, "Laptop")
+                    .putExtra(GameDetailActivity.EXTRA_APP_ID, 11)
+                    .putExtra(GameDetailActivity.EXTRA_TITLE, DemoAsleep.LAPTOP_ONLY[0]);
+        }
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         finish();
     }

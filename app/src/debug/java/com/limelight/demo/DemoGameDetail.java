@@ -20,6 +20,11 @@ public final class DemoGameDetail extends GameDetailActivity {
         return DemoConsole.repository(this);
     }
 
+    /** Never a real packet from the demo; with "--ez asleep true" the Laptop answers a few seconds later. */
+    @Override protected void sendWake(ComputerDetails computer) {
+        DemoAsleep.wake(computer);
+    }
+
     @Override protected void play(NvApp app, ComputerDetails computer) {
         startActivity(new Intent(this, DemoGameActivity.class).putExtra("state", "compact"));
     }

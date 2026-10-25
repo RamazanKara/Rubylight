@@ -182,8 +182,8 @@ final class DemoConsole {
         throw new NativeApiException(NativeApiException.Kind.UNAVAILABLE, "the demo has no such game");
     }
 
-    private static String session() {
-        if (!racingRuns) {
+    private static String session(boolean laptop) {
+        if (!racingRuns || laptop) {
             return "{\"ok\":{\"revision\":1,\"state\":\"idle\",\"owner\":\"none\",\"app\":null,"
                     + "\"game_running\":false,\"since_unix_ms\":1000,\"actions\":[]}}";
         }
@@ -202,13 +202,15 @@ final class DemoConsole {
     private static final class Transport implements NativeApiTransport {
         @Override
         public String request(HostEndpoint host, String op, String argument) throws NativeApiException {
+            // With "--ez asleep true" the Laptop, once woken, lists its own games and runs none.
+            boolean laptop = DemoAsleep.LAPTOP_UUID.equals(host.hostUuid);
             switch (op) {
                 case "library":
-                    return library(argument);
+                    return laptop ? "{\"ok\":" + DemoAsleep.library() + "}" : library(argument);
                 case "library_add":
                     return add(argument);
                 case "session":
-                    return session();
+                    return session(laptop);
                 case "capabilities":
                     return capabilities();
                 case "radeon":

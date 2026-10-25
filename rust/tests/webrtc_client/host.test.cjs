@@ -86,7 +86,7 @@ test('the harness asks for the release scripts and its own, nothing under a user
   // elevated-task.ps1 and the installed script read the request from the folder the harness writes.
   const task = fs.readFileSync(host.ELEVATION.scripts['elevated-task.ps1'], 'utf8');
   const steps = fs.readFileSync(host.ELEVATION.scripts['webrtc-e2e-elevated.ps1'], 'utf8');
-  assert(task.includes("'webrtc-e2e\\request.json'") && host.ELEVATION.requests === 'C:\\src\\butterpollo-release\\webrtc-e2e');
+  assert(task.includes("$e2eDir = Join-Path $root 'webrtc-e2e'") && host.ELEVATION.requests === 'C:\\src\\butterpollo-release\\webrtc-e2e');
   assert(steps.includes(`$Dir = '${host.ELEVATION.requests}'`));
   assert(fs.readFileSync(path.join(__dirname, '..', '..', 'release', 'elevation.ps1'), 'utf8').includes("'webrtc-e2e-elevated.ps1'"));
 });

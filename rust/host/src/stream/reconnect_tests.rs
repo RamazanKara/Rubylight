@@ -15,6 +15,8 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+mod webrtc_tests;
+
 const CLOSED: u32 = 0x8003_0023;
 const FAILED: u32 = 0x8000_4005;
 const WAIT: Duration = Duration::from_secs(5);
@@ -178,7 +180,47 @@ impl Fixture {
             self.reset_done.store(true, Ordering::Release);
         }
     }
+    /// A WebRTC session's stream worker: the production `Sender` and synthetic access units, the
+    /// keyframe flag honoured as the encoder does. `frames` counts what it submitted.
+    fn stream_webrtc(&self, h: &Shared, s: &Session) -> Result<()> {
+        let _audio = s.launch.audio_preparation.lock().unwrap().take();
+        let sender = crate::webrtc::session::Sender::new(
+            h.webrtc_links
+                .take(&s.launch.id)
+                .context("the WebRTC link is missing")?,
+        );
+        *s.encoder.write().unwrap() = "reconnect fixture".into();
+        let mut claims = butterpollo_core::performance::Claims::default();
+        let hevc = s.config.codec == 1;
+        let mut first = true;
+        while !h.stop.load(Ordering::Acquire) && !s.stopping() {
+            let idr = s.idr.swap(false, Ordering::AcqRel) || first;
+            first = false;
+            let frame = webrtc_tests::access_unit(hevc, idr);
+            let started = Instant::now();
+            sender.submit(
+                s,
+                vec![butterpollo_windows::encoder::Encoded {
+                    bytes: frame,
+                    unit: butterpollo_windows::encoder::Unit::Whole,
+                    idr,
+                    after_invalidation: false,
+                    frame_cap_bytes: None,
+                    latency: Some(Duration::from_millis(2)),
+                    presentation: Some(started),
+                }],
+                Duration::from_millis(2),
+                started,
+                &mut claims,
+            )?;
+            thread::sleep(Duration::from_millis(10));
+        }
+        Ok(())
+    }
     pub(super) fn stream(&self, media: &Media, h: &Shared, s: &Session) -> Result<()> {
+        if s.launch.transport == butterpollo_core::session::Transport::WebRtc {
+            return self.stream_webrtc(h, s);
+        }
         let _audio = s.launch.audio_preparation.lock().unwrap().take();
         let mut packetizer = VideoPacketizer {
             sequence: 0,

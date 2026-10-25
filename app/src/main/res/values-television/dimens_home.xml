@@ -4,5 +4,6 @@
     <dimen name="shelf_card_width">144dp</dimen>
     <dimen name="shelf_host_width">320dp</dimen>
     <dimen name="shelf_keyline">48dp</dimen>
-    <dimen name="hero_height">128dp</dimen>
+    <!-- Room for a line, the title and the key hints; what the hero leaves below it shows the next shelf peeking in. -->
+    <dimen name="hero_height">104dp</dimen>
 </resources>

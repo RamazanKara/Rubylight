@@ -10,7 +10,7 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
         android:clipChildren="false" android:clipToPadding="false"
         android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
-        android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
+        android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/space_s">
         <!-- The screen's title is the shell bar's selected tab; the toolbar stays for the code that configures it. -->
         <include android:id="@+id/console_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
         <include layout="@layout/view_shell_bar" />
@@ -31,14 +31,17 @@
                 android:layout_marginTop="@dimen/space_xs" android:maxLines="1" android:ellipsize="end"
                 android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
-        <!-- The list reaches 16 dp past the safe area on both sides, so a focused poster's glow is not cut off there. -->
+        <!-- The list reaches 24 dp past the content on both sides, so a focused poster's ring and glow are not cut off there;
+             it clips at its top, where the shelves slide under the hero, and near the screen's edge, which is low enough for
+             the next shelf's heading to show whole. The bottom padding lets the last (short) shelf scroll up to the hero
+             instead of leaving the shelf above it showing. -->
         <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-            android:layout_marginStart="-16dp" android:layout_marginEnd="-16dp" android:clipChildren="true">
+            android:layout_marginStart="-24dp" android:layout_marginEnd="-24dp" android:clipChildren="true">
             <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"
                 android:layout_width="match_parent" android:layout_height="match_parent"
                 android:clipToPadding="false" android:clipChildren="false" android:overScrollMode="never"
-                android:paddingStart="16dp" android:paddingEnd="16dp"
-                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xl" android:focusable="false"
+                android:paddingStart="24dp" android:paddingEnd="24dp"
+                android:paddingTop="@dimen/space_xs" android:paddingBottom="160dp" android:focusable="false"
                 android:descendantFocusability="afterDescendants" />
             <LinearLayout android:id="@+id/console_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"

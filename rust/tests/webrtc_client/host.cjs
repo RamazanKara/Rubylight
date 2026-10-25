@@ -138,15 +138,22 @@ function elevate(o, steps) {
   fs.mkdirSync(ELEVATION.requests, {recursive: true});
   fs.rmSync(answer, {force: true});
   fs.writeFileSync(request, JSON.stringify({id, steps}));
-  try {
-    if (admin) execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ELEVATION.scripts['webrtc-e2e-elevated.ps1']], {stdio: 'pipe'});
-    else execFileSync('schtasks', ['/Run', '/TN', ELEVATION.task], {stdio: 'pipe'});
-  } catch (error) {
-    fs.rmSync(request, {force: true});
-    throw new Error(`the elevated steps could not start: ${error.message}`);
-  }
+  const run = () => {
+    try {
+      if (admin) execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ELEVATION.scripts['webrtc-e2e-elevated.ps1']], {stdio: 'pipe'});
+      else execFileSync('schtasks', ['/Run', '/TN', ELEVATION.task], {stdio: 'pipe'});
+    } catch (error) {
+      fs.rmSync(request, {force: true});
+      throw new Error(`the elevated steps could not start: ${error.message}`);
+    }
+  };
+  run();
   const deadline = Date.now() + 90000;
+  let started = Date.now();
   for (;;) {
+    // The task ignores a start while it runs (a release step, or the previous request): a request
+    // nobody has picked up after 5 s gets another start.
+    if (!admin && Date.now() - started > 5000 && fs.existsSync(request)) { run(); started = Date.now(); }
     try {
       const done = JSON.parse(fs.readFileSync(answer, 'utf8').replace(/^\uFEFF/, ''));
       if (done.id === id) { results.push(...[].concat(done.results)); break; }

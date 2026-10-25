@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A game in the TV library: a small 2:3 poster. Only the focused game shows its title (on a scrim at the foot); it is also in the
+<!-- A game in the TV library: a small 2:3 poster. It shows art only: the focused game's title is in the library's focus line, and it is also in the
      card's contentDescription. A game without art keeps its centered title. The root's padding is the glow's
      reach (16dp): the glow view fills the root and draws under the card, the ring is a view around the poster, in the padding, so it never covers the art, and the
-     root's animator scales and lifts the lot. The focused poster's title fades in on a scrim over its foot. AppGridAdapter fills it; GenericGridAdapter sets the poster height. -->
+     root's animator scales and lifts the lot. AppGridAdapter fills it; GenericGridAdapter sets the poster height. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -23,13 +23,6 @@
                 android:gravity="center" android:padding="@dimen/space_m"
                 android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface"
                 android:maxLines="4" android:ellipsize="end" android:importantForAccessibility="no" />
-            <TextView android:id="@+id/grid_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_gravity="bottom" android:alpha="0" android:duplicateParentState="true"
-                android:stateListAnimator="?attr/nightjarPosterTitleAnimator" android:background="@drawable/tv_poster_scrim"
-                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
-                android:paddingTop="@dimen/space_xl" android:paddingBottom="@dimen/space_s"
-                android:maxLines="2" android:ellipsize="end" android:textColor="@android:color/white"
-                android:textAppearance="@style/TextAppearance.Nightjar.Label" android:importantForAccessibility="no" />
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="top|start" android:layout_margin="@dimen/space_xs" android:orientation="vertical">
                 <TextView android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"

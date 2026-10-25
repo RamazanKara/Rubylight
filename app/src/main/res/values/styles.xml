@@ -45,6 +45,7 @@
         <item name="colorOutline">@color/outline</item>
         <item name="colorOutlineVariant">@color/outline_variant</item>
         <item name="android:windowBackground">@color/surface</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimation</item>
         <item name="android:textColorPrimary">@color/on_surface</item>
         <item name="android:textColorSecondary">@color/on_surface_variant</item>
         <item name="android:textColorHint">@color/on_surface_variant</item>
@@ -102,7 +103,6 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
-        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
@@ -210,7 +210,6 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
-        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
@@ -222,11 +221,13 @@
     <!-- The night palette's dark grey surfaces even when the system is light, as on most TVs. -->
     <style name="DarkTheme" parent="Theme.Nightjar.Stream">
         <item name="android:windowBackground">@color/night_surface</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimation</item>
     </style>
 
     <!-- Full black surfaces, with the readable night palette even when the system is light. -->
     <style name="OledBlackTheme" parent="Theme.Nightjar.Stream">
         <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimation</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="colorSurface">@android:color/black</item>
         <item name="colorSurfaceDim">@android:color/black</item>
@@ -269,8 +270,8 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_static</item>
-        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title_static</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_static</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimationStill</item>
     </style>
 
     <style name="ThemeOverlay.Nightjar.HighContrast.ReducedMotion" parent="ThemeOverlay.Nightjar.HighContrast">
@@ -279,7 +280,7 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc_static</item>
-        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title_static</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimationStill</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
     </style>
 

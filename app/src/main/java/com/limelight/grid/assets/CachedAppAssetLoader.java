@@ -56,6 +56,7 @@ public class CachedAppAssetLoader {
     private final DiskAssetLoader diskLoader;
     private final Bitmap placeholderBitmap;
     private final Bitmap noAppImageBitmap;
+    private java.util.function.Consumer<NvApp> artListener;
 
     public CachedAppAssetLoader(ComputerDetails computer, double scalingDivider,
                                 NetworkAssetLoader networkLoader, MemoryAssetLoader memoryLoader,
@@ -70,6 +71,17 @@ public class CachedAppAssetLoader {
         this.diskLoader = diskLoader;
         this.noAppImageBitmap = noAppImageBitmap;
         this.placeholderBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+    }
+
+    /** Told on the main thread each time a game's artwork has been loaded into memory (not when it was already there). */
+    public void setArtListener(java.util.function.Consumer<NvApp> listener) {
+        this.artListener = listener;
+    }
+
+    /** The decoded cover when it is in memory already; nothing is loaded for it. */
+    public Bitmap peekCover(NvApp app) {
+        ScaledBitmap art = memoryLoader.loadBitmapFromCache(new LoaderTuple(computer, app));
+        return art == null ? null : art.bitmap;
     }
 
     public void cancelBackgroundLoads() {
@@ -217,6 +229,8 @@ public class CachedAppAssetLoader {
             if (isCancelled()) {
                 return;
             }
+
+            if (bitmap != null && artListener != null) artListener.accept(tuple.app);
 
             final ImageView imageView = imageViewRef.get();
             final TextView textView = textViewRef.get();

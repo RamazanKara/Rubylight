@@ -20,6 +20,5 @@
     <attr name="nightjarPosterFocusAnimator" format="reference" />
     <attr name="nightjarPosterFocusAnimatorSmall" format="reference" />
     <attr name="nightjarPosterRing" format="reference" />
-    <attr name="nightjarPosterTitleAnimator" format="reference" />
     <attr name="nightjarPosterGlow" format="reference" />
 </resources>

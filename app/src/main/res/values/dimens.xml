@@ -34,6 +34,10 @@
     <dimen name="top_app_bar_padding">4dp</dimen>
     <dimen name="top_app_bar_height">64dp</dimen>
 
+    <!-- The TV library's focus line (title and chips of the selected game): its height, and the longest its title runs before it ellipsizes. -->
+    <dimen name="focus_line_height">40dp</dimen>
+    <dimen name="focus_line_title_max">480dp</dimen>
+
     <dimen name="tv_channel_logo_width">80dp</dimen>
     <dimen name="tv_channel_logo_height">80dp</dimen>
 </resources>

@@ -240,12 +240,25 @@ public class AppGridAdapterTest {
             assertEquals(1, grid.getSelectedItemPosition());
             assertEquals("the new card is already scaled", 1.08f, grid.getSelectedView().getScaleX(), 0.001f);
             assertEquals("the old card is already at rest", 1f, first.getScaleX(), 0.001f);
-            assertEquals("the new card already shows its title", 1f, grid.getSelectedView().findViewById(R.id.grid_title).getAlpha(), 0f);
-            assertEquals("the old card's title is already gone", 0f, first.findViewById(R.id.grid_title).getAlpha(), 0f);
+            assertNull("the poster carries no title any more: the focus line says it", grid.getSelectedView().findViewById(R.id.grid_title));
             key(grid, android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 2);
             assertEquals(2, grid.getSelectedItemPosition());
             assertEquals(1.08f, grid.getSelectedView().getScaleX(), 0.001f);
             assertEquals(1f, grid.getChildAt(1).getScaleX(), 0.001f);
+        }
+    }
+
+    /** A card that left the screen mid-glide or mid-rise comes back as a still, opaque card. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void aRecycledCardForgetsTheGlideAndTheRiseItWasLeftIn() {
+        try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup()) {
+            android.view.View card = android.view.LayoutInflater.from(controller.get()).inflate(R.layout.app_grid_item, null);
+            card.setTranslationY(37f);
+            card.setAlpha(0.2f);
+            GenericGridAdapter.resetRecycledState(card, card.findViewById(R.id.grid_image), true);
+            assertEquals(0f, card.getTranslationY(), 0f);
+            assertEquals(1f, card.getAlpha(), 0f);
         }
     }
 

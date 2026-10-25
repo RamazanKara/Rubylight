@@ -43,6 +43,7 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
     private String searchQuery = "";
 
     private CachedAppAssetLoader loader;
+    private java.util.function.Consumer<NvApp> artListener;
     private Set<Integer> hiddenAppIds = new HashSet<>();
     private ArrayList<AppView.AppObject> allApps = new ArrayList<>();
 
@@ -133,8 +134,21 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
                 // Without artwork the tile shows its title on the cover's own surface.
                 Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
 
+        loader.setArtListener(artListener);
+
         // This will trigger the view to reload with the new layout
         setLayoutId(getLayoutIdForPreferences(prefs));
+    }
+
+    /** Told on the main thread when a game's cover has just been loaded, so a backdrop built without it can be built again. */
+    public void setArtListener(java.util.function.Consumer<NvApp> listener) {
+        artListener = listener;
+        if (loader != null) loader.setArtListener(listener);
+    }
+
+    /** The game's decoded cover if it is in memory, else null. */
+    public Bitmap coverOf(AppView.AppObject app) {
+        return loader == null ? null : loader.peekCover(app.app);
     }
 
     public void cancelQueuedOperations() {
@@ -199,12 +213,11 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         // Let the cached asset loader handle it
         loader.populateImageView(obj.app, imgView, txtView);
 
+        // A TV poster shows art only: the focused title is in the library's focus line, and every title in the card's description.
+        // The phone layout's caption stays hidden: its card prints the name on the art.
         TextView title = parentView.findViewById(R.id.grid_title);
-        boolean television = (context.getResources().getConfiguration().uiMode &
-                android.content.res.Configuration.UI_MODE_TYPE_MASK) == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
-        // A TV poster shows art only (its layout has no caption): the title is in the card's description.
         if (title != null) {
-            title.setVisibility(television ? View.VISIBLE : View.GONE);
+            title.setVisibility(View.GONE);
             title.setText(obj.app.getAppName());
         }
 
@@ -220,15 +233,7 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
 
         parentView.setActivated(obj.isRunning);
         TextView status = parentView.findViewById(R.id.grid_status);
-        status.setVisibility(obj.isRunning || obj.isHidden ? View.VISIBLE : View.GONE);
-        if (obj.isRunning || obj.isHidden) {
-            status.setText(obj.isRunning ? (obj.isHidden ? R.string.app_running_hidden : R.string.app_running) : R.string.app_hidden);
-            // A running game's chip takes the amber container; a hidden one stays neutral.
-            ViewCompat.setBackgroundTintList(status, ColorStateList.valueOf(MaterialColors.getColor(status, obj.isRunning ?
-                    com.google.android.material.R.attr.colorPrimaryContainer : com.google.android.material.R.attr.colorSurfaceContainerHigh)));
-            status.setTextColor(MaterialColors.getColor(status, obj.isRunning ?
-                    com.google.android.material.R.attr.colorOnPrimaryContainer : com.google.android.material.R.attr.colorOnSurface));
-        }
+        bindStatusChip(status, obj);
         String description = obj.app.getAppName();
         if (roleLabel != 0) {
             description = context.getString(R.string.library_item_description, description, roleView.getText());
@@ -237,6 +242,18 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
             description = context.getString(R.string.library_item_description, description, status.getText());
         }
         parentView.setContentDescription(description);
+    }
+
+    /** The Running / Hidden chip of a game: shown only when one applies, amber for a running game, neutral for a hidden one. */
+    public static void bindStatusChip(TextView status, AppView.AppObject obj) {
+        status.setVisibility(obj.isRunning || obj.isHidden ? View.VISIBLE : View.GONE);
+        if (obj.isRunning || obj.isHidden) {
+            status.setText(obj.isRunning ? (obj.isHidden ? R.string.app_running_hidden : R.string.app_running) : R.string.app_hidden);
+            ViewCompat.setBackgroundTintList(status, ColorStateList.valueOf(MaterialColors.getColor(status, obj.isRunning ?
+                    com.google.android.material.R.attr.colorPrimaryContainer : com.google.android.material.R.attr.colorSurfaceContainerHigh)));
+            status.setTextColor(MaterialColors.getColor(status, obj.isRunning ?
+                    com.google.android.material.R.attr.colorOnPrimaryContainer : com.google.android.material.R.attr.colorOnSurface));
+        }
     }
 
     static int roleLabel(NvApp app) {

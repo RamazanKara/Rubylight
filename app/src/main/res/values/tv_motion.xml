@@ -3,4 +3,9 @@
         <item name="android:windowEnterAnimation">@anim/tv_sheet_enter</item>
         <item name="android:windowExitAnimation">@anim/tv_sheet_exit</item>
     </style>
+
+    <!-- How a screen opens and closes. The system's own on phones; values-television has the TV set (res/anim/tv_open_*, tv_close_*). -->
+    <style name="NightjarWindowAnimation" parent="@android:style/Animation.Activity" />
+    <!-- The same under Reduce motion: values-television has none. -->
+    <style name="NightjarWindowAnimationStill" parent="@android:style/Animation.Activity" />
 </resources>

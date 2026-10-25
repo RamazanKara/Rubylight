@@ -13,7 +13,7 @@
         android:clipChildren="false">
         <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"
             android:layout_width="match_parent" android:layout_height="match_parent"
-            android:clipToPadding="false" android:clipChildren="false" android:scrollbars="vertical"
+            android:clipToPadding="false" android:clipChildren="true" android:scrollbars="vertical"
             android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
             android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_xl" android:focusable="false"
             android:descendantFocusability="afterDescendants" />

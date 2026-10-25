@@ -23,6 +23,10 @@ import com.limelight.preferences.HostStreamSettings;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
+import com.limelight.ui.AdaptiveGridView;
+import com.limelight.ui.AppTheme;
+import com.limelight.ui.BackdropView;
+import com.limelight.ui.LibraryAmbience;
 import com.limelight.ui.TopAppBar;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.utils.CacheHelper;
@@ -43,6 +47,7 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -59,6 +64,8 @@ import org.xmlpull.v1.XmlPullParserException;
 
 public class AppView extends NightjarActivity implements AdapterFragmentCallbacks {
     private AppGridAdapter appGridAdapter;
+    private LibraryAmbience ambience;
+    private boolean enterPlayed;
     private ActionSheet appMenu;
     private String uuidString;
     private ShortcutHelper shortcutHelper;
@@ -354,6 +361,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         }
 
         UiHelper.notifyNewRootView(this);
+        setUpAmbience();
 
         showHiddenApps = savedInstanceState != null ? savedInstanceState.getBoolean("showHiddenApps") :
                 getIntent().getBooleanExtra(SHOW_HIDDEN_APPS_EXTRA, false);
@@ -449,9 +457,34 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         });
     }
 
+    /** The TV layout has a backdrop and a focus line; the phone layout has neither and keeps its plain screen. */
+    private void setUpAmbience() {
+        BackdropView backdrop = findViewById(R.id.library_backdrop);
+        if (backdrop == null) return;
+        int canvas = androidx.core.content.ContextCompat.getColor(this, R.color.tv_canvas);
+        // The window shows the canvas until the first backdrop covers it, then stops painting under it.
+        getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
+        backdrop.setCanvasColor(canvas);
+        backdrop.setDim(AppTheme.isHighContrast(this) ? 0.85f : 1f);
+        backdrop.setOnCovered(() -> getWindow().setBackgroundDrawable(null));
+        ambience = new LibraryAmbience(backdrop, findViewById(R.id.library_focus_title), findViewById(R.id.library_focus_status));
+    }
+
     private void updateLibraryState() {
         if (librarySearch == null) return;
         int visible = appGridAdapter == null ? 0 : appGridAdapter.getCount();
+        if (ambience != null) {
+            if (visible == 0) {
+                ambience.clear();
+            } else {
+                ambience.refresh();
+                View grid = findViewById(R.id.fragmentView);
+                if (!enterPlayed && grid instanceof AdaptiveGridView) {
+                    enterPlayed = true;
+                    ((AdaptiveGridView) grid).playEnter();
+                }
+            }
+        }
         int total = appGridAdapter == null ? 0 : appGridAdapter.getLibraryCount();
         TextView summary = findViewById(R.id.library_summary);
         summary.setVisibility(appGridAdapter != null && !appGridAdapter.getAllApps().isEmpty() ? View.VISIBLE : View.GONE);
@@ -1033,6 +1066,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         ((android.widget.GridView) listView).setColumnWidth(Math.round(columnDp * fontScale *
                 getResources().getDisplayMetrics().density));
         listView.setAdapter(appGridAdapter);
+        if (ambience != null) ambience.bind(listView, appGridAdapter);
         listView.setOnItemClickListener(new OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> arg0, View arg1, int pos,
@@ -1047,7 +1081,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                 if (hostRunningGame && !app.isRunning && app.app.getControl() == NvApp.Control.NONE) {
                     startInsteadOfRunning(app);
                 } else {
-                    ServerHelper.doStart(AppView.this, app.app, computer, managerBinder);
+                    ServerHelper.doStart(AppView.this, app.app, computer, managerBinder, arg1);
                 }
             }
         });

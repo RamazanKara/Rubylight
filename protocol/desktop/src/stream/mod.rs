@@ -1955,7 +1955,12 @@ impl Streaming {
                 } else if p.decoded.setup.chroma_packing != 0 {
                     self.exit = Some(Exit::Ended(Some("Packed full-chroma reconstruction failed: the decoded planes, GPU, or HDR output are unsupported.".into())));
                 } else {
-                    self.show_toast(trf("Cannot show {} pictures", &[&p.decoded.picture.format_name()]));
+                    let format = p.decoded.picture.format_name();
+                    let toast = match self.texture.failure.take() {
+                        Some(reason) => trf("Cannot show {} pictures: {}", &[&format, &reason]),
+                        None => trf("Cannot show {} pictures", &[&format]),
+                    };
+                    self.show_toast(toast);
                 }
             }
             if !self.first_frame {

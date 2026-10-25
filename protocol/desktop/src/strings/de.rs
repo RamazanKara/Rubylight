@@ -603,6 +603,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Shortcut was not sent: {}", "Kürzel wurde nicht gesendet: {}"),
     ("The PC did not confirm the requested size. Automatic quality stopped.", "Der PC hat die gewünschte Größe nicht bestätigt. Die automatische Qualität wurde beendet."),
     ("Cannot show {} pictures", "Bilder im Format {} können nicht angezeigt werden"),
+    ("Cannot show {} pictures: {}", "Bilder im Format {0} können nicht angezeigt werden: {1}"),
     ("GPU upscaling is unavailable; using bilinear scaling.", "GPU-Hochskalierung ist nicht verfügbar; bilineare Skalierung wird verwendet."),
     ("Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad.", "Controller-Maus aktiviert. A/B klicken; das Steuerkreuz scrollt. Start gedrückt halten, um zum Gamepad zurückzukehren."),
     ("Controller mouse disabled.", "Controller-Maus deaktiviert."),

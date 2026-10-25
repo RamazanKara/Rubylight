@@ -50,10 +50,14 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private int surfaceWidth, surfaceHeight;
     private int[] viewport;
     private long fence;
+    // workStartNs is when the decoder released the frame (for the stall check); gpuStartNs is when
+    // it was latched, so the sample is the reconstruction and not the wait in front of it.
     private volatile long workStartNs;
+    private long gpuStartNs;
     private int pendingDrops;
     private boolean frameAvailable;
     private volatile boolean closed;
+    private volatile String failureDetail;
 
     GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
                  boolean stretch, int sharpness, UpscalingPolicy policy) {
@@ -78,7 +82,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
                 initialize(context, output, width, height, stretch, sharpness);
             } catch (IOException | RuntimeException e) {
                 LimeLog.warning("Upscaling initialization failed: " + e);
-                policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+                failGpu(e);
             } finally {
                 ready.countDown();
             }
@@ -271,6 +275,48 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         }
     }
 
+    /**
+     * Whether a 10-bit BT.2020 PQ window surface can be created, the output packed HDR needs: the
+     * same extension and 10-bit colour buffer initialize() requires, checked before HDR is asked for.
+     */
+    static boolean tenBitOutputSupported() {
+        EGLDisplay display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+        int[] version = new int[2];
+        if (display == EGL14.EGL_NO_DISPLAY || !EGL14.eglInitialize(display, version, 0, version, 1)) return false;
+        String extensions = EGL14.eglQueryString(display, EGL14.EGL_EXTENSIONS);
+        return tenBitOutputSupported(extensions, tenBitConfigAvailable(display));
+    }
+
+    static boolean tenBitOutputSupported(String eglExtensions, boolean tenBitConfig) {
+        return tenBitConfig && eglExtensions != null && eglExtensions.contains("EGL_EXT_gl_colorspace_bt2020_pq");
+    }
+
+    private static boolean tenBitConfigAvailable(EGLDisplay display) {
+        int[] attributes = {
+                EGL14.EGL_RENDERABLE_TYPE, 0x40, EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT,
+                EGL14.EGL_RED_SIZE, 10, EGL14.EGL_GREEN_SIZE, 10, EGL14.EGL_BLUE_SIZE, 10,
+                EGL14.EGL_ALPHA_SIZE, 0, EGL14.EGL_NONE
+        };
+        EGLConfig[] configs = new EGLConfig[1];
+        int[] count = new int[1];
+        int[] value = new int[1];
+        if (!EGL14.eglChooseConfig(display, attributes, 0, configs, 0, 1, count, 0) || count[0] == 0) return false;
+        for (int channel : new int[] {EGL14.EGL_RED_SIZE, EGL14.EGL_GREEN_SIZE, EGL14.EGL_BLUE_SIZE}) {
+            if (!EGL14.eglGetConfigAttrib(display, configs[0], channel, value, 0) || value[0] < 10) return false;
+        }
+        return true;
+    }
+
+    /** What failed, for the message after a GPU_ERROR: the step that threw, null for no GPU error. */
+    String failureDetail() {
+        return failureDetail;
+    }
+
+    private void failGpu(Exception e) {
+        if (failureDetail == null) failureDetail = e.getMessage();
+        policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+    }
+
     private static void require(boolean success, String operation) {
         if (!success) throw new IllegalStateException(operation + " failed");
     }
@@ -291,7 +337,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             drawFrame();
         } catch (RuntimeException e) {
             LimeLog.warning("Upscaling frame failed: " + e);
-            policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+            failGpu(e);
         }
     }
 
@@ -301,6 +347,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             texture.updateTexImage();
             if (!frames.consume(texture.getTimestamp(), frame)) return;
             workStartNs = frame[0];
+            gpuStartNs = System.nanoTime();
             pendingDrops = (int) frame[2];
             querySurfaceSize();
             if (size[0] != surfaceWidth || size[1] != surfaceHeight) {
@@ -337,7 +384,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             pollCompletion();
         } catch (RuntimeException e) {
             LimeLog.warning("Upscaling frame failed: " + e);
-            policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+            failGpu(e);
         }
     }
 
@@ -349,12 +396,14 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             GLES30.glDeleteSync(fence);
             fence = 0;
             workStartNs = 0;
-            // Includes handoff, GPU work, swap blocking and up to one polling interval.
-            // This is a conservative frame-time estimate, not a scanout timestamp.
-            policy.recordFrame(elapsed, pendingDrops);
+            // From the latch to the fence: the draw, swap blocking and up to one polling interval,
+            // but not the wait for the render thread before the latch. A conservative estimate of
+            // the reconstruction, not a scanout timestamp; the policy only acts on a sustained trend.
+            policy.recordFrame(System.nanoTime() - gpuStartNs, pendingDrops);
             // Latch the newest waiting texture only after the previous draw has completed.
             if (frameAvailable && policy.getReason() == UpscalingPolicy.Reason.NONE) drawFrame();
         } else if (status == GLES30.GL_WAIT_FAILED) {
+            if (failureDetail == null) failureDetail = "GPU fence wait failed";
             policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
         } else {
             policy.checkStall(elapsed);
@@ -371,7 +420,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
                 updateHdr();
             } catch (RuntimeException e) {
                 LimeLog.warning("Packed chroma HDR output failed: " + e);
-                policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+                failGpu(e);
             }
         });
     }

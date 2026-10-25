@@ -31,10 +31,28 @@ public final class UpscalingPolicy {
     }
 
     static final int WARMUP_FRAMES = 8;
-    static final int SLOW_FRAME_LIMIT = 6;
+    /**
+     * The window the sustained-load rule looks at, in time. A GPU path is only too slow when it
+     * is over budget for most of this long: a display mode change, a thermal dip or a one-off
+     * garbage collection costs a handful of frames and must not end a stream, but overload is
+     * over budget on nearly every frame and fills a window within seconds.
+     */
+    static final long WINDOW_NS = 2000000000L;
+    /** Fewer samples than this are too few to call a trend, whatever the frame rate. */
+    static final int MIN_WINDOW_FRAMES = 30;
+    /**
+     * One frame that takes this long, or a GPU that stops answering for this long, is a stall and
+     * not a load trend. It is far above any spike seen from driver scheduling, a mode switch or
+     * the compositor holding a buffer back (tens of milliseconds), and still ends a hung GPU in
+     * about a second. It deliberately does not scale with the frame rate: at 120 fps six frames
+     * were only 50 ms, which one scheduler hiccup exceeds.
+     */
+    static final long STALL_LIMIT_NS = 1000000000L;
     private volatile long frameBudgetNs;
     private int warmup = WARMUP_FRAMES;
-    private int slowFrames;
+    // Which of the last window frames were over budget, as a ring with a running count.
+    private boolean[] overBudget;
+    private int ringIndex, ringFilled, ringSlow;
     private volatile Reason reason = Reason.NONE;
     private volatile float addedMs = -1;
 
@@ -42,12 +60,13 @@ public final class UpscalingPolicy {
         setFrameRate(fps);
     }
 
-    void setFrameRate(int fps) {
+    synchronized void setFrameRate(int fps) {
         if (fps <= 0) throw new IllegalArgumentException("Invalid frame rate");
         long budgetNs = 1000000000L / fps;
         if (frameBudgetNs != budgetNs) {
             frameBudgetNs = budgetNs;
-            slowFrames = 0;
+            overBudget = new boolean[(int) Math.max(MIN_WINDOW_FRAMES, WINDOW_NS / budgetNs)];
+            ringIndex = ringFilled = ringSlow = 0;
         }
     }
 
@@ -77,7 +96,7 @@ public final class UpscalingPolicy {
                 outputWidth, outputHeight};
     }
 
-    void recordFrame(long addedNs, int dropped) {
+    synchronized void recordFrame(long addedNs, int dropped) {
         if (reason != Reason.NONE) return;
         float ms = addedNs / 1000000f;
         addedMs = addedMs < 0 ? ms : addedMs + 0.1f * (ms - addedMs);
@@ -85,17 +104,21 @@ public final class UpscalingPolicy {
             warmup--;
             return;
         }
-        // A good frame must be comfortably below budget to erase a slow sample.
-        if (addedNs > frameBudgetNs) slowFrames++;
-        else if (addedNs < frameBudgetNs * 3 / 4) slowFrames = Math.max(0, slowFrames - 1);
+        boolean slow = addedNs > frameBudgetNs;
+        if (ringFilled == overBudget.length && overBudget[ringIndex]) ringSlow--;
+        overBudget[ringIndex] = slow;
+        if (slow) ringSlow++;
+        ringIndex = (ringIndex + 1) % overBudget.length;
+        if (ringFilled < overBudget.length) ringFilled++;
         // Coalesced texture frames can come from decoder bursts or a faster stream than the
-        // panel. Only sustained measured cost, not routine replacement, warrants fallback.
-        if (slowFrames >= SLOW_FRAME_LIMIT) fail(Reason.SLOW);
+        // panel. Only a full window that is mostly over budget, not routine replacement or a few
+        // spikes anywhere in it, warrants fallback.
+        if (ringFilled == overBudget.length && ringSlow * 2 > overBudget.length) fail(Reason.SLOW);
     }
 
     void checkStall(long elapsedNs) {
-        // A stalled GPU cannot deliver samples to the normal hysteresis window.
-        if (elapsedNs > frameBudgetNs * SLOW_FRAME_LIMIT) fail(Reason.SLOW);
+        // A stalled GPU cannot deliver samples to the window.
+        if (elapsedNs > STALL_LIMIT_NS) fail(Reason.SLOW);
     }
 
     void fail(Reason failure) {

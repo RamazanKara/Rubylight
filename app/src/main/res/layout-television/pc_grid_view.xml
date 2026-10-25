@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- PCs on TV: fixed-size tiles (pc_grid_item, dimen tile_cell), no stretching and no gap, since each tile pads itself
-     with its glow. AdaptiveGridView centres a row of up to three PCs and the block of more. -->
+     with its glow. Each tile draws its own ring, so the grid's selector is empty. AdaptiveGridView centres a row of up to three PCs and the block of more. -->
 <com.limelight.ui.AdaptiveGridView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/fragmentView" android:layout_width="match_parent" android:layout_height="match_parent"
     android:nextFocusDown="@id/manuallyAddPc" android:accessibilityTraversalAfter="@id/home_toolbar"
@@ -8,4 +8,4 @@
     android:horizontalSpacing="0dp" android:verticalSpacing="0dp"
     android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/fab_clearance"
     android:focusable="true" android:focusableInTouchMode="true" android:clipToPadding="false" android:clipChildren="false"
-    android:listSelector="@drawable/grid_focus_ring" android:drawSelectorOnTop="true" android:gravity="center" />
+    android:listSelector="@android:color/transparent" android:drawSelectorOnTop="false" android:gravity="center" />

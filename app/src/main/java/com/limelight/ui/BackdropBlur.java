@@ -19,6 +19,8 @@ public final class BackdropBlur {
 
     /** The art's brightness; the screen is meant to be tinted by the game, not lit by it. */
     static final float DARKEN = 0.55f;
+    /** A PC tile's cover, darker than Home's backdrop: the tile's 22sp name sits on it, and a white cover must still give 4.5:1. */
+    static final float TILE_DARKEN = 0.35f;
     static final int RADIUS = 6;
     static final int PASSES = 3;
 
@@ -55,8 +57,8 @@ public final class BackdropBlur {
         int[] pixels = blurred(cover, canvas);
         for (int i = 0; i < pixels.length; i++) {
             int c = pixels[i];
-            pixels[i] = 0xFF000000 | Math.round(((c >> 16) & 0xFF) * DARKEN) << 16
-                    | Math.round(((c >> 8) & 0xFF) * DARKEN) << 8 | Math.round((c & 0xFF) * DARKEN);
+            pixels[i] = 0xFF000000 | Math.round(((c >> 16) & 0xFF) * TILE_DARKEN) << 16
+                    | Math.round(((c >> 8) & 0xFF) * TILE_DARKEN) << 8 | Math.round((c & 0xFF) * TILE_DARKEN);
         }
         return opaque(pixels);
     }

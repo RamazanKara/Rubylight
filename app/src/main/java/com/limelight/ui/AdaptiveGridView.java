@@ -451,21 +451,33 @@ public class AdaptiveGridView extends GridView {
         return height > 0 && height / getResources().getDisplayMetrics().density < SHORT_VIEWPORT_DP;
     }
 
-    /** The side padding the layout gave, before {@link #centreTiles} adds to it. */
+    /** The side padding the layout (or a later setPadding) gave, before {@link #centreTiles} adds to it. */
     private int[] basePadding;
+    /** The side padding centreTiles last set: anything else on the view now came from outside and is the new base. */
+    private int[] centredPadding;
+
+    private int[] basePadding() {
+        int left = getPaddingLeft();
+        int right = getPaddingRight();
+        if (basePadding == null || centredPadding == null || left != centredPadding[0] || right != centredPadding[1]) {
+            basePadding = new int[] {left, right};
+        }
+        return basePadding;
+    }
 
     /**
      * TV PC tiles have a fixed width (pc_grid_view's columnWidth, no stretching): a few PCs sit as one centred row, and more
      * fill rows from the left of a centred block. GridView has no centring of its own, so the side padding takes the rest.
      */
-    private int centreTiles(int columns, int width) {
+    private int centreTiles(int columns, int width, int[] base) {
         android.widget.ListAdapter adapter = getAdapter();
         int count = adapter == null ? 0 : adapter.getCount();
         int used = Math.max(1, Math.min(columns, count));
         int cell = getRequestedColumnWidth();
         int side = cell <= 0 ? 0 : Math.max(0, (width - used * cell - (used - 1) * getRequestedHorizontalSpacing()) / 2);
-        int left = basePadding[0] + side;
-        int right = basePadding[1] + side;
+        int left = base[0] + side;
+        int right = base[1] + side;
+        centredPadding = new int[] {left, right};
         if (left != getPaddingLeft() || right != getPaddingRight()) setPadding(left, getPaddingTop(), right, getPaddingBottom());
         return used;
     }
@@ -478,11 +490,11 @@ public class AdaptiveGridView extends GridView {
             float fontScale = Math.max(1, configuration.fontScale);
             boolean television = (configuration.uiMode & Configuration.UI_MODE_TYPE_MASK)
                     == Configuration.UI_MODE_TYPE_TELEVISION;
-            if (basePadding == null) basePadding = new int[] {getPaddingLeft(), getPaddingRight()};
-            int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - basePadding[0] - basePadding[1]);
+            int[] base = basePadding();
+            int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - base[0] - base[1]);
             int columns = AdaptiveLayout.gridColumns(width / density / fontScale,
                     MeasureSpec.getSize(heightMeasureSpec) / density, computers, smallIcons, television);
-            if (computers && television) columns = centreTiles(columns, width);
+            if (computers && television) columns = centreTiles(columns, width, base);
             // A no-op when unchanged; otherwise the children are rebuilt by the layout that follows.
             setNumColumns(columns);
         }

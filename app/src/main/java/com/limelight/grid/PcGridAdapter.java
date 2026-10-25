@@ -3,6 +3,7 @@ package com.limelight.grid;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -153,6 +154,8 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
             statusView.setTextColor(MaterialColors.getColor(statusView, away ?
                     com.google.android.material.R.attr.colorOnSurfaceVariant : com.google.android.material.R.attr.colorOnSurface));
             statusView.setCompoundDrawablesRelativeWithIntrinsicBounds(dot(state), 0, 0, 0);
+            size(parentView.findViewById(R.id.grid_card), R.dimen.tile_height);
+            size(parentView.findViewById(R.id.grid_scrim), R.dimen.tile_scrim);
             if (tiles == null) tiles = new TileBackdrops(context);
             tiles.show(backdrop, obj.details.uuid, obj.runningGame, state);
         }
@@ -190,6 +193,24 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
     }
 
     private TileBackdrops tiles;
+
+    /** A TV tile part's height at the current font scale: its height at scale 1, plus what the text stack grows by. */
+    static int tileHeight(Context context, int dimen) {
+        android.content.res.Resources resources = context.getResources();
+        float scale = Math.max(1f, resources.getConfiguration().fontScale);
+        return resources.getDimensionPixelSize(dimen)
+                + Math.round((scale - 1f) * resources.getDimension(R.dimen.tile_text_stack));
+    }
+
+    private void size(View view, int dimen) {
+        if (view == null) return;
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        int height = tileHeight(context, dimen);
+        if (params.height != height) {
+            params.height = height;
+            view.setLayoutParams(params);
+        }
+    }
 
     /** A TV tile's status dot: green for a PC that is up, amber for one waiting on something, grey for one that is away. */
     public static int dot(RowState state) {

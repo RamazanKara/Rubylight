@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.LruCache;
 import android.widget.ImageView;
 
@@ -16,8 +17,8 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.ui.BackdropBlur;
 
 import java.io.File;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -45,12 +46,14 @@ final class TileBackdrops {
     private static final Executor WORKER = worker();
     /** A few PCs, about 20 KB each. */
     private static final LruCache<String, Bitmap> CACHE = new LruCache<>(8);
-    /** Covers that were not on disk: asked for again only when the grid is rebuilt. */
-    private static final Set<String> MISSING = new HashSet<>();
+    /** How long a cover that was not on disk is left alone before the next bind looks again; it may have been fetched since. */
+    static final long RETRY_MS = 5000;
     private static Executor executor = WORKER;
 
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
+    /** Covers that were not on disk, and when: per grid, so a new PCs screen always looks again. */
+    private final Map<String, Long> missing = new HashMap<>();
 
     TileBackdrops(Context context) {
         this.context = context.getApplicationContext();
@@ -63,46 +66,61 @@ final class TileBackdrops {
 
     static void clear() {
         CACHE.evictAll();
-        MISSING.clear();
     }
 
     static String key(String hostUuid, NvApp running) {
         return running == null ? null : hostUuid + ":" + running.getAssetCacheKey();
     }
 
-    /** Puts the tile's background on {@code view}: the gradient at once, and the running game's cover over it when it has one. */
+    /**
+     * Puts the tile's background on {@code view}: the running game's cover when it has one, and the state's gradient
+     * otherwise, or until the cover is decoded. The opaque cover replaces the gradient rather than covering it.
+     */
     void show(ImageView view, String hostUuid, NvApp running, PcGridAdapter.RowState state) {
-        view.setBackgroundResource(gradient(state));
         String key = state == PcGridAdapter.RowState.RUNNING ? key(hostUuid, running) : null;
         Object shown = view.getTag(R.id.grid_backdrop);
         if (key == null) {
             view.setTag(R.id.grid_backdrop, null);
             view.setImageDrawable(null);
+            view.setBackgroundResource(gradient(state));
             return;
         }
         Bitmap cached = CACHE.get(key);
         if (cached != null) {
-            view.setTag(R.id.grid_backdrop, key);
-            view.setImageBitmap(cached);
+            cover(view, key, cached);
             return;
         }
-        if (key.equals(shown)) return;
+        view.setBackgroundResource(gradient(state));
+        Long missedAt = missing.get(key);
+        boolean retry = missedAt != null && SystemClock.uptimeMillis() - missedAt >= RETRY_MS;
+        if (!retry && (key.equals(shown) || missedAt != null)) {
+            // Already on its way to this view, or not on disk a moment ago.
+            if (!key.equals(shown)) view.setImageDrawable(null);
+            view.setTag(R.id.grid_backdrop, key);
+            return;
+        }
+        missing.remove(key);
         view.setTag(R.id.grid_backdrop, key);
         view.setImageDrawable(null);
-        if (MISSING.contains(key)) return;
         File file = new DiskAssetLoader(context).getFile(hostUuid, running.getAssetCacheKey());
         int canvas = ContextCompat.getColor(context, R.color.tv_canvas);
         executor.execute(() -> {
             Bitmap tile = decode(file, canvas);
             main.post(() -> {
                 if (tile == null) {
-                    MISSING.add(key);
+                    missing.put(key, SystemClock.uptimeMillis());
                     return;
                 }
                 CACHE.put(key, tile);
-                if (key.equals(view.getTag(R.id.grid_backdrop))) view.setImageBitmap(tile);
+                if (key.equals(view.getTag(R.id.grid_backdrop))) cover(view, key, tile);
             });
         });
+    }
+
+    private static void cover(ImageView view, String key, Bitmap tile) {
+        view.setTag(R.id.grid_backdrop, key);
+        view.setImageBitmap(tile);
+        view.setBackground(null);
     }
 
     /** The cover, decoded at about 4x the thumbnail's width so BackdropBlur's halving has something to work on. */

@@ -18,7 +18,7 @@
         <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:duplicateParentState="true">
             <ImageView android:id="@+id/grid_backdrop" android:layout_width="match_parent" android:layout_height="match_parent"
                 android:scaleType="centerCrop" android:background="@drawable/tv_tile_bg_idle" android:importantForAccessibility="no" />
-            <View android:layout_width="match_parent" android:layout_height="96dp" android:layout_gravity="bottom"
+            <View android:id="@+id/grid_scrim" android:layout_width="match_parent" android:layout_height="@dimen/tile_scrim" android:layout_gravity="bottom"
                 android:background="@drawable/tv_tile_scrim" android:importantForAccessibility="no" />
             <FrameLayout android:layout_width="40dp" android:layout_height="40dp" android:layout_gravity="top|start"
                 android:layout_marginStart="@dimen/space_l" android:layout_marginTop="@dimen/space_l"

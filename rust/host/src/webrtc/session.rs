@@ -57,6 +57,10 @@ const LAUNCH: u32 = 1 << 26;
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an answered session may take to connect before it is ended.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// How much longer than [`CONNECT_TIMEOUT`] a connected session may wait for the worker to vouch
+/// for an HDR source before it is ended: a worker stuck before its first frame must not leave the
+/// client in "starting" for good.
+const HELD_EXTRA: Duration = Duration::from_secs(10);
 /// How long a new session waits for the media port of the one before it.
 const BIND_WAIT: Duration = Duration::from_secs(3);
 /// How often the actor looks for a session that ended.
@@ -74,9 +78,25 @@ fn micros(duration: Duration) -> u64 {
 pub struct Links {
     media: Mutex<HashMap<String, MediaHandle>>,
     ids: AtomicU64,
+    /// Test override of the held-"streaming" limit in milliseconds; 0 keeps the default.
+    held_limit_ms: AtomicU64,
 }
 
 impl Links {
+    /// How long "streaming" may stay held for an unchecked HDR source after the session started.
+    fn held_limit(&self) -> Duration {
+        match self.held_limit_ms.load(Ordering::Relaxed) {
+            0 => CONNECT_TIMEOUT + HELD_EXTRA,
+            ms => Duration::from_millis(ms),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn limit_held(&self, limit: Duration) {
+        self.held_limit_ms
+            .store(micros(limit) / 1000, Ordering::Relaxed);
+    }
+
     /// A positive id, unique for the life of the host.
     pub fn next_session_id(&self) -> u64 {
         self.ids.fetch_add(1, Ordering::Relaxed) + 1
@@ -600,6 +620,12 @@ impl Actor {
             });
         } else if live.streaming_held && live.session.source_checked.load(Ordering::Acquire) {
             self.announce_streaming();
+        } else if live.streaming_held && live.since.elapsed() > self.h.webrtc_links.held_limit() {
+            tracing::warn!(
+                session = live.id,
+                "the stream worker did not check the HDR source in time"
+            );
+            live.session.fail();
         } else if !live.connected && live.since.elapsed() > CONNECT_TIMEOUT {
             tracing::warn!(session = live.id, "WebRTC session did not connect in time");
             live.session.fail();

@@ -843,6 +843,36 @@ async fn a_held_streaming_status_goes_out_once_the_source_is_checked() -> Result
     Ok(())
 }
 
+/// A worker stuck before its first frame (in `prepare_stream` or `open_session_capture`) never
+/// vouches for the HDR source: the held "streaming" status must end in an error, not wait for good.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_that_never_checks_the_source_ends_the_held_session_with_an_error() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    web.harness
+        .h
+        .webrtc_links
+        .limit_held(Duration::from_millis(600));
+    web.harness
+        .fixture
+        .hold_first_frame
+        .store(true, Ordering::Release);
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
+    until("transport connected", WAIT, || peer.connected()).await;
+    let message = next(&mut ws).await;
+    assert_eq!(message["type"], "session-status", "{message}");
+    assert_eq!(message["state"], "error", "{message}");
+    assert_eq!(message["sessionId"], id);
+    web.harness
+        .fixture
+        .hold_first_frame
+        .store(false, Ordering::Release);
+    drop(peer);
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_display_that_leaves_hdr_ends_the_stream_with_an_error() -> Result<()> {
     let web = web_with_every_codec().await?;

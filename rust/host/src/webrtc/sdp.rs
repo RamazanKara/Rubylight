@@ -2,8 +2,11 @@
 //!
 //! The host sends the offer (protocol v2): one video codec at a fixed payload type, Opus at a fixed
 //! payload type, a `control` and a `gamepad` DataChannel. str0m builds the offer; the text is then
-//! edited for what str0m cannot express (Samsung's `imageattr`, `multiopus`), and the answer is
-//! checked before str0m parses it. See `docs/webrtc-design.md` ("Library").
+//! edited for what str0m cannot express (Samsung's `imageattr`, the protocol's stereo fmtp), and
+//! the answer is checked before str0m parses it. A surround stream (5.1, 7.1) is negotiated in the
+//! answer: the offer is the same stereo Opus whatever the channel count, because Chromium refuses
+//! `multiopus` in a remote offer, and the client answers `multiopus` with the layout it decodes.
+//! See `docs/webrtc-design.md` ("Library").
 use anyhow::{Context, Result, anyhow, bail};
 use butterpollo_core::audio::OpusLayout;
 use butterpollo_core::webrtc::capabilities::{av1_level, hevc_level};
@@ -66,50 +69,31 @@ impl VideoMode {
     }
 }
 
-/// Stereo, or 5.1/7.1 Opus multistream (a Rubylight extension, sent as `multiopus`).
+/// What the client asked for: stereo, or 5.1/7.1 Opus multistream (a Rubylight extension). The
+/// offer is stereo Opus either way; for surround the client's answer must say `multiopus` with a
+/// layout of its choosing ([`AnswerInfo::audio_layout`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AudioMode {
     pub channels: u8,
-    layout: Option<OpusLayout>,
 }
 
 impl AudioMode {
     pub fn stereo() -> Self {
-        Self {
-            channels: 2,
-            layout: None,
+        Self { channels: 2 }
+    }
+
+    /// Stereo, 5.1 or 7.1; anything else is an error.
+    pub fn request(channels: usize) -> Result<Self> {
+        match channels {
+            2 | 6 | 8 => Ok(Self {
+                channels: channels as u8,
+            }),
+            _ => bail!("unsupported audio channel count {channels}"),
         }
     }
 
-    /// Chromium's canonical 5.1 and 7.1 `multiopus` parameters, which is what a browser answers
-    /// with (libwebrtc's own table, so no mapping surprise). The encoder is fed in that channel
-    /// order: input channel `i` is the decoder's output channel `i`.
-    pub fn chrome_surround(channels: usize) -> Result<Self> {
-        let custom = match channels {
-            6 => "642041235",
-            8 => "85306123457",
-            _ => bail!("multiopus needs 6 or 8 channels, got {channels}"),
-        };
-        Self::surround(OpusLayout::select(channels, false, Some(custom))?)
-    }
-
-    /// `layout` is the one the encoder uses (`OpusLayout::select`), so the mapping in the fmtp is
-    /// the mapping of the packets.
-    pub fn surround(layout: OpusLayout) -> Result<Self> {
-        if !matches!(layout.channels, 6 | 8) || layout.mapping.len() != layout.channels {
-            bail!(
-                "multiopus needs a 6 or 8 channel layout, got {}",
-                layout.channels
-            );
-        }
-        Ok(Self {
-            channels: layout.channels as u8,
-            layout: Some(layout),
-        })
-    }
-
-    pub fn layout(&self) -> Option<&OpusLayout> {
-        self.layout.as_ref()
+    fn surround(&self) -> bool {
+        self.channels != 2
     }
 }
 
@@ -143,9 +127,9 @@ pub struct AnswerInfo {
     pub playout_delay: bool,
     pub video_level: Option<u32>,
     /// The `multiopus` layout the client answered with, for 6 and 8 channels. The client picks its
-    /// own parameters (libwebrtc answers with its canonical table, not necessarily the offered
-    /// mapping), and the Opus encoder must be built with exactly these: input channel `i` is the
-    /// decoder's output channel `i`. `None` for stereo.
+    /// own parameters (libwebrtc's canonical table for Chromium), and the Opus encoder must be
+    /// built with exactly these: input channel `i` is the decoder's output channel `i`. `None` for
+    /// stereo.
     pub audio_layout: Option<OpusLayout>,
 }
 
@@ -237,9 +221,9 @@ pub fn rtc_config(spec: &OfferSpec) -> Result<RtcConfig> {
         Frequency::FORTY_EIGHT_KHZ,
         Some(2),
         FormatParams {
-            min_p_time: Some(if spec.audio.layout.is_some() { 10 } else { 20 }),
-            stereo: spec.audio.layout.is_none().then_some(true),
-            sprop_stereo: spec.audio.layout.is_none().then_some(true),
+            min_p_time: Some(20),
+            stereo: Some(true),
+            sprop_stereo: Some(true),
             use_inband_fec: Some(false),
             ..Default::default()
         },
@@ -343,7 +327,8 @@ fn fmtp_params(line: &str) -> Vec<(&str, &str)> {
         .collect()
 }
 
-/// `a=imageattr`, the stereo fmtp or the multiopus lines, applied to str0m's offer text.
+/// `a=imageattr` and the stereo fmtp, applied to str0m's offer text. The audio is the same for
+/// every channel count: standard `opus/48000/2`, which every client accepts.
 fn edit_offer(sdp: &str, spec: &OfferSpec) -> Result<String> {
     let mut lines = lines(sdp);
     let audio = section(&lines, "audio").context("the offer has no audio section")?;
@@ -351,19 +336,7 @@ fn edit_offer(sdp: &str, spec: &OfferSpec) -> Result<String> {
     let rtpmap = attribute_line(&lines, &audio, &format!("a=rtpmap:{audio_pt} opus/48000/2"))
         .context("the offer has no Opus rtpmap")?;
     let fmtp = attribute_line(&lines, &audio, &format!("a=fmtp:{audio_pt} "));
-    let fmtp_text = match spec.audio.layout() {
-        Some(layout) => {
-            lines[rtpmap] = format!("a=rtpmap:{audio_pt} multiopus/48000/{}", layout.channels);
-            let mapping: Vec<String> = layout.mapping.iter().map(u8::to_string).collect();
-            format!(
-                "a=fmtp:{audio_pt} channel_mapping={};num_streams={};coupled_streams={};minptime=10;useinbandfec=0",
-                mapping.join(","),
-                layout.streams,
-                layout.coupled
-            )
-        }
-        None => format!("a=fmtp:{audio_pt} {STEREO_FMTP}"),
-    };
+    let fmtp_text = format!("a=fmtp:{audio_pt} {STEREO_FMTP}");
     match fmtp {
         Some(i) => lines[i] = fmtp_text,
         None => lines.insert(rtpmap + 1, fmtp_text),
@@ -394,8 +367,9 @@ fn strip_rtx_ssrcs(lines: &mut Vec<String>) {
 }
 
 /// Check the client's answer against the offer and return the text str0m should parse: the
-/// `multiopus` answer goes back to `opus/48000/2`. A changed codec or profile, or a dropped
-/// `multiopus` or DataChannel, is an error: the host never falls back.
+/// `multiopus` answer to a surround request goes back to `opus/48000/2`. A changed codec or
+/// profile, a stereo answer to a surround request, or a dropped DataChannel is an error: the host
+/// never falls back.
 pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)> {
     let mut lines = lines(sdp);
     let mut info = AnswerInfo::default();
@@ -468,28 +442,32 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
     }
     let rtpmap = attribute_line(&lines, &audio, &format!("a=rtpmap:{AUDIO_PT} "))
         .map(|i| (i, lines[i].clone()));
-    match (spec.audio.layout(), rtpmap) {
-        (None, Some((_, line)))
-            if line.eq_ignore_ascii_case(&format!("a=rtpmap:{AUDIO_PT} opus/48000/2")) => {}
-        (None, _) => bail!("the answer changed the audio codec (wanted opus/48000/2)"),
-        (Some(layout), Some((i, line)))
-            if line.eq_ignore_ascii_case(&format!(
-                "a=rtpmap:{AUDIO_PT} multiopus/48000/{}",
-                layout.channels
-            )) =>
+    let rtpmap_is =
+        |line: &str, name: &str| line.eq_ignore_ascii_case(&format!("a=rtpmap:{AUDIO_PT} {name}"));
+    match (spec.audio.surround(), rtpmap) {
+        (false, Some((_, line))) if rtpmap_is(&line, "opus/48000/2") => {}
+        (false, _) => bail!("the answer changed the audio codec (wanted opus/48000/2)"),
+        (true, Some((i, line)))
+            if rtpmap_is(&line, &format!("multiopus/48000/{}", spec.audio.channels)) =>
         {
             let fmtp = attribute_line(&lines, &audio, &format!("a=fmtp:{AUDIO_PT} "))
                 .map(|i| lines[i].clone())
                 .unwrap_or_default();
-            info.audio_layout = Some(answered_layout(&fmtp, layout)?);
+            info.audio_layout = Some(answered_layout(&fmtp, usize::from(spec.audio.channels))?);
             lines[i] = format!("a=rtpmap:{AUDIO_PT} opus/48000/2");
-            if let Some(f) = attribute_line(&lines, &audio, &format!("a=fmtp:{AUDIO_PT} ")) {
-                lines[f] = format!("a=fmtp:{AUDIO_PT} minptime=10;useinbandfec=0");
+            // What str0m offered, so the rewritten answer reads as a plain stereo Opus one.
+            match attribute_line(&lines, &audio, &format!("a=fmtp:{AUDIO_PT} ")) {
+                Some(f) => lines[f] = format!("a=fmtp:{AUDIO_PT} {STEREO_FMTP}"),
+                None => lines.insert(i + 1, format!("a=fmtp:{AUDIO_PT} {STEREO_FMTP}")),
             }
         }
-        (Some(layout), _) => bail!(
-            "the answer dropped multiopus/48000/{} (only Chromium-based receivers decode it)",
-            layout.channels
+        (true, Some((_, line))) if rtpmap_is(&line, "opus/48000/2") => bail!(
+            "the {n}-channel request was answered with stereo opus/48000/2; a surround client              answers multiopus/48000/{n} with its own layout, and the host never falls back to stereo",
+            n = spec.audio.channels
+        ),
+        (true, _) => bail!(
+            "the answer to the {n}-channel request is not multiopus/48000/{n}              (only Chromium-based receivers decode it)",
+            n = spec.audio.channels
         ),
     }
 
@@ -501,10 +479,10 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
     Ok((join(&lines), info))
 }
 
-/// The layout in a `multiopus` answer's fmtp. The answerer chooses its own parameters, so they
-/// need not echo the offer; they only have to describe a valid RFC 7845-style multistream layout
-/// for the channel count that was offered.
-fn answered_layout(fmtp: &str, offered: &OpusLayout) -> Result<OpusLayout> {
+/// The layout in a `multiopus` answer's fmtp. The answerer chooses its own parameters; they only
+/// have to describe a valid RFC 7845-style multistream layout for the `channels` requested, and
+/// keys this reads nothing from are ignored.
+fn answered_layout(fmtp: &str, channels: usize) -> Result<OpusLayout> {
     let params = fmtp_params(fmtp);
     let param = |name: &str| params.iter().find(|(k, _)| *k == name).map(|(_, v)| *v);
     let number = |name: &str| -> Result<i32> {
@@ -534,11 +512,11 @@ fn answered_layout(fmtp: &str, offered: &OpusLayout) -> Result<OpusLayout> {
                 .map_err(|_| anyhow!("the multiopus channel_mapping entry {v:?} is not a number"))
         })
         .collect::<Result<Vec<u8>>>()?;
-    if mapping.len() != offered.channels {
+    if mapping.len() != channels {
         bail!(
             "the multiopus channel_mapping has {} entries for {} channels",
             mapping.len(),
-            offered.channels
+            channels
         );
     }
     if let Some(bad) = mapping
@@ -567,11 +545,12 @@ fn answered_layout(fmtp: &str, offered: &OpusLayout) -> Result<OpusLayout> {
         }
     }
     Ok(OpusLayout {
-        channels: offered.channels,
+        channels,
         streams,
         coupled,
         mapping,
-        bitrate: offered.bitrate,
+        // The caller sets the bitrate the video budget leaves.
+        bitrate: OpusLayout::select(channels, false, None)?.bitrate,
     })
 }
 
@@ -629,9 +608,32 @@ pub(crate) mod testing {
 
     pub fn surround_spec(channels: usize) -> OfferSpec {
         OfferSpec {
-            audio: AudioMode::chrome_surround(channels).unwrap(),
+            audio: AudioMode::request(channels).unwrap(),
             ..spec(VideoCodec::H264, false)
         }
+    }
+
+    /// Chromium's canonical 5.1 and 7.1 `multiopus` parameters (libwebrtc's own table), which is
+    /// what a browser puts in its answer. The encoder is fed in that channel order: input
+    /// channel `i` is the decoder's output channel `i`.
+    pub fn chrome_layout(channels: usize) -> OpusLayout {
+        let custom = match channels {
+            6 => "642041235",
+            8 => "85306123457",
+            _ => panic!("no canonical multiopus layout for {channels} channels"),
+        };
+        OpusLayout::select(channels, false, Some(custom)).unwrap()
+    }
+
+    /// The `a=fmtp` text of a Chromium receiver's multiopus answer for this layout.
+    pub fn multiopus_fmtp(layout: &OpusLayout) -> String {
+        let mapping: Vec<String> = layout.mapping.iter().map(u8::to_string).collect();
+        format!(
+            "channel_mapping={};num_streams={};coupled_streams={};minptime=10;useinbandfec=1",
+            mapping.join(","),
+            layout.streams,
+            layout.coupled
+        )
     }
 
     /// The host's Rtc (ICE-lite) and the offer text for it.
@@ -665,27 +667,27 @@ pub(crate) mod testing {
     }
 
     /// The answer a Chromium receiver gives to this offer: for surround, str0m's stereo answer
-    /// re-labelled as multiopus with Chromium's canonical stream layout (str0m has no multiopus).
+    /// munged the way a client edits its own answer, `multiopus` with the canonical layout (str0m
+    /// has no multiopus).
     pub fn answer_for(client: &mut Rtc, offer_sdp: &str, spec: &OfferSpec) -> String {
-        let Some(layout) = spec.audio.layout() else {
-            return answer(client, offer_sdp);
-        };
-        let channels = layout.channels;
-        let stereo = answer(
-            client,
-            &offer_sdp.replace(&format!("multiopus/48000/{channels}"), "opus/48000/2"),
-        );
-        let mapping: Vec<String> = layout.mapping.iter().map(u8::to_string).collect();
-        let fmtp = format!(
-            "channel_mapping={};num_streams={};coupled_streams={};minptime=10;useinbandfec=0",
-            mapping.join(","),
-            layout.streams,
-            layout.coupled
-        );
+        let stereo = answer(client, offer_sdp);
+        if !spec.audio.surround() {
+            return stereo;
+        }
+        munge_answer(
+            &stereo,
+            spec.audio.channels as usize,
+            &multiopus_fmtp(&chrome_layout(spec.audio.channels as usize)),
+        )
+    }
+
+    /// `stereo`, an answer to the stereo offer, with its Opus line replaced by `multiopus` and
+    /// the given fmtp, which is all a surround client edits.
+    pub fn munge_answer(stereo: &str, rtpmap_channels: usize, fmtp: &str) -> String {
         stereo
             .replace(
                 "a=rtpmap:111 opus/48000/2",
-                &format!("a=rtpmap:111 multiopus/48000/{channels}"),
+                &format!("a=rtpmap:111 multiopus/48000/{rtpmap_channels}"),
             )
             .lines()
             .map(|l| {
@@ -943,34 +945,50 @@ mod tests {
     }
 
     #[test]
-    fn multiopus_offer_for_six_and_eight_channels_is_chromes_canonical_layout() {
-        for (channels, mapping, streams, coupled) in
-            [(6, "0,4,1,2,3,5", 4, 2), (8, "0,6,1,2,3,4,5,7", 5, 3)]
-        {
-            let sdp = offer_for(&surround_spec(channels));
-            assert!(
-                sdp.contains(&format!("a=rtpmap:111 multiopus/48000/{channels}\r\n")),
-                "{sdp}"
-            );
-            assert!(
-                sdp.contains(&format!(
-                    "a=fmtp:111 channel_mapping={mapping};num_streams={streams};coupled_streams={coupled};minptime=10;useinbandfec=0\r\n"
-                )),
-                "{sdp}"
-            );
-            assert!(!sdp.contains("opus/48000/2"));
+    fn the_offer_is_the_same_standard_opus_for_stereo_5_1_and_7_1() {
+        // Only the identifiers str0m makes up for each offer differ; take them out.
+        let normalised = |spec: &OfferSpec| {
+            offer_for(spec)
+                .lines()
+                .filter(|l| {
+                    ![
+                        "o=",
+                        "a=ice-ufrag",
+                        "a=ice-pwd",
+                        "a=fingerprint:",
+                        "a=ssrc",
+                        "a=msid:",
+                        "a=candidate:",
+                        "a=mid:",
+                        "a=group:BUNDLE",
+                    ]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+                })
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        let stereo = normalised(&spec(VideoCodec::H264, false));
+        for channels in [6, 8] {
+            let surround = normalised(&surround_spec(channels));
+            assert_eq!(stereo, surround, "{channels} channels");
         }
+        let sdp = offer_for(&surround_spec(8));
+        assert!(sdp.contains("a=rtpmap:111 opus/48000/2\r\n"), "{sdp}");
+        assert!(
+            sdp.contains(&format!("a=fmtp:111 {STEREO_FMTP}\r\n")),
+            "{sdp}"
+        );
+        assert!(
+            !sdp.contains("multiopus") && !sdp.contains("channel_mapping"),
+            "{sdp}"
+        );
     }
 
     /// The client side of an answer: what a Chromium-like receiver would send back.
     fn answer_to(spec: &OfferSpec, offer: &str) -> String {
         let mut client = client(spec, CLIENT.parse().unwrap());
-        // str0m's own client doesn't know multiopus, so give it the stereo text it would map to.
-        let offer = offer.replace(
-            &format!("multiopus/48000/{}", spec.audio.channels),
-            "opus/48000/2",
-        );
-        answer(&mut client, &offer)
+        answer(&mut client, offer)
     }
 
     #[test]
@@ -1065,70 +1083,40 @@ mod tests {
     }
 
     #[test]
-    fn multiopus_answer_is_rewritten_back_to_stereo_opus() {
+    fn multiopus_answer_is_rewritten_back_to_stereo_opus_for_str0m() {
         for channels in [6, 8] {
             let s = surround_spec(channels);
-            let offer = offer_for(&s);
-            // A Chromium-like answer echoes the multiopus lines.
-            let answer = answer_to(&s, &offer).replace(
+            let (mut rtc, o) = host_offer(&s, HOST.parse().unwrap());
+            // A Chromium-like client edits only its own answer.
+            let answer = answer_to(&s, &o.sdp).replace(
                 "a=rtpmap:111 opus/48000/2",
                 &format!("a=rtpmap:111 multiopus/48000/{channels}"),
             );
-            let mapping = s
-                .audio
-                .layout()
-                .unwrap()
-                .mapping
-                .iter()
-                .map(u8::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            let (streams, coupled) = (
-                s.audio.layout().unwrap().streams,
-                s.audio.layout().unwrap().coupled,
-            );
-            let answer = answer.lines().map(|l| {
-                if l.starts_with("a=fmtp:111 ") {
-                    format!("a=fmtp:111 channel_mapping={mapping};num_streams={streams};coupled_streams={coupled};minptime=10;useinbandfec=0")
-                } else {
-                    l.to_string()
-                }
-            }).collect::<Vec<_>>().join("\r\n") + "\r\n";
-            let (text, _) = check_answer(&answer, &s).unwrap_or_else(|e| panic!("{e}\n{answer}"));
+            let answer = munge_answer(&answer, channels, &multiopus_fmtp(&chrome_layout(channels)));
+            let (text, info) = check_answer(&answer, &s).unwrap_or_else(|e| {
+                panic!(
+                    "{e}
+{answer}"
+                )
+            });
+            // What str0m parses is plain stereo Opus again, with nothing of the multistream.
             assert!(text.contains("a=rtpmap:111 opus/48000/2"));
             assert!(!text.contains("multiopus") && !text.contains("channel_mapping"));
-            // str0m accepts the rewritten text.
-            let (mut rtc, o) = host_offer(&s, HOST.parse().unwrap());
-            assert!(o.sdp.contains("multiopus"));
-            let mut a = answer_to(&s, &o.sdp);
-            a = a.replace(
-                "a=rtpmap:111 opus/48000/2",
-                &format!("a=rtpmap:111 multiopus/48000/{channels}"),
+            assert!(
+                text.contains(&format!("a=fmtp:111 {STEREO_FMTP}")),
+                "{text}"
             );
-            let a = a.lines().map(|l| if l.starts_with("a=fmtp:111 ") { format!("a=fmtp:111 channel_mapping={mapping};num_streams={streams};coupled_streams={coupled};minptime=10;useinbandfec=0") } else { l.to_string() }).collect::<Vec<_>>().join("\r\n") + "\r\n";
-            accept_answer(&mut rtc, o, &a, &s).unwrap();
+            // The layout the client chose is the one the encoder gets.
+            let layout = chrome_layout(channels);
+            assert_eq!(info.audio_layout, Some(layout));
+            // And str0m accepts it.
+            accept_answer(&mut rtc, o, &answer, &s).unwrap();
         }
     }
 
     /// A Chromium-style answer to the surround offer with these multiopus parameters.
     fn chrome_answer(s: &OfferSpec, rtpmap_channels: usize, fmtp: &str) -> String {
-        let stereo = answer_to(s, &offer_for(s));
-        stereo
-            .replace(
-                "a=rtpmap:111 opus/48000/2",
-                &format!("a=rtpmap:111 multiopus/48000/{rtpmap_channels}"),
-            )
-            .lines()
-            .map(|l| {
-                if l.starts_with("a=fmtp:111 ") {
-                    format!("a=fmtp:111 {fmtp}")
-                } else {
-                    l.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\r\n")
-            + "\r\n"
+        munge_answer(&answer_to(s, &offer_for(s)), rtpmap_channels, fmtp)
     }
 
     const CHROME_51: &str =
@@ -1136,14 +1124,46 @@ mod tests {
     const CHROME_71: &str = "channel_mapping=0,6,1,2,3,4,5,7;num_streams=5;coupled_streams=3;minptime=10;useinbandfec=1";
 
     #[test]
-    fn a_dropped_multiopus_is_refused() {
+    fn a_stereo_answer_to_a_surround_request_is_refused_never_downmixed() {
+        for channels in [6, 8] {
+            let s = surround_spec(channels);
+            let stereo = answer_to(&s, &offer_for(&s));
+            let err = check_answer(&stereo, &s).unwrap_err().to_string();
+            assert!(
+                err.contains(&format!(
+                    "{channels}-channel request was answered with stereo"
+                )) && err.contains("never falls back to stereo"),
+                "{err}"
+            );
+        }
+        // A multiopus answer of the wrong width is refused too.
         let s = surround_spec(6);
-        let stereo = answer_to(&s, &offer_for(&s));
-        let err = check_answer(&stereo, &s).unwrap_err().to_string();
-        assert!(err.contains("dropped multiopus/48000/6"), "{err}");
         let wrong_count = chrome_answer(&s, 8, CHROME_71);
         let err = check_answer(&wrong_count, &s).unwrap_err().to_string();
-        assert!(err.contains("dropped multiopus/48000/6"), "{err}");
+        assert!(err.contains("not multiopus/48000/6"), "{err}");
+    }
+
+    #[test]
+    fn a_multiopus_answer_to_a_stereo_request_is_refused() {
+        let s = spec(VideoCodec::H264, false);
+        let answer = chrome_answer(&s, 6, CHROME_51);
+        let err = check_answer(&answer, &s).unwrap_err().to_string();
+        assert!(err.contains("changed the audio codec"), "{err}");
+    }
+
+    #[test]
+    fn unknown_and_extra_fmtp_keys_in_the_answer_are_ignored() {
+        let s = surround_spec(6);
+        let fmtp = format!("{CHROME_51};cbr=1;x-google-start-bitrate=64;stereo=1;sprop-stereo=1");
+        let (_, info) = check_answer(&chrome_answer(&s, 6, &fmtp), &s).unwrap();
+        assert_eq!(info.audio_layout, Some(chrome_layout(6)));
+        // The same for a stereo answer: its fmtp is not read at all.
+        let s = spec(VideoCodec::H264, false);
+        let stereo = answer_to(&s, &offer_for(&s)).replace(
+            &format!("a=fmtp:111 {STEREO_FMTP}"),
+            "a=fmtp:111 minptime=10;useinbandfec=1;surprise=yes",
+        );
+        assert!(check_answer(&stereo, &s).is_ok());
     }
 
     #[test]
@@ -1295,8 +1315,15 @@ mod tests {
     }
 
     #[test]
-    fn surround_layouts_are_validated() {
-        assert!(AudioMode::surround(OpusLayout::select(2, false, None).unwrap()).is_err());
-        assert!(AudioMode::surround(OpusLayout::select(6, true, None).unwrap()).is_ok());
+    fn only_stereo_5_1_and_7_1_can_be_requested() {
+        for channels in [2, 6, 8] {
+            assert_eq!(
+                AudioMode::request(channels).unwrap().channels as usize,
+                channels
+            );
+        }
+        for channels in [0, 1, 3, 4, 5, 7, 9, 255] {
+            assert!(AudioMode::request(channels).is_err(), "{channels}");
+        }
     }
 }

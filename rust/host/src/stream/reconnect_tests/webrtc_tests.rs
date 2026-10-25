@@ -124,10 +124,7 @@ impl Case {
     /// The codecs and audio the peer answers with.
     fn spec(&self) -> OfferSpec {
         OfferSpec {
-            audio: match self.channels {
-                2 => AudioMode::stereo(),
-                channels => AudioMode::chrome_surround(channels as usize).unwrap(),
-            },
+            audio: AudioMode::request(self.channels as usize).unwrap(),
             ..peer_sdp::spec(self.video, self.hdr)
         }
     }

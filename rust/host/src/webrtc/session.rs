@@ -1029,10 +1029,7 @@ impl Actor {
                 hdr: settings.hdr,
                 bitrate_kbps: settings.bitrate_kbps,
             },
-            audio: match settings.audio_channels {
-                2 => AudioMode::stereo(),
-                channels => AudioMode::chrome_surround(channels as usize)?,
-            },
+            audio: AudioMode::request(settings.audio_channels as usize)?,
             // NACK and RTX are compared with keyframe recovery alone in B5.
             rtx: false,
         };

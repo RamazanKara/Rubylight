@@ -1644,7 +1644,7 @@ fn send_due(socket: &UdpSocket, queue: &mut SendQueue, shared: &Shared) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::sdp::testing::{answer, client, host_offer, spec, surround_spec};
+    use super::super::sdp::testing::{answer, answer_for, client, host_offer, spec, surround_spec};
     use super::super::sdp::{VideoCodec, accept_answer};
     use super::*;
     use std::collections::HashMap;
@@ -1721,40 +1721,10 @@ mod tests {
         ids
     }
 
-    /// The client's answer for a surround offer: str0m's own client only knows stereo Opus, so it
-    /// answers that reading and the multiopus lines are put back the way Chromium would send them.
+    /// The client's answer for a surround request: str0m's own client only knows stereo Opus, so
+    /// it answers that and its Opus line is munged to multiopus the way Chromium would send it.
     fn multiopus_answer(spec: &OfferSpec, offer: &str, client: &mut Rtc) -> String {
-        let Some(layout) = spec.audio.layout() else {
-            return answer(client, offer);
-        };
-        let reading = offer.replace(
-            &format!("multiopus/48000/{}", layout.channels),
-            "opus/48000/2",
-        );
-        let mapping: Vec<String> = layout.mapping.iter().map(u8::to_string).collect();
-        let fmtp = format!(
-            "a=fmtp:111 channel_mapping={};num_streams={};coupled_streams={};minptime=10;useinbandfec=0",
-            mapping.join(","),
-            layout.streams,
-            layout.coupled
-        );
-        let mut text = answer(client, &reading)
-            .replace(
-                "a=rtpmap:111 opus/48000/2",
-                &format!("a=rtpmap:111 multiopus/48000/{}", layout.channels),
-            )
-            .lines()
-            .map(|l| {
-                if l.starts_with("a=fmtp:111 ") {
-                    fmtp.clone()
-                } else {
-                    l.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\r\n");
-        text.push_str("\r\n");
-        text
+        answer_for(client, offer, spec)
     }
 
     impl Link {

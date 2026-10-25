@@ -811,6 +811,26 @@ fn apply_virtual_format(
     Err(last_error.context("no usable virtual audio format")?)
         .with_context(|| format!("setting {channels}-channel virtual speaker format"))
 }
+/// Gives the virtual sink `id` a `channels`-channel shared-mode format without touching any
+/// default device, and returns the format it had, for `restore_sink_format`. For test tooling:
+/// a stream's own route does this for itself, but it also takes over the defaults.
+pub fn set_sink_channels(id: &str, channels: usize) -> Result<Vec<u8>> {
+    let policy = Policy::new()?;
+    let before = policy.format(id)?;
+    let mut last_error = None;
+    for desired in virtual_formats(channels, valid_bits(&before))? {
+        match policy.set_format(id, &desired) {
+            Ok(()) => return Ok(before),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.context("no usable virtual audio format")?)
+        .with_context(|| format!("setting {channels}-channel virtual speaker format"))
+}
+/// Puts back what `set_sink_channels` returned.
+pub fn restore_sink_format(id: &str, format: &[u8]) -> Result<()> {
+    Policy::new()?.set_format(id, format)
+}
 fn virtual_sink_warning(
     host_audio: bool,
     capture_only: bool,

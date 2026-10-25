@@ -72,31 +72,22 @@
           if (pc.connectionState === 'failed') reject(new Error('the peer connection failed'));
         };
       });
-      // Chromium does not accept `multiopus` in a remote offer, but it keeps it in a local
-      // description it was munged into. So the offer is read as stereo Opus and the answer says
-      // multiopus with Chromium's own 5.1 and 7.1 parameters, as a surround web client does.
-      const surround = SURROUND[o.channels];
-      let offerSdp = offer.sdp;
-      if (surround) {
-        const multi = new RegExp('^a=rtpmap:([0-9]+) multiopus/48000/' + o.channels, 'm').exec(offerSdp);
-        if (!multi) throw new Error('the offer has no multiopus/48000/' + o.channels);
-        this.multiPt = multi[1];
-        offerSdp = offerSdp.replace(multi[0], 'a=rtpmap:' + multi[1] + ' opus/48000/2')
-          .replace(new RegExp('^a=fmtp:' + multi[1] + ' [^\r\n]*', 'm'), 'a=fmtp:' + multi[1] + ' minptime=10;useinbandfec=0');
-      }
-      await pc.setRemoteDescription({type: 'offer', sdp: offerSdp});
+      // The offer is always standard stereo Opus: Chromium refuses `multiopus` in a remote
+      // offer, but keeps it in a local description it was munged into. So a surround client
+      // edits only its own answer, to multiopus with Chromium's own 5.1 and 7.1 parameters.
+      // A stereo client puts `stereo=1` in its answer, because Chromium decodes from its own
+      // description and a stereo stream plays as one channel without it.
+      await pc.setRemoteDescription({type: 'offer', sdp: offer.sdp});
       const answer = await pc.createAnswer();
+      const opus = /^a=rtpmap:(\d+) opus\/48000\/2/m.exec(answer.sdp);
+      if (!opus) throw new Error('the answer has no opus/48000/2');
+      const fmtp = new RegExp('^a=fmtp:' + opus[1] + ' [^\r\n]*', 'm');
+      const surround = SURROUND[o.channels];
       if (surround) {
-        answer.sdp = answer.sdp.replace('a=rtpmap:' + this.multiPt + ' opus/48000/2', 'a=rtpmap:' + this.multiPt + ' multiopus/48000/' + o.channels)
-          .replace(new RegExp('^a=fmtp:' + this.multiPt + ' [^\r\n]*', 'm'),
-            'a=fmtp:' + this.multiPt + ' channel_mapping=' + surround.mapping + ';num_streams=' + surround.streams + ';coupled_streams=' + surround.coupled + ';minptime=10;useinbandfec=0');
-      }
-      // Chromium decodes Opus as stereo only when its own answer says stereo=1, whatever the
-      // offer asked for; without it a stereo stream plays as one channel.
-      const stereoPt = /^a=rtpmap:(\d+) opus\/48000\/2/m.exec(answer.sdp);
-      if (stereoPt) {
-        answer.sdp = answer.sdp.replace(new RegExp('^(a=fmtp:' + stereoPt[1] + ' [^\r\n]*)', 'm'),
-          line => /stereo/.test(line) ? line : line + ';stereo=1;sprop-stereo=1');
+        answer.sdp = answer.sdp.replace(opus[0], 'a=rtpmap:' + opus[1] + ' multiopus/48000/' + o.channels)
+          .replace(fmtp, 'a=fmtp:' + opus[1] + ' channel_mapping=' + surround.mapping + ';num_streams=' + surround.streams + ';coupled_streams=' + surround.coupled + ';minptime=10;useinbandfec=0');
+      } else {
+        answer.sdp = answer.sdp.replace(fmtp, line => /stereo=1/.test(line) ? line : line + ';stereo=1;sprop-stereo=1');
       }
       await pc.setLocalDescription(answer);
       this.answerSdp = answer.sdp;

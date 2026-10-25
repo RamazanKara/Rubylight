@@ -57,7 +57,7 @@ All three repos are weeks old. Before each brief starts, and again before the re
 | Packetizers | H.264, H.265 (profile, tier and level), AV1, Opus | H.264, HEVC, AV1, Opus | H.264, H.265, AV1, Opus |
 | Latency control | With no bandwidth estimate it uses a null pacer: a packet leaves when we poll. Writer playout-delay and abs-capture-time | Runtime scheduling sits between us and the socket | Its own send thread and queues |
 | HDR and AV1 | H.265 profile-tier-level handling plus custom fmtp; `Codec::H265` and `Codec::Av1` exist but are `#[doc(hidden)]` | fmtp strings | fmtp strings |
-| Surround | No multiopus codec: we rewrite the SDP text (below) | No multiopus codec | No multiopus codec |
+| Surround | No multiopus codec: the client's answer is edited (below) | No multiopus codec | No multiopus codec |
 
 All three licences are GPL-3.0 compatible. str0m wins on control. The frame goes from the encoder
 thread to our own socket without a runtime or foreign thread in between, so we can reuse our pacing
@@ -81,16 +81,21 @@ What str0m needs from us:
   protocol requires.
 - AV1: str0m's `Av1` packetizer is hidden API. B2 proves it with a loopback test: a temporal unit from
   AMF goes out as RTP and comes back as the same OBUs, minus the temporal delimiter.
-- Surround: str0m knows only `opus/48000/2`. The audio track is built as Opus at a fixed PT, and
-  `sdp.rs` rewrites the text both ways:
-  - offer: `a=rtpmap:<pt> multiopus/48000/<6|8>` and
-    `a=fmtp:<pt> channel_mapping=<m>;num_streams=<s>;coupled_streams=<c>;minptime=10;useinbandfec=0`,
-    with libwebrtc's own layouts (5.1 `0,4,1,2,3,5`, 4 streams, 2 coupled; 7.1 `0,6,1,2,3,4,5,7`, 5
-    streams, 3 coupled);
-  - answer: libwebrtc answers with its own parameters, so the host takes the answer's stream count,
-    coupled count and mapping when they are valid for the channel count, rewrites the line to
-    `opus/48000/2` before str0m parses it, and configures the Opus encoder with exactly that layout
-    (`OpusLayout` with a custom layout). A changed channel count or an invalid layout is an error.
+- Surround: str0m knows only `opus/48000/2`, and Chromium refuses `multiopus` in a remote offer, so
+  a client edits only its own answer:
+  - offer: always standard stereo Opus, `a=rtpmap:<pt> opus/48000/2` with the protocol's fmtp
+    (`minptime=20;maxaveragebitrate=128000;stereo=1;sprop-stereo=1;useinbandfec=0`), whatever
+    `audio.channels` asked for. The offers for 2, 6 and 8 channels are identical;
+  - answer for 2 channels: `opus/48000/2`;
+  - answer for 6 or 8 channels: `a=rtpmap:<pt> multiopus/48000/<6|8>` at the offered audio PT with
+    `a=fmtp:<pt> channel_mapping=<m>;num_streams=<s>;coupled_streams=<c>;...`. libwebrtc's own layouts
+    are 5.1 `0,4,1,2,3,5`, 4 streams, 2 coupled, and 7.1 `0,6,1,2,3,4,5,7`, 5 streams, 3 coupled. The
+    host takes the stream count, coupled count and mapping when libopus can encode them (every stream
+    mapped, coupled pairs complete, canonical channel order), rewrites the line back to
+    `opus/48000/2` with the protocol fmtp before str0m parses it, and configures the Opus encoder with
+    exactly that layout (`OpusLayout` with a custom layout). Unknown or extra fmtp keys are ignored;
+  - a stereo answer to a surround request, a changed channel count or an invalid layout is an error.
+    The host never falls back to stereo.
 
   str0m's Opus packetizer passes a payload through untouched, so a multistream packet goes out as is.
   Only Chromium-based receivers decode `multiopus`. A client that answers without it gets an error,
@@ -169,6 +174,10 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
     bitrate GameStream's surround uses for that stream count, sent as `multiopus` (see Library).
     Capture follows the GameStream surround path, including its upmix and channel order. The encoder
     and the receiver use the same mapping, so each capture channel arrives on its own output channel.
+  - Client notes: a surround client munges its own answer to `multiopus/48000/<N>` with the canonical
+    layout above. Any Chromium client should put `stereo=1` in its own answer's Opus fmtp, or it
+    decodes mono: the host offer already carries `stereo=1`, but the receiver decides from its own
+    description.
   - The video budget subtracts the audio bitrate of the chosen layout.
 - **Input.**
   - `gamepad-connected` becomes `Input::Arrival` with the Xbox type; `gamepad-disconnected` clears the
@@ -216,6 +225,8 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
     Moonlight.
   - `capabilities.extensions` advertises
     `{"audioChannels":[2,6,8],"input":{"label":"input","version":1,"keyboard":true,"mouse":true}}`.
+    Surround is negotiated in the answer (see Library), so the shape is unchanged; a client that asks
+    for 6 or 8 channels must answer with `multiopus`.
 - **ICE.** The host is ICE-lite. Its only candidate is the local address the WebSocket arrived on,
   plus `webrtc_media_port`. There is no STUN or TURN.
   - Chrome hides its own host candidates behind mDNS names. We ignore them and learn the client's
@@ -351,9 +362,10 @@ itself, HDR decode inside a browser), it is hardened and fake-tested, and stays 
   - The H.265 fmtp level matches the mode, for Main and Main10.
   - The AV1 fmtp matches the mode, and HDR offers carry the colour-space extension, which is never
     sent.
-  - The multiopus rewrite: the offer has the right rtpmap and fmtp for 6 and 8 channels, the answer
-    goes back to `opus/48000/2`, a Chrome-shaped answer yields its layout for the encoder, and an
-    answer that drops `multiopus`, changes the channel count or carries an invalid layout is rejected.
+  - Surround negotiation: the offer is the same standard stereo Opus for 2, 6 and 8 channels, a
+    Chrome-shaped munged answer for 6 and 8 yields its layout for the encoder, str0m sees
+    `opus/48000/2`, and a stereo answer to a surround request, a changed channel count or an invalid
+    layout is rejected.
   - Answer validation rejects a changed codec or profile.
   - Loopback between two in-memory str0m peers: an H.264, HEVC and AV1 access unit goes through RTP
     and back byte-identical (AV1 without its temporal delimiter), with the marker bit on the last
@@ -446,8 +458,9 @@ and a reviewer checks the diff before it merges.
   - Goal: `rust/host/src/webrtc/{media,sdp}.rs`, plus the pinned str0m dependency in `rust/host/Cargo.toml`
     and `Cargo.lock`. That covers:
     - the Rtc builder with codecs (H.264, HEVC Main and Main10, AV1), fixed PTs, extensions and fmtp;
-    - offer post-processing (`imageattr`, the colour-space extension for HDR, the multiopus rewrite)
-      and answer validation (codec, profile, multiopus channels and mapping);
+    - offer post-processing (`imageattr`, the colour-space extension for HDR)
+      and answer validation (codec, profile, the multiopus answer's channels and mapping, rewritten to
+      stereo for str0m);
     - an ICE-lite single-socket media thread with a bounded frame channel;
     - the pacer;
     - Opus writes, stereo and multistream;

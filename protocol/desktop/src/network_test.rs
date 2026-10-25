@@ -32,7 +32,7 @@ impl Test {
                 if !info.paired || !info.capabilities.has(Feature::PyroWave) || !info.pyrowave_burst_probe {
                     return Err("This paired PC does not support PyroWave pace calibration.".into());
                 }
-                let link = [network.link_mbps, info.pyrowave_host_link_mbps].into_iter().filter(|&n| n > 0).min().unwrap_or(0).min(9999);
+                let link = calibration_link(network.link_mbps, info.pyrowave_host_link_mbps);
                 if link == 0 { return Err("Neither endpoint reports a link speed. No calibration was saved.".into()); }
                 let (bitrate, fps) = mode;
                 let kbps = pace::probe_kbps(bitrate, fps, pace::PACKET_SIZE, info.pyrowave_critical_fec_percentage, info.pyrowave_min_parity_shards);
@@ -54,9 +54,30 @@ impl Test {
     }
 }
 
+/// The slower of the two ends' reported rates bounds the search; an end that reports none is ignored.
+fn calibration_link(client_mbps: u32, host_mbps: u32) -> u32 {
+    [client_mbps, host_mbps].into_iter().filter(|&n| n > 0).min().unwrap_or(0).min(9999)
+}
+
 impl Drop for Test {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Release);
         self.client.cancel_pending_requests();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calibration_link_is_capped_by_the_wifi_rate_the_route_keeps() {
+        let wifi = Network { wifi: true, ssid: Some("Home".into()), link_mbps: 866, ..Default::default() };
+        let route = wifi.toward(Ok(crate::network::Toward { wireless: true, link_mbps: 0 }));
+        assert_eq!(calibration_link(route.link_mbps, 2500), 866);
+        // A host that reports nothing does not stop a Wi-Fi calibration.
+        assert_eq!(calibration_link(route.link_mbps, 0), 866);
+        assert_eq!(calibration_link(0, 0), 0);
+        assert_eq!(calibration_link(40_000, 20_000), 9999);
     }
 }

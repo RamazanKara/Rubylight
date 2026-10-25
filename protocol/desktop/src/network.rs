@@ -75,16 +75,18 @@ impl Toward {
 /// connection: a PC on the same Ethernet segment is wired even when Wi-Fi is the default route.
 /// Blocks on name lookup. Errs with why the caller must fall back to the internet connection.
 pub fn toward(host: &str) -> Result<Toward, Fallback> {
-    let ip = (host, 0).to_socket_addrs().ok().and_then(|mut found| found.next()).ok_or(Fallback::Lookup)?.ip();
-    let (medium, link_mbps) = interface_toward(ip).ok_or(Fallback::Lookup)?;
+    let ip = (host, 0).to_socket_addrs().ok().and_then(|mut found| found.next()).ok_or(Fallback::Resolve)?.ip();
+    let (medium, link_mbps) = interface_toward(ip).ok_or(Fallback::Route)?;
     Toward::of(medium, link_mbps).ok_or(Fallback::NotTelling)
 }
 
 /// Why `toward` has no answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fallback {
-    /// The name, the route or the interface could not be looked up.
-    Lookup,
+    /// The host name did not resolve to an address.
+    Resolve,
+    /// The system has no route to the address, or its interface could not be read.
+    Route,
     /// The interface is loopback, a tunnel, virtual or of a type that says nothing.
     NotTelling,
 }
@@ -92,7 +94,8 @@ pub enum Fallback {
 impl std::fmt::Display for Fallback {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Fallback::Lookup => "route lookup failed",
+            Fallback::Resolve => "host name did not resolve",
+            Fallback::Route => "route lookup failed",
             Fallback::NotTelling => "interface does not say",
         })
     }
@@ -102,12 +105,21 @@ impl Network {
     /// This connection as it applies to the route to one host: the Wi-Fi flag and the link speed
     /// follow the interface that reaches the host, so a PC on the local Ethernet is wired even
     /// when Wi-Fi carries the internet. Unchanged when the route does not tell.
+    ///
+    /// On a wireless route the speed stays the Wi-Fi or cellular rate the system reports (what a
+    /// stored pace calibration is keyed on); the hint sent to the host stays 0 through
+    /// `wired_link_mbps`. With a wired internet connection the Wi-Fi name is unknown, so no
+    /// Wi-Fi calibration matches.
     pub fn toward(&self, route: Result<Toward, Fallback>) -> Network {
         let Ok(route) = route else { return self.clone() };
         Network {
             wifi: route.wireless && (self.wifi || !self.cellular),
             cellular: route.wireless && self.cellular,
-            link_mbps: route.link_mbps,
+            link_mbps: match (route.wireless, self.wifi || self.cellular) {
+                (false, _) => route.link_mbps,
+                (true, true) => self.link_mbps,
+                (true, false) => 0,
+            },
             ssid: if route.wireless { self.ssid.clone() } else { None },
             error: None,
             ..self.clone()
@@ -356,15 +368,21 @@ mod tests {
         let ethernet = Network { link_mbps: 1000, ..Default::default() };
         let wireless = ethernet.toward(Ok(Toward { wireless: true, link_mbps: 0 }));
         assert!(wireless.wifi && !wireless.cellular);
-        assert_eq!(wireless.link_mbps, 0);
+        assert_eq!(wireless.link_mbps, 0); // the internet is wired: no Wi-Fi rate to keep
+        assert_eq!(wireless.ssid, None);
+        // On Wi-Fi the rate and name stay what the system reports; the host hint is still 0.
+        let kept = wifi.toward(Ok(Toward { wireless: true, link_mbps: 0 }));
+        assert_eq!((kept.link_mbps, kept.ssid.as_deref()), (866, Some("home")));
+        assert_eq!(kept.wired_link_mbps(), 0);
         let cellular = Network { cellular: true, ..Default::default() }.toward(Ok(Toward { wireless: true, link_mbps: 0 }));
         assert!(cellular.cellular && !cellular.wifi);
         assert_eq!(wifi.toward(Err(Fallback::NotTelling)).link_mbps, 866);
-        assert!(wifi.toward(Err(Fallback::Lookup)).wifi);
+        assert!(wifi.toward(Err(Fallback::Route)).wifi);
+        assert!(wifi.toward(Err(Fallback::Resolve)).wifi);
         // The route is known even when the connection profile could not be read.
         let unreadable = Network { error: Some("no profile".into()), ..Default::default() };
         assert!(unreadable.toward(Ok(Toward { wireless: false, link_mbps: 1000 })).error.is_none());
-        assert!(unreadable.toward(Err(Fallback::Lookup)).error.is_some());
+        assert!(unreadable.toward(Err(Fallback::Route)).error.is_some());
     }
 
     #[test]
@@ -388,6 +406,7 @@ mod tests {
 
     #[test]
     fn fallback_reasons_are_told_apart() {
-        assert_ne!(Fallback::Lookup.to_string(), Fallback::NotTelling.to_string());
+        let reasons = [Fallback::Resolve, Fallback::Route, Fallback::NotTelling].map(|why| why.to_string());
+        assert!(reasons[0] != reasons[1] && reasons[1] != reasons[2] && reasons[0] != reasons[2]);
     }
 }

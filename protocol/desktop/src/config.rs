@@ -1268,6 +1268,12 @@ mod tests {
         let wifi = Network { wifi: true, ssid: Some("Home".into()), link_mbps: 866, ..Default::default() };
         let route = wifi.toward(Ok(Toward { wireless: false, link_mbps: 2500 }));
         assert_eq!(wired.for_network(&route, 2500), 900);
+        // A Wi-Fi calibration stays found when the route to the PC is the Wi-Fi.
+        let on_wifi = PaceCalibration { pace_mbps: 400, client_link_mbps: 866, host_link_mbps: 2500,
+            wifi: true, ssid: Some("Home".into()), qualified: true };
+        let route = wifi.toward(Ok(Toward { wireless: true, link_mbps: 0 }));
+        assert_eq!(route.link_mbps, 866);
+        assert_eq!(on_wifi.for_network(&route, 2500), 400);
         // Without a route answer the internet connection decides, as before.
         assert_eq!(wired.for_network(&wifi.toward(Err(Fallback::NotTelling)), 2500), 0);
     }

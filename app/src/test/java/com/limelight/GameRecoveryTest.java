@@ -871,6 +871,27 @@ public class GameRecoveryTest {
 
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aManualReconnectAfterAPackedFailureDuringARecoveryStaysWithoutPacked() {
+        Game game = recoveryGame();
+        ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", new TerminationProbe().listener);
+        try {
+            assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+            ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
+                    ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
+            // The recovery goes stale (cancelled, timed out) and the user taps Reconnect.
+            ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
+            Intent reconnect = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
+            assertTrue(reconnect.getBooleanExtra("PackedChromaOff", false));
+            Intent resume = ReflectionHelpers.callInstanceMethod(game, "createStreamHandoffIntent");
+            assertTrue(resume.getBooleanExtra("PackedChromaOff", false));
+        } finally {
+            ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", null);
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void packedChromaFailureWhileTheStreamWaitsToResumeMarksTheResume() throws Exception {
         Game game = recoveryGame();
         ReflectionHelpers.setField(game, "foreground", false);

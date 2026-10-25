@@ -3817,6 +3817,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void onPackedChromaFailure(String reason) {
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed() || reconnectWithoutPackedChroma(reason)) return;
+            // Whatever happens next (a queued recovery, a resume, the Reconnect dialog), copies of this
+            // activity's intent keep the mark, so no later reconnect asks for packed chroma again.
+            getIntent().putExtra(EXTRA_PACKED_OFF, true);
             if ((pendingRecovery != null || recoveryHandoffInProgress) && pendingRecoveryIntent != null) {
                 // A recovery is already on its way (the failure came with a lost connection): its
                 // replacement stream starts without packed chroma instead of a dialog over it.

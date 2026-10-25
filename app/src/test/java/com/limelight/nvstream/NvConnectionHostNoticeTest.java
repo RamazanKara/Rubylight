@@ -34,6 +34,8 @@ public class NvConnectionHostNoticeTest {
             "<Permission>4294967295</Permission><VirtualDisplayCapable>true</VirtualDisplayCapable></root>");
 
     private static NvConnection lastConnection;
+    // What the stream's configuration says about packed 4:4:4 (Game's per-session choice).
+    private static boolean sessionPacked;
 
     private static int negotiatedFormats() {
         ConnectionContext context = ReflectionHelpers.getField(lastConnection, "context");
@@ -60,7 +62,8 @@ public class NvConnectionHostNoticeTest {
                 new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device",
                 new StreamConfiguration.Builder().setApp(app).setResolution(1280, 720).setRefreshRate(60)
                         .setVirtualDisplay(virtualDisplay, 100)
-                        .setSupportedVideoFormats(formats).setSdr10Bit(sdr10).build(), crypto(), null);
+                        .setSupportedVideoFormats(formats).setSdr10Bit(sdr10).setPacked444(sessionPacked).build(),
+                crypto(), null);
         List<String> messages = Collections.synchronizedList(new ArrayList<>());
         NvConnectionListener listener = (NvConnectionListener) Proxy.newProxyInstance(
                 NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
@@ -131,6 +134,29 @@ public class NvConnectionHostNoticeTest {
         assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
         assertEquals(Collections.singletonList(notAccepted), stream(eightBit, false, offered, true));
         assertNotEquals(notAccepted, hdrUnavailable);
+    }
+
+    @Test
+    public void theNativeStreamAsksForPackedChromaFromTheSessionNotTheSavedSetting() throws Exception {
+        android.content.SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(
+                RuntimeEnvironment.getApplication());
+        try {
+            for (boolean saved : new boolean[] {true, false}) {
+                assertTrue(prefs.edit().putBoolean("experimental_packed_444", saved).commit());
+                // A session reconnected without packed chroma: the saved setting is still on, the stream is not.
+                sessionPacked = false;
+                stream(SUNSHINE, false);
+                assertEquals("saved " + saved, Boolean.FALSE,
+                        ReflectionHelpers.getStaticField(MoonBridge.class, "packed444Requested"));
+                // And a session that uses it asks for it whatever the saved setting says.
+                sessionPacked = true;
+                stream(SUNSHINE, false);
+                assertEquals("saved " + saved, Boolean.TRUE,
+                        ReflectionHelpers.getStaticField(MoonBridge.class, "packed444Requested"));
+            }
+        } finally {
+            sessionPacked = false;
+        }
     }
 
     @Test

@@ -87,12 +87,23 @@ public class AppGridAdapterTest {
             cover.setTranslationY(40);
             cover.setAlpha(0.2f);
             cover.startAnimation(new android.view.animation.AlphaAnimation(0, 1));
-            GenericGridAdapter.resetRecycledState(card, cover);
+            GenericGridAdapter.resetRecycledState(card, cover, true);
             assertEquals(android.widget.ImageView.ScaleType.CENTER_CROP, cover.getScaleType());
             assertEquals(1f, cover.getScaleX(), 0);
             assertEquals(0f, cover.getTranslationY(), 0);
             assertEquals(1f, cover.getAlpha(), 0);
             assertNull(cover.getAnimation());
+        }
+    }
+
+    @Test
+    public void rebindingAComputerCardKeepsItsOwnScaleType() {
+        try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup()) {
+            android.view.View card = android.view.LayoutInflater.from(controller.get()).inflate(R.layout.pc_grid_item, null);
+            android.widget.ImageView cover = card.findViewById(R.id.grid_image);
+            android.widget.ImageView.ScaleType own = cover.getScaleType();
+            GenericGridAdapter.resetRecycledState(card, cover, false);
+            assertEquals(own, cover.getScaleType());
         }
     }
 

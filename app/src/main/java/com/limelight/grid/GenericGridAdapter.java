@@ -71,15 +71,18 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
         TextView txtView = convertView.findViewById(R.id.grid_text);
         ProgressBar prgView = convertView.findViewById(R.id.grid_spinner);
 
-        resetRecycledState(convertView, imgView);
+        boolean appTile = layoutId == R.layout.app_grid_item || layoutId == R.layout.app_grid_item_small;
+        resetRecycledState(convertView, imgView, appTile);
 
-        if (layoutId == R.layout.app_grid_item || layoutId == R.layout.app_grid_item_small) {
+        if (appTile) {
             View artwork = (View) imgView.getParent();
             boolean small = layoutId == R.layout.app_grid_item_small;
             boolean shortViewport = viewGroup instanceof AdaptiveGridView && ((AdaptiveGridView) viewGroup).hasShortViewport();
             int width = viewGroup instanceof android.widget.GridView ? ((android.widget.GridView) viewGroup).getColumnWidth() : 0;
-            if (width <= 0) width = Math.round((small ? 104 : 160) * context.getResources().getDisplayMetrics().density);
-            int height = TileSizing.artHeightPx(width, shortViewport);
+            boolean television = (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                    == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+            int height = TileSizing.artHeightPx(width, shortViewport, television, small,
+                    context.getResources().getDisplayMetrics().density);
             ViewGroup.LayoutParams params = artwork.getLayoutParams();
             if (params.height != height) {
                 params.height = height;
@@ -116,9 +119,10 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
      * that was set for another cover. The cover is then drawn off the frame it is sized for, so every bind
      * starts from the layout's own state; the title fallback and the load guard are rebound by populateView.
      */
-    static void resetRecycledState(View card, ImageView cover) {
+    static void resetRecycledState(View card, ImageView cover, boolean appTile) {
         cover.clearAnimation();
-        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        // Only the app layouts crop their cover; the other layouts keep the scale type they inflate with.
+        if (appTile) cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
         cover.setImageMatrix(null);
         cover.setScaleX(1);
         cover.setScaleY(1);

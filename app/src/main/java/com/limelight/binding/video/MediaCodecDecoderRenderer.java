@@ -118,6 +118,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // The screen tells the renderer when frames are shown, so frames wait for that report to count
     // as rendered, like MediaCodec's frame rendered callbacks on the direct path
     private boolean vulkanPresentReports;
+    private boolean vulkanFrontBufferLogged;
     private final long[] vulkanReports = new long[2 * 256];
     // The Vulkan notice (why it is unused, or that it replaces the upscaler) is shown once per stream
     private boolean vulkanNoticeShown;
@@ -281,6 +282,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (vulkan == null) return;
         String fatal = vulkan.getFatalReason();
         if (fatal != null) failVulkan(fatal);
+        if (!vulkanFrontBufferLogged && vulkan.isFrontBufferActive()) {
+            vulkanFrontBufferLogged = true;
+            LimeLog.info("Vulkan front buffer: render latency is measured to the time a frame is " +
+                    "queued, not to scanout");
+        }
         if (!vulkanPresentReports) return;
         // How each frame ended up takes the place of MediaCodec's frame rendered callback, which
         // on this path only says a frame was handed to the renderer. Time 0: it was never shown.
@@ -1020,7 +1026,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (renderer != null) {
             vulkanPresentReports = renderer.reportsPresentTimes();
             LimeLog.info("Using Vulkan renderer; the screen " + (vulkanPresentReports ?
-                    "reports when frames are shown" : "does not report when frames are shown"));
+                    "reports when frames are shown" :
+                    "does not report when frames are shown; render latency is measured to the time a " +
+                    "frame is queued, not to scanout"));
             renderer.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
             if (Boolean.TRUE.equals(currentHdrMode)) {
                 renderer.setHdrMode(true, currentHdrMetadata);

@@ -2609,21 +2609,24 @@ mod tests {
 
     #[test]
     fn the_loss_switch_drops_only_video_and_about_the_share_asked_for() {
-        let queue = || {
-            SendQueue::new(Pacing::Off, 30_000, PERIOD, false, Instant::now()).with_loss(10)
-        };
+        let queue =
+            || SendQueue::new(Pacing::Off, 30_000, PERIOD, false, Instant::now()).with_loss(10);
         let (mut lossy, mut clean) = (
             queue(),
             SendQueue::new(Pacing::Off, 30_000, PERIOD, false, Instant::now()),
         );
         let video = rtp_packet(1200);
-        let lost = (0..100_000).filter(|_| lossy.lost_in_the_air(&video)).count();
+        let lost = (0..100_000)
+            .filter(|_| lossy.lost_in_the_air(&video))
+            .count();
         assert!((800..=1200).contains(&lost), "{lost} of 100000 at 1%");
         assert!((0..1000).all(|_| !lossy.lost_in_the_air(&control_packet())));
         assert!((0..1000).all(|_| !clean.lost_in_the_air(&video)));
         // The seed is fixed: a second queue loses the same packets.
         let mut second = queue();
-        let again = (0..100_000).filter(|_| second.lost_in_the_air(&video)).count();
+        let again = (0..100_000)
+            .filter(|_| second.lost_in_the_air(&video))
+            .count();
         assert_eq!(again, lost);
     }
 

@@ -249,6 +249,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private Runnable pendingRecovery;
     private int recoveryGeneration;
     private boolean recoveryHandoffInProgress;
+    // The replacement stream a queued recovery will start; a packed-chroma failure meanwhile marks it.
+    private Intent pendingRecoveryIntent;
     // Set when the last automatic recovery was refused because its attempts or window ran out.
     private boolean recoveryBudgetExhausted;
     private boolean recoveryCancelledOnPause;
@@ -1221,6 +1223,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setRemoteConfiguration(StreamConfiguration.STREAM_CFG_AUTO) // NvConnection will perform LAN and VPN detection
                 .setSupportedVideoFormats(supportedVideoFormats)
                 .setSdr10Bit(streamSdr10)
+                .setPacked444(prefConfig.experimentalPacked444)
                 .setAttachedGamepadMask(gamepadMask)
                 .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
                 .setVirtualDisplay(!smallStream && prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
@@ -3756,6 +3759,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         recoveryHandoffInProgress = false;
         if (pendingRecovery != null) bitrateHandler.removeCallbacks(pendingRecovery);
         pendingRecovery = null;
+        pendingRecoveryIntent = null;
         bitrateHandler.removeCallbacks(recoveryTimeout);
     }
 
@@ -3805,17 +3809,38 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (PackedFallback.onFailure(unpacked, canReconnect) != PackedFallback.Action.RECONNECT_WITHOUT_PACKED) return false;
         LimeLog.warning("Packed full chroma stopped: " + reason);
         if (!tryAutomaticRecovery(true)) return false;
-        Toast.makeText(getApplicationContext(), PackedFallback.toast(reason), Toast.LENGTH_LONG).show();
+        Toast.makeText(getApplicationContext(), PackedFallback.toast(), Toast.LENGTH_LONG).show();
         return true;
     }
 
-    // Runs on the render thread: only decides on the UI thread, and the stream ends there if it cannot reconnect.
+    // Runs on the render thread: only decides on the UI thread; the stream ends from a worker if it cannot reconnect.
     private void onPackedChromaFailure(String reason) {
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed() || reconnectWithoutPackedChroma(reason)) return;
+            if ((pendingRecovery != null || recoveryHandoffInProgress) && pendingRecoveryIntent != null) {
+                // A recovery is already on its way (the failure came with a lost connection): its
+                // replacement stream starts without packed chroma instead of a dialog over it.
+                LimeLog.warning("Packed full chroma stopped during a recovery: " + reason);
+                pendingRecoveryIntent.putExtra(EXTRA_PACKED_OFF, true);
+                return;
+            }
+            if (stoppedStreamResumeIntent != null) {
+                // Left in the background and kept for resuming: it resumes without packed chroma.
+                LimeLog.warning("Packed full chroma stopped while the stream waits to resume: " + reason);
+                stoppedStreamResumeIntent.putExtra(EXTRA_PACKED_OFF, true);
+                return;
+            }
+            if (displayedFailureDialog) return;
+            endStreamAfterPackedFailure(reason);
+        });
+    }
+
+    // connectionTerminated tests the network and asks the PC (blocking calls), so never on the UI thread.
+    private void endStreamAfterPackedFailure(String reason) {
+        new Thread(() -> {
             MoonBridge.bridgeClDisplayMessage("Packed full-chroma presentation stopped: " + reason);
             MoonBridge.bridgeClConnectionTerminated(-1);
-        });
+        }, "Packed chroma end").start();
     }
 
     private boolean tryAutomaticRecovery(boolean packedOff) {
@@ -3854,6 +3879,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         retry.putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
                 .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt())
                 .putExtra(EXTRA_MICROPHONE_MUTED, getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
+        pendingRecoveryIntent = retry;
         final int generation = foregroundGeneration;
         final int recovery = recoveryGeneration;
         // Keep this true after the delayed callback hands off to its teardown worker. A

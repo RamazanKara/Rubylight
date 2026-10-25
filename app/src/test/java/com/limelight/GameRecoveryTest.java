@@ -812,6 +812,82 @@ public class GameRecoveryTest {
         }
     }
 
+    private static final class TerminationProbe {
+        final java.util.concurrent.CountDownLatch ended = new java.util.concurrent.CountDownLatch(1);
+        volatile Thread endedOn;
+        volatile int ends;
+        final com.limelight.nvstream.NvConnectionListener listener =
+                (com.limelight.nvstream.NvConnectionListener) java.lang.reflect.Proxy.newProxyInstance(
+                        com.limelight.nvstream.NvConnectionListener.class.getClassLoader(),
+                        new Class<?>[] {com.limelight.nvstream.NvConnectionListener.class}, (proxy, method, args) -> {
+                            if (method.getName().equals("connectionTerminated")) {
+                                endedOn = Thread.currentThread();
+                                ends++;
+                                ended.countDown();
+                            }
+                            return null;
+                        });
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void packedChromaFailureThatCannotReconnectEndsTheStreamOffTheUiThread() throws Exception {
+        Game game = recoveryGame();
+        // This session already runs without packed chroma, so a failure has nothing left to turn off.
+        game.setIntent(new Intent().putExtra("PackedChromaOff", true));
+        TerminationProbe probe = new TerminationProbe();
+        ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", probe.listener);
+        try {
+            ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
+                    ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
+            assertTrue(probe.ended.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            // connectionTerminated asks the PC and tests the network: blocking calls, never on the UI thread.
+            assertNotSame(Looper.getMainLooper().getThread(), probe.endedOn);
+            assertEquals(1, probe.ends);
+        } finally {
+            ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", null);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void packedChromaFailureDuringARecoveryMarksTheReplacementInsteadOfEndingTheStream() throws Exception {
+        Game game = recoveryGame();
+        TerminationProbe probe = new TerminationProbe();
+        ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", probe.listener);
+        try {
+            assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+            ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
+                    ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
+            assertFalse("no second reconnect and no dialog over the recovery", probe.ended.await(300, java.util.concurrent.TimeUnit.MILLISECONDS));
+            Intent retry = awaitRecoveryLaunch(game, 1);
+            assertTrue(retry.getBooleanExtra("PackedChromaOff", false));
+            assertEquals(0, probe.ends);
+        } finally {
+            ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", null);
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void packedChromaFailureWhileTheStreamWaitsToResumeMarksTheResume() throws Exception {
+        Game game = recoveryGame();
+        ReflectionHelpers.setField(game, "foreground", false);
+        Intent resume = new Intent();
+        ReflectionHelpers.setField(game, "stoppedStreamResumeIntent", resume);
+        TerminationProbe probe = new TerminationProbe();
+        ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", probe.listener);
+        try {
+            ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
+                    ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
+            assertTrue(resume.getBooleanExtra("PackedChromaOff", false));
+            assertFalse(probe.ended.await(300, java.util.concurrent.TimeUnit.MILLISECONDS));
+        } finally {
+            ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", null);
+        }
+    }
+
     @Test public void packedChromaFailureInTheBackgroundDoesNotReconnect() {
         Game game = recoveryGame();
         ReflectionHelpers.setField(game, "foreground", false);

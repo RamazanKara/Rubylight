@@ -106,6 +106,87 @@ public class MediaCodecOutputFormatTest {
         }
     }
 
+    private static MediaCodecDecoderRenderer packedRenderer(Activity activity, PreferenceConfiguration prefs,
+                                                            java.util.function.IntUnaryOperator probe) {
+        return new MediaCodecDecoderRenderer(activity, prefs, null, 0, false, true, "", null) {
+            @Override int probePacked444Modes(int formats, int width, int height, int fps) {
+                return probe.applyAsInt(fps);
+            }
+        };
+    }
+
+    @Test
+    public void packedProbeRunsOncePerGeometryAndNeverWhenTheSessionHasPackedOff() {
+        int hevc = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265;
+        int hevc10 = hevc | com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+            prefs.rustEngine = true;
+            java.util.concurrent.atomic.AtomicInteger probes = new java.util.concurrent.atomic.AtomicInteger();
+            MediaCodecDecoderRenderer renderer = packedRenderer(activity.get(), prefs, fps -> {
+                probes.incrementAndGet();
+                return 0b0011;
+            });
+            // A session reconnected without packed chroma: no probe, no modes, the PC is not asked for them.
+            prefs.experimentalPacked444 = false;
+            assertEquals(0, renderer.preparePacked444Modes(hevc10, 1920, 1080, 120));
+            assertEquals(0, probes.get());
+            assertEquals(hevc10, renderer.prepareVideoFormats(hevc10, 1920, 1080, 120));
+            assertNull(renderer.packedHdrDropReason());
+            assertEquals(0, probes.get());
+
+            prefs.experimentalPacked444 = true;
+            // The launch asks, then the connection: one decode, not two.
+            assertEquals(0b0011, renderer.preparePacked444Modes(hevc10, 1920, 1080, 120));
+            assertEquals(0b0011, renderer.preparePacked444Modes(hevc10, 1920, 1080, 120));
+            assertEquals(0b0011, renderer.preparePacked444Modes(hevc, 1920, 1080, 120));
+            assertEquals(1, probes.get());
+            // Another size, rate or a format not probed before is a new question.
+            renderer.preparePacked444Modes(hevc10, 1920, 1080, 60);
+            renderer.preparePacked444Modes(hevc10, 2560, 1440, 60);
+            assertEquals(3, probes.get());
+            renderer.preparePacked444Modes(hevc10 | com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_AV1_MAIN8,
+                    2560, 1440, 60);
+            assertEquals(4, probes.get());
+        }
+    }
+
+    @Test
+    public void packedHdrDropNamesWhyTheTenBitPathFailedWithoutOverridingThePreparation() {
+        int hdrFormats = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265 |
+                com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        for (String issue : new String[] {MediaCodecDecoderRenderer.ISSUE_NO_HDR10_DISPLAY,
+                MediaCodecDecoderRenderer.ISSUE_NO_TEN_BIT_OUTPUT, MediaCodecDecoderRenderer.ISSUE_TEN_BIT_SAMPLING, null}) {
+            try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+                ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+                PreferenceConfiguration prefs = new PreferenceConfiguration();
+                prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+                prefs.experimentalPacked444 = true;
+                prefs.rustEngine = true;
+                MediaCodecDecoderRenderer[] holder = new MediaCodecDecoderRenderer[1];
+                holder[0] = packedRenderer(activity.get(), prefs, fps -> {
+                    // What the real probe leaves behind: 8-bit verified, 10-bit not, and why.
+                    ReflectionHelpers.setField(holder[0], "packedTenBitIssue", issue);
+                    return 0b0001;
+                });
+                int launch = holder[0].prepareVideoFormats(hdrFormats, 1920, 1080, 120);
+                assertEquals(com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265, launch);
+                if (issue != null) assertEquals(issue, holder[0].packedHdrDropReason());
+                else assertNotNull("a generic reason when the probe left none", holder[0].packedHdrDropReason());
+            }
+        }
+    }
+
+    @Test
+    public void tenBitOutputIssueNamesTheDisplayBeforeTheGpu() {
+        assertNull(MediaCodecDecoderRenderer.tenBitOutputIssue(true, true));
+        assertEquals(MediaCodecDecoderRenderer.ISSUE_NO_HDR10_DISPLAY, MediaCodecDecoderRenderer.tenBitOutputIssue(false, true));
+        assertEquals(MediaCodecDecoderRenderer.ISSUE_NO_HDR10_DISPLAY, MediaCodecDecoderRenderer.tenBitOutputIssue(false, false));
+        assertEquals(MediaCodecDecoderRenderer.ISSUE_NO_TEN_BIT_OUTPUT, MediaCodecDecoderRenderer.tenBitOutputIssue(true, false));
+    }
+
     @Test
     public void drainingQueuedFramesStillProcessesFormatChanges() throws Exception {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {

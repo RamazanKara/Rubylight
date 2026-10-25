@@ -30,7 +30,8 @@ public final class PackedFallback {
         return setting && !sessionUnpacked;
     }
 
-    public static String toast(String reason) {
-        return "Full chroma stopped (" + reason + "). Reconnecting without it for this session.";
+    /** Short on purpose: the reason goes to the log, a long toast is cut off. */
+    public static String toast() {
+        return "Full chroma stopped. Reconnecting without it.";
     }
 }

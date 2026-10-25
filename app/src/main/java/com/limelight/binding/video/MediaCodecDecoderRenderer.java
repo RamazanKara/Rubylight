@@ -1559,6 +1559,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public int preparePacked444Modes(int formats, int width, int height, int fps) {
+        // Off for this session (or never on): nothing to verify, and no decode spent on it.
+        if (!prefs.experimentalPacked444) return 0;
         // The launch asks first (prepareVideoFormats) and the connection again; verifying costs a decode.
         int[] probe = packedProbe;
         if (probe != null && probe[0] == width && probe[1] == height && probe[2] == fps &&
@@ -1568,7 +1570,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return modes;
     }
 
-    private int probePacked444Modes(int formats, int width, int height, int fps) {
+    static final String ISSUE_NO_HDR10_DISPLAY = "this display does not report HDR10";
+    static final String ISSUE_NO_TEN_BIT_OUTPUT = "the GPU offers no 10-bit BT.2020 PQ output surface";
+    static final String ISSUE_TEN_BIT_SAMPLING = "the decoder's raw 10-bit output could not be sampled";
+
+    /** Why 10-bit packed output cannot be shown, from what the display and the GPU report; null when both do. */
+    static String tenBitOutputIssue(boolean displayHdr10, boolean gpuTenBitOutput) {
+        if (!displayHdr10) return ISSUE_NO_HDR10_DISPLAY;
+        if (!gpuTenBitOutput) return ISSUE_NO_TEN_BIT_OUTPUT;
+        return null;
+    }
+
+    // Package-visible so a test can count probes (each one costs a decode).
+    int probePacked444Modes(int formats, int width, int height, int fps) {
         packedTenBitIssue = null;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || prefs.useTextureView) return 0;
         Packed444 geometry = new Packed444(1, width, height, 0, 0);
@@ -1587,16 +1601,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 for (int depth = 0; depth < 2; depth++) {
                     int bit = codec * 2 + depth;
                     if ((formats & formatBits[bit]) == 0) continue;
-                    if (depth == 1 && !packedHdrAvailable()) {
-                        packedTenBitIssue = "this display does not report HDR10";
-                        continue;
-                    }
-                    if (depth == 1 && !GlesUpscaler.tenBitOutputSupported()) {
-                        packedTenBitIssue = "the GPU offers no 10-bit BT.2020 PQ output surface";
-                        continue;
+                    if (depth == 1) {
+                        String issue = tenBitOutputIssue(packedHdrAvailable(), GlesUpscaler.tenBitOutputSupported());
+                        if (issue != null) {
+                            packedTenBitIssue = issue;
+                            continue;
+                        }
                     }
                     if (Packed444.verifySampling(context, decoder.getName(), codecs[codec], depth == 1)) modes |= 1 << bit;
-                    else if (depth == 1) packedTenBitIssue = "the decoder's raw 10-bit output could not be sampled";
+                    else if (depth == 1) packedTenBitIssue = ISSUE_TEN_BIT_SAMPLING;
                 }
             } catch (IllegalArgumentException e) {
                 LimeLog.warning("Packed chroma decoder geometry is unsupported: " + e);

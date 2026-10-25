@@ -751,7 +751,7 @@ public class NvConnection {
             if (packedHdrDrop != null) {
                 // The 10-bit formats were left out before negotiating, so the launch asks for SDR too.
                 LimeLog.warning("HDR not used with packed full chroma: " + packedHdrDrop);
-                if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.HDR_UNAVAILABLE)) {
+                if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.PACKED_HDR_UNAVAILABLE)) {
                     context.connListener.displayTransientMessage(
                             "HDR is off: experimental full chroma cannot run in HDR here (" + packedHdrDrop +
                                     "). The stream is 8-bit SDR 4:4:4.");
@@ -781,6 +781,7 @@ public class NvConnection {
             } else if (context.negotiatedHdr) {
                 // HDR works with this PC now; if it stops, say so again.
                 HostNotices.reset(appContext, details.uuid, HostNotices.Notice.HDR_UNAVAILABLE);
+                HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PACKED_HDR_UNAVAILABLE);
             }
 
         }
@@ -1064,7 +1065,8 @@ public class NvConnection {
                         }
                         MoonBridge.setNetworkGracePeriodMs(graceMs);
                         MoonBridge.requestRustEngine(prefs.rustEngine);
-                        MoonBridge.requestPacked444(prefs.experimentalPacked444);
+                        // The session's choice (Game turns it off after a packed failure), not the saved setting.
+                        MoonBridge.requestPacked444(context.streamConfig.isPacked444());
                         int ret = MoonBridge.startConnection(context.serverAddress.address,
                                 context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
                                 context.serverCodecModeSupport,

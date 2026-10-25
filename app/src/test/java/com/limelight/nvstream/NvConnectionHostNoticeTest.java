@@ -46,6 +46,11 @@ public class NvConnectionHostNoticeTest {
 
     private static List<String> stream(String serverInfo, boolean virtualDisplay, int formats, boolean sdr10)
             throws Exception {
+        return stream(serverInfo, virtualDisplay, formats, sdr10, null);
+    }
+
+    private static List<String> stream(String serverInfo, boolean virtualDisplay, int formats, boolean sdr10,
+                                       String packedHdrDrop) throws Exception {
         NvConnectionRecoveryTest.FakeHost.initial = serverInfo;
         NvConnectionRecoveryTest.FakeHost.resumeFailure = null;
         NvConnectionRecoveryTest.FakeHost.resumeResult = true;
@@ -70,6 +75,7 @@ public class NvConnectionHostNoticeTest {
             @Override public void stop() {}
             @Override public void cleanup() {}
             @Override public int getCapabilities() { return 0; }
+            @Override public String packedHdrDropReason() { return packedHdrDrop; }
             @Override public void setHdrMode(boolean enabled, byte[] metadata) {}
             @Override public int submitDecodeUnit(byte[] data, int length, int type, int frame, int frameType,
                     char latency, long received, long queued, long receivedNs, long presentationUs) { return 0; }
@@ -125,6 +131,26 @@ public class NvConnectionHostNoticeTest {
         assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, true));
         assertEquals(Collections.singletonList(notAccepted), stream(eightBit, false, offered, true));
         assertNotEquals(notAccepted, hdrUnavailable);
+    }
+
+    @Test
+    public void packedHdrDropHasItsOwnNoticeAndDoesNotHideTheGenericHdrOne() throws Exception {
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        String hdrUnavailable = RuntimeEnvironment.getApplication().getString(R.string.startup_hdr_unavailable);
+        String eightBit = SUNSHINE.replace("<ServerCodecModeSupport>197377", "<ServerCodecModeSupport>257");
+        String reason = "the GPU offers no 10-bit output";
+        // The PC-side notice having been shown does not swallow the packed one...
+        assertEquals(Collections.singletonList(hdrUnavailable), stream(eightBit, false, offered, false));
+        List<String> packed = stream(SUNSHINE, false, offered, false, reason);
+        assertEquals(1, packed.size());
+        assertTrue(packed.get(0), packed.get(0).contains(reason));
+        // ...each is said once, not on every stream...
+        assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, false, reason));
+        assertEquals(Collections.emptyList(), stream(eightBit, false, offered, false));
+        // ...and HDR working again re-arms both.
+        assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, false));
+        assertEquals(1, stream(SUNSHINE, false, offered, false, reason).size());
+        assertEquals(Collections.singletonList(hdrUnavailable), stream(eightBit, false, offered, false));
     }
 
     @Test

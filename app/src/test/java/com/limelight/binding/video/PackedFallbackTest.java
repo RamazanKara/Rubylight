@@ -24,8 +24,9 @@ public class PackedFallbackTest {
     }
 
     @Test
-    public void theToastNamesTheReason() {
-        assertTrue(PackedFallback.toast("the GPU reconstruction could not keep up with the frame rate")
-                .contains("could not keep up"));
+    public void theToastFitsOneLineAndTheReasonStaysInTheLog() {
+        // Android 12+ shows two lines at most; the reason (an exception message at worst) is logged.
+        assertTrue(PackedFallback.toast().length() <= 60);
+        assertTrue(PackedFallback.toast().contains("without"));
     }
 }

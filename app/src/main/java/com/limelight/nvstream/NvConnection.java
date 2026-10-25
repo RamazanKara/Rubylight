@@ -747,7 +747,16 @@ public class NvConnection {
                     MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PYROWAVE_HDR_UNAVAILABLE);
             }
-            if (yuv444OverSdr10) {
+            String packedHdrDrop = renderer.packedHdrDropReason();
+            if (packedHdrDrop != null) {
+                // The 10-bit formats were left out before negotiating, so the launch asks for SDR too.
+                LimeLog.warning("HDR not used with packed full chroma: " + packedHdrDrop);
+                if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.HDR_UNAVAILABLE)) {
+                    context.connListener.displayTransientMessage(
+                            "HDR is off: experimental full chroma cannot run in HDR here (" + packedHdrDrop +
+                                    "). The stream is 8-bit SDR 4:4:4.");
+                }
+            } else if (yuv444OverSdr10) {
                 // No 10-bit was negotiated, so the launch does not say hdrMode=0 either.
                 LimeLog.warning("10-bit SDR not used: native 4:4:4 takes precedence");
                 if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.SDR10_UNAVAILABLE)) {

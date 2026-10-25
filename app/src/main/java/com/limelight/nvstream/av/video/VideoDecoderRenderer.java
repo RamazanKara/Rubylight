@@ -12,6 +12,9 @@ public abstract class VideoDecoderRenderer {
     /** String resource saying why prepareVideoFormats could not set up PyroWave HDR, or 0. */
     public int pyroWaveHdrFailureReason() { return 0; }
 
+    /** Why prepareVideoFormats left HDR out of packed full chroma, or null when it did not. */
+    public String packedHdrDropReason() { return null; }
+
     public int preparePacked444Modes(int formats, int width, int height, int fps) { return 0; }
 
     public int setChromaPacking(int version, int width, int height, int colorSpace, int colorRange) {

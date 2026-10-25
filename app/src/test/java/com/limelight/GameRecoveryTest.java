@@ -787,6 +787,39 @@ public class GameRecoveryTest {
         com.limelight.utils.SpinnerDialog.closeDialogs(game);
     }
 
+    @Test public void packedChromaFailureReconnectsOnceWithoutPackedEvenWithAutoReconnectOff() throws Exception {
+        Game game = recoveryGame();
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        config.autoReconnect = false;
+        config.experimentalPacked444 = true;
+        try {
+            assertTrue(ReflectionHelpers.callInstanceMethod(game, "reconnectWithoutPackedChroma",
+                    ReflectionHelpers.ClassParameter.from(String.class, "the GPU reconstruction could not keep up")));
+            Intent retry = awaitRecoveryLaunch(game, 1);
+            assertTrue(retry.getBooleanExtra("PackedChromaOff", false));
+            assertEquals(1, retry.getIntExtra("RecoveryAttempts", 0));
+            assertEquals("the setting itself is untouched", true, config.experimentalPacked444);
+            // The replacement session turns packed off for itself only.
+            assertFalse(com.limelight.binding.video.PackedFallback.effective(config.experimentalPacked444, retry.getBooleanExtra("PackedChromaOff", false)));
+            // A session that already runs without packed chroma does not degrade again.
+            Game replacement = recoveryGame();
+            replacement.setIntent(retry);
+            assertFalse(ReflectionHelpers.callInstanceMethod(replacement, "reconnectWithoutPackedChroma",
+                    ReflectionHelpers.ClassParameter.from(String.class, "again")));
+            assertNull(ReflectionHelpers.getField(replacement, "pendingRecovery"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void packedChromaFailureInTheBackgroundDoesNotReconnect() {
+        Game game = recoveryGame();
+        ReflectionHelpers.setField(game, "foreground", false);
+        assertFalse(ReflectionHelpers.callInstanceMethod(game, "reconnectWithoutPackedChroma",
+                ReflectionHelpers.ClassParameter.from(String.class, "gpu")));
+        assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+    }
+
     @Test public void recoveryQueuesOneAttemptAndStoppingCancelsIt() {
         Game game = recoveryGame();
         try {

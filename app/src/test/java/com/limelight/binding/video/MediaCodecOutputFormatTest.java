@@ -71,6 +71,42 @@ public class MediaCodecOutputFormatTest {
     }
 
     @Test
+    public void packedHdrIsLeftOutBeforeTheLaunchWhenNoTenBitModeVerifies() {
+        int hdrFormats = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265 |
+                com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        for (int modes : new int[] {0b0001, 0b0011, 0}) {
+            try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+                ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+                PreferenceConfiguration prefs = new PreferenceConfiguration();
+                prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+                prefs.experimentalPacked444 = true;
+                prefs.rustEngine = true;
+                final int probed = modes;
+                MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
+                        null, 0, false, true, "", null) {
+                    @Override public int preparePacked444Modes(int formats, int width, int height, int fps) {
+                        return probed;
+                    }
+                };
+                int gated = ReflectionHelpers.callInstanceMethod(renderer, "gatePackedHdr",
+                        ReflectionHelpers.ClassParameter.from(int.class, hdrFormats),
+                        ReflectionHelpers.ClassParameter.from(int.class, 1920),
+                        ReflectionHelpers.ClassParameter.from(int.class, 1080),
+                        ReflectionHelpers.ClassParameter.from(int.class, 120));
+                if (modes == 0b0001) {
+                    // 8-bit works, 10-bit does not: HDR is dropped, with a reason the connection shows.
+                    assertEquals(com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265, gated);
+                    assertNotNull(renderer.packedHdrDropReason());
+                } else {
+                    // 10-bit verified keeps HDR; no mode at all is preparePacked444Modes' own refusal.
+                    assertEquals(hdrFormats, gated);
+                    assertNull(renderer.packedHdrDropReason());
+                }
+            }
+        }
+    }
+
+    @Test
     public void drainingQueuedFramesStillProcessesFormatChanges() throws Exception {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);

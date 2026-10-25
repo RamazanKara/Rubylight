@@ -101,6 +101,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int expectedWidth, expectedHeight;
     private volatile int streamWidth, streamHeight;
     private volatile StreamSizeListener streamSizeListener;
+    private volatile PackedFailureListener packedFailureListener;
+    private volatile String packedHdrDrop;
+    private String packedTenBitIssue;
+    private int[] packedProbe;
     private int videoFormat;
     private Surface renderTarget;
     private int renderWidth, renderHeight;
@@ -756,6 +760,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         streamSizeListener = listener;
     }
 
+    /** Told once when packed full-chroma presentation fails; it must reconnect or end the stream. */
+    public interface PackedFailureListener {
+        void onPackedFailure(String reason);
+    }
+
+    public void setPackedFailureListener(PackedFailureListener listener) {
+        packedFailureListener = listener;
+    }
+
     // The size of the frames being shown: the negotiated size until a reconfigure changes it.
     public int[] getStreamSize() {
         return new int[] {streamWidth, streamHeight};
@@ -1081,8 +1094,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
+    /** The overlay's packed full-chroma lines: the bit depth and HDR state, and why HDR is off when it was dropped. */
+    private String packedStats() {
+        String text = "Packed full chroma (GPU reconstruction)";
+        boolean tenBit = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+        String drop = packedHdrDrop;
+        if (drop != null) return text + "\n8-bit SDR, HDR off: " + drop;
+        if (!tenBit) return text + "\n8-bit SDR";
+        Boolean hdr = currentHdrMode;
+        return text + "\n10-bit " + (hdr == null ? "(waiting for the PC's HDR report)" :
+                hdr ? "HDR10" : "SDR (the PC reports SDR)");
+    }
+
     private String upscalingStats() {
-        if (packing != null) return "Packed full chroma (GPU reconstruction)";
+        if (packing != null) return packedStats();
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             UpscalingPolicy.Reason reason = pyroWaveRenderer.getUpscalingReason();
             String mode = reason == UpscalingPolicy.Reason.NONE ?
@@ -1107,6 +1132,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return text;
     }
 
+    /** Why packed full chroma stopped, in the words of the packed path (it has no direct output to fall back to). */
+    private String packedFailureReason() {
+        UpscalingPolicy.Reason reason = upscalingPolicy.getReason();
+        GlesUpscaler current = upscaler;
+        switch (reason) {
+            case SLOW: return "the GPU reconstruction could not keep up with the frame rate";
+            case GPU_ERROR: {
+                String detail = current == null ? null : current.failureDetail();
+                return "the GPU path or decoder surface failed" + (detail == null ? "" : ": " + detail);
+            }
+            case HDR: return "this display no longer reports HDR10 output";
+            case SIZE_CHANGED: return "the output surface changed size";
+            default: return upscalingReason(reason);
+        }
+    }
+
     private void checkUpscaling() {
         GlesUpscaler current = upscaler;
         if (current == null || stopping) return;
@@ -1117,9 +1158,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (packing != null) {
                 if (!packingFailed) {
                     packingFailed = true;
-                    MoonBridge.bridgeClDisplayMessage("Packed full-chroma presentation stopped: " +
-                            upscalingReason(upscalingPolicy.getReason()));
-                    MoonBridge.bridgeClConnectionTerminated(-1);
+                    String reason = packedFailureReason();
+                    PackedFailureListener listener = packedFailureListener;
+                    if (listener != null) {
+                        // The listener reconnects without packed chroma, or ends the stream itself.
+                        listener.onPackedFailure(reason);
+                    } else {
+                        MoonBridge.bridgeClDisplayMessage("Packed full-chroma presentation stopped: " + reason);
+                        MoonBridge.bridgeClConnectionTerminated(-1);
+                    }
                 }
                 return;
             }
@@ -1451,6 +1498,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public int prepareVideoFormats(int formats, int width, int height, int fps) {
+        formats = gatePackedHdr(formats, width, height, fps);
         float displayRefreshRate = outputDisplay.getRefreshRate();
         pyroWaveHdrFailure = 0;
         int choice = firstPyroWaveFormat(formats, candidate -> {
@@ -1481,8 +1529,47 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return formats & ~MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE;
     }
 
+    /** The modes bits that are 10-bit, in preparePacked444Modes' numbering (codec * 2 + depth). */
+    static final int PACKED_10BIT_MODES = 0b1010;
+
+    /**
+     * With packed full chroma, HDR needs a verified 10-bit mode and a 10-bit BT.2020 PQ output.
+     * Without them the host would be asked for 10-bit packed video this device cannot present, so
+     * the 10-bit formats are left out before the launch (which then asks for SDR too) and the
+     * reason is kept for the connection to say. An unusable 8-bit path is left to
+     * preparePacked444Modes' own refusal.
+     */
+    private int gatePackedHdr(int formats, int width, int height, int fps) {
+        packedHdrDrop = null;
+        if (!prefs.experimentalPacked444 || !prefs.rustEngine ||
+                (formats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) == 0) return formats;
+        int modes = preparePacked444Modes(formats, width, height, fps);
+        if (modes == 0 || (modes & PACKED_10BIT_MODES) != 0) return formats;
+        packedHdrDrop = packedTenBitIssue != null ? packedTenBitIssue :
+                "no 10-bit full-chroma decoder path could be verified on this device";
+        LimeLog.warning("Packed full chroma without HDR: " + packedHdrDrop);
+        return formats & ~MoonBridge.VIDEO_FORMAT_MASK_10BIT;
+    }
+
+    /** Why HDR was left out of this stream's packed full chroma, or null. Set by prepareVideoFormats. */
+    @Override
+    public String packedHdrDropReason() {
+        return packedHdrDrop;
+    }
+
     @Override
     public int preparePacked444Modes(int formats, int width, int height, int fps) {
+        // The launch asks first (prepareVideoFormats) and the connection again; verifying costs a decode.
+        int[] probe = packedProbe;
+        if (probe != null && probe[0] == width && probe[1] == height && probe[2] == fps &&
+                (formats & ~probe[3]) == 0) return probe[4];
+        int modes = probePacked444Modes(formats, width, height, fps);
+        packedProbe = new int[] {width, height, fps, formats, modes};
+        return modes;
+    }
+
+    private int probePacked444Modes(int formats, int width, int height, int fps) {
+        packedTenBitIssue = null;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || prefs.useTextureView) return 0;
         Packed444 geometry = new Packed444(1, width, height, 0, 0);
         int modes = 0;
@@ -1499,8 +1586,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 if (!caps.areSizeAndRateSupported(geometry.paddedWidth, geometry.paddedHeight * 2, fps)) continue;
                 for (int depth = 0; depth < 2; depth++) {
                     int bit = codec * 2 + depth;
-                    if ((formats & formatBits[bit]) == 0 || (depth == 1 && !packedHdrAvailable())) continue;
+                    if ((formats & formatBits[bit]) == 0) continue;
+                    if (depth == 1 && !packedHdrAvailable()) {
+                        packedTenBitIssue = "this display does not report HDR10";
+                        continue;
+                    }
+                    if (depth == 1 && !GlesUpscaler.tenBitOutputSupported()) {
+                        packedTenBitIssue = "the GPU offers no 10-bit BT.2020 PQ output surface";
+                        continue;
+                    }
                     if (Packed444.verifySampling(context, decoder.getName(), codecs[codec], depth == 1)) modes |= 1 << bit;
+                    else if (depth == 1) packedTenBitIssue = "the decoder's raw 10-bit output could not be sampled";
                 }
             } catch (IllegalArgumentException e) {
                 LimeLog.warning("Packed chroma decoder geometry is unsupported: " + e);

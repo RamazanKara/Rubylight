@@ -27,6 +27,7 @@ import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.CrashAccounting;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.DecoderSetupFailure;
+import com.limelight.binding.video.PackedFallback;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.DisplayRefreshDiagnostics;
@@ -786,6 +787,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private static final String EXTRA_STREAM_NETWORK = "StreamNetwork";
     private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
     private static final String EXTRA_RECOVERY_MEDIA_FAILURE = "RecoveryMediaFailure";
+    // Packed full chroma failed in this session and the reconnect runs without it (not the setting).
+    private static final String EXTRA_PACKED_OFF = "PackedChromaOff";
     private static final String EXTRA_MICROPHONE_MUTED = "rubylight.microphoneMuted";
 
     @Override
@@ -854,6 +857,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID)),
                 getIntent().getStringExtra(EXTRA_APP_UUID),
                 getIntent().getIntExtra(EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork);
+        prefConfig.experimentalPacked444 = PackedFallback.effective(prefConfig.experimentalPacked444,
+                getIntent().getBooleanExtra(EXTRA_PACKED_OFF, false));
         getIntent().putExtra(EXTRA_STREAM_NETWORK, prefConfig.layers.network.name());
         showStreamLayers(prefConfig, startNetwork == null);
         recoveryPolicy = new StreamRecoveryPolicy(getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0),
@@ -1080,6 +1085,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 willStreamHdr,
                 glPrefs.glRenderer,
                 this, getVideoDisplay());
+        decoderRenderer.setPackedFailureListener(this::onPackedChromaFailure);
         decoderRenderer.setStreamSizeListener(new MediaCodecDecoderRenderer.StreamSizeListener() {
             @Override
             public void onStreamSizeChanged(int width, int height) {
@@ -3785,19 +3791,53 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean tryAutomaticRecovery() {
-        if (prefConfig == null || !prefConfig.autoReconnect || displayedFailureDialog ||
+        return tryAutomaticRecovery(false);
+    }
+
+    /**
+     * Packed full chroma stopped working: reconnect once without it for the rest of the session,
+     * whether or not automatic reconnection is on (this is not a lost connection). False when this
+     * session already runs without it or cannot reconnect now; the caller then ends the stream.
+     */
+    private boolean reconnectWithoutPackedChroma(String reason) {
+        boolean unpacked = getIntent().getBooleanExtra(EXTRA_PACKED_OFF, false);
+        boolean canReconnect = foreground && !isFinishing() && !isDestroyed();
+        if (PackedFallback.onFailure(unpacked, canReconnect) != PackedFallback.Action.RECONNECT_WITHOUT_PACKED) return false;
+        LimeLog.warning("Packed full chroma stopped: " + reason);
+        if (!tryAutomaticRecovery(true)) return false;
+        Toast.makeText(getApplicationContext(), PackedFallback.toast(reason), Toast.LENGTH_LONG).show();
+        return true;
+    }
+
+    // Runs on the render thread: only decides on the UI thread, and the stream ends there if it cannot reconnect.
+    private void onPackedChromaFailure(String reason) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || reconnectWithoutPackedChroma(reason)) return;
+            MoonBridge.bridgeClDisplayMessage("Packed full-chroma presentation stopped: " + reason);
+            MoonBridge.bridgeClConnectionTerminated(-1);
+        });
+    }
+
+    private boolean tryAutomaticRecovery(boolean packedOff) {
+        if (prefConfig == null || (!packedOff && !prefConfig.autoReconnect) || displayedFailureDialog ||
                 (!connected && !connecting) || !foreground || isFinishing() || isDestroyed() ||
                 app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
         int resumeId = recoveryAppId != 0 ? recoveryAppId :
                 app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
         String resumeUuid = recoveryAppId != 0 ? recoveryAppUuid : app.getAppUuid();
         if (resumeId == 0) return false;
-        return queueAutomaticRecovery(createStreamHandoffIntent()
-                .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid));
+        Intent retry = createStreamHandoffIntent()
+                .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid);
+        if (packedOff) retry.putExtra(EXTRA_PACKED_OFF, true);
+        return queueAutomaticRecovery(retry, packedOff);
     }
 
     private boolean queueAutomaticRecovery(final Intent retry) {
-        if (prefConfig == null || !prefConfig.autoReconnect || !foreground || isFinishing() || isDestroyed() ||
+        return queueAutomaticRecovery(retry, false);
+    }
+
+    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting) {
+        if (prefConfig == null || (!ignoreAutoReconnectSetting && !prefConfig.autoReconnect) || !foreground || isFinishing() || isDestroyed() ||
                 recoveryHandoffInProgress || pendingRecovery != null) return false;
         long delay = recoveryPolicy.nextDelay(SystemClock.elapsedRealtime(), connectedAt);
         if (delay < 0) {

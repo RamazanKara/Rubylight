@@ -1260,6 +1260,19 @@ mod tests {
     }
 
     #[test]
+    fn calibration_follows_the_route_to_the_host_not_the_internet_connection() {
+        use crate::network::{Fallback, Network, Toward};
+        let wired = PaceCalibration { pace_mbps: 900, client_link_mbps: 2500, host_link_mbps: 2500,
+            wifi: false, ssid: None, qualified: true };
+        // Wi-Fi carries the internet, but the PC is on the local Ethernet segment.
+        let wifi = Network { wifi: true, ssid: Some("Home".into()), link_mbps: 866, ..Default::default() };
+        let route = wifi.toward(Ok(Toward { wireless: false, link_mbps: 2500 }));
+        assert_eq!(wired.for_network(&route, 2500), 900);
+        // Without a route answer the internet connection decides, as before.
+        assert_eq!(wired.for_network(&wifi.toward(Err(Fallback::NotTelling)), 2500), 0);
+    }
+
+    #[test]
     fn calibration_is_used_only_on_the_measured_network_and_link() {
         let mut network = crate::network::Network { wifi: true, ssid: Some("Home".into()), link_mbps: 1200, ..Default::default() };
         let calibration = PaceCalibration { pace_mbps: 900, client_link_mbps: 1200, host_link_mbps: 2500,

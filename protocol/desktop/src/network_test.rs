@@ -17,7 +17,7 @@ pub struct Test {
 }
 
 impl Test {
-    pub fn start(host: u64, client: HostClient, network: Network, mode: (u32, u32), calibrate: bool, waker: crate::hosts::Waker) -> Self {
+    pub fn start(host: u64, client: HostClient, network: Network, address: String, mode: (u32, u32), calibrate: bool, waker: crate::hosts::Waker) -> Self {
         let client = Arc::new(client);
         let worker = client.clone();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -25,6 +25,8 @@ impl Test {
         let (tx, events) = channel();
         std::thread::spawn(move || {
             let result = (|| -> Result<Outcome, String> {
+                // Calibrate for the interface that reaches this PC, which is what the stream will use.
+                let network = network.toward(crate::network::toward(&address));
                 let info = worker.server_info_https().map_err(|e| e.to_string())?;
                 if !calibrate { return worker.probe_bandwidth(&info).map(Outcome::Bandwidth).map_err(|e| e.to_string()); }
                 if !info.paired || !info.capabilities.has(Feature::PyroWave) || !info.pyrowave_burst_probe {

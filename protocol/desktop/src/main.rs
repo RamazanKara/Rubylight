@@ -818,7 +818,7 @@ impl App {
                 };
                 let settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
                 let (_, _, fps, bitrate) = stream::stream_mode(&settings, display_of(self.window));
-                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), (bitrate, fps), calibrate, self.waker.clone()));
+                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), host.record.address.clone(), (bitrate, fps), calibrate, self.waker.clone()));
                 self.launcher.dialog = Dialog::NetworkTest { stage: if calibrate { tr("Preparing frame-shaped UDP probes") } else { tr("Receiving 32 MiB from the PC") }.into() };
             }
             Command::CancelNetworkTest => { self.network_test = None; self.launcher.dialog = Dialog::None; }
@@ -1101,9 +1101,9 @@ impl App {
             vrr,
             gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
             prepared_controllers: if settings.controllers { self.pads.prepare(settings.controller_motion) } else { String::new() },
-            pyrowave_link_mbps: self.launcher.network.wired_link_mbps(),
-            client_wireless: self.launcher.network.wireless(),
-            pyrowave_pace_mbps: host.record.pace.as_ref().map_or(0, |pace| pace.for_network(&self.launcher.network, host.info.as_ref().map_or(0, |info| info.pyrowave_host_link_mbps))),
+            network: self.launcher.network.clone(),
+            pace: host.record.pace.clone(),
+            host_link_mbps: host.info.as_ref().map_or(0, |info| info.pyrowave_host_link_mbps),
             bitrate_limit_kbps: self.launcher.profiles.bitrate_limit(self.launcher.network.kind(&self.launcher.profiles.home_wifi)),
             microphone_muted: false,
             recovery: None,

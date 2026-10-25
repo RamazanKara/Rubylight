@@ -73,17 +73,54 @@ impl Toward {
 
 /// The interface the system routes traffic for `host` over, not the one with the internet
 /// connection: a PC on the same Ethernet segment is wired even when Wi-Fi is the default route.
-/// Blocks on name lookup. `None` when the lookup fails or the interface is not telling.
-pub fn toward(host: &str) -> Option<Toward> {
-    let ip = (host, 0).to_socket_addrs().ok()?.next()?.ip();
-    let (medium, link_mbps) = interface_toward(ip)?;
-    Toward::of(medium, link_mbps)
+/// Blocks on name lookup. Errs with why the caller must fall back to the internet connection.
+pub fn toward(host: &str) -> Result<Toward, Fallback> {
+    let ip = (host, 0).to_socket_addrs().ok().and_then(|mut found| found.next()).ok_or(Fallback::Lookup)?.ip();
+    let (medium, link_mbps) = interface_toward(ip).ok_or(Fallback::Lookup)?;
+    Toward::of(medium, link_mbps).ok_or(Fallback::NotTelling)
+}
+
+/// Why `toward` has no answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fallback {
+    /// The name, the route or the interface could not be looked up.
+    Lookup,
+    /// The interface is loopback, a tunnel, virtual or of a type that says nothing.
+    NotTelling,
+}
+
+impl std::fmt::Display for Fallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Fallback::Lookup => "route lookup failed",
+            Fallback::NotTelling => "interface does not say",
+        })
+    }
+}
+
+impl Network {
+    /// This connection as it applies to the route to one host: the Wi-Fi flag and the link speed
+    /// follow the interface that reaches the host, so a PC on the local Ethernet is wired even
+    /// when Wi-Fi carries the internet. Unchanged when the route does not tell.
+    pub fn toward(&self, route: Result<Toward, Fallback>) -> Network {
+        let Ok(route) = route else { return self.clone() };
+        Network {
+            wifi: route.wireless && (self.wifi || !self.cellular),
+            cellular: route.wireless && self.cellular,
+            link_mbps: route.link_mbps,
+            ssid: if route.wireless { self.ssid.clone() } else { None },
+            error: None,
+            ..self.clone()
+        }
+    }
 }
 
 /// Windows interface types (IANA ifType): IEEE 802.11 and the two WWAN types are wireless;
-/// Ethernet in its several spellings is wired.
+/// Ethernet in its several spellings is wired. Virtual adapters (TAP-Windows, ZeroTier, Hamachi)
+/// also report Ethernet with made-up speeds, so only a hardware interface counts.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn medium_of_if_type(if_type: u32) -> Medium {
+fn medium_of_if_type(if_type: u32, hardware: bool) -> Medium {
+    if !hardware { return Medium::Other; }
     match if_type {
         71 | 243 | 244 => Medium::Wireless,
         6 | 26 | 62 | 69 | 117 => Medium::Wired,
@@ -92,10 +129,13 @@ fn medium_of_if_type(if_type: u32) -> Medium {
 }
 
 /// Linux: a `wireless` directory or a wlan/wwan `DEVTYPE` in sysfs is wireless, an Ethernet-type
-/// (ARPHRD_ETHER, 1) interface without them is wired.
+/// (ARPHRD_ETHER, 1) interface without them is wired. Interfaces without a `device` link (tap,
+/// zerotier, dummy) are virtual, with a made-up speed, and say nothing.
 #[cfg_attr(windows, allow(dead_code))]
-fn medium_of_sysfs(has_wireless_dir: bool, devtype: Option<&str>, arphrd: Option<u32>) -> Medium {
-    if has_wireless_dir || matches!(devtype, Some("wlan" | "wwan")) {
+fn medium_of_sysfs(has_device: bool, has_wireless_dir: bool, devtype: Option<&str>, arphrd: Option<u32>) -> Medium {
+    if !has_device {
+        Medium::Other
+    } else if has_wireless_dir || matches!(devtype, Some("wlan" | "wwan")) {
         Medium::Wireless
     } else if arphrd == Some(1) && !matches!(devtype, Some("bridge" | "vlan" | "veth")) {
         Medium::Wired
@@ -141,7 +181,9 @@ fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
     if unsafe { GetIfEntry2(&mut row) }.0 != 0 { return None; }
     // All ones means the adapter does not report a speed.
     let mbps = if row.ReceiveLinkSpeed == u64::MAX { 0 } else { (row.ReceiveLinkSpeed / 1_000_000).min(u32::MAX as u64) as u32 };
-    Some((medium_of_if_type(row.Type), mbps))
+    // Bit 0 of InterfaceAndOperStatusFlags is HardwareInterface.
+    let hardware = row.InterfaceAndOperStatusFlags._bitfield & 1 != 0;
+    Some((medium_of_if_type(row.Type, hardware), mbps))
 }
 
 #[cfg(not(windows))]
@@ -156,7 +198,8 @@ fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
         uevent.lines().find_map(|line| line.strip_prefix("DEVTYPE=").map(str::to_owned))
     });
     let arphrd = read("type").and_then(|t| t.trim().parse::<u32>().ok());
-    let medium = medium_of_sysfs(std::path::Path::new(&format!("{base}/wireless")).exists(), devtype.as_deref(), arphrd);
+    let exists = |entry: &str| std::path::Path::new(&format!("{base}/{entry}")).exists();
+    let medium = medium_of_sysfs(exists("device"), exists("wireless"), devtype.as_deref(), arphrd);
     // "-1" is what a port without a speed reports.
     let mbps = read("speed").and_then(|t| t.trim().parse::<i64>().ok()).filter(|n| *n > 0).map_or(0, |n| n.min(u32::MAX as i64) as u32);
     Some((medium, mbps))
@@ -265,28 +308,63 @@ mod tests {
 
     #[test]
     fn windows_interface_types_map_to_a_medium() {
-        assert_eq!(medium_of_if_type(71), Medium::Wireless); // IEEE 802.11
-        assert_eq!(medium_of_if_type(243), Medium::Wireless); // WWAN
-        assert_eq!(medium_of_if_type(244), Medium::Wireless);
-        assert_eq!(medium_of_if_type(6), Medium::Wired); // Ethernet
-        assert_eq!(medium_of_if_type(117), Medium::Wired); // Gigabit Ethernet
+        assert_eq!(medium_of_if_type(71, true), Medium::Wireless); // IEEE 802.11
+        assert_eq!(medium_of_if_type(243, true), Medium::Wireless); // WWAN
+        assert_eq!(medium_of_if_type(244, true), Medium::Wireless);
+        assert_eq!(medium_of_if_type(6, true), Medium::Wired); // Ethernet
+        assert_eq!(medium_of_if_type(117, true), Medium::Wired); // Gigabit Ethernet
         // Loopback, tunnel, PPP and unknown types say nothing.
-        assert_eq!(medium_of_if_type(24), Medium::Other);
-        assert_eq!(medium_of_if_type(131), Medium::Other);
-        assert_eq!(medium_of_if_type(23), Medium::Other);
-        assert_eq!(medium_of_if_type(0), Medium::Other);
+        assert_eq!(medium_of_if_type(24, true), Medium::Other);
+        assert_eq!(medium_of_if_type(131, true), Medium::Other);
+        assert_eq!(medium_of_if_type(23, true), Medium::Other);
+        assert_eq!(medium_of_if_type(0, true), Medium::Other);
+    }
+
+    #[test]
+    fn windows_virtual_adapters_do_not_count_as_wired() {
+        // TAP-Windows, ZeroTier and Hamachi report ifType 6 without the HardwareInterface bit.
+        assert_eq!(medium_of_if_type(6, false), Medium::Other);
+        assert_eq!(medium_of_if_type(117, false), Medium::Other);
+        assert_eq!(medium_of_if_type(71, false), Medium::Other);
     }
 
     #[test]
     fn sysfs_attributes_map_to_a_medium() {
-        assert_eq!(medium_of_sysfs(true, None, Some(1)), Medium::Wireless);
-        assert_eq!(medium_of_sysfs(false, Some("wlan"), Some(1)), Medium::Wireless);
-        assert_eq!(medium_of_sysfs(false, Some("wwan"), Some(1)), Medium::Wireless);
-        assert_eq!(medium_of_sysfs(false, None, Some(1)), Medium::Wired);
-        assert_eq!(medium_of_sysfs(false, Some("bridge"), Some(1)), Medium::Other);
-        assert_eq!(medium_of_sysfs(false, None, Some(772)), Medium::Other); // loopback
-        assert_eq!(medium_of_sysfs(false, None, Some(65534)), Medium::Other); // tun
-        assert_eq!(medium_of_sysfs(false, None, None), Medium::Other);
+        assert_eq!(medium_of_sysfs(true, true, None, Some(1)), Medium::Wireless);
+        assert_eq!(medium_of_sysfs(true, false, Some("wlan"), Some(1)), Medium::Wireless);
+        assert_eq!(medium_of_sysfs(true, false, Some("wwan"), Some(1)), Medium::Wireless);
+        assert_eq!(medium_of_sysfs(true, false, None, Some(1)), Medium::Wired);
+        assert_eq!(medium_of_sysfs(true, false, Some("bridge"), Some(1)), Medium::Other);
+        assert_eq!(medium_of_sysfs(true, false, None, Some(772)), Medium::Other); // loopback
+        assert_eq!(medium_of_sysfs(true, false, None, Some(65534)), Medium::Other); // tun
+        assert_eq!(medium_of_sysfs(true, false, None, None), Medium::Other);
+    }
+
+    #[test]
+    fn linux_interfaces_without_a_device_do_not_count_as_wired() {
+        // tap and zerotier devices look like Ethernet but have no /sys/class/net/<if>/device.
+        assert_eq!(medium_of_sysfs(false, false, None, Some(1)), Medium::Other);
+        assert_eq!(medium_of_sysfs(false, false, Some("wlan"), Some(1)), Medium::Other);
+    }
+
+    #[test]
+    fn network_follows_the_route_and_falls_back_when_it_does_not_tell() {
+        let wifi = Network { wifi: true, ssid: Some("home".into()), link_mbps: 866, ..Default::default() };
+        let wired = wifi.toward(Ok(Toward { wireless: false, link_mbps: 2500 }));
+        assert!(!wired.wifi && !wired.wireless());
+        assert_eq!((wired.link_mbps, wired.ssid), (2500, None));
+        let ethernet = Network { link_mbps: 1000, ..Default::default() };
+        let wireless = ethernet.toward(Ok(Toward { wireless: true, link_mbps: 0 }));
+        assert!(wireless.wifi && !wireless.cellular);
+        assert_eq!(wireless.link_mbps, 0);
+        let cellular = Network { cellular: true, ..Default::default() }.toward(Ok(Toward { wireless: true, link_mbps: 0 }));
+        assert!(cellular.cellular && !cellular.wifi);
+        assert_eq!(wifi.toward(Err(Fallback::NotTelling)).link_mbps, 866);
+        assert!(wifi.toward(Err(Fallback::Lookup)).wifi);
+        // The route is known even when the connection profile could not be read.
+        let unreadable = Network { error: Some("no profile".into()), ..Default::default() };
+        assert!(unreadable.toward(Ok(Toward { wireless: false, link_mbps: 1000 })).error.is_none());
+        assert!(unreadable.toward(Err(Fallback::Lookup)).error.is_some());
     }
 
     #[test]
@@ -306,5 +384,10 @@ mod tests {
         // A wireless port's speed says nothing about the path.
         assert_eq!(Toward::of(Medium::Wireless, 866), Some(Toward { wireless: true, link_mbps: 0 }));
         assert_eq!(Toward::of(Medium::Other, 1000), None);
+    }
+
+    #[test]
+    fn fallback_reasons_are_told_apart() {
+        assert_ne!(Fallback::Lookup.to_string(), Fallback::NotTelling.to_string());
     }
 }

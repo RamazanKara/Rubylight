@@ -12,6 +12,7 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.utils.WiredLink;
 
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RuntimeEnvironment;
@@ -30,6 +31,12 @@ import static org.junit.Assert.*;
                 NvConnectionHapticsFlagTest.FakeWiredLink.class},
         instrumentedPackages = {"com.limelight.nvstream.jni", "com.limelight.utils"})
 public class NvConnectionHapticsFlagTest {
+    // The fakes keep their state in statics; no test inherits another's route.
+    @Before public void startWithAWiredUnknownRoute() {
+        FakeWiredLink.mbps = 0;
+        FakeWiredLink.wireless = false;
+    }
+
     // Haptics PCM switches a Vibepollo host's control loop to 5 ms; only a USB DualSense with
     // waveform haptics enabled can play it.
     @Test public void onlyUsbDualSenseHapticsAsksTheHostForHapticsPcm() throws Exception {
@@ -79,7 +86,6 @@ public class NvConnectionHapticsFlagTest {
         startStream();
         assertFalse(CapturingBridge.clientWireless);
         assertEquals(2500, CapturingBridge.linkMbps);
-        FakeWiredLink.wireless = false;
     }
 
     // The drop tolerance reaches the native control timeout only when it is longer than it.

@@ -85,11 +85,11 @@ pub struct LaunchPlan {
     pub prepared_controllers: String,
     pub microphone_muted: bool,
     pub bitrate_limit_kbps: u32,
-    pub pyrowave_link_mbps: u32,
-    pub pyrowave_pace_mbps: u32,
-    /// The internet connection is Wi-Fi or cellular; used only when the route to the host cannot
-    /// be read (`network::toward`).
-    pub client_wireless: bool,
+    /// The internet connection. The route to the host decides the link speed and wireless hints
+    /// and the pace calibration instead; this is the fallback when that lookup tells nothing.
+    pub network: crate::network::Network,
+    pub pace: Option<crate::config::PaceCalibration>,
+    pub host_link_mbps: u32,
     pub recovery: Option<recovery::Recovery>,
 }
 
@@ -717,15 +717,20 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     // The interface the system sends this host's traffic over decides, not the internet
     // connection; the connection is the fallback when that lookup tells nothing.
     let toward = crate::network::toward(&plan.record.address);
-    let client_wireless = toward.map_or(plan.client_wireless, |t| t.wireless);
-    let routed_link_mbps = toward.map_or(plan.pyrowave_link_mbps, |t| if t.wireless { 0 } else { t.link_mbps.min(9999) });
+    let network = plan.network.toward(toward);
+    let client_wireless = network.wireless();
+    let routed_link_mbps = network.wired_link_mbps();
     eprintln!(
         "nightjar: route to the PC: {} ({}), link {routed_link_mbps} Mbps",
         if client_wireless { "wireless" } else { "wired or unknown" },
-        if toward.is_some() { "from the route" } else { "from the internet connection" },
+        match toward {
+            Ok(_) => "from the route".to_string(),
+            Err(why) => format!("from the internet connection, {why}"),
+        },
     );
     let link_mbps = hint_override("NIGHTJAR_PYROWAVE_LINK_MBPS", routed_link_mbps);
-    let pace_mbps = hint_override("NIGHTJAR_PYROWAVE_PACE_MBPS", plan.pyrowave_pace_mbps);
+    let measured_pace = plan.pace.as_ref().map_or(0, |pace| pace.for_network(&network, plan.host_link_mbps));
+    let pace_mbps = hint_override("NIGHTJAR_PYROWAVE_PACE_MBPS", measured_pace);
     let beam = beam_race(settings.beam_race, link_mbps, plan.gpu_decoder.is_some());
     match beam {
         BeamRace::NotWired => eprintln!("{BEAM_RACE_NOT_WIRED}"),

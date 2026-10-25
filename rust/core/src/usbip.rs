@@ -225,6 +225,8 @@ struct Shared<D> {
     stop: AtomicBool,
     period: Duration,
     epoch: Instant,
+    /// How late an OUT transfer may complete and still play its audio.
+    late: Duration,
 }
 
 /// One device served on `127.0.0.1` at [`Export::port`] under [`BUS_ID`].
@@ -240,6 +242,11 @@ impl<D: Device> Export<D> {
     /// `period` while the client waits for one, and at once after
     /// [`Export::changed`].
     pub fn listen(device: D, period: Duration) -> io::Result<Self> {
+        Self::listen_with(device, period, crate::haptics::MAX_AGE)
+    }
+    /// As [`Export::listen`], playing the audio of OUT transfers that complete at most `late`
+    /// after they were due.
+    fn listen_with(device: D, period: Duration, late: Duration) -> io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
@@ -250,6 +257,7 @@ impl<D: Device> Export<D> {
             stop: AtomicBool::new(false),
             period,
             epoch: Instant::now(),
+            late,
         });
         let mut threads = vec![];
         let accept = shared.clone();
@@ -679,9 +687,7 @@ fn report<D: Device>(shared: &Shared<D>) {
             let transfer = link.iso.remove(iso_index).unwrap();
             // A delayed worker completes old USB requests but must not play
             // their audio at the current time or join it to a fresh PCM block.
-            if !transfer.input
-                && now.saturating_duration_since(transfer.due) > crate::haptics::MAX_AGE
-            {
+            if !transfer.input && now.saturating_duration_since(transfer.due) > shared.late {
                 device.iso_discontinuity();
                 link.send(&transfer.reply(0, &[], &[]));
                 continue;
@@ -766,7 +772,9 @@ mod tests {
     fn composite_audio_round_trips_packet_descriptors_and_actuator_pcm() {
         let mut pad = crate::dualsense::DualSense::new(0, 3);
         pad.capabilities(crate::haptics::CAPABILITY);
-        let export = Export::listen(pad, REPORT_PERIOD).unwrap();
+        // A loaded machine can wake the report thread more than `MAX_AGE` late, and `listen`
+        // then drops the audio as stale. This test is about the descriptors and the PCM.
+        let export = Export::listen_with(pad, REPORT_PERIOD, Duration::from_secs(60)).unwrap();
         let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, export.port())).unwrap();
         client
             .set_read_timeout(Some(Duration::from_secs(5)))

@@ -10,6 +10,11 @@ import java.util.List;
 
 /** GET /capabilities: what the host speaks and what this device may do on it. */
 public final class NativeCapabilities {
+    /** GET /library?include=unadded lists the games a host found in its stores but has not added. */
+    public static final String LIBRARY_UNADDED = "library.unadded";
+    /** POST /library/add adds one of those games. */
+    public static final String LIBRARY_ADD = "library.add";
+
     public final int apiVersion;
     public final String hostName;
     public final String hostVersion;
@@ -32,13 +37,20 @@ public final class NativeCapabilities {
         this.hostControl = hostControl;
     }
 
+    /** Whether the host advertises {@code feature} (one of the constants here, or any other name). */
+    public boolean has(String feature) {
+        return features.contains(feature);
+    }
+
     static NativeCapabilities parse(JSONObject json) throws JSONException {
         JSONObject host = json.optJSONObject("host");
         JSONObject permissions = json.getJSONObject("permissions");
         List<String> features = new ArrayList<>();
         JSONArray array = json.optJSONArray("features");
         for (int i = 0; array != null && i < array.length(); i++) {
-            features.add(array.getString(i));
+            // A feature this client cannot read is one it does not use.
+            Object feature = array.opt(i);
+            if (feature instanceof String) features.add((String) feature);
         }
         return new NativeCapabilities(json.optInt("api_version"), host == null ? null : host.optString("name", null),
                 host == null ? null : host.optString("version", null), features,

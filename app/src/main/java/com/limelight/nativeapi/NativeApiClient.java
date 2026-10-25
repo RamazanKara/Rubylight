@@ -48,8 +48,28 @@ public final class NativeApiClient {
     }
 
     public NativeLibrary library() throws NativeApiException {
+        return library(false);
+    }
+
+    /**
+     * The library; with {@code includeUnadded} also the games the host found in its stores but has not added. Ask for
+     * those only when the host advertises {@link NativeCapabilities#LIBRARY_UNADDED}.
+     */
+    public NativeLibrary library(boolean includeUnadded) throws NativeApiException {
         try {
-            return NativeLibrary.parse(call("library", ""));
+            return NativeLibrary.parse(call("library", includeUnadded ? "include=unadded" : ""));
+        } catch (JSONException e) {
+            throw malformed("library", e);
+        }
+    }
+
+    /**
+     * Adds a game the host found but has not added, and returns the library as it stands afterwards. Only for a host that
+     * advertises {@link NativeCapabilities#LIBRARY_ADD}.
+     */
+    public NativeLibrary addToLibrary(String gameId) throws NativeApiException {
+        try {
+            return NativeLibrary.parse(call("library_add", new JSONObject().put("game_id", gameId).toString()));
         } catch (JSONException e) {
             throw malformed("library", e);
         }

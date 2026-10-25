@@ -2,6 +2,7 @@ package com.limelight.nativeapi;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /** What Home shows: every title of every paired host, and the games to come back to. */
 public final class ConsoleSnapshot {
@@ -36,10 +37,24 @@ public final class ConsoleSnapshot {
         /** The classic app's UUID, empty otherwise. */
         public final String appUuid;
         public final boolean hdrSupported;
+        /** The store's key ("steam", ...) and display name; null for an app no store owns and for classic apps. */
+        public final String storeSource;
+        public final String storeName;
+        /** False for a game the host found in a store but has not added; it has no app id to launch. */
+        public final boolean added;
+        /** Seconds since the epoch it last ran on the host, or null when the host does not say. */
+        public final Long lastPlayed;
 
         Source(String hostUuid, String hostName, int appId, String installId, String title, String gameId,
                boolean running, String coverPath, String coverVersion, Boolean installed, String appUuid,
                boolean hdrSupported) {
+            this(hostUuid, hostName, appId, installId, title, gameId, running, coverPath, coverVersion, installed,
+                    appUuid, hdrSupported, null, null, true, null);
+        }
+
+        Source(String hostUuid, String hostName, int appId, String installId, String title, String gameId,
+               boolean running, String coverPath, String coverVersion, Boolean installed, String appUuid,
+               boolean hdrSupported, String storeSource, String storeName, boolean added, Long lastPlayed) {
             this.hostUuid = hostUuid;
             this.hostName = hostName;
             this.appId = appId;
@@ -52,6 +67,10 @@ public final class ConsoleSnapshot {
             this.installed = installed;
             this.appUuid = appUuid;
             this.hdrSupported = hdrSupported;
+            this.storeSource = storeSource;
+            this.storeName = storeName;
+            this.added = added;
+            this.lastPlayed = lastPlayed;
         }
 
         /**
@@ -92,9 +111,16 @@ public final class ConsoleSnapshot {
         /** The host's session, when it was read; null otherwise. */
         public final NativeSession session;
         public final List<Source> sources;
+        /** The native API features the host advertised when its library was read; empty for a classic host. */
+        public final Set<String> features;
 
         Host(String uuid, String name, Status status, long fetchedAtMs, NativeApiException error,
              NativeSession session, List<Source> sources) {
+            this(uuid, name, status, fetchedAtMs, error, session, sources, Collections.emptySet());
+        }
+
+        Host(String uuid, String name, Status status, long fetchedAtMs, NativeApiException error,
+             NativeSession session, List<Source> sources, Set<String> features) {
             this.uuid = uuid;
             this.name = name;
             this.status = status;
@@ -102,6 +128,11 @@ public final class ConsoleSnapshot {
             this.error = error;
             this.session = session;
             this.sources = Collections.unmodifiableList(sources);
+            this.features = Collections.unmodifiableSet(features);
+        }
+
+        public boolean has(String feature) {
+            return features.contains(feature);
         }
     }
 

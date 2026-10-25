@@ -16,6 +16,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -53,6 +54,7 @@ public final class ConsoleRepository {
     private final ClassicAppSource classic;
     private final ExecutorService executor;
     private final Clock clock;
+    private final Map<String, List<String>> features = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ConsoleRepository(NativeApiTransport transport, EndpointFactory endpoints, LibraryCache cache,
                              RecentsStore recents, FavouritesStore favourites, ClassicAppSource classic, ExecutorService executor,
@@ -219,9 +221,10 @@ public final class ConsoleRepository {
             if (endpoint != null) {
                 NativeApiClient client = new NativeApiClient(transport, endpoint);
                 try {
-                    NativeLibrary library = client.library();
+                    List<String> features = features(computer, client);
+                    NativeLibrary library = client.library(features.contains(NativeCapabilities.LIBRARY_UNADDED));
                     long now = clock.nowMs();
-                    cache.store(computer.uuid, new LibraryCache.Entry(library.toJson().toString(), now));
+                    cache.store(computer.uuid, new LibraryCache.Entry(library.toJson().toString(), now, features));
                     NativeSession session = null;
                     try {
                         session = client.session();
@@ -230,7 +233,7 @@ public final class ConsoleRepository {
                         LimeLog.info("No session from " + computer.name + ": " + e.getMessage());
                     }
                     return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.LIVE, now,
-                            null, session, sourcesOf(computer, library));
+                            null, session, sourcesOf(computer, library), new HashSet<>(features));
                 } catch (NativeApiException e) {
                     failure = e;
                 } catch (JSONException e) {
@@ -243,7 +246,7 @@ public final class ConsoleRepository {
             try {
                 NativeLibrary library = NativeLibrary.parse(new JSONObject(stored.libraryJson));
                 return new ConsoleSnapshot.Host(computer.uuid, computer.displayName(), ConsoleSnapshot.Status.CACHED,
-                        stored.fetchedAtMs, failure, null, sourcesOf(computer, library));
+                        stored.fetchedAtMs, failure, null, sourcesOf(computer, library), new HashSet<>(stored.features));
             } catch (JSONException e) {
                 LimeLog.warning("Unreadable cached library of " + computer.name + ": " + e.getMessage());
             }
@@ -252,12 +255,30 @@ public final class ConsoleRepository {
                 null, Collections.emptyList());
     }
 
+    /**
+     * The features the host advertises, read once per host while this repository lives (a host changes them only with
+     * an update). A host that does not answer has none this time; its library still loads.
+     */
+    private List<String> features(ComputerDetails computer, NativeApiClient client) {
+        List<String> known = features.get(computer.uuid);
+        if (known != null) return known;
+        try {
+            known = client.capabilities().features;
+            features.put(computer.uuid, known);
+            return known;
+        } catch (NativeApiException e) {
+            LimeLog.info("No capabilities from " + computer.name + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
     private static List<ConsoleSnapshot.Source> sourcesOf(ComputerDetails computer, NativeLibrary library) {
         List<ConsoleSnapshot.Source> sources = new ArrayList<>();
         for (NativeLibrary.Game game : library.games) {
-            sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), game.appId, game.installId,
-                    game.title, game.gameId, game.running, game.coverPath, game.coverVersion, game.installed, "",
-                    false));
+            sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), game.appId,
+                    game.installId == null ? "" : game.installId, game.title, game.gameId, game.running,
+                    game.coverPath, game.coverVersion, game.installed, "", false, game.storeSource, game.storeName,
+                    game.added, game.lastPlayed));
         }
         return sources;
     }
@@ -296,7 +317,9 @@ public final class ConsoleRepository {
         Map<String, List<ConsoleSnapshot.Source>> byKey = new LinkedHashMap<>();
         for (ConsoleSnapshot.Host host : hosts) {
             for (ConsoleSnapshot.Source source : host.sources) {
+                // A game the host has not added has no app id yet: its name tells it apart.
                 String key = source.gameId != null ? "game:" + source.gameId
+                        : !source.added ? "found:" + source.hostUuid + ":" + source.title
                         : "host:" + source.hostUuid + ":" + source.appId;
                 List<ConsoleSnapshot.Source> sources = byKey.get(key);
                 if (sources == null) {

@@ -45,6 +45,20 @@ public class ConsoleStoresTest {
     }
 
     @Test
+    public void theLibraryCacheKeepsTheHostsFeaturesAndAnOlderFileHasNone() throws Exception {
+        File dir = temporary.newFolder();
+        FileLibraryCache cache = new FileLibraryCache(dir);
+        cache.store("h", new LibraryCache.Entry("{\"games\":[]}", 1,
+                java.util.Arrays.asList("library", NativeCapabilities.LIBRARY_UNADDED)));
+        assertEquals(java.util.Arrays.asList("library", NativeCapabilities.LIBRARY_UNADDED), cache.load("h").features);
+        // A file written before the features were kept.
+        Files.write(new File(dir, "h.json").toPath(),
+                "{\"fetched_ms\":3,\"library\":{\"games\":[]}}".getBytes(StandardCharsets.UTF_8));
+        assertTrue(cache.load("h").features.isEmpty());
+        assertEquals(3, cache.load("h").fetchedAtMs);
+    }
+
+    @Test
     public void aBrokenCacheFileReadsAsNothingAndTheNextStoreRepairsIt() throws Exception {
         File dir = temporary.newFolder();
         FileLibraryCache cache = new FileLibraryCache(dir);

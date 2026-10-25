@@ -388,4 +388,80 @@ public class ConsoleRepositoryTest {
         assertNull(repository.capabilities(nativeHost("gone", "Gone", true)));
         assertFalse(transport.calls.contains("old|capabilities"));
     }
+
+    private static final String FOUND = "{\"install_id\":null,\"title\":\"Celeste\",\"game_id\":null,"
+            + "\"store\":{\"source\":\"gog\",\"name\":\"GOG\"},\"installed\":true,\"added\":false}";
+    private static final String FOUND_TOO = "{\"title\":\"Hades\",\"store\":{\"source\":\"epic\"},\"added\":false}";
+    private static final String PLAYED = "{\"install_id\":\"t-hades\",\"app_id\":13,\"title\":\"Hades II\","
+            + "\"store\":{\"source\":\"epic\",\"id\":\"h2\",\"name\":\"Epic Games\"},\"installed\":false,"
+            + "\"last_played\":1761300000}";
+
+    private void unaddedTower(boolean advertised) {
+        transport.reply("tower", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\""
+                + (advertised ? ",\"library.unadded\"" : "") + "],\"permissions\":{\"list\":true}}"));
+        transport.reply("tower", "library", ok(library("t1", game("t-portal", 11, "Portal", "steam:400", false),
+                PLAYED, FOUND, FOUND_TOO)));
+        transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
+    }
+
+    @Test
+    public void aHostWithTheUnaddedFeatureIsAskedForThemAndKeepsTheFeatureOffline() throws Exception {
+        unaddedTower(true);
+        ConsoleSnapshot snapshot = repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        assertEquals("include=unadded", transport.arguments.get(transport.calls.indexOf("tower|library")));
+        assertTrue(snapshot.host("tower").has(NativeCapabilities.LIBRARY_UNADDED));
+
+        // Read once while the repository lives.
+        repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        assertEquals(1, Collections.frequency(transport.calls, "tower|capabilities"));
+
+        transport.calls.clear();
+        ConsoleSnapshot offline = repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", false)));
+        assertTrue(transport.calls.isEmpty());
+        assertEquals(ConsoleSnapshot.Status.CACHED, offline.host("tower").status);
+        assertTrue(offline.host("tower").has(NativeCapabilities.LIBRARY_UNADDED));
+    }
+
+    @Test
+    public void aHostWithoutTheFeatureOrWithoutCapabilitiesIsAskedForItsLibraryOnly() throws Exception {
+        unaddedTower(false);
+        ConsoleSnapshot snapshot = repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        assertEquals("", transport.arguments.get(transport.calls.indexOf("tower|library")));
+        assertFalse(snapshot.host("tower").has(NativeCapabilities.LIBRARY_UNADDED));
+
+        transport.replies.remove("tower|capabilities");
+        ConsoleRepository fresh = new ConsoleRepository(transport,
+                computer -> HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto()), cache, recentsStore,
+                new PreferencesFavouritesStore(RuntimeEnvironment.getApplication()),
+                computer -> classicApps.get(computer.uuid), executor, () -> now);
+        transport.calls.clear();
+        transport.arguments.clear();
+        ConsoleSnapshot unanswered = fresh.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        assertEquals(ConsoleSnapshot.Status.LIVE, unanswered.host("tower").status);
+        assertEquals("", transport.arguments.get(transport.calls.indexOf("tower|library")));
+        assertTrue(unanswered.host("tower").features.isEmpty());
+    }
+
+    @Test
+    public void theStoreAndThePlayedAndAddedStateReachTheTitles() throws Exception {
+        unaddedTower(true);
+        ConsoleSnapshot snapshot = repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        Map<String, ConsoleSnapshot.Source> byTitle = new HashMap<>();
+        for (ConsoleSnapshot.Title title : snapshot.titles) {
+            byTitle.put(title.title, title.sources.get(0));
+        }
+        assertEquals(4, snapshot.titles.size());
+        ConsoleSnapshot.Source hades = byTitle.get("Hades II");
+        assertEquals("epic", hades.storeSource);
+        assertEquals("Epic Games", hades.storeName);
+        assertEquals(Long.valueOf(1761300000L), hades.lastPlayed);
+        assertEquals(Boolean.FALSE, hades.installed);
+        assertTrue(hades.added);
+        assertEquals("steam", byTitle.get("Portal").storeSource);
+        assertNull(byTitle.get("Portal").lastPlayed);
+        // Two found games with no ids at all are two titles, not one under app id 0.
+        assertFalse(byTitle.get("Celeste").added);
+        assertFalse(byTitle.get("Hades").added);
+        assertEquals("", byTitle.get("Celeste").installId);
+    }
 }

@@ -2,6 +2,7 @@ package com.limelight.nativeapi;
 
 import com.limelight.LimeLog;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -10,6 +11,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /** {@link LibraryCache} as one file per host in a directory the app owns. */
 public final class FileLibraryCache implements LibraryCache {
@@ -40,7 +43,13 @@ public final class FileLibraryCache implements LibraryCache {
                 read += n;
             }
             JSONObject json = new JSONObject(new String(bytes, 0, read, StandardCharsets.UTF_8));
-            return new Entry(json.getJSONObject("library").toString(), json.optLong("fetched_ms"));
+            List<String> features = new ArrayList<>();
+            JSONArray array = json.optJSONArray("features");
+            for (int i = 0; array != null && i < array.length(); i++) {
+                Object feature = array.opt(i);
+                if (feature instanceof String) features.add((String) feature);
+            }
+            return new Entry(json.getJSONObject("library").toString(), json.optLong("fetched_ms"), features);
         } catch (IOException | JSONException e) {
             LimeLog.warning("Unreadable library cache for " + hostUuid + ": " + e.getMessage());
             return null;
@@ -56,6 +65,7 @@ public final class FileLibraryCache implements LibraryCache {
                 throw new IOException("Cannot create " + directory);
             }
             String body = new JSONObject().put("fetched_ms", entry.fetchedAtMs)
+                    .put("features", new JSONArray(entry.features))
                     .put("library", new JSONObject(entry.libraryJson)).toString();
             try (FileOutputStream out = new FileOutputStream(temp)) {
                 out.write(body.getBytes(StandardCharsets.UTF_8));

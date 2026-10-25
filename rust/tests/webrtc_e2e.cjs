@@ -570,6 +570,11 @@ const ourLegs = {
   'av1-120': {codec: 'av1', fps: 120},
   'hevc-90': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, fps: 90},
   'hevc-120': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, fps: 120},
+  // 90 and 120 fps are offered at every mode the encoder's AMF throughput allows; these two are the
+  // largest. A host whose encoder cannot do them refuses the start, and the leg fails loudly.
+  'hevc-1440p-120': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, width: 2560, height: 1440, fps: 120, bitrateKbps: 30000, tone: false},
+  'hevc-4k-120': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, width: 3840, height: 2160, fps: 120, bitrateKbps: 50000, tone: false},
+  'av1-4k-120': {codec: 'av1', width: 3840, height: 2160, fps: 120, bitrateKbps: 50000, tone: false},
   // The same 4K on the virtual display in SDR, to tell the display's cost from HDR's.
   'av1-4k-vd': {codec: 'av1', width: 3840, height: 2160, bitrateKbps: 50000, clock: false, tone: false},
   // HDR needs a virtual display that is in HDR (--system with virtual_display_mode and

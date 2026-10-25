@@ -259,6 +259,13 @@ impl Encoder {
             Self::Pyrowave(_) => None,
         }
     }
+    /// An integer capability of the AMF encoder, such as its throughput limit.
+    pub fn capability(&self, name: &str) -> Option<i64> {
+        match self {
+            Self::Amf(encoder) => encoder.capability(name),
+            Self::Pyrowave(_) => None,
+        }
+    }
     /// The encoder family, as the encoder setting names it.
     pub fn backend(&self) -> &'static str {
         match self {

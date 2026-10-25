@@ -669,7 +669,7 @@ impl Actor {
         }
         let codecs = self.h.codecs.load(Ordering::Acquire);
         let offer = server::frame_rate_offer(&self.h.config.read().unwrap());
-        let capabilities = HostCapabilities::new(server::encoder_probe(codecs), offer);
+        let capabilities = HostCapabilities::new(server::host_probe(&self.h), offer);
         let settings = capabilities
             .validate(&request.video, &request.audio)
             .map_err(|invalid| Box::new(invalid.into_message(kind)))?;

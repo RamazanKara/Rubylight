@@ -912,13 +912,26 @@ fn gateway_status(h: &Host, local: IpAddr) -> ServerMessage {
     }
 }
 
-/// The encoder probe from the host's codec probe: AV1, AV1 10-bit and HEVC Main10.
-pub(super) fn encoder_probe(codecs: u32) -> EncoderProbe {
+/// The encoder probe from the host's codec probe: AV1, AV1 10-bit and HEVC Main10, and the
+/// throughput of the H.264, HEVC and AV1 encoders.
+pub(super) fn encoder_probe(codecs: u32, mb_rates: [u64; 3]) -> EncoderProbe {
     EncoderProbe {
         av1: codecs & 0x10000 != 0,
         av1_10bit: codecs & 0x20000 != 0,
         hevc_main10: codecs & 0x200 != 0,
+        h264_mb_rate: mb_rates[0],
+        hevc_mb_rate: mb_rates[1],
+        av1_mb_rate: mb_rates[2],
     }
+}
+
+/// `encoder_probe` for what the host has probed so far.
+pub(super) fn host_probe(h: &Host) -> EncoderProbe {
+    use std::sync::atomic::Ordering::Acquire;
+    encoder_probe(
+        h.codecs.load(Acquire),
+        std::array::from_fn(|i| h.encoder_mb_rates[i].load(Acquire)),
+    )
 }
 
 /// The frame rates offered per mode. `webrtc_frame_rates = 30,60,90,120` replaces them for every
@@ -937,7 +950,7 @@ pub(super) fn frame_rate_offer(config: &butterpollo_core::config::Config) -> Fra
 }
 
 fn capabilities(h: &Host) -> (ServerMessage, EncoderProbe) {
-    let probe = encoder_probe(h.codecs.load(std::sync::atomic::Ordering::Acquire));
+    let probe = host_probe(h);
     let offer = frame_rate_offer(&h.config.read().unwrap());
     let body = HostCapabilities::new(probe, offer).capabilities();
     (ServerMessage::Capabilities(body), probe)
@@ -1689,12 +1702,36 @@ pub(crate) mod tests {
         assert_ne!(offer, FrameRateOffer::default());
     }
 
+    /// The host's AMF throughput caps gate the frame rates it lists and accepts.
+    #[test]
+    fn the_offer_follows_the_amf_throughput() {
+        let mbs = |w: u64, h: u64, fps: u64| w.div_ceil(16) * h.div_ceil(16) * fps;
+        let rates = |probe: EncoderProbe, height: u32| {
+            HostCapabilities::new(probe, FrameRateOffer::default())
+                .capabilities()
+                .video_modes
+                .into_iter()
+                .find(|m| m.height == height)
+                .map(|m| m.frame_rates)
+        };
+        let full = encoder_probe(0x10000 | 0x20000 | 0x200, [0; 3]);
+        assert_eq!(rates(full, 2160), Some(vec![30, 60, 90, 120]));
+        let slow = encoder_probe(
+            0x10000 | 0x20000 | 0x200,
+            [0, mbs(3840, 2160, 60), mbs(3840, 2160, 60)],
+        );
+        assert_eq!(slow.hevc_mb_rate, mbs(3840, 2160, 60));
+        assert_eq!(rates(slow, 2160), Some(vec![30, 60]));
+        assert_eq!(rates(slow, 1440), Some(vec![30, 60, 90, 120]));
+    }
+
     /// The capabilities list follows the host's AMF probe bits, not the protocol table.
     #[test]
     fn capabilities_follow_the_amf_probe_bits() {
         let listed = |bits: u32| {
-            let body = HostCapabilities::new(encoder_probe(bits), FrameRateOffer::default())
-                .capabilities();
+            let body =
+                HostCapabilities::new(encoder_probe(bits, [0; 3]), FrameRateOffer::default())
+                    .capabilities();
             let value: Value =
                 serde_json::from_str(&ServerMessage::Capabilities(body).to_json()).unwrap();
             let all = |field: &str| -> Vec<(String, Vec<String>)> {

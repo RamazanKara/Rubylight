@@ -176,6 +176,8 @@ pub struct Host {
     pub stop: std::sync::atomic::AtomicBool,
     pub restart: std::sync::atomic::AtomicBool,
     pub codecs: std::sync::atomic::AtomicU32,
+    /// The macroblocks per second the H.264, HEVC and AV1 encoders take (AMF throughput caps), 0 until probed.
+    pub encoder_mb_rates: [std::sync::atomic::AtomicU64; 3],
     pub packed_modes: std::sync::atomic::AtomicU8,
     pub probing_codecs: std::sync::atomic::AtomicBool,
     codec_probe_requested: std::sync::atomic::AtomicBool,
@@ -417,6 +419,7 @@ impl Host {
             stop: std::sync::atomic::AtomicBool::new(false),
             restart: std::sync::atomic::AtomicBool::new(false),
             codecs: std::sync::atomic::AtomicU32::new(0),
+            encoder_mb_rates: Default::default(),
             packed_modes: std::sync::atomic::AtomicU8::new(0),
             probing_codecs: std::sync::atomic::AtomicBool::new(true),
             codec_probe_requested: std::sync::atomic::AtomicBool::new(false),
@@ -534,6 +537,26 @@ impl Host {
             }
         });
     }
+    /// Keeps the throughput the encoder reports for its codec, for the WebRTC frame-rate
+    /// offer. A driver that reports none leaves it 0, which gates nothing.
+    fn record_throughput(&self, codec: u8, encoder: &butterpollo_windows::encoder::Encoder) {
+        let name = match codec {
+            0 => "MaxThroughput",
+            1 => "HevcMaxThroughput",
+            _ => "Av1CapMaxThroughput",
+        };
+        let rate = encoder
+            .capability(name)
+            .and_then(|rate| u64::try_from(rate).ok())
+            .unwrap_or(0);
+        tracing::info!(
+            codec,
+            rate,
+            cap = name,
+            "encoder throughput (16x16 macroblocks per second)"
+        );
+        self.encoder_mb_rates[codec as usize].store(rate, std::sync::atomic::Ordering::Release);
+    }
     /// One pass over every codec. A retry (`yield_to_streams`) stops before
     /// opening another encoder once a launch or stream appears, returning
     /// None: a probe must not compete with a stream for the encoder.
@@ -605,6 +628,9 @@ impl Host {
                     }
                     if codec == 0 {
                         *self.probed_encoder.lock().unwrap() = encoder.backend();
+                    }
+                    if !hdr {
+                        self.record_throughput(codec, &encoder);
                     }
                     let mut outcome = butterpollo_core::codec_support::Outcome::Failed(
                         "the encoder produced no packets".into(),

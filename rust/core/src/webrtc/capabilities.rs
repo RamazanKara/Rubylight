@@ -104,6 +104,8 @@ pub const MODES: [ModeSpec; 4] = [
     ModeSpec {
         width: 3840,
         height: 2160,
+        // H.264 stays out of 4K: 4K120 needs level 6.0, which browsers refuse, so there is no
+        // H.264 4K offer to hold at 60.
         h264: false,
         hevc: true,
         av1: true,
@@ -139,6 +141,12 @@ pub struct EncoderProbe {
     pub av1_10bit: bool,
     /// The HEVC encoder does Main10 (needed for HEVC HDR).
     pub hevc_main10: bool,
+    /// The most 16x16 macroblocks per second each encoder takes in real time: AMF's
+    /// `MaxThroughput`, `HevcMaxThroughput` and `Av1CapMaxThroughput`. 0 when the driver
+    /// reported none, which gates nothing.
+    pub h264_mb_rate: u64,
+    pub hevc_mb_rate: u64,
+    pub av1_mb_rate: u64,
 }
 
 impl EncoderProbe {
@@ -148,6 +156,19 @@ impl EncoderProbe {
 
     fn supports(self, codec: Codec) -> bool {
         codec != Codec::Av1 || self.av1
+    }
+
+    /// Whether the encoder takes this picture size and rate in real time. A codec whose
+    /// throughput the driver did not report is not gated.
+    fn can_encode(self, codec: Codec, width: u32, height: u32, fps: u32) -> bool {
+        let limit = match codec {
+            Codec::H264 => self.h264_mb_rate,
+            Codec::Hevc => self.hevc_mb_rate,
+            Codec::Av1 => self.av1_mb_rate,
+        };
+        let needed =
+            u64::from(width.div_ceil(16)) * u64::from(height.div_ceil(16)) * u64::from(fps);
+        limit == 0 || needed <= limit
     }
 
     fn supports_hdr(self, codec: Codec) -> bool {
@@ -195,14 +216,12 @@ impl FrameRateOffer {
 }
 
 impl Default for FrameRateOffer {
-    /// 30 and 60 fps everywhere: 90 and 120 are offered only for modes that
-    /// have been measured clean. 1080p measured clean at 90 and 120 with
-    /// H.264, HEVC and AV1 (rust/PERFORMANCE.md); the others have not been
-    /// measured above 60.
+    /// Every rate at every mode. What this machine's encoder cannot do in real time is
+    /// taken out of the listing by `HostCapabilities` (the AMF throughput probe), and a
+    /// request for it is refused. 1080p measured clean at 90 and 120 with H.264, HEVC and
+    /// AV1 (rust/PERFORMANCE.md).
     fn default() -> Self {
-        let mut offer = Self::uniform(&[30, 60]);
-        offer.set(1920, 1080, &[30, 60, 90, 120]);
-        offer
+        Self::uniform(&FRAME_RATES)
     }
 }
 
@@ -341,15 +360,28 @@ impl HostCapabilities {
         Self { probe, frame_rates }
     }
 
-    /// The mode as offered, or `None` when it has no frame rates.
+    /// The mode as offered, or `None` when it has no frame rates. A rate is listed when
+    /// some codec of the mode takes it in real time, a codec when it takes the lowest
+    /// listed rate; a request for a pair the encoder cannot do is refused in `validate`.
     fn listing(&self, mode: &ModeSpec) -> Option<VideoMode> {
-        let frame_rates = self.frame_rates.rates(mode.width, mode.height).to_vec();
-        if frame_rates.is_empty() {
-            return None;
-        }
-        let codecs: Vec<Codec> = Codec::ALL
+        let able: Vec<Codec> = Codec::ALL
             .into_iter()
             .filter(|&c| mode.offers(c) && self.probe.supports(c))
+            .collect();
+        let frame_rates: Vec<u32> = self
+            .frame_rates
+            .rates(mode.width, mode.height)
+            .iter()
+            .copied()
+            .filter(|&fps| {
+                able.iter()
+                    .any(|&c| self.probe.can_encode(c, mode.width, mode.height, fps))
+            })
+            .collect();
+        let lowest = *frame_rates.first()?;
+        let codecs: Vec<Codec> = able
+            .into_iter()
+            .filter(|&c| self.probe.can_encode(c, mode.width, mode.height, lowest))
             .collect();
         let hdr_codecs: Vec<Codec> = if mode.hdr {
             codecs
@@ -447,6 +479,12 @@ impl HostCapabilities {
         }
         if !self.probe.supports(codec) {
             return Err(unsupported("AV1 is not available on this host"));
+        }
+        if !self.probe.can_encode(codec, width, height, fps) {
+            return Err(unsupported(format!(
+                "{} cannot encode {width}x{height} at {fps} fps on this host",
+                codec.name()
+            )));
         }
         if video.hdr {
             if codec == Codec::H264 {
@@ -686,6 +724,9 @@ mod tests {
         av1: true,
         av1_10bit: true,
         hevc_main10: true,
+        h264_mb_rate: 0,
+        hevc_mb_rate: 0,
+        av1_mb_rate: 0,
     };
 
     fn host(probe: EncoderProbe) -> HostCapabilities {
@@ -848,6 +889,7 @@ mod tests {
             av1: true,
             av1_10bit: false,
             hevc_main10: true,
+            ..EncoderProbe::default()
         })
         .capabilities();
         assert_eq!(
@@ -862,6 +904,7 @@ mod tests {
             av1: false,
             av1_10bit: true,
             hevc_main10: false,
+            ..EncoderProbe::default()
         })
         .capabilities();
         assert_eq!(names(&odd.codecs), vec!["h264", "hevc"]);
@@ -874,6 +917,7 @@ mod tests {
             av1: true,
             av1_10bit: true,
             hevc_main10: false,
+            ..EncoderProbe::default()
         })
         .capabilities();
         assert_eq!(names(&mode(&only_av1, 1080).hdr_codecs), vec!["av1"]);
@@ -888,7 +932,7 @@ mod tests {
         offer.set(3840, 2160, &[60, 30, 60, 144, 0]);
         offer.set(2560, 1440, &[]);
         let body = HostCapabilities::new(FULL, offer).capabilities();
-        assert_eq!(mode(&body, 720).frame_rates, vec![30, 60]);
+        assert_eq!(mode(&body, 720).frame_rates, vec![30, 60, 90, 120]);
         assert_eq!(mode(&body, 1080).frame_rates, vec![30, 60, 90, 120]);
         assert_eq!(mode(&body, 2160).frame_rates, vec![30, 60]);
         // A mode without rates isn't offered at all.
@@ -898,6 +942,110 @@ mod tests {
         // Nothing offered: nothing listed.
         let empty = HostCapabilities::new(FULL, FrameRateOffer::uniform(&[])).capabilities();
         assert!(empty.video_modes.is_empty() && empty.codecs.is_empty() && !empty.hdr);
+    }
+
+    /// 16x16 macroblocks per second of a picture size and rate.
+    fn macroblocks(width: u32, height: u32, fps: u32) -> u64 {
+        u64::from(width.div_ceil(16)) * u64::from(height.div_ceil(16)) * u64::from(fps)
+    }
+
+    #[test]
+    fn the_offer_follows_the_probe() {
+        // A probe without throughput numbers, and one that takes everything: all rates
+        // at every mode, 4K120 for HEVC and AV1.
+        let unknown = HostCapabilities::new(FULL, FrameRateOffer::default()).capabilities();
+        let all = macroblocks(3840, 2160, 120);
+        let roomy = EncoderProbe {
+            h264_mb_rate: all,
+            hevc_mb_rate: all,
+            av1_mb_rate: all,
+            ..FULL
+        };
+        let roomy = HostCapabilities::new(roomy, FrameRateOffer::default()).capabilities();
+        assert_eq!(unknown, roomy);
+        for m in &roomy.video_modes {
+            assert_eq!(m.frame_rates, vec![30, 60, 90, 120], "{}p", m.height);
+        }
+        assert_eq!(mode(&roomy, 2160).codecs, vec![Codec::Hevc, Codec::Av1]);
+
+        // An encoder that does 4K60 but not 4K120 drops 120 at 4K only, and says so loudly.
+        let slow = EncoderProbe {
+            h264_mb_rate: macroblocks(3840, 2160, 60),
+            hevc_mb_rate: macroblocks(3840, 2160, 60),
+            av1_mb_rate: macroblocks(3840, 2160, 60),
+            ..FULL
+        };
+        let slow = HostCapabilities::new(slow, FrameRateOffer::default());
+        let body = slow.capabilities();
+        assert_eq!(mode(&body, 2160).frame_rates, vec![30, 60]);
+        assert_eq!(mode(&body, 1440).frame_rates, vec![30, 60, 90, 120]);
+        assert_eq!(mode(&body, 1080).frame_rates, vec![30, 60, 90, 120]);
+        for codec in ["hevc", "av1"] {
+            let m = refuse(&slow, video(3840, 2160, 120, codec, 50000, false), 2);
+            assert!(m.contains("cannot encode"), "{codec}: {m}");
+            assert!(m.contains("3840x2160 at 120"), "{m}");
+            slow.validate(&video(3840, 2160, 60, codec, 50000, false), &stereo())
+                .unwrap();
+        }
+
+        // The limits are per codec: HEVC that stops at 1440p60 does not stop H.264 there.
+        let mixed = EncoderProbe {
+            h264_mb_rate: macroblocks(2560, 1440, 120),
+            hevc_mb_rate: macroblocks(2560, 1440, 60),
+            av1_mb_rate: macroblocks(2560, 1440, 60),
+            ..FULL
+        };
+        let mixed = HostCapabilities::new(mixed, FrameRateOffer::default());
+        let body = mixed.capabilities();
+        // The rate is listed because H.264 takes it, but HEVC at 1440p120 is refused.
+        assert_eq!(mode(&body, 1440).frame_rates, vec![30, 60, 90, 120]);
+        refuse(&mixed, video(2560, 1440, 120, "hevc", 30000, false), 2);
+        mixed
+            .validate(&video(2560, 1440, 120, "h264", 30000, false), &stereo())
+            .unwrap();
+        // 4K is HEVC and AV1 only, and neither takes 4K30 here: the mode is not offered.
+        assert!(body.video_modes.iter().all(|m| m.height != 2160));
+
+        // A codec that cannot take even the lowest rate leaves the mode's codecs.
+        let weak_h264 = EncoderProbe {
+            h264_mb_rate: macroblocks(1280, 720, 60),
+            ..FULL
+        };
+        let body = HostCapabilities::new(weak_h264, FrameRateOffer::default()).capabilities();
+        assert_eq!(mode(&body, 720).codecs, Codec::ALL.to_vec());
+        assert_eq!(mode(&body, 1080).codecs, vec![Codec::Hevc, Codec::Av1]);
+        assert_eq!(mode(&body, 1080).frame_rates, vec![30, 60, 90, 120]);
+    }
+
+    #[test]
+    fn the_signalled_levels_cover_every_offered_mode() {
+        // Every mode at every rate the default offers has an HEVC and an AV1 level that
+        // holds the picture, across the bitrate range. 4K120 is HEVC 5.2 and AV1
+        // seq_level_idx 14 (5.2, whose limits 5.3 shares). H.264 is not offered at 4K:
+        // 4K120 would need level 6.0, which browsers refuse, so H.264 stops at 1440p.
+        let offer = FrameRateOffer::default();
+        for mode in &MODES {
+            for &fps in offer.rates(mode.width, mode.height) {
+                let (w, h, f) = (mode.width.into(), mode.height.into(), fps.into());
+                for kbps in [10_000, 50_000, 100_000] {
+                    let (level, _) = hevc_level(mode.width, mode.height, fps, kbps).unwrap();
+                    let (_, limits) = HEVC_LEVELS
+                        .iter()
+                        .find(|(l, _)| l.level_id == level.level_id)
+                        .unwrap();
+                    assert!(limits.holds_picture(w, h, f));
+                    let (level, _) = av1_level(mode.width, mode.height, fps, kbps).unwrap();
+                    let (_, limits) = AV1_LEVELS
+                        .iter()
+                        .find(|(l, _)| l.level_idx == level.level_idx)
+                        .unwrap();
+                    assert!(limits.holds_picture(w, h, f));
+                }
+            }
+        }
+        assert!(hevc(3840, 2160, 120, 50_000).1 >= 156);
+        assert!(av1(3840, 2160, 120, 50_000).1 >= 14);
+        assert!(!ModeSpec::find(3840, 2160).unwrap().h264);
     }
 
     #[test]
@@ -1035,17 +1183,18 @@ mod tests {
         refuse(&host, video(1921, 1080, 60, "h264", 20000, false), 2);
         refuse(&host, video(1920, 1080, 144, "h264", 20000, false), 2);
         refuse(&host, video(1920, 1080, 0, "h264", 20000, false), 2);
-        // 90 and 120 fps are offered at 1080p, which measured clean, and nowhere else.
-        let limited = HostCapabilities::new(FULL, FrameRateOffer::default());
+        // A host set to 30 and 60 fps refuses 90 and 120 everywhere; the default offers them.
+        let limited = HostCapabilities::new(FULL, FrameRateOffer::uniform(&[30, 60]));
+        let offered = HostCapabilities::new(FULL, FrameRateOffer::default());
         for fps in [90, 120] {
-            assert!(
-                limited
-                    .validate(&video(1920, 1080, fps, "h264", 20000, false), &stereo())
-                    .is_ok()
-            );
-            for (width, height) in [(1280, 720), (2560, 1440), (3840, 2160)] {
+            for (width, height) in [(1280, 720), (1920, 1080), (2560, 1440), (3840, 2160)] {
                 let m = refuse(&limited, video(width, height, fps, "hevc", 20000, false), 2);
                 assert!(m.contains("frame rate"), "{height}p {fps}: {m}");
+                assert!(
+                    offered
+                        .validate(&video(width, height, fps, "hevc", 20000, false), &stereo())
+                        .is_ok()
+                );
             }
         }
         let m = refuse(&limited, video(1000, 1080, 60, "h264", 20000, false), 2);
@@ -1073,6 +1222,7 @@ mod tests {
             av1: true,
             av1_10bit: false,
             hevc_main10: true,
+            ..EncoderProbe::default()
         });
         assert!(eight.validate(&sdr, &stereo()).is_ok());
         let m = refuse(&eight, hdr.clone(), 2);
@@ -1084,6 +1234,7 @@ mod tests {
                 av1: false,
                 av1_10bit: true,
                 hevc_main10: true,
+                ..EncoderProbe::default()
             },
         ] {
             let none = host(probe);
@@ -1101,6 +1252,7 @@ mod tests {
             av1: true,
             av1_10bit: true,
             hevc_main10: false,
+            ..EncoderProbe::default()
         });
         let m = refuse(&no_main10, hdr.clone(), 2);
         assert!(m.contains("HEVC"));

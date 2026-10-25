@@ -491,9 +491,11 @@ impl Config {
         self.boolean("webrtc_pacing", true)
     }
     /// Whether the WebRTC offer carries NACK and RTX, so a lost video packet is resent
-    /// (`webrtc_rtx = true`). Off by default: keyframe recovery alone is the measured default.
+    /// (`webrtc_rtx = false` turns it off). On by default: at 0.1 % datagram loss it kept 60 fps
+    /// with no freeze where keyframe recovery alone dropped to 42 fps with 3 to 17 freezes, and on
+    /// a clean link it changes nothing (rust/PERFORMANCE.md).
     pub fn webrtc_rtx(&self) -> bool {
-        self.boolean("webrtc_rtx", false)
+        self.boolean("webrtc_rtx", true)
     }
     /// Video datagrams the WebRTC media thread drops per thousand (`webrtc_loss_permille`, 0 to
     /// 1000), as a lossy link does. A measurement switch, 0 by default.
@@ -1083,13 +1085,13 @@ mod tests {
     }
 
     #[test]
-    fn the_webrtc_rtx_and_loss_switches_are_off_until_set() {
+    fn webrtc_rtx_is_on_and_datagram_loss_is_off_until_set() {
         let mut config = super::Config::default();
-        assert!(!config.webrtc_rtx());
-        assert_eq!(config.webrtc_loss_permille(), 0);
-        let saved = serde_json::json!({"webrtc_rtx": "true", "webrtc_loss_permille": "1500"});
-        config.update(saved.as_object().unwrap()).unwrap();
         assert!(config.webrtc_rtx());
+        assert_eq!(config.webrtc_loss_permille(), 0);
+        let saved = serde_json::json!({"webrtc_rtx": "false", "webrtc_loss_permille": "1500"});
+        config.update(saved.as_object().unwrap()).unwrap();
+        assert!(!config.webrtc_rtx());
         assert_eq!(config.webrtc_loss_permille(), 1000);
     }
 

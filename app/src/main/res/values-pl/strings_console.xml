@@ -68,4 +68,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">Zainstalowana</string>
+    <string name="console_card_asleep">%1$s, komputer uśpiony</string>
+    <string name="console_wake_and_play">Obudź komputer i graj</string>
+    <string name="console_wake_waiting">Czekam, aż %1$s się obudzi…</string>
+    <string name="console_wake_timeout">%1$s nie obudził się na czas. Sprawdź, czy Wake-on-LAN jest skonfigurowany, i spróbuj ponownie.</string>
+    <string name="console_choose_pc">Na którym komputerze grać?</string>
+    <string name="console_badge_asleep">Komputer uśpiony</string>
 </resources>

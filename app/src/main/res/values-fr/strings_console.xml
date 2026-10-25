@@ -65,4 +65,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">Installé</string>
+    <string name="console_card_asleep">%1$s, PC en veille</string>
+    <string name="console_wake_and_play">Réveiller le PC et jouer</string>
+    <string name="console_wake_waiting">En attente du réveil de %1$s…</string>
+    <string name="console_wake_timeout">%1$s ne s’est pas réveillé à temps. Vérifiez que Wake-on-LAN est configuré, puis réessayez.</string>
+    <string name="console_choose_pc">Jouer sur quel PC ?</string>
+    <string name="console_badge_asleep">PC en veille</string>
 </resources>

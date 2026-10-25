@@ -59,4 +59,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">インストール済み</string>
+    <string name="console_card_asleep">%1$s、PC はスリープ中</string>
+    <string name="console_wake_and_play">PC を起動してプレイ</string>
+    <string name="console_wake_waiting">%1$s の起動を待っています…</string>
+    <string name="console_wake_timeout">%1$s が時間内に起動しませんでした。Wake-on-LAN が設定されているか確認して、もう一度お試しください。</string>
+    <string name="console_choose_pc">どの PC でプレイしますか？</string>
+    <string name="console_badge_asleep">PC はスリープ中</string>
 </resources>

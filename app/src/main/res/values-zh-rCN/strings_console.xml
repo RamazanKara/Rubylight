@@ -59,4 +59,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">已安装</string>
+    <string name="console_card_asleep">%1$s，电脑已休眠</string>
+    <string name="console_wake_and_play">唤醒电脑并开始玩</string>
+    <string name="console_wake_waiting">正在等待 %1$s 唤醒…</string>
+    <string name="console_wake_timeout">%1$s 未能及时唤醒。请检查是否已设置 Wake-on-LAN，然后重试。</string>
+    <string name="console_choose_pc">要在哪台电脑上玩？</string>
+    <string name="console_badge_asleep">电脑已休眠</string>
 </resources>

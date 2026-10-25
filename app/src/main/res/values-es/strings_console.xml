@@ -65,4 +65,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">Instalado</string>
+    <string name="console_card_asleep">%1$s, PC en reposo</string>
+    <string name="console_wake_and_play">Despertar PC y jugar</string>
+    <string name="console_wake_waiting">Esperando a que %1$s se despierte…</string>
+    <string name="console_wake_timeout">%1$s no se despertó a tiempo. Comprueba que Wake-on-LAN está configurado e inténtalo de nuevo.</string>
+    <string name="console_choose_pc">¿En qué PC quieres jugar?</string>
+    <string name="console_badge_asleep">PC en reposo</string>
 </resources>

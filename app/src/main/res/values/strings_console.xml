@@ -65,4 +65,11 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">Installed</string>
+    <!-- On a PC that is away the card is dimmed and says so. %1$s is the card's second line, e.g. "On Tower". -->
+    <string name="console_card_asleep">%1$s, PC asleep</string>
+    <string name="console_wake_and_play">Wake PC and play</string>
+    <string name="console_wake_waiting">Waiting for %1$s to wake up…</string>
+    <string name="console_wake_timeout">%1$s did not wake up in time. Check that Wake-on-LAN is set up, then try again.</string>
+    <string name="console_choose_pc">Play on which PC?</string>
+    <string name="console_badge_asleep">PC asleep</string>
 </resources>

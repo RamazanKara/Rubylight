@@ -68,4 +68,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">Установлена</string>
+    <string name="console_card_asleep">%1$s, ПК в спящем режиме</string>
+    <string name="console_wake_and_play">Разбудить ПК и играть</string>
+    <string name="console_wake_waiting">Ждём, пока %1$s проснётся…</string>
+    <string name="console_wake_timeout">%1$s не проснулся вовремя. Проверьте, что Wake-on-LAN настроен, и попробуйте снова.</string>
+    <string name="console_choose_pc">На каком ПК играть?</string>
+    <string name="console_badge_asleep">ПК в спящем режиме</string>
 </resources>

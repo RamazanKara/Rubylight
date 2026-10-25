@@ -59,4 +59,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">Đã cài đặt</string>
+    <string name="console_card_asleep">%1$s, PC đang ngủ</string>
+    <string name="console_wake_and_play">Đánh thức PC và chơi</string>
+    <string name="console_wake_waiting">Đang chờ %1$s thức dậy…</string>
+    <string name="console_wake_timeout">%1$s không thức dậy kịp. Hãy kiểm tra Wake-on-LAN đã được thiết lập, rồi thử lại.</string>
+    <string name="console_choose_pc">Chơi trên PC nào?</string>
+    <string name="console_badge_asleep">PC đang ngủ</string>
 </resources>

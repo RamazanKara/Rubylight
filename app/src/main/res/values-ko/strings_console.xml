@@ -59,4 +59,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">설치됨</string>
+    <string name="console_card_asleep">%1$s, PC 절전 중</string>
+    <string name="console_wake_and_play">PC를 깨우고 플레이</string>
+    <string name="console_wake_waiting">%1$s이(가) 켜지기를 기다리는 중…</string>
+    <string name="console_wake_timeout">%1$s이(가) 제때 켜지지 않았습니다. Wake-on-LAN이 설정되어 있는지 확인한 뒤 다시 시도하세요.</string>
+    <string name="console_choose_pc">어느 PC에서 플레이할까요?</string>
+    <string name="console_badge_asleep">PC 절전 중</string>
 </resources>

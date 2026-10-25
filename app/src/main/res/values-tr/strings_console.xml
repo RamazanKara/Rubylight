@@ -62,4 +62,10 @@
     </plurals>
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">Yüklü</string>
+    <string name="console_card_asleep">%1$s, bilgisayar uykuda</string>
+    <string name="console_wake_and_play">Bilgisayarı uyandır ve oyna</string>
+    <string name="console_wake_waiting">%1$s uyanana kadar bekleniyor…</string>
+    <string name="console_wake_timeout">%1$s zamanında uyanmadı. Wake-on-LAN’ın kurulu olduğunu denetleyip yeniden deneyin.</string>
+    <string name="console_choose_pc">Hangi bilgisayarda oynansın?</string>
+    <string name="console_badge_asleep">Bilgisayar uykuda</string>
 </resources>

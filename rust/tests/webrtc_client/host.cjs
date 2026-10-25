@@ -42,13 +42,19 @@ const defaults = {
   // The release build, its codec libraries and the console assets.
   binary: process.env.BUTTERPOLLO_TEST_BINARY || 'C:\\src\\butterpollo-release\\wr\\target\\release\\butterpollo.exe',
   package: process.env.BUTTERPOLLO_TEST_PACKAGE || 'C:\\src\\butterpollo-release\\dc\\pkg',
-  port: 48123, webrtcPort: 48545, mediaPort: 48546,
+  port: 48140, webrtcPort: 48545, mediaPort: 48546,
 };
 
 // Writes the profile on first use and returns the harness settings, with the
 // generated console password and sink. The password stays in harness.json.
-function prepare(options = {}, {sink, config = {}} = {}) {
+function prepare(options = {}, {config = {}} = {}) {
   const o = {...defaults, ...options};
+  // Audio goes to Steam Streaming Speakers, captured only: the host never
+  // changes the system's default devices, so the user's headset stays theirs.
+  const probe = process.env.BUTTERPOLLO_TEST_AUDIO_PROBE || 'C:\\src\\butterpollo-release\\fixtures\\audio_probe.exe';
+  const sink = JSON.parse(execFileSync(probe, ['--list'], {encoding: 'utf8'})).find(e => e.virtual_sink);
+  if (!sink) throw new Error('Steam Streaming Speakers is required for the isolated audio test');
+  o.sink = sink.id;
   fs.mkdirSync(path.join(o.root, 'logs'), {recursive: true});
   const harnessFile = path.join(o.root, 'harness.json');
   let harness = fs.existsSync(harnessFile) ? JSON.parse(fs.readFileSync(harnessFile, 'utf8')) : null;
@@ -70,7 +76,7 @@ function prepare(options = {}, {sink, config = {}} = {}) {
     keep_sink_default: false, upnp: false, enable_discovery: false, vulkan_hdr_layer: false, system_tray: false,
     update_check_interval: 0, pyrowave: false,
     webrtc_server: true, webrtc_port: o.webrtcPort, webrtc_media_port: o.mediaPort,
-    ...(sink ? {audio_sink: sink} : {}), ...config,
+    audio_sink: o.sink, ...config,
   };
   fs.writeFileSync(path.join(o.root, 'sunshine.conf'), Object.entries(lines).map(([k, v]) => `${k} = ${v}`).join('\n') + '\n');
   fs.writeFileSync(path.join(o.root, 'apps.json'), JSON.stringify({apps: [{name: 'Desktop', cmd: '', 'virtual-display': false}]}));
@@ -143,12 +149,19 @@ class TestHost {
     const login = await this.api('POST', '/api/auth/login', {username: this.o.username, password: this.o.password});
     this.csrf = login.csrf_token;
   }
+  // A device paired after the first one may only watch until the console
+  // grants more (docs/webrtc-design.md); the harness grants everything.
+  async grantAll() {
+    for (const c of (await this.api('GET', '/api/clients/list')).clients || []) {
+      if ((c.perm & 0x071f1f00) !== 0x071f1f00) await this.api('POST', '/api/clients/update', {uuid: c.uuid, perm: 0x071f1f00});
+    }
+  }
   pending() { return this.api('GET', '/api/clients/pending').then(r => r.requests || []); }
   // Approves the pending request that has `name`, with the PIN the client shows.
   async approve(name, pin) {
     const deadline = Date.now() + 10000;
     for (;;) {
-      const match = (await this.pending()).find(p => p.name === name);
+      const match = (await this.pending()).find(p => name === null || p.name === name);
       if (match) return this.request('POST', '/api/pin', {pin, name, uniqueid: match.uniqueid});
       if (Date.now() > deadline) throw new Error(`no pending pairing request from ${name}`);
       await new Promise(r => setTimeout(r, 200));

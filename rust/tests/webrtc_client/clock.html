@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rl clock</title>
+<style>
+  html, body { margin: 0; background: #202020; overflow: hidden; }
+  #block { position: absolute; left: 0; top: 0; background: #f0f; }
+  #cells { position: absolute; display: flex; }
+  #cells i { display: block; }
+</style>
+<div id="block"><div id="cells"></div></div>
+<script src="clock.js"></script>
+<script>
+  const {layout, cells} = RlClock;
+  const block = document.getElementById('block'), row = document.getElementById('cells');
+  block.style.width = layout.WIDTH + 'px'; block.style.height = layout.HEIGHT + 'px';
+  row.style.left = row.style.top = layout.PAD + 'px';
+  const nodes = [];
+  for (let i = 0; i < layout.CELLS; i++) {
+    const node = document.createElement('i');
+    node.style.width = layout.CELL_W + 'px'; node.style.height = layout.CELL_H + 'px';
+    row.appendChild(node); nodes.push(node);
+  }
+  // The time is read as late as possible: inside the animation frame that paints it.
+  function paint() {
+    cells(Date.now()).forEach((bit, i) => { nodes[i].style.background = bit ? '#fff' : '#000'; });
+    requestAnimationFrame(paint);
+  }
+  requestAnimationFrame(paint);
+</script>

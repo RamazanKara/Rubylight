@@ -2314,12 +2314,7 @@ mod tests {
         // A gap in capture moves the clock on, so the receiver conceals it.
         link.audio(packet(9), 10 * 3 + 200);
         link.run(Duration::from_millis(40));
-        let last = link
-            .media
-            .iter()
-            .filter(|m| m.pt == 111)
-            .next_back()
-            .unwrap();
+        let last = link.media.iter().rfind(|m| m.pt == 111).unwrap();
         assert!(last.time.numer() - times[7] > 240 + 1920, "{:?}", last.time);
     }
 

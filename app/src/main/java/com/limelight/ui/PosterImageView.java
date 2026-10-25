@@ -9,8 +9,8 @@ import androidx.appcompat.widget.AppCompatImageView;
 
 /**
  * A game's cover in a poster frame. Whatever drawable it is given decides how it is fitted (see {@link ArtFit}):
- * art close to 2:3 is cropped, other art is shown whole over its own blur. A placeholder or no drawable crops.
- * The blur is made on the loader's thread and arrives with the cover through {@link #setArt}.
+ * art close to 2:3 is cropped, other art is shown whole over gradient bands. A placeholder or no drawable crops.
+ * The bands are made on the loader's thread and arrive with the cover through {@link #setArt}.
  */
 public class PosterImageView extends AppCompatImageView {
     public PosterImageView(Context context) {
@@ -25,10 +25,10 @@ public class PosterImageView extends AppCompatImageView {
         super(context, attrs, defStyleAttr);
     }
 
-    private Bitmap pendingBackdrop;
+    private ArtFit.Bands pendingBackdrop;
 
-    /** Shows a decoded cover with the backdrop that was built for it, which is null for a cover that is cropped. */
-    public void setArt(Bitmap art, Bitmap backdrop) {
+    /** Shows a decoded cover with the bands that were built for it, which is null for a cover that is cropped. */
+    public void setArt(Bitmap art, ArtFit.Bands backdrop) {
         pendingBackdrop = backdrop;
         try {
             setImageBitmap(art);

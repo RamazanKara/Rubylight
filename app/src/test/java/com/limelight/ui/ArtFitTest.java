@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 import android.app.Application;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 
@@ -44,7 +45,7 @@ public class ArtFitTest {
     }
 
     @Test
-    public void aPosterViewCropsPosterArtAndLetterboxesEverythingElseOverTheBackdropItIsGiven() {
+    public void aPosterViewCropsPosterArtAndLetterboxesEverythingElseOverTheBandsItIsGiven() {
         try (var controller = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
             FrameLayout frame = new FrameLayout(controller.get());
             PosterImageView image = new PosterImageView(controller.get());
@@ -52,87 +53,97 @@ public class ArtFitTest {
             android.graphics.drawable.Drawable surface = frame.getBackground();
 
             Bitmap poster = solid(300, 450, Color.RED);
-            assertNull("a poster needs no backdrop", ArtFit.backdropFor(poster));
+            assertNull("a poster needs no bands", ArtFit.backdropFor(poster));
             image.setArt(poster, null);
             assertEquals(ImageView.ScaleType.CENTER_CROP, image.getScaleType());
             assertSame("poster art keeps the frame's surface", surface, frame.getBackground());
 
             Bitmap banner = solid(460, 215, Color.GREEN);
-            Bitmap backdrop = ArtFit.backdropFor(banner);
-            assertNotNull(backdrop);
-            image.setArt(banner, backdrop);
+            ArtFit.Bands bands = ArtFit.backdropFor(banner);
+            assertNotNull(bands);
+            image.setArt(banner, bands);
             assertEquals(ImageView.ScaleType.FIT_CENTER, image.getScaleType());
-            assertNotNull("the blurred copy fills the poster behind the cover", frame.getBackground());
             assertNotSame(surface, frame.getBackground());
-            assertSame("the backdrop made on the loader's thread is the one on screen", backdrop,
-                    ((android.graphics.drawable.BitmapDrawable) frame.getBackground()).getBitmap());
+            assertTrue("the gradient fills the poster behind the cover", frame.getBackground() instanceof ArtFit.Backdrop);
+            assertSame("the bands made on the loader's thread are the ones on screen", bands,
+                    ((ArtFit.Backdrop) frame.getBackground()).bands());
 
             image.setArt(solid(300, 400, Color.BLUE), null);
             assertEquals("3:4 is shown whole too", ImageView.ScaleType.FIT_CENTER, image.getScaleType());
-            assertNotNull("a cover without a backdrop sits on the frame's own surface", frame.getBackground());
-            assertFalse("the last cover's backdrop is gone", frame.getBackground() instanceof android.graphics.drawable.BitmapDrawable);
+            assertNotNull("a cover without bands sits on the frame's own surface", frame.getBackground());
+            assertFalse("the last cover's bands are gone", frame.getBackground() instanceof ArtFit.Backdrop);
 
-            // Binding does no bitmap work: a plain bitmap, a resource or a placeholder never builds a backdrop.
+            // Binding does no bitmap work: a plain bitmap, a resource or a placeholder never builds bands.
             image.setImageBitmap(solid(460, 215, Color.GREEN));
             assertEquals(ImageView.ScaleType.FIT_CENTER, image.getScaleType());
-            assertFalse(frame.getBackground() instanceof android.graphics.drawable.BitmapDrawable);
+            assertFalse(frame.getBackground() instanceof ArtFit.Backdrop);
 
             // A recycled card shows a placeholder, then poster art: no letterbox is left over.
+            image.setArt(banner, bands);
             image.setImageDrawable(new android.graphics.drawable.BitmapDrawable(image.getResources(), solid(1, 1, Color.TRANSPARENT)));
             assertEquals(ImageView.ScaleType.CENTER_CROP, image.getScaleType());
+            assertFalse("a placeholder drops the bands", frame.getBackground() instanceof ArtFit.Backdrop);
             image.setArt(poster, null);
             assertEquals(ImageView.ScaleType.CENTER_CROP, image.getScaleType());
         }
     }
 
     @Test
-    public void theBackdropIsTakenFromThePosterShapedMiddleOfTheArt() {
-        // A banner is cropped to the 2:3 its poster shows, in the middle, before it is blurred.
-        assertArrayEquals(new int[] {316, 0, 287, 430}, ArtFit.posterCrop(920, 430));
-        assertArrayEquals(new int[] {0, 0, 600, 900}, ArtFit.posterCrop(600, 900));
-        assertArrayEquals("3:4 loses its sides", new int[] {33, 0, 533, 800}, ArtFit.posterCrop(600, 800));
-        assertArrayEquals(new int[] {0, 50, 600, 900}, ArtFit.posterCrop(600, 1000));
-        assertArrayEquals(new int[] {0, 150, 600, 900}, ArtFit.posterCrop(600, 1200));
-        assertArrayEquals("a square", new int[] {100, 0, 400, 600}, ArtFit.posterCrop(600, 600));
-    }
-
-    @Test
-    public void theBackdropIsATinyCopyOfTheArtMadeInStepsAndDarkerThanIt() {
-        // Left third red, a white middle third (a logo), right third blue: high contrast, not a solid colour.
+    public void theBandColoursAreTheAverageOfTheArtsFourEdgeRowsDarkenedALittle() {
+        // High contrast, not a solid colour: the top rows are half red and half blue, then green below them;
+        // the bottom rows are white after a black row. Only the four edge rows count.
         Bitmap art = Bitmap.createBitmap(920, 430, Bitmap.Config.ARGB_8888);
-        for (int x = 0; x < 920; x++) {
-            int color = x < 307 ? Color.RED : x < 613 ? Color.WHITE : Color.BLUE;
-            for (int y = 0; y < 430; y += 43) art.setPixel(x, y, color);
+        art.eraseColor(Color.GREEN);
+        for (int y = 0; y < 4; y++) {
+            for (int x = 0; x < 920; x++) art.setPixel(x, y, x < 460 ? Color.RED : Color.BLUE);
         }
-        Bitmap blurred = ArtFit.blurred(art);
-        assertEquals(8, blurred.getWidth());
-        assertEquals(12, blurred.getHeight());
-
-        Bitmap solid = Bitmap.createBitmap(460, 215, Bitmap.Config.ARGB_8888);
-        solid.eraseColor(Color.WHITE);
-        assertEquals(Color.WHITE, ArtFit.blurred(solid).getPixel(2, 2));
-
-        try (var controller = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
-            FrameLayout frame = new FrameLayout(controller.get());
-            PosterImageView image = new PosterImageView(controller.get());
-            frame.addView(image);
-            image.setArt(art, ArtFit.backdropFor(art));
-            android.graphics.drawable.Drawable backdrop = frame.getBackground();
-            // The test runtime does not rasterize, so the darkening is checked as the filter the poster draws with.
-            assertTrue(backdrop instanceof android.graphics.drawable.BitmapDrawable);
-            Bitmap tiny = ((android.graphics.drawable.BitmapDrawable) backdrop).getBitmap();
-            assertTrue("the backdrop is a tiny copy, not a blur pass", tiny.getWidth() <= 16 && tiny.getHeight() <= 24);
-            assertTrue("darkened so text over it keeps its contrast",
-                    backdrop.getColorFilter() instanceof android.graphics.LightingColorFilter);
-            android.graphics.LightingColorFilter filter = (android.graphics.LightingColorFilter) backdrop.getColorFilter();
-            assertTrue("a light touch, not a mud", (filter.getColorMultiply() & 0xFF) >= 0xA0);
+        for (int x = 0; x < 920; x++) art.setPixel(x, 425, Color.BLACK);
+        for (int y = 426; y < 430; y++) {
+            for (int x = 0; x < 920; x++) art.setPixel(x, y, Color.WHITE);
         }
+        ArtFit.Bands bands = ArtFit.backdropFor(art);
+        assertNotNull(bands);
+        assertEquals("half red, half blue, then 75 per cent", Color.rgb(95, 0, 95), bands.top);
+        assertEquals("white, then 75 per cent", Color.rgb(191, 191, 191), bands.bottom);
+        assertEquals(430f / 920f, bands.aspect, 0.0001f);
+
+        // A solid cover gives its own colour, darkened: nothing is lost to a blur.
+        ArtFit.Bands green = ArtFit.backdropFor(solid(460, 215, Color.rgb(0, 200, 0)));
+        assertEquals(Color.rgb(0, 150, 0), green.top);
+        assertEquals(Color.rgb(0, 150, 0), green.bottom);
     }
 
     @Test
-    public void aHardwareBitmapIsNeverReadForABackdrop() {
+    public void aCoverShorterThanFourRowsStillGivesColours() {
+        ArtFit.Bands bands = ArtFit.backdropFor(solid(120, 20, Color.WHITE));
+        assertNotNull(bands);
+        assertEquals(Color.rgb(191, 191, 191), bands.top);
+    }
+
+    @Test
+    public void theGradientBandsAreAsTallAsTheLetterboxTheArtLeavesAndNeverNegative() {
+        ArtFit.Backdrop banner = new ArtFit.Backdrop(ArtFit.backdropFor(solid(460, 215, Color.WHITE)), Color.DKGRAY);
+        Rect poster = new Rect(0, 0, 300, 450);
+        // The banner is 140 high in a 450 high poster: 155 above and below, 0.344 of the height each.
+        assertEquals(155f / 450f, banner.band(poster), 0.001f);
+        banner.setBounds(poster);
+        // The test runtime does not rasterize; this checks the gradient draws without a shader error.
+        banner.draw(new android.graphics.Canvas(Bitmap.createBitmap(300, 450, Bitmap.Config.ARGB_8888)));
+
+        ArtFit.Backdrop box = new ArtFit.Backdrop(ArtFit.backdropFor(solid(600, 800, Color.WHITE)), Color.DKGRAY);
+        assertEquals("3:4 leaves a thin band", (450f - 400f) / 2f / 450f, box.band(poster), 0.001f);
+
+        ArtFit.Backdrop tall = new ArtFit.Backdrop(ArtFit.backdropFor(solid(300, 600, Color.WHITE)), Color.DKGRAY);
+        assertEquals("art taller than the poster has no top or bottom band", 0f, tall.band(poster), 0.0001f);
+        tall.setBounds(poster);
+        tall.draw(new android.graphics.Canvas(Bitmap.createBitmap(300, 450, Bitmap.Config.ARGB_8888)));
+        assertEquals(android.graphics.PixelFormat.OPAQUE, banner.getOpacity());
+    }
+
+    @Test
+    public void aHardwareBitmapIsNeverReadForBands() {
         Bitmap art = Bitmap.createBitmap(460, 215, Bitmap.Config.ARGB_8888).copy(Bitmap.Config.HARDWARE, false);
-        // The loader only builds backdrops from the software bitmap it decoded; a hardware one gets none, not an exception.
+        // The loader only builds bands from the software bitmap it decoded; a hardware one gets none, not an exception.
         if (art != null && art.getConfig() == Bitmap.Config.HARDWARE) assertNull(ArtFit.backdropFor(art));
     }
 }

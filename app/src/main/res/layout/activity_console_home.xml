@@ -15,7 +15,7 @@
             android:layout_width="match_parent" android:layout_height="match_parent"
             android:clipToPadding="false" android:clipChildren="false" android:scrollbars="vertical"
             android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
-            android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_xl" android:focusable="false"
+            android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_xl" android:focusable="false"
             android:descendantFocusability="afterDescendants" />
         <LinearLayout android:id="@+id/console_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"

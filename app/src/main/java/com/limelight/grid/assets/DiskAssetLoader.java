@@ -158,7 +158,7 @@ public class DiskAssetLoader {
     }
 
     /**
-     * Builds the tiny blurred backdrop a letterboxed cover sits on, here on the loader's thread, so the UI thread
+     * Reads the edge colours a letterboxed cover sits on, here on the loader's thread, so the UI thread
      * only attaches it. The cover itself goes back to a hardware bitmap when the device allows it.
      */
     private ScaledBitmap withBackdrop(ScaledBitmap cover) {

@@ -338,7 +338,8 @@ struct Connection {
     challenge: Challenge,
     client: Option<Authenticated>,
     pairing: Option<Pairing>,
-    probe: Option<EncoderProbe>,
+    /// What the last `capabilities` was built from: the encoder probe and the frame rate offer.
+    offered: Option<(EncoderProbe, FrameRateOffer)>,
     limits: Limits,
     /// When a connection that has not authenticated is closed.
     unauthenticated_until: tokio::time::Instant,
@@ -362,7 +363,7 @@ impl Connection {
             peer,
             client: None,
             pairing: None,
-            probe: None,
+            offered: None,
             limits,
             unauthenticated_until: tokio::time::Instant::now() + limits.unauthenticated,
             streaming: None,
@@ -871,19 +872,20 @@ impl Connection {
     /// The messages that follow `authenticated` and `paired`.
     fn startup(&mut self, out: &mut Vec<ServerMessage>) {
         out.push(gateway_status(&self.h, self.peer.local.ip()));
-        let (capabilities, probe) = capabilities(&self.h);
-        self.probe = Some(probe);
+        let (capabilities, offered) = capabilities(&self.h);
+        self.offered = Some(offered);
         out.push(capabilities);
     }
 
-    /// `capabilities` again when the encoder probe finished or changed.
+    /// `capabilities` again when the encoder probe finished or changed, or `webrtc_frame_rates`
+    /// changed the rates on offer.
     fn refresh_capabilities(&mut self, out: &mut Vec<ServerMessage>) {
         if self.client.is_none() {
             return;
         }
-        let (capabilities, probe) = capabilities(&self.h);
-        if self.probe != Some(probe) {
-            self.probe = Some(probe);
+        let (capabilities, offered) = capabilities(&self.h);
+        if self.offered.as_ref() != Some(&offered) {
+            self.offered = Some(offered);
             out.push(capabilities);
         }
     }
@@ -949,11 +951,12 @@ pub(super) fn frame_rate_offer(config: &butterpollo_core::config::Config) -> Fra
     }
 }
 
-fn capabilities(h: &Host) -> (ServerMessage, EncoderProbe) {
+/// The `capabilities` message, and the probe and offer it was built from.
+fn capabilities(h: &Host) -> (ServerMessage, (EncoderProbe, FrameRateOffer)) {
     let probe = host_probe(h);
     let offer = frame_rate_offer(&h.config.read().unwrap());
-    let body = HostCapabilities::new(probe, offer).capabilities();
-    (ServerMessage::Capabilities(body), probe)
+    let body = HostCapabilities::new(probe, offer.clone()).capabilities();
+    (ServerMessage::Capabilities(body), (probe, offer))
 }
 
 /// The configured apps, `id` being the GameStream application ID.
@@ -1700,6 +1703,68 @@ pub(crate) mod tests {
         let offer = frame_rate_offer(&config);
         assert_eq!(offer, FrameRateOffer::uniform(&[30, 60, 120]));
         assert_ne!(offer, FrameRateOffer::default());
+    }
+
+    /// An authenticated connection hears `capabilities` again when the probe or the rate setting
+    /// changes what is on offer, and only then.
+    #[test]
+    fn capabilities_are_sent_again_when_the_probe_or_the_rate_setting_changes() {
+        let f = Fixture::new();
+        let h = f.host.clone();
+        let peer = Peer {
+            address: ([192, 168, 1, 9], 5000).into(),
+            local: ([192, 168, 1, 2], 8000).into(),
+        };
+        let Registered {
+            id,
+            closed: _closed,
+        } = h.webrtc.open(peer.address.ip()).unwrap();
+        let mut state = Connection::new(h.clone(), Limits::default(), peer, id);
+        let refresh = |state: &mut Connection| {
+            let mut out = Vec::new();
+            state.refresh_capabilities(&mut out);
+            out
+        };
+        // Nothing before authentication.
+        assert!(refresh(&mut state).is_empty());
+        state.client = Some(Authenticated {
+            client_id: "client".into(),
+            name: "TV".into(),
+        });
+        let mut out = Vec::new();
+        state.startup(&mut out);
+        assert!(matches!(out.last(), Some(ServerMessage::Capabilities(_))));
+        assert!(refresh(&mut state).is_empty(), "nothing changed");
+        let rates = |values: &str| {
+            let saved = json!({ "webrtc_frame_rates": values });
+            h.config
+                .write()
+                .unwrap()
+                .update(saved.as_object().unwrap())
+                .unwrap();
+        };
+        rates("30,60");
+        assert_ne!(
+            frame_rate_offer(&h.config.read().unwrap()),
+            FrameRateOffer::default()
+        );
+        let again = refresh(&mut state);
+        assert!(
+            matches!(again.as_slice(), [ServerMessage::Capabilities(_)]),
+            "{again:?}"
+        );
+        assert!(refresh(&mut state).is_empty(), "sent once");
+        // A setting that parses to the same rates changes nothing on offer.
+        rates("30, 60");
+        assert!(refresh(&mut state).is_empty());
+        // The probe finds AV1, or loses it.
+        h.codecs
+            .fetch_xor(0x10000, std::sync::atomic::Ordering::AcqRel);
+        assert!(matches!(
+            refresh(&mut state).as_slice(),
+            [ServerMessage::Capabilities(_)]
+        ));
+        assert!(refresh(&mut state).is_empty());
     }
 
     /// The host's AMF throughput caps gate the frame rates it lists and accepts.

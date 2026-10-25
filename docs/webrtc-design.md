@@ -299,9 +299,12 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   calling the injector, is recorded per message and its maximum and 99th percentile are logged in the
   stream's "WebRTC input summary" (`queue_max_us`, `queue_p99_us`) next to the unknown-code count, so B5
   can report the cost of the hop. The summary also splits it (`wait_*`, the channel; `refresh_*`, the
-  injector's periodic refresh) and times the injector call (`apply_*`), which `SendInput` holds for as
-  long as the desktop's low-level hooks take; on the laptop's echo window a mouse click holds it for
-  4 to 28 ms, and the log names the events of any call over 2 ms.
+  injector's periodic refresh) and times the injector call (`apply_*`), and the log names the events of
+  any call over 2 ms. On the laptop the first left-button press after a few idle seconds takes 20 to
+  38 ms inside `SendInput`; every other event takes under 1 ms. A bare `SendInput` probe with no host
+  shows the same stall, and it is the same with the echo window on Raw Input or on low-level hooks,
+  so it is neither the host's queue nor the harness's hooks. It is Windows' handling of a click on the
+  window under the cursor, and it is left alone: the call is the one ENet's control thread makes.
 - **Recovery.**
   - PLI, FIR and the control channel's `request-keyframe` set `Session.idr` and wake recovery, the same
     as a Moonlight IDR request.

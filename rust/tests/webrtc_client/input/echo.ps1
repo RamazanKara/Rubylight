@@ -1,8 +1,12 @@
 # Input echo window for the WebRTC keyboard and mouse leg (rust/tests/webrtc_input_e2e.cjs).
 # Runs in the logged-in user's desktop on the test machine (the 780M laptop, never the dev PC): a
 # small topmost window that keeps focus and records what reaches it.
-#   * low-level hooks: every INJECTED key and mouse event with its virtual key, position, button or
-#     wheel delta (events from a real keyboard or mouse are not recorded);
+#   * injected key and mouse events (from SendInput, which has no device), logged as src "ll" with
+#     their virtual key, position, button or wheel delta; events from a real keyboard or mouse are
+#     not recorded. They are read from Raw Input (WM_INPUT, RIDEV_INPUTSINK), which Windows posts to
+#     this window: unlike a low-level hook it never makes the injecting SendInput wait for this UI
+#     thread, so the echo adds no latency of its own. -Hooks reads them from WH_KEYBOARD_LL and
+#     WH_MOUSE_LL instead, as the first version of this window did;
 #   * window messages: WM_KEYDOWN/UP, WM_SYSKEYDOWN/UP and WM_CHAR, so text is seen as characters;
 #   * raw input: the relative mouse deltas before pointer acceleration.
 # One JSON object per line goes to -Log and to a tiny HTTP server on -Port (/lines?from=N,
@@ -12,7 +16,8 @@ param(
   [int]$Port = 48150,
   [string]$Bind = '0.0.0.0',
   [int]$Width = 1000,
-  [int]$Height = 640
+  [int]$Height = 640,
+  [switch]$Hooks
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
@@ -47,6 +52,7 @@ public class EchoForm : Form, IMessageFilter {
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr hwnd);
   [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
+  [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
 
   readonly List<string> lines = new List<string>();
@@ -57,17 +63,19 @@ public class EchoForm : Form, IMessageFilter {
   IntPtr keyHook, mouseHook;
   HookProc keyProc, mouseProc;
   bool hadFocus;
+  readonly bool hooks;
   readonly System.Windows.Forms.Timer keeper = new System.Windows.Forms.Timer();
   TcpListener server;
 
-  public static void Run(string log, string bind, int port, int width, int height) {
+  public static void Run(string log, string bind, int port, int width, int height, bool hooks) {
     SetProcessDPIAware(); // positions are physical pixels, like the injector's
     Application.EnableVisualStyles();
-    var form = new EchoForm(log, bind, port, width, height);
+    var form = new EchoForm(log, bind, port, width, height, hooks);
     Application.Run(form);
   }
 
-  EchoForm(string log, string bind, int port, int width, int height) {
+  EchoForm(string log, string bind, int port, int width, int height, bool hooks) {
+    this.hooks = hooks;
     file = new StreamWriter(new FileStream(log, FileMode.Create, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false)) { AutoFlush = true };
     Text = "rl-input-echo";
     TopMost = true;
@@ -81,11 +89,13 @@ public class EchoForm : Form, IMessageFilter {
     var label = new Label { Text = "Input echo for the WebRTC test. Injected input is logged here and nowhere else.", ForeColor = Color.White, AutoSize = true, Location = new Point(10, 10) };
     Controls.Add(label);
     Application.AddMessageFilter(this);
-    keyProc = KeyHook; mouseProc = MouseHook;
-    var module = GetModuleHandle(null);
-    keyHook = SetWindowsHookEx(13, keyProc, module, 0);
-    mouseHook = SetWindowsHookEx(14, mouseProc, module, 0);
-    if (keyHook == IntPtr.Zero || mouseHook == IntPtr.Zero) throw new InvalidOperationException("SetWindowsHookEx failed: " + Marshal.GetLastWin32Error());
+    if (hooks) {
+      keyProc = KeyHook; mouseProc = MouseHook;
+      var module = GetModuleHandle(null);
+      keyHook = SetWindowsHookEx(13, keyProc, module, 0);
+      mouseHook = SetWindowsHookEx(14, mouseProc, module, 0);
+      if (keyHook == IntPtr.Zero || mouseHook == IntPtr.Zero) throw new InvalidOperationException("SetWindowsHookEx failed: " + Marshal.GetLastWin32Error());
+    }
     server = new TcpListener(IPAddress.Parse(bind), port);
     server.Start();
     var thread = new Thread(Serve) { IsBackground = true };
@@ -97,8 +107,12 @@ public class EchoForm : Form, IMessageFilter {
 
   protected override void OnHandleCreated(EventArgs e) {
     base.OnHandleCreated(e);
-    var device = new RAWDEV { page = 1, usage = 2, flags = 0x100, target = Handle }; // RIDEV_INPUTSINK
-    RegisterRawInputDevices(new[] { device }, 1, (uint)Marshal.SizeOf(typeof(RAWDEV)));
+    // RIDEV_INPUTSINK: the mouse and the keyboard, whether or not this window has the focus.
+    var devices = new[] {
+      new RAWDEV { page = 1, usage = 2, flags = 0x100, target = Handle },
+      new RAWDEV { page = 1, usage = 6, flags = 0x100, target = Handle },
+    };
+    if (!RegisterRawInputDevices(devices, 2, (uint)Marshal.SizeOf(typeof(RAWDEV)))) throw new InvalidOperationException("RegisterRawInputDevices failed: " + Marshal.GetLastWin32Error());
   }
 
   protected override void OnShown(EventArgs e) {
@@ -174,28 +188,90 @@ public class EchoForm : Form, IMessageFilter {
   }
 
   // ---- window messages and raw input ------------------------------------------------------------
+  // Raw Input has no report of a VK_PACKET (text sent as characters), so those are read where they
+  // surface: the key message with VK_PACKET, then the WM_CHAR with the UTF-16 unit.
+  bool packet;
+  long packetUnit;
+
   public bool PreFilterMessage(ref Message m) {
     switch (m.Msg) {
       case 0x100: case 0x101: case 0x104: case 0x105:
+        if (!hooks && m.WParam.ToInt64() == 0xE7) {
+          if (m.Msg == 0x100 || m.Msg == 0x104) packet = true;
+          else Emit("{{\"src\":\"ll\",\"ev\":\"ku\",\"vk\":231,\"scan\":{0},\"ext\":false}}", packetUnit);
+        }
         Emit("{{\"src\":\"wnd\",\"ev\":\"{0}\",\"vk\":{1}}}",
           m.Msg == 0x100 ? "WM_KEYDOWN" : m.Msg == 0x101 ? "WM_KEYUP" : m.Msg == 0x104 ? "WM_SYSKEYDOWN" : "WM_SYSKEYUP", m.WParam.ToInt64());
         break;
       case 0x102: case 0x106:
+        if (!hooks && packet) {
+          packet = false;
+          packetUnit = m.WParam.ToInt64();
+          Emit("{{\"src\":\"ll\",\"ev\":\"kd\",\"vk\":231,\"scan\":{0},\"ext\":false}}", packetUnit);
+        }
         Emit("{{\"src\":\"wnd\",\"ev\":\"{0}\",\"char\":{1}}}", m.Msg == 0x102 ? "WM_CHAR" : "WM_SYSCHAR", m.WParam.ToInt64());
         break;
       case 0xFF: {
         uint size = 0;
         GetRawInputData(m.LParam, 0x10000003, null, ref size, 24);
         var data = new byte[size];
-        if (size >= 40 && GetRawInputData(m.LParam, 0x10000003, data, ref size, 24) == size && BitConverter.ToUInt32(data, 0) == 0) {
-          int dx = BitConverter.ToInt32(data, 24 + 12), dy = BitConverter.ToInt32(data, 24 + 16);
-          ushort flags = BitConverter.ToUInt16(data, 24);
-          if (dx != 0 || dy != 0 || (flags & 1) != 0) Emit("{{\"src\":\"raw\",\"ev\":\"mm\",\"dx\":{0},\"dy\":{1},\"absolute\":{2}}}", dx, dy, (flags & 1) != 0 ? "true" : "false");
+        if (size >= 40 && GetRawInputData(m.LParam, 0x10000003, data, ref size, 24) == size) {
+          uint type = BitConverter.ToUInt32(data, 0);
+          // SendInput has no device: the header's handle is null for injected input only.
+          bool injected = BitConverter.ToInt64(data, 8) == 0;
+          if (type == 0) RawMouse(data, injected);
+          else if (type == 1 && !hooks && injected) RawKey(data);
         }
         break;
       }
     }
     return false;
+  }
+
+  void RawMouse(byte[] data, bool injected) {
+    int dx = BitConverter.ToInt32(data, 24 + 12), dy = BitConverter.ToInt32(data, 24 + 16);
+    ushort flags = BitConverter.ToUInt16(data, 24);
+    bool absolute = (flags & 1) != 0;
+    if (dx != 0 || dy != 0 || absolute) Emit("{{\"src\":\"raw\",\"ev\":\"mm\",\"dx\":{0},\"dy\":{1},\"absolute\":{2}}}", dx, dy, absolute ? "true" : "false");
+    if (hooks || !injected) return;
+    POINT p;
+    GetCursorPos(out p);
+    if (dx != 0 || dy != 0 || absolute) {
+      if (absolute) {
+        // 0..65535 over the primary display, or over the virtual desktop with MOUSE_VIRTUAL_DESKTOP (2).
+        bool desk = (flags & 2) != 0;
+        int left = desk ? GetSystemMetrics(76) : 0, top = desk ? GetSystemMetrics(77) : 0;
+        int w = desk ? GetSystemMetrics(78) : GetSystemMetrics(0), h = desk ? GetSystemMetrics(79) : GetSystemMetrics(1);
+        p.x = left + (int)(((long)dx * (w - 1) + 32767) / 65535);
+        p.y = top + (int)(((long)dy * (h - 1) + 32767) / 65535);
+      }
+      Emit("{{\"src\":\"ll\",\"ev\":\"mm\",\"x\":{0},\"y\":{1}}}", p.x, p.y);
+    }
+    ushort buttons = BitConverter.ToUInt16(data, 24 + 4);
+    short wheel = BitConverter.ToInt16(data, 24 + 6);
+    var names = new[] { "left", "right", "middle", "x1", "x2" };
+    // RI_MOUSE_*_DOWN and _UP, two bits a button in this order: left, right, middle, button 4, button 5.
+    int[] bits = { 0x1, 0x4, 0x10, 0x40, 0x100 };
+    for (int i = 0; i < bits.Length; i++) {
+      if ((buttons & bits[i]) != 0) Emit("{{\"src\":\"ll\",\"ev\":\"bd\",\"button\":\"{0}\",\"x\":{1},\"y\":{2}}}", names[i], p.x, p.y);
+      if ((buttons & (bits[i] << 1)) != 0) Emit("{{\"src\":\"ll\",\"ev\":\"bu\",\"button\":\"{0}\",\"x\":{1},\"y\":{2}}}", names[i], p.x, p.y);
+    }
+    if ((buttons & 0x400) != 0) Emit("{{\"src\":\"ll\",\"ev\":\"wheel\",\"delta\":{0},\"x\":{1},\"y\":{2}}}", wheel, p.x, p.y);
+    if ((buttons & 0x800) != 0) Emit("{{\"src\":\"ll\",\"ev\":\"hwheel\",\"delta\":{0},\"x\":{1},\"y\":{2}}}", wheel, p.x, p.y);
+  }
+
+  // The keyboard as the low-level hook reports it: the side-specific virtual key, the extended bit and,
+  // for VK_PACKET, the UTF-16 unit.
+  void RawKey(byte[] data) {
+    ushort make = BitConverter.ToUInt16(data, 24), flags = BitConverter.ToUInt16(data, 24 + 2), vk = BitConverter.ToUInt16(data, 24 + 6);
+    if (vk == 0xFF) return; // the fake Shift around a numpad key
+    bool e0 = (flags & 2) != 0;
+    if (vk == 0x10) vk = (ushort)(make == 0x36 ? 0xA1 : 0xA0);
+    // Right Alt on a layout with AltGr is preceded by a Control that has Alt's scan code (0x38): the
+    // hook calls it Left Control, and the plan leaves it out.
+    else if (vk == 0x11) vk = (ushort)(make == 0x38 ? 0xA2 : e0 ? 0xA3 : 0xA2);
+    else if (vk == 0x12) vk = (ushort)(e0 ? 0xA5 : 0xA4);
+    Emit("{{\"src\":\"ll\",\"ev\":\"{0}\",\"vk\":{1},\"scan\":{2},\"ext\":{3}}}", (flags & 1) != 0 ? "ku" : "kd", vk, make, e0 ? "true" : "false");
   }
 
   // ---- focus ------------------------------------------------------------------------------------
@@ -261,4 +337,4 @@ public class EchoForm : Form, IMessageFilter {
   }
 }
 '@
-[EchoForm]::Run($Log, $Bind, $Port, $Width, $Height)
+[EchoForm]::Run($Log, $Bind, $Port, $Width, $Height, [bool]$Hooks)

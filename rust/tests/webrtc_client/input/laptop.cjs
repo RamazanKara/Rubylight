@@ -178,7 +178,7 @@ class Laptop {
     this.echoLog = REMOTE.echo + '\\echo.jsonl';
     remote(`Remove-Item -Force ${q(this.echoLog)} -ErrorAction SilentlyContinue`);
     this.startTask(REMOTE.echoTask, 'powershell.exe',
-      `-STA -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ${REMOTE.echo}\\echo.ps1 -Log ${this.echoLog} -Port ${PORTS.echo}`, REMOTE.echo);
+      `-STA -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ${REMOTE.echo}\\echo.ps1 -Log ${this.echoLog} -Port ${PORTS.echo}${process.env.BUTTERPOLLO_ECHO_HOOKS ? ' -Hooks' : ''}`, REMOTE.echo);
     const deadline = Date.now() + 40000;
     for (;;) {
       try { const state = JSON.parse(await httpGet(PORTS.echo, '/state')); if (state.lines > 0) break; } catch {}

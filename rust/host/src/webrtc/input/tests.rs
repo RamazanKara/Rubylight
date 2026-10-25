@@ -613,8 +613,8 @@ fn the_queue_delay_is_measured_from_receipt_to_the_injector() {
 
 #[test]
 fn a_slow_injector_call_is_not_the_hosts_queue_delay() {
-    // SendInput waits for the desktop's low-level hooks, and a click can take milliseconds in
-    // them. That is reported as the injector's time, not as the queue's.
+    // SendInput can take milliseconds for a click (Windows' own handling, not the host's). That is
+    // reported as the injector's time, not as the queue's.
     let mut r = rig(u32::MAX);
     r.rec.slow_apply(Duration::from_millis(15));
     for i in 0..4 {

@@ -9,7 +9,7 @@
     <string name="console_hint_open">Mở</string>
     <string name="console_hint_key_ok">OK</string>
     <string name="console_hint_key_menu">Menu</string>
-    <string name="console_hint_line">"%1$s  %2$s      %3$s  %4$s"</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">Thêm vào yêu thích</string>
     <string name="console_favourite_remove">Xóa khỏi yêu thích</string>
     <string name="console_favourite_description">Yêu thích</string>

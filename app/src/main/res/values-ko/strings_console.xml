@@ -9,7 +9,7 @@
     <string name="console_hint_open">열기</string>
     <string name="console_hint_key_ok">확인</string>
     <string name="console_hint_key_menu">메뉴</string>
-    <string name="console_hint_line">"%1$s  %2$s      %3$s  %4$s"</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">즐겨찾기에 추가</string>
     <string name="console_favourite_remove">즐겨찾기에서 삭제</string>
     <string name="console_favourite_description">즐겨찾기</string>

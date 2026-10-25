@@ -201,7 +201,7 @@ public class FavouritesShelvesTest {
         assertFalse("a game's A opens its page; it does not play", remote.contains("Play"));
 
         String pad = HomeAmbience.hints(context, true, true);
-        assertTrue(pad, pad.startsWith("A  Open") && pad.contains("X  "));
+        assertTrue(pad, pad.startsWith("A\u00a0Open") && pad.contains("X\u00a0"));
         assertFalse(pad, pad.contains("OK") || pad.contains("Menu"));
 
         String host = HomeAmbience.hints(context, true, false);
@@ -223,7 +223,7 @@ public class FavouritesShelvesTest {
 
         ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
                 android.view.KeyEvent.KEYCODE_BUTTON_A, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_GAMEPAD)));
-        assertTrue(hints.getText().toString(), hints.getText().toString().startsWith("A  "));
+        assertTrue(hints.getText().toString(), hints.getText().toString().startsWith("A\u00a0"));
         ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
                 android.view.KeyEvent.KEYCODE_DPAD_CENTER)));
         assertTrue(hints.getText().toString().contains("OK"));

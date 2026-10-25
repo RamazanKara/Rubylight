@@ -9,7 +9,7 @@
     <string name="console_hint_open">Abrir</string>
     <string name="console_hint_key_ok">OK</string>
     <string name="console_hint_key_menu">Menú</string>
-    <string name="console_hint_line">"%1$s  %2$s      %3$s  %4$s"</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">Añadir a favoritos</string>
     <string name="console_favourite_remove">Quitar de favoritos</string>
     <string name="console_favourite_description">Favorito</string>

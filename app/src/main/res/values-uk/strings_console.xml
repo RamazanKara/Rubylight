@@ -9,7 +9,7 @@
     <string name="console_hint_open">Відкрити</string>
     <string name="console_hint_key_ok">OK</string>
     <string name="console_hint_key_menu">Меню</string>
-    <string name="console_hint_line">"%1$s  %2$s      %3$s  %4$s"</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
     <string name="console_favourite_add">Додати до обраного</string>
     <string name="console_favourite_remove">Прибрати з обраного</string>
     <string name="console_favourite_description">В обраному</string>

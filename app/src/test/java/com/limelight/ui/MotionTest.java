@@ -251,7 +251,7 @@ public class MotionTest {
         try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
             Screen screen = controller.get();
             assertEquals(R.animator.tv_card_focus_static, cardAnimator(screen));
-            MaterialCardView card = (MaterialCardView) LayoutInflater.from(screen).inflate(R.layout.pc_grid_item, null);
+            MaterialCardView card = (MaterialCardView) LayoutInflater.from(screen).inflate(R.layout.console_card_host, null);
             card.setSelected(true);
             card.getStateListAnimator().jumpToCurrentState();
             assertEquals(1f, card.getScaleX(), 0f);
@@ -268,7 +268,7 @@ public class MotionTest {
         try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
             Screen screen = controller.get();
             assertEquals(R.animator.tv_card_focus, cardAnimator(screen));
-            MaterialCardView card = (MaterialCardView) LayoutInflater.from(screen).inflate(R.layout.pc_grid_item, null);
+            MaterialCardView card = (MaterialCardView) LayoutInflater.from(screen).inflate(R.layout.console_card_host, null);
             card.setSelected(true);
             card.getStateListAnimator().jumpToCurrentState();
             assertNotEquals(1f, card.getScaleX(), 0.001f);

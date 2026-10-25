@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A TV PC tile. Three 280dp cells (the 248dp tile and its 16dp glow on each side) fit the 864dp a 1080p TV leaves
+         inside its overscan; PCs (AdaptiveLayout) and pc_grid_view use the cell. -->
+    <dimen name="tile_width">248dp</dimen>
+    <dimen name="tile_height">152dp</dimen>
+    <dimen name="tile_cell">280dp</dimen>
+</resources>

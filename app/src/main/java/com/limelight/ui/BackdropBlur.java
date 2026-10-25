@@ -38,6 +38,30 @@ public final class BackdropBlur {
      * @return an opaque {@link #WIDTH} x {@link #HEIGHT} bitmap
      */
     public static Bitmap make(Bitmap cover, int canvas) {
+        int[] pixels = blurred(cover, canvas);
+        // A game with no art stays the plain canvas, which is already as dark as the screen gets.
+        if (cover != null) shade(pixels, canvas);
+        return opaque(pixels);
+    }
+
+    /**
+     * A PC tile's background: the cover of the game it is running, blurred and darkened as {@link #make} does, with no
+     * fade to the canvas, since the tile is a card of its own. Its text sits on the tile's own scrim.
+     *
+     * @param cover the decoded cover; not null
+     * @param canvas what a cover with transparency sits on
+     */
+    public static Bitmap tile(Bitmap cover, int canvas) {
+        int[] pixels = blurred(cover, canvas);
+        for (int i = 0; i < pixels.length; i++) {
+            int c = pixels[i];
+            pixels[i] = 0xFF000000 | Math.round(((c >> 16) & 0xFF) * DARKEN) << 16
+                    | Math.round(((c >> 8) & 0xFF) * DARKEN) << 8 | Math.round((c & 0xFF) * DARKEN);
+        }
+        return opaque(pixels);
+    }
+
+    private static int[] blurred(Bitmap cover, int canvas) {
         Bitmap small = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
         small.eraseColor(canvas | 0xFF000000);
         if (cover != null && cover.getWidth() > 0 && cover.getHeight() > 0) draw(cover, small);
@@ -50,9 +74,11 @@ public final class BackdropBlur {
                 box(pixels, scratch, true);
                 box(scratch, pixels, false);
             }
-            // A game with no art stays the plain canvas, which is already as dark as the screen gets.
-            shade(pixels, canvas);
         }
+        return pixels;
+    }
+
+    private static Bitmap opaque(int[] pixels) {
         Bitmap result = Bitmap.createBitmap(pixels, WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
         result.setHasAlpha(false);
         return result;

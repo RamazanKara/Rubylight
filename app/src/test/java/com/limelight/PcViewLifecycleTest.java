@@ -464,6 +464,17 @@ public class PcViewLifecycleTest {
 
     @Test
     public void rightFromThePcCardStepsOntoItsOverflowButtonThenOntoAddPc() {
+        rightStepsOntoTheOverflowButtonThenOntoAddPc();
+    }
+
+    /** A TV's PC tile (layout-television/pc_grid_item) and its amber Add PC pill keep the same way out. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void rightFromATelevisionPcTileStepsOntoItsOverflowButtonThenOntoAddPc() {
+        rightStepsOntoTheOverflowButtonThenOntoAddPc();
+    }
+
+    private void rightStepsOntoTheOverflowButtonThenOntoAddPc() {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
         try {
             Library screen = controller.get();

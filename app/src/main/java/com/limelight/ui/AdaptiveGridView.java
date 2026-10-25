@@ -451,6 +451,25 @@ public class AdaptiveGridView extends GridView {
         return height > 0 && height / getResources().getDisplayMetrics().density < SHORT_VIEWPORT_DP;
     }
 
+    /** The side padding the layout gave, before {@link #centreTiles} adds to it. */
+    private int[] basePadding;
+
+    /**
+     * TV PC tiles have a fixed width (pc_grid_view's columnWidth, no stretching): a few PCs sit as one centred row, and more
+     * fill rows from the left of a centred block. GridView has no centring of its own, so the side padding takes the rest.
+     */
+    private int centreTiles(int columns, int width) {
+        android.widget.ListAdapter adapter = getAdapter();
+        int count = adapter == null ? 0 : adapter.getCount();
+        int used = Math.max(1, Math.min(columns, count));
+        int cell = getRequestedColumnWidth();
+        int side = cell <= 0 ? 0 : Math.max(0, (width - used * cell - (used - 1) * getRequestedHorizontalSpacing()) / 2);
+        int left = basePadding[0] + side;
+        int right = basePadding[1] + side;
+        if (left != getPaddingLeft() || right != getPaddingRight()) setPadding(left, getPaddingTop(), right, getPaddingBottom());
+        return used;
+    }
+
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         if (policySet && MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
@@ -459,9 +478,11 @@ public class AdaptiveGridView extends GridView {
             float fontScale = Math.max(1, configuration.fontScale);
             boolean television = (configuration.uiMode & Configuration.UI_MODE_TYPE_MASK)
                     == Configuration.UI_MODE_TYPE_TELEVISION;
-            int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - getPaddingLeft() - getPaddingRight());
+            if (basePadding == null) basePadding = new int[] {getPaddingLeft(), getPaddingRight()};
+            int width = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - basePadding[0] - basePadding[1]);
             int columns = AdaptiveLayout.gridColumns(width / density / fontScale,
                     MeasureSpec.getSize(heightMeasureSpec) / density, computers, smallIcons, television);
+            if (computers && television) columns = centreTiles(columns, width);
             // A no-op when unchanged; otherwise the children are rebuilt by the layout that follows.
             setNumColumns(columns);
         }

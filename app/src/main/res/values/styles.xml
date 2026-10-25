@@ -104,6 +104,8 @@
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
+        <item name="nightjarTileFocusAnimator">@animator/tv_tile_focus</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
     </style>
@@ -211,6 +213,8 @@
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
+        <item name="nightjarTileFocusAnimator">@animator/tv_tile_focus</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
     </style>
@@ -259,6 +263,7 @@
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_hc</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_hc</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring_hc</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
     </style>
 
@@ -274,6 +279,8 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_static</item>
+        <item name="nightjarTileFocusAnimator">@animator/tv_poster_focus_static</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring_static</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_static</item>
         <item name="android:windowAnimationStyle">@style/NightjarWindowAnimationStill</item>
     </style>
@@ -284,6 +291,8 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc_static</item>
+        <item name="nightjarTileFocusAnimator">@animator/tv_poster_focus_static</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring_hc_static</item>
         <item name="android:windowAnimationStyle">@style/NightjarWindowAnimationStill</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
     </style>

@@ -479,13 +479,13 @@ public class UiNavigationTest {
             layout(screen);
             View first = grid.getChildAt(0);
             first.jumpDrawablesToCurrentState();
-            assertEquals(1.03f, first.getScaleX(), 0.001f);
+            assertEquals("a TV PC tile scales to 1.05", 1.05f, first.getScaleX(), 0.001f);
             press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
             layout(screen);
             first.jumpDrawablesToCurrentState();
             grid.getSelectedView().jumpDrawablesToCurrentState();
             assertEquals(1f, first.getScaleX(), 0.001f);
-            assertEquals(1.03f, grid.getSelectedView().getScaleX(), 0.001f);
+            assertEquals(1.05f, grid.getSelectedView().getScaleX(), 0.001f);
             for (int key : new int[]{KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE}) {
                 press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
                 assertTrue(grid.isActionMarked());

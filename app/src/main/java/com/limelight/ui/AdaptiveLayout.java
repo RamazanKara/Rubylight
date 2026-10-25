@@ -208,14 +208,15 @@ public final class AdaptiveLayout {
         if (computers && size.getWindowWidthSizeClass() == WindowWidthSizeClass.COMPACT &&
                 size.getWindowHeightSizeClass() != WindowHeightSizeClass.COMPACT) return 1;
         int cellWidth = cellWidthDp(computers, smallIcons, television);
-        // A TV's app posters have no gap of their own: each pads itself with its glow (see poster_glow).
-        int spacing = television ? (computers ? 16 : 0) : 8;
+        // A TV's posters and PC tiles have no gap of their own: each pads itself with its glow (see poster_glow).
+        int spacing = television ? 0 : 8;
         return Math.max(1, (int) ((widthDp + spacing) / (cellWidth + spacing)));
     }
 
     /** The width a grid column is sized for, in dp; the grid stretches columns to fill the row. */
     public static int cellWidthDp(boolean computers, boolean smallIcons, boolean television) {
-        if (television) return computers ? 320 : (smallIcons ? 144 : 200);
+        // A TV PC tile is 248dp with its 16dp glow on each side (dimen tile_cell).
+        if (television) return computers ? 280 : (smallIcons ? 144 : 200);
         return computers ? 280 : (smallIcons ? 112 : 168);
     }
 }

@@ -147,10 +147,21 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         statusView.setTextColor(MaterialColors.getColor(statusView, state == RowState.RUNNING ?
                 androidx.appcompat.R.attr.colorPrimary : com.google.android.material.R.attr.colorOnSurfaceVariant));
 
+        ImageView backdrop = parentView.findViewById(R.id.grid_backdrop);
+        if (backdrop != null) {
+            // A TV tile: its state is the dot's colour too, and the tile's background is the game it plays or its state's gradient.
+            statusView.setTextColor(MaterialColors.getColor(statusView, away ?
+                    com.google.android.material.R.attr.colorOnSurfaceVariant : com.google.android.material.R.attr.colorOnSurface));
+            statusView.setCompoundDrawablesRelativeWithIntrinsicBounds(dot(state), 0, 0, 0);
+            if (tiles == null) tiles = new TileBackdrops(context);
+            tiles.show(backdrop, obj.details.uuid, obj.runningGame, state);
+        }
+
         String update = HostUpdateChecker.availableVersion(context, obj.details.caps);
         TextView updateView = parentView.findViewById(R.id.grid_update);
         int updateVisibility = update == null ? View.GONE : View.VISIBLE;
-        if (update == null) {
+        // Tiles have one height whatever they say, so a tile with no update keeps its name at the foot.
+        if (update == null && backdrop == null) {
             // GridView advances to the next row using the last card's height.
             for (PcView.ComputerObject computer : itemList) {
                 if (HostUpdateChecker.availableVersion(context, computer.details.caps) != null) {
@@ -176,6 +187,21 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
                 });
         ViewCompat.replaceAccessibilityAction(parentView, AccessibilityActionCompat.ACTION_LONG_CLICK,
                 context.getString(R.string.pc_accessibility_actions), (view, arguments) -> openOptions(view));
+    }
+
+    private TileBackdrops tiles;
+
+    /** A TV tile's status dot: green for a PC that is up, amber for one waiting on something, grey for one that is away. */
+    public static int dot(RowState state) {
+        switch (state) {
+            case RUNNING:
+            case READY:
+                return R.drawable.tv_dot_live;
+            case OFFLINE:
+                return R.drawable.tv_dot_idle;
+            default:
+                return R.drawable.tv_dot_suspended;
+        }
     }
 
     /** Opens the options of the PC on this card, as a long press does. */

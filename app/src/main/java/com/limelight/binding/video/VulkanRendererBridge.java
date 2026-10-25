@@ -12,6 +12,9 @@ import com.limelight.LimeLog;
  * surface at the vsync its frame pacing mode picks.
  */
 public class VulkanRendererBridge {
+    /** A present report's screen time when the screen could not tell (a front buffer, say). */
+    public static final long NO_SCANOUT = -1;
+
     private static Boolean supported;
     private static String unsupportedReason;
 
@@ -180,15 +183,17 @@ public class VulkanRendererBridge {
     }
 
     /**
-     * When frames reached the screen since the last call. out gets pairs of the timestamp a frame
-     * was queued to the decoder with (microseconds) and the time it was shown (System.nanoTime()
-     * clock); the result is the number of pairs. Frames dropped or replaced never appear.
+     * How frames ended up since the last call. out gets triples of the timestamp a frame was queued
+     * to the decoder with (microseconds), the time vkQueuePresentKHR was called for it and the time
+     * it reached the screen (both on the System.nanoTime() clock); the result is the number of
+     * triples. A screen time of 0 means the frame never reached the screen (the queue time is 0
+     * too), and {@link #NO_SCANOUT} that the screen could not tell.
      */
     public synchronized int takePresentReports(long[] out) {
         if (handle == 0) return 0;
         int n = nativeTakePresentReports(handle, out);
         for (int i = 0; i < n; i++) {
-            out[2 * i] /= 1000;
+            out[3 * i] /= 1000;
         }
         return n;
     }

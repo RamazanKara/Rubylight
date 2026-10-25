@@ -137,15 +137,19 @@ public:
 
     // Whether the screen tells us when each frame was shown (VK_GOOGLE_display_timing). Without it
     // there are no present reports. With it, every frame the decoder delivers gets exactly one:
-    // when it reached the screen, or that it never did. A frame drawn into a front buffer, or
-    // presented before the display's period is known, gets the time its present was queued.
+    // when its present was queued and when it reached the screen, or that it never did. A frame
+    // drawn into a front buffer, or presented before the display's period is known, has no time
+    // on the screen (kNoScanout).
     bool reportsPresentTimes() const { return hasDisplayTimingExt_; }
 
-    // How each frame ended up, as pairs of the frame's host timestamp (what it was queued to the
-    // decoder with) and the time it reached the screen on our clock, oldest first. A time of 0
-    // means the frame never reached the screen: the pacer dropped or replaced it, or the
-    // compositor did. Returns the number of pairs written to out, at most max; the rest wait for
-    // the next call. Frames the image reader drops before we see them have no report.
+    // How each frame ended up, as triples of the frame's host timestamp (what it was queued to the
+    // decoder with), the time vkQueuePresentKHR was called for it and the time it reached the
+    // screen, both on our clock, oldest first. A screen time of 0 means the frame never reached
+    // the screen (the pacer dropped or replaced it, or the compositor did; the queue time is then
+    // 0 too), and kNoScanout that the screen could not tell. Returns the number of triples written
+    // to out, at most max; the rest wait for the next call. Frames the image reader drops before
+    // we see them have no report.
+    static constexpr int64_t kNoScanout = -1;
     size_t takePresentReports(int64_t* out, size_t max);
 
     // For VideoFrame: the frame with this host timestamp will not be shown
@@ -254,7 +258,7 @@ private:
     void presentNewest(int64_t targetVsyncNs = 0);
     void collectPresentTimings();
     // Queues a present report; presentNs 0 for a frame that was not shown
-    void reportPresent(int64_t hostPtsNs, int64_t presentNs);
+    void reportPresent(int64_t hostPtsNs, int64_t queuedNs, int64_t presentNs);
     bool ensureSwapchain();
     bool createSwapchain();
     // Draws nothing while the output window has no size (during a rotation or a window change)
@@ -339,6 +343,7 @@ private:
         bool originSynced = false;
         bool onArrival = false;  // Shown on arrival (mailbox), tagged only for its report
         int64_t hostPtsNs = 0;   // To tell Java when the frame reached the screen, if it's counted at this present
+        int64_t queuedNs = 0;    // When vkQueuePresentKHR was called for it
     };
 
     // Host frame timing with display timing: present frames as they arrive, asking for the
@@ -513,6 +518,7 @@ private:
     std::atomic<uint32_t> presentedFrames_ {0};
     struct PresentReport {
         int64_t hostPtsNs;
+        int64_t queuedNs;
         int64_t presentNs;
     };
     std::deque<PresentReport> presentReports_;  // Under latencyMutex_

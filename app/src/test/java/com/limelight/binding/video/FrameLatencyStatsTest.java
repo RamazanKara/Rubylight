@@ -273,6 +273,36 @@ public class FrameLatencyStatsTest {
     }
 
     @Test
+    public void vulkanDisplayWaitEndsWhenThePresentIsQueuedAndScanoutIsOnlyLogged() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 123, 1000000, 15000000, 20000000, (char) 0);
+        stats.onDecoderQueued(123, 20000000);
+        stats.onDecoderOutput(0, 123, 22750000);
+        stats.onOutputReleased(0, 23000000, true, true);
+        // Queued 0.75 ms after decoding, on the screen 20.5 ms after decoding
+        stats.onFrameShown(123, 23500000, 43250000, 44000000);
+
+        double[][] summary = stats.summarize();
+        assertArrayEquals(new double[] {1, 0.75, 0.75, 0.75}, summary[2], 0);
+        String line = stats.takeScanoutLatency();
+        assertTrue(line, line.contains("scanout latency") && line.contains("avg 20.5 ms") && line.contains("1 frames"));
+        assertNull(stats.takeScanoutLatency());
+    }
+
+    @Test
+    public void aFrameTheScreenCannotTimeStillHasItsDisplayWaitButNoScanoutLatency() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 123, 1000000, 15000000, 20000000, (char) 0);
+        stats.onDecoderQueued(123, 20000000);
+        stats.onDecoderOutput(0, 123, 22750000);
+        stats.onOutputReleased(0, 23000000, true, true);
+        stats.onFrameShown(123, 23500000, -1, 24000000);
+
+        assertArrayEquals(new double[] {1, 0.75, 0.75, 0.75}, stats.summarize()[2], 0);
+        assertNull(stats.takeScanoutLatency());
+    }
+
+    @Test
     public void supportedThousandFpsStreamKeepsFramesUntilTheCallbackTimeout() {
         FrameLatencyStats stats = new FrameLatencyStats(true);
         for (int i = 1; i <= 8000; i++) {

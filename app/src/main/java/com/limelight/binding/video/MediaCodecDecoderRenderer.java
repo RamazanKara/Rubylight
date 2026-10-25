@@ -118,8 +118,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // The screen tells the renderer when frames are shown, so frames wait for that report to count
     // as rendered, like MediaCodec's frame rendered callbacks on the direct path
     private boolean vulkanPresentReports;
-    private boolean vulkanFrontBufferLogged;
-    private final long[] vulkanReports = new long[2 * 256];
+    private final long[] vulkanReports = new long[3 * 256];
+    private long lastScanoutLogNs;
     // The Vulkan notice (why it is unused, or that it replaces the upscaler) is shown once per stream
     private boolean vulkanNoticeShown;
     private volatile boolean stopping;
@@ -282,25 +282,30 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (vulkan == null) return;
         String fatal = vulkan.getFatalReason();
         if (fatal != null) failVulkan(fatal);
-        if (!vulkanFrontBufferLogged && vulkan.isFrontBufferActive()) {
-            vulkanFrontBufferLogged = true;
-            LimeLog.info("Vulkan front buffer: render latency is measured to the time a frame is " +
-                    "queued, not to scanout");
-        }
         if (!vulkanPresentReports) return;
         // How each frame ended up takes the place of MediaCodec's frame rendered callback, which
-        // on this path only says a frame was handed to the renderer. Time 0: it was never shown.
+        // on this path only says a frame was handed to the renderer. Display wait counts to the
+        // time the present was queued, as the codec's render time does on the direct path; the
+        // screen time is only logged. Screen time 0: it was never shown.
         long nowNs = System.nanoTime();
         int n;
         while ((n = vulkan.takePresentReports(vulkanReports)) > 0) {
             for (int i = 0; i < n; i++) {
-                if (vulkanReports[2 * i + 1] == 0) {
-                    frameLatencyStats.onFrameReplaced(vulkanReports[2 * i]);
+                long ptsUs = vulkanReports[3 * i];
+                long queuedNs = vulkanReports[3 * i + 1];
+                long scanoutNs = vulkanReports[3 * i + 2];
+                if (scanoutNs == 0) {
+                    frameLatencyStats.onFrameReplaced(ptsUs);
                 } else {
-                    frameLatencyStats.onFrameRendered(vulkanReports[2 * i], vulkanReports[2 * i + 1], nowNs);
+                    frameLatencyStats.onFrameShown(ptsUs, queuedNs, scanoutNs, nowNs);
                 }
             }
-            if (n < vulkanReports.length / 2) break;
+            if (n < vulkanReports.length / 3) break;
+        }
+        if (nowNs - lastScanoutLogNs >= 5_000_000_000L) {
+            lastScanoutLogNs = nowNs;
+            String line = frameLatencyStats.takeScanoutLatency();
+            if (line != null) LimeLog.info(line);
         }
     }
 
@@ -1026,9 +1031,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (renderer != null) {
             vulkanPresentReports = renderer.reportsPresentTimes();
             LimeLog.info("Using Vulkan renderer; the screen " + (vulkanPresentReports ?
-                    "reports when frames are shown" :
-                    "does not report when frames are shown; render latency is measured to the time a " +
-                    "frame is queued, not to scanout"));
+                    "reports when frames are shown" : "does not report when frames are shown"));
             renderer.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
             if (Boolean.TRUE.equals(currentHdrMode)) {
                 renderer.setHdrMode(true, currentHdrMetadata);

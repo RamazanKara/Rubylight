@@ -108,6 +108,10 @@ class FrameLatencyStats {
         }
     };
     private long artemisDecodeMs;
+    // Decoded to scanout, from the Vulkan renderer's display timing; logged, not shown
+    private long scanoutTotalNs;
+    private long scanoutMaxNs;
+    private int scanoutFrames;
 
     FrameLatencyStats() {
         this(false);
@@ -385,6 +389,42 @@ class FrameLatencyStats {
             }
             finish(frame, valid ? "rendered" : "invalid_render_time");
         }
+    }
+
+    /**
+     * The Vulkan renderer's report of a shown frame: the time its present was queued, which is the
+     * moment "display wait" counts to, as the codec's render time is on the direct path, and the
+     * time it reached the screen (0 or less when the screen could not tell), which only goes to
+     * {@link #takeScanoutLatency()}.
+     */
+    synchronized void onFrameShown(long ptsUs, long queuedNs, long scanoutNs, long callbackReceivedNs) {
+        Frame frame = pending.get(ptsUs);
+        if (frame == null) {
+            return;
+        }
+        if (scanoutNs > 0 && frame.outputNs > 0 && scanoutNs >= frame.outputNs) {
+            long ns = scanoutNs - frame.outputNs;
+            scanoutTotalNs += ns;
+            scanoutMaxNs = Math.max(scanoutMaxNs, ns);
+            scanoutFrames++;
+        }
+        onFrameRendered(ptsUs, queuedNs > 0 ? queuedNs : scanoutNs, callbackReceivedNs);
+    }
+
+    /**
+     * Decoded to scanout since the last call, as a line for the log, or null without frames. It is
+     * not display wait: it adds the compositor's queueing to what display wait counts.
+     */
+    synchronized String takeScanoutLatency() {
+        if (scanoutFrames == 0) {
+            return null;
+        }
+        String line = String.format(Locale.US, "Vulkan scanout latency (decoded to on screen): avg %.1f ms, max %.1f ms, %d frames",
+                scanoutTotalNs / 1e6 / scanoutFrames, scanoutMaxNs / 1e6, scanoutFrames);
+        scanoutTotalNs = 0;
+        scanoutMaxNs = 0;
+        scanoutFrames = 0;
+        return line;
     }
 
     /**

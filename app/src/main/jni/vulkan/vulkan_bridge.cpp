@@ -176,11 +176,11 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeTakePresentReports(J
     if (!renderer || !out) {
         return 0;
     }
-    const jsize capacity = env->GetArrayLength(out) / 2;
-    std::vector<int64_t> reports(static_cast<size_t>(capacity) * 2);
+    const jsize capacity = env->GetArrayLength(out) / 3;
+    std::vector<int64_t> reports(static_cast<size_t>(capacity) * 3);
     const size_t n = renderer->takePresentReports(reports.data(), static_cast<size_t>(capacity));
     if (n > 0) {
-        env->SetLongArrayRegion(out, 0, static_cast<jsize>(n * 2), reinterpret_cast<const jlong*>(reports.data()));
+        env->SetLongArrayRegion(out, 0, static_cast<jsize>(n * 3), reinterpret_cast<const jlong*>(reports.data()));
     }
     return static_cast<jint>(n);
 }

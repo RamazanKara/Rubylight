@@ -655,19 +655,19 @@ VideoFrame::~VideoFrame() {
     if (image) ndk->AImage_delete(image);
 }
 
-void VulkanRenderer::reportPresent(int64_t hostPtsNs, int64_t presentNs) {
+void VulkanRenderer::reportPresent(int64_t hostPtsNs, int64_t queuedNs, int64_t presentNs) {
     if (!hasDisplayTimingExt_ || hostPtsNs == 0) {
         return;
     }
     std::lock_guard<std::mutex> lock(latencyMutex_);
-    presentReports_.push_back({hostPtsNs, presentNs});
+    presentReports_.push_back({hostPtsNs, queuedNs, presentNs});
     while (presentReports_.size() > kMaxPresentReports) {
         presentReports_.pop_front();
     }
 }
 
 void VulkanRenderer::reportDropped(int64_t hostPtsNs) {
-    reportPresent(hostPtsNs, 0);
+    reportPresent(hostPtsNs, 0, 0);
 }
 
 void VulkanRenderer::waitIdle() {
@@ -1888,13 +1888,15 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
         if (pendingPresents_.size() > 256) {
             // Reports lost across a swapchain rebuild never arrive
             while (!pendingPresents_.empty() && pendingPresents_.begin()->first + 128 < presentId) {
-                reportPresent(pendingPresents_.begin()->second.hostPtsNs, 0);
+                reportPresent(pendingPresents_.begin()->second.hostPtsNs, 0, 0);
                 pendingPresents_.erase(pendingPresents_.begin());
             }
         }
     }
+    int64_t presentCallNs = 0;
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
+        presentCallNs = nowNs();
         result = vk_.vkQueuePresentKHR(queue_, &present);
     }
     // The render's CPU time for the performance hint session, without waiting for the GPU or a
@@ -1910,6 +1912,9 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
         failed.hostPtsNs = 0;
         frame->presentCounted = false;
     }
+    if (shown && countedAtTag) {
+        pendingPresents_[taggedPresentId].queuedNs = presentCallNs;
+    }
     if (shown && !frame->presentQueued) {
         frame->presentQueued = true;
         if (!frame->presentCounted) {
@@ -1922,7 +1927,7 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
                 std::lock_guard<std::mutex> lock(latencyMutex_);
                 countLatency(captureLatency_.presented, queuedNs - frame->originNs, frame->originSynced);
             }
-            reportPresent(frame->timing.hostPtsNs, queuedNs);
+            reportPresent(frame->timing.hostPtsNs, presentCallNs, kNoScanout);
         }
     }
     if (presentId != 0) {
@@ -1992,7 +1997,7 @@ void VulkanRenderer::collectPresentTimings() {
                 presentScheduler_.onAheadOutcome(it->second.slackNs, it->second.vsyncNs, it->second.delayVsyncs,
                                                  false, 0, 0, 0, currentPeriodNs_);
             }
-            reportPresent(it->second.hostPtsNs, 0);
+            reportPresent(it->second.hostPtsNs, 0, 0);
             it = pendingPresents_.erase(it);
         }
 
@@ -2027,10 +2032,11 @@ void VulkanRenderer::collectPresentTimings() {
                                  static_cast<int64_t>(t.actualPresentTime) - pending->second.originNs,
                                  pending->second.originSynced);
                 }
-                reportPresent(pending->second.hostPtsNs, static_cast<int64_t>(t.actualPresentTime));
+                reportPresent(pending->second.hostPtsNs, pending->second.queuedNs,
+                              static_cast<int64_t>(t.actualPresentTime));
             }
             else {
-                reportPresent(pending->second.hostPtsNs, 0);
+                reportPresent(pending->second.hostPtsNs, 0, 0);
             }
             pendingPresents_.erase(pending);
         }
@@ -2126,8 +2132,9 @@ size_t VulkanRenderer::takePresentReports(int64_t* out, size_t max) {
     std::lock_guard<std::mutex> lock(latencyMutex_);
     size_t n = 0;
     while (n < max && !presentReports_.empty()) {
-        out[2 * n] = presentReports_.front().hostPtsNs;
-        out[2 * n + 1] = presentReports_.front().presentNs;
+        out[3 * n] = presentReports_.front().hostPtsNs;
+        out[3 * n + 1] = presentReports_.front().queuedNs;
+        out[3 * n + 2] = presentReports_.front().presentNs;
         presentReports_.pop_front();
         n++;
     }

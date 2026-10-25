@@ -67,6 +67,21 @@ enum Message {
 pub struct InputHandle(mpsc::Sender<Message>);
 
 impl InputHandle {
+    /// A handle with no worker behind it, and the texts it was given for the `gamepad` channel.
+    #[cfg(test)]
+    pub(crate) fn probe() -> (Self, impl FnMut() -> Vec<String>) {
+        let (tx, rx) = mpsc::channel();
+        let drain = move || {
+            rx.try_iter()
+                .filter_map(|m| match m {
+                    Message::Gamepad(text, _) => Some(text),
+                    _ => None,
+                })
+                .collect()
+        };
+        (Self(tx), drain)
+    }
+
     /// A text frame from the `gamepad` channel, received at `now`. A binary or non-UTF-8 frame is
     /// not part of the protocol and is dropped with a warning.
     pub fn gamepad(&self, data: Vec<u8>, binary: bool, now: Instant) {

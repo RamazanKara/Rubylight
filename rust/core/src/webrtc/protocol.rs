@@ -419,6 +419,28 @@ pub fn is_keyframe_request(text: &str) -> bool {
         .is_some_and(|v| v.get("type").and_then(Value::as_str) == Some("request-keyframe"))
 }
 
+/// What the host does with a text message on the `control` DataChannel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlMessage {
+    KeyframeRequest,
+    /// A `gamepad-connected` or `gamepad-disconnected` announcement. Clients
+    /// following the reference host send these here, not on `gamepad`.
+    GamepadAnnouncement,
+    Other,
+}
+
+/// Sorts a `control` channel text message.
+pub fn classify_control(text: &str) -> ControlMessage {
+    let kind = serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned));
+    match kind.as_deref() {
+        Some("request-keyframe") => ControlMessage::KeyframeRequest,
+        Some("gamepad-connected" | "gamepad-disconnected") => ControlMessage::GamepadAnnouncement,
+        _ => ControlMessage::Other,
+    }
+}
+
 /// One entry of the `apps` list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1100,5 +1122,29 @@ mod tests {
         assert!(!is_keyframe_request(r#"{"type":"rumble"}"#));
         assert!(!is_keyframe_request(r#"{"note":"request-keyframe"}"#));
         assert!(!is_keyframe_request("request-keyframe"));
+    }
+
+    #[test]
+    fn control_messages_are_sorted_by_type() {
+        assert_eq!(
+            classify_control(r#"{"type":"request-keyframe"}"#),
+            ControlMessage::KeyframeRequest
+        );
+        for kind in ["gamepad-connected", "gamepad-disconnected"] {
+            assert_eq!(
+                classify_control(&format!(r#"{{"v":2,"type":"{kind}","controllerId":0}}"#)),
+                ControlMessage::GamepadAnnouncement
+            );
+        }
+        // State snapshots belong on the gamepad channel only.
+        assert_eq!(
+            classify_control(r#"{"type":"gamepad-state"}"#),
+            ControlMessage::Other
+        );
+        assert_eq!(classify_control("not json"), ControlMessage::Other);
+        assert_eq!(
+            classify_control(r#"{"note":"gamepad-connected"}"#),
+            ControlMessage::Other
+        );
     }
 }

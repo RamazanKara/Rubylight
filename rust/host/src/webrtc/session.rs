@@ -33,8 +33,8 @@ use butterpollo_core::{
     webrtc::{
         capabilities::{Codec, FrameRateOffer, HostCapabilities, StreamSettings},
         protocol::{
-            AudioSettings, ErrorCode, HostSessionState, ServerMessage, SessionState, VideoSettings,
-            is_keyframe_request,
+            AudioSettings, ControlMessage, ErrorCode, HostSessionState, ServerMessage,
+            SessionState, VideoSettings, classify_control,
         },
     },
 };
@@ -305,10 +305,20 @@ impl Bridge {
                 data,
                 binary: false,
             } => {
-                if std::str::from_utf8(&data).is_ok_and(is_keyframe_request)
-                    && let Some(session) = self.session()
-                {
-                    session.request_client_keyframe();
+                match std::str::from_utf8(&data).map(classify_control) {
+                    Ok(ControlMessage::KeyframeRequest) => {
+                        if let Some(session) = self.session() {
+                            session.request_client_keyframe();
+                        }
+                    }
+                    // Reference-style clients announce their pads here; the
+                    // snapshots that follow on `gamepad` are ignored without it.
+                    Ok(ControlMessage::GamepadAnnouncement) => {
+                        if let Some(input) = self.input() {
+                            input.gamepad(data, false, Instant::now());
+                        }
+                    }
+                    _ => {}
                 }
             }
             TransportEvent::Gamepad { data, binary } => {
@@ -1352,6 +1362,39 @@ mod tests {
             binary: false,
         });
         assert_eq!(requested(&session), (true, 1));
+    }
+
+    #[test]
+    fn pad_announcements_on_the_control_channel_reach_the_gamepad_worker_and_state_does_not() {
+        let f = Fixture::new();
+        let session = session(&f);
+        let (bridge, _events) = bridge();
+        bridge.bind(&session);
+        let (input, mut received) = InputHandle::probe();
+        bridge.attach_input(input);
+        let connected = br#"{"v":2,"type":"gamepad-connected","controllerId":0}"#;
+        let gone = br#"{"v":2,"type":"gamepad-disconnected","controllerId":0}"#;
+        let state = br#"{"v":2,"type":"gamepad-state","controllerId":0}"#;
+        for (data, binary) in [
+            (&connected[..], false),
+            (&state[..], false),
+            (&gone[..], false),
+            (&connected[..], true),
+        ] {
+            bridge.event(TransportEvent::Control {
+                data: data.to_vec(),
+                binary,
+            });
+        }
+        let texts = received();
+        assert_eq!(
+            texts,
+            [
+                String::from_utf8_lossy(connected).into_owned(),
+                String::from_utf8_lossy(gone).into_owned()
+            ]
+        );
+        assert_eq!(requested(&session), (false, 0));
     }
 
     #[test]

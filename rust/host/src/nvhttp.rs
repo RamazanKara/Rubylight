@@ -1194,15 +1194,8 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         {
             return Err(LaunchFailure(503, butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH).into());
         }
-        let mut launch = build_launch_session(
-            &connection,
-            &args,
-            client,
-            app_id,
-            role,
-            key,
-            key_id,
-        );
+        let mut launch =
+            build_launch_session(&connection, &args, client, app_id, role, key, key_id);
         launch.background = Some(validate_background_launch(&h, &launch)?);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
@@ -1467,6 +1460,27 @@ pub(crate) fn launch_webrtc(
         }
         _ => WebRtcLaunchError::Failed(format!("{error:#}")),
     })
+}
+/// Stop every stream, and the running app with them when `terminate_app` is set, as the `cancel`
+/// request does, for WebRTC's stop-host-session and switch-session. False when a stream worker
+/// outlived the wait.
+pub(crate) fn stop_streams(h: &Shared, terminate_app: bool) -> bool {
+    let _transition = h.launch_transition.lock().unwrap();
+    let (canceled, ids) = {
+        let mut sessions = h.sessions.lock().unwrap();
+        let ids: Vec<String> = sessions
+            .active
+            .keys()
+            .chain(sessions.teardown.keys())
+            .cloned()
+            .collect();
+        (sessions.stop_role(Role::Stream, None), ids)
+    };
+    drop(canceled);
+    if terminate_app {
+        h.stop_app();
+    }
+    wait_for_teardown(&h.sessions, &ids, Duration::from_secs(10))
 }
 fn validate_launch_client(
     h: &Shared,

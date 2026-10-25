@@ -421,10 +421,10 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     tasks.spawn(rtsp_server::serve(
         (bind, ports.rtsp).into(),
         h.clone(),
-        media,
+        media.clone(),
     ));
     // None when the setting is off or the port is taken; the console says which.
-    let webrtc = webrtc::server::start(h.clone(), bind);
+    let webrtc = webrtc::server::start(h.clone(), bind, Some(media));
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
         web_port = ports.web,

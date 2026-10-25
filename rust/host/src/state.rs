@@ -169,6 +169,8 @@ pub struct Host {
     /// empty `certificate` is a WebRTC device (see `webrtc::clients`).
     pub pins: Mutex<BTreeMap<String, PendingPin>>,
     pub webrtc: crate::webrtc::clients::Registry,
+    /// The media transport of each WebRTC session between its signalling task and its stream.
+    pub webrtc_links: crate::webrtc::session::Links,
     pub otp: Mutex<Option<OneTimePin>>,
     pub web_sessions: Mutex<HashMap<String, WebSession>>,
     pub stop: std::sync::atomic::AtomicBool,
@@ -409,6 +411,7 @@ impl Host {
             pairings: Mutex::new(Pairings::default()),
             pins: Mutex::new(BTreeMap::new()),
             webrtc: crate::webrtc::clients::Registry::new(),
+            webrtc_links: Default::default(),
             otp: Mutex::new(None),
             web_sessions: Mutex::new(web_sessions),
             stop: std::sync::atomic::AtomicBool::new(false),

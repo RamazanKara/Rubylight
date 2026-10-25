@@ -456,6 +456,13 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     } else {
         config.values.remove(butterpollo_core::background::SETTING);
     }
+    // WebRTC takes whole access units: the browser's depacketizer wants a frame, not the
+    // slices a GameStream client would reassemble from the wire.
+    if launch.transport == butterpollo_core::session::Transport::WebRtc {
+        config
+            .values
+            .insert("video_slice_delivery".into(), "off".into());
+    }
     Ok(config)
 }
 fn apply_overrides(
@@ -1298,6 +1305,7 @@ impl Media {
                 let mut client_commands = None;
                 let mut audio = None;
                 let mut pyrowave_sender = None;
+                let mut webrtc_sender = None;
                 let mut keyframe_loss_memory = None;
                 // Ends the host-side timing record's writer, which writes its footer, on every
                 // way out of the stream.
@@ -1402,7 +1410,10 @@ impl Media {
                     drop(first);
                     let mut staging = None;
                     client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
-                    audio = Some(m.spawn_audio(&h, &s)?);
+                    // A WebRTC stream's audio is not wired yet (B4b); it has no GameStream audio socket.
+                    if s.launch.transport == butterpollo_core::session::Transport::GameStream {
+                        audio = Some(m.spawn_audio(&h, &s)?);
+                    }
                     let requested_fec = c.integer("fec_percentage", 20);
                     if requested_fec != requested_fec.clamp(0, 100) {
                         s.launch.warnings.set("network_fec_config", format!("FEC percentage {requested_fec} is outside 0-100; using {}%. Correct fec_percentage in Video settings.", requested_fec.clamp(0, 100)));
@@ -1455,6 +1466,9 @@ impl Media {
                             media_epoch_qpc_ms: start_qpc_ms,
                         },
                     );
+                    webrtc_sender = if s.launch.transport == butterpollo_core::session::Transport::WebRtc {
+                        Some(crate::webrtc::session::Sender::new(h.webrtc_links.take(&s.launch.id).context("the WebRTC media link is missing for this session")?))
+                    } else { None };
                     pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start,present_stamper.take())?) } else { None };
                     // The stream's size and rate. A client whose display changes can ask
                     // for others mid-stream (0x5532); the encoder is rebuilt from this copy.
@@ -1607,6 +1621,7 @@ impl Media {
                             source.device_recovered(&source.warnings);
                         }
                         if let Some(sender) = &pyrowave_sender { return sender.submit(output,peer,call_latency,processing_started,&mut claims.borrow_mut()); }
+                        if let Some(sender) = &webrtc_sender { return sender.submit(&s,output,call_latency,processing_started,&mut claims.borrow_mut()); }
                         // A large picture or feedback can make even a fast
                         // route block capture. Hand off before that frame sends.
                         let loss_paced = send_thread && video_sender.get().is_none() && s.keyframe_loss_active();
@@ -2227,12 +2242,16 @@ impl Media {
                             }
                             let period = stream_period.get();
                             latest.check()?;
-                            let peer = m
-                                .peers
-                                .lock()
-                                .unwrap()
-                                .get(&(s.launch.id.clone(), false))
-                                .copied();
+                            // A WebRTC client has no video ping: its address is the pair ICE chose.
+                            let peer = match &webrtc_sender {
+                                Some(sender) => sender.peer(),
+                                None => m
+                                    .peers
+                                    .lock()
+                                    .unwrap()
+                                    .get(&(s.launch.id.clone(), false))
+                                    .copied(),
+                            };
                             let Some(peer) = peer else {
                                 if start.elapsed() > crate::network::ping_timeout(&c) {
                                     anyhow::bail!("client video ping timed out");
@@ -2796,6 +2815,9 @@ impl Media {
                     finish_worker(audio, "audio");
                 }
                 drop(pyrowave_sender);
+                // Frees the WebRTC media port; a link the worker never took goes with it.
+                drop(webrtc_sender);
+                h.webrtc_links.discard(&s.launch.id);
                 drop(timing_record);
                 drop(client_commands);
                 drop(encoder);

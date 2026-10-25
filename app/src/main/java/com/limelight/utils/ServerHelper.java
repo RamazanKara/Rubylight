@@ -1,7 +1,10 @@
 package com.limelight.utils;
 
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.content.Intent;
+import android.content.res.Configuration;
+import android.view.View;
 import android.widget.Toast;
 
 import com.limelight.AppView;
@@ -21,6 +24,7 @@ import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
+import com.limelight.ui.Motion;
 
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -115,9 +119,37 @@ public class ServerHelper {
         doStart(parent, app, computer, managerBinder, false);
     }
 
+    /** Starts the game; on a TV the stream's window grows out of {@code origin}, the poster that was chosen. */
+    public static void doStart(Activity parent, NvApp app, ComputerDetails computer,
+                               ComputerManagerService.ComputerManagerBinder managerBinder, View origin) {
+        doStart(parent, app, computer, managerBinder, false, launchOptions(parent, origin));
+    }
+
+    /**
+     * The window animation for opening a game from its poster on a TV: the system scales the new window up from the
+     * poster in the compositor, in parallel with the stream starting, and nothing waits for it. None on other devices,
+     * under Reduce motion, or without a poster to start from.
+     */
+    public static android.os.Bundle launchOptions(Activity parent, View origin) {
+        boolean television = (parent.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
+                == Configuration.UI_MODE_TYPE_TELEVISION;
+        if (!television || origin == null || Motion.reduced(parent)) return null;
+        // A library cell holds its poster inside the room for its glow: the window grows out of the poster itself.
+        View poster = origin.findViewById(R.id.grid_card);
+        if (poster != null) origin = poster;
+        if (origin.getWidth() <= 0 || origin.getHeight() <= 0) return null;
+        return ActivityOptions.makeScaleUpAnimation(origin, 0, 0, origin.getWidth(), origin.getHeight()).toBundle();
+    }
+
     /** Starts the game; with {@code smallStreamInputOnly}, as Input-only over a small stream this device does not show. */
     public static void doStart(Activity parent, NvApp app, ComputerDetails computer,
                                ComputerManagerService.ComputerManagerBinder managerBinder, boolean smallStreamInputOnly) {
+        doStart(parent, app, computer, managerBinder, smallStreamInputOnly, null);
+    }
+
+    private static void doStart(Activity parent, NvApp app, ComputerDetails computer,
+                                ComputerManagerService.ComputerManagerBinder managerBinder, boolean smallStreamInputOnly,
+                                android.os.Bundle options) {
         if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
             Toast.makeText(parent, parent.getResources().getString(R.string.pair_pc_offline), Toast.LENGTH_SHORT).show();
             return;
@@ -126,7 +158,7 @@ public class ServerHelper {
         if (smallStreamInputOnly) {
             intent.putExtra(Game.EXTRA_SMALL_STREAM_INPUT_ONLY, true);
         }
-        parent.startActivity(intent);
+        parent.startActivity(intent, options);
     }
 
     public static void doQuit(final Activity parent,

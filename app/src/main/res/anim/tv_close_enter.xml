@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TV screen that is uncovered when the one over it closes: it fades back in. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:interpolator="@interpolator/tv_std">
+    <alpha android:fromAlpha="0" android:toAlpha="1" android:duration="180" />
+</set>

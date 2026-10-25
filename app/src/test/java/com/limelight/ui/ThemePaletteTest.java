@@ -166,6 +166,8 @@ public class ThemePaletteTest {
     public void streamThemeMatchesTheAppThemeExceptForItsFixedNightColours() throws Exception {
         Map<String, String> app = items("Base.Theme.Nightjar");
         Map<String, String> stream = items("Theme.Nightjar.Stream");
+        // The app's windows fade and settle on a TV; the stream window keeps the system's own animation.
+        app.remove("android:windowAnimationStyle");
         assertEquals(app.keySet(), stream.keySet());
         for (Map.Entry<String, String> entry : app.entrySet()) {
             String name = entry.getKey();

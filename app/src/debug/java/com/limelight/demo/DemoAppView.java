@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.widget.AbsListView;
 
 import com.limelight.AppView;
+import com.limelight.utils.ServerHelper;
 
 public final class DemoAppView extends AppView {
     @Override protected void attachBaseContext(Context base) {
@@ -13,7 +14,9 @@ public final class DemoAppView extends AppView {
 
     @Override public void receiveAbsListView(AbsListView list) {
         super.receiveAbsListView(list);
+        // The real item click starts the game from the poster with the same window animation.
         list.setOnItemClickListener((parent, view, position, id) -> startActivity(
-                new Intent(this, DemoGameActivity.class).putExtra("state", "compact")));
+                new Intent(this, DemoGameActivity.class).putExtra("state", "compact"),
+                ServerHelper.launchOptions(this, view)));
     }
 }

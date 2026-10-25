@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TV screen that a new one opens over: it fades out. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:interpolator="@interpolator/tv_std">
+    <alpha android:fromAlpha="1" android:toAlpha="0" android:duration="150" />
+</set>

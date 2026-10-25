@@ -71,6 +71,20 @@ On a TV every stop of a D-pad walk shows a ring, never only Material's faint sta
 
 Pick a card to see the PC the game runs on and the stream settings it will use (resolution, frame rate, bitrate, and which profile layer set them), then **Play** or **Resume**. If another game is running on that PC, the page says that playing this game closes it. **Close game** appears when the PC has granted this device Host control. Without it you get the classic Quit.
 
+When the host lists the game as not installed, **Play** is off and the page says why: "Not installed on Living-room PC". A game the host lists as one it can't start says "Living-room PC can't start this game" instead.
+
+On a TV the page keeps the backdrop Home showed for the card, so opening it doesn't flash. A line of chips sits under the title, in this order: the store with its glyph (Steam, Epic, GOG, Microsoft; gone for an app no store owns), the state with its dot (Running or Suspended on the PC), Installed or Not installed when the host says so, and HDR when the game has it. A screen reader reads the line as one stop.
+
+## On a TV
+
+Home and the PCs screen have their own TV layouts, picked by Android's television mode. The **Interface layout** setting puts them on a handheld too (`--es ui tv` in the demo).
+
+- **Library rows**: Home splits the library into rows: Recently played, one row per store, Other apps (games no store owns) and On your PCs, not added (games the host found in a store but hasn't added). A row shows at most 20 cards. A longer one ends in an **All N games** tile that opens All games under that row's filter.
+- **Cards**: each card has a small store chip. A game that isn't installed is greyed and says Not installed. A game not added says Not added. Pick it and the host adds it when this device may launch games and the host offers that; otherwise the card says **Add it on the PC**. A game not added can't be starred.
+- **All games**: every game of the paired PCs in one poster grid, six across, under a filter chip row: All, Installed, each store the library has, Other apps and Not added. It keeps the focused card when the library refreshes.
+- **PCs**: each PC is a 248 by 152 dp tile, three to a row, centred inside the overscan edge. A PC with a running game shows that game's cover, blurred, under a dark scrim. Other PCs get a tint for their state. Its dot is green when the PC is up, amber while it waits on something and grey when it is away. Focus scales the tile to 1.05 with the amber ring; Reduce motion keeps the ring without the scale. **Add PC** is a pill under the tiles.
+- **Settings**: the sections are a rail on the left with an icon each. An amber bar slides to the current section, and its pane fades in from the side. Right moves into the pane, Left goes back to the rail, and Back from the pane returns to the rail before it leaves Settings. Group headings are in sentence case. Reduce motion turns off the slide and the fade.
+
 ## Session and graphics
 
 Press Back while streaming to open the stream menu, then **Session and graphics**:

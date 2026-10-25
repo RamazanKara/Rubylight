@@ -114,3 +114,22 @@ illustrations (the DEMO label says so), not measurements: do not describe them a
 measured latency, throughput, HDR output, host load or upscaling performance. Use a
 real host session for benchmark claims.
 `out/demo/sources.json` from the renderer records each actual capture used.
+
+## TV stills
+
+The TV screens are stills, not shots of the video. They come from the same debug demo
+on a TV, or on a handheld with `--es ui tv`, which turns on the TV layouts (the
+Interface layout setting). `L` below is
+`adb shell am start -n com.butterpollo.client.debug/com.limelight.demo.DemoLauncherActivity`.
+
+| Still | Command | Then |
+| --- | --- | --- |
+| Home, library rows and store chips | `L --es state home --es host native --es ui tv` | Down to a store row |
+| All games under a store | `L --es state allgames --es host native --es filter store:steam --es ui tv` | none |
+| A game's page, running | `L --es state detail --es host native --ei app 2 --es ui tv` | none |
+| A game's page, not installed | `L --es state detail --es host native --ei app 13 --es ui tv` | none: Cinder Road says "Not installed on Living-room PC" and Play is off |
+| PCs as tiles | `L --es state hosts --es host native --es ui tv` | none |
+| Settings rail | `L --es state settings --es ui tv` | Right into the pane, Left back to the rail, Back to the rail then out |
+
+Frame times for the same screens: `python scripts/tv-perf.py --state library --extra "--es ui tv"`,
+then `--state home --host native` and `--state settings`, each with the same `--extra`.

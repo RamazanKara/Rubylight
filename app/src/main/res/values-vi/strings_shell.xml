@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">Theo hệ thống</string>
     <string name="reduce_motion_reduce">Giảm</string>
     <string name="reduce_motion_full">Đầy đủ</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Bố cục giao diện</string>
+    <string name="summary_ui_mode">“Tự động” theo thiết bị. “TV” bố trí ứng dụng cho TV, dùng tiêu điểm và điều khiển từ xa hoặc tay cầm, ngay cả trên máy chơi game cầm tay hay điện thoại đang nối với TV. “Cầm tay” dùng bố cục cảm ứng cả trên TV. Luồng phát không đổi. Có hiệu lực ngay.</string>
+    <string name="ui_mode_auto">Tự động</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Cầm tay</string>
 </resources>

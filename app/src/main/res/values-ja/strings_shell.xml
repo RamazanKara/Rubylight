@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">システムに従う</string>
     <string name="reduce_motion_reduce">減らす</string>
     <string name="reduce_motion_full">通常</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">画面レイアウト</string>
+    <string name="summary_ui_mode">「自動」は端末に合わせます。「TV」は、テレビにつないだ携帯ゲーム機やスマートフォンでも、フォーカスとリモコンやゲームパッドで操作するテレビ向けのレイアウトにします。「携帯機」はテレビでもタッチ向けのレイアウトを使います。ストリームは変わりません。すぐに反映されます。</string>
+    <string name="ui_mode_auto">自動</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">携帯機</string>
 </resources>

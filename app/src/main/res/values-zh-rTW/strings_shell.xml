@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">跟隨系統</string>
     <string name="reduce_motion_reduce">減少</string>
     <string name="reduce_motion_full">完整</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">介面配置</string>
+    <string name="summary_ui_mode">「自動」會依裝置而定。「電視」會為電視配置應用程式，使用焦點與遙控器或手把，適用於連接電視的掌機或手機。「手持」在電視上也使用觸控配置。串流不受影響。立即生效。</string>
+    <string name="ui_mode_auto">自動</string>
+    <string name="ui_mode_tv">電視</string>
+    <string name="ui_mode_handheld">手持</string>
 </resources>

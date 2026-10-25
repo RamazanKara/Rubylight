@@ -27,4 +27,12 @@
     <string-array name="ui_scale_values" translatable="false"><item>85</item><item>100</item><item>115</item><item>130</item><item>150</item></string-array>
     <string-array name="reduce_motion_names"><item>@string/reduce_motion_system</item><item>@string/reduce_motion_reduce</item><item>@string/reduce_motion_full</item></string-array>
     <string-array name="reduce_motion_values" translatable="false"><item>system</item><item>reduce</item><item>full</item></string-array>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Interface layout</string>
+    <string name="summary_ui_mode">Automatic follows the device. Choose TV to lay the app out for a TV, with focus and a remote or gamepad, on a handheld or phone that is connected to one. Choose Handheld for the touch layouts on a TV. The stream is not changed. Takes effect at once.</string>
+    <string name="ui_mode_auto">Automatic</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Handheld</string>
+    <string-array name="ui_mode_names"><item>@string/ui_mode_auto</item><item>@string/ui_mode_tv</item><item>@string/ui_mode_handheld</item></string-array>
+    <string-array name="ui_mode_values" translatable="false"><item>auto</item><item>tv</item><item>handheld</item></string-array>
 </resources>

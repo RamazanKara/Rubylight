@@ -180,6 +180,7 @@ These tables include every preference, including actions, grouped as the Setting
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
 | Interface size<br>`list_ui_scale` | 100% | 85%; 100%; 115%; 130%; 150% | Raise for large, readable menus on a TV or a small phone; lower to fit more on screen. Scales the whole app layout, not the stream, and the system font size still applies on top. Applies immediately and stays separate from stream profiles. |
+| Interface layout<br>`list_ui_mode` | Automatic | Automatic; TV; Handheld | Automatic follows the device. Choose TV on a handheld or phone that is connected to a TV (a Retroid Pocket docked over HDMI, for example) to get the TV layouts with focus, a remote or gamepad and larger rows; choose Handheld to get the touch layouts on a TV. The stream is not changed. Applies immediately and stays separate from stream profiles. |
 | High contrast<br>`checkbox_high_contrast` | Off | On; Off | Enable for a black background, body-coloured secondary text and outlines (7:1 against the background) and a 4 dp focus ring on every app screen. The stream is unchanged. Applies immediately and stays separate from stream profiles. |
 | Reduce motion<br>`list_reduce_motion` | Follow system | Follow system; Reduce; Full | Follow system reduces motion when Android's animation scale is 0 or animators are off. Reduce always swaps the focus zoom and sheet slide for a plain ring; Full always animates. Applies immediately and stays separate from stream profiles. |
 

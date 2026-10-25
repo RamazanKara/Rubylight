@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">Як у системі</string>
     <string name="reduce_motion_reduce">Зменшити</string>
     <string name="reduce_motion_full">Повна</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Вигляд інтерфейсу</string>
+    <string name="summary_ui_mode">«Автоматично» слідує за пристроєм. «ТБ» оформлює застосунок для телевізора, з фокусом і пультом або геймпадом, на портативній консолі чи телефоні, підключеному до нього. «Портативний» використовує сенсорні макети й на телевізорі. Трансляція не змінюється. Застосовується одразу.</string>
+    <string name="ui_mode_auto">Автоматично</string>
+    <string name="ui_mode_tv">ТБ</string>
+    <string name="ui_mode_handheld">Портативний</string>
 </resources>

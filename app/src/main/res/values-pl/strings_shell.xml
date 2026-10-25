@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">Zgodnie z systemem</string>
     <string name="reduce_motion_reduce">Ogranicz</string>
     <string name="reduce_motion_full">Pełny</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Układ interfejsu</string>
+    <string name="summary_ui_mode">„Automatyczny” podąża za urządzeniem. „TV” układa aplikację pod telewizor, z fokusem i pilotem lub padem, także na konsoli przenośnej lub telefonie podłączonym do telewizora. „Przenośny” używa układów dotykowych również na telewizorze. Strumień się nie zmienia. Działa od razu.</string>
+    <string name="ui_mode_auto">Automatyczny</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Przenośny</string>
 </resources>

@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">跟随系统</string>
     <string name="reduce_motion_reduce">减少</string>
     <string name="reduce_motion_full">完整</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">界面布局</string>
+    <string name="summary_ui_mode">“自动”跟随设备。“电视”会为电视排布应用，使用焦点和遥控器或手柄，适用于连接电视的掌机或手机。“手持”在电视上也使用触控布局。串流不受影响。立即生效。</string>
+    <string name="ui_mode_auto">自动</string>
+    <string name="ui_mode_tv">电视</string>
+    <string name="ui_mode_handheld">手持</string>
 </resources>

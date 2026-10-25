@@ -600,6 +600,13 @@
             android:entries="@array/ui_scale_names"
             android:entryValues="@array/ui_scale_values"
             android:defaultValue="100" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_ui_mode"
+            android:title="@string/title_ui_mode"
+            android:dialogMessage="@string/summary_ui_mode"
+            android:entries="@array/ui_mode_names"
+            android:entryValues="@array/ui_mode_values"
+            android:defaultValue="auto" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_high_contrast"
             android:title="@string/title_high_contrast"

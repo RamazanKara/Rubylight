@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">Как в системе</string>
     <string name="reduce_motion_reduce">Уменьшить</string>
     <string name="reduce_motion_full">Полная</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Вид интерфейса</string>
+    <string name="summary_ui_mode">«Автоматически» следует устройству. «ТВ» оформляет приложение для телевизора, с фокусом и пультом или геймпадом, на портативной консоли или телефоне, подключённом к нему. «Портативный» использует сенсорные макеты и на телевизоре. Трансляция не меняется. Применяется сразу.</string>
+    <string name="ui_mode_auto">Автоматически</string>
+    <string name="ui_mode_tv">ТВ</string>
+    <string name="ui_mode_handheld">Портативный</string>
 </resources>

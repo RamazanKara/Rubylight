@@ -7,6 +7,7 @@ statistics and writes result.json plus screenshots.
 
   python scripts/tv-perf.py --serial emulator-5554 --label main --state library --out out/perf/main
   python scripts/tv-perf.py --serial e24bb88e --package com.butterpollo.client.debug --label branch --state home --host native
+  python scripts/tv-perf.py --serial <phone> --label tv-on-phone --state home --host native --ui tv   # TV layouts on a handheld
 
 Pass criteria (spec section 4): janky % no more than the baseline plus 2 points; 90th percentile at most 16 ms
 when the AVD runs with -gpu host (or on real hardware); no red (4x) overdraw over the grid, which the
@@ -89,6 +90,7 @@ def main():
     parser.add_argument("--package", default="com.butterpollo.client.debug")
     parser.add_argument("--state", default="library", help="demo state: library, home, settings, ...")
     parser.add_argument("--host", help="demo host (sunshine or native; native for Home)")
+    parser.add_argument("--ui", choices=["tv", "handheld"], help="force the TV or handheld interface layout (tv on a handheld)")
     parser.add_argument("--small", choices=["true", "false"], default="false", help="small tiles")
     parser.add_argument("--extra", action="append", default=[], help='more launcher extras, e.g. "--ez roles true"')
     parser.add_argument("--label", default="run")
@@ -104,7 +106,8 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     prefix = f"{args.label}-{args.state}-{'small' if args.small == 'true' else 'large'}"
-    extras = ["--ez small " + args.small] + ([f"--es host {args.host}"] if args.host else []) + args.extra
+    extras = ["--ez small " + args.small] + ([f"--es host {args.host}"] if args.host else []) + \
+        ([f"--es ui {args.ui}"] if args.ui else []) + args.extra
 
     adb.shell("setprop", "debug.hwui.overdraw", "false", check=False)
     launch(adb, args.package, args.state, extras)

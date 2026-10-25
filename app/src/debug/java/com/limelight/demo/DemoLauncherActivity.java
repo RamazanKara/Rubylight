@@ -9,6 +9,7 @@ import android.os.Bundle;
 
 import com.limelight.AppView;
 import com.limelight.console.GameDetailActivity;
+import com.limelight.ui.AppTheme;
 
 import java.io.IOException;
 
@@ -19,6 +20,12 @@ public final class DemoLauncherActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // "--es ui tv" or "--es ui handheld" sets the Interface layout setting (in the demo's own preferences) for this
+        // run; without it the demo uses the automatic layout. "--ez tv true" is the older, TV-only form.
+        String ui = getIntent().getStringExtra("ui");
+        android.preference.PreferenceManager.getDefaultSharedPreferences(this).edit()
+                .putString(AppTheme.UI_MODE, AppTheme.UI_MODE_TV.equals(ui) ? AppTheme.UI_MODE_TV
+                        : AppTheme.UI_MODE_HANDHELD.equals(ui) ? AppTheme.UI_MODE_HANDHELD : AppTheme.UI_MODE_AUTO).commit();
         if ("input-workspace".equals(getIntent().getStringExtra("state"))) {
             Intent preview = new Intent(this, DemoInputWorkspaceActivity.class);
             if (getIntent().getExtras() != null) preview.putExtras(getIntent().getExtras());
@@ -36,7 +43,8 @@ public final class DemoLauncherActivity extends Activity {
             finish();
             return;
         }
-        DemoContext.forceTelevision = getIntent().getBooleanExtra("tv", false);
+        // The demo screens that are not NightjarActivities have no setting to read; they follow the wrapper.
+        DemoContext.forceTelevision = getIntent().getBooleanExtra("tv", false) || AppTheme.UI_MODE_TV.equals(ui);
         DemoFixtures.smallTiles = getIntent().getBooleanExtra("small", true);
         DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));

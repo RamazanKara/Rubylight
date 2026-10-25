@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">시스템 설정 따르기</string>
     <string name="reduce_motion_reduce">줄이기</string>
     <string name="reduce_motion_full">전체</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">화면 레이아웃</string>
+    <string name="summary_ui_mode">「자동」은 기기를 따릅니다. 「TV」는 TV에 연결한 휴대용 게임기나 휴대폰에서도 포커스와 리모컨 또는 게임패드로 쓰는 TV용 레이아웃으로 앱을 구성합니다. 「휴대용」은 TV에서도 터치용 레이아웃을 씁니다. 스트림은 바뀌지 않습니다. 바로 적용됩니다.</string>
+    <string name="ui_mode_auto">자동</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">휴대용</string>
 </resources>

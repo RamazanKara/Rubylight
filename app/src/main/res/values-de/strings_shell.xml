@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">Systemeinstellung</string>
     <string name="reduce_motion_reduce">Reduziert</string>
     <string name="reduce_motion_full">Voll</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Oberfläche</string>
+    <string name="summary_ui_mode">„Automatisch“ richtet sich nach dem Gerät. „TV“ legt die App für einen Fernseher aus (Fokus, Fernbedienung oder Controller), etwa auf einem Handheld oder Handy, das an einen angeschlossen ist. „Handheld“ zeigt die Touch-Layouts auch auf einem Fernseher. Der Stream bleibt unverändert. Wirkt sofort.</string>
+    <string name="ui_mode_auto">Automatisch</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Handheld</string>
 </resources>

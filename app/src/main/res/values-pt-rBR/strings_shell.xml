@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">Seguir o sistema</string>
     <string name="reduce_motion_reduce">Reduzir</string>
     <string name="reduce_motion_full">Completo</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Layout da interface</string>
+    <string name="summary_ui_mode">“Automático” segue o dispositivo. “TV” organiza o app para uma TV, com foco e controle remoto ou gamepad, em um portátil ou celular conectado a uma. “Portátil” usa os layouts de toque também em uma TV. A transmissão não muda. Vale na hora.</string>
+    <string name="ui_mode_auto">Automático</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Portátil</string>
 </resources>

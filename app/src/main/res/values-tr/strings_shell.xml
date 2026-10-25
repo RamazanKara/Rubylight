@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">Sistemi izle</string>
     <string name="reduce_motion_reduce">Azalt</string>
     <string name="reduce_motion_full">Tam</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Arayüz düzeni</string>
+    <string name="summary_ui_mode">“Otomatik” cihazı izler. “TV”, bir televizyona bağlı el konsolunda veya telefonda bile uygulamayı odak ve kumanda ya da oyun kolu için TV düzeniyle gösterir. “El cihazı” televizyonda da dokunmatik düzenleri kullanır. Yayın değişmez. Hemen uygulanır.</string>
+    <string name="ui_mode_auto">Otomatik</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">El cihazı</string>
 </resources>

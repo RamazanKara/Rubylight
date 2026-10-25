@@ -21,6 +21,14 @@ public final class AppTheme {
     public static final int DEFAULT_UI_SCALE = 100;
     /** The steps of the Interface size setting; arrays.xml lists the same values. */
     static final int[] UI_SCALES = {85, 100, 115, 130, 150};
+    /**
+     * Which interface the app lays out: the device's own, or the TV or handheld one whatever the device is. A handheld
+     * docked to a TV wants the TV layouts; every TV check in the app reads the Configuration's uiMode type.
+     */
+    public static final String UI_MODE = "list_ui_mode";
+    public static final String UI_MODE_AUTO = "auto";
+    public static final String UI_MODE_TV = "tv";
+    public static final String UI_MODE_HANDHELD = "handheld";
 
     private AppTheme() { }
 
@@ -39,6 +47,15 @@ public final class AppTheme {
         return parseScale(PreferenceManager.getDefaultSharedPreferences(context).getString(UI_SCALE, null));
     }
 
+    /** The chosen interface: automatic, tv or handheld; anything else counts as automatic. */
+    public static String uiMode(Context context) {
+        return parseUiMode(PreferenceManager.getDefaultSharedPreferences(context).getString(UI_MODE, null));
+    }
+
+    static String parseUiMode(String value) {
+        return UI_MODE_TV.equals(value) || UI_MODE_HANDHELD.equals(value) ? value : UI_MODE_AUTO;
+    }
+
     static int parseScale(String value) {
         if (value == null) return DEFAULT_UI_SCALE;
         try {
@@ -51,23 +68,32 @@ public final class AppTheme {
     }
 
     /**
-     * The context with the density multiplied by the interface size, so a screen's layout scales as a whole and
-     * not only its text; the system font size still applies on top. The width and height in dp shrink to match,
-     * which is what picks the layout qualifiers (a phone at 150 % lays out like a narrower phone).
+     * The context with the interface type and size applied. The density is multiplied by the interface size, so a
+     * screen's layout scales as a whole and not only its text; the system font size still applies on top. The width
+     * and height in dp shrink to match, which is what picks the layout qualifiers (a phone at 150 % lays out like a
+     * narrower phone). The interface type replaces the uiMode type bits (and so picks the -television resources and
+     * the TV checks) and keeps the night bits.
      */
     public static Context scaled(Context context) {
         int percent = uiScalePercent(context);
-        if (percent == DEFAULT_UI_SCALE) return context;
+        String mode = uiMode(context);
+        int type = UI_MODE_TV.equals(mode) ? Configuration.UI_MODE_TYPE_TELEVISION : Configuration.UI_MODE_TYPE_NORMAL;
+        boolean retype = !UI_MODE_AUTO.equals(mode) &&
+                (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK) != type;
+        if (percent == DEFAULT_UI_SCALE && !retype) return context;
         Configuration config = new Configuration(context.getResources().getConfiguration());
-        if (config.densityDpi == Configuration.DENSITY_DPI_UNDEFINED) {
-            config.densityDpi = context.getResources().getDisplayMetrics().densityDpi;
-        }
-        float factor = percent / 100f;
-        config.densityDpi = Math.round(config.densityDpi * factor);
-        if (config.screenWidthDp != Configuration.SCREEN_WIDTH_DP_UNDEFINED) config.screenWidthDp = Math.round(config.screenWidthDp / factor);
-        if (config.screenHeightDp != Configuration.SCREEN_HEIGHT_DP_UNDEFINED) config.screenHeightDp = Math.round(config.screenHeightDp / factor);
-        if (config.smallestScreenWidthDp != Configuration.SMALLEST_SCREEN_WIDTH_DP_UNDEFINED) {
-            config.smallestScreenWidthDp = Math.round(config.smallestScreenWidthDp / factor);
+        if (retype) config.uiMode = (config.uiMode & ~Configuration.UI_MODE_TYPE_MASK) | type;
+        if (percent != DEFAULT_UI_SCALE) {
+            if (config.densityDpi == Configuration.DENSITY_DPI_UNDEFINED) {
+                config.densityDpi = context.getResources().getDisplayMetrics().densityDpi;
+            }
+            float factor = percent / 100f;
+            config.densityDpi = Math.round(config.densityDpi * factor);
+            if (config.screenWidthDp != Configuration.SCREEN_WIDTH_DP_UNDEFINED) config.screenWidthDp = Math.round(config.screenWidthDp / factor);
+            if (config.screenHeightDp != Configuration.SCREEN_HEIGHT_DP_UNDEFINED) config.screenHeightDp = Math.round(config.screenHeightDp / factor);
+            if (config.smallestScreenWidthDp != Configuration.SMALLEST_SCREEN_WIDTH_DP_UNDEFINED) {
+                config.smallestScreenWidthDp = Math.round(config.smallestScreenWidthDp / factor);
+            }
         }
         return context.createConfigurationContext(config);
     }
@@ -75,12 +101,12 @@ public final class AppTheme {
     /** Everything that changes a screen's look and needs it recreated; compared before and after a settings change. */
     static String appearance(Context context) {
         return isOledBlack(context) + "/" + isDark(context) + "/" + isHighContrast(context) + "/" +
-                uiScalePercent(context) + "/" + Motion.reduced(context);
+                uiScalePercent(context) + "/" + uiMode(context) + "/" + Motion.reduced(context);
     }
 
     static boolean affectsAppearance(String key) {
         return key == null || OLED_BLACK.equals(key) || ALWAYS_DARK.equals(key) || HIGH_CONTRAST.equals(key) ||
-                UI_SCALE.equals(key) || Motion.REDUCE_MOTION.equals(key);
+                UI_SCALE.equals(key) || UI_MODE.equals(key) || Motion.REDUCE_MOTION.equals(key);
     }
 
     /** The night palette whatever the system says; OLED black is a darker variant of it. */

@@ -21,4 +21,10 @@
     <string name="reduce_motion_system">Suivre le système</string>
     <string name="reduce_motion_reduce">Réduire</string>
     <string name="reduce_motion_full">Complet</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Disposition de l’interface</string>
+    <string name="summary_ui_mode">« Automatique » suit l’appareil. « TV » dispose l’appli pour un téléviseur, avec focus et télécommande ou manette, sur une console portable ou un téléphone relié à l’un d’eux. « Portable » utilise les dispositions tactiles, même sur un téléviseur. Le flux n’est pas modifié. Effet immédiat.</string>
+    <string name="ui_mode_auto">Automatique</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Portable</string>
 </resources>

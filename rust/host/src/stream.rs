@@ -3996,6 +3996,23 @@ fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
 mod tests {
 
     #[test]
+    fn webrtc_launches_take_whole_frames_whatever_the_host_asks_for() {
+        let f = crate::state::test_support::Fixture::new();
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("video_slice_delivery".into(), "on".into());
+        let client = f.client(u32::MAX);
+        let mut launch = f.launch(client, Role::Stream);
+        let moonlight = effective_config(&f.host, &launch).unwrap();
+        assert_eq!(moonlight.get("video_slice_delivery", ""), "on");
+        launch.transport = butterpollo_core::session::Transport::WebRtc;
+        let webrtc = effective_config(&f.host, &launch).unwrap();
+        assert_eq!(webrtc.get("video_slice_delivery", ""), "off");
+    }
+    #[test]
     fn overrides_saved_for_rtx_hdr_keep_only_the_peak_brightness() {
         let mut config = Config::parse("port = 47989\n").unwrap();
         let overrides = serde_json::json!({

@@ -223,17 +223,35 @@ impl Web {
 
     /// A paired WebRTC device with these permissions, signed in on a new connection.
     async fn device(&self, name: &str, permission: u32) -> Ws {
+        let credentials = self.pair(name, permission);
+        self.sign_in(&credentials).await
+    }
+
+    /// Pair a WebRTC device: its client id and secret.
+    fn pair(&self, name: &str, permission: u32) -> (String, String) {
         let id = hex::encode(crypto::random::<16>());
         let secret = hex::encode(crypto::random::<32>());
         let mut client = PairedClient::paired_over_webrtc(name.into(), &id, &secret);
         client.perm = permission;
         self.harness.h.paired.write().unwrap().clients.push(client);
+        (id, secret)
+    }
+
+    /// The host's id for the device paired as `name`.
+    fn uuid(&self, name: &str) -> String {
+        let paired = self.harness.h.paired.read().unwrap();
+        let client = paired.clients.iter().find(|c| c.name == name);
+        client.expect("the device is paired").uuid.clone()
+    }
+
+    /// A new signalling connection for a paired device.
+    async fn sign_in(&self, (id, secret): &(String, String)) -> Ws {
         let mut ws = Ws::connect(self.signalling).await;
         let nonce = ws.expect("auth-required").await["nonce"]
             .as_str()
             .unwrap()
             .to_owned();
-        ws.send(json!({"version":2,"type":"authenticate","clientId":id,"proof":proof_hex(&secret, &nonce).unwrap()})).await;
+        ws.send(json!({"version":2,"type":"authenticate","clientId":id,"proof":proof_hex(secret, &nonce).unwrap()})).await;
         ws.expect("authenticated").await;
         ws.expect("gateway-status").await;
         ws.expect("capabilities").await;
@@ -253,6 +271,23 @@ impl Web {
         let sessions = self.harness.h.sessions.lock().unwrap();
         assert_eq!(sessions.active.len(), 1);
         sessions.active.values().next().unwrap().clone()
+    }
+
+    /// A Remote Monitor session of another device, which no WebRTC request stops.
+    fn add_monitor(&self) -> Arc<Session> {
+        let fixture = crate::state::test_support::Fixture {
+            host: self.harness.h.clone(),
+        };
+        let monitor = fixture.session(fixture.client(u32::MAX), Role::RemoteMonitor);
+        // Its drop would end the harness host's app and delete its directory.
+        std::mem::forget(fixture);
+        monitor
+    }
+
+    /// The running app belongs to this device, as the launch that started it records.
+    fn own_app(&self, uuid: &str) {
+        let mut app = self.harness.h.current_app.lock().unwrap();
+        app.as_mut().expect("an app is running").owner = uuid.into();
     }
 
     async fn idle(&self) {
@@ -613,5 +648,191 @@ async fn with_the_setting_off_no_media_socket_opens() -> Result<()> {
     );
     assert!(UdpSocket::bind(address(web.media_port)).is_ok());
     assert_eq!(web.harness.h.webrtc_links.len(), 0);
+    Ok(())
+}
+
+/// Start a stream for a signed-in device and wait for its first video.
+async fn stream(web: &Web, ws: &mut Ws) -> Peer {
+    ws.send(web.request("start-session", "h264", false, 2))
+        .await;
+    status(ws, "session-status", "starting").await;
+    let (id, peer) = answer(ws, VideoCodec::H264).await;
+    streaming(ws, id).await;
+    until("video received", WAIT, || peer.count() >= 2).await;
+    peer
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remote_sessions_do_not_hold_up_a_switch_or_stop_host_session() -> Result<()> {
+    let web = Web::new().await?;
+    let mut ws = web.device("TV", u32::MAX).await;
+    let peer = stream(&web, &mut ws).await;
+    web.own_app(&web.uuid("TV"));
+    let monitor = web.add_monitor();
+
+    // Resuming the app stops the stream only: waiting for the monitor would time out.
+    let started = Instant::now();
+    ws.send(web.request("switch-session", "h264", false, 2))
+        .await;
+    status(&mut ws, "host-session-status", "resuming").await;
+    status(&mut ws, "session-status", "stopping").await;
+    status(&mut ws, "session-status", "idle").await;
+    status(&mut ws, "host-session-status", "starting").await;
+    assert!(started.elapsed() < WAIT);
+    drop(peer);
+    let (id, peer) = answer(&mut ws, VideoCodec::H264).await;
+    streaming(&mut ws, id).await;
+
+    // So does ending the app, which its owner may do whoever else is connected.
+    ws.send(json!({"version":2,"type":"stop-host-session"}))
+        .await;
+    status(&mut ws, "host-session-status", "stopping").await;
+    status(&mut ws, "session-status", "stopping").await;
+    status(&mut ws, "session-status", "idle").await;
+    status(&mut ws, "host-session-status", "stopped").await;
+    assert!(web.harness.h.current_app.lock().unwrap().is_none());
+    assert!(!monitor.stopping());
+    assert_eq!(web.harness.h.sessions.lock().unwrap().active.len(), 1);
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_owner_may_end_the_app_while_remote_sessions_are_active() -> Result<()> {
+    let web = Web::new().await?;
+    let mut tv = web.device("TV", u32::MAX).await;
+    let peer = stream(&web, &mut tv).await;
+    web.own_app(&web.uuid("TV"));
+    let session = web.session();
+    let monitor = web.add_monitor();
+
+    // Another device with every permission is refused, as Moonlight's cancel answers a 403,
+    // before anything is announced or stopped.
+    let mut phone = web.device("Phone", u32::MAX).await;
+    phone
+        .send(json!({"version":2,"type":"stop-host-session"}))
+        .await;
+    error(&mut phone, "stop-host-session", "not-authenticated").await;
+    let mut other_app = web.request("switch-session", "h264", false, 2);
+    other_app["appId"] = json!("12345");
+    phone.send(other_app).await;
+    error(&mut phone, "switch-session", "not-authenticated").await;
+    assert!(!session.stopping());
+    assert!(web.harness.h.current_app.lock().unwrap().is_some());
+
+    // With no remote session left anyone may end it.
+    web.harness
+        .h
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&monitor.launch.id);
+    phone
+        .send(json!({"version":2,"type":"stop-host-session"}))
+        .await;
+    status(&mut phone, "host-session-status", "stopping").await;
+    status(&mut phone, "host-session-status", "stopped").await;
+    assert!(session.stopping());
+    assert!(web.harness.h.current_app.lock().unwrap().is_none());
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_that_fails_before_taking_its_link_still_frees_the_media_port() -> Result<()> {
+    let web = Web::new().await?;
+    web.harness
+        .fixture
+        .webrtc_fails_before_its_link
+        .store(true, Ordering::Release);
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "h264", false, 2))
+        .await;
+    status(&mut ws, "session-status", "starting").await;
+    let (_, peer) = answer(&mut ws, VideoCodec::H264).await;
+    // The link was handed over and the worker never took it: the teardown releases it.
+    web.idle().await;
+    assert!(UdpSocket::bind(address(web.media_port)).is_ok());
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_that_starts_again_gets_the_media_socket_from_its_unanswered_start() -> Result<()>
+{
+    let web = Web::new().await?;
+    let credentials = web.pair("TV", u32::MAX);
+    let mut old = web.sign_in(&credentials).await;
+    old.send(web.request("start-session", "h264", false, 2))
+        .await;
+    status(&mut old, "session-status", "starting").await;
+    status(&mut old, "session-status", "starting-webrtc").await;
+    assert_eq!(next(&mut old).await["type"], "offer");
+
+    // The offer is still waiting for its answer, on the one media port, when the device returns
+    // on a new connection, which closes the old one. Releasing the old start's launch is slow, as
+    // a virtual display that takes seconds to go is, and the new start must not wait for it.
+    web.harness
+        .fixture
+        .audio_release_ms
+        .store(4_000, Ordering::Release);
+    let mut new = web.sign_in(&credentials).await;
+    while old.next().await.is_some() {}
+    new.send(web.request("start-session", "h264", false, 2))
+        .await;
+    status(&mut new, "session-status", "starting").await;
+    let (id, peer) = answer(&mut new, VideoCodec::H264).await;
+    streaming(&mut new, id).await;
+    until("video received", WAIT, || peer.count() >= 2).await;
+    assert_eq!(web.harness.h.sessions.lock().unwrap().pending.len(), 0);
+    web.harness
+        .fixture
+        .audio_release_ms
+        .store(0, Ordering::Release);
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cancelling_a_start_releases_its_resources_off_the_async_tasks() -> Result<()> {
+    let web = Web::new().await?;
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "h264", false, 2))
+        .await;
+    status(&mut ws, "session-status", "starting").await;
+    status(&mut ws, "session-status", "starting-webrtc").await;
+    assert_eq!(next(&mut ws).await["type"], "offer");
+
+    // Dropping the launch takes this long, as a virtual display or audio route that blocks does.
+    // The one thread of this runtime runs the session actor, the signalling server and this
+    // test, so a release on it shows as a gap between ticks.
+    web.harness
+        .fixture
+        .audio_release_ms
+        .store(600, Ordering::Release);
+    let gap = Arc::new(AtomicU64::new(0));
+    let ticker = tokio::spawn({
+        let gap = gap.clone();
+        async move {
+            loop {
+                let before = Instant::now();
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                gap.fetch_max(before.elapsed().as_millis() as u64, Ordering::AcqRel);
+            }
+        }
+    });
+    ws.send(json!({"version":2,"type":"stop-session"})).await;
+    status(&mut ws, "session-status", "idle").await;
+    web.idle().await;
+    // Let the ticker report a stall that ended just before.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    ticker.abort();
+    web.harness
+        .fixture
+        .audio_release_ms
+        .store(0, Ordering::Release);
+    let longest = gap.load(Ordering::Acquire);
+    assert!(longest < 300, "the runtime stalled for {longest} ms");
     Ok(())
 }

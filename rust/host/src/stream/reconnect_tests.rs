@@ -11,7 +11,7 @@ use butterpollo_core::{
 };
 use std::{
     path::PathBuf,
-    sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize},
+    sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicUsize},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -41,6 +41,10 @@ pub(crate) struct Fixture {
     hold_rtsp_cleanup: AtomicBool,
     rtsp_cleanup_waiting: AtomicBool,
     resume_rtsp_cleanup: AtomicBool,
+    /// A WebRTC worker that fails before it takes its media link.
+    webrtc_fails_before_its_link: AtomicBool,
+    /// How long releasing a launch's fake audio takes, as a driver that blocks does.
+    audio_release_ms: Arc<AtomicU64>,
 }
 
 pub(crate) struct Slot(Arc<AtomicUsize>);
@@ -62,6 +66,15 @@ struct Display {
 }
 struct Audio {
     _slot: Slot,
+    release_ms: Arc<AtomicU64>,
+}
+impl Drop for Audio {
+    fn drop(&mut self) {
+        let ms = self.release_ms.load(Ordering::Acquire);
+        if ms > 0 {
+            thread::sleep(Duration::from_millis(ms));
+        }
+    }
 }
 impl butterpollo_core::session::AudioPreparation<butterpollo_windows::audio_route::Route>
     for Audio
@@ -107,6 +120,7 @@ impl Fixture {
     ) -> Result<Option<crate::process::RunningApp>> {
         *launch.audio_preparation.lock().unwrap() = Some(Box::new(Audio {
             _slot: Slot::new(&self.audios),
+            release_ms: self.audio_release_ms.clone(),
         }));
         if launch.role == Role::Stream && h.current_app.lock().unwrap().is_none() {
             self.apps_prepared.fetch_add(1, Ordering::AcqRel);
@@ -181,9 +195,13 @@ impl Fixture {
         }
     }
     /// A WebRTC session's stream worker: the production `Sender` and synthetic access units, the
-    /// keyframe flag honoured as the encoder does. `frames` counts what it submitted.
+    /// keyframe flag honoured as the encoder does.
     fn stream_webrtc(&self, h: &Shared, s: &Session) -> Result<()> {
         let _audio = s.launch.audio_preparation.lock().unwrap().take();
+        anyhow::ensure!(
+            !self.webrtc_fails_before_its_link.load(Ordering::Acquire),
+            "the fixture's WebRTC worker failed before taking its link"
+        );
         let sender = crate::webrtc::session::Sender::new(
             h.webrtc_links
                 .take(&s.launch.id)

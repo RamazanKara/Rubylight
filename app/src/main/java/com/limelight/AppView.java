@@ -464,6 +464,8 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         int canvas = androidx.core.content.ContextCompat.getColor(this, R.color.tv_canvas);
         // The window shows the canvas until the first backdrop covers it, then stops painting under it.
         getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
+        // The TV's safe-area padding sits on the content view, which would otherwise clip the backdrop that reaches past it.
+        ((android.view.ViewGroup) findViewById(android.R.id.content)).setClipChildren(false);
         backdrop.setCanvasColor(canvas);
         backdrop.setDim(AppTheme.isHighContrast(this) ? 0.85f : 1f);
         backdrop.setOnCovered(() -> getWindow().setBackgroundDrawable(null));

@@ -45,6 +45,7 @@ public class BackdropView extends FrameLayout {
     static final long ZOOM_MS = 600;
     static final float ZOOM_FROM = 1.04f;
     private static final int CACHE_ENTRIES = 48;
+    private static final LinearInterpolator LINEAR = new LinearInterpolator();
 
     private static final Executor WORKER = worker();
 
@@ -57,7 +58,10 @@ public class BackdropView extends FrameLayout {
     private int canvas = 0xFF0B0D12;
     private String wantedKey;
     private Bitmap wantedCover;
+    private boolean wantedNoArt;
     private String shownKey;
+    private android.view.animation.Interpolator settleInterpolator;
+    private final android.view.ViewTreeObserver.OnGlobalLayoutListener aligner = this::align;
     private int request;
     private int changes;
     private Bitmap shown;
@@ -125,18 +129,30 @@ public class BackdropView extends FrameLayout {
         return changes;
     }
 
-    /**
-     * The backdrop of this game, from this cover (null: not loaded or no art, which shows the plain canvas).
-     * Takes effect {@link #SETTLE_MS} after the last call, or {@link #FAST_SETTLE_MS} when {@code fast}.
-     */
+    /** A game whose art is {@code cover}, or none when the cover is null: the plain canvas. */
     public void focus(String key, Bitmap cover, boolean fast) {
+        focus(key, cover, cover == null, fast);
+    }
+
+    /**
+     * The backdrop of this game, from this cover. A null cover that is not {@code noArt} is one still loading: the
+     * backdrop stays as it is, and is asked again when the cover arrives. {@code noArt} with no cover shows the plain
+     * canvas. Takes effect {@link #SETTLE_MS} after the last call, or {@link #FAST_SETTLE_MS} when {@code fast}.
+     */
+    public void focus(String key, Bitmap cover, boolean noArt, boolean fast) {
         wantedKey = key;
         wantedCover = cover;
+        wantedNoArt = noArt;
         handler.removeCallbacks(apply);
         handler.postDelayed(apply, fast ? FAST_SETTLE_MS : SETTLE_MS);
     }
 
     private void applyWanted() {
+        if (wantedCover == null && !wantedNoArt) {
+            // Still loading: keep what is shown rather than flashing the canvas, and drop a blur that is in flight.
+            request++;
+            return;
+        }
         String key = cacheKey(wantedKey, wantedCover);
         if (key.equals(shownKey)) return;
         Bitmap cached = cache.get(key);
@@ -178,12 +194,12 @@ public class BackdropView extends FrameLayout {
         front.setVisibility(VISIBLE);
         ObjectAnimator fade = ObjectAnimator.ofFloat(front, View.ALPHA, 0f, 1f);
         fade.setDuration(first ? FIRST_FADE_MS : FADE_MS);
-        fade.setInterpolator(new LinearInterpolator());
+        fade.setInterpolator(LINEAR);
         AnimatorSet set = new AnimatorSet();
         if (first) {
             set.play(fade);
         } else {
-            android.view.animation.Interpolator settle = AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_emph_dec);
+            android.view.animation.Interpolator settle = settleInterpolator();
             ObjectAnimator zoomX = ObjectAnimator.ofFloat(front, View.SCALE_X, ZOOM_FROM, 1f);
             ObjectAnimator zoomY = ObjectAnimator.ofFloat(front, View.SCALE_Y, ZOOM_FROM, 1f);
             zoomX.setDuration(ZOOM_MS);
@@ -239,8 +255,15 @@ public class BackdropView extends FrameLayout {
     }
 
     @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        getViewTreeObserver().addOnGlobalLayoutListener(aligner);
+    }
+
+    @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
+        getViewTreeObserver().removeOnGlobalLayoutListener(aligner);
         handler.removeCallbacks(apply);
         request++;
         if (transition != null) {
@@ -263,10 +286,28 @@ public class BackdropView extends FrameLayout {
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
-        // Shift to the window's corner, whatever padding the parents add for cutouts and the TV's overscan.
+        align();
+    }
+
+    /**
+     * Shifts to the window's corner, whatever padding the parents add for cutouts and the TV's overscan. A parent's
+     * padding can change without this view being laid out again (the safe area arrives after the first pass), and the
+     * root can still be unmeasured at the first measure, so this also runs after every layout pass of the window.
+     */
+    private void align() {
+        View root = getRootView();
+        if (root != this && root.getWidth() > 0 && root.getHeight() > 0
+                && (getWidth() != root.getWidth() || getHeight() != root.getHeight())) {
+            requestLayout();
+        }
         int[] at = new int[2];
         getLocationInWindow(at);
         if (at[0] != 0) setTranslationX(getTranslationX() - at[0]);
         if (at[1] != 0) setTranslationY(getTranslationY() - at[1]);
+    }
+
+    private android.view.animation.Interpolator settleInterpolator() {
+        if (settleInterpolator == null) settleInterpolator = AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_emph_dec);
+        return settleInterpolator;
     }
 }

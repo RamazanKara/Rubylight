@@ -32,6 +32,22 @@ public class AppViewLifecycleTest {
         }
     }
 
+    /** The TV's safe-area padding is on the content view; it must not clip the backdrop that reaches past it. */
+    @Test
+    @Config(qualifiers = "television")
+    public void theTvBackdropIsNotClippedToTheSafeAreaPadding() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "test-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            assertNotNull(screen.findViewById(R.id.library_backdrop));
+            assertFalse(((android.view.ViewGroup) screen.findViewById(android.R.id.content)).getClipChildren());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void failedOrDeniedAppListsOfferRetryWithoutBlockingNavigation() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)

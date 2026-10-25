@@ -23,36 +23,48 @@ public class StreamExitPolicyTest {
     }
 
     @Test public void theHostEndingTheStreamNeverNeedsADialog() {
-        assertFalse(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION, false));
-        assertFalse(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION, true));
+        assertFalse(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION, false, false, false));
+        assertFalse(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION, true, false, false));
     }
 
     @Test public void aLostConnectionOrAHostThatWentAwayReturnsToTheList() {
         // -1: ENet disconnect or timeout with no reason; the rest are socket errors (ETIMEDOUT,
         // ECONNRESET, WSAETIMEDOUT) and the Java transport's own failures.
         for (int code : new int[] {-1, 32, 54, 104, 110, 111, 113, 10053, 10054, 10060}) {
-            assertFalse("code " + code, StreamExitPolicy.terminationNeedsAction(code, false));
+            assertFalse("code " + code, StreamExitPolicy.terminationNeedsAction(code, false, false, false));
         }
     }
 
     @Test public void aReasonOnlyThePcKnowsReturnsToTheList() {
         // Host termination reasons: the HTTP-like codes some hosts send and NVST_DISCONN_* values.
         for (int code : new int[] {503, 404, 0x80030020, 0xc0000005}) {
-            assertFalse("code " + code, StreamExitPolicy.terminationNeedsAction(code, false));
+            assertFalse("code " + code, StreamExitPolicy.terminationNeedsAction(code, false, false, false));
         }
     }
 
     @Test public void errorsWithAdviceKeepTheDialog() {
-        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC, false));
-        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_NO_VIDEO_FRAME, false));
-        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION, false));
-        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_PROTECTED_CONTENT, false));
-        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_FRAME_CONVERSION, false));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC, false, false, false));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_NO_VIDEO_FRAME, false, false, false));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION, false, false, false));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_PROTECTED_CONTENT, false, false, false));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_FRAME_CONVERSION, false, false, false));
     }
 
     @Test public void aBlockedPortTestKeepsTheDialogForAnyError() {
-        assertTrue(StreamExitPolicy.terminationNeedsAction(-1, true));
-        assertTrue(StreamExitPolicy.terminationNeedsAction(110, true));
-        assertTrue(StreamExitPolicy.terminationNeedsAction(503, true));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(-1, true, false, false));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(110, true, false, false));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(503, true, false, false));
+    }
+
+    @Test public void aGraceTimeThatMayHaveRunOutKeepsTheDialogForItsAdvice() {
+        assertTrue(StreamExitPolicy.terminationNeedsAction(-1, false, true, false));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(110, false, true, false));
+        assertFalse(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION, false, true, true));
+    }
+
+    @Test public void usedUpAutomaticReconnectingKeepsTheDialogForItsReconnectButton() {
+        assertTrue(StreamExitPolicy.terminationNeedsAction(-1, false, false, true));
+        assertTrue(StreamExitPolicy.terminationNeedsAction(110, false, false, true));
+        assertFalse(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION, false, false, true));
     }
 }

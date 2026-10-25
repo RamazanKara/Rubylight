@@ -248,6 +248,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private Runnable pendingRecovery;
     private int recoveryGeneration;
     private boolean recoveryHandoffInProgress;
+    // Set when the last automatic recovery was refused because its attempts or window ran out.
+    private boolean recoveryBudgetExhausted;
     private boolean recoveryCancelledOnPause;
     private Intent stoppedStreamResumeIntent;
     private final Runnable recoveryTimeout = () -> {
@@ -3756,7 +3758,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (prefConfig == null || !prefConfig.autoReconnect || !foreground || isFinishing() || isDestroyed() ||
                 recoveryHandoffInProgress || pendingRecovery != null) return false;
         long delay = recoveryPolicy.nextDelay(SystemClock.elapsedRealtime(), connectedAt);
-        if (delay < 0) return false;
+        if (delay < 0) {
+            recoveryBudgetExhausted = true;
+            return false;
+        }
 
         displayedFailureDialog = true;
         setInputGrabState(false);
@@ -6026,6 +6031,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
+    /** Large codes are hex values, small ones decimal. */
+    private static String errorCodeText(int errorCode) {
+        return Math.abs(errorCode) > 1000 ? Integer.toHexString(errorCode) : Integer.toString(errorCode);
+    }
+
     @Override
     public void connectionTerminated(final int reportedErrorCode) {
         LimeLog.info("Stream disconnected");
@@ -6071,7 +6081,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     // finds the host idle. Transport startup retries carry this same flag.
                     getIntent().putExtra(EXTRA_RECOVERY_MEDIA_FAILURE, true);
                 }
+                recoveryBudgetExhausted = false;
                 if (transientFailure && tryAutomaticRecovery()) return;
+                final boolean recoveryExhausted = transientFailure && recoveryBudgetExhausted;
                 if (!foreground && transientFailure) rememberStreamForResume();
                 // Let the display go to sleep now
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -6115,16 +6127,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     break;
 
                                 default:
-                                    String errorCodeString;
-                                    // We'll assume large errors are hex values
-                                    if (Math.abs(errorCode) > 1000) {
-                                        errorCodeString = Integer.toHexString(errorCode);
-                                    }
-                                    else {
-                                        errorCodeString = Integer.toString(errorCode);
-                                    }
                                     message = getResources().getString(R.string.conn_terminated_msg) + "\n\n" +
-                                            getResources().getString(R.string.error_code_prefix) + " " + errorCodeString;
+                                            getResources().getString(R.string.error_code_prefix) + " " + errorCodeText(errorCode);
                                     if (prefConfig != null &&
                                             NetworkGrace.mayHaveGivenUp(prefConfig.networkGraceSeconds, errorCode)) {
                                         message = getResources().getString(R.string.network_grace_gave_up,
@@ -6141,15 +6145,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                         boolean portTestBlocked = portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE &&
                                 portTestResult != 0;
+                        boolean graceGaveUp = prefConfig != null &&
+                                NetworkGrace.mayHaveGivenUp(prefConfig.networkGraceSeconds, errorCode);
                         if (foreground && (stoppedStreamResumeIntent != null ||
-                                StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked))) {
+                                StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked,
+                                        graceGaveUp, recoveryExhausted))) {
                             showReconnectDialog(R.string.conn_terminated_title, message);
                         } else if (foreground) {
                             // The host went away or the connection was lost: nothing to act on, so
-                            // go back to the list and say why where it outlives this screen.
+                            // go back to the list and say why where it outlives this screen. Android
+                            // 12+ shows two lines of a text toast, so it is the title and the code.
                             Toast.makeText(getApplicationContext(),
                                     getString(R.string.conn_terminated_title) + "\n" +
-                                            message.replace("\n\n", "\n"), Toast.LENGTH_LONG).show();
+                                            getString(R.string.error_code_prefix) + " " + errorCodeText(errorCode),
+                                    Toast.LENGTH_LONG).show();
                             finish();
                         } else if (stoppedStreamResumeIntent == null) {
                             finish();

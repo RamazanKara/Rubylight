@@ -22,11 +22,14 @@ final class StreamExitPolicy {
      * or the PC could not start or encode the stream (protected content, frame conversion). The
      * host ending the stream or going away, a lost connection, a timeout and a reason only the PC
      * knows leave nothing to do here: the stream closes, the player is back in the list, and the
-     * reason shows as a message that outlives the screen.
+     * reason shows as a message that outlives the screen. Two more cases keep the dialog: the
+     * network grace period may have run out (its text advises raising it), and automatic
+     * reconnecting used up its attempts (the dialog has the Reconnect button).
      */
-    static boolean terminationNeedsAction(int errorCode, boolean portTestBlocked) {
+    static boolean terminationNeedsAction(int errorCode, boolean portTestBlocked,
+                                          boolean networkGraceGaveUp, boolean recoveryExhausted) {
         if (errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) return false;
-        if (portTestBlocked) return true;
+        if (portTestBlocked || networkGraceGaveUp || recoveryExhausted) return true;
         switch (errorCode) {
             case MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC:
             case MoonBridge.ML_ERROR_NO_VIDEO_FRAME:

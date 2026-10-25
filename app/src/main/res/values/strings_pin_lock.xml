@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The row in Settings that opens the PIN lock page -->
+    <string name="pin_lock_title">PIN lock</string>
+    <string name="pin_lock_summary">Ask for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar\'s app data in Android\'s settings, which also removes your paired PCs.</string>
+
+    <!-- The PIN lock page -->
+    <string name="pin_set">Set PIN</string>
+    <string name="pin_change">Change PIN</string>
+    <string name="pin_remove">Remove PIN</string>
+    <string name="pin_set_summary">Choose 4 to 8 digits.</string>
+    <string name="pin_is_set_summary">A PIN is set. Changing or removing it asks for the current one.</string>
+    <string name="pin_mode_title">Lock</string>
+    <string name="pin_mode_off">Off</string>
+    <string name="pin_mode_app">Opening Nightjar</string>
+    <string name="pin_mode_streams">Starting any stream</string>
+    <string name="pin_mode_selected">Starting a stream on selected PCs</string>
+    <string name="pin_pcs_title">Selected PCs</string>
+    <string name="pin_pcs_none">None selected</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="one">%d PC</item>
+        <item quantity="other">%d PCs</item>
+    </plurals>
+    <string name="pin_pcs_empty">No PCs added yet.</string>
+    <string name="pin_grace_title">Ask again after</string>
+    <string name="pin_grace_always">Every time Nightjar is left</string>
+    <string name="pin_grace_minutes">%d minutes</string>
+    <string name="pin_grace_hour">1 hour</string>
+    <string name="pin_remove_title">Remove the PIN?</string>
+    <string name="pin_remove_message">Nightjar will stop asking for a PIN.</string>
+    <string name="pin_footer">If you forget the PIN, the only way to reset it is to clear Nightjar\'s app data in Android\'s settings. That also removes your paired PCs, so you have to pair them again.</string>
+    <string name="pin_saved">PIN saved</string>
+    <string name="pin_removed">PIN removed</string>
+
+    <!-- The PIN screen -->
+    <string name="pin_title_app">Nightjar is locked</string>
+    <string name="pin_title_enter">Enter your PIN</string>
+    <string name="pin_title_choose">Choose a PIN</string>
+    <string name="pin_title_confirm">Confirm your PIN</string>
+    <string name="pin_subtitle_app">Enter your PIN to continue</string>
+    <string name="pin_subtitle_stream">Needed to start a stream</string>
+    <string name="pin_subtitle_stream_pc">Needed to start a stream on %1$s</string>
+    <string name="pin_subtitle_verify">Needed to change the PIN lock</string>
+    <string name="pin_subtitle_choose">Use 4 to 8 digits</string>
+    <string name="pin_subtitle_confirm">Type the same PIN again</string>
+    <string name="pin_wrong">Wrong PIN. Try again.</string>
+    <string name="pin_locked_out">Too many wrong tries. Try again in %1$s.</string>
+    <string name="pin_too_short">Use at least 4 digits.</string>
+    <string name="pin_mismatch">The PINs did not match. Choose a PIN again.</string>
+    <string name="pin_checking">Checking…</string>
+    <string name="pin_saving">Saving…</string>
+    <string name="pin_cancel">Cancel</string>
+    <string name="pin_close_app">Close Nightjar</string>
+    <string name="pin_key_delete">Delete</string>
+    <string name="pin_key_confirm">Confirm</string>
+    <string name="pin_dots_description">%1$d of %2$d digits entered</string>
+    <string name="pin_hint">Up and Down choose a row. Left, Select and Right press its keys.</string>
+    <string name="pin_row_1">Row 1: 1, 2, 3</string>
+    <string name="pin_row_2">Row 2: 4, 5, 6</string>
+    <string name="pin_row_3">Row 3: 7, 8, 9</string>
+    <string name="pin_row_4">Row 4: Delete, 0, Confirm</string>
+</resources>

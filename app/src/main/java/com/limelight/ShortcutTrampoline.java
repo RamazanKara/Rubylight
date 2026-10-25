@@ -13,6 +13,8 @@ import com.limelight.computers.ComputerDatabaseManager;
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.pin.PinGate;
+import com.limelight.pin.PinLockActivity;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -199,7 +201,8 @@ public class ShortcutTrampoline extends Activity {
                                                 intentStack.add(i);
 
                                                 // If a game is running, we'll make the stream the top level activity
-                                                if (details.runningGameId != 0) {
+                                                if (details.runningGameId != 0
+                                                        && !PinGate.needsPinForStream(ShortcutTrampoline.this, uuidString)) {
                                                     intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this,
                                                             new NvApp(null, details.runningGameId, false), details, managerBinder));
                                                 }
@@ -413,6 +416,13 @@ public class ShortcutTrampoline extends Activity {
                         true);
                 return;
             }
+        }
+
+        // PIN lock: ask first, then run this shortcut again
+        if ((app != null || PinGate.needsPinForApp(this)) && PinGate.needsPinForStream(this, uuidString)) {
+            startActivity(PinLockActivity.forTrampoline(this, getIntent(), uuidString));
+            finish();
+            return;
         }
 
         // Bind to the computer manager service

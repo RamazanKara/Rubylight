@@ -203,6 +203,16 @@
             android:windowSoftInputMode="adjustResize"
             android:exported="false" />
         <activity
+            android:name=".pin.PinLockActivity"
+            android:exported="false"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="stateHidden"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection" />
+        <activity
+            android:name=".pin.PinLockSettingsActivity"
+            android:exported="false"
+            android:resizeableActivity="true" />
+        <activity
             android:name=".preferences.StreamProfilesActivity"
             android:resizeableActivity="true"
             android:enableOnBackInvokedCallback="true"

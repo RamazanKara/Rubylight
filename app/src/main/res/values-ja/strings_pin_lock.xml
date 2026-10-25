@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">PIN ロック</string>
+    <string name="pin_lock_summary">Nightjar を開くとき、またはストリームを開始するときに PIN を求めます。忘れた PIN は、Android の設定で Nightjar のアプリデータを消去しないとリセットできません。その場合、ペアリング済みの PC も削除されます。</string>
+    <string name="pin_set">PIN を設定</string>
+    <string name="pin_change">PIN を変更</string>
+    <string name="pin_remove">PIN を削除</string>
+    <string name="pin_set_summary">4 〜 8 桁の数字を選んでください。</string>
+    <string name="pin_is_set_summary">PIN が設定されています。変更または削除には現在の PIN が必要です。</string>
+    <string name="pin_mode_title">ロック</string>
+    <string name="pin_mode_off">オフ</string>
+    <string name="pin_mode_app">Nightjar を開くとき</string>
+    <string name="pin_mode_streams">ストリームを開始するとき</string>
+    <string name="pin_mode_selected">選択した PC でストリームを開始するとき</string>
+    <string name="pin_pcs_title">選択した PC</string>
+    <string name="pin_pcs_none">選択なし</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="other">%d 台の PC</item>
+    </plurals>
+    <string name="pin_pcs_empty">PC がまだ追加されていません。</string>
+    <string name="pin_grace_title">再度確認するまでの時間</string>
+    <string name="pin_grace_always">Nightjar を離れるたび</string>
+    <string name="pin_grace_minutes">%d 分</string>
+    <string name="pin_grace_hour">1 時間</string>
+    <string name="pin_remove_title">PIN を削除しますか？</string>
+    <string name="pin_remove_message">Nightjar は PIN を求めなくなります。</string>
+    <string name="pin_footer">PIN を忘れた場合、リセットするには Android の設定で Nightjar のアプリデータを消去するしかありません。その場合、ペアリング済みの PC も削除されるため、再度ペアリングが必要です。</string>
+    <string name="pin_saved">PIN を保存しました</string>
+    <string name="pin_removed">PIN を削除しました</string>
+    <string name="pin_title_app">Nightjar はロックされています</string>
+    <string name="pin_title_enter">PIN を入力</string>
+    <string name="pin_title_choose">PIN を選択</string>
+    <string name="pin_title_confirm">PIN を確認</string>
+    <string name="pin_subtitle_app">続行するには PIN を入力してください</string>
+    <string name="pin_subtitle_stream">ストリームの開始に必要です</string>
+    <string name="pin_subtitle_stream_pc">%1$s でストリームを開始するために必要です</string>
+    <string name="pin_subtitle_verify">PIN ロックの変更に必要です</string>
+    <string name="pin_subtitle_choose">4 〜 8 桁を使用してください</string>
+    <string name="pin_subtitle_confirm">同じ PIN をもう一度入力してください</string>
+    <string name="pin_wrong">PIN が違います。もう一度お試しください。</string>
+    <string name="pin_locked_out">失敗が多すぎます。%1$s 後にもう一度お試しください。</string>
+    <string name="pin_too_short">4 桁以上にしてください。</string>
+    <string name="pin_mismatch">PIN が一致しません。もう一度 PIN を選んでください。</string>
+    <string name="pin_checking">確認中…</string>
+    <string name="pin_saving">保存中…</string>
+    <string name="pin_cancel">キャンセル</string>
+    <string name="pin_close_app">Nightjar を閉じる</string>
+    <string name="pin_key_delete">削除</string>
+    <string name="pin_key_confirm">確定</string>
+    <string name="pin_dots_description">%2$d 桁中 %1$d 桁入力済み</string>
+    <string name="pin_hint">上と下で行を選び、左、決定、右でその行のキーを押します。</string>
+    <string name="pin_row_1">1 行目: 1, 2, 3</string>
+    <string name="pin_row_2">2 行目: 4, 5, 6</string>
+    <string name="pin_row_3">3 行目: 7, 8, 9</string>
+    <string name="pin_row_4">4 行目: 削除, 0, 確定</string>
+</resources>

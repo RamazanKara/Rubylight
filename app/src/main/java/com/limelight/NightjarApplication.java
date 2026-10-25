@@ -19,5 +19,6 @@ public class NightjarApplication extends Application {
     public void onCreate() {
         super.onCreate();
         crashCapture.start(this);
+        com.limelight.pin.PinGate.install(this);
     }
 }

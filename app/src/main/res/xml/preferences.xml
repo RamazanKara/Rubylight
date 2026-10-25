@@ -582,6 +582,8 @@
             android:title="@string/console_home_setting_title"
             android:dialogMessage="@string/console_home_setting_summary"
             android:defaultValue="true" />
+        <Preference android:key="pin_lock" android:title="@string/pin_lock_title"
+            android:summary="@string/pin_lock_summary" android:persistent="false" />
         <Preference android:key="help" android:title="@string/help"
             android:summary="@string/settings_help_summary" />
         <Preference android:key="report_problem" android:title="@string/report_problem"

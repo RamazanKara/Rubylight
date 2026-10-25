@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">Verrouillage par code PIN</string>
+    <string name="pin_lock_summary">Demande un code PIN pour ouvrir Nightjar ou lancer un stream. Un code PIN oublié ne peut être réinitialisé qu’en effaçant les données de Nightjar dans les paramètres d’Android, ce qui supprime aussi vos PC associés.</string>
+    <string name="pin_set">Définir le code PIN</string>
+    <string name="pin_change">Modifier le code PIN</string>
+    <string name="pin_remove">Supprimer le code PIN</string>
+    <string name="pin_set_summary">Choisissez de 4 à 8 chiffres.</string>
+    <string name="pin_is_set_summary">Un code PIN est défini. Le modifier ou le supprimer demande le code actuel.</string>
+    <string name="pin_mode_title">Verrouillage</string>
+    <string name="pin_mode_off">Désactivé</string>
+    <string name="pin_mode_app">À l’ouverture de Nightjar</string>
+    <string name="pin_mode_streams">Au lancement de tout stream</string>
+    <string name="pin_mode_selected">Au lancement d’un stream sur les PC sélectionnés</string>
+    <string name="pin_pcs_title">PC sélectionnés</string>
+    <string name="pin_pcs_none">Aucun sélectionné</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="one">%d PC</item>
+        <item quantity="other">%d PC</item>
+    </plurals>
+    <string name="pin_pcs_empty">Aucun PC n’a encore été ajouté.</string>
+    <string name="pin_grace_title">Redemander après</string>
+    <string name="pin_grace_always">Chaque fois que Nightjar est quitté</string>
+    <string name="pin_grace_minutes">%d minutes</string>
+    <string name="pin_grace_hour">1 heure</string>
+    <string name="pin_remove_title">Supprimer le code PIN ?</string>
+    <string name="pin_remove_message">Nightjar ne demandera plus de code PIN.</string>
+    <string name="pin_footer">Si vous oubliez le code PIN, le seul moyen de le réinitialiser est d’effacer les données de Nightjar dans les paramètres d’Android. Cela supprime aussi vos PC associés, que vous devrez associer de nouveau.</string>
+    <string name="pin_saved">Code PIN enregistré</string>
+    <string name="pin_removed">Code PIN supprimé</string>
+    <string name="pin_title_app">Nightjar est verrouillé</string>
+    <string name="pin_title_enter">Saisissez votre code PIN</string>
+    <string name="pin_title_choose">Choisissez un code PIN</string>
+    <string name="pin_title_confirm">Confirmez votre code PIN</string>
+    <string name="pin_subtitle_app">Saisissez votre code PIN pour continuer</string>
+    <string name="pin_subtitle_stream">Requis pour lancer un stream</string>
+    <string name="pin_subtitle_stream_pc">Requis pour lancer un stream sur %1$s</string>
+    <string name="pin_subtitle_verify">Requis pour modifier le verrouillage par code PIN</string>
+    <string name="pin_subtitle_choose">Utilisez de 4 à 8 chiffres</string>
+    <string name="pin_subtitle_confirm">Saisissez à nouveau le même code PIN</string>
+    <string name="pin_wrong">Code PIN incorrect. Réessayez.</string>
+    <string name="pin_locked_out">Trop d’essais manqués. Réessayez dans %1$s.</string>
+    <string name="pin_too_short">Utilisez au moins 4 chiffres.</string>
+    <string name="pin_mismatch">Les codes PIN ne correspondent pas. Choisissez à nouveau un code PIN.</string>
+    <string name="pin_checking">Vérification…</string>
+    <string name="pin_saving">Enregistrement…</string>
+    <string name="pin_cancel">Annuler</string>
+    <string name="pin_close_app">Fermer Nightjar</string>
+    <string name="pin_key_delete">Effacer</string>
+    <string name="pin_key_confirm">Confirmer</string>
+    <string name="pin_dots_description">%1$d chiffre(s) sur %2$d saisi(s)</string>
+    <string name="pin_hint">Haut et Bas choisissent une rangée. Gauche, OK et Droite appuient sur ses touches.</string>
+    <string name="pin_row_1">Rangée 1 : 1, 2, 3</string>
+    <string name="pin_row_2">Rangée 2 : 4, 5, 6</string>
+    <string name="pin_row_3">Rangée 3 : 7, 8, 9</string>
+    <string name="pin_row_4">Rangée 4 : Effacer, 0, Confirmer</string>
+</resources>

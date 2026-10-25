@@ -20,6 +20,8 @@ import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.PreferencesRecentsStore;
 import com.limelight.nativeapi.RecentsStore;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.pin.PinGate;
+import com.limelight.pin.PinLockActivity;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.NvApp;
@@ -157,6 +159,10 @@ public class ServerHelper {
         Intent intent = createStartIntent(parent, app, computer, managerBinder);
         if (smallStreamInputOnly) {
             intent.putExtra(Game.EXTRA_SMALL_STREAM_INPUT_ONLY, true);
+        }
+        if (PinGate.needsPinForStream(parent, computer.uuid)) {
+            parent.startActivity(PinLockActivity.forStream(parent, intent, computer.displayName()), options);
+            return;
         }
         parent.startActivity(intent, options);
     }

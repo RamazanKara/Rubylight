@@ -1690,6 +1690,10 @@ public class StreamSettings extends NightjarActivity {
                 showAbout();
                 return true;
             });
+            findPreference("pin_lock").setOnPreferenceClickListener(preference -> {
+                com.limelight.pin.PinLockSettingsActivity.open(getActivity());
+                return true;
+            });
             findPreference("help").setOnPreferenceClickListener(preference -> {
                 HelpLauncher.showHelp(getActivity());
                 return true;

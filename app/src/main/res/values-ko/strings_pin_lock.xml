@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">PIN 잠금</string>
+    <string name="pin_lock_summary">Nightjar를 열거나 스트림을 시작할 때 PIN을 요청합니다. 잊어버린 PIN은 Android 설정에서 Nightjar의 앱 데이터를 지워야만 초기화할 수 있으며, 이때 페어링된 PC도 함께 삭제됩니다.</string>
+    <string name="pin_set">PIN 설정</string>
+    <string name="pin_change">PIN 변경</string>
+    <string name="pin_remove">PIN 삭제</string>
+    <string name="pin_set_summary">4~8자리 숫자를 선택하세요.</string>
+    <string name="pin_is_set_summary">PIN이 설정되어 있습니다. 변경하거나 삭제하려면 현재 PIN이 필요합니다.</string>
+    <string name="pin_mode_title">잠금</string>
+    <string name="pin_mode_off">끄기</string>
+    <string name="pin_mode_app">Nightjar를 열 때</string>
+    <string name="pin_mode_streams">스트림을 시작할 때</string>
+    <string name="pin_mode_selected">선택한 PC에서 스트림을 시작할 때</string>
+    <string name="pin_pcs_title">선택한 PC</string>
+    <string name="pin_pcs_none">선택 안 함</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="other">PC %d대</item>
+    </plurals>
+    <string name="pin_pcs_empty">아직 추가된 PC가 없습니다.</string>
+    <string name="pin_grace_title">다시 요청하는 시간</string>
+    <string name="pin_grace_always">Nightjar를 나갈 때마다</string>
+    <string name="pin_grace_minutes">%d분</string>
+    <string name="pin_grace_hour">1시간</string>
+    <string name="pin_remove_title">PIN을 삭제할까요?</string>
+    <string name="pin_remove_message">Nightjar가 더 이상 PIN을 요청하지 않습니다.</string>
+    <string name="pin_footer">PIN을 잊어버린 경우 Android 설정에서 Nightjar의 앱 데이터를 지우는 방법밖에 없습니다. 이때 페어링된 PC도 함께 삭제되므로 다시 페어링해야 합니다.</string>
+    <string name="pin_saved">PIN을 저장했습니다</string>
+    <string name="pin_removed">PIN을 삭제했습니다</string>
+    <string name="pin_title_app">Nightjar가 잠겨 있습니다</string>
+    <string name="pin_title_enter">PIN 입력</string>
+    <string name="pin_title_choose">PIN 선택</string>
+    <string name="pin_title_confirm">PIN 확인</string>
+    <string name="pin_subtitle_app">계속하려면 PIN을 입력하세요</string>
+    <string name="pin_subtitle_stream">스트림을 시작하려면 필요합니다</string>
+    <string name="pin_subtitle_stream_pc">%1$s에서 스트림을 시작하려면 필요합니다</string>
+    <string name="pin_subtitle_verify">PIN 잠금을 변경하려면 필요합니다</string>
+    <string name="pin_subtitle_choose">4~8자리를 사용하세요</string>
+    <string name="pin_subtitle_confirm">같은 PIN을 한 번 더 입력하세요</string>
+    <string name="pin_wrong">PIN이 틀렸습니다. 다시 시도하세요.</string>
+    <string name="pin_locked_out">실패 횟수가 너무 많습니다. %1$s 후에 다시 시도하세요.</string>
+    <string name="pin_too_short">4자리 이상 사용하세요.</string>
+    <string name="pin_mismatch">PIN이 일치하지 않습니다. PIN을 다시 선택하세요.</string>
+    <string name="pin_checking">확인 중…</string>
+    <string name="pin_saving">저장 중…</string>
+    <string name="pin_cancel">취소</string>
+    <string name="pin_close_app">Nightjar 닫기</string>
+    <string name="pin_key_delete">삭제</string>
+    <string name="pin_key_confirm">확인</string>
+    <string name="pin_dots_description">%2$d자리 중 %1$d자리 입력됨</string>
+    <string name="pin_hint">위쪽과 아래쪽으로 줄을 고르고, 왼쪽, 선택, 오른쪽으로 해당 키를 누릅니다.</string>
+    <string name="pin_row_1">1행: 1, 2, 3</string>
+    <string name="pin_row_2">2행: 4, 5, 6</string>
+    <string name="pin_row_3">3행: 7, 8, 9</string>
+    <string name="pin_row_4">4행: 삭제, 0, 확인</string>
+</resources>

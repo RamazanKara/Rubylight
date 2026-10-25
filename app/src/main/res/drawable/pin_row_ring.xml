@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The row of the PIN pad that Left, Select and Right type from: the same ring every focused row shows. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_activated="true">
+        <shape android:shape="rectangle">
+            <corners android:radius="16dp" />
+            <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
+        </shape>
+    </item>
+    <item>
+        <color android:color="@android:color/transparent" />
+    </item>
+</selector>

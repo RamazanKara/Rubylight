@@ -68,7 +68,8 @@ public final class BackdropBlur {
                 (width - cropWidth) / 2 + cropWidth, (height - cropHeight) / 2 + cropHeight);
         Bitmap current = cover;
         // The artwork loader decodes straight to the GPU on newer Android; a software canvas cannot draw those.
-        if (cover.getConfig() == Bitmap.Config.HARDWARE) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+                && cover.getConfig() == Bitmap.Config.HARDWARE) {
             current = cover.copy(Bitmap.Config.ARGB_8888, false);
             if (current == null) return;
         }

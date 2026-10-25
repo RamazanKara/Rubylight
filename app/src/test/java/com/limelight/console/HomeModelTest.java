@@ -247,6 +247,29 @@ public class HomeModelTest {
     }
 
     @Test
+    public void theTvRowsCardsKnowEveryPcThatHasTheGameToo() throws Exception {
+        tower();
+        laptop();
+        List<ComputerDetails> hosts = Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true));
+        HomeModel model = HomeModel.of(rig.repository.refresh(hosts), online("tower", "laptop"));
+        int portals = 0;
+        for (HomeModel.Row row : model.rows) {
+            for (HomeModel.GameCard card : row.cards) {
+                if (!card.title.equals("Portal")) continue;
+                portals++;
+                assertEquals(card.key, Arrays.asList("tower", "laptop"), card.hostUuids);
+            }
+        }
+        assertTrue("Portal has a row", portals > 0);
+        String recent = "recent:" + card(model, "Portal").key.substring("game:".length());
+        assertEquals(card(model, "Portal").key, HostChoice.libraryKeyOf(recent));
+        assertNull("a Continue playing card is one PC's", HostChoice.libraryKeyOf("continue:tower:11"));
+        for (HomeModel.GameCard card : model.allGames) {
+            if (card.title.equals("Zelda")) assertEquals(Collections.singletonList("tower"), card.hostUuids);
+        }
+    }
+
+    @Test
     public void theHostsOfAGameListTheOnesThatAnswerFirst() throws Exception {
         tower();
         laptop();
@@ -267,6 +290,22 @@ public class HomeModelTest {
         assertTrue(laptopAwake.get(0).online);
         assertEquals("tower", laptopAwake.get(1).hostUuid);
         assertFalse("A PC that is away is still offered, so it can be woken", laptopAwake.get(1).online);
+    }
+
+    @Test
+    public void aCopyAPcFoundButHasNotAddedIsNoChoice() throws Exception {
+        tower();
+        rig.transport.reply("laptop", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\","
+                + "\"library.unadded\"],\"permissions\":{\"list\":true,\"view\":true,\"launch\":true}}"));
+        rig.transport.reply("laptop", "library", ok(library("l1", "{\"install_id\":null,\"title\":\"Portal\","
+                + "\"game_id\":\"steam:400\",\"store\":{\"source\":\"steam\"},\"installed\":true,\"added\":false}")));
+        rig.transport.reply("laptop", "session", ok(NativeApiFixtures.IDLE));
+        List<ComputerDetails> hosts = Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true));
+        ConsoleSnapshot snapshot = rig.repository.refresh(hosts);
+        List<HostChoice> choices = HostChoice.of(snapshot, card(HomeModel.of(snapshot, online("tower", "laptop")),
+                "Portal").key, online("tower", "laptop"));
+        assertEquals(1, choices.size());
+        assertEquals("tower", choices.get(0).hostUuid);
     }
 
     @Test

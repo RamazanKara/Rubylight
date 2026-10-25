@@ -519,7 +519,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
      */
     private boolean askHost(HomeModel.GameCard card) {
         final ConsoleRepository repo = repository;
-        if (repo == null || !card.key.startsWith("game:")) {
+        final String libraryKey = HostChoice.libraryKeyOf(card.key);
+        if (repo == null || libraryKey == null) {
             return false;
         }
         if (choosing) {
@@ -532,7 +533,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         starWorker.execute(() -> {
             List<HostChoice> choices;
             try {
-                choices = HostChoice.of(repo.cached(hosts), card.key, online);
+                choices = HostChoice.of(repo.cached(hosts), libraryKey, online);
             } catch (RuntimeException e) {
                 com.limelight.LimeLog.warning("Home could not read the saved libraries: " + e);
                 choices = Collections.emptyList();

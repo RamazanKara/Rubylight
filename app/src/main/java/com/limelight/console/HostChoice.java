@@ -24,6 +24,16 @@ final class HostChoice {
     }
 
     /**
+     * The library card's key for a card of Home that stands for a title on every PC: a library card, or the TV's
+     * Recently played card of the same title. Null for a card of one PC (Continue playing, a favourite, not added).
+     */
+    static String libraryKeyOf(String cardKey) {
+        if (cardKey.startsWith("game:")) return cardKey;
+        if (cardKey.startsWith("recent:")) return "game:" + cardKey.substring("recent:".length());
+        return null;
+    }
+
+    /**
      * @param cardKey the key of the library card ({@code "game:" + title key})
      * @param online  the UUIDs of the hosts that answer now
      * @return the hosts that list the game; empty when the snapshot has no such title
@@ -36,7 +46,8 @@ final class HostChoice {
                 continue;
             }
             for (ConsoleSnapshot.Source source : title.sources) {
-                if (Boolean.FALSE.equals(source.installed)) {
+                // A copy the PC found but has not added has no app id to open.
+                if (Boolean.FALSE.equals(source.installed) || !source.added) {
                     continue;
                 }
                 boolean up = online.contains(source.hostUuid);

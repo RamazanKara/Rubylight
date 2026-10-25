@@ -344,6 +344,7 @@ public final class HomeModel {
             ConsoleSnapshot.Source found = null;
             boolean addable = false;
             int hosts = 0;
+            List<String> listing = new ArrayList<>();
             for (ConsoleSnapshot.Source source : title.sources) {
                 if (!source.added) {
                     ConsoleSnapshot.Host host = snapshot.host(source.hostUuid);
@@ -354,6 +355,7 @@ public final class HomeModel {
                     continue;
                 }
                 hosts++;
+                listing.add(source.hostUuid);
                 if (Boolean.FALSE.equals(source.installed)) {
                     if (missing == null) missing = source;
                 } else if (installed == null) {
@@ -372,7 +374,7 @@ public final class HomeModel {
             }
             boolean star = starred.contains(best.hostUuid + ":" + best.appId);
             GameCard card = new GameCard("game:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                    badgeOf(snapshot, best), best, hosts, star);
+                    badgeOf(snapshot, best), best, hosts, star, listing);
             allGames.add(card);
             if (best.storeSource == null) {
                 other.add(card);
@@ -390,7 +392,7 @@ public final class HomeModel {
             Long last = lastPlayed(title);
             if (last != null) {
                 played.add(new GameCard("recent:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                        card.badge, best, hosts, star));
+                        card.badge, best, hosts, star, listing));
             }
         }
         List<Row> rows = new ArrayList<>();

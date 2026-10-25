@@ -417,7 +417,7 @@ const video: Setting[] = [
     description:
       'When a client says its connection is Wi-Fi or cellular, paces its video adaptively from the first frame instead of after the first lost frames.',
     details:
-      'Applies to H.264, HEVC and AV1 for clients that report a wireless route, such as Nightjar. Starts at twice the encoder bitrate, probes up in small steps while the link stays clean, up to the route limit, and backs off on loss, without changing picture bitrate or FPS. Slow down after video loss does not run on such a stream. PyroWave keeps its own pacing. Changes apply on the next connection. A manual pacing rate or Adapt bitrate on the host turns it off; the device is then still paced like a Wi-Fi route from the first frame, at twice the encoder bitrate.',
+      'Applies to H.264, HEVC and AV1 for clients that report a wireless route, such as Nightjar. Starts at twice the encoder bitrate, probes up in small steps while the link stays clean, up to the route limit, and backs off on loss, without changing picture bitrate or FPS. Slow down after video loss does not run on such a stream. PyroWave keeps its own pacing. Changes apply on the next connection. A manual pacing rate or Adapt bitrate on the host turns it off. With Adapt bitrate on the host or this setting off, H.264, HEVC and AV1 are still paced with the Wi-Fi route policy (twice the encoder bitrate, no probing) from the first frame; a manual pacing rate always wins.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },

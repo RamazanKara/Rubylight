@@ -2473,6 +2473,8 @@ pub struct Session<P = (), A = ()> {
     pace_was_fast: AtomicBool,
     pub adaptive_video_pacing_bps: AtomicU64,
     pub automatic_pacing: std::sync::Mutex<crate::adaptive_pacing::AdaptivePacing>,
+    /// Whether `automatic_pacing` is enabled, set with it at stream start.
+    automatic_pacing_on: AtomicBool,
     /// Slower pacing once the client's link has dropped a keyframe.
     pub keyframe_loss: std::sync::Mutex<crate::keyframe_loss::KeyframeLoss>,
     /// FEC percentage for the next video frame; the video sender reads it per
@@ -2547,6 +2549,7 @@ impl<P, A> Session<P, A> {
             pace_was_fast: AtomicBool::new(false),
             adaptive_video_pacing_bps: AtomicU64::new(0),
             automatic_pacing: Default::default(),
+            automatic_pacing_on: AtomicBool::new(false),
             keyframe_loss: Default::default(),
             fec_percent: AtomicU32::new(
                 crate::adaptive_fec::AdaptiveFec::default().percent() as u32
@@ -3019,6 +3022,7 @@ impl<P, A> Session<P, A> {
     pub fn configure_automatic_pacing(&self, enabled: bool) {
         *self.automatic_pacing.lock().unwrap() =
             crate::adaptive_pacing::AdaptivePacing::new(enabled);
+        self.automatic_pacing_on.store(enabled, Ordering::Release);
     }
     /// Whether the client reports a wireless route (`x-rl-video[0].clientWireless`)
     /// and no adaptive controller owns this stream. Then the route base is
@@ -3028,8 +3032,9 @@ impl<P, A> Session<P, A> {
     pub fn client_wireless_sets_route_pacing(&self) -> bool {
         self.config.client_wireless && !self.automatic_pacing_enabled()
     }
+    /// Read per frame, so it is the flag set at stream start, not the mutex.
     pub fn automatic_pacing_enabled(&self) -> bool {
-        self.automatic_pacing.lock().unwrap().enabled()
+        self.automatic_pacing_on.load(Ordering::Acquire)
     }
     pub fn video_pacing_bps(&self, base: u64, needed: u64) -> u64 {
         let paced = self.automatic_pacing.lock().unwrap().rate(

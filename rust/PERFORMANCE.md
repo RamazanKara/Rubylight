@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Wi-Fi clients paced from the first frame (`clientWireless`): Nightjar desktop over 5 GHz and 2.4 GHz, with and without the hint | [October 25, Wi-Fi pacing hint](#october-25-wi-fi-pacing-hint-on-a-real-laptop) |
+| WebRTC in a browser on the real host: send pacing on and off, RTX at 0.1% loss, 90 and 120 fps at 1080p, 4K keyframe-heavy, 4K60 HDR from the virtual display | [October 25, WebRTC on the real host (B5b)](#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b) |
 | Behaviour across client link speeds: 1000 to 10 Mbit/s, step changes, Wi-Fi profile, what breaks above the link | [October 23, behaviour across client link speeds](#october-23-behaviour-across-client-link-speeds) |
 | Near-link tuning of the link-rate controller: pace above the delivered rate, headroom 0.80, tight AMF buffer (all reverted) | [October 24, near-link tuning (L6)](#october-24-near-link-tuning-three-steps-tried-and-reverted-l6) |
 | Nightjar desktop PyroWave decode: stage split, single upload (kept), batched passes (reverted), the present clock holding every frame 50 ms at the start | [October 23, PyroWave desktop decode stage split (brief 1)](#october-23-pyrowave-desktop-decode-stage-split-brief-1) |
@@ -71,6 +72,92 @@ Question: does pacing a Wi-Fi client from the first frame (`x-rl-video[0].client
 | 2.4 GHz ch 13, 287 Mbit/s, signal 80-85% | B, hint | 15.7 (4-35) | 27.7 (9-54) | 1.7 | 13.7 / 1652 ms | 4728 |
 
 On the clean 5 GHz link the hint changes nothing measurable: no loss in either arm. B's host send stage is 5-8 ms at p99 because each frame is spread out, but that does not show up end to end. On 2.4 GHz every run lost video, and B lost about a quarter as many unrecoverable frames and needed about a quarter as many keyframes, with a much shorter latency tail. Three runs per arm with a wide spread inside each arm, so the direction is solid and the ratios are not. B still stalls after loss on this link, so 47 Mbps HEVC remains too much for it. One laptop, one AP; phones not measured. Outputs: `C:\src\butterpollo-release\wifi-ab\` and `wifi-ab-24\` on the test PC.
+
+## October 25: WebRTC on the real host, pacing, RTX, 90 and 120 fps, 4K and HDR (B5b)
+
+The browser transport (`docs/webrtc-design.md`) measured against the real host with real browsers: send pacing on and off, NACK with RTX at 0.1 % datagram loss, 1080p at 90 and 120 fps, 4K with a keyframe every 500 ms, and HDR at 4K60 from the virtual display. Three decisions follow from the numbers: send pacing stays on, RTX and NACK are now in the default offer, and 90 and 120 fps are offered at 1080p only.
+
+**Fixture.** This PC: RX 7900 XT (AMF), Windows 11, physical monitor 5120x1440 at 240 Hz as the primary display, release build of branch `wr-b5h` (the host with the switches below). Test host on an isolated profile (`butterpollo.exe --config-dir C:\tests\webrtc --port 48140 --bind 127.0.0.1`, WebRTC media on 48545/48546), `virtual_display_layout = extended` throughout. The client is `rust/tests/webrtc_e2e.cjs` driving our protocol v2 harness client (`rust/tests/webrtc_client/client.js`) with Playwright: Microsoft Edge 155.0.4283.62 for H.264 and AV1, Chrome 155.0.8059.85 with `WebRtcAllowH265Receive` for HEVC. The browser runs on the same PC over loopback, so these runs show the host and the transport, not a network. Content is the harness clock window (a magenta-bordered clock on the physical desktop) plus a tone; 1080p60 at the default 20 Mbit/s, 4K at 50 Mbit/s requested. The desktop is nearly static, so the encoders send far less than the requested rate (H.264 3 to 4 Mbit/s, AV1 0.3 Mbit/s at 1080p60); every number below is for that content.
+
+**Method.** One session per leg, 40 s each. Glass-to-glass (g2g) is the harness probe: it reads the clock window out of the decoded video in the browser and subtracts it from the clock on the physical screen. Loss, freezes, key frames, NACK and PLI come from the browser's `getStats`. Host fps, encode time and present-to-send come from the host's 5 s `stream timings` lines. A/B arms alternate (A, B, A, B, A, B) so drift hits both. Switches (hidden config keys, added in this branch): `webrtc_pacing = false` turns the send pacer off, `webrtc_frame_rates = 30,60,90,120` replaces the offered rates, `webrtc_rtx = true` puts NACK and RTX in the offer, `webrtc_loss_permille = 1` drops 0.1 % of the video datagrams at the media socket (fixed seed, video only). The HDR and virtual display legs need the virtual display driver, so that host runs as SYSTEM in the console session (`rust/windows/examples/system_launch.rs` through a one-shot task) with its own profile `C:\tests\webrtc-system`. The physical monitor's mode is never touched.
+
+### Send pacing on and off (3 pairs, 40 s)
+
+g2g median / p95 / p99 in ms, mean of pairs 1 and 2 (loss 0, NACK 0 and PLI 0 in every run; no freeze in any run of these two pairs):
+
+| Leg | Paced (default) | Unpaced |
+| --- | --- | --- |
+| H.264 1080p60 | 21.0 / 24.0 / 32.5 | 21.0 / 24.0 / 27.0 |
+| AV1 1080p60 | 17.0 / 19.5 / 21.5 | 17.5 / 21.5 / 27.5 |
+| HEVC 4K60, keyframe every 500 ms | 29.5 / 39.0 / 44.0 | 33.0 / 46.0 / 52.5 |
+| AV1 4K60, keyframe every 500 ms | 28.0 / 37.0 / 40.0 | 34.5 / 51.0 / 56.0 |
+
+p95 for each of the three pairs (paced, then unpaced): H.264 22, 26, 72 and 22, 26, 62; AV1 18, 21, 80 and 18, 25, 63; HEVC 4K 40, 38, 72 and 41, 51, 83; AV1 4K 35, 39, 78 and 40, 62, 79.
+
+- Pair 3 is contaminated: cargo builds for the next change ran on this PC during it, and both arms show medians of 50 to 60 ms. It is reported, not used for the decision. In it the unpaced arm was better at 1080p (p95 62 against 72 for H.264, 63 against 80 for AV1; the paced AV1 run also had one 0.2 s freeze) and equal at 4K.
+- In the clean pairs unpaced is never better outside the noise, except H.264 p99 (27.0 against 32.5 ms). At 4K with a keyframe every 500 ms the pacer takes 7 to 14 ms off p95 (HEVC 46 to 39, AV1 51 to 37), consistent with it spreading a keyframe's packets over the frame interval instead of sending them as one burst. Key frames per run were 74 to 81 either way; mean encode 6.1 ms (HEVC) and 5.5 ms (AV1).
+- Verdict: keep the pacer on. No default change.
+
+### RTX and NACK at 0.1 % loss (3 pairs, 40 s, `webrtc_loss_permille = 1`)
+
+Arm A is loss only (the earlier default: a lost packet is recovered by a PLI and a keyframe). Arm B is loss plus `webrtc_rtx = true`.
+
+| Leg, arm | Decoded fps | Packets lost | Freezes (seconds frozen) | PLI | NACK | g2g median / p95 (ms) |
+| --- | --- | --- | --- | --- | --- | --- |
+| H.264 1080p60, A, runs 1 / 2 / 3 | 42.1 / 42.3 / 36.5 | 8 / 8 / 13 | 3 (12.1) / 3 (12.1) / 6 (15.7) | 4 / 4 / 6 | 0 | 38 / 48, 21 / 25, no samples |
+| H.264 1080p60, B, runs 1 / 2 / 3 | 60.2 / 60.1 / 60.2 | 13 / 13 / 13 | 0 / 0 / 0 | 0 | 13 / 13 / 13 | 17 / 25, 17 / 21, 21 / 25 |
+| AV1 4K60, A, runs 1 / 2 / 3 | 42.1 / 43.4 / 43.4 | 28 / 27 / 29 | 17 (14.5) / 15 (13.3) / 18 (10.7) | 1 / 1 / 0 | 0 | 56 / 73, 31 / 42, no samples |
+| AV1 4K60, B, runs 1 / 2 / 3 | 60.2 / 60.5 / 60.2 | 28 / 32 / 26 | 0 / 0 / 0 | 0 | 28 / 32 / 26 | 29 / 39, no samples, 26 / 35 |
+
+- With RTX every lost packet was NACKed and resent: NACK equals packets lost in all six runs, no PLI, 60 fps decoded, no freeze. Without it the same 0.1 % loss cost 28 to 39 % of the decoded frames and 11 to 16 s of frozen picture in 40 s.
+- Three runs have no g2g samples (the probe lost the clock window; fps, loss and freezes of those runs are still valid). Where both arms have samples, p95 is 25 to 73 ms without RTX and 21 to 39 ms with it.
+- Clean link (3 pairs, no loss): RTX changes nothing. H.264 g2g median / p95 / p99 19.7 / 26.0 / 31.3 ms without and 18.7 / 24.7 / 34.0 ms with; AV1 4K 29.7 / 39.3 / 43.0 without and 30.3 / 37.3 / 40.0 with. Loss, NACK, PLI and freezes were 0 in all 12 runs, and the sent Mbit/s were within 1 of each other.
+- Verdict: RTX and NACK are on by default (`webrtc_rtx = false` turns them off). The design doc said the better arm ships.
+
+### 90 and 120 fps at 1080p (3 runs per leg, 40 s)
+
+`webrtc_frame_rates = 30,60,90,120` on the test host. Decoded fps is the browser's; host fps is the range of the 5 s timing means. Loss, freezes, NACK, PLI and key frames were 0 in all 18 runs.
+
+| Leg | Decoded fps | Host fps | g2g median / p95 / p99 (ms), runs 1 / 2 / 3 | Mbit/s |
+| --- | --- | --- | --- | --- |
+| H.264 90 | 90.1 / 90.2 / 90.2 | 89.7 to 89.9 | 16 / 21 / 21, 16 / 21 / 25, 16 / 21 / 25 | 5.5 to 5.9 |
+| H.264 120 | 120.3 / 120.2 / 120.2 | 119.8 to 119.9 | 18 / 24 / 26, 16 / 20 / 21, 21 / 25 / 27 | 7.9 to 8.7 |
+| HEVC 90 | 90.2 / 90.2 / 90.2 | 89.9 to 90.0 | 19 / 25 / 29, 19 / 26 / 31, 16 / 23 / 28 | 2.7 to 3.1 |
+| HEVC 120 | 120.3 / 120.3 / 120.2 | 119.9 to 120.0 | 17 / 24 / 26, 17 / 22 / 26, 17 / 25 / 30 | 3.6 to 3.7 |
+| AV1 90 | 90.1 / 90.2 / 90.1 | 89.8 | 15 / 21 / 22, 16 / 21 / 22, 20 / 25 / 26 | 0.5 to 1.0 |
+| AV1 120 | 120.3 / 120.3 / 120.4 | 119.9 to 120.1 | 24 / 28 / 30, 17 / 23 / 26, 17 / 23 / 26 | 0.4 to 0.5 |
+
+- Encode time stayed 2.5 to 2.7 ms and present-to-send p99 7.0 to 9.4 ms at 90 and 120 fps. At 60 fps the same fixture gave g2g median / p95 of 21.0 / 24.0 (H.264) and 17.0 / 19.5 (AV1) in the clean pacing pairs, so 90 and 120 fps are not slower end to end.
+- Verdict: the offer now includes 90 and 120 fps for 1080p. 720p, 1440p and 4K stay at 30 and 60, because they were not measured above 60.
+
+### 4K60 HDR from the virtual display (3 runs per codec, 40 s)
+
+Virtual display in HDR (`virtual_display_mode = per_client`, `dd_hdr_option = auto`), host as SYSTEM, `hdr: true` at 3840x2160. The first 40 encoded frames were captured in the browser and run through ffprobe. The monitor count was 1 before and after every run, so the virtual display was removed.
+
+| Leg | Decoded fps | Host fps | Freezes (seconds) | PLI | Mbit/s | Decode ms | Encode ms | Bitstream |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| HEVC Main10 (Chrome), runs 1 / 2 / 3 | 58.1 / 57.9 / 58.4 | 58.4 / 58.4 / 58.5 | 1 (0.54) / 1 (0.63) / 1 (0.49) | 0 | 1.1 | 0.96 / 1.11 / 0.88 | 6.1 to 6.2 | Main 10, yuv420p10le, bt2020nc, smpte2084, bt2020 primaries, tv range, 3840x2160 |
+| AV1 10-bit (Edge), runs 1 / 2 / 3 | 57.8 / 58.2 / 57.9 | 58.4 / 58.5 / 58.4 | 1 (0.60) / 1 (0.52) / 1 (0.61) | 3 / 2 / 3 | 0.1 to 0.2 | 0.66 / 0.64 / 0.50 | 5.6 | Main, yuv420p10le, bt2020nc, smpte2084, bt2020 primaries, tv range, 3840x2160 |
+
+- All six runs passed: the browser decoded 4K frames, `getStats` reported `video/H265` and `video/AV1`, the stream configuration said `hdr true, ten_bit true` with AMF and an `RgbaF16` source, and the bitstream carried mastering display metadata. Max CLL and max FALL are 0 from a virtual display, so only the mastering display metadata is checked.
+- The same 4K AV1 on the virtual display in SDR (one run): 58.8 fps, no freeze, host 58.4 fps, encode 5.4 ms. The half-second freeze at the start was seen only in the HDR runs.
+- `hdr: true` with the virtual display forced to SDR (`dd_hdr_request_override = force_off`) is refused with `stream_failure` and the text "HDR was requested but the display is not in HDR". Nothing is streamed.
+
+### Caveats
+
+- Loopback, one PC, one nearly static desktop. Bitrates are low (see Fixture); 90 and 120 fps with full-screen motion, and 4K at the full requested bitrate, were not measured. The 4K legs ask for a keyframe every 500 ms, which is the worst case for the pacer, not a typical stream.
+- The HDR legs have no g2g: the clock window sits on the physical monitor, not on the virtual display. Every HDR run shows one freeze of about half a second near the start, and the host delivered 58.4 fps rather than 60 on the virtual display with this content; neither is explained.
+- AV1 at 1080p is padded by the AMD encoder to 1920x1082; the harness accepts that size for AV1 only.
+- Pair 3 of the pacing A/B ran with builds on the same PC (see above). Three RTX runs have no g2g samples. A Windows Firewall prompt for the first launch of a new test binary dims the clock and gives 0 samples, so the harness adds an inbound allow rule for its staged host.
+- `webrtc_loss_permille` drops datagrams at the host's socket, so it models loss without added delay; the RTX result is for 0.1 % random loss only, not bursts and not a long round trip.
+- Edge and Chrome are both 155 builds on this PC; no other browser, phone or Nightjar was measured here.
+
+### Verdict
+
+- Send pacing: kept on. It costs no latency at 1080p and takes 7 to 14 ms off p95 at 4K with frequent keyframes.
+- RTX and NACK: on by default. At 0.1 % loss it kept 60 fps and no freeze where PLI recovery alone gave 36 to 43 fps and 3 to 18 freezes in 40 s, and on a clean link it changed nothing.
+- Frame rates: 1080p offers 30, 60, 90 and 120 fps. Every other mode stays at 30 and 60 until it is measured.
+- HDR at 4K60 works with HEVC Main10 and AV1 10-bit, with BT.2020, PQ and mastering display metadata in the bitstream, and is refused when the display is SDR.
 
 ## October 23: behaviour across client link speeds
 

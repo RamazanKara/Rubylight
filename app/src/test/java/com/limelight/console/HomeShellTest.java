@@ -736,8 +736,14 @@ public class HomeShellTest {
             ReflectionHelpers.setField(home, "repository", rig.repository);
             showHosts(home, 1, true, nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", false));
             assertTrue(cardView(home, "game:game:steam:400").performClick());
+            // More taps while the question is pending ask nothing again.
+            cardView(home, "game:game:steam:400").performClick();
             await(() -> ShadowDialog.getLatestDialog() instanceof AlertDialog
                     && ShadowDialog.getLatestDialog().isShowing());
+            shadowOf(Looper.getMainLooper()).idle();
+            Thread.sleep(100);
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals("one question", 1, ShadowDialog.getShownDialogs().size());
             AlertDialog chooser = (AlertDialog) ShadowDialog.getLatestDialog();
             android.widget.ListView choices = chooser.getListView();
             assertEquals(2, choices.getCount());
@@ -751,6 +757,41 @@ public class HomeShellTest {
             assertEquals("Portal", detail.getStringExtra(GameDetailActivity.EXTRA_TITLE));
         } finally {
             rig.close();
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aGameCardIsAwayOnlyWhenEveryPcThatHasItIsAway() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, 1, true, nativeHost("tower", "Tower", false), nativeHost("laptop", "Laptop", true));
+            assertEquals("one PC answers: the shared game is playable", 1f,
+                    cardView(home, "game:game:steam:400").getAlpha(), 0f);
+            showHosts(home, 1, true, nativeHost("tower", "Tower", false), nativeHost("laptop", "Laptop", false));
+            assertEquals("both are away", OfflineLook.DIMMED, cardView(home, "game:game:steam:400").getAlpha(), 0f);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void tappingASecondPcThatIsAwayMovesTheWaitToIt() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            ComputerDetails attic = nativeHost("attic", "Attic", false);
+            attic.macAddress = "aa:bb:cc:dd:ee:ff";
+            ComputerDetails loft = nativeHost("loft", "Loft", false);
+            loft.macAddress = "11:22:33:44:55:66";
+            showHosts(home, attic, loft);
+            hostCard(home, "attic").performClick();
+            await(() -> home.woken.size() == 1);
+            hostCard(home, "loft").performClick();
+            await(() -> home.woken.size() == 2);
+            assertEquals(Arrays.asList("attic", "loft"), new ArrayList<>(home.woken));
+        } finally {
             controller.pause().stop().destroy();
         }
     }

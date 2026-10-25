@@ -35,6 +35,7 @@ import com.limelight.ui.TopAppBar;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -106,6 +107,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         refreshedSignature = null;
         scheduleReload();
     });
+    /** A "which PC?" question is pending; further taps on games wait for its answer. */
+    private boolean choosing;
     private ActionSheet hostMenu;
     private HomeModel model = HomeModel.empty();
 
@@ -519,15 +522,30 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         if (repo == null || !card.key.startsWith("game:")) {
             return false;
         }
+        if (choosing) {
+            return true;
+        }
+        choosing = true;
         final List<ComputerDetails> hosts = feed.hosts();
         final Set<String> online = onlineOf(hosts);
-        worker.execute(() -> {
-            List<HostChoice> choices = HostChoice.of(repo.cached(hosts), card.key, online);
+        // The saved libraries are on disk: read them on the star thread, not behind a refresh from the hosts.
+        starWorker.execute(() -> {
+            List<HostChoice> choices;
+            try {
+                choices = HostChoice.of(repo.cached(hosts), card.key, online);
+            } catch (RuntimeException e) {
+                com.limelight.LimeLog.warning("Home could not read the saved libraries: " + e);
+                choices = Collections.emptyList();
+            }
+            final List<HostChoice> found = choices;
             runOnUiThread(() -> {
-                if (choices.size() > 1) {
-                    HostChooser.show(this, choices, chosen ->
-                            openGameOn(chosen.hostUuid, chosen.appId, card.title, chosen.hostName));
+                if (!shown || isFinishing() || isDestroyed()) {
+                    choosing = false;
+                } else if (found.size() > 1) {
+                    HostChooser.show(this, found, chosen ->
+                            openGameOn(chosen.hostUuid, chosen.appId, card.title, chosen.hostName), () -> choosing = false);
                 } else {
+                    choosing = false;
                     openGameOn(card.hostUuid, card.appId, card.title, card.hostName);
                 }
             });

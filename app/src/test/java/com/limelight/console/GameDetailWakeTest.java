@@ -5,6 +5,7 @@ import static com.limelight.nativeapi.NativeApiFixtures.library;
 import static com.limelight.nativeapi.NativeApiFixtures.nativeHost;
 import static com.limelight.nativeapi.NativeApiFixtures.ok;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.robolectric.Shadows.shadowOf;
 
@@ -24,6 +25,7 @@ import com.limelight.computers.ComputerManagerService;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.NvApp;
 import com.limelight.preferences.GlPreferences;
 
 import org.junit.After;
@@ -43,6 +45,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 /** Play on a game's page when its PC is away: it says Wake PC and play, and pressing it sends the wake packet. */
@@ -56,6 +59,7 @@ public class GameDetailWakeTest {
     public static class Detail extends GameDetailActivity {
         static ConsoleRepository repository;
         static final List<String> woken = Collections.synchronizedList(new ArrayList<>());
+        static final List<String> played = Collections.synchronizedList(new ArrayList<>());
 
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
             return false;
@@ -67,6 +71,10 @@ public class GameDetailWakeTest {
 
         @Override protected void sendWake(ComputerDetails computer) {
             woken.add(computer.uuid);
+        }
+
+        @Override protected void play(NvApp app, ComputerDetails computer) {
+            played.add(app.getAppName());
         }
     }
 
@@ -83,6 +91,7 @@ public class GameDetailWakeTest {
         File directory = new File(context.getFilesDir(), "console-library");
         assertTrue(directory.isDirectory() || directory.mkdirs());
         Detail.woken.clear();
+        Detail.played.clear();
     }
 
     @After
@@ -113,11 +122,17 @@ public class GameDetailWakeTest {
         assertTrue("in time", done.getAsBoolean());
     }
 
-    @Test
-    public void playOnAPcThatIsAwayWakesItInsteadOfStayingGreyedOut() throws Exception {
-        ConsoleRig rig = new ConsoleRig(temporary.newFolder());
-        ActivityController<Detail> controller = null;
-        try {
+    /** The page of Portal on Tower, opened while Tower is away (with a MAC address, unless {@code mac} is null). */
+    private final class Page {
+        final ConsoleRig rig;
+        final ActivityController<Detail> controller;
+        final Detail screen;
+        final HostFeed feed;
+        final TextView play;
+        final TextView note;
+
+        Page(String mac) throws Exception {
+            rig = new ConsoleRig(temporary.newFolder());
             // The PC listed its games once while it was awake; now only that is left of it.
             rig.transport.reply("tower", "library", ok(library("r", game("t-portal", 11, "Portal", "steam:400", false))));
             rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
@@ -130,28 +145,152 @@ public class GameDetailWakeTest {
                     .putExtra(GameDetailActivity.EXTRA_TITLE, "Portal")
                     .putExtra(GameDetailActivity.EXTRA_HOST_NAME, "Tower");
             controller = Robolectric.buildActivity(Detail.class, intent).setup().visible();
-            Detail screen = controller.get();
-            HostFeed feed = ReflectionHelpers.getField(screen, "feed");
+            screen = controller.get();
+            feed = ReflectionHelpers.getField(screen, "feed");
             ReflectionHelpers.setField(feed, "binder", binder());
-            ComputerDetails tower = nativeHost("tower", "Tower", false);
-            tower.macAddress = "aa:bb:cc:dd:ee:ff";
-            feed.update(tower);
+            host(false, mac);
+            play = screen.findViewById(R.id.detail_play);
+            note = screen.findViewById(R.id.detail_note);
+        }
 
-            TextView play = screen.findViewById(R.id.detail_play);
+        /** Tower as the feed reports it now. */
+        void host(boolean online, String mac) {
+            ComputerDetails tower = nativeHost("tower", "Tower", online);
+            tower.macAddress = mac;
+            feed.update(tower);
+        }
+
+        /** The time passes on the main looper, as the waker's one-second ticks need. */
+        void pass(long ms) {
+            shadowOf(Looper.getMainLooper()).idleFor(ms, TimeUnit.MILLISECONDS);
+        }
+
+        void waitForWakeButton() throws Exception {
             String wake = screen.getString(R.string.console_wake_and_play);
             await(() -> play.getText().toString().equals(wake) && play.isEnabled());
+        }
+
+        void close() {
+            controller.pause().stop().destroy();
+            rig.close();
+        }
+    }
+
+    @Test
+    public void playOnAPcThatIsAwayWakesItAndStartsTheGameOnceWhenItAnswers() throws Exception {
+        Page page = new Page("aa:bb:cc:dd:ee:ff");
+        try {
+            page.waitForWakeButton();
             assertTrue(Detail.woken.isEmpty());
 
-            play.performClick();
+            page.play.performClick();
             await(() -> Detail.woken.size() == 1);
             assertEquals("tower", Detail.woken.get(0));
-            assertEquals("the button says it is waiting", screen.getString(R.string.wol_waking_pc),
-                    play.getText().toString());
+            assertEquals("the button says it is waiting", page.screen.getString(R.string.wol_waking_pc),
+                    page.play.getText().toString());
+            assertEquals(page.screen.getString(R.string.console_wake_waiting, "Tower"), page.note.getText().toString());
+            assertTrue("nothing starts while it sleeps", Detail.played.isEmpty());
+
+            page.host(true, "aa:bb:cc:dd:ee:ff");
+            page.pass(1_100);
+            await(() -> Detail.played.size() == 1);
+            assertEquals("Portal", Detail.played.get(0));
+            page.pass(60_000);
+            Thread.sleep(200);
+            page.pass(1_000);
+            assertEquals("exactly one start", 1, Detail.played.size());
         } finally {
-            if (controller != null) {
-                controller.pause().stop().destroy();
-            }
-            rig.close();
+            page.close();
+        }
+    }
+
+    @Test
+    public void nothingStartsAfterTheWaitTimedOutEvenIfThePcComesUpLater() throws Exception {
+        Page page = new Page("aa:bb:cc:dd:ee:ff");
+        try {
+            page.waitForWakeButton();
+            page.play.performClick();
+            await(() -> Detail.woken.size() == 1);
+
+            page.pass(WakeLaunch.TIMEOUT_MS + 2_000);
+            assertEquals("the waiting note is gone", page.screen.getString(R.string.library_offline),
+                    page.note.getText().toString());
+            assertEquals(page.screen.getString(R.string.console_wake_and_play), page.play.getText().toString());
+            assertTrue("and Play is not greyed out, to try again", page.play.isEnabled());
+
+            page.host(true, "aa:bb:cc:dd:ee:ff");
+            page.pass(5_000);
+            Thread.sleep(300);
+            page.pass(1_000);
+            assertTrue("a late answer starts nothing", Detail.played.isEmpty());
+        } finally {
+            page.close();
+        }
+    }
+
+    @Test
+    public void nothingStartsWhenThePageWasLeftWhileWaiting() throws Exception {
+        Page page = new Page("aa:bb:cc:dd:ee:ff");
+        try {
+            page.waitForWakeButton();
+            page.play.performClick();
+            await(() -> Detail.woken.size() == 1);
+
+            page.controller.pause();
+            page.host(true, "aa:bb:cc:dd:ee:ff");
+            page.pass(5_000);
+            Thread.sleep(300);
+            page.pass(1_000);
+            assertTrue(Detail.played.isEmpty());
+            page.controller.resume();
+            page.pass(5_000);
+            Thread.sleep(300);
+            page.pass(1_000);
+            assertTrue("and not when it comes back either", Detail.played.isEmpty());
+        } finally {
+            page.close();
+        }
+    }
+
+    @Test
+    public void whenTheServiceIsGoneAfterTheWakeTheGameDoesNotStartAndTheFailureIsShown() throws Exception {
+        Page page = new Page("aa:bb:cc:dd:ee:ff");
+        try {
+            page.waitForWakeButton();
+            page.play.performClick();
+            await(() -> Detail.woken.size() == 1);
+
+            ReflectionHelpers.setField(page.feed, "binder", null);
+            page.host(true, "aa:bb:cc:dd:ee:ff");
+            page.pass(1_100);
+            await(() -> {
+                android.app.Dialog dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog();
+                return dialog != null && dialog.isShowing();
+            });
+            assertTrue(Detail.played.isEmpty());
+            androidx.appcompat.app.AlertDialog dialog =
+                    (androidx.appcompat.app.AlertDialog) org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertEquals(page.screen.getString(R.string.error_manager_not_running),
+                    ((TextView) dialog.findViewById(android.R.id.message)).getText().toString());
+        } finally {
+            page.close();
+        }
+    }
+
+    @Test
+    public void aPcWithoutAMacAddressKeepsPlayGreyedOutAsBefore() throws Exception {
+        Page page = new Page(null);
+        try {
+            String offline = page.screen.getString(R.string.library_offline);
+            await(() -> page.note.getText().toString().equals(offline));
+            assertFalse(page.play.isEnabled());
+            assertEquals(page.screen.getString(R.string.library_play), page.play.getText().toString());
+            page.play.performClick();
+            Thread.sleep(100);
+            assertTrue(Detail.woken.isEmpty());
+            assertTrue(Detail.played.isEmpty());
+        } finally {
+            page.close();
         }
     }
 }

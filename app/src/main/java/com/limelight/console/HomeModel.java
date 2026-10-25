@@ -50,14 +50,29 @@ public final class HomeModel {
         public final boolean favourite;
         /** A game not added that its host can add on request (library.add); otherwise it is added on the PC. */
         public final boolean addable;
+        /** Every PC the card stands for: its own, and in the library all that list the game. */
+        public final List<String> hostUuids;
 
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
                  ConsoleSnapshot.Source source, int hostCount, boolean favourite) {
-            this(key, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, false);
+            this(key, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, false,
+                    Collections.singletonList(hostUuid));
         }
 
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
                  ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable) {
+            this(key, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, addable,
+                    Collections.singletonList(hostUuid));
+        }
+
+        GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
+                 ConsoleSnapshot.Source source, int hostCount, boolean favourite, List<String> hostUuids) {
+            this(key, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, false, hostUuids);
+        }
+
+        GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
+                 ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable,
+                 List<String> hostUuids) {
             this.key = key;
             this.title = title;
             this.hostUuid = hostUuid;
@@ -68,6 +83,7 @@ public final class HomeModel {
             this.hostCount = hostCount;
             this.favourite = favourite;
             this.addable = addable;
+            this.hostUuids = hostUuids;
         }
 
         /** The store's key ("steam", ...); null for an app no store owns and for a classic app. */
@@ -263,6 +279,7 @@ public final class HomeModel {
         for (ConsoleSnapshot.Title title : snapshot.titles) {
             ConsoleSnapshot.Source best = null;
             int hosts = 0;
+            List<String> listing = new ArrayList<>();
             for (ConsoleSnapshot.Source source : title.sources) {
                 // A library entry that is not installed, or not added, cannot be started from here.
                 if (Boolean.FALSE.equals(source.installed) || !source.added) {
@@ -272,12 +289,13 @@ public final class HomeModel {
                     best = source;
                 }
                 hosts++;
+                listing.add(source.hostUuid);
             }
             if (best == null) {
                 continue;
             }
             library.add(new GameCard("game:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                    badgeOf(snapshot, best), best, hosts, starred.contains(best.hostUuid + ":" + best.appId)));
+                    badgeOf(snapshot, best), best, hosts, starred.contains(best.hostUuid + ":" + best.appId), listing));
         }
         List<GameCard> allGames = new ArrayList<>();
         List<Row> rows = libraryRows(snapshot, starred, allGames, launchDenied);

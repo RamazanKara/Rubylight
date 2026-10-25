@@ -24,13 +24,21 @@ final class HostChooser {
         return labels;
     }
 
-    static void show(Activity activity, List<HostChoice> choices, Consumer<HostChoice> chosen) {
+    /**
+     * @param finished called once the question is over, whether a PC was chosen, Cancel was pressed or Back closed it
+     */
+    static void show(Activity activity, List<HostChoice> choices, Consumer<HostChoice> chosen, Runnable finished) {
         if (activity.isFinishing() || activity.isDestroyed()) {
+            finished.run();
             return;
         }
         UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity)
                 .setTitle(R.string.console_choose_pc)
-                .setItems(labels(activity, choices), (dialog, which) -> chosen.accept(choices.get(which)))
-                .setNegativeButton(android.R.string.cancel, null).create());
+                .setItems(labels(activity, choices), (dialog, which) -> {
+                    finished.run();
+                    chosen.accept(choices.get(which));
+                })
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> finished.run())
+                .setOnCancelListener(dialog -> finished.run()).create());
     }
 }

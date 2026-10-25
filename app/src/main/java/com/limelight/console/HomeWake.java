@@ -13,7 +13,8 @@ import java.util.function.Function;
 
 /**
  * The Wake PC action on Home: tapping a card of a PC that is away sends the wake packets and waits for it, telling
- * the player how it went. One PC at a time; the wait ends when the screen is left, since the feed stops polling then.
+ * the player how it went. One PC at a time (tapping another moves the wait to it); the wait ends when the screen is
+ * left, since the feed stops polling then.
  */
 final class HomeWake {
     private final Activity activity;
@@ -64,7 +65,11 @@ final class HomeWake {
             return false;
         }
         if (waker.isWaiting()) {
-            return true;
+            if (hostUuid.equals(uuid)) {
+                return true;
+            }
+            // Another PC was tapped: the wait moves to it, the first one is no longer waited for.
+            waker.cancel();
         }
         uuid = hostUuid;
         name = host.displayName();

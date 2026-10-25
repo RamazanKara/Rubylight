@@ -237,6 +237,16 @@ public class HomeModelTest {
     }
 
     @Test
+    public void aLibraryCardKnowsEveryPcThatHasTheGame() throws Exception {
+        tower();
+        laptop();
+        List<ComputerDetails> hosts = Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true));
+        HomeModel model = HomeModel.of(rig.repository.refresh(hosts), online("tower", "laptop"));
+        assertEquals(Arrays.asList("tower", "laptop"), card(model, "Portal").hostUuids);
+        assertEquals(Collections.singletonList("tower"), card(model, "Zelda").hostUuids);
+    }
+
+    @Test
     public void theHostsOfAGameListTheOnesThatAnswerFirst() throws Exception {
         tower();
         laptop();

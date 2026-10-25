@@ -575,6 +575,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private LinkNoticeStatus linkNotice;
     // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
     private String overlayMode = PerformanceOverlay.MODE_COMPACT;
+    // The corner the overlay prefers; OverlayPlacement moves it when controls cover that corner.
+    private com.limelight.ui.OverlayPlacement.Corner overlayCorner = com.limelight.ui.OverlayPlacement.Corner.TOP_LEFT;
     private TextView streamMenuHint;
     // Every message of the stream goes through here: one at a time, lasting facts once per PC.
     private final com.limelight.ui.StreamMessages messages = new com.limelight.ui.StreamMessages(this);
@@ -945,8 +947,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         performanceOverlayScroll.setOnTouchListener((view, event) -> !isDebugOverlay() && onOverlayTouch(view, event));
         overlayMode = PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(this)
                 .getString("performance_overlay_mode", PerformanceOverlay.MODE_COMPACT));
+        overlayCorner = com.limelight.ui.OverlayPlacement.Corner.parse(prefConfig.overlayPosition);
         com.limelight.ui.OverlayPlacement.attach(performanceOverlayScroll, (android.view.ViewGroup) streamView.getParent(),
-                this::collectOverlayObstacles);
+                this::collectOverlayObstacles, () -> overlayCorner, this::alignOverlayText);
         updatePerformanceOverlay();
 
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
@@ -2732,6 +2735,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.microphoneMuted = conn.isMicrophoneMuted();
         options.overlayShown = prefConfig.enablePerfOverlay;
         options.overlayMode = overlayMode;
+        options.overlayPosition = overlayCorner.key;
         options.localOutput = externalPresentation == null;
         options.mouseConnected = hasExternalMouse();
         options.cursorVisible = cursorVisible;
@@ -2799,6 +2803,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case END_HOST_SESSION: action = this::confirmEndHostSession; break;
             case CLOSE_GAME: action = this::confirmCloseGame; break;
             case END_SESSION: action = this::endRemoteSession; break;
+            case OVERLAY_OFF: action = this::hidePerformanceOverlay; break;
+            case OVERLAY_TOP_LEFT: action = () -> setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.TOP_LEFT); break;
+            case OVERLAY_TOP_RIGHT: action = () -> setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.TOP_RIGHT); break;
+            case OVERLAY_BOTTOM_LEFT: action = () -> setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_LEFT); break;
+            case OVERLAY_BOTTOM_RIGHT: action = () -> setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_RIGHT); break;
             case OVERLAY_COMPACT: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_COMPACT); break;
             case OVERLAY_STATISTICS: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_STATISTICS); break;
             case OVERLAY_DEBUG: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_DEBUG); break;
@@ -2855,6 +2864,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void showPerformanceOverlay(String mode) {
         setPerformanceOverlayMode(mode);
         if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
+    }
+
+    // Off from the menu: the same switch the settings' Off writes, the mode kept for the next time.
+    private void hidePerformanceOverlay() {
+        if (prefConfig.enablePerfOverlay) togglePerformanceOverlay();
     }
 
     private void toggleAdaptiveBitrateFromMenu() {
@@ -3295,6 +3309,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         updateHardwareMetricsPolling();
     }
 
+    private void setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner corner) {
+        overlayCorner = corner;
+        prefConfig.overlayPosition = corner.key;
+        PreferenceManager.getDefaultSharedPreferences(this).edit()
+                .putString("performance_overlay_position", corner.key).apply();
+        // Move it now; a hidden overlay is placed by the next layout once it shows.
+        android.view.ViewGroup parent = (android.view.ViewGroup) performanceOverlayScroll.getParent();
+        int margin = Math.round(8 * getResources().getDisplayMetrics().density);
+        com.limelight.ui.OverlayPlacement.Spot spot = com.limelight.ui.OverlayPlacement.place(
+                performanceOverlayScroll, parent, this::collectOverlayObstacles, margin, corner);
+        if (spot != null) alignOverlayText(spot);
+    }
+
+    // Lines of different widths hug the side the overlay sits on. Set only when the side changes.
+    private void alignOverlayText(com.limelight.ui.OverlayPlacement.Spot spot) {
+        int side = spot == com.limelight.ui.OverlayPlacement.Spot.TOP_END ||
+                spot == com.limelight.ui.OverlayPlacement.Spot.BOTTOM_END ? android.view.Gravity.END : android.view.Gravity.START;
+        if ((performanceOverlayView.getGravity() & android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) != side) {
+            performanceOverlayView.setGravity(android.view.Gravity.TOP | side);
+        }
+    }
+
     private void updatePerformanceOverlay() {
         boolean compact = PerformanceOverlay.MODE_COMPACT.equals(overlayMode);
         performanceOverlayView.setTextSize(compact ? 13 : isDebugOverlay() ? 11 : 12);
@@ -3313,7 +3349,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     // The on-screen gamepad, its layout button, per-game buttons and the key toolbar stay uncovered.
     private void collectOverlayObstacles(java.util.List<Rect> out) {
-        View parent = (View) streamView.getParent();
+        View parent = (View) performanceOverlayScroll.getParent();
         if (virtualController != null && prefConfig.onscreenController) virtualController.collectVisibleBounds(out);
         if (gameTouchControls != null) gameTouchControls.collectVisibleBounds(parent, out);
         if (isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(keyboardOverlay, parent, out);

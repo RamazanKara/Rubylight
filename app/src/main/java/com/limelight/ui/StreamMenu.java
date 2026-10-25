@@ -34,13 +34,14 @@ public final class StreamMenu {
         SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
         NATIVE_PAGE, NATIVE_RESUME,
-        OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG, OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST
+        OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
+        OVERLAY_TOP_LEFT, OVERLAY_TOP_RIGHT, OVERLAY_BOTTOM_LEFT, OVERLAY_BOTTOM_RIGHT, OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST
     }
 
     public enum Section {
         QUICK(0), INPUT(R.string.stream_section_input), DISPLAY(R.string.stream_section_display),
         QUALITY(R.string.stream_section_quality), HOST(R.string.stream_section_host), SESSION(0),
-        OVERLAY_STYLE(0), DIAGNOSTICS(0), NATIVE_SESSION(R.string.native_section_session);
+        OVERLAY_STYLE(0), OVERLAY_POSITION(R.string.overlay_position_section), DIAGNOSTICS(0), NATIVE_SESSION(R.string.native_section_session);
 
         public final int title;
 
@@ -59,6 +60,8 @@ public final class StreamMenu {
         public boolean microphoneOffered, microphoneMuted;
         public boolean overlayShown;
         public String overlayMode = PerformanceOverlay.MODE_COMPACT;
+        /** The corner the overlay sits in, as stored under {@code performance_overlay_position}. */
+        public String overlayPosition = OverlayPlacement.Corner.TOP_LEFT.key;
         /** False while video plays on an external display and this device is the touchpad. */
         public boolean localOutput = true;
         public boolean mouseConnected, cursorVisible;
@@ -257,11 +260,22 @@ public final class StreamMenu {
 
     public static List<Entry> overlayPage(Options o) {
         List<Entry> entries = new ArrayList<>();
+        // Off first, like the settings picker; a mode counts as chosen only while the overlay shows.
+        entries.add(entry(Section.OVERLAY_STYLE, Item.OVERLAY_OFF, R.string.overlay_off, R.drawable.ic_check, !o.overlayShown));
         String[] modes = {PerformanceOverlay.MODE_COMPACT, PerformanceOverlay.MODE_STATISTICS, PerformanceOverlay.MODE_DEBUG};
         Item[] items = {Item.OVERLAY_COMPACT, Item.OVERLAY_STATISTICS, Item.OVERLAY_DEBUG};
         int[] labels = {R.string.overlay_compact, R.string.overlay_statistics, R.string.overlay_debug};
         for (int i = 0; i < modes.length; i++) {
-            entries.add(entry(Section.OVERLAY_STYLE, items[i], labels[i], R.drawable.ic_check, modes[i].equals(o.overlayMode)));
+            entries.add(entry(Section.OVERLAY_STYLE, items[i], labels[i], R.drawable.ic_check,
+                    o.overlayShown && modes[i].equals(o.overlayMode)));
+        }
+        OverlayPlacement.Corner[] corners = OverlayPlacement.Corner.values();
+        Item[] positions = {Item.OVERLAY_TOP_LEFT, Item.OVERLAY_TOP_RIGHT, Item.OVERLAY_BOTTOM_LEFT, Item.OVERLAY_BOTTOM_RIGHT};
+        int[] positionLabels = {R.string.overlay_position_top_left, R.string.overlay_position_top_right,
+                R.string.overlay_position_bottom_left, R.string.overlay_position_bottom_right};
+        OverlayPlacement.Corner current = OverlayPlacement.Corner.parse(o.overlayPosition);
+        for (int i = 0; i < corners.length; i++) {
+            entries.add(entry(Section.OVERLAY_POSITION, positions[i], positionLabels[i], R.drawable.ic_check, corners[i] == current));
         }
         entries.add(action(Section.DIAGNOSTICS, Item.OVERLAY_COPY, R.string.overlay_copy, R.drawable.ic_copy));
         entries.add(action(Section.DIAGNOSTICS, Item.STREAM_HEALTH, R.string.health_title, R.drawable.ic_pulse));

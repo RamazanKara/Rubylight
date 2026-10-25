@@ -52,6 +52,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private com.limelight.ui.GameTouchControls gameControls;
     private DemoSamplePlayer player;
     private String mode;
+    // "--es position top_left|top_right|bottom_left|bottom_right" starts the overlay in that corner.
+    private com.limelight.ui.OverlayPlacement.Corner corner;
     private boolean showControls, prepared, started, fallback, microphoneMuted;
     private long positionUs;
     private long tick;
@@ -87,6 +89,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         setContentView(R.layout.activity_game);
         mode = PerformanceOverlay.normalizeMode(state == null ? getIntent().getStringExtra("state") : state.getString("mode"));
+        corner = com.limelight.ui.OverlayPlacement.Corner.parse(
+                state == null ? getIntent().getStringExtra("position") : state.getString("position"));
         showControls = state == null ? "touch".equals(getIntent().getStringExtra("state")) : state.getBoolean("controls");
         positionUs = state == null ? 0 : state.getLong("positionUs");
         stream = findViewById(R.id.surfaceView);
@@ -152,7 +156,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         }
         controls = new VirtualController(null, container, this);
         com.limelight.ui.OverlayPlacement.attach(findViewById(R.id.performanceOverlayScroll), container,
-                out -> controls.collectVisibleBounds(out));
+                out -> controls.collectVisibleBounds(out), () -> corner, this::alignOverlay);
         // The per-game layout editor with a demo profile; what the controls send goes to the log.
         gameControls = new com.limelight.ui.GameTouchControls(this, "demo", new com.limelight.binding.input.HeldInputState.Sink() {
             @Override public void key(int key, boolean down) { android.util.Log.i("DemoGameControls", "key " + key + " " + down); }
@@ -216,6 +220,18 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         DemoMetrics.update(this, this, tick);
     }
 
+    // Lines of different widths hug the side the overlay sits on, as in Game.
+    private void alignOverlay(com.limelight.ui.OverlayPlacement.Spot spot) {
+        int side = spot == com.limelight.ui.OverlayPlacement.Spot.TOP_END ||
+                spot == com.limelight.ui.OverlayPlacement.Spot.BOTTOM_END ? Gravity.END : Gravity.START;
+        if ((overlay.getGravity() & Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) != side) overlay.setGravity(Gravity.TOP | side);
+    }
+
+    private void setCorner(com.limelight.ui.OverlayPlacement.Corner value) {
+        corner = value;
+        findViewById(R.id.performanceOverlayScroll).requestLayout();
+    }
+
     // The same sizes as a real stream; OverlayPlacement picks the corner.
     private void placeOverlay() {
         overlay.setTextSize(TypedValue.COMPLEX_UNIT_SP, PerformanceOverlay.MODE_COMPACT.equals(mode) ? 13 :
@@ -239,6 +255,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         StreamMenu.Options options = new StreamMenu.Options(NvApp.Role.STREAM, host);
         options.overlayShown = findViewById(R.id.performanceOverlayScroll).getVisibility() == View.VISIBLE;
         options.overlayMode = mode;
+        options.overlayPosition = corner.key;
         options.onscreenControls = showControls;
         options.scalingAvailable = true;
         options.pictureInPicture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
@@ -292,6 +309,11 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         }
         if (menu != null) menu.sheet().dismiss();
         switch (item) {
+            case OVERLAY_OFF: overlayScroll.setVisibility(View.GONE); break;
+            case OVERLAY_TOP_LEFT: setCorner(com.limelight.ui.OverlayPlacement.Corner.TOP_LEFT); break;
+            case OVERLAY_TOP_RIGHT: setCorner(com.limelight.ui.OverlayPlacement.Corner.TOP_RIGHT); break;
+            case OVERLAY_BOTTOM_LEFT: setCorner(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_LEFT); break;
+            case OVERLAY_BOTTOM_RIGHT: setCorner(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_RIGHT); break;
             case OVERLAY_COMPACT: setMode(PerformanceOverlay.MODE_COMPACT); overlayScroll.setVisibility(View.VISIBLE); break;
             case OVERLAY_STATISTICS: setMode(PerformanceOverlay.MODE_STATISTICS); overlayScroll.setVisibility(View.VISIBLE); break;
             case OVERLAY_DEBUG: setMode(PerformanceOverlay.MODE_DEBUG); overlayScroll.setVisibility(View.VISIBLE); break;
@@ -460,6 +482,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("mode", mode);
+        state.putString("position", corner.key);
         state.putBoolean("controls", showControls);
         state.putLong("positionUs", prepared ? player.positionUs() : positionUs);
         super.onSaveInstanceState(state);

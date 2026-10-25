@@ -89,6 +89,34 @@ public class GameStreamMenuTest {
     }
 
     @Test
+    public void theOverlayPageOffAndCornerRowsActOnTheStream() {
+        Game game = streamingGame("rubylight-serverinfo.xml");
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        android.content.SharedPreferences stored = android.preference.PreferenceManager.getDefaultSharedPreferences(game);
+        prefs.enablePerfOverlay = true;
+        game.findViewById(R.id.performanceOverlayScroll).setVisibility(View.VISIBLE);
+        StreamMenu menu = open(game);
+        menu.row(StreamMenu.Item.OVERLAY_PAGE).performClick();
+        menu.row(StreamMenu.Item.OVERLAY_BOTTOM_RIGHT).performClick();
+        runMenuAction(game);
+        assertEquals("bottom_right", stored.getString("performance_overlay_position", ""));
+        assertEquals("bottom_right", prefs.overlayPosition);
+        assertTrue("A corner leaves the overlay on", prefs.enablePerfOverlay);
+
+        menu = open(game);
+        menu.row(StreamMenu.Item.OVERLAY_PAGE).performClick();
+        menu.row(StreamMenu.Item.OVERLAY_OFF).performClick();
+        runMenuAction(game);
+        assertFalse(prefs.enablePerfOverlay);
+        assertFalse(stored.getBoolean("checkbox_enable_perf_overlay", true));
+        assertEquals(View.GONE, game.findViewById(R.id.performanceOverlayScroll).getVisibility());
+
+        StreamMenu.Options options = ReflectionHelpers.callInstanceMethod(game, "streamMenuOptions");
+        assertFalse(options.overlayShown);
+        assertEquals("bottom_right", options.overlayPosition);
+    }
+
+    @Test
     public void backInTheOverlayPageReturnsToTheStreamMenu() {
         Game game = streamingGame("rubylight-serverinfo.xml");
         StreamMenu menu = open(game);
@@ -150,6 +178,13 @@ public class GameStreamMenuTest {
             assertNotEquals(entry.toString(), StreamMenu.Section.QUALITY, entry.section);
         }
         menu.sheet().dismiss();
+    }
+
+    // The chosen item runs once the menu is gone and the stream has focus: give it that focus.
+    private static void runMenuAction(Game game) {
+        idle();
+        WindowFocusActionQueue queue = ReflectionHelpers.getField(game, "windowFocusActions");
+        queue.runPending(true, android.os.SystemClock.uptimeMillis());
     }
 
     private static void idle() {

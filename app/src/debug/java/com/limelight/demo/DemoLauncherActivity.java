@@ -91,6 +91,7 @@ public final class DemoLauncherActivity extends Activity {
                 .putExtra("size", getIntent().getStringExtra("size"))
                 .putExtra("page", getIntent().getStringExtra("page"))
                 .putExtra(com.limelight.console.AllGamesActivity.EXTRA_FILTER, getIntent().getStringExtra("filter"))
+                .putExtra("position", getIntent().getStringExtra("position"))
                 .putExtra(AppView.UUID_EXTRA, DemoFixtures.PC_UUID).putExtra(AppView.NAME_EXTRA, "Living-room PC")
                 .putExtra("host_uuid", DemoFixtures.PC_UUID).putExtra("host_name", "Living-room PC")
                 // The game detail: "--ei app 2" opens Racing Game (the running one), any other id its own card.

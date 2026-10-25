@@ -58,7 +58,9 @@ rows read as for an online PC; its remote setup, export and web UI actions stay 
 Tap Living-room PC to enter its library; tap any title to play the sample with the compact overlay.
 Long-press the performance overlay to cycle Compact, Statistics and Debug. Tap the
 stream, its background or Back for the real stream menu; Disconnect leaves. Add
-`--ez hint true` to keep the first-stream hint up until it is tapped. Studio pairing and
+`--ez hint true` to keep the first-stream hint up until it is tapped. Add
+`--es position top_left|top_right|bottom_left|bottom_right` to start the overlay in that corner; the
+stream menu's Overlay page moves it live. Studio pairing and
 Laptop Wake PC are offline demonstration actions; no pairing request or magic
 packet is sent. The fixture binder never discovers or polls hosts and creates
 no launcher shortcuts. Preferences use `demo_` names, cached art stays under

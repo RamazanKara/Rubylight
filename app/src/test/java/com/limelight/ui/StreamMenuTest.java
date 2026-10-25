@@ -124,7 +124,7 @@ public class StreamMenuTest {
         List<StreamMenu.Entry> entries = new ArrayList<>(StreamMenu.mainPage(options));
         // The overlay modes are one choice that marks the chosen mode with a check.
         for (StreamMenu.Entry entry : StreamMenu.overlayPage(options)) {
-            if (entry.section != StreamMenu.Section.OVERLAY_STYLE) entries.add(entry);
+            if (entry.section != StreamMenu.Section.OVERLAY_STYLE && entry.section != StreamMenu.Section.OVERLAY_POSITION) entries.add(entry);
         }
         assertTrue(items(entries).containsAll(Arrays.asList(TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT,
                 GAME_CONTROLS, KEYBOARD_KEYS, VIDEO_SCALING, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
@@ -299,13 +299,48 @@ public class StreamMenuTest {
     @Test
     public void theOverlayPageChoosesAStyleAndHoldsTheDiagnostics() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        options.overlayShown = true;
         options.overlayMode = "statistics";
         List<StreamMenu.Entry> page = StreamMenu.overlayPage(options);
-        assertEquals(Arrays.asList(OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG, OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST),
+        assertEquals(Arrays.asList(OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
+                        OVERLAY_TOP_LEFT, OVERLAY_TOP_RIGHT, OVERLAY_BOTTOM_LEFT, OVERLAY_BOTTOM_RIGHT,
+                        OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST),
                 items(page));
+        assertEquals("Off comes first", StreamMenu.Section.OVERLAY_STYLE, page.get(0).section);
         assertEquals(Boolean.FALSE, page.get(0).checked);
-        assertEquals(Boolean.TRUE, page.get(1).checked);
-        assertEquals(Boolean.FALSE, page.get(2).checked);
+        assertEquals(Boolean.FALSE, page.get(1).checked);
+        assertEquals(Boolean.TRUE, page.get(2).checked);
+        assertEquals(Boolean.FALSE, page.get(3).checked);
+    }
+
+    @Test
+    public void offIsCheckedWhileTheOverlayIsHiddenAndNoModeIs() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        options.overlayShown = false;
+        options.overlayMode = "debug";
+        List<StreamMenu.Entry> page = StreamMenu.overlayPage(options);
+        assertEquals(Boolean.TRUE, page.get(0).checked);
+        for (int i = 1; i <= 3; i++) assertEquals(page.get(i).toString(), Boolean.FALSE, page.get(i).checked);
+    }
+
+    @Test
+    public void theOverlayPageOffersFourCornersWithTheCurrentOneChecked() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        StreamMenu.Item[] corners = {OVERLAY_TOP_LEFT, OVERLAY_TOP_RIGHT, OVERLAY_BOTTOM_LEFT, OVERLAY_BOTTOM_RIGHT};
+        String[] keys = {"top_left", "top_right", "bottom_left", "bottom_right"};
+        for (int chosen = 0; chosen < keys.length; chosen++) {
+            options.overlayPosition = keys[chosen];
+            int found = 0;
+            for (StreamMenu.Entry entry : StreamMenu.overlayPage(options)) {
+                if (entry.section != StreamMenu.Section.OVERLAY_POSITION) continue;
+                assertEquals(corners[found], entry.item);
+                assertEquals(entry.toString(), found == chosen, Boolean.TRUE.equals(entry.checked));
+                found++;
+            }
+            assertEquals(4, found);
+        }
+        options.overlayPosition = "nonsense";
+        assertEquals("An unknown position reads as top left", Boolean.TRUE, StreamMenu.overlayPage(options).get(4).checked);
     }
 
     @Test
@@ -453,7 +488,7 @@ public class StreamMenuTest {
             }
             assertTrue(menu.row(KEYBOARD).isFocusedByDefault());
             menu.row(OVERLAY_PAGE).performClick();
-            assertTrue("The page's first row takes the focus", menu.row(OVERLAY_COMPACT).isFocusedByDefault());
+            assertTrue("The page's first row takes the focus", menu.row(OVERLAY_OFF).isFocusedByDefault());
         }
     }
 

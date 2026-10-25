@@ -4,7 +4,12 @@ import android.app.Application;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.preference.PreferenceManager;
+import android.view.Gravity;
 import android.widget.TextView;
+
+import com.limelight.nvstream.http.NvApp;
+import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.OverlayPlacement;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -115,5 +120,71 @@ public class GamePerformanceOverlayTest {
         assertTrue(text.endsWith("\nThis screen can’t show HDR, so the stream is in SDR."));
         setMode(game, "compact");
         assertFalse("The compact line stays one line", overlay.getText().toString().contains("HDR"));
+    }
+
+    // A shown overlay in a laid-out 2400x1080 stream, so placing has sizes to work with.
+    private Game laidOut() {
+        Game game = game();
+        ReflectionHelpers.setField(game, "prefConfig", new PreferenceConfiguration());
+        ReflectionHelpers.setField(game, "app", new NvApp("Game", 73, false));
+        android.view.View scroll = game.findViewById(R.id.performanceOverlayScroll);
+        scroll.setVisibility(android.view.View.VISIBLE);
+        ReflectionHelpers.callInstanceMethod(game, "updatePerformanceOverlay");
+        android.view.ViewGroup parent = (android.view.ViewGroup) scroll.getParent();
+        parent.measure(android.view.View.MeasureSpec.makeMeasureSpec(2400, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY));
+        parent.layout(0, 0, 2400, 1080);
+        return game;
+    }
+
+    private static void setPosition(Game game, OverlayPlacement.Corner corner) {
+        ReflectionHelpers.callInstanceMethod(game, "setPerformanceOverlayPosition",
+                ReflectionHelpers.ClassParameter.from(OverlayPlacement.Corner.class, corner));
+    }
+
+    @Test
+    public void choosingACornerPersistsItAndMovesTheOverlayAndAlignsItsTextToThatSide() {
+        Game game = laidOut();
+        TextView overlay = game.findViewById(R.id.performanceOverlay);
+        android.widget.FrameLayout.LayoutParams params =
+                (android.widget.FrameLayout.LayoutParams) game.findViewById(R.id.performanceOverlayScroll).getLayoutParams();
+        for (String mode : new String[] {"compact", "statistics", "debug"}) {
+            setMode(game, mode);
+            setPosition(game, OverlayPlacement.Corner.BOTTOM_RIGHT);
+            assertEquals(mode, "bottom_right", PreferenceManager.getDefaultSharedPreferences(game)
+                    .getString("performance_overlay_position", ""));
+            assertEquals(mode, Gravity.BOTTOM | Gravity.END, params.gravity);
+            assertEquals(mode, Gravity.END, overlay.getGravity() & Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK);
+            setPosition(game, OverlayPlacement.Corner.TOP_RIGHT);
+            assertEquals(mode, Gravity.TOP | Gravity.END, params.gravity);
+            assertEquals(mode, Gravity.END, overlay.getGravity() & Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK);
+            setPosition(game, OverlayPlacement.Corner.BOTTOM_LEFT);
+            assertEquals(mode, Gravity.BOTTOM | Gravity.START, params.gravity);
+            assertEquals(mode, Gravity.START, overlay.getGravity() & Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK);
+            setPosition(game, OverlayPlacement.Corner.TOP_LEFT);
+            assertEquals(mode, Gravity.TOP | Gravity.START, params.gravity);
+        }
+        assertEquals("top_left", PreferenceManager.getDefaultSharedPreferences(game)
+                .getString("performance_overlay_position", ""));
+        assertEquals("top_left", ((PreferenceConfiguration) ReflectionHelpers.getField(game, "prefConfig")).overlayPosition);
+    }
+
+    @Test
+    public void choosingOffHidesTheOverlayAndKeepsTheModeAndPosition() {
+        Game game = laidOut();
+        setMode(game, "debug");
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.enablePerfOverlay = true;
+        setPosition(game, OverlayPlacement.Corner.BOTTOM_LEFT);
+        ReflectionHelpers.callInstanceMethod(game, "hidePerformanceOverlay");
+        assertFalse(prefs.enablePerfOverlay);
+        assertEquals(android.view.View.GONE, game.findViewById(R.id.performanceOverlayScroll).getVisibility());
+        android.content.SharedPreferences stored = PreferenceManager.getDefaultSharedPreferences(game);
+        assertFalse(stored.getBoolean("checkbox_enable_perf_overlay", true));
+        assertEquals("debug", stored.getString("performance_overlay_mode", ""));
+        assertEquals("bottom_left", stored.getString("performance_overlay_position", ""));
+        // Off again changes nothing.
+        ReflectionHelpers.callInstanceMethod(game, "hidePerformanceOverlay");
+        assertFalse(prefs.enablePerfOverlay);
     }
 }

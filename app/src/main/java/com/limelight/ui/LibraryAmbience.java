@@ -48,6 +48,9 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
             AppView.AppObject selected = selected();
             if (selected != null && selected.app.getAppId() == app.getAppId()) askBackdrop(selected, isFast());
         });
+        // The grid's first selection is made when the adapter is set and is never reported, so the line and the
+        // backdrop would stay empty until the first key: show the game that already has the selection.
+        refresh();
     }
 
     private AppView.AppObject selected() {
@@ -63,6 +66,7 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
         pending = app;
         cleared = false;
         queueLine();
+        askBackdrop(app, isFast());
     }
 
     private void queueLine() {

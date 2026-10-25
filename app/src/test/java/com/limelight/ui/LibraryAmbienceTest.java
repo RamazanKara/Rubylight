@@ -163,6 +163,19 @@ public class LibraryAmbienceTest {
         assertEquals("no art: the canvas", before + 1, backdrop.changeCount());
     }
 
+    @Test
+    public void theFocusLineShowsTheFirstGameBeforeTheGridHasSelectedAnything() {
+        UiNavigationTest.Screen screen = controller.get();
+        AdaptiveGridView fresh = new AdaptiveGridView(screen);
+        fresh.setColumnPolicy(false, false);
+        fresh.setAdapter(adapter);
+        CountingText line = new CountingText(screen);
+        LibraryAmbience first = new LibraryAmbience(new BackdropView(screen), line, null);
+        first.bind(fresh, adapter);
+        pass(100);
+        assertEquals("Game 0", line.getText().toString());
+    }
+
     private void press(int i) {
         int key = i % 2 == 0 ? KeyEvent.KEYCODE_DPAD_DOWN : KeyEvent.KEYCODE_DPAD_RIGHT;
         long now = android.os.SystemClock.uptimeMillis();

@@ -53,10 +53,13 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
             card.performClick();
             return;
         }
-        if (attempt == 3 && list.getAdapter() != null && list.getAdapter().getItemCount() > 0) {
-            list.scrollToPosition(list.getAdapter().getItemCount() - 1);
+        // The phone's library is one long grid with the card somewhere down it: walk down half a screen at a time
+        // (a jump to the end would pass it). The TV has it in Recently played, on the first screen.
+        if (attempt >= 3) list.scrollBy(0, list.getHeight() / 2);
+        if (attempt >= 60) {
+            throw new IllegalStateException("No Open World card on two PCs on Home: start the demo with --ez asleep true");
         }
-        if (attempt < 30) list.postDelayed(() -> choose(attempt + 1), 300);
+        list.postDelayed(() -> choose(attempt + 1), 250);
     }
 
     /** The laid-out card whose description starts with the title and names the PCs it is on, else null. */

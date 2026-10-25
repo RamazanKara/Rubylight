@@ -39,6 +39,7 @@ final class DemoConsole {
         // Open World and Space Sim were played before; Racing Game is the running one.
         recents.record(new RecentsStore.Recent(DemoFixtures.PC_UUID, "Living-room PC", 3, "Open World", 1_000L));
         recents.record(new RecentsStore.Recent(DemoFixtures.PC_UUID, "Living-room PC", 4, "Space Sim", 2_000L));
+        DemoAsleep.recordRecent(recents);
         PreferencesFavouritesStore favourites = new PreferencesFavouritesStore(context);
         for (int app : starred) {
             favourites.set(new FavouritesStore.Favourite(DemoFixtures.PC_UUID, "Living-room PC", app,

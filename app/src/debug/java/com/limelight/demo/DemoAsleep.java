@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 
 import com.limelight.computers.ComputerManagerListener;
+import com.limelight.nativeapi.RecentsStore;
 import com.limelight.nvstream.http.ComputerDetails;
 
 import java.io.File;
@@ -27,6 +28,9 @@ final class DemoAsleep {
     static final int[] SHARED = {3, 4};
     /** The Laptop's own games; app ids 11 and up. */
     static final String[] LAPTOP_ONLY = {"Lunar Base", "Kart Party", "Deep Dungeon"};
+
+    /** Unix seconds; later than any game of Living-room PC. */
+    private static final long LAST_PLAYED = 1_761_400_000L;
 
     /** Set by the launcher before the screens open. */
     static boolean enabled;
@@ -64,23 +68,34 @@ final class DemoAsleep {
         StringBuilder games = new StringBuilder();
         for (int app : SHARED) {
             String store = DemoConsole.LIBRARY[app - 1][1];
-            game(games, "laptop-" + app, app, DemoConsole.LIBRARY[app - 1][0], store, store + ":" + app, "demo-" + app);
+            game(games, "laptop-" + app, app, DemoConsole.LIBRARY[app - 1][0], store, store + ":" + app, null, "demo-" + app);
         }
         for (int i = 0; i < LAPTOP_ONLY.length; i++) {
-            game(games, "laptop-" + (11 + i), 11 + i, LAPTOP_ONLY[i], null, null, "laptop-" + (11 + i));
+            // Lunar Base was played last of all, so a TV shows it first in Recently played.
+            game(games, "laptop-" + (11 + i), 11 + i, LAPTOP_ONLY[i], null, null, i == 0 ? LAST_PLAYED : null,
+                    "laptop-" + (11 + i));
         }
         return "{\"revision\":\"demo-laptop\",\"games\":[" + games + "]}";
     }
 
     private static void game(StringBuilder games, String installId, int appId, String title, String store, String gameId,
-                             String cover) {
+                             Long lastPlayed, String cover) {
         if (games.length() > 0) games.append(',');
         games.append("{\"install_id\":\"").append(installId).append("\",\"app_id\":").append(appId)
                 .append(",\"title\":\"").append(title).append("\",\"game_id\":")
                 .append(gameId == null ? "null" : "\"" + gameId + "\"")
                 .append(store == null ? ",\"store\":null" : ",\"store\":{\"source\":\"" + store + "\",\"id\":\"" + appId + "\"}")
-                .append(",\"installed\":true,\"running\":false,\"added\":true,\"artwork\":{\"cover\":\"/api/native/v1/cover/").append(cover)
+                .append(",\"installed\":true,\"running\":false,\"added\":true,")
+                .append(lastPlayed == null ? "" : "\"last_played\":" + lastPlayed + ",")
+                .append("\"artwork\":{\"cover\":\"/api/native/v1/cover/").append(cover)
                 .append("\",\"version\":\"\"}}");
+    }
+
+    /** Lunar Base on the Laptop leads Continue playing on a phone, so the first screen shows a card that is away. */
+    static void recordRecent(RecentsStore recents) {
+        // Recents are kept between runs: a run without the Laptop drops the one an earlier run left.
+        if (enabled) recents.record(new RecentsStore.Recent(LAPTOP_UUID, "Laptop", 11, LAPTOP_ONLY[0], 3_000L));
+        else recents.forgetHost(LAPTOP_UUID);
     }
 
     /** Gives the service's Laptop the native API, so its saved library is read; the demo's other PCs stay as they are. */

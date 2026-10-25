@@ -126,7 +126,8 @@ impl Fixture {
             self.apps_prepared.fetch_add(1, Ordering::AcqRel);
             return Ok(Some(crate::process::RunningApp::with_environment(
                 app.context("fixture application missing")?,
-                Default::default(),
+                // As `process::launch` records the launching client, owner of the game.
+                [("SUNSHINE_CLIENT_UUID".into(), launch.client.uuid.clone())].into(),
             )?));
         }
         Ok(None)

@@ -284,10 +284,15 @@ impl Web {
         monitor
     }
 
-    /// The running app belongs to this device, as the launch that started it records.
-    fn own_app(&self, uuid: &str) {
-        let mut app = self.harness.h.current_app.lock().unwrap();
-        app.as_mut().expect("an app is running").owner = uuid.into();
+    /// No app runs, so the next launch starts one and records its owner.
+    fn clear_app(&self) {
+        *self.harness.h.current_app.lock().unwrap() = None;
+    }
+
+    /// The owner of the running app.
+    fn owner(&self) -> String {
+        let app = self.harness.h.current_app.lock().unwrap();
+        app.as_ref().expect("an app is running").owner.clone()
     }
 
     async fn idle(&self) {
@@ -666,8 +671,9 @@ async fn stream(web: &Web, ws: &mut Ws) -> Peer {
 async fn remote_sessions_do_not_hold_up_a_switch_or_stop_host_session() -> Result<()> {
     let web = Web::new().await?;
     let mut ws = web.device("TV", u32::MAX).await;
+    web.clear_app();
     let peer = stream(&web, &mut ws).await;
-    web.own_app(&web.uuid("TV"));
+    assert_eq!(web.owner(), web.uuid("TV"));
     let monitor = web.add_monitor();
 
     // Resuming the app stops the stream only: waiting for the monitor would time out.
@@ -701,8 +707,9 @@ async fn remote_sessions_do_not_hold_up_a_switch_or_stop_host_session() -> Resul
 async fn only_the_owner_may_end_the_app_while_remote_sessions_are_active() -> Result<()> {
     let web = Web::new().await?;
     let mut tv = web.device("TV", u32::MAX).await;
+    web.clear_app();
     let peer = stream(&web, &mut tv).await;
-    web.own_app(&web.uuid("TV"));
+    assert_eq!(web.owner(), web.uuid("TV"));
     let session = web.session();
     let monitor = web.add_monitor();
 
@@ -712,11 +719,11 @@ async fn only_the_owner_may_end_the_app_while_remote_sessions_are_active() -> Re
     phone
         .send(json!({"version":2,"type":"stop-host-session"}))
         .await;
-    error(&mut phone, "stop-host-session", "not-authenticated").await;
+    error(&mut phone, "stop-host-session", "session-active").await;
     let mut other_app = web.request("switch-session", "h264", false, 2);
     other_app["appId"] = json!("12345");
     phone.send(other_app).await;
-    error(&mut phone, "switch-session", "not-authenticated").await;
+    error(&mut phone, "switch-session", "session-active").await;
     assert!(!session.stopping());
     assert!(web.harness.h.current_app.lock().unwrap().is_some());
 
@@ -834,5 +841,18 @@ async fn cancelling_a_start_releases_its_resources_off_the_async_tasks() -> Resu
         .store(0, Ordering::Release);
     let longest = gap.load(Ordering::Acquire);
     assert!(longest < 300, "the runtime stalled for {longest} ms");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_webrtc_launch_records_its_device_as_the_apps_owner() -> Result<()> {
+    let web = Web::new().await?;
+    web.clear_app();
+    let mut ws = web.device("TV", u32::MAX).await;
+    let peer = stream(&web, &mut ws).await;
+    // As a Moonlight launch does, so the owner guard of cancel applies to this app.
+    assert_eq!(web.owner(), web.uuid("TV"));
+    assert_eq!(web.session().launch.client.uuid, web.uuid("TV"));
+    drop(peer);
     Ok(())
 }

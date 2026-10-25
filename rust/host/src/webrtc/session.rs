@@ -747,8 +747,9 @@ impl Actor {
     fn not_the_owner(kind: &str) -> ServerMessage {
         ServerMessage::error(
             kind,
-            ErrorCode::NotAuthenticated,
-            "Only the game owner may stop it while remote sessions are active",
+            // The device is authenticated; another device's game is what stands in the way.
+            ErrorCode::SessionActive,
+            "Another device's game is running",
         )
     }
 

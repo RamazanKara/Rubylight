@@ -8,7 +8,8 @@ const {execFileSync} = require('node:child_process');
 const host = require('./host.cjs');
 
 const STAGING = 'C:\\tests\\webrtc-host';
-const LAUNCH = `${STAGING}\\system_launch.exe ${STAGING}\\butterpollo.exe --config-dir C:\\tests\\webrtc-system --port 48140 --bind 127.0.0.1 --no-tray`;
+const LAUNCHER = 'C:\\ProgramData\\ButterpolloRelease\\system_launch.exe';
+const LAUNCH = `${LAUNCHER} ${STAGING}\\butterpollo.exe --config-dir C:\\tests\\webrtc-system --port 48140 --bind 127.0.0.1 --no-tray`;
 const create = command => ['/Create', '/TN', 'RubylightWebrtcE2eHost', '/TR', command, '/SC', 'ONCE', '/ST', '23:59', '/RU', 'SYSTEM', '/RL', 'HIGHEST', '/F'];
 
 // Runs the elevated script's checks on `steps` without running anything, and returns its answer.
@@ -30,13 +31,15 @@ test('the elevated script runs the harness steps and refuses anything else', () 
     [['/Run', '/TN', 'RubylightWebrtcE2eHost'], 0],
     [['/End', '/TN', 'RubylightWebrtcE2eHost'], 0],
     [['/Delete', '/TN', 'RubylightWebrtcE2eHost', '/F'], 0],
-    // system_launch may start only the staged host, with plain arguments.
-    [create(`${STAGING}\\system_launch.exe C:\\Windows\\System32\\cmd.exe /c whoami`), 99],
-    [create(`${STAGING}\\system_launch.exe ${STAGING}\\other.exe`), 99],
-    [create(`${STAGING}\\system_launch.exe ${STAGING}\\butterpollo.exe & calc.exe`), 99],
-    [create(`${STAGING}\\system_launch.exe ${STAGING}\\butterpollo.exe "--config-dir" x`), 99],
-    [create(`${STAGING}\\system_launch.exe ${STAGING}\\butterpollo.exe.cmd`), 99],
-    [create(`C:\\Windows\\System32\\cmd.exe /c ${STAGING}\\system_launch.exe ${STAGING}\\butterpollo.exe`), 99],
+    // The installed system_launch may start only the staged host, with plain arguments.
+    [create(`${LAUNCHER} C:\\Windows\\System32\\cmd.exe /c whoami`), 99],
+    [create(`${LAUNCHER} ${STAGING}\\other.exe`), 99],
+    [create(`${LAUNCHER} ${STAGING}\\butterpollo.exe & calc.exe`), 99],
+    [create(`${LAUNCHER} ${STAGING}\\butterpollo.exe "--config-dir" x`), 99],
+    [create(`${LAUNCHER} ${STAGING}\\butterpollo.exe.cmd`), 99],
+    [create(`C:\\Windows\\System32\\cmd.exe /c ${LAUNCHER} ${STAGING}\\butterpollo.exe`), 99],
+    // A launcher in the user's staging folder could be replaced.
+    [create(LAUNCH.replace(LAUNCHER, `${STAGING}\\system_launch.exe`)), 99],
     // Only the exact one-shot SYSTEM task, under the harness's own name.
     [create(LAUNCH).map(a => a === 'SYSTEM' ? 'someone' : a), 99],
     [[...create(LAUNCH), '/XML', 'C:\\task.xml'], 99],
@@ -77,6 +80,8 @@ test('the elevation task serves the harness only while its scripts are the check
 test('the harness asks for the release scripts and its own, nothing under a user folder', () => {
   assert.deepEqual(Object.keys(host.ELEVATION.scripts).sort(), ['elevated-task.ps1', 'webrtc-e2e-elevated.ps1']);
   assert.equal(host.ELEVATION.installed, 'C:\\ProgramData\\ButterpolloRelease');
+  assert.equal(host.ELEVATION.launcher, LAUNCHER);
+  assert(fs.readFileSync(host.ELEVATION.scripts['webrtc-e2e-elevated.ps1'], 'utf8').includes(`$launcher = '${LAUNCHER}'`));
   for (const source of Object.values(host.ELEVATION.scripts)) assert(fs.existsSync(source), source);
   // elevated-task.ps1 and the installed script read the request from the folder the harness writes.
   const task = fs.readFileSync(host.ELEVATION.scripts['elevated-task.ps1'], 'utf8');

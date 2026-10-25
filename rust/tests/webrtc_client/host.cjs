@@ -42,9 +42,6 @@ const defaults = {
   // The release build, its codec libraries and the console assets.
   binary: process.env.BUTTERPOLLO_TEST_BINARY || 'C:\\src\\butterpollo-release\\wr\\target\\release\\butterpollo.exe',
   package: process.env.BUTTERPOLLO_TEST_PACKAGE || 'C:\\src\\butterpollo-release\\dc\\pkg',
-  // Starts the test host as SYSTEM in the console session (`system: true`), which the virtual
-  // display driver requires. An example of butterpollo-windows.
-  launcher: process.env.BUTTERPOLLO_TEST_LAUNCHER || 'C:\\src\\butterpollo-release\\wr\\target\\release\\examples\\system_launch.exe',
   task: 'RubylightWebrtcE2eHost',
   port: 48140, webrtcPort: 48545, mediaPort: 48546,
 };
@@ -57,6 +54,10 @@ const ELEVATION = {
   task: 'ButterpolloReleaseElevated',
   installed: 'C:\\ProgramData\\ButterpolloRelease',
   requests: 'C:\\src\\butterpollo-release\\webrtc-e2e',
+  // Starts the test host as SYSTEM in the console session (`system: true`), which the virtual
+  // display driver requires: the system_launch example of butterpollo-windows, installed by
+  // elevation.ps1 where the user cannot replace it. The staged host it starts is the user's.
+  launcher: 'C:\\ProgramData\\ButterpolloRelease\\system_launch.exe',
   // Installed name, checkout copy.
   scripts: {
     'elevated-task.ps1': path.join(__dirname, '..', '..', 'release', 'elevated-task.ps1'),
@@ -179,7 +180,6 @@ function stage(o) {
   fs.mkdirSync(o.staging, {recursive: true});
   fs.copyFileSync(o.binary, path.join(o.staging, 'butterpollo.exe'));
   for (const name of fs.readdirSync(o.package)) if (name.endsWith('.dll')) fs.copyFileSync(path.join(o.package, name), path.join(o.staging, name));
-  if (o.system) fs.copyFileSync(o.launcher, path.join(o.staging, 'system_launch.exe'));
   return path.join(o.staging, 'butterpollo.exe');
 }
 
@@ -195,6 +195,9 @@ class TestHost {
   }
 
   async start() {
+    if (this.o.system && !fs.existsSync(ELEVATION.launcher)) {
+      throw new Error(`a SYSTEM test host needs ${ELEVATION.launcher}: build it (cargo build --release -p butterpollo-windows --example system_launch) and run \`pwsh -File rust/release/elevation.ps1 -SystemLaunch <path to system_launch.exe>\` from an elevated PowerShell`);
+    }
     const exe = stage(this.o);
     // The firewall rule lives for this run only: `stop` and `kill` remove it.
     elevate(this.o, [{firewall: true}]);
@@ -205,7 +208,7 @@ class TestHost {
     if (this.o.system) {
       // The virtual display driver accepts only SYSTEM, and a task runs in session 0: the launcher
       // starts the host as SYSTEM in the console session. The task is deleted in `stop`.
-      const command = [path.join(this.o.staging, 'system_launch.exe'), exe, ...args].join(' ');
+      const command = [ELEVATION.launcher, exe, ...args].join(' ');
       if (command.length > 261) throw new Error(`the task command line is ${command.length} characters; schtasks takes 261`);
       this.started = true;
       elevate(this.o, [

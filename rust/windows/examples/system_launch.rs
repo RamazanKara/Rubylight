@@ -1,12 +1,14 @@
 //! Start the staged test host as SYSTEM in the signed-in console session and wait for it. The virtual
 //! display driver accepts only SYSTEM, and a plain scheduled task would run in session 0, where there
 //! is no desktop to capture. The WebRTC end-to-end harness starts its test host through this, from a
-//! one-shot `schtasks /RU SYSTEM` task (rust/tests/webrtc_client/host.cjs).
+//! one-shot `schtasks /RU SYSTEM` task (rust/tests/webrtc_client/host.cjs). rust/release/elevation.ps1
+//! installs it in C:\ProgramData\ButterpolloRelease, where only administrators and SYSTEM can change it.
 //!
 //!   system_launch PROGRAM [ARGS...]
 //!
-//! PROGRAM must be the `butterpollo.exe` beside this launcher: it starts nothing else. It exits with
-//! the program's own exit code. Run as anyone but SYSTEM, it refuses.
+//! PROGRAM must be the staged test host, C:\tests\webrtc-host\butterpollo.exe: it starts nothing
+//! else. That folder is the user's, so the host and its DLLs there still run as SYSTEM whatever they
+//! are. It exits with the program's own exit code. Run as anyone but SYSTEM, it refuses.
 use anyhow::{Context, Result, ensure};
 use butterpollo_windows::process::{Process, Target, console_session, is_system};
 use std::{
@@ -14,14 +16,13 @@ use std::{
     time::Duration,
 };
 
-/// Whether `program` is the `butterpollo.exe` in the launcher's own directory, spelled as Windows
-/// would spell it (case aside): another program, or the same one reached by another path, is refused.
-fn allowed(launcher: &Path, program: &Path) -> bool {
-    launcher.parent().is_some_and(|dir| {
-        dir.join("butterpollo.exe")
-            .as_os_str()
-            .eq_ignore_ascii_case(program.as_os_str())
-    })
+/// The only program it starts.
+const STAGED_HOST: &str = r"C:\tests\webrtc-host\butterpollo.exe";
+
+/// Whether `program` is the staged test host, spelled as Windows would spell it (case aside):
+/// another program, or the same one reached by another path, is refused.
+fn allowed(program: &Path) -> bool {
+    program.as_os_str().eq_ignore_ascii_case(STAGED_HOST)
 }
 
 fn main() -> Result<()> {
@@ -31,11 +32,9 @@ fn main() -> Result<()> {
         args.next()
             .context("usage: system_launch PROGRAM [ARGS...]")?,
     );
-    let launcher = std::env::current_exe().context("the launcher's own path")?;
     ensure!(
-        allowed(&launcher, &program),
-        "system_launch starts only {}, not {}",
-        launcher.with_file_name("butterpollo.exe").display(),
+        allowed(&program),
+        "system_launch starts only {STAGED_HOST}, not {}",
         program.display()
     );
     let args: Vec<_> = args.collect();
@@ -58,17 +57,11 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn starts_only_the_host_beside_it() {
-        let launcher = Path::new(r"C:\tests\webrtc-host\system_launch.exe");
-        assert!(allowed(
-            launcher,
-            Path::new(r"C:\tests\webrtc-host\butterpollo.exe")
-        ));
-        assert!(allowed(
-            launcher,
-            Path::new(r"C:\Tests\WebRTC-host\Butterpollo.EXE")
-        ));
+    fn starts_only_the_staged_host() {
+        assert!(allowed(Path::new(r"C:\tests\webrtc-host\butterpollo.exe")));
+        assert!(allowed(Path::new(r"C:\Tests\WebRTC-host\Butterpollo.EXE")));
         for other in [
+            r"C:\ProgramData\ButterpolloRelease\butterpollo.exe",
             r"C:\Windows\System32\cmd.exe",
             r"C:\tests\webrtc-host\other.exe",
             r"C:\tests\other\butterpollo.exe",
@@ -77,7 +70,7 @@ mod tests {
             r"butterpollo.exe",
             r"C:\tests\webrtc-host\butterpollo.exe.cmd",
         ] {
-            assert!(!allowed(launcher, Path::new(other)), "{other}");
+            assert!(!allowed(Path::new(other)), "{other}");
         }
     }
 }

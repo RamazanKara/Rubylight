@@ -8,11 +8,16 @@
 # of that host, and allow the host through the firewall for the run. The request is a JSON file that
 # anything running as the user can write, so every step is checked against the test host's own task
 # name, staging directory and exact command line before it runs. -DryRun checks without running
-# (support.test.cjs); -Dir points it at another request folder for that test.
+# (host.test.cjs); -Dir points it at another request folder for that test.
+#
+# system_launch.exe runs from the installed folder, where the user cannot replace it. The test host
+# it starts, C:\tests\webrtc-host\butterpollo.exe, and the DLLs beside it are the user's: they run as
+# SYSTEM whatever they are, which is the trade-off elevation.ps1 states.
 param([string] $Dir = 'C:\src\butterpollo-release\webrtc-e2e', [switch] $DryRun)
 $ErrorActionPreference = 'Continue'
 $taskName = 'RubylightWebrtcE2eHost'
 $staging = 'C:\tests\webrtc-host'
+$launcher = 'C:\ProgramData\ButterpolloRelease\system_launch.exe'
 $rule = 'Rubylight WebRTC e2e test host'
 $requestFile = Join-Path $Dir 'request.json'
 $request = Get-Content $requestFile -Raw | ConvertFrom-Json
@@ -20,7 +25,7 @@ $request = Get-Content $requestFile -Raw | ConvertFrom-Json
 Remove-Item $requestFile -Force
 # The SYSTEM task starts system_launch, which starts the staged host with plain arguments: no quotes,
 # no shell characters, no other program.
-$command = '^' + [regex]::Escape("$staging\system_launch.exe $staging\butterpollo.exe") + '( [^\s"''&|<>^%]+)*$'
+$command = '^' + [regex]::Escape("$launcher $staging\butterpollo.exe") + '( [^\s"''&|<>^%]+)*$'
 $results = @()
 foreach ($step in $request.steps) {
     $a = @($step.args | ForEach-Object { [string]$_ })

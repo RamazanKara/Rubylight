@@ -48,6 +48,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     public static final String EXTRA_FILTER = "filter";
     static final int MAX_COLUMNS = 6;
     private static final int COVER_WIDTH_DP = 140;
+    /** The narrowest a poster's card gets before the grid drops a column. */
+    private static final int MIN_CARD_WIDTH_DP = 120;
     private static final long DEBOUNCE_MS = 250;
     private static final String SHELF = "all-games";
 
@@ -148,17 +150,25 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
                 == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
-    /** As many posters as fit, at most six: six across a TV's screen. */
-    static int columnsFor(int contentWidthPx, int cardWidthPx) {
-        return Math.max(2, Math.min(MAX_COLUMNS, contentWidthPx / Math.max(1, cardWidthPx)));
+    /** As many posters as fit at their narrowest, at most six: six across a TV's screen. */
+    static int columnsFor(int contentWidthPx, int minCardWidthPx) {
+        return Math.max(2, Math.min(MAX_COLUMNS, contentWidthPx / Math.max(1, minCardWidthPx)));
     }
 
+    /** Each poster fills its column, so the grid spans the screen's width whatever it is. */
     private void fitColumns(int widthPx) {
         if (widthPx <= 0 || widthPx == lastWidthPx) return;
         lastWidthPx = widthPx;
-        int card = getResources().getDimensionPixelSize(R.dimen.shelf_card_width);
-        int count = columnsFor(widthPx - list.getPaddingLeft() - list.getPaddingRight(), card);
-        if (count != grid.getSpanCount()) list.post(() -> grid.setSpanCount(count));
+        int content = widthPx - list.getPaddingLeft() - list.getPaddingRight();
+        int count = columnsFor(content, Math.round(MIN_CARD_WIDTH_DP * getResources().getDisplayMetrics().density));
+        int card = content / count;
+        if (count == grid.getSpanCount() && card == env.cardWidthPx) return;
+        list.post(() -> {
+            env.cardWidthPx = card;
+            env.coverHeightPx = ShelfAdapter.coverHeight(this, isTelevision(), card);
+            grid.setSpanCount(count);
+            adapter.notifyDataSetChanged();
+        });
     }
 
     @Override

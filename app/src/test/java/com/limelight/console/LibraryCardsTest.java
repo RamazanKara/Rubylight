@@ -249,6 +249,41 @@ public class LibraryCardsTest {
         assertEquals(4, AllGamesActivity.columnsFor(600, 144));
     }
 
+    @Test
+    public void aGridSetsTheWidthOfItsCardsAndTheirCovers() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", true, null));
+        HomeModel.GameCard portal = model().allGames.get(0);
+        ShelfAdapter.Env env = new ShelfAdapter.Env(context, null, uuid -> null, null);
+        env.cardWidthPx = 250;
+        env.coverHeightPx = ShelfAdapter.coverHeight(context, true, 250);
+        ShelfAdapter adapter = new ShelfAdapter(env);
+        adapter.setItems("all-games", Collections.singletonList(new ShelfAdapter.Item(portal.key, portal, null)));
+        FrameLayout parent = new FrameLayout(context);
+        ShelfAdapter.CardHolder holder = adapter.onCreateViewHolder(parent, adapter.getItemViewType(0));
+        adapter.onBindViewHolder(holder, 0);
+        assertEquals(250, holder.itemView.getLayoutParams().width);
+        int inset = context.getResources().getDimensionPixelSize(R.dimen.cover_inset);
+        assertEquals((250 - 2 * inset) * 3 / 2, holder.itemView.findViewById(R.id.console_cover_frame).getLayoutParams().height);
+        // A narrower screen: the holder already made takes the new width when bound again.
+        env.cardWidthPx = 200;
+        adapter.onBindViewHolder(holder, 0);
+        assertEquals(200, holder.itemView.getLayoutParams().width);
+    }
+
+    @Test
+    public void aPosterTooNarrowForTheGlyphAndItsWordsKeepsTheWords() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", false, null));
+        HomeModel.GameCard portal = model().allGames.get(0);
+        ShelfAdapter.Env env = new ShelfAdapter.Env(context, null, uuid -> null, null);
+        env.cardWidthPx = 60;
+        ShelfAdapter adapter = new ShelfAdapter(env);
+        adapter.setItems("all-games", Collections.singletonList(new ShelfAdapter.Item(portal.key, portal, null)));
+        ShelfAdapter.CardHolder holder = adapter.onCreateViewHolder(new FrameLayout(context), adapter.getItemViewType(0));
+        adapter.onBindViewHolder(holder, 0);
+        assertEquals(context.getString(R.string.console_chip_not_installed), holder.store.getText().toString());
+        assertNull(holder.store.getCompoundDrawablesRelative()[0]);
+    }
+
     private static List<String> titles(List<HomeModel.GameCard> cards) {
         List<String> titles = new ArrayList<>();
         for (HomeModel.GameCard card : cards) titles.add(card.title);

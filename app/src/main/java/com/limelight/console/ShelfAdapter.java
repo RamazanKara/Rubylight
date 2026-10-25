@@ -82,6 +82,8 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         final FastTravel travel = new FastTravel();
         CoverLoaders covers;
         int coverHeightPx;
+        /** A game card's width where a grid sets it (All games); 0 keeps a shelf's width. */
+        int cardWidthPx;
         FocusListener focus;
 
         Env(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, ConsoleHomeAdapter.Listener listener) {
@@ -147,7 +149,8 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         boolean cover = type == COVER_GAME;
         int layout = cover ? R.layout.console_card_cover : type == ALL_TILE ? R.layout.console_card_all : R.layout.console_card_host;
         View view = inflater.inflate(layout, parent, false);
-        int width = view.getResources().getDimensionPixelSize(type == HOST ? R.dimen.shelf_host_width : R.dimen.shelf_card_width);
+        int width = type != HOST && env.cardWidthPx > 0 ? env.cardWidthPx
+                : view.getResources().getDimensionPixelSize(type == HOST ? R.dimen.shelf_host_width : R.dimen.shelf_card_width);
         RecyclerView.LayoutParams params = new RecyclerView.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         view.setLayoutParams(params);
         return new CardHolder(env, view, cover, type == ALL_TILE);
@@ -176,8 +179,13 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
 
     /** The height of a cover: its card's width less the inset on both sides, times 3/2 for a TV poster, 4/3 on a phone. */
     static int coverHeight(Context context, boolean television) {
+        return coverHeight(context, television, context.getResources().getDimensionPixelSize(R.dimen.shelf_card_width));
+    }
+
+    /** The same for a card of the given width. */
+    static int coverHeight(Context context, boolean television, int cardWidthPx) {
         int inset = context.getResources().getDimensionPixelSize(R.dimen.cover_inset);
-        int width = context.getResources().getDimensionPixelSize(R.dimen.shelf_card_width) - 2 * inset;
+        int width = cardWidthPx - 2 * inset;
         return Math.max(1, television ? width * 3 / 2 : width * 4 / 3);
     }
 
@@ -267,6 +275,11 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         }
 
         private void setFrameHeight() {
+            ViewGroup.LayoutParams card = itemView.getLayoutParams();
+            if (env.cardWidthPx > 0 && card != null && card.width != env.cardWidthPx) {
+                card.width = env.cardWidthPx;
+                itemView.setLayoutParams(card);
+            }
             if (env.coverHeightPx > 0 && frame != null) {
                 ViewGroup.LayoutParams params = frame.getLayoutParams();
                 if (params.height != env.coverHeightPx) {
@@ -341,6 +354,8 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         private void bindStore(Context context, HomeModel.GameCard card) {
             int glyph = Stores.glyph(card.store());
             CharSequence label = availabilityOf(context, card);
+            // On a narrow poster (All games' grid) the words win: the focus caption names the store anyway.
+            if (label != null && glyph != 0 && !fits(context, label)) glyph = 0;
             if (label == null && glyph == 0) label = card.storeName();
             if (label == null && glyph == 0) {
                 store.setVisibility(View.GONE);
@@ -360,6 +375,17 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                     : context.getResources().getDimensionPixelSize(R.dimen.space_s);
             store.setPaddingRelative(side, 0, side, 0);
             store.setVisibility(View.VISIBLE);
+        }
+
+        /** Whether the store's glyph and this label fit side by side in the chip on this card's poster. */
+        private boolean fits(Context context, CharSequence label) {
+            android.content.res.Resources res = context.getResources();
+            int card = env.cardWidthPx > 0 ? env.cardWidthPx : res.getDimensionPixelSize(R.dimen.shelf_card_width);
+            int margin = res.getDimensionPixelSize(R.dimen.space_s);
+            int room = card - 2 * res.getDimensionPixelSize(R.dimen.cover_inset) - 2 * margin;
+            float need = store.getPaint().measureText(label.toString()) + res.getDimensionPixelSize(R.dimen.card_chip_glyph)
+                    + store.getCompoundDrawablePadding() + 2 * margin;
+            return need <= room;
         }
 
         /** A row's name, as its heading and its "All N" tile say it. */

@@ -123,6 +123,10 @@ impl Resampler {
         self.phase = 0.;
         excess
     }
+    /// The frames queued and not yet read, at this resampler's input rate.
+    pub fn queued(&self) -> usize {
+        self.queue.len() / self.channels
+    }
     pub fn read(&mut self, frames: usize) -> Option<Vec<f32>> {
         if frames == 0 {
             return Some(Vec::new());

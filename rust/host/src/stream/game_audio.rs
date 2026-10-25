@@ -76,7 +76,13 @@ impl GameAudio {
         self.pending = None;
         self.check = Instant::now() + Duration::from_secs(5);
     }
-    pub fn update(&mut self, s: &Session, capture: &mut Option<Loopback>) {
+    /// `retire` takes a capture this drops, to count what it lost.
+    pub fn update(
+        &mut self,
+        s: &Session,
+        capture: &mut Option<Loopback>,
+        retire: &mut dyn FnMut(Loopback),
+    ) {
         if Instant::now() >= self.check {
             self.check = Instant::now() + Duration::from_secs(1);
             let selected = self.target.lock().unwrap().clone();
@@ -87,7 +93,9 @@ impl GameAudio {
                         && self.pending.as_ref().map(ProcessActivation::identity)
                             != Some(target.identity)
                     {
-                        *capture = None;
+                        if let Some(old) = capture.take() {
+                            retire(old);
+                        }
                         match ProcessActivation::new(target) {
                             Ok(pending) => self.pending = Some(pending),
                             Err(error) => self.failed(s, &format!("{error:#}")),
@@ -95,7 +103,9 @@ impl GameAudio {
                     }
                 }
                 Err(error) => {
-                    *capture = None;
+                    if let Some(old) = capture.take() {
+                        retire(old);
+                    }
                     self.failed(s, &error);
                     // A newly started game should become audible promptly.
                     // Only native activation failures need the longer backoff.

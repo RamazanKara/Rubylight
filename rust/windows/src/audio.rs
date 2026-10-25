@@ -275,6 +275,11 @@ impl Loopback {
     pub fn take_trimmed(&mut self) -> u64 {
         self.samples.take_trimmed(self.rate)
     }
+    /// What this capture holds that will never be sent because it is being dropped: the
+    /// audio it trimmed and the queue the resampler never got to read, in 48 kHz samples.
+    pub fn take_discarded(&mut self) -> u64 {
+        self.samples.take_trimmed(self.rate) + self.samples.queued(self.rate)
+    }
     pub fn read(&mut self, frames: usize) -> Result<Option<Vec<f32>>> {
         anyhow::ensure!(
             self.process.as_ref().is_none_or(|process| process.alive()),
@@ -335,6 +340,10 @@ impl CaptureSamples {
     /// The audio discarded since the last call, as 48 kHz samples of a device running at `rate`.
     fn take_trimmed(&mut self, rate: u32) -> u64 {
         std::mem::take(&mut self.trimmed) * 48_000 / u64::from(rate)
+    }
+    /// The audio queued and not yet read, as 48 kHz samples of a device running at `rate`.
+    fn queued(&self, rate: u32) -> u64 {
+        self.resampler.queued() as u64 * 48_000 / u64::from(rate)
     }
     /// # Safety
     /// Unless silent or null, `data` holds `count` interleaved frames in this

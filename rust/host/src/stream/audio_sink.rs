@@ -5,7 +5,8 @@
 use super::qos::Tagged;
 use crate::webrtc::media::{AudioPacket, AudioSender, Submit};
 use anyhow::Result;
-use butterpollo_core::packet::AudioPacketizer;
+use butterpollo_core::{audio::HostLoss, packet::AudioPacketizer};
+use butterpollo_windows::audio::Loopback;
 use std::{
     collections::HashMap,
     net::{SocketAddr, UdpSocket},
@@ -47,10 +48,17 @@ impl AudioClock {
         at
     }
 
-    /// `lost` of audio that never became a packet, before the packets about to be read.
-    pub(super) fn lost(&mut self, lost: Duration) {
-        // Whole nanoseconds, so 90 ms is 4320 samples and not 4319.99.
-        self.position += (lost.as_nanos() * Self::RATE / 1_000_000_000) as u64;
+    /// `span` as 48 kHz samples. Whole nanoseconds, so 90 ms is 4320 samples and not 4319.99.
+    fn samples(span: Duration) -> u64 {
+        (span.as_nanos() * Self::RATE / 1_000_000_000) as u64
+    }
+
+    /// `lost` of audio that never became a packet, before the packets about to be read. Returns
+    /// it in samples.
+    pub(super) fn lost(&mut self, lost: Duration) -> u64 {
+        let samples = Self::samples(lost);
+        self.position += samples;
+        samples
     }
 
     /// The same, counted in 48 kHz samples.
@@ -66,10 +74,11 @@ impl AudioClock {
     /// The first silence packet of an idle endpoint is due `waited` after the last audio. The
     /// time before it carried no packets, and is part of the stream. Returns whether this was
     /// that first packet.
-    pub(super) fn idle(&mut self, waited: Duration) -> bool {
+    /// `counted` samples of that wait were already added as lost, and are not added twice.
+    pub(super) fn idle(&mut self, waited: Duration, counted: u64) -> bool {
         let first = !std::mem::replace(&mut self.silent, true);
         if first {
-            self.lost(waited);
+            self.position += Self::samples(waited).saturating_sub(counted);
         }
         first
     }
@@ -90,6 +99,12 @@ pub(super) struct AudioPace {
     heard: Instant,
     /// When an idle endpoint's next silence is due.
     next: Instant,
+    /// Samples counted as lost since audio last arrived. An idle endpoint's first silence
+    /// counts the wait since then, and must not count these twice.
+    counted: u64,
+    /// When the capture went away, until audio or silence comes after it. The time without a
+    /// capture is lost even when it is shorter than `IDLE`.
+    gap: Option<Instant>,
 }
 
 impl AudioPace {
@@ -100,6 +115,8 @@ impl AudioPace {
             frames,
             heard: now,
             next: now,
+            counted: 0,
+            gap: None,
         }
     }
 
@@ -114,13 +131,28 @@ impl AudioPace {
     /// falling quiet and starting again, and is no gap.
     pub(super) fn windows_dropped(&mut self, lost: bool, skipped: Duration) {
         if lost {
-            self.clock.lost(skipped);
+            self.counted += self.clock.lost(skipped);
         }
     }
 
     /// This host discarded `samples` (48 kHz) of audio Windows had delivered.
     pub(super) fn host_dropped(&mut self, samples: u64) {
         self.clock.lost_samples(samples);
+        self.counted += samples;
+    }
+
+    /// The capture went away at `now` (a reopen, a failed read) with `discarded` samples of
+    /// audio it never handed over. Until audio or silence follows, the time passing is lost.
+    pub(super) fn capture_closed(&mut self, now: Instant, discarded: u64) {
+        self.host_dropped(discarded);
+        self.gap.get_or_insert(now);
+    }
+
+    /// A capture delivered audio at `now`: the time since the last one went away was lost.
+    pub(super) fn capture_delivered(&mut self, now: Instant) {
+        if let Some(at) = self.gap.take() {
+            self.clock.lost(now.saturating_duration_since(at));
+        }
     }
 
     /// Numbers the packets read at `now`, in order. With none, and the endpoint quiet for 50 ms,
@@ -132,13 +164,19 @@ impl AudioPace {
         silence: &[f32],
     ) -> Vec<u64> {
         if !packets.is_empty() {
+            self.counted = 0;
             self.heard = now;
             self.next = now + self.interval;
             self.clock.heard();
         } else if now >= self.next && now.saturating_duration_since(self.heard) >= IDLE {
             // WASAPI delivers roughly 10 ms chunks; allow for scheduling jitter
             // before treating a quiet capture queue as an idle endpoint.
-            let first = self.clock.idle(now.saturating_duration_since(self.heard));
+            // Silence counts the whole wait since the last audio, which covers a gap.
+            self.gap = None;
+            let first = self
+                .clock
+                .idle(now.saturating_duration_since(self.heard), self.counted);
+            self.counted = 0;
             packets.push(silence.to_vec());
             self.next += self.interval;
             if self.next < now {
@@ -156,6 +194,115 @@ impl AudioPace {
             .map(|_| self.clock.packet(self.frames))
             .collect()
     }
+}
+
+/// What the audio thread needs from the sound card's capture; `Loopback` is the real one.
+pub(super) trait AudioCapture {
+    fn since_drained(&mut self) -> Option<Duration>;
+    fn read(&mut self, frames: usize) -> Result<Option<Vec<f32>>>;
+    fn take_delivered(&mut self) -> Option<Duration>;
+    fn buffer(&self) -> Duration;
+    /// Audio this host discarded after Windows delivered it, in 48 kHz samples.
+    fn take_trimmed(&mut self) -> u64;
+    /// The same, plus whatever was still queued: what a capture that is being dropped loses.
+    fn take_discarded(&mut self) -> u64;
+}
+
+impl AudioCapture for Loopback {
+    fn since_drained(&mut self) -> Option<Duration> {
+        Loopback::since_drained(self)
+    }
+    fn read(&mut self, frames: usize) -> Result<Option<Vec<f32>>> {
+        Loopback::read(self, frames)
+    }
+    fn take_delivered(&mut self) -> Option<Duration> {
+        Loopback::take_delivered(self)
+    }
+    fn buffer(&self) -> Duration {
+        Loopback::buffer(self)
+    }
+    fn take_trimmed(&mut self) -> u64 {
+        Loopback::take_trimmed(self)
+    }
+    fn take_discarded(&mut self) -> u64 {
+        Loopback::take_discarded(self)
+    }
+}
+
+/// A capture is going away (a failed read, a sink change, a game-capture swap): its Windows
+/// skip, the audio this host trimmed and whatever it still queued are lost, and so is the time
+/// until the next capture delivers. `waited` is its `since_drained`.
+pub(super) fn retire<C: AudioCapture>(
+    old: &mut C,
+    waited: Option<Duration>,
+    loss: &mut HostLoss,
+    pace: &mut AudioPace,
+    now: Instant,
+) {
+    let delivered = old.take_delivered();
+    if let Some(waited) = waited {
+        let lost = loss.read(waited, delivered, old.buffer());
+        pace.windows_dropped(lost, delivered.unwrap_or_default());
+    }
+    pace.capture_closed(now, old.take_discarded());
+}
+
+/// One pass of the audio thread's read side: every whole packet the capture has, with where each
+/// sits in the stream, or one packet of `silence` for a quiet endpoint. What Windows skipped,
+/// what this host trimmed and a capture that fails are all counted before the positions are
+/// made. `interrupted` hears each read error; the capture is then gone.
+pub(super) fn collect<C: AudioCapture>(
+    capture: &mut Option<C>,
+    frames: usize,
+    loss: &mut HostLoss,
+    pace: &mut AudioPace,
+    silence: &[f32],
+    now: impl Fn() -> Instant,
+    mut interrupted: impl FnMut(&anyhow::Error),
+) -> (Vec<Vec<f32>>, Vec<u64>) {
+    let mut packets = Vec::new();
+    let waited = capture.as_mut().and_then(AudioCapture::since_drained);
+    while let Some(capturing) = capture.as_mut() {
+        match capturing.read(frames) {
+            Ok(Some(samples)) => packets.push(samples),
+            Ok(None) => break,
+            Err(error) => {
+                interrupted(&error);
+                retire(capturing, waited, loss, pace, now());
+                *capture = None;
+            }
+        }
+    }
+    if let Some(capturing) = capture.as_mut() {
+        let delivered = capturing.take_delivered();
+        if let Some(waited) = waited {
+            let lost = loss.read(waited, delivered, capturing.buffer());
+            // A skip no late read explains is the endpoint falling quiet and starting again.
+            let skipped = delivered.unwrap_or_default();
+            // Windows dropped this audio: the RTP clock keeps its length as a gap for the
+            // receiver to conceal.
+            pace.windows_dropped(lost, skipped);
+            if waited > capturing.buffer() || !skipped.is_zero() {
+                tracing::debug!(
+                    waited_ms = waited.as_secs_f64() * 1000.,
+                    skipped_ms = skipped.as_secs_f64() * 1000.,
+                    delivered = delivered.is_some(),
+                    lost,
+                    "audio sender read late or Windows skipped audio"
+                );
+            }
+        }
+        // Audio the host itself trimmed after a late wake was delivered, so the skip count
+        // above does not hold it; the stream still lost its time.
+        pace.host_dropped(capturing.take_trimmed());
+    }
+    // Packets read before a failure belong to the capture that is gone: they do not end its gap.
+    let at = now();
+    if capture.is_some() && !packets.is_empty() {
+        pace.capture_delivered(at);
+    }
+    let positions = pace.stamp(at, &mut packets, silence);
+    (packets, positions)
 }
 
 /// RTP with FEC on the client's audio port.
@@ -357,16 +504,221 @@ mod tests {
         assert_eq!(clock.packet(240), 0);
         clock.heard();
         // 50 ms of nothing, then silence every 5 ms: the wait is in the stream once.
-        clock.idle(Duration::from_millis(50));
+        clock.idle(Duration::from_millis(50), 0);
         assert_eq!(clock.packet(240), 2640);
-        clock.idle(Duration::from_millis(55));
-        clock.idle(Duration::from_millis(60));
+        clock.idle(Duration::from_millis(55), 0);
+        clock.idle(Duration::from_millis(60), 0);
         assert_eq!(clock.packet(240), 2880);
         // Audio returns, and the next idle spell counts its own wait.
         clock.heard();
         assert_eq!(clock.packet(240), 3120);
-        clock.idle(Duration::from_millis(50));
+        clock.idle(Duration::from_millis(50), 0);
         assert_eq!(clock.packet(240), 5760);
+    }
+
+    /// A scripted sound card: what each read returns, and what it reports about the time since
+    /// the last one.
+    #[derive(Default)]
+    struct Fake {
+        reads: std::collections::VecDeque<std::result::Result<Option<Vec<f32>>, &'static str>>,
+        waited: Option<Duration>,
+        delivered: Option<Duration>,
+        trimmed: u64,
+        queued: u64,
+    }
+
+    impl Fake {
+        fn playing(packets: usize) -> Self {
+            Self {
+                reads: (0..packets).map(|_| Ok(Some(vec![0.5; 480]))).collect(),
+                ..Self::default()
+            }
+        }
+    }
+
+    impl AudioCapture for Fake {
+        fn since_drained(&mut self) -> Option<Duration> {
+            self.waited
+        }
+        fn read(&mut self, _: usize) -> Result<Option<Vec<f32>>> {
+            match self.reads.pop_front() {
+                Some(Ok(samples)) => Ok(samples),
+                Some(Err(error)) => Err(anyhow::anyhow!(error)),
+                None => Ok(None),
+            }
+        }
+        fn take_delivered(&mut self) -> Option<Duration> {
+            self.delivered.take()
+        }
+        fn buffer(&self) -> Duration {
+            Duration::from_millis(20)
+        }
+        fn take_trimmed(&mut self) -> u64 {
+            std::mem::take(&mut self.trimmed)
+        }
+        fn take_discarded(&mut self) -> u64 {
+            self.take_trimmed() + std::mem::take(&mut self.queued)
+        }
+    }
+
+    struct Thread {
+        base: Instant,
+        pace: AudioPace,
+        loss: HostLoss,
+        errors: Vec<String>,
+    }
+
+    impl Thread {
+        fn new() -> Self {
+            let base = Instant::now();
+            Self {
+                base,
+                pace: AudioPace::new(base, Duration::from_millis(5), 240),
+                loss: HostLoss::default(),
+                errors: Vec::new(),
+            }
+        }
+
+        fn at(&self, ms: u64) -> Instant {
+            self.base + Duration::from_millis(ms)
+        }
+
+        /// One pass of the audio thread at `ms`: the positions of what it sends.
+        fn pass(&mut self, capture: &mut Option<Fake>, ms: u64) -> Vec<u64> {
+            let now = self.at(ms);
+            let errors = &mut self.errors;
+            let (_, positions) = collect(
+                capture,
+                240,
+                &mut self.loss,
+                &mut self.pace,
+                &[0.; 480],
+                || now,
+                |error| errors.push(error.to_string()),
+            );
+            positions
+        }
+    }
+
+    #[test]
+    fn the_audio_loop_counts_a_windows_skip_and_the_hosts_trim_before_numbering() {
+        let mut audio = Thread::new();
+        let mut capture = Some(Fake::playing(1));
+        assert_eq!(audio.pass(&mut capture, 0), [0]);
+        // A read 105 ms later finds 80 ms Windows skipped (explained by the late read, the sound
+        // card keeps 20 ms) and 10 ms this host trimmed: two packets, 3840 + 480 samples after
+        // the first packet.
+        let card = capture.as_mut().unwrap();
+        card.reads.extend(Fake::playing(2).reads);
+        card.waited = Some(Duration::from_millis(105));
+        card.delivered = Some(Duration::from_millis(80));
+        card.trimmed = 480;
+        assert_eq!(
+            audio.pass(&mut capture, 105),
+            [240 + 3840 + 480, 240 + 3840 + 480 + 240]
+        );
+    }
+
+    #[test]
+    fn a_stall_that_delivers_less_than_a_packet_counts_its_wait_once() {
+        let mut audio = Thread::new();
+        let mut capture = Some(Fake::playing(1));
+        assert_eq!(audio.pass(&mut capture, 0), [0]);
+        // 100 ms stall: Windows dropped 80 ms of it, and what remained is under one packet. The
+        // silence the quiet endpoint gets covers the rest, not the 80 ms again: the packet ends
+        // where the thread woke.
+        let card = capture.as_mut().unwrap();
+        card.waited = Some(Duration::from_millis(100));
+        card.delivered = Some(Duration::from_millis(80));
+        assert_eq!(audio.pass(&mut capture, 100), [240 + 100 * 48]);
+    }
+
+    #[test]
+    fn an_idle_endpoints_silence_still_counts_its_wait_when_nothing_else_did() {
+        let mut audio = Thread::new();
+        let mut capture = Some(Fake::playing(1));
+        assert_eq!(audio.pass(&mut capture, 0), [0]);
+        capture.as_mut().unwrap().waited = Some(Duration::from_millis(80));
+        assert_eq!(audio.pass(&mut capture, 80), [240 + 80 * 48]);
+    }
+
+    #[test]
+    fn a_failed_capture_counts_what_it_lost_and_the_time_until_the_next_one() {
+        let mut audio = Thread::new();
+        let mut capture = Some(Fake::playing(0));
+        capture
+            .as_mut()
+            .unwrap()
+            .reads
+            .extend([Ok(Some(vec![0.5; 480])), Err("the endpoint went away")]);
+        let card = capture.as_mut().unwrap();
+        card.waited = Some(Duration::from_millis(100));
+        // 80 ms skipped by Windows (a late read explains it), 10 ms trimmed, 20 ms still queued.
+        card.delivered = Some(Duration::from_millis(80));
+        card.trimmed = 480;
+        card.queued = 960;
+        let positions = audio.pass(&mut capture, 0);
+        assert!(capture.is_none());
+        assert_eq!(audio.errors, ["the endpoint went away"]);
+        assert_eq!(positions, [3840 + 480 + 960]);
+        // 30 ms later a reopened capture delivers: the time between, under the idle limit and
+        // sent no silence, is lost as well.
+        let mut capture = Some(Fake::playing(1));
+        assert_eq!(
+            audio.pass(&mut capture, 30),
+            [3840 + 480 + 960 + 240 + 30 * 48]
+        );
+        // Counted once: the next packet follows it.
+        capture
+            .as_mut()
+            .unwrap()
+            .reads
+            .extend(Fake::playing(1).reads);
+        assert_eq!(
+            audio.pass(&mut capture, 35),
+            [3840 + 480 + 960 + 240 + 30 * 48 + 240]
+        );
+    }
+
+    #[test]
+    fn a_capture_dropped_for_a_new_sink_counts_its_residue_and_the_reopen_gap() {
+        let mut audio = Thread::new();
+        let mut capture = Some(Fake::playing(1));
+        assert_eq!(audio.pass(&mut capture, 0), [0]);
+        // The sink changes at 10 ms: 40 ms of skip a late read explains, 10 ms trimmed and
+        // 20 ms the resampler still held.
+        let mut old = Fake {
+            waited: Some(Duration::from_millis(60)),
+            delivered: Some(Duration::from_millis(40)),
+            trimmed: 480,
+            queued: 960,
+            ..Fake::default()
+        };
+        let waited = old.since_drained();
+        let closed = audio.at(10);
+        retire(&mut old, waited, &mut audio.loss, &mut audio.pace, closed);
+        // The new capture delivers at 25 ms: the 15 ms without one is lost too.
+        let mut capture = Some(Fake::playing(1));
+        assert_eq!(
+            audio.pass(&mut capture, 25),
+            [240 + 1920 + 480 + 960 + 15 * 48]
+        );
+    }
+
+    #[test]
+    fn silence_covers_a_reopen_that_outlasts_the_idle_limit_without_counting_it_twice() {
+        let mut audio = Thread::new();
+        let mut capture = Some(Fake::playing(1));
+        assert_eq!(audio.pass(&mut capture, 0), [0]);
+        let mut old = Fake::default();
+        let closed = audio.at(10);
+        retire(&mut old, None, &mut audio.loss, &mut audio.pace, closed);
+        // No capture for 60 ms: the first silence counts the wait since the last audio.
+        let mut none: Option<Fake> = None;
+        assert_eq!(audio.pass(&mut none, 60), [240 + 60 * 48]);
+        // Audio returns: the silence already covered the gap.
+        let mut capture = Some(Fake::playing(1));
+        assert_eq!(audio.pass(&mut capture, 65), [240 + 60 * 48 + 240]);
     }
 
     const KEY: [u8; 16] = *b"0123456789abcdef";

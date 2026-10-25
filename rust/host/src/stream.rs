@@ -3032,7 +3032,10 @@ impl Media {
                 thread::sleep(stall);
             }
             if let Some(game_capture) = &mut game_capture {
-                game_capture.update(&s, &mut capture);
+                game_capture.update(&s, &mut capture, &mut |mut old| {
+                    let waited = old.since_drained();
+                    audio_sink::retire(&mut old, waited, &mut loss, &mut pace, Instant::now());
+                });
             }
             if !muted && !game_audio && Instant::now() >= audio_check {
                 audio_check = Instant::now() + Duration::from_secs(1);
@@ -3082,7 +3085,16 @@ impl Media {
                         if !sink.is_empty() {
                             s.launch.warnings.event("audio_device_changed", "Audio capture device changed because the Windows default playback device changed. WASAPI is reopening and sound may briefly pause; select a fixed capture sink if the change was unintended.", butterpollo_core::session::EVENT_PERIOD);
                         }
-                        capture = None;
+                        if let Some(mut old) = capture.take() {
+                            let waited = old.since_drained();
+                            audio_sink::retire(
+                                &mut old,
+                                waited,
+                                &mut loss,
+                                &mut pace,
+                                Instant::now(),
+                            );
+                        }
                         sink = selected;
                     }
                     // Pinning the sink only disables following the Windows
@@ -3119,53 +3131,26 @@ impl Media {
             // Every whole packet the endpoint has delivered goes out at once, as
             // Sunshine sends them. On a fixed tick each waited up to a packet,
             // and a tick just before a late chunk sent silence in its place.
-            let mut packets = Vec::new();
-            let waited = capture.as_mut().and_then(Loopback::since_drained);
-            while let Some(capturing) = capture.as_mut() {
-                match capturing.read(frames) {
-                    Ok(Some(samples)) => packets.push(samples),
-                    Ok(None) => break,
-                    Err(error) => {
-                        let recovery = if game_audio {
-                            "sending silence until a verified game process can be captured again. No system audio is captured. Check the game's launch entry if this repeats."
-                        } else {
-                            "reopening WASAPI and sending silence until it recovers. Check the playback device if this repeats."
-                        };
-                        s.launch.warnings.set(
-                            "audio_capture",
-                            format!("Audio capture interrupted ({error:#}); {recovery}"),
-                        );
-                        pace.host_dropped(capturing.take_trimmed());
-                        capture = None;
-                    }
-                }
-            }
-            if let Some(capturing) = capture.as_mut() {
-                let delivered = capturing.take_delivered();
-                if let Some(waited) = waited {
-                    let lost = loss.read(waited, delivered, capturing.buffer());
-                    // A skip no late read explains is the endpoint falling
-                    // quiet and starting again.
-                    let skipped = delivered.unwrap_or_default();
-                    // Windows dropped this audio: the RTP clock keeps its length as a gap for
-                    // the receiver to conceal.
-                    pace.windows_dropped(lost, skipped);
-                    if waited > capturing.buffer() || !skipped.is_zero() {
-                        tracing::debug!(
-                            waited_ms = waited.as_secs_f64() * 1000.,
-                            skipped_ms = skipped.as_secs_f64() * 1000.,
-                            delivered = delivered.is_some(),
-                            lost,
-                            "audio sender read late or Windows skipped audio"
-                        );
-                    }
-                }
-                // Audio the host itself trimmed after a late wake was delivered, so the
-                // skip count above does not hold it; the stream still lost its time.
-                pace.host_dropped(capturing.take_trimmed());
-            }
+            let (packets, positions) = audio_sink::collect(
+                &mut capture,
+                frames,
+                &mut loss,
+                &mut pace,
+                &silence,
+                Instant::now,
+                |error| {
+                    let recovery = if game_audio {
+                        "sending silence until a verified game process can be captured again. No system audio is captured. Check the game's launch entry if this repeats."
+                    } else {
+                        "reopening WASAPI and sending silence until it recovers. Check the playback device if this repeats."
+                    };
+                    s.launch.warnings.set(
+                        "audio_capture",
+                        format!("Audio capture interrupted ({error:#}); {recovery}"),
+                    );
+                },
+            );
             let now = Instant::now();
-            let positions = pace.stamp(now, &mut packets, &silence);
             if ready {
                 for (samples, at) in packets.iter().zip(positions) {
                     for _ in 0..output.send(&opus.encode(samples)?, now, at)? {

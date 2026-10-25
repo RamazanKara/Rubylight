@@ -143,7 +143,8 @@ pub struct EncoderProbe {
     pub hevc_main10: bool,
     /// The most 16x16 macroblocks per second each encoder takes in real time: AMF's
     /// `MaxThroughput`, `HevcMaxThroughput` and `Av1CapMaxThroughput`. 0 when the driver
-    /// reported none, which gates nothing.
+    /// reported none or the codec was not probed, which allows 60 fps and below only.
+    /// AMF has no separate 10-bit cap, so HDR is gated by the same number.
     pub h264_mb_rate: u64,
     pub hevc_mb_rate: u64,
     pub av1_mb_rate: u64,
@@ -159,16 +160,19 @@ impl EncoderProbe {
     }
 
     /// Whether the encoder takes this picture size and rate in real time. A codec whose
-    /// throughput the driver did not report is not gated.
+    /// throughput is unknown gets 60 fps and below, as before the probe.
     fn can_encode(self, codec: Codec, width: u32, height: u32, fps: u32) -> bool {
         let limit = match codec {
             Codec::H264 => self.h264_mb_rate,
             Codec::Hevc => self.hevc_mb_rate,
             Codec::Av1 => self.av1_mb_rate,
         };
+        if limit == 0 {
+            return fps <= DEFAULT_FRAME_RATE;
+        }
         let needed =
             u64::from(width.div_ceil(16)) * u64::from(height.div_ceil(16)) * u64::from(fps);
-        limit == 0 || needed <= limit
+        needed <= limit
     }
 
     fn supports_hdr(self, codec: Codec) -> bool {
@@ -273,16 +277,28 @@ pub struct InputExtension {
     pub mouse: bool,
 }
 
+/// The rates one codec takes at one mode. `videoModes` lists only the rates every codec
+/// of a mode takes; this lists each codec's own, which `validate` accepts as well.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodecFrameRates {
+    pub width: u32,
+    pub height: u32,
+    pub codec: Codec,
+    pub frame_rates: Vec<u32>,
+}
+
 /// Rubylight's additions to protocol v2. Stock clients ignore this object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Extensions {
     pub audio_channels: Vec<u32>,
     pub input: InputExtension,
+    pub codec_frame_rates: Vec<CodecFrameRates>,
 }
 
-impl Default for Extensions {
-    fn default() -> Self {
+impl Extensions {
+    fn new(codec_frame_rates: Vec<CodecFrameRates>) -> Self {
         Self {
             audio_channels: AUDIO_CHANNELS.to_vec(),
             input: InputExtension {
@@ -291,6 +307,7 @@ impl Default for Extensions {
                 keyboard: true,
                 mouse: true,
             },
+            codec_frame_rates,
         }
     }
 }
@@ -360,29 +377,63 @@ impl HostCapabilities {
         Self { probe, frame_rates }
     }
 
-    /// The mode as offered, or `None` when it has no frame rates. A rate is listed when
-    /// some codec of the mode takes it in real time, a codec when it takes the lowest
-    /// listed rate; a request for a pair the encoder cannot do is refused in `validate`.
-    fn listing(&self, mode: &ModeSpec) -> Option<VideoMode> {
-        let able: Vec<Codec> = Codec::ALL
+    /// The codecs the mode offers on this encoder.
+    fn able(&self, mode: &ModeSpec) -> impl Iterator<Item = Codec> {
+        Codec::ALL
             .into_iter()
-            .filter(|&c| mode.offers(c) && self.probe.supports(c))
-            .collect();
-        let frame_rates: Vec<u32> = self
-            .frame_rates
+            .filter(move |&c| mode.offers(c) && self.probe.supports(c))
+    }
+
+    /// The offered rates one codec takes in real time at the mode.
+    fn codec_rates(&self, mode: &ModeSpec, codec: Codec) -> Vec<u32> {
+        self.frame_rates
             .rates(mode.width, mode.height)
             .iter()
             .copied()
-            .filter(|&fps| {
-                able.iter()
-                    .any(|&c| self.probe.can_encode(c, mode.width, mode.height, fps))
-            })
+            .filter(|&fps| self.probe.can_encode(codec, mode.width, mode.height, fps))
+            .collect()
+    }
+
+    /// The mode as offered, or `None` when no codec takes any of its rates. Every listed
+    /// rate works with every listed codec. The codecs are those that take 60 fps, or the
+    /// lowest rate some codec takes when none does; the rates are those all of them take.
+    /// The rates each codec takes on its own go in the `codecFrameRates` extension.
+    fn listing(&self, mode: &ModeSpec) -> Option<VideoMode> {
+        let able: Vec<(Codec, Vec<u32>)> = self
+            .able(mode)
+            .map(|c| (c, self.codec_rates(mode, c)))
             .collect();
-        let lowest = *frame_rates.first()?;
-        let codecs: Vec<Codec> = able
+        let takes = |fps: u32| able.iter().any(|(_, rates)| rates.contains(&fps));
+        let reference = if takes(DEFAULT_FRAME_RATE) {
+            DEFAULT_FRAME_RATE
+        } else {
+            self.frame_rates
+                .rates(mode.width, mode.height)
+                .iter()
+                .copied()
+                .find(|&fps| takes(fps))?
+        };
+        let able: Vec<(Codec, Vec<u32>)> = able
             .into_iter()
-            .filter(|&c| self.probe.can_encode(c, mode.width, mode.height, lowest))
+            .filter(|(_, rates)| rates.contains(&reference))
             .collect();
+        let codecs: Vec<Codec> = able.iter().map(|&(c, _)| c).collect();
+        let frame_rates: Vec<u32> = able[0]
+            .1
+            .iter()
+            .copied()
+            .filter(|fps| able.iter().all(|(_, rates)| rates.contains(fps)))
+            .collect();
+        let fps = if frame_rates.contains(&DEFAULT_FRAME_RATE) {
+            DEFAULT_FRAME_RATE
+        } else {
+            *frame_rates.last()?
+        };
+        let default_codec = if codecs.contains(&mode.default_codec) {
+            mode.default_codec
+        } else {
+            codecs[0]
+        };
         let hdr_codecs: Vec<Codec> = if mode.hdr {
             codecs
                 .iter()
@@ -396,11 +447,11 @@ impl HostCapabilities {
         Some(VideoMode {
             width: mode.width,
             height: mode.height,
-            fps: DEFAULT_FRAME_RATE,
+            fps,
             frame_rates,
             codecs,
             hdr_codecs,
-            default_codec: mode.default_codec,
+            default_codec,
             default_bitrate_kbps: mode.default_bitrate_kbps,
             experimental: mode.experimental,
             hdr_supported: hdr,
@@ -429,6 +480,18 @@ impl HostCapabilities {
             .filter(|c| video_modes.iter().any(|m| m.codecs.contains(c)))
             .collect();
         let hdr = video_modes.iter().any(|m| m.hdr_supported);
+        let codec_frame_rates = MODES
+            .iter()
+            .flat_map(|mode| {
+                self.able(mode).map(move |codec| CodecFrameRates {
+                    width: mode.width,
+                    height: mode.height,
+                    codec,
+                    frame_rates: self.codec_rates(mode, codec),
+                })
+            })
+            .filter(|entry| !entry.frame_rates.is_empty())
+            .collect();
         let default_bitrate = |mode: &ModeSpec| mode.default_bitrate_kbps;
         CapabilitiesBody {
             video_modes,
@@ -445,7 +508,7 @@ impl HostCapabilities {
                 p1440_60: default_bitrate(&MODES[2]),
                 p2160_60: default_bitrate(&MODES[3]),
             },
-            extensions: Extensions::default(),
+            extensions: Extensions::new(codec_frame_rates),
         }
     }
 
@@ -724,9 +787,9 @@ mod tests {
         av1: true,
         av1_10bit: true,
         hevc_main10: true,
-        h264_mb_rate: 0,
-        hevc_mb_rate: 0,
-        av1_mb_rate: 0,
+        h264_mb_rate: u64::MAX,
+        hevc_mb_rate: u64::MAX,
+        av1_mb_rate: u64::MAX,
     };
 
     fn host(probe: EncoderProbe) -> HostCapabilities {
@@ -951,9 +1014,7 @@ mod tests {
 
     #[test]
     fn the_offer_follows_the_probe() {
-        // A probe without throughput numbers, and one that takes everything: all rates
-        // at every mode, 4K120 for HEVC and AV1.
-        let unknown = HostCapabilities::new(FULL, FrameRateOffer::default()).capabilities();
+        // A probe that takes everything: all rates at every mode, 4K120 for HEVC and AV1.
         let all = macroblocks(3840, 2160, 120);
         let roomy = EncoderProbe {
             h264_mb_rate: all,
@@ -962,11 +1023,35 @@ mod tests {
             ..FULL
         };
         let roomy = HostCapabilities::new(roomy, FrameRateOffer::default()).capabilities();
-        assert_eq!(unknown, roomy);
         for m in &roomy.video_modes {
             assert_eq!(m.frame_rates, vec![30, 60, 90, 120], "{}p", m.height);
+            assert_eq!(m.fps, 60);
         }
         assert_eq!(mode(&roomy, 2160).codecs, vec![Codec::Hevc, Codec::Av1]);
+
+        // A driver that reports no throughput, or a codec the probe skipped, gets 60 fps
+        // and below, as before the probe; validate refuses the rest.
+        let unknown = EncoderProbe {
+            h264_mb_rate: 0,
+            hevc_mb_rate: 0,
+            av1_mb_rate: 0,
+            ..FULL
+        };
+        let unknown = HostCapabilities::new(unknown, FrameRateOffer::default());
+        let body = unknown.capabilities();
+        for m in &body.video_modes {
+            assert_eq!(m.frame_rates, vec![30, 60], "{}p", m.height);
+        }
+        let m = refuse(&unknown, video(1920, 1080, 90, "h264", 20000, false), 2);
+        assert!(m.contains("cannot encode"), "{m}");
+        let skipped_av1 = EncoderProbe {
+            av1_mb_rate: 0,
+            ..FULL
+        };
+        let body = HostCapabilities::new(skipped_av1, FrameRateOffer::default()).capabilities();
+        assert_eq!(mode(&body, 1080).frame_rates, vec![30, 60]);
+        assert_eq!(rates_of(&body, 1080, Codec::Av1), vec![30, 60]);
+        assert_eq!(rates_of(&body, 1080, Codec::Hevc), vec![30, 60, 90, 120]);
 
         // An encoder that does 4K60 but not 4K120 drops 120 at 4K only, and says so loudly.
         let slow = EncoderProbe {
@@ -988,7 +1073,8 @@ mod tests {
                 .unwrap();
         }
 
-        // The limits are per codec: HEVC that stops at 1440p60 does not stop H.264 there.
+        // The limits are per codec. HEVC and AV1 stop at 1440p60, H.264 does not: the
+        // mode lists the rates all three take, and H.264's own go in the extension.
         let mixed = EncoderProbe {
             h264_mb_rate: macroblocks(2560, 1440, 120),
             hevc_mb_rate: macroblocks(2560, 1440, 60),
@@ -997,24 +1083,119 @@ mod tests {
         };
         let mixed = HostCapabilities::new(mixed, FrameRateOffer::default());
         let body = mixed.capabilities();
-        // The rate is listed because H.264 takes it, but HEVC at 1440p120 is refused.
-        assert_eq!(mode(&body, 1440).frame_rates, vec![30, 60, 90, 120]);
+        assert_eq!(mode(&body, 1440).frame_rates, vec![30, 60]);
+        assert_eq!(mode(&body, 1440).codecs, Codec::ALL.to_vec());
+        assert_eq!(rates_of(&body, 1440, Codec::H264), vec![30, 60, 90, 120]);
+        assert_eq!(rates_of(&body, 1440, Codec::Hevc), vec![30, 60]);
         refuse(&mixed, video(2560, 1440, 120, "hevc", 30000, false), 2);
         mixed
             .validate(&video(2560, 1440, 120, "h264", 30000, false), &stereo())
             .unwrap();
         // 4K is HEVC and AV1 only, and neither takes 4K30 here: the mode is not offered.
         assert!(body.video_modes.iter().all(|m| m.height != 2160));
+        assert!(
+            body.extensions
+                .codec_frame_rates
+                .iter()
+                .all(|e| e.height != 2160)
+        );
 
-        // A codec that cannot take even the lowest rate leaves the mode's codecs.
+        // A codec that cannot take 60 fps leaves the mode's codecs, and the mode's
+        // default codec moves to the first one listed.
         let weak_h264 = EncoderProbe {
             h264_mb_rate: macroblocks(1280, 720, 60),
             ..FULL
         };
         let body = HostCapabilities::new(weak_h264, FrameRateOffer::default()).capabilities();
         assert_eq!(mode(&body, 720).codecs, Codec::ALL.to_vec());
+        assert_eq!(mode(&body, 720).frame_rates, vec![30, 60]);
+        assert_eq!(mode(&body, 720).default_codec, Codec::H264);
         assert_eq!(mode(&body, 1080).codecs, vec![Codec::Hevc, Codec::Av1]);
         assert_eq!(mode(&body, 1080).frame_rates, vec![30, 60, 90, 120]);
+        assert_eq!(mode(&body, 1080).default_codec, Codec::Hevc);
+
+        // When no codec takes 60, the codecs are those that take the lowest rate some
+        // codec takes, and the legacy `fps` is the highest listed rate.
+        let crawl = EncoderProbe {
+            hevc_mb_rate: macroblocks(3840, 2160, 30),
+            av1_mb_rate: macroblocks(3840, 2160, 30) - 1,
+            ..FULL
+        };
+        let body = HostCapabilities::new(crawl, FrameRateOffer::default()).capabilities();
+        let uhd = mode(&body, 2160);
+        assert_eq!(
+            (uhd.frame_rates.clone(), uhd.codecs.clone(), uhd.fps),
+            (vec![30], vec![Codec::Hevc], 30)
+        );
+        assert_eq!(uhd.default_codec, Codec::Hevc);
+    }
+
+    /// One codec's rates at one mode, from the `codecFrameRates` extension.
+    fn rates_of(body: &CapabilitiesBody, height: u32, codec: Codec) -> Vec<u32> {
+        body.extensions
+            .codec_frame_rates
+            .iter()
+            .find(|e| e.height == height && e.codec == codec)
+            .map(|e| e.frame_rates.clone())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn every_listed_rate_and_codec_is_accepted() {
+        // A client picks a mode, one of its rates and one of its codecs, or a pair from
+        // the codecFrameRates extension: none of them may be refused.
+        let edge = |w: u32, h: u32, fps: u32| macroblocks(w, h, fps);
+        let probes = [
+            ("full", FULL),
+            (
+                "mixed",
+                EncoderProbe {
+                    h264_mb_rate: edge(2560, 1440, 120),
+                    hevc_mb_rate: edge(2560, 1440, 60),
+                    av1_mb_rate: edge(3840, 2160, 60),
+                    ..FULL
+                },
+            ),
+            (
+                "slow",
+                EncoderProbe {
+                    h264_mb_rate: edge(1280, 720, 60),
+                    hevc_mb_rate: edge(1920, 1080, 90),
+                    av1_mb_rate: edge(3840, 2160, 30),
+                    ..FULL
+                },
+            ),
+        ];
+        for (name, probe) in probes {
+            let host = HostCapabilities::new(probe, FrameRateOffer::default());
+            let body = host.capabilities();
+            let mut pairs = 0;
+            for m in &body.video_modes {
+                assert!(m.frame_rates.contains(&m.fps), "{name} {}p", m.height);
+                assert!(m.codecs.contains(&m.default_codec), "{name} {}p", m.height);
+                for &fps in &m.frame_rates {
+                    for codec in &m.codecs {
+                        let request = video(m.width, m.height, fps, codec.name(), 20000, false);
+                        let result = host.validate(&request, &stereo());
+                        assert!(result.is_ok(), "{name} {}p{fps} {codec:?}", m.height);
+                        pairs += 1;
+                    }
+                    for codec in &m.hdr_codecs {
+                        let request = video(m.width, m.height, fps, codec.name(), 20000, true);
+                        let result = host.validate(&request, &stereo());
+                        assert!(result.is_ok(), "{name} {}p{fps} {codec:?} HDR", m.height);
+                    }
+                }
+            }
+            for e in &body.extensions.codec_frame_rates {
+                for &fps in &e.frame_rates {
+                    let request = video(e.width, e.height, fps, e.codec.name(), 20000, false);
+                    let result = host.validate(&request, &stereo());
+                    assert!(result.is_ok(), "{name} {}p{fps} {:?}", e.height, e.codec);
+                }
+            }
+            assert!(pairs > 0, "{name}");
+        }
     }
 
     #[test]
@@ -1052,13 +1233,25 @@ mod tests {
     fn capabilities_carry_the_extensions_object_exactly() {
         let message = ServerMessage::Capabilities(host(FULL).capabilities());
         let value: Value = serde_json::from_str(&message.to_json()).unwrap();
+        let extensions = &value["extensions"];
+        let mut keys: Vec<&String> = extensions.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, vec!["audioChannels", "codecFrameRates", "input"]);
+        assert_eq!(extensions["audioChannels"], json!([2, 6, 8]));
         assert_eq!(
-            value["extensions"],
-            json!({
-                "audioChannels": [2, 6, 8],
-                "input": {"label": "input", "version": 1, "keyboard": true, "mouse": true}
-            })
+            extensions["input"],
+            json!({"label": "input", "version": 1, "keyboard": true, "mouse": true})
         );
+        // Each codec of each mode with its own rates: 3 codecs at 720p, 1080p and
+        // 1440p, HEVC and AV1 at 4K.
+        let rates = extensions["codecFrameRates"].as_array().unwrap();
+        assert_eq!(rates.len(), 11);
+        assert_eq!(
+            rates[0],
+            json!({"width": 1280, "height": 720, "codec": "h264", "frameRates": [30, 60, 90, 120]})
+        );
+        assert_eq!(rates[10]["codec"], "av1");
+        assert_eq!(rates[10]["height"], 2160);
         assert_eq!(value["version"], 2);
         assert_eq!(value["type"], "capabilities");
         // The legacy fields a stock client reads.

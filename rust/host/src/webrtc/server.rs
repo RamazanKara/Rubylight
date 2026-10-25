@@ -1714,12 +1714,13 @@ pub(crate) mod tests {
                 .find(|m| m.height == height)
                 .map(|m| m.frame_rates)
         };
-        let full = encoder_probe(0x10000 | 0x20000 | 0x200, [0; 3]);
+        // No cap reported: 60 fps and below, as before the probe.
+        let unknown = encoder_probe(0x10000 | 0x20000 | 0x200, [0; 3]);
+        assert_eq!(rates(unknown, 2160), Some(vec![30, 60]));
+        assert_eq!(rates(unknown, 720), Some(vec![30, 60]));
+        let full = encoder_probe(0x10000 | 0x20000 | 0x200, [mbs(3840, 2160, 120); 3]);
         assert_eq!(rates(full, 2160), Some(vec![30, 60, 90, 120]));
-        let slow = encoder_probe(
-            0x10000 | 0x20000 | 0x200,
-            [0, mbs(3840, 2160, 60), mbs(3840, 2160, 60)],
-        );
+        let slow = encoder_probe(0x10000 | 0x20000 | 0x200, [mbs(3840, 2160, 60); 3]);
         assert_eq!(slow.hevc_mb_rate, mbs(3840, 2160, 60));
         assert_eq!(rates(slow, 2160), Some(vec![30, 60]));
         assert_eq!(rates(slow, 1440), Some(vec![30, 60, 90, 120]));

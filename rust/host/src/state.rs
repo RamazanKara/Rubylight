@@ -538,8 +538,9 @@ impl Host {
         });
     }
     /// Keeps the throughput the encoder reports for its codec, for the WebRTC frame-rate
-    /// offer. A driver that reports none leaves it 0, which gates nothing.
+    /// offer. A driver that reports none leaves it 0, which limits the codec to 60 fps.
     fn record_throughput(&self, codec: u8, encoder: &butterpollo_windows::encoder::Encoder) {
+        static WARNED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
         let name = match codec {
             0 => "MaxThroughput",
             1 => "HevcMaxThroughput",
@@ -555,6 +556,14 @@ impl Host {
             cap = name,
             "encoder throughput (16x16 macroblocks per second)"
         );
+        let bit = 1 << codec.min(2);
+        if rate == 0 && WARNED.fetch_or(bit, std::sync::atomic::Ordering::Relaxed) & bit == 0 {
+            tracing::warn!(
+                codec,
+                cap = name,
+                "the encoder reports no throughput; WebRTC offers this codec at 60 fps and below"
+            );
+        }
         self.encoder_mb_rates[codec as usize].store(rate, std::sync::atomic::Ordering::Release);
     }
     /// One pass over every codec. A retry (`yield_to_streams`) stops before

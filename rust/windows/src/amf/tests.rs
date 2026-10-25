@@ -43,6 +43,32 @@ fn a_slow_first_probe_frame_is_logged_but_a_slow_stream_frame_warns_the_client()
 }
 
 #[test]
+fn a_frame_counts_as_unreturned_from_its_acceptance_not_from_its_conversion() {
+    // The RX 7900 XT's packed probe: the first frame's upload and conversion
+    // took 4.7 s, then AMF accepted it. Counting from the start dropped it in
+    // the same encode call, before AMF had a chance to return it.
+    let now = Instant::now();
+    let submission = |started: Duration, accepted: Duration| Submission {
+        pts: 0,
+        started: now - started,
+        accepted: now - accepted,
+        presentation: now - started,
+        idr: true,
+        after_invalidation: false,
+        frame_cap_bytes: None,
+        _capture: None,
+        _converted: None,
+    };
+    let slow_conversion = submission(Duration::from_millis(4700), Duration::ZERO);
+    assert!(!slow_conversion.unreturned(now));
+    assert!(!slow_conversion.unreturned(now + Duration::from_millis(1900)));
+    assert!(slow_conversion.unreturned(now + Duration::from_millis(2100)));
+    // A frame AMF has held for over two seconds is still lost.
+    let held = submission(Duration::from_millis(2600), Duration::from_millis(2500));
+    assert!(held.unreturned(now));
+}
+
+#[test]
 #[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
 fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;

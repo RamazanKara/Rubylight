@@ -201,6 +201,18 @@ struct Submission {
     _capture: Option<GpuImage>,
     _converted: Option<std::sync::Arc<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D>>,
 }
+/// How long AMF may hold an accepted frame before it counts as lost.
+const UNRETURNED_AFTER: Duration = Duration::from_secs(2);
+impl Submission {
+    /// Whether AMF has held this frame too long, counted from SubmitInput
+    /// accepting it. Time spent uploading or converting before that is not AMF
+    /// losing the frame: a packed probe's first frame on an RX 7900 XT once
+    /// took 4.7 s before submission, and counting from the start dropped it
+    /// as soon as AMF had it.
+    fn unreturned(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.accepted) > UNRETURNED_AFTER
+    }
+}
 fn acknowledge_keyframe(
     idr: bool,
     result: AMF_RESULT,
@@ -1566,11 +1578,8 @@ impl Encoder {
     fn expire_unreturned(&mut self) {
         // A submission the driver never answers would otherwise keep every
         // later query waiting for its timeout.
-        while self
-            .in_flight
-            .front()
-            .is_some_and(|s| s.started.elapsed() > Duration::from_secs(2))
-        {
+        let now = Instant::now();
+        while self.in_flight.front().is_some_and(|s| s.unreturned(now)) {
             let stale = self.in_flight.pop_front();
             if let Some(stale) = &stale {
                 self.units.forget(stale.pts);

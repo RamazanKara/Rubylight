@@ -202,21 +202,12 @@ fn probe(request: &Request) -> Result<Reply> {
             "invalid packed probe request"
         );
         gpu.values.extend(request.encoder_options.clone());
-        let mut encoder = Encoder::new_options(mode, &request.output, &gpu)?;
-        let mut count = 0;
-        let deadline = Instant::now() + Duration::from_secs(3);
-        for frame in 0..3 {
-            count += encoder.encode(&image, frame == 0, mode.bitrate_kbps)?.len();
-            while encoder.pending() && Instant::now() < deadline {
-                count += encoder.poll()?.len();
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            ensure!(
-                count == frame + 1,
-                "packed encoder failed to return frame {}",
-                frame + 1
-            );
-        }
+        let mut encoder = Probe {
+            encoder: Encoder::new_options(mode, &request.output, &gpu)?,
+            image: &image,
+            bitrate_kbps: mode.bitrate_kbps,
+        };
+        packed_sequence(&mut encoder, PACKED_FRAME_WAIT)?;
         return Ok(Reply::Done {
             flags: u32::from(butterpollo_core::packed444::mode_bit(
                 mode.codec,
@@ -266,6 +257,61 @@ fn probe(request: &Request) -> Result<Reply> {
         }
     }
     Ok(Reply::Done { flags, errors })
+}
+
+/// How long the driver has to return each packed probe frame once it is
+/// submitted.
+const PACKED_FRAME_WAIT: Duration = Duration::from_secs(3);
+/// The packed probe's view of an encoder: submit a frame, then collect what
+/// it returns.
+trait Sequence {
+    /// Submits one frame and returns how many encoded frames came back with it.
+    fn submit(&mut self, idr: bool) -> Result<usize>;
+    fn pending(&self) -> bool;
+    fn collect(&mut self) -> Result<usize>;
+}
+struct Probe<'a> {
+    encoder: Encoder,
+    image: &'a capture::Image,
+    bitrate_kbps: u32,
+}
+impl Sequence for Probe<'_> {
+    fn submit(&mut self, idr: bool) -> Result<usize> {
+        Ok(self
+            .encoder
+            .encode(self.image, idr, self.bitrate_kbps)?
+            .len())
+    }
+    fn pending(&self) -> bool {
+        self.encoder.pending()
+    }
+    fn collect(&mut self) -> Result<usize> {
+        Ok(self.encoder.poll()?.len())
+    }
+}
+/// Three frames, each returned before the next is submitted. Each frame's
+/// wait starts once it is submitted: the first upload and conversion after a
+/// driver start can take seconds (4.7 s on an RX 7900 XT), and counting that
+/// against the driver failed a codec the stream encodes fine.
+fn packed_sequence(encoder: &mut impl Sequence, wait: Duration) -> Result<()> {
+    let mut count = 0;
+    for frame in 0..3 {
+        let submitting = Instant::now();
+        count += encoder.submit(frame == 0)?;
+        let submitted = Instant::now();
+        while encoder.pending() && submitted.elapsed() < wait {
+            count += encoder.collect()?;
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        ensure!(
+            count == frame + 1,
+            "packed encoder failed to return frame {} within {} ms of submitting it (submitting took {} ms)",
+            frame + 1,
+            wait.as_millis(),
+            submitted.duration_since(submitting).as_millis()
+        );
+    }
+    Ok(())
 }
 
 pub fn worker(name: &str, parent: u32) -> Result<()> {
@@ -327,5 +373,103 @@ mod tests {
         // A crashing driver or overlay stays a plain failure.
         assert!(!early_exit(0xC000_0005).is::<SessionNotReady>());
         assert!(!early_exit(1).is::<SessionNotReady>());
+    }
+    /// An encoder whose submissions take `submitting` and whose frames come
+    /// back `encoding` after they were submitted.
+    struct Fake {
+        submitting: Vec<Duration>,
+        encoding: Option<Duration>,
+        submitted: Vec<Instant>,
+        returned: usize,
+    }
+    impl Sequence for Fake {
+        fn submit(&mut self, _idr: bool) -> Result<usize> {
+            std::thread::sleep(
+                self.submitting
+                    .get(self.submitted.len())
+                    .copied()
+                    .unwrap_or_default(),
+            );
+            self.submitted.push(Instant::now());
+            Ok(0)
+        }
+        fn pending(&self) -> bool {
+            self.returned < self.submitted.len()
+        }
+        fn collect(&mut self) -> Result<usize> {
+            let ready = self
+                .encoding
+                .is_some_and(|encoding| self.submitted[self.returned].elapsed() >= encoding);
+            self.returned += usize::from(ready);
+            Ok(usize::from(ready))
+        }
+    }
+    fn fake(submitting: &[u64], encoding: Option<u64>) -> Fake {
+        Fake {
+            submitting: submitting
+                .iter()
+                .copied()
+                .map(Duration::from_millis)
+                .collect(),
+            encoding: encoding.map(Duration::from_millis),
+            submitted: Vec::new(),
+            returned: 0,
+        }
+    }
+    #[test]
+    fn a_slow_first_submission_does_not_count_against_the_packed_frame_wait() {
+        // The RX 7900 XT took 4.7 s to upload and convert the first packed
+        // 1080p frame; later frames came back within milliseconds. The wait
+        // used to start before that submission, so 1080p120 was refused.
+        let mut encoder = fake(&[120], Some(5));
+        packed_sequence(&mut encoder, Duration::from_millis(60)).unwrap();
+        assert_eq!(encoder.returned, 3);
+    }
+    #[test]
+    fn a_frame_the_driver_never_returns_still_fails_the_packed_probe() {
+        let error = packed_sequence(&mut fake(&[], None), Duration::from_millis(20)).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("packed encoder failed to return frame 1 within 20 ms"),
+            "{error:#}"
+        );
+        // Each frame gets its own wait, but a late one still fails.
+        let error =
+            packed_sequence(&mut fake(&[], Some(60)), Duration::from_millis(20)).unwrap_err();
+        assert!(error.to_string().contains("frame 1"), "{error:#}");
+    }
+    #[test]
+    #[ignore = "requires an AMD GPU with AMF"]
+    fn packed_probe_accepts_1080p_at_60_and_120_fps() {
+        for (codec, sdr_10bit) in [(1, false), (1, true), (2, false), (2, true)] {
+            for fps in [60, 120] {
+                let mode = Negotiated {
+                    width: 1920,
+                    height: 1080,
+                    fps,
+                    bitrate_kbps: 20_000,
+                    codec,
+                    sdr_10bit,
+                    chroma_packing: butterpollo_core::packed444::VERSION,
+                    ..Default::default()
+                };
+                let reply = probe(&Request {
+                    output: String::new(),
+                    adapter_name: String::new(),
+                    adapter_pnp_id: String::new(),
+                    packed: Some(mode),
+                    encoder_options: BTreeMap::new(),
+                });
+                let expected = u32::from(butterpollo_core::packed444::mode_bit(codec, sdr_10bit));
+                match reply {
+                    Ok(Reply::Done { flags, .. }) => assert_eq!(flags, expected),
+                    Ok(Reply::Error { message }) => {
+                        panic!("codec {codec} 10-bit {sdr_10bit} {fps} fps: {message}")
+                    }
+                    Err(error) => panic!("codec {codec} 10-bit {sdr_10bit} {fps} fps: {error:#}"),
+                }
+            }
+        }
     }
 }

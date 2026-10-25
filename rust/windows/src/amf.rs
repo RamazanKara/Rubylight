@@ -1076,6 +1076,8 @@ impl Encoder {
         match codec {
             0 => &[
                 "Usage",
+                "Profile",
+                "ColorBitDepth",
                 "QualityPreset",
                 "RateControlMethod",
                 "LowLatencyInternal",
@@ -1102,6 +1104,8 @@ impl Encoder {
             ],
             1 => &[
                 "HevcUsage",
+                "HevcProfile",
+                "HevcColorBitDepth",
                 "HevcQualityPreset",
                 "HevcRateControlMethod",
                 "LowLatencyInternal",
@@ -1130,6 +1134,8 @@ impl Encoder {
             ],
             _ => &[
                 "Av1Usage",
+                "Av1Profile",
+                "Av1ColorBitDepth",
                 "Av1QualityPreset",
                 "Av1RateControlMethod",
                 "Av1EncodingLatencyMode",

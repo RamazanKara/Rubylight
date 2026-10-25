@@ -956,6 +956,24 @@ fn rate_control_target_rejection_preserves_limits_and_existing_buffer_warning() 
 }
 
 #[test]
+fn settings_log_shows_each_codecs_profile_and_bit_depth() {
+    // A 10-bit SDR stream is told apart from 8-bit only by these two, as the
+    // driver applied them.
+    for (codec, expected) in [
+        (0, ["Profile", "ColorBitDepth"]),
+        (1, ["HevcProfile", "HevcColorBitDepth"]),
+        (2, ["Av1Profile", "Av1ColorBitDepth"]),
+    ] {
+        let names: Vec<_> = Encoder::setting_names(codec)
+            .iter()
+            .copied()
+            .filter(|name| name.ends_with("Profile") || name.ends_with("ColorBitDepth"))
+            .collect();
+        assert_eq!(names, expected);
+    }
+}
+
+#[test]
 fn settings_log_queries_each_codecs_frame_skip_property() {
     for (codec, expected) in [
         (0, "RateControlSkipFrameEnable"),

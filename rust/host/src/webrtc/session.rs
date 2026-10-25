@@ -1076,7 +1076,7 @@ impl Actor {
             },
             audio: AudioMode::request(settings.audio_channels as usize)?,
             // NACK and RTX are compared with keyframe recovery alone in B5.
-            rtx: false,
+            rtx: self.h.config.read().unwrap().webrtc_rtx(),
         };
         let mut rtc = sdp::rtc_config(&spec)?.build(Instant::now());
         rtc.add_local_candidate(
@@ -1167,11 +1167,12 @@ fn start_live(
     let audio_layout = audio_layout(settings.audio_channels as u8, answered.audio_layout)
         .map_err(Rejected::Answer)?;
     let link = butterpollo_windows::net::routed_link(peer);
-    let (configured_kbps, paced) = {
+    let (configured_kbps, paced, loss_permille) = {
         let config = h.config.read().unwrap();
         (
             config.integer("pacing_max_bitrate_kbps", 0),
             config.webrtc_pacing(),
+            config.webrtc_loss_permille(),
         )
     };
     let options = TransportOptions {
@@ -1184,6 +1185,7 @@ fn start_live(
         } else {
             Pacing::Off
         },
+        loss_permille,
         ..TransportOptions::default()
     };
     // Before the transport, so the client's first frame has somewhere to go.

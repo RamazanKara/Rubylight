@@ -88,6 +88,9 @@ pub struct TransportOptions {
     pub video_queue: usize,
     pub audio_queue: usize,
     pub datagram_queue: usize,
+    /// Video datagrams dropped at the socket per thousand, as a lossy link does; 0 is off. A
+    /// measurement switch (`webrtc_loss_permille`), for the NACK and RTX comparison.
+    pub loss_permille: u32,
 }
 
 impl Default for TransportOptions {
@@ -97,6 +100,7 @@ impl Default for TransportOptions {
             video_queue: DEFAULT_VIDEO_QUEUE,
             audio_queue: DEFAULT_AUDIO_QUEUE,
             datagram_queue: DEFAULT_DATAGRAM_QUEUE,
+            loss_permille: 0,
         }
     }
 }
@@ -713,6 +717,26 @@ pub struct SendQueue {
     paced: VecDeque<Outgoing>,
     /// Wire bytes waiting in `paced`.
     paced_wire_bytes: usize,
+    loss: Loss,
+}
+
+/// Which video datagrams a lossy link would eat: a fixed-seed xorshift, so two runs lose the
+/// same share, not the same packets.
+struct Loss {
+    permille: u32,
+    state: u64,
+}
+
+impl Loss {
+    fn drops(&mut self) -> bool {
+        if self.permille == 0 {
+            return false;
+        }
+        self.state ^= self.state << 13;
+        self.state ^= self.state >> 7;
+        self.state ^= self.state << 17;
+        (self.state >> 11) % 1000 < u64::from(self.permille)
+    }
 }
 
 #[derive(Default)]
@@ -743,7 +767,23 @@ impl SendQueue {
             immediate: VecDeque::new(),
             paced: VecDeque::new(),
             paced_wire_bytes: 0,
+            loss: Loss {
+                permille: 0,
+                state: 0x9e37_79b9_7f4a_7c15,
+            },
         }
+    }
+
+    /// Drops this many video datagrams per thousand at the socket.
+    pub fn with_loss(mut self, permille: u32) -> Self {
+        self.loss.permille = permille;
+        self
+    }
+
+    /// Whether the simulated link loses this datagram. Only video, as `webrtc_loss_permille`
+    /// promises; the datagram is counted as lost, not as sent.
+    pub fn lost_in_the_air(&mut self, out: &Outgoing) -> bool {
+        out.paced && self.loss.drops()
     }
 
     /// A frame of this many wire bytes is about to be queued: it sets the rate it needs and the
@@ -1120,7 +1160,8 @@ impl MediaHandle {
             Duration::from_secs_f64(1. / f64::from(spec.video.fps.max(1))),
             local.is_ipv6(),
             Instant::now(),
-        );
+        )
+        .with_loss(options.loss_permille);
         let (shared_rx, tx_rx) = (shared.clone(), tx.clone());
         let shared_media = shared.clone();
         let threads = start_threads(
@@ -1613,6 +1654,9 @@ fn send_due(socket: &UdpSocket, queue: &mut SendQueue, shared: &Shared) {
             }
         }
         for out in &batch.packets {
+            if queue.lost_in_the_air(out) {
+                continue;
+            }
             match socket.send_to(&out.data, out.destination) {
                 Ok(_) => {
                     shared
@@ -2561,6 +2605,26 @@ mod tests {
             link_bps: 0,
             wireless: false,
         }
+    }
+
+    #[test]
+    fn the_loss_switch_drops_only_video_and_about_the_share_asked_for() {
+        let queue = || {
+            SendQueue::new(Pacing::Off, 30_000, PERIOD, false, Instant::now()).with_loss(10)
+        };
+        let (mut lossy, mut clean) = (
+            queue(),
+            SendQueue::new(Pacing::Off, 30_000, PERIOD, false, Instant::now()),
+        );
+        let video = rtp_packet(1200);
+        let lost = (0..100_000).filter(|_| lossy.lost_in_the_air(&video)).count();
+        assert!((800..=1200).contains(&lost), "{lost} of 100000 at 1%");
+        assert!((0..1000).all(|_| !lossy.lost_in_the_air(&control_packet())));
+        assert!((0..1000).all(|_| !clean.lost_in_the_air(&video)));
+        // The seed is fixed: a second queue loses the same packets.
+        let mut second = queue();
+        let again = (0..100_000).filter(|_| second.lost_in_the_air(&video)).count();
+        assert_eq!(again, lost);
     }
 
     #[test]

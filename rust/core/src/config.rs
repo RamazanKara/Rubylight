@@ -490,6 +490,16 @@ impl Config {
     pub fn webrtc_pacing(&self) -> bool {
         self.boolean("webrtc_pacing", true)
     }
+    /// Whether the WebRTC offer carries NACK and RTX, so a lost video packet is resent
+    /// (`webrtc_rtx = true`). Off by default: keyframe recovery alone is the measured default.
+    pub fn webrtc_rtx(&self) -> bool {
+        self.boolean("webrtc_rtx", false)
+    }
+    /// Video datagrams the WebRTC media thread drops per thousand (`webrtc_loss_permille`, 0 to
+    /// 1000), as a lossy link does. A measurement switch, 0 by default.
+    pub fn webrtc_loss_permille(&self) -> u32 {
+        self.integer("webrtc_loss_permille", 0).clamp(0, 1000) as u32
+    }
     /// The WebRTC signalling port (TCP; discovery always listens on UDP 8000).
     /// A value outside 1024..=65535 is reported and the default is used.
     pub fn webrtc_port(&self) -> u16 {
@@ -1070,6 +1080,17 @@ mod tests {
         let saved = serde_json::json!({"webrtc_pacing": "false"});
         config.update(saved.as_object().unwrap()).unwrap();
         assert!(!config.webrtc_pacing());
+    }
+
+    #[test]
+    fn the_webrtc_rtx_and_loss_switches_are_off_until_set() {
+        let mut config = super::Config::default();
+        assert!(!config.webrtc_rtx());
+        assert_eq!(config.webrtc_loss_permille(), 0);
+        let saved = serde_json::json!({"webrtc_rtx": "true", "webrtc_loss_permille": "1500"});
+        config.update(saved.as_object().unwrap()).unwrap();
+        assert!(config.webrtc_rtx());
+        assert_eq!(config.webrtc_loss_permille(), 1000);
     }
 
     #[test]

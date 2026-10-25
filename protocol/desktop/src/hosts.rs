@@ -23,6 +23,11 @@ use crate::config::{HostRecord, Store};
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(4);
+/// After a quit, a closed game or a stream's end the PC changes its state a moment later, so it is
+/// asked every second for this long (`Host::recheck_until`).
+const RECHECK_INTERVAL: Duration = Duration::from_secs(1);
+const RECHECK_WINDOW: Duration = Duration::from_secs(15);
+const RECHECK_LIBRARY_INTERVAL: Duration = Duration::from_secs(3);
 /// The native library and permissions are read this often; the session on every poll.
 const NATIVE_FULL_INTERVAL: Duration = Duration::from_secs(30);
 const MDNS_SERVICE: &str = "_nvstream._tcp.local.";
@@ -98,9 +103,24 @@ pub struct Host {
     pub error: Option<String>,
     polling: bool,
     last_poll: Option<Instant>,
+    /// Polls started, and the newest one whose answer was taken in: an older answer that lands
+    /// later (two polls overlap after a quit) must not bring back a state the PC has left.
+    poll_seq: u64,
+    info_seq: u64,
+    /// Until then the PC is polled every second (see `RECHECK_WINDOW`).
+    recheck_until: Option<Instant>,
 }
 
 impl Host {
+    /// How long to leave the PC alone between polls at `now`.
+    fn poll_interval(&self, now: Instant) -> Duration {
+        if self.recheck_until.is_some_and(|until| now < until) {
+            RECHECK_INTERVAL
+        } else {
+            POLL_INTERVAL
+        }
+    }
+
     pub fn paired(&self) -> bool {
         self.record.server_certificate.is_some()
             && self.info.as_ref().is_none_or(|i| i.paired)
@@ -175,6 +195,7 @@ pub const UNPAIR_NOT_PAIRED: &str = en("Device was not paired.");
 pub enum Event {
     Info {
         id: u64,
+        seq: u64,
         address: String,
         result: Result<Box<ServerInfo>, String>,
     },
@@ -402,6 +423,9 @@ impl Hosts {
             error: None,
             polling: false,
             last_poll: None,
+            poll_seq: 0,
+            info_seq: 0,
+            recheck_until: None,
         });
         id
     }
@@ -518,12 +542,22 @@ impl Hosts {
         let due: Vec<u64> = self
             .list
             .iter()
-            .filter(|h| !h.polling && h.last_poll.is_none_or(|t| t.elapsed() >= POLL_INTERVAL))
+            .filter(|h| !h.polling && h.last_poll.is_none_or(|t| t.elapsed() >= h.poll_interval(Instant::now())))
             .map(|h| h.id)
             .collect();
         for id in due {
             self.poll_one(id);
         }
+    }
+
+    /// A quit, a closed game or a stream has ended: ask the PC what runs now, and keep asking
+    /// every second for a while, since the PC changes its state after it has answered. Reads the
+    /// native session and library too, because Home shows the running game from those.
+    pub fn refresh_after_exit(&mut self, id: u64) {
+        let Some(host) = self.get_mut(id) else { return };
+        host.recheck_until = Some(Instant::now() + RECHECK_WINDOW);
+        self.poll_one(id);
+        self.refresh_native(id, true);
     }
 
     pub fn poll_one(&mut self, id: u64) {
@@ -535,6 +569,8 @@ impl Hosts {
         };
         host.polling = true;
         host.last_poll = Some(Instant::now());
+        host.poll_seq += 1;
+        let seq = host.poll_seq;
         let record = host.record.clone();
         let likely_online = host.reach == Reach::Online;
         self.spawn("serverinfo", move || {
@@ -548,6 +584,7 @@ impl Hosts {
                     Ok(info) => {
                         return Some(Event::Info {
                             id,
+                            seq,
                             address,
                             result: Ok(Box::new(info)),
                         })
@@ -557,6 +594,7 @@ impl Hosts {
             }
             Some(Event::Info {
                 id,
+                seq,
                 address: record.address.clone(),
                 result: Err(last_error),
             })
@@ -872,9 +910,16 @@ impl Hosts {
             match event {
                 Event::Info {
                     id,
+                    seq,
                     address,
                     result,
                 } => {
+                    // An older answer than one already taken in describes a PC that has moved on.
+                    match self.get_mut(id) {
+                        Some(host) if seq < host.info_seq => continue,
+                        Some(host) => host.info_seq = seq,
+                        None => {}
+                    }
                     changed |= self.apply_info(id, address, result);
                     self.follow_native(id);
                 }
@@ -968,11 +1013,11 @@ impl Hosts {
                             host.action_seq = host.native_seq;
                         }
                     }
-                    self.poll_one(id);
+                    self.refresh_after_exit(id);
                     out.push(Event::Session { id, action, result });
                 }
                 Event::Quit { id, result } => {
-                    self.poll_one(id);
+                    self.refresh_after_exit(id);
                     out.push(Event::Quit { id, result });
                 }
                 Event::Wake { id, result } => {
@@ -980,7 +1025,7 @@ impl Hosts {
                     out.push(Event::Wake { id, result });
                 }
                 Event::Action { id, result } => {
-                    self.poll_one(id);
+                    self.refresh_after_exit(id);
                     self.load_apps(id);
                     out.push(Event::Action { id, result });
                 }
@@ -1008,7 +1053,10 @@ impl Hosts {
             return;
         }
         let apps = matches!(host.apps, Apps::NotLoaded);
-        self.refresh_native(id, false);
+        // Just after an exit the library's running flags change too: read it again every few seconds.
+        let recheck = host.recheck_until.is_some_and(|until| Instant::now() < until)
+            && host.native.full_at.is_none_or(|t| t.elapsed() >= RECHECK_LIBRARY_INTERVAL);
+        self.refresh_native(id, recheck);
         if apps {
             self.load_apps(id);
         }
@@ -1301,6 +1349,48 @@ mod tests {
             assert_eq!(hosts.list.len(), 1, "the two records are one PC");
             assert_eq!(hosts.list[0].display_name(), "Living room");
         }
+    }
+
+    fn info_event(id: u64, seq: u64, game: i32) -> Event {
+        let text = INFO
+            .replace("<currentgame>0", &format!("<currentgame>{game}"))
+            .replace("SERVER_FREE", if game == 0 { "SERVER_FREE" } else { "SERVER_BUSY" });
+        Event::Info { id, seq, address: "192.0.2.1".into(), result: Ok(Box::new(ServerInfo::parse(&text, 47989).unwrap())) }
+    }
+
+    #[test]
+    fn an_older_serverinfo_answer_does_not_bring_back_a_finished_game() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        send(&mut hosts, info_event(id, 1, 7));
+        assert_eq!(hosts.list[0].running_app(), Some(7));
+        // The poll after the quit answers first; the one from before it lands late.
+        send(&mut hosts, info_event(id, 3, 0));
+        send(&mut hosts, info_event(id, 2, 7));
+        assert_eq!(hosts.list[0].running_app(), None, "the app list must not show the quit game as running");
+    }
+
+    #[test]
+    fn a_quit_a_closed_game_and_a_stream_end_ask_the_pc_again_for_a_while() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        let now = Instant::now();
+        assert_eq!(hosts.list[0].poll_interval(now), POLL_INTERVAL);
+        for event in [
+            Event::Quit { id, result: Ok(()) },
+            Event::Quit { id, result: Err("declined".into()) },
+            Event::Session { id, action: ActionId::CloseGame, result: Ok(Box::new(session("idle"))) },
+            Event::Action { id, result: Ok(()) },
+        ] {
+            hosts.list[0].recheck_until = None;
+            send(&mut hosts, event);
+            assert_eq!(hosts.list[0].poll_interval(Instant::now()), RECHECK_INTERVAL);
+        }
+        // The same entry point serves the end of a stream.
+        hosts.list[0].recheck_until = None;
+        hosts.refresh_after_exit(id);
+        let until = hosts.list[0].recheck_until.expect("a stream's end arms the recheck");
+        assert_eq!(hosts.list[0].poll_interval(until), POLL_INTERVAL, "and it ends");
     }
 
     #[test]

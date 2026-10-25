@@ -1216,7 +1216,7 @@ impl App {
             SDL_SetWindowFullscreen(self.window, false);
             SDL_SetRenderVSync(self.renderer, 1);
         }
-        self.hosts.poll_one(host);
+        self.hosts.refresh_after_exit(host);
         if let Some(mut plan) = reconnect {
             plan.display = display_of(self.window);
             plan.gamepad_mask = if plan.settings.controllers { u32::from(self.pads.active_mask()) } else { 0 };

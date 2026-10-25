@@ -126,7 +126,7 @@ class TestHost {
   }
 
   request(method, route, body, headers = {}) {
-    const web = `https://127.0.0.1:${this.o.port + 1}`;
+    const web = `https://${this.o.address || '127.0.0.1'}:${this.o.port + 1}`;
     return new Promise((resolve, reject) => {
       const data = body === undefined ? undefined : JSON.stringify(body);
       const request = https.request(web + route, {method, rejectUnauthorized: false, headers: {

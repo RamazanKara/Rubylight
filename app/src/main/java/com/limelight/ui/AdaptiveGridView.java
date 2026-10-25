@@ -50,6 +50,19 @@ public class AdaptiveGridView extends GridView {
     private int contentY = NO_OFFSET;
     private long glideUntil;
     private float glideOffset;
+    /** Loaded on first use and kept: a glide starts on every key repeat. */
+    private android.view.animation.Interpolator glideInterpolator;
+    private android.view.animation.Interpolator settleInterpolator;
+
+    private android.view.animation.Interpolator glideInterpolator() {
+        if (glideInterpolator == null) glideInterpolator = AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_std);
+        return glideInterpolator;
+    }
+
+    private android.view.animation.Interpolator settleInterpolator() {
+        if (settleInterpolator == null) settleInterpolator = AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_emph_dec);
+        return settleInterpolator;
+    }
     private ValueAnimator glide;
     private int glideCount;
 
@@ -175,7 +188,7 @@ public class AdaptiveGridView extends GridView {
         }
         ValueAnimator animator = ValueAnimator.ofFloat(glideOffset, 0f);
         animator.setDuration(GLIDE_MS);
-        animator.setInterpolator(AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_std));
+        animator.setInterpolator(glideInterpolator());
         animator.addUpdateListener(animation -> {
             glideOffset = (float) animation.getAnimatedValue();
             applyGlide();
@@ -234,7 +247,7 @@ public class AdaptiveGridView extends GridView {
         if (count == 0 || !isAttachedToWindow()) return;
         int columns = Math.max(1, getNumColumns());
         float rise = ENTER_RISE_DP * getResources().getDisplayMetrics().density;
-        android.view.animation.Interpolator settle = AnimationUtils.loadInterpolator(getContext(), R.interpolator.tv_emph_dec);
+        android.view.animation.Interpolator settle = settleInterpolator();
         java.util.List<View> cards = new java.util.ArrayList<>(count);
         long longest = 0;
         for (int i = 0; i < count; i++) {

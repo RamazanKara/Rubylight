@@ -57,6 +57,8 @@ public class CachedAppAssetLoader {
     private final Bitmap placeholderBitmap;
     private final Bitmap noAppImageBitmap;
     private java.util.function.Consumer<NvApp> artListener;
+    /** Games whose art was looked for on disk and on the host and is not there (the host has none to send). */
+    private final java.util.Set<Integer> withoutArt = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public CachedAppAssetLoader(ComputerDetails computer, double scalingDivider,
                                 NetworkAssetLoader networkLoader, MemoryAssetLoader memoryLoader,
@@ -82,6 +84,11 @@ public class CachedAppAssetLoader {
     public Bitmap peekCover(NvApp app) {
         ScaledBitmap art = memoryLoader.loadBitmapFromCache(new LoaderTuple(computer, app));
         return art == null ? null : art.bitmap;
+    }
+
+    /** True once the art of this game has been looked for everywhere and is not to be had; false while it may still arrive. */
+    public boolean hasNoArt(NvApp app) {
+        return withoutArt.contains(app.getAppId());
     }
 
     public void cancelBackgroundLoads() {
@@ -230,7 +237,13 @@ public class CachedAppAssetLoader {
                 return;
             }
 
-            if (bitmap != null && artListener != null) artListener.accept(tuple.app);
+            if (bitmap != null) {
+                withoutArt.remove(tuple.app.getAppId());
+            } else if (!diskOnly) {
+                withoutArt.add(tuple.app.getAppId());
+            }
+            // Art that has arrived, or is known not to exist, settles what the library's backdrop shows.
+            if ((bitmap != null || !diskOnly) && artListener != null) artListener.accept(tuple.app);
 
             final ImageView imageView = imageViewRef.get();
             final TextView textView = textViewRef.get();

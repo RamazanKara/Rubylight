@@ -46,7 +46,7 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
         });
         adapter.setArtListener(app -> {
             AppView.AppObject selected = selected();
-            if (selected != null && selected.app.getAppId() == app.getAppId()) askBackdrop(selected, false);
+            if (selected != null && selected.app.getAppId() == app.getAppId()) askBackdrop(selected, isFast());
         });
     }
 
@@ -76,11 +76,15 @@ public final class LibraryAmbience implements Choreographer.FrameCallback {
         pending = app;
         cleared = false;
         queueLine();
-        askBackdrop(app, grid instanceof AdaptiveGridView && ((AdaptiveGridView) grid).isFastTravel());
+        askBackdrop(app, isFast());
+    }
+
+    private boolean isFast() {
+        return grid instanceof AdaptiveGridView && ((AdaptiveGridView) grid).isFastTravel();
     }
 
     private void askBackdrop(AppView.AppObject app, boolean fast) {
-        if (backdrop != null && adapter != null) backdrop.focus(String.valueOf(app.app.getAppId()), adapter.coverOf(app), fast);
+        if (backdrop != null && adapter != null) backdrop.focus(String.valueOf(app.app.getAppId()), adapter.coverOf(app), adapter.lacksArt(app), fast);
     }
 
     /** The grid has no games to select (a search with no match, a host with none). */

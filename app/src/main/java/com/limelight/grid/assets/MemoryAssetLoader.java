@@ -38,7 +38,7 @@ public class MemoryAssetLoader {
 
         ScaledBitmap bmp = memoryCache.get(key);
         if (bmp != null) {
-            LimeLog.info("LRU cache hit for tuple: "+tuple);
+            // No log here: this runs for every card on every key repeat.
             return bmp;
         }
 

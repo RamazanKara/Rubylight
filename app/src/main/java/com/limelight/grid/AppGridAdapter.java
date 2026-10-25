@@ -140,10 +140,15 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         setLayoutId(getLayoutIdForPreferences(prefs));
     }
 
-    /** Told on the main thread when a game's cover has just been loaded, so a backdrop built without it can be built again. */
+    /** Told on the main thread when a game's cover has just been loaded, or found to be missing, so a backdrop built without it can be built again. */
     public void setArtListener(java.util.function.Consumer<NvApp> listener) {
         artListener = listener;
         if (loader != null) loader.setArtListener(listener);
+    }
+
+    /** True when the game has no art to wait for: it was looked for on disk and on the host and is not there. */
+    public boolean lacksArt(AppView.AppObject app) {
+        return loader != null && loader.hasNoArt(app.app);
     }
 
     /** The game's decoded cover if it is in memory, else null. */

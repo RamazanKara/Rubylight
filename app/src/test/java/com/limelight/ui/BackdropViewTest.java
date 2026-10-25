@@ -3,6 +3,7 @@ package com.limelight.ui;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -71,17 +72,43 @@ public class BackdropViewTest {
     }
 
     @Test
-    public void aBurstOfThirtyKeysChangesTheBackdropAtMostOnce() {
+    public void aHeldKeyChangesTheBackdropForItsFirstPressAndOnceMoreAtTheEnd() {
         Bitmap[] covers = {cover(), cover(), cover()};
-        for (int key = 0; key < 30; key++) {
-            // A held key repeats about every 30 ms and asks for the game the selection is on now.
+        // The first press is not a fast one: it settles on its own game, as a single tap would.
+        backdrop.focus("game0", covers[0], false);
+        // Android starts repeating a held key after about 400 ms.
+        pass(400);
+        assertEquals(1, backdrop.changeCount());
+        for (int key = 1; key < 30; key++) {
+            // The repeat comes about every 30 ms and asks for the game the selection is on now.
             backdrop.focus("game" + key, covers[key % covers.length], true);
             pass(30);
-            assertEquals("nothing changes while the keys keep coming", 0, backdrop.changeCount());
+            assertEquals("nothing changes while the keys keep coming", 1, backdrop.changeCount());
         }
         pass(BackdropView.FAST_SETTLE_MS + 100);
         pass(BackdropView.FIRST_FADE_MS + 50);
+        assertEquals("at most two changes for the whole press: its start and its end", 2, backdrop.changeCount());
+    }
+
+    @Test
+    public void aCoverStillLoadingKeepsTheBackdropAndOnlyAGameWithoutArtGetsTheCanvas() {
+        backdrop.focus("a", cover(), false);
+        pass(1000);
+        Bitmap shown = ((BitmapDrawable) back().getDrawable()).getBitmap();
         assertEquals(1, backdrop.changeCount());
+
+        backdrop.focus("b", null, false, false);
+        pass(1000);
+        assertEquals("not loaded yet: nothing changes", 1, backdrop.changeCount());
+        assertSame(shown, ((BitmapDrawable) back().getDrawable()).getBitmap());
+
+        backdrop.focus("b", cover(), false, false);
+        pass(1000);
+        assertEquals("the cover arrived", 2, backdrop.changeCount());
+
+        backdrop.focus("c", null, true, false);
+        pass(1000);
+        assertEquals("a game with no art gets the canvas", 3, backdrop.changeCount());
     }
 
     @Test

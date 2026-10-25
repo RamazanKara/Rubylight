@@ -62,6 +62,8 @@ public class LibraryAmbienceTest {
     private CountingText title;
     private LibraryAmbience ambience;
     private AppGridAdapter adapter;
+    /** What the stub loader says of every game: its art is known to be missing, or may still arrive. */
+    private boolean noArt = true;
 
     @Before
     public void openLibrary() {
@@ -83,6 +85,7 @@ public class LibraryAmbienceTest {
                     // No loader tasks: their background threads would throw without a disk loader, and the
                     // app's crash handler turns that into a dead test JVM.
                     @Override public boolean populateImageView(NvApp app, android.widget.ImageView view, TextView text) { return false; }
+                    @Override public boolean hasNoArt(NvApp app) { return noArt; }
                 });
         for (int i = 0; i < 90; i++) adapter.addApp(new AppView.AppObject(new NvApp("Game " + i, 100 + i, false)));
 
@@ -140,6 +143,24 @@ public class LibraryAmbienceTest {
         pass(BackdropView.FAST_SETTLE_MS + 700);
         assertEquals("one change at the end of the run", before + 1, backdrop.changeCount());
         assertEquals("and the line says the game it ended on", selectedName(), title.getText().toString());
+    }
+
+    @Test
+    public void aGameWhoseCoverIsStillLoadingLeavesTheBackdropAloneUntilTheCoverIsKnownMissing() {
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putString(Motion.REDUCE_MOTION, Motion.REDUCE).commit();
+        noArt = false;
+        int before = backdrop.changeCount();
+        press(1);
+        pass(BackdropView.FAST_SETTLE_MS + 700);
+        assertEquals("loading: the backdrop is not swapped for the canvas", before, backdrop.changeCount());
+
+        // The loader gives up on the game (nothing on the host either) and says so through the art listener.
+        noArt = true;
+        java.util.function.Consumer<NvApp> listener = ReflectionHelpers.getField(adapter, "artListener");
+        listener.accept(((AppView.AppObject) grid.getSelectedItem()).app);
+        pass(BackdropView.FAST_SETTLE_MS + 700);
+        assertEquals("no art: the canvas", before + 1, backdrop.changeCount());
     }
 
     private void press(int i) {

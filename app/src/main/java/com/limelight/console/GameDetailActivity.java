@@ -388,6 +388,21 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         hdr.setVisibility(m.source != null && m.source.hdrSupported ? View.VISIBLE : View.GONE);
         boolean any = hasState || isInstalled != null || hdr.getVisibility() == View.VISIBLE;
         chips.setVisibility(any ? View.VISIBLE : View.GONE);
+        chips.setContentDescription(chipsDescription((ViewGroup) chips));
+    }
+
+    /** What a screen reader hears for the chip line, read as one stop: the shown chips' texts, in order. */
+    static CharSequence chipsDescription(ViewGroup chips) {
+        StringBuilder spoken = new StringBuilder();
+        for (int i = 0; i < chips.getChildCount(); i++) {
+            View child = chips.getChildAt(i);
+            if (child.getVisibility() != View.VISIBLE || !(child instanceof TextView)) continue;
+            CharSequence text = ((TextView) child).getText();
+            if (text == null || text.length() == 0) continue;
+            if (spoken.length() > 0) spoken.append(", ");
+            spoken.append(text);
+        }
+        return spoken.length() == 0 ? null : spoken.toString();
     }
 
     private void renderFavourite() {

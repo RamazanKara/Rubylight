@@ -178,4 +178,30 @@ public class GameDetailShellTest {
             controller.pause().stop().destroy();
         }
     }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionAScreenReaderHearsTheChipsAsOneLine() {
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = controller.get();
+            android.view.ViewGroup chips = page.findViewById(R.id.detail_chips);
+            assertEquals(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_YES, chips.getImportantForAccessibility());
+            android.widget.TextView status = page.findViewById(R.id.detail_status);
+            android.widget.TextView installed = page.findViewById(R.id.detail_installed);
+            android.widget.TextView hdr = page.findViewById(R.id.detail_hdr);
+            status.setText("Running on Tower");
+            status.setVisibility(android.view.View.VISIBLE);
+            installed.setText(R.string.console_detail_installed);
+            installed.setVisibility(android.view.View.VISIBLE);
+            hdr.setVisibility(android.view.View.GONE);
+            assertEquals("Running on Tower, " + page.getString(R.string.console_detail_installed),
+                    String.valueOf(GameDetailActivity.chipsDescription(chips)));
+            hdr.setVisibility(android.view.View.VISIBLE);
+            assertTrue(String.valueOf(GameDetailActivity.chipsDescription(chips))
+                    .endsWith(", " + page.getString(R.string.host_profile_hdr)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

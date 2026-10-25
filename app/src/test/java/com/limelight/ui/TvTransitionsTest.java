@@ -2,6 +2,7 @@ package com.limelight.ui;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -119,6 +120,35 @@ public class TvTransitionsTest {
         }
     }
 
+    public static class StreamScreen extends UiNavigationTest.Screen implements StreamWindow {
+        @Override public boolean usesFullDisplayForVideo() { return true; }
+        @Override public boolean isWindowedStream() { return false; }
+    }
+
+    /** OLED black is the stream's theme too: the stream does not get the TV window animations, the screens do. */
+    @Test
+    @Config(qualifiers = "television")
+    public void withOledBlackTheStreamStillHasNoWindowAnimationAndTheScreensKeepTheirs() {
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putBoolean(AppTheme.OLED_BLACK, true).commit();
+        try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            assertEquals(R.style.NightjarWindowAnimation, windowAnimationStyle(controller.get()));
+        }
+        try (var controller = Robolectric.buildActivity(StreamScreen.class).setup()) {
+            assertNotEquals(R.style.NightjarWindowAnimation, windowAnimationStyle(controller.get()));
+            assertNotEquals(R.style.NightjarWindowAnimationStill, windowAnimationStyle(controller.get()));
+        }
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putString(Motion.REDUCE_MOTION, Motion.REDUCE).commit();
+        try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            assertEquals("Reduce motion still wins on a screen", R.style.NightjarWindowAnimationStill,
+                    windowAnimationStyle(controller.get()));
+        }
+        try (var controller = Robolectric.buildActivity(StreamScreen.class).setup()) {
+            assertNotEquals(R.style.NightjarWindowAnimation, windowAnimationStyle(controller.get()));
+        }
+    }
+
     @Test
     public void theStreamKeepsItsOwnWindowAnimation() throws Exception {
         Map<String, String> stream = styleItems("src/main/res/values/styles.xml", "Theme.Nightjar.Stream");
@@ -163,11 +193,17 @@ public class TvTransitionsTest {
         }
     }
 
-    /** The Home screen's list draws its rows inside its own bounds, so a header scrolled away does not show under the tab bar. */
+    /**
+     * Home clips at the list's own area, so a header scrolled away does not show under the tab bar, but the rows
+     * inside it do not clip each other: a focused card's glow spills past its row.
+     */
     @Test
-    public void homeClipsItsRowsToTheListSoNothingShowsUnderTheTabBar() throws Exception {
-        NodeList lists = parse("src/main/res/layout/activity_console_home.xml").getElementsByTagName("androidx.recyclerview.widget.RecyclerView");
+    public void homeClipsTheListAreaButNotTheRowsSoTheFocusGlowIsKept() throws Exception {
+        Element layout = parse("src/main/res/layout/activity_console_home.xml");
+        NodeList lists = layout.getElementsByTagName("androidx.recyclerview.widget.RecyclerView");
         assertEquals(1, lists.getLength());
-        assertEquals("true", ((Element) lists.item(0)).getAttribute("android:clipChildren"));
+        Element list = (Element) lists.item(0);
+        assertEquals("false", list.getAttribute("android:clipChildren"));
+        assertEquals("true", ((Element) list.getParentNode()).getAttribute("android:clipChildren"));
     }
 }

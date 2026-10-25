@@ -227,7 +227,6 @@
     <!-- Full black surfaces, with the readable night palette even when the system is light. -->
     <style name="OledBlackTheme" parent="Theme.Nightjar.Stream">
         <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimation</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="colorSurface">@android:color/black</item>
         <item name="colorSurfaceDim">@android:color/black</item>
@@ -261,6 +260,11 @@
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_hc</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
+    </style>
+
+    <!-- The window animation of the app's own screens, for OledBlackTheme, which the stream shares and must not move. -->
+    <style name="ThemeOverlay.Nightjar.WindowAnimation" parent="">
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimation</item>
     </style>
 
     <!-- Reduced motion: focus changes only the ring, with no zoom. See Motion. -->

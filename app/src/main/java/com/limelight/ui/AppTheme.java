@@ -95,6 +95,8 @@ public final class AppTheme {
         else if (isDark(activity) && !(activity instanceof StreamWindow)) activity.setTheme(R.style.DarkTheme);
         // The stream and its menu keep their own look; the overlays are for the app's screens.
         if (activity instanceof StreamWindow) return;
+        // OledBlackTheme is the stream's too, so it names no window animation: the app's screens get theirs here.
+        if (isOledBlack(activity)) activity.getTheme().applyStyle(R.style.ThemeOverlay_Nightjar_WindowAnimation, true);
         boolean highContrast = isHighContrast(activity);
         boolean reduced = Motion.reduced(activity);
         if (highContrast) activity.getTheme().applyStyle(R.style.ThemeOverlay_Nightjar_HighContrast, true);

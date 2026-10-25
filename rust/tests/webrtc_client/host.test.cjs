@@ -12,12 +12,16 @@ const LAUNCHER = 'C:\\ProgramData\\ButterpolloRelease\\system_launch.exe';
 const LAUNCH = `${LAUNCHER} ${STAGING}\\butterpollo.exe --config-dir C:\\tests\\webrtc-system --port 48140 --bind 127.0.0.1 --no-tray`;
 const create = command => ['/Create', '/TN', 'RubylightWebrtcE2eHost', '/TR', command, '/SC', 'ONCE', '/ST', '23:59', '/RU', 'SYSTEM', '/RL', 'HIGHEST', '/F'];
 
+const runScript = (dir, categories) => execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass',
+  '-File', path.join(__dirname, 'elevated_tasks.ps1'), '-Dir', dir, '-DryRun', '-Categories', categories.join(',')], {stdio: 'pipe'});
+
 // Runs the elevated script's checks on `steps` without running anything, and returns its answer.
-function dryRun(steps) {
+// `categories` are the connected networks' categories it sees.
+function dryRun(steps, categories = ['Private']) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rl-elevate-'));
   try {
     fs.writeFileSync(path.join(dir, 'request.json'), JSON.stringify({id: 'test', steps}));
-    execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'elevated_tasks.ps1'), '-Dir', dir, '-DryRun'], {stdio: 'pipe'});
+    runScript(dir, categories);
     assert(!fs.existsSync(path.join(dir, 'request.json')), 'the request was not spent');
     return JSON.parse(fs.readFileSync(path.join(dir, 'result.json'), 'utf8').replace(/^\uFEFF/, ''));
   } finally {
@@ -40,6 +44,13 @@ test('the elevated script runs the harness steps and refuses anything else', () 
     [create(`C:\\Windows\\System32\\cmd.exe /c ${LAUNCHER} ${STAGING}\\butterpollo.exe`), 99],
     // A launcher in the user's staging folder could be replaced.
     [create(LAUNCH.replace(LAUNCHER, `${STAGING}\\system_launch.exe`)), 99],
+    // No control characters, and no backslash that could escape what follows.
+    [create(`${LAUNCH}\n`), 99],
+    [create(`${LAUNCH}\ncalc.exe`), 99],
+    [create(`${LAUNCH} x\u0000y`), 99],
+    [create(`${LAUNCH} x\ty`), 99],
+    [create(`${LAUNCH} C:\\tests\\`), 99],
+    [create(`${LAUNCH} C:\\tests\\x`), 0],
     // Only the exact one-shot SYSTEM task, under the harness's own name.
     [create(LAUNCH).map(a => a === 'SYSTEM' ? 'someone' : a), 99],
     [[...create(LAUNCH), '/XML', 'C:\\task.xml'], 99],
@@ -55,6 +66,43 @@ test('the elevated script runs the harness steps and refuses anything else', () 
   cases.forEach(([args, exit], i) => assert.equal(results[i].exit, exit, `${args.join(' ')}: ${results[i].output}`));
   assert.equal(results[cases.length].output, 'firewall rule created');
   assert.equal(results[cases.length + 1].exit, 0);
+});
+
+test('the firewall rule is opened only while every connected network is Private', () => {
+  for (const categories of [['Public'], ['Private', 'Public'], ['DomainAuthenticated']]) {
+    const [open, close] = dryRun([{firewall: true}, {firewall: true, remove: true}], categories).results;
+    assert.equal(open.exit, 1, categories.join());
+    assert.match(open.output, /Private networks only.*is (Public|DomainAuthenticated).*Set-NetConnectionProfile/);
+    // Removing it needs no check.
+    assert.equal(close.exit, 0);
+  }
+  assert.equal(dryRun([{firewall: true}], ['Private', 'Private']).results[0].output, 'firewall rule created');
+});
+
+test('the elevated script refuses a request folder, request or answer that is a link', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'rl-links-'));
+  const real = path.join(base, 'real'), linked = path.join(base, 'linked');
+  const request = path.join(real, 'request.json'), answer = path.join(real, 'result.json');
+  // Junctions need no privilege, so a user can make them.
+  const junction = (target, at) => { fs.mkdirSync(target, {recursive: true}); fs.symlinkSync(target, at, 'junction'); };
+  const unlink = at => { try { fs.unlinkSync(at); } catch {} };
+  try {
+    fs.mkdirSync(real);
+    fs.writeFileSync(request, JSON.stringify({id: 'test', steps: []}));
+    junction(real, linked);
+    assert.throws(() => runScript(linked, ['Private']), /linked is a link or junction/);
+    assert(fs.existsSync(request), 'a request behind a junction was read');
+    junction(path.join(base, 'elsewhere'), answer);
+    assert.throws(() => runScript(real, ['Private']), /result\.json is a link or junction/);
+    assert(fs.existsSync(request), 'the request was read before the answer was checked');
+    unlink(answer);
+    fs.renameSync(request, path.join(base, 'moved.json'));
+    junction(path.join(base, 'elsewhere'), request);
+    assert.throws(() => runScript(real, ['Private']), /request\.json is a link or junction/);
+  } finally {
+    for (const at of [linked, answer, request]) unlink(at);
+    fs.rmSync(base, {recursive: true, force: true});
+  }
 });
 
 test('the elevation task serves the harness only while its scripts are the checkout\'s', () => {

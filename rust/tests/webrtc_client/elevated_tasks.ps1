@@ -13,19 +13,36 @@
 # system_launch.exe runs from the installed folder, where the user cannot replace it. The test host
 # it starts, C:\tests\webrtc-host\butterpollo.exe, and the DLLs beside it are the user's: they run as
 # SYSTEM whatever they are, which is the trade-off elevation.ps1 states.
-param([string] $Dir = 'C:\src\butterpollo-release\webrtc-e2e', [switch] $DryRun)
+#
+# -Categories stands in for the network categories of the connected networks (comma-separated), for
+# -DryRun only.
+param([string] $Dir = 'C:\src\butterpollo-release\webrtc-e2e', [switch] $DryRun, [string] $Categories)
 $ErrorActionPreference = 'Continue'
+if ($Categories -and -not $DryRun) { throw '-Categories is for -DryRun only' }
 $taskName = 'RubylightWebrtcE2eHost'
 $staging = 'C:\tests\webrtc-host'
 $launcher = 'C:\ProgramData\ButterpolloRelease\system_launch.exe'
 $rule = 'Rubylight WebRTC e2e test host'
 $requestFile = Join-Path $Dir 'request.json'
-$request = Get-Content $requestFile -Raw | ConvertFrom-Json
+$resultFile = Join-Path $Dir 'result.json'
+# The folder is the user's: a link or junction there could point a read, the delete or the answer
+# anywhere, so it is refused before any of them is touched.
+function Assert-NoLink([string[]] $paths) {
+    foreach ($path in $paths) {
+        $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "$path is a link or junction; refusing it" }
+    }
+}
+Assert-NoLink $Dir, $requestFile, $resultFile
+$request = Get-Content -LiteralPath $requestFile -Raw | ConvertFrom-Json
 # Spent once read: a request is never run twice.
-Remove-Item $requestFile -Force
+Remove-Item -LiteralPath $requestFile -Force
 # The SYSTEM task starts system_launch, which starts the staged host with plain arguments: no quotes,
-# no shell characters, no other program.
-$command = '^' + [regex]::Escape("$launcher $staging\butterpollo.exe") + '( [^\s"''&|<>^%]+)*$'
+# no shell or control characters, no trailing backslash, no other program. \z, since $ would also
+# match before a final newline.
+$plain = '[^\s"''&|<>^%\x00-\x1f]'
+$last = '[^\s"''&|<>^%\x00-\x1f\\]'
+$command = '^' + [regex]::Escape("$launcher $staging\butterpollo.exe") + "( $plain*$last)*\z"
 $results = @()
 foreach ($step in $request.steps) {
     $a = @($step.args | ForEach-Object { [string]$_ })
@@ -49,6 +66,16 @@ foreach ($step in $request.steps) {
         if (-not $DryRun) { $existing | Remove-NetFirewallRule -ErrorAction SilentlyContinue }
         $output = if ($existing.Count) { 'firewall rule removed' } else { 'no firewall rule' }
         if (-not $step.remove) {
+            # The rule covers Private networks only; on any other the client would be blocked
+            # without a word, so the run stops here and says why.
+            $networks = if ($Categories) { $Categories -split ',' | ForEach-Object { [pscustomobject]@{Name = 'the test network'; Category = $_} } }
+                else { Get-NetConnectionProfile | ForEach-Object { [pscustomobject]@{Name = $_.InterfaceAlias; Category = [string]$_.NetworkCategory} } }
+            $other = @($networks | Where-Object Category -ne 'Private')
+            if (-not @($networks).Count -or $other.Count) {
+                $what = if ($other.Count) { ($other | ForEach-Object { "$($_.Name) is $($_.Category)" }) -join ', ' } else { 'no network is connected' }
+                $results += [pscustomobject]@{exit = 1; output = "the firewall rule is for Private networks only and $what; make the network Private (Set-NetConnectionProfile -InterfaceAlias <name> -NetworkCategory Private) and start the run again"}
+                continue
+            }
             if (-not $DryRun) {
                 New-NetFirewallRule -DisplayName $rule -Direction Inbound -Action Allow -Profile Private `
                     -RemoteAddress LocalSubnet -Program (Join-Path $staging 'butterpollo.exe') | Out-Null
@@ -72,4 +99,6 @@ foreach ($step in $request.steps) {
     $output = & schtasks.exe @a 2>&1 | Out-String
     $results += [pscustomobject]@{exit = $LASTEXITCODE; output = $output.Trim()}
 }
-[pscustomobject]@{id = $request.id; results = @($results)} | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $Dir 'result.json') -Encoding utf8
+# Again, since the steps took a while: the answer must not follow a link the user made meanwhile.
+Assert-NoLink $Dir, $resultFile
+[pscustomobject]@{id = $request.id; results = @($results)} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $resultFile -Encoding utf8

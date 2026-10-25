@@ -265,9 +265,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         InputDeviceContext context = inputDeviceContexts.get(deviceId);
         if (context != null) {
             LimeLog.info("Removed controller: "+context.name+" ("+deviceId+")");
+            // Out of the map first, so a built-in device no longer holds player 1 in the mask.
+            inputDeviceContexts.remove(deviceId);
             releaseControllerNumber(context);
             context.destroy();
-            inputDeviceContexts.remove(deviceId);
+            if (context.external && context.assignedControllerNumber) announceBuiltInControls(context.controllerNumber);
         }
     }
 
@@ -661,12 +663,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             LimeLog.info(devContext.name+" ("+context.id+") needs a controller number assigned");
             if (!devContext.external) {
                 LimeLog.info("Built-in buttons hardcoded as controller 0");
+                // Shared, never reserved, as upstream: tablets and TV boxes have built-in or
+                // virtual devices that look like gamepads (#29, #30). Reserving player 1 for
+                // them pushed the real controller to player 2. getActiveControllerMask()
+                // still reports player 1 while a built-in device sits on it.
                 context.controllerNumber = 0;
-                if ((devContext.hasJoystickAxes || hasGamepadButtons(devContext.inputDevice)) && (currentControllers & 1) == 0) {
-                    currentControllers |= 1;
-                    initialControllers &= ~1;
-                    context.reservedControllerNumber = true;
-                }
             }
             else if (prefConfig.multiController && (devContext.hasJoystickAxes ||
                     (hasGamepadButtons(devContext.inputDevice) &&
@@ -1295,9 +1296,39 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     // Slot assignment changes both masks under this lock, on the main thread or the connection
     // worker. Read them under it too, so input never carries a mask from mid-assignment.
+    private boolean sharesSlotWithExternalPad(GenericControllerContext builtIn) {
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context != builtIn && context.external && context.assignedControllerNumber &&
+                    context.controllerNumber == builtIn.controllerNumber) return true;
+        }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.assignedControllerNumber && context.controllerNumber == builtIn.controllerNumber) return true;
+        }
+        return false;
+    }
+
+    // An external pad sharing the slot left: built-in controls there take over the slot's profile.
+    private void announceBuiltInControls(short slot) {
+        if (!connectionStarted || stopped || !conn.canSendControllerInput()) return;
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (!context.external && context.assignedControllerNumber && context.controllerNumber == slot) {
+                context.sendControllerArrival();
+                return;
+            }
+        }
+    }
+
+    private boolean hasBuiltInPlayerOne() {
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context.assignedControllerNumber && !context.external && context.controllerNumber == 0) return true;
+        }
+        return false;
+    }
+
     private synchronized short getActiveControllerMask() {
         if (prefConfig.multiController) {
-            return (short)(currentControllers | initialControllers | (prefConfig.onscreenController || layoutGamepadUsed ? 1 : 0));
+            return (short)(currentControllers | initialControllers |
+                    (prefConfig.onscreenController || layoutGamepadUsed || hasBuiltInPlayerOne() ? 1 : 0));
         }
         else {
             // Only Player 1 is active with multi-controller disabled
@@ -2481,7 +2512,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             prepareInputDevices();
             String[] controllers = new String[MAX_GAMEPADS];
             for (InputDeviceContext context : inputDeviceContexts.values()) {
-                if (context.assignedControllerNumber) {
+                // Built-in controls share player 1 with an external pad; the external pad's type wins.
+                if (context.assignedControllerNumber &&
+                        (context.external || controllers[context.controllerNumber] == null)) {
                     controllers[context.controllerNumber] = launchController(context.controllerNumber,
                             context.reportedType, context.reportedCapabilities, context.supportedButtonFlags);
                 }
@@ -2513,6 +2546,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private InputDeviceContext prepareInputDevice(int deviceId) {
         InputDevice device = InputDevice.getDevice(deviceId);
         if (device == null || (!hasJoystickAxes(device) && !hasGamepadButtons(device))) return null;
+        // Built-in or virtual devices that merely advertise gamepad keys (#29, #30) get a
+        // number when they first send gamepad input, never ahead of the real pads.
+        if (!hasJoystickAxes(device) && !isExternal(device)) return null;
         InputDeviceContext context = inputDeviceContexts.get(deviceId);
         if (context == null) {
             context = createInputDeviceContextForDevice(device);
@@ -2523,11 +2559,21 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     private void prepareInputDevices() {
-        // Built-in controls own player 1; reserve it before assigning external controllers.
-        for (boolean external : new boolean[] {false, true}) {
+        // External pads with sticks first, then button-only ones (a remote advertising gamepad
+        // keys lands after any real pad), then USB pads, then built-in controls, which share
+        // player 1 and so must find the external pads already in place.
+        for (int pass = 0; pass < 3; pass++) {
+            if (pass == 2) {
+                for (UsbDeviceContext context : usbDeviceContexts.values()) assignControllerNumberIfNeeded(context);
+            }
             for (int id : InputDevice.getDeviceIds()) {
                 InputDevice device = InputDevice.getDevice(id);
-                if (device != null && isExternal(device) == external) prepareInputDevice(id);
+                if (device == null) continue;
+                boolean external = isExternal(device);
+                boolean sticks = hasJoystickAxes(device);
+                if (pass == 0 ? external && sticks : pass == 1 ? external && !sticks : !external) {
+                    prepareInputDevice(id);
+                }
             }
         }
     }
@@ -2559,12 +2605,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber) context.sendControllerArrival();
         }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.assignedControllerNumber) context.sendControllerArrival();
+        }
+        // Newly assigned pads announce themselves here.
         prepareInputDevices();
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber) sendControllerInputPacket(context);
         }
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
-            if (context.assignedControllerNumber) context.sendControllerArrival();
             sendControllerInputPacket(context);
         }
     }
@@ -3527,6 +3576,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             releaseControllerNumber(context);
             context.destroy();
             usbDeviceContexts.remove(controller.getControllerId());
+            if (context.assignedControllerNumber) announceBuiltInControls(context.controllerNumber);
         }
     }
 
@@ -3935,6 +3985,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
 
             reportedCapabilities = capabilities;
+            // A built-in device sharing player 1 with an external pad stays quiet, so the host
+            // keeps the external pad's type, touchpad and motion.
+            if (!external && sharesSlotWithExternalPad(this)) return;
             conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     reportedType, supportedButtonFlags, capabilities);
 

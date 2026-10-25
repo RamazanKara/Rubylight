@@ -61,6 +61,7 @@ public class ControllerPreparationTest {
     @Test public void builtInAndExternalPadsArePreparedBeforeAnyInputWithoutUsbHaptics() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            addInputDevice(activity.get(), 4, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
             addInputDevice(activity.get(), 8, false, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
             addInputDevice(activity.get(), 9, true, InputDevice.SOURCE_DPAD);
             Connection connection = new Connection(73);
@@ -76,13 +77,49 @@ public class ControllerPreparationTest {
                 assertEquals(0, connection.inputs);
                 handler.resendControllerArrivals();
                 assertEquals(4, connection.arrivals);
-                assertEquals(2, connection.inputs);
-                assertEquals(3, connection.activeMask);
+                assertEquals(3, connection.inputs);
+                assertEquals(3, connection.activeMask & 3);
                 java.util.Map<Integer, ControllerHandler.InputDeviceContext> contexts =
                         ReflectionHelpers.getField(handler, "inputDeviceContexts");
+                // Built-in controls share player 1 with the first external pad, as upstream.
                 assertEquals(0, contexts.get(8).controllerNumber);
-                assertEquals(1, contexts.get(2).controllerNumber);
+                assertFalse(contexts.get(8).reservedControllerNumber);
+                assertEquals(0, contexts.get(2).controllerNumber);
+                assertEquals(1, contexts.get(4).controllerNumber);
                 assertFalse(contexts.containsKey(9));
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void builtInControlsAloneStayActiveAsPlayerOne() {
+        // A handheld whose built-in controls have no sticks: player 1 must stay in the
+        // active mask, or hosts drop every packet.
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 1, false, InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_DPAD);
+            Connection connection = new Connection(73);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                handler.resendControllerArrivals();
+                java.util.Map<Integer, ControllerHandler.InputDeviceContext> contexts =
+                        ReflectionHelpers.getField(handler, "inputDeviceContexts");
+                // What a first button press does (Robolectric's KeyEvent has no device).
+                ControllerHandler.InputDeviceContext builtIn = ReflectionHelpers.callInstanceMethod(handler,
+                        "createInputDeviceContextForDevice",
+                        ReflectionHelpers.ClassParameter.from(InputDevice.class, InputDevice.getDevice(1)));
+                contexts.put(1, builtIn);
+                ReflectionHelpers.callInstanceMethod(handler, "assignControllerNumberIfNeeded",
+                        ReflectionHelpers.ClassParameter.from(ControllerHandler.GenericControllerContext.class, builtIn));
+                builtIn.inputMap = ControllerPacket.A_FLAG;
+                ReflectionHelpers.callInstanceMethod(handler, "sendControllerInputPacket",
+                        ReflectionHelpers.ClassParameter.from(ControllerHandler.GenericControllerContext.class, builtIn));
+                assertEquals(0, contexts.get(1).controllerNumber);
+                assertFalse(contexts.get(1).reservedControllerNumber);
+                assertTrue(connection.inputs > 0);
+                assertEquals(1, connection.activeMask & 1);
+                handler.onInputDeviceRemoved(1);
+                assertEquals(0, connection.activeMask);
             } finally { handler.destroy(); }
         }
     }
@@ -115,6 +152,87 @@ public class ControllerPreparationTest {
             try {
                 handler.deviceAdded(new Pad());
                 assertEquals(1, handler.prepareControllersForLaunch().split(",").length);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void aBuiltInDeviceWithOnlyGamepadKeysLeavesPlayerOneToTheRealPad() {
+        // #29 and #30: a tablet or TV box exposes a built-in device that advertises gamepad
+        // keys. It took player 1 at launch, so games ignored the real controller as player 2.
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 1, false, InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_KEYBOARD);
+            addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            Connection connection = new Connection(73);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String[] prepared = handler.prepareControllersForLaunch().split(",");
+                assertEquals(1, prepared.length);
+                assertTrue(prepared[0].startsWith("0:"));
+                handler.resendControllerArrivals();
+                assertEquals(1, connection.activeMask);
+                java.util.Map<Integer, ControllerHandler.InputDeviceContext> contexts =
+                        ReflectionHelpers.getField(handler, "inputDeviceContexts");
+                assertEquals(0, contexts.get(2).controllerNumber);
+                assertFalse(contexts.containsKey(1));
+                int arrivals = connection.arrivals;
+                // Its first gamepad key mid-game shares player 1 and does not re-announce the slot.
+                ControllerHandler.InputDeviceContext builtIn = ReflectionHelpers.callInstanceMethod(handler,
+                        "createInputDeviceContextForDevice",
+                        ReflectionHelpers.ClassParameter.from(InputDevice.class, InputDevice.getDevice(1)));
+                contexts.put(1, builtIn);
+                ReflectionHelpers.callInstanceMethod(handler, "assignControllerNumberIfNeeded",
+                        ReflectionHelpers.ClassParameter.from(ControllerHandler.GenericControllerContext.class, builtIn));
+                assertEquals(0, builtIn.controllerNumber);
+                assertFalse(builtIn.reservedControllerNumber);
+                assertEquals(arrivals, connection.arrivals);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void aVirtualBuiltInGamepadDoesNotPushTheRealPadToPlayerTwo() {
+        // Even a built-in device with sticks (a vendor game-mode uinput pad) only shares player 1.
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 1, false, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String[] prepared = handler.prepareControllersForLaunch().split(",");
+                assertEquals(1, prepared.length);
+                assertTrue(prepared[0].startsWith("0:"));
+                assertEquals(1, connection.arrivals);
+                handler.resendControllerArrivals();
+                assertEquals(2, connection.arrivals);
+                java.util.Map<Integer, ControllerHandler.InputDeviceContext> contexts =
+                        ReflectionHelpers.getField(handler, "inputDeviceContexts");
+                assertEquals(0, contexts.get(1).controllerNumber);
+                assertEquals(0, contexts.get(2).controllerNumber);
+                // When the external pad leaves, the built-in controls announce player 1 again.
+                handler.onInputDeviceRemoved(2);
+                assertEquals(3, connection.arrivals);
+                assertEquals(1, connection.activeMask & 1);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void aRealPadGoesAheadOfAnExternalButtonOnlyDevice() {
+        // A remote advertising gamepad keys gets a slot after any real pad attached at launch.
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_DPAD);
+            addInputDevice(activity.get(), 5, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), new Connection(73), null, prefs);
+            try {
+                handler.prepareControllersForLaunch();
+                java.util.Map<Integer, ControllerHandler.InputDeviceContext> contexts =
+                        ReflectionHelpers.getField(handler, "inputDeviceContexts");
+                assertEquals(0, contexts.get(5).controllerNumber);
+                assertEquals(1, contexts.get(2).controllerNumber);
             } finally { handler.destroy(); }
         }
     }

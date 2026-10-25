@@ -5,6 +5,7 @@
 
 pub mod clients;
 pub mod discovery;
+pub mod input;
 pub mod media;
 pub mod sdp;
 pub mod server;

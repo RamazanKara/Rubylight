@@ -26,6 +26,8 @@ pub(crate) struct Fixture {
     displays: Arc<AtomicUsize>,
     audios: Arc<AtomicUsize>,
     inputs: Arc<AtomicUsize>,
+    /// What a WebRTC session's input worker injects, in place of the desktop.
+    pub(crate) webrtc_input: crate::webrtc::input::Recorder,
     session_disconnected: AtomicBool,
     disconnect_during_preparation: AtomicBool,
     session_checks: AtomicUsize,

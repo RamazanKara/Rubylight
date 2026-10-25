@@ -3990,8 +3990,8 @@ impl ControlPeer {
     }
 }
 const MOTION_EVENT_REQUEST: u16 = 0x5501;
-const RUMBLE_TRIGGER_DATA: u16 = 0x5500;
-const RUMBLE_DATA: u16 = 0x010b;
+pub(crate) const RUMBLE_TRIGGER_DATA: u16 = 0x5500;
+pub(crate) const RUMBLE_DATA: u16 = 0x010b;
 const RUMBLE_MARKER: u32 = 0x00c0ffee;
 // Channel 0 is available even when an older Moonlight peer negotiates only
 // one channel. Sending on channel 1 then fails with InvalidChannel.
@@ -4016,7 +4016,7 @@ fn haptics_negotiated(config: &butterpollo_core::rtsp::Negotiated, channels: usi
         && config.moonlight_features & haptics::FEATURE != 0
         && channels > usize::from(haptics::CHANNEL)
 }
-fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
+pub(crate) fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
     if kind == controller_audio::CONTROL && data.len() == 12 {
         return vec![(kind, data.to_vec())];
     }

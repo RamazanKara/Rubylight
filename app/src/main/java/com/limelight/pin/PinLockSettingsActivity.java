@@ -34,9 +34,13 @@ import java.util.Set;
 public class PinLockSettingsActivity extends NightjarActivity {
     private static final int REQUEST_OPEN = 1, REQUEST_CHANGE = 2, REQUEST_SET = 3, REQUEST_REMOVE = 4;
     private static final String STATE_VERIFIED = "verified";
+    private static final String STATE_AWAITING = "awaiting";
 
     private PinStore store;
+    /** The PIN was given and this screen has stayed in front since; never kept across leaving it. */
     private boolean verified;
+    /** A PIN screen was started for a result that has not come back yet; kept so a recreation does not start another. */
+    private boolean awaiting;
     private FrameLayout content;
 
     public static void open(Activity from) {
@@ -48,27 +52,53 @@ public class PinLockSettingsActivity extends NightjarActivity {
         super.onCreate(state);
         UiHelper.setLocale(this);
         store = new PinStore(this);
+        // Only a rotation or a similar restart of this very screen keeps the verification.
         verified = state != null && state.getBoolean(STATE_VERIFIED);
+        awaiting = state != null && state.getBoolean(STATE_AWAITING);
         content = TopAppBar.setUpPage(this, R.string.pin_lock_title, this::finish);
         if (state == null) {
             getFragmentManager().beginTransaction().replace(content.getId(), new LockFragment()).commit();
         }
-        if (store.hasPin() && !verified) {
+        if (store.hasPin() && !verified) content.setVisibility(View.INVISIBLE);
+        UiHelper.notifyNewRootView(this);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (store.hasPin() && !verified && !awaiting) {
             content.setVisibility(View.INVISIBLE);
             startActivityForResult(PinLockActivity.forVerify(this), REQUEST_OPEN);
         }
-        UiHelper.notifyNewRootView(this);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Home, recents, another app: the next visit asks again. A PIN screen on top of this one is not leaving.
+        if (!isChangingConfigurations() && !awaiting) {
+            verified = false;
+            if (store.hasPin()) content.setVisibility(View.INVISIBLE);
+        }
     }
 
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        state.putBoolean(STATE_VERIFIED, verified);
+        state.putBoolean(STATE_VERIFIED, verified && isChangingConfigurations());
+        state.putBoolean(STATE_AWAITING, awaiting);
+    }
+
+    @Override
+    public void startActivityForResult(Intent intent, int request, Bundle options) {
+        if (request >= 0) awaiting = true;
+        super.startActivityForResult(intent, request, options);
     }
 
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        awaiting = false;
         boolean ok = result == RESULT_OK;
         switch (request) {
             case REQUEST_OPEN:
@@ -80,9 +110,13 @@ public class PinLockSettingsActivity extends NightjarActivity {
                 }
                 break;
             case REQUEST_CHANGE:
-                if (ok) startActivityForResult(PinLockActivity.forSet(this), REQUEST_SET);
+                if (ok) {
+                    verified = true;
+                    startActivityForResult(PinLockActivity.forSet(this), REQUEST_SET);
+                }
                 break;
             case REQUEST_SET:
+                verified = ok || verified;
                 if (ok && store.mode() == PinStore.Mode.OFF) {
                     // A PIN that locks nothing would surprise: start with the app itself.
                     store.setMode(PinStore.Mode.APP);

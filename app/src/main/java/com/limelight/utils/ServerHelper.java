@@ -89,7 +89,13 @@ public class ServerHelper {
 
     public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
                                            ComputerManagerService.ComputerManagerBinder managerBinder) {
-        if (app.getRole() == NvApp.Role.STREAM) {
+        return createStartIntent(parent, app, computer, managerBinder, true);
+    }
+
+    /** {@code record} false leaves the "Continue playing" entry to whoever really starts the stream (the PIN screen). */
+    private static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
+                                            ComputerManagerService.ComputerManagerBinder managerBinder, boolean record) {
+        if (record && app.getRole() == NvApp.Role.STREAM) {
             // Every start goes through here, so this is the list "Continue playing" reads.
             new PreferencesRecentsStore(parent).record(
                     RecentsStore.Recent.of(computer, app, System.currentTimeMillis()));
@@ -156,12 +162,13 @@ public class ServerHelper {
             Toast.makeText(parent, parent.getResources().getString(R.string.pair_pc_offline), Toast.LENGTH_SHORT).show();
             return;
         }
-        Intent intent = createStartIntent(parent, app, computer, managerBinder);
+        boolean pin = PinGate.needsPinForStream(parent, computer.uuid);
+        Intent intent = createStartIntent(parent, app, computer, managerBinder, !pin);
         if (smallStreamInputOnly) {
             intent.putExtra(Game.EXTRA_SMALL_STREAM_INPUT_ONLY, true);
         }
-        if (PinGate.needsPinForStream(parent, computer.uuid)) {
-            parent.startActivity(PinLockActivity.forStream(parent, intent, computer.displayName()), options);
+        if (pin) {
+            parent.startActivity(PinLockActivity.forStream(parent, intent, computer, app), options);
             return;
         }
         parent.startActivity(intent, options);

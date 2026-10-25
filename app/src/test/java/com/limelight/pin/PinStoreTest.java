@@ -135,6 +135,57 @@ public class PinStoreTest {
         assertEquals(PinStore.Result.LOCKED, store.tryPin(RIGHT).result);
     }
 
+    private void failSevenTimesThenReboot() {
+        for (int i = 0; i < 6; i++) {
+            store.tryPin(WRONG);
+            clock.now += PinThrottle.MAX_MS + 1;
+        }
+        store.tryPin(WRONG);
+        clock.boot = 2;
+        clock.now = 4_000;
+    }
+
+    @Test
+    public void afterARebootTheRenewedLockCountsDownAndEnds() {
+        failSevenTimesThenReboot();
+        assertEquals(120_000, store.lockedForMs());
+        clock.now += 1_000;
+        assertEquals("the countdown moves on", 119_000, store.lockedForMs());
+        clock.now += 119_000;
+        assertEquals(0, store.lockedForMs());
+        assertEquals(PinStore.Result.OK, store.tryPin(RIGHT).result);
+    }
+
+    @Test
+    public void aRenewedLockIsStoredSoAnotherProcessSeesTheSameEnd() {
+        failSevenTimesThenReboot();
+        store.lockedForMs();
+        assertEquals(2, prefs.getLong(PinStore.LOCK_BOOT, -1));
+        PinStore other = new PinStore(prefs, clock, (hash, pin) -> true);
+        clock.now += 60_000;
+        assertEquals(60_000, other.lockedForMs());
+    }
+
+    @Test
+    public void twoScreensTryingAtOnceCountEveryTry() throws Exception {
+        PinStore slow = new PinStore(prefs, clock, (hash, pin) -> {
+            try {
+                Thread.sleep(40);
+            } catch (InterruptedException e) {
+                throw new IllegalStateException(e);
+            }
+            return false;
+        });
+        for (int i = 0; i < 3; i++) slow.tryPin(WRONG);
+        Thread a = new Thread(() -> slow.tryPin(WRONG));
+        Thread b = new Thread(() -> slow.tryPin(WRONG));
+        a.start();
+        b.start();
+        a.join();
+        b.join();
+        assertEquals(5, prefs.getInt(PinStore.FAILS, -1));
+    }
+
     @Test
     public void killingTheAppMidCheckCostsATry() {
         // The verifier never returns here; what was stored before it ran is what a restart sees.

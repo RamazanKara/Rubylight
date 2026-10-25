@@ -190,6 +190,52 @@ public class PinGateTest {
     }
 
     @Test
+    public void aLivePinScreenIsNotCoveredAgainButAFinishingOneIs() {
+        lock(PinStore.Mode.APP);
+        Activity other = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        ActivityController<PinLockActivity> pin = Robolectric.buildActivity(PinLockActivity.class,
+                PinLockActivity.forApp(app)).create();
+        PinGate.onStarted(other, store);
+        assertNull("the PIN screen is up", nextStarted(other));
+
+        pin.get().finish();
+        PinGate.onStarted(other, store);
+        assertEquals("a screen on its way out no longer counts, even before it is destroyed",
+                PinLockActivity.class.getName(), nextStarted(other).getComponent().getClassName());
+    }
+
+    @Test
+    public void aPinScreenThatNeverCameUpOnlyHoldsTheLockBackBriefly() {
+        lock(PinStore.Mode.APP);
+        Activity first = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        Activity second = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        PinGate.onStarted(first, store);
+        assertEquals(PinLockActivity.class.getName(), nextStarted(first).getComponent().getClassName());
+        PinGate.onStarted(second, store);
+        assertNull("the first launch is still on its way", nextStarted(second));
+
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(5));
+        PinGate.onStarted(second, store);
+        assertEquals("the launch was dropped; the lock comes back", PinLockActivity.class.getName(),
+                nextStarted(second).getComponent().getClassName());
+    }
+
+    @Test
+    public void appModeHidesTheScreensFromRecentsAndOtherModesDoNot() {
+        Activity screen = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        lock(PinStore.Mode.APP);
+        PinGate.unlockApp();
+        PinGate.onStarted(screen, store);
+        assertTrue((screen.getWindow().getAttributes().flags
+                & android.view.WindowManager.LayoutParams.FLAG_SECURE) != 0);
+
+        store.setMode(PinStore.Mode.STREAMS);
+        PinGate.onStarted(screen, store);
+        assertTrue((screen.getWindow().getAttributes().flags
+                & android.view.WindowManager.LayoutParams.FLAG_SECURE) == 0);
+    }
+
+    @Test
     public void thePinScreenIsNotCoveredByItself() {
         lock(PinStore.Mode.APP);
         PinGate.install(app);

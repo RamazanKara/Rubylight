@@ -164,6 +164,61 @@ public class PinEntryPointsTest {
         assertTrue(screen.get().isFinishing());
     }
 
+    private static java.util.List<com.limelight.nativeapi.RecentsStore.Recent> recents(Context context) {
+        return new com.limelight.nativeapi.PreferencesRecentsStore(context).load();
+    }
+
+    @Test
+    public void aCancelledPinLeavesNoContinuePlayingEntryAndARightOneMakesIt() {
+        store.setMode(PinStore.Mode.STREAMS);
+        Activity from = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        startStream(from);
+        Intent pin = nextStarted(from);
+        assertTrue("asking for the PIN is not a play", recents(app).isEmpty());
+
+        ActivityController<PinLockActivity> cancelled = Robolectric.buildActivity(PinLockActivity.class, pin).setup();
+        cancelled.get().findViewById(com.limelight.R.id.pin_cancel).performClick();
+        assertTrue(cancelled.get().isFinishing());
+        assertTrue(recents(app).isEmpty());
+
+        ActivityController<PinLockActivity> screen = Robolectric.buildActivity(PinLockActivity.class, pin).setup();
+        type(screen.get(), PIN);
+        assertEquals(1, recents(app).size());
+        assertEquals("Desktop", recents(app).get(0).title);
+        assertEquals(PC, recents(app).get(0).hostUuid);
+    }
+
+    @Test
+    public void aStreamStartedWithoutAskingIsRecordedAtOnce() {
+        store.setMode(PinStore.Mode.OFF);
+        Activity from = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        startStream(from);
+        assertEquals(1, recents(app).size());
+    }
+
+    @Test
+    public void aStreamPinInAppModeAlsoOpensTheApp() {
+        store.setMode(PinStore.Mode.APP);
+        Activity from = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
+        startStream(from);
+        Intent pin = nextStarted(from);
+        assertEquals("STREAM", pin.getStringExtra(PinLockActivity.EXTRA_PURPOSE));
+        assertTrue(PinGate.needsPinForApp(app));
+        ActivityController<PinLockActivity> screen = Robolectric.buildActivity(PinLockActivity.class, pin).setup();
+        type(screen.get(), PIN);
+        assertFalse(PinGate.needsPinForApp(app));
+    }
+
+    @Test
+    public void aShortcutThatOnlyOpensTheListLeavesNoGrantBehind() {
+        store.setMode(PinStore.Mode.APP);
+        Trampoline first = Robolectric.buildActivity(Trampoline.class, shortcut(null)).create().get();
+        ActivityController<PinLockActivity> screen = Robolectric.buildActivity(PinLockActivity.class, nextStarted(first)).setup();
+        type(screen.get(), PIN);
+        store.setMode(PinStore.Mode.STREAMS);
+        assertTrue("the PIN did not cover a stream start", PinGate.needsPinForStream(app, PC));
+    }
+
     @Test
     public void selectedPcsAskAndTheOthersDoNot() {
         store.setMode(PinStore.Mode.SELECTED);
@@ -226,7 +281,7 @@ public class PinEntryPointsTest {
         store.setMode(PinStore.Mode.STREAMS);
         Intent incoming = shortcut("5").putExtra("evil", "1").putExtra(Game.EXTRA_HOST, "10.0.0.66")
                 .setAction(Intent.ACTION_VIEW);
-        Intent pin = PinLockActivity.forTrampoline(app, incoming, PC);
+        Intent pin = PinLockActivity.forTrampoline(app, incoming, PC, true);
         Intent again = pin.getParcelableExtra(PinLockActivity.EXTRA_NEXT);
         assertEquals(ShortcutTrampoline.class.getName(), again.getComponent().getClassName());
         assertNull(again.getAction());

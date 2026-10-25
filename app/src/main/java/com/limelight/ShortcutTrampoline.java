@@ -420,7 +420,7 @@ public class ShortcutTrampoline extends Activity {
 
         // PIN lock: ask first, then run this shortcut again
         if ((app != null || PinGate.needsPinForApp(this)) && PinGate.needsPinForStream(this, uuidString)) {
-            startActivity(PinLockActivity.forTrampoline(this, getIntent(), uuidString));
+            startActivity(PinLockActivity.forTrampoline(this, getIntent(), uuidString, app != null));
             finish();
             return;
         }

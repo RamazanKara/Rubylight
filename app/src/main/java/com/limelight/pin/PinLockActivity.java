@@ -21,6 +21,10 @@ import com.limelight.AppView;
 import com.limelight.Game;
 import com.limelight.R;
 import com.limelight.ShortcutTrampoline;
+import com.limelight.nativeapi.PreferencesRecentsStore;
+import com.limelight.nativeapi.RecentsStore;
+import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.NvApp;
 import com.limelight.ui.DpadEchoFilter;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.utils.UiHelper;
@@ -45,6 +49,11 @@ public class PinLockActivity extends NightjarActivity {
     public static final String EXTRA_NEXT = "pin_next";
     static final String EXTRA_PC_NAME = "pin_pc_name";
     static final String EXTRA_PC_UUID = "pin_pc_uuid";
+    private static final String EXTRA_STARTS_APP = "pin_starts_app";
+    private static final String EXTRA_RECENT_HOST = "pin_recent_host";
+    private static final String EXTRA_RECENT_HOST_NAME = "pin_recent_host_name";
+    private static final String EXTRA_RECENT_APP_ID = "pin_recent_app_id";
+    private static final String EXTRA_RECENT_TITLE = "pin_recent_title";
 
     /** Tests run the key derivation on the calling thread. */
     static Executor executorForTests;
@@ -59,15 +68,30 @@ public class PinLockActivity extends NightjarActivity {
     }
 
     /** Asks before {@code next}, the stream's start, runs. */
-    public static Intent forStream(Context context, Intent next, String pcName) {
-        return base(context, Purpose.STREAM).putExtra(EXTRA_NEXT, next).putExtra(EXTRA_PC_NAME, pcName);
+    public static Intent forStream(Context context, Intent next, ComputerDetails computer, NvApp app) {
+        Intent intent = base(context, Purpose.STREAM).putExtra(EXTRA_NEXT, next)
+                .putExtra(EXTRA_PC_NAME, computer.displayName());
+        if (app.getRole() == NvApp.Role.STREAM) {
+            // The "Continue playing" entry is made when the stream really starts, not when the PIN is asked for.
+            intent.putExtra(EXTRA_RECENT_HOST, computer.uuid).putExtra(EXTRA_RECENT_HOST_NAME, computer.name)
+                    .putExtra(EXTRA_RECENT_APP_ID, app.getAppId()).putExtra(EXTRA_RECENT_TITLE, app.getAppName());
+        }
+        return intent;
+    }
+
+    private void recordRecent() {
+        Intent in = getIntent();
+        if (!in.hasExtra(EXTRA_RECENT_HOST)) return;
+        new PreferencesRecentsStore(this).record(new RecentsStore.Recent(in.getStringExtra(EXTRA_RECENT_HOST),
+                in.getStringExtra(EXTRA_RECENT_HOST_NAME), in.getIntExtra(EXTRA_RECENT_APP_ID, 0),
+                in.getStringExtra(EXTRA_RECENT_TITLE), System.currentTimeMillis()));
     }
 
     /**
      * Asks before a shortcut or frontend start runs again. Only the fields the shortcut screen reads are carried
      * over, and the target is always the shortcut screen: the incoming intent comes from another app.
      */
-    public static Intent forTrampoline(Context context, Intent incoming, String uuid) {
+    public static Intent forTrampoline(Context context, Intent incoming, String uuid, boolean startsApp) {
         Intent again = new Intent(context, ShortcutTrampoline.class);
         for (String key : new String[] {AppView.UUID_EXTRA, AppView.NAME_EXTRA, Game.EXTRA_APP_NAME,
                 Game.EXTRA_APP_ID, Game.EXTRA_APP_UUID}) {
@@ -79,7 +103,7 @@ public class PinLockActivity extends NightjarActivity {
         }
         String name = incoming.getStringExtra(AppView.NAME_EXTRA);
         return base(context, Purpose.TRAMPOLINE).putExtra(EXTRA_NEXT, again)
-                .putExtra(EXTRA_PC_UUID, uuid).putExtra(EXTRA_PC_NAME, name);
+                .putExtra(EXTRA_PC_UUID, uuid).putExtra(EXTRA_PC_NAME, name).putExtra(EXTRA_STARTS_APP, startsApp);
     }
 
     /** Checks the current PIN and answers RESULT_OK. */
@@ -127,7 +151,7 @@ public class PinLockActivity extends NightjarActivity {
             purpose = Purpose.APP;
         }
         store = new PinStore(this);
-        if (purpose == Purpose.APP) PinGate.setShowing(true);
+        if (purpose == Purpose.APP) PinGate.setScreen(this);
         worker = Executors.newSingleThreadExecutor();
         setContentView(R.layout.activity_pin_lock);
         title = findViewById(R.id.pin_title);
@@ -171,6 +195,7 @@ public class PinLockActivity extends NightjarActivity {
     protected void onResume() {
         super.onResume();
         if (purpose == Purpose.APP && !PinGate.needsPinForApp(this)) {
+            PinGate.clearScreen(this);
             finish();
             return;
         }
@@ -189,7 +214,7 @@ public class PinLockActivity extends NightjarActivity {
         Arrays.fill(entry, (byte) 0);
         if (first != null) Arrays.fill(first, (byte) 0);
         first = null;
-        if (purpose == Purpose.APP) PinGate.setShowing(false);
+        PinGate.clearScreen(this);
         if (worker != null) worker.shutdown();
         super.onDestroy();
     }
@@ -412,13 +437,22 @@ public class PinLockActivity extends NightjarActivity {
     private void unlocked() {
         if (isFinishing()) return;
         Intent next = purpose == Purpose.STREAM || purpose == Purpose.TRAMPOLINE ? nextIntent() : null;
+        PinGate.clearScreen(this);
         switch (purpose) {
             case APP:
                 PinGate.unlockApp();
                 break;
+            case STREAM:
+                // The PIN also opened the app if the lock was the app lock.
+                if (store.mode() == PinStore.Mode.APP) PinGate.unlockApp();
+                recordRecent();
+                break;
             case TRAMPOLINE:
                 if (store.mode() == PinStore.Mode.APP) PinGate.unlockApp();
-                PinGate.grant(getIntent().getStringExtra(EXTRA_PC_UUID));
+                // Only a start that goes on to an app is covered; a shortcut that just opens the list is not a stream.
+                if (getIntent().getBooleanExtra(EXTRA_STARTS_APP, false)) {
+                    PinGate.grant(getIntent().getStringExtra(EXTRA_PC_UUID));
+                }
                 break;
             case VERIFY:
                 setResult(RESULT_OK);
@@ -437,6 +471,7 @@ public class PinLockActivity extends NightjarActivity {
 
     /** Leaves without the PIN: the app closes, anything else just goes back. */
     private void leave() {
+        PinGate.clearScreen(this);
         if (purpose == Purpose.APP) {
             finishAffinity();
         } else {

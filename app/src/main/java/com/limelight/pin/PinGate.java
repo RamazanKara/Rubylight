@@ -3,11 +3,14 @@ package com.limelight.pin;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.view.WindowManager;
 
 import com.limelight.ui.NightjarActivity;
 
+import java.lang.ref.WeakReference;
 import java.util.Locale;
 import java.util.Set;
 
@@ -22,11 +25,15 @@ import java.util.Set;
 public final class PinGate {
     /** How long the PIN screen's approval of one PC's stream start stays valid. */
     static final long GRANT_MS = 60_000;
+    private static final long LAUNCH_MS = 3_000;
 
     private static boolean unlockedApp;
     private static String grantUuid;
     private static long grantAt;
-    private static boolean showing;
+    /** The app-lock PIN screen that is up, if any; weak so a lost screen cannot keep the lock from coming back. */
+    private static WeakReference<Activity> screen;
+    /** Until when a PIN screen that was just started is assumed to be on its way. */
+    private static long launchingUntil;
     private static int started;
     /** Elapsed time when the last activity stopped, or -1 while the app is in front (or only rotating). */
     private static long leftAt = -1;
@@ -98,8 +105,21 @@ public final class PinGate {
         leftAt = -1;
     }
 
-    static synchronized void setShowing(boolean value) {
-        showing = value;
+    /** The app-lock PIN screen has come up. */
+    static synchronized void setScreen(Activity activity) {
+        screen = new WeakReference<>(activity);
+        launchingUntil = 0;
+    }
+
+    /** That screen is going away (call before finishing it, so the lock can come back at once). */
+    static synchronized void clearScreen(Activity activity) {
+        if (screen != null && screen.get() == activity) screen = null;
+    }
+
+    private static boolean showing() {
+        if (SystemClock.elapsedRealtime() < launchingUntil) return true;
+        Activity live = screen == null ? null : screen.get();
+        return live != null && !live.isFinishing() && !live.isDestroyed();
     }
 
     /** Test hook: forget everything the gate remembers in this process. */
@@ -107,7 +127,8 @@ public final class PinGate {
         unlockedApp = false;
         grantUuid = null;
         grantAt = 0;
-        showing = false;
+        screen = null;
+        launchingUntil = 0;
         started = 0;
         leftAt = -1;
     }
@@ -149,13 +170,31 @@ public final class PinGate {
                 leftAt = -1;
             }
             show = activity instanceof NightjarActivity && !(activity instanceof PinLockActivity)
-                    && !activity.isFinishing() && !showing
+                    && !activity.isFinishing() && !showing()
                     && appNeeded(store.hasPin(), store.mode(), unlockedApp);
-            if (show) showing = true;
+            if (show) launchingUntil = SystemClock.elapsedRealtime() + LAUNCH_MS;
         }
+        hideFromRecents(activity, store);
         if (show) {
             activity.startActivity(PinLockActivity.forApp(activity));
             activity.overridePendingTransition(0, 0);
+        }
+    }
+
+    /**
+     * With the app lock on, the recents thumbnail must not show the library: no thumbnail on Android 13 and later,
+     * a secure window before that. Set whenever a screen starts, so a change of mode applies from the next screen.
+     */
+    @SuppressWarnings("deprecation")
+    private static void hideFromRecents(Activity activity, PinStore store) {
+        if (!(activity instanceof NightjarActivity)) return;
+        boolean hide = store.mode() == PinStore.Mode.APP;
+        if (Build.VERSION.SDK_INT >= 33) {
+            activity.setRecentsScreenshotEnabled(!hide);
+        } else if (hide) {
+            activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        } else {
+            activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
         }
     }
 

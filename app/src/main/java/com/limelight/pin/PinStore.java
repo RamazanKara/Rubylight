@@ -104,6 +104,9 @@ public final class PinStore {
         boolean matches(String storedHash, byte[] pin);
     }
 
+    /** One try at a time, across every PinStore in the process. */
+    private static final Object TRY_LOCK = new Object();
+
     private final SharedPreferences prefs;
     private final Clock clock;
     private final Verifier verifier;
@@ -176,32 +179,42 @@ public final class PinStore {
                 .putLong(LOCK_BOOT, state.lockBoot).commit();
     }
 
+    /** The stored state seen from this boot; a lock renewed for a new boot is saved so its countdown moves on. */
+    private PinThrottle.State current(long now, long boot) {
+        PinThrottle.State stored = load();
+        PinThrottle.State state = PinThrottle.onBoot(stored, now, boot);
+        if (state.lockBoot != stored.lockBoot || state.lockUntil != stored.lockUntil) save(state);
+        return state;
+    }
+
     /** Milliseconds until the next try is allowed, 0 when it is. */
     public long lockedForMs() {
-        PinThrottle.State state = PinThrottle.onBoot(load(), clock.elapsed(), clock.boot());
-        return PinThrottle.remainingMs(state, clock.elapsed());
+        synchronized (TRY_LOCK) {
+            long now = clock.elapsed();
+            return PinThrottle.remainingMs(current(now, clock.boot()), now);
+        }
     }
 
     /**
      * One try. Refused while locked out; otherwise the failure is written (and flushed) before the PIN is
      * checked, so killing the app mid-check cannot get a free guess, and a match clears it again. Slow.
+     * Load, count and save run under one lock, so two PIN screens cannot both count against the same state.
      */
     public Attempt tryPin(byte[] pin) {
-        long now = clock.elapsed();
-        long boot = clock.boot();
-        PinThrottle.State state = PinThrottle.onBoot(load(), now, boot);
-        long locked = PinThrottle.remainingMs(state, now);
-        if (locked > 0) {
-            save(state);
-            return new Attempt(Result.LOCKED, locked);
+        synchronized (TRY_LOCK) {
+            long now = clock.elapsed();
+            long boot = clock.boot();
+            PinThrottle.State state = current(now, boot);
+            long locked = PinThrottle.remainingMs(state, now);
+            if (locked > 0) return new Attempt(Result.LOCKED, locked);
+            PinThrottle.State counted = PinThrottle.failed(state, now, boot);
+            save(counted);
+            if (!verifier.matches(prefs.getString(HASH, null), pin)) {
+                return new Attempt(Result.WRONG, PinThrottle.remainingMs(counted, clock.elapsed()));
+            }
+            save(PinThrottle.State.CLEAN);
+            return new Attempt(Result.OK, 0);
         }
-        PinThrottle.State counted = PinThrottle.failed(state, now, boot);
-        save(counted);
-        if (!verifier.matches(prefs.getString(HASH, null), pin)) {
-            return new Attempt(Result.WRONG, PinThrottle.remainingMs(counted, clock.elapsed()));
-        }
-        save(PinThrottle.State.CLEAN);
-        return new Attempt(Result.OK, 0);
     }
 
     /** Remembers when the app was left unlocked, for the "ask again after" time. */

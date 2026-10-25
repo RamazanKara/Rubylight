@@ -88,6 +88,23 @@ public class PinStructureTest {
     }
 
     @Test
+    public void onlyTheTwoGatedPathsBuildAStreamStartIntent() throws IOException {
+        Path root = MAIN.resolve("java");
+        List<String> users = new ArrayList<>();
+        try (Stream<Path> files = Files.walk(root)) {
+            for (Path file : files.filter(f -> f.toString().endsWith(".java")).collect(Collectors.toList())) {
+                String text = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+                if (text.contains("createStartIntent(")) {
+                    users.add(root.relativize(file).toString().replace(File.separatorChar, '/'));
+                }
+            }
+        }
+        java.util.Collections.sort(users);
+        // A third caller would be a way to start a stream that never meets the PIN lock.
+        assertEquals(java.util.Arrays.asList("com/limelight/ShortcutTrampoline.java", "com/limelight/utils/ServerHelper.java"), users);
+    }
+
+    @Test
     public void preferencesAreExcludedFromEveryBackupSoThePinHashStaysOnTheDevice() throws Exception {
         for (String file : new String[] {"backup_rules.xml", "backup_rules_s.xml"}) {
             Document rules = parse(MAIN.resolve("res/xml").resolve(file));

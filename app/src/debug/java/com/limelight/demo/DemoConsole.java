@@ -19,7 +19,7 @@ import java.util.concurrent.Executors;
 
 /**
  * The native API of the demo hosts, answered from fixtures so Home and the game detail run without a host:
- * the library is the demo's ten games, Racing Game runs, and this device has host control unless a capture
+ * the library is {@link #LIBRARY} and the games not added, Racing Game runs, and this device has host control unless a capture
  * asks for the classic Quit with {@code --ez control false}.
  */
 final class DemoConsole {
@@ -42,7 +42,7 @@ final class DemoConsole {
         PreferencesFavouritesStore favourites = new PreferencesFavouritesStore(context);
         for (int app : starred) {
             favourites.set(new FavouritesStore.Favourite(DemoFixtures.PC_UUID, "Living-room PC", app,
-                    DemoFixtures.TITLES[app - 1]), true);
+                    titleOf(app)), true);
         }
         return new ConsoleRepository(new Transport(),
                 computer -> new HostEndpoint(computer.uuid, DemoComputerManagerService.SETTINGS_ADDRESS, 47989, 47984,
@@ -57,18 +57,128 @@ final class DemoConsole {
                 DemoComputerManagerService.SETTINGS_ADDRESS, 47989, 47984, "", "nightjar-demo", new byte[0], new byte[0]));
     }
 
-    private static String library() {
+    /**
+     * The demo library: the ten classic demo games first (same ids), then more, 36 added across Steam, Epic, GOG,
+     * Xbox and no store, six of them not installed, five played lately; then four the host found but has not added.
+     * Covers cycle through the ten demo images, which are portrait, landscape and square.
+     */
+    static final String[][] LIBRARY = {
+            // title, store, installed, last played (unix seconds)
+            {"Desktop", null, "1", null},
+            {"Racing Game", "steam", "1", null},
+            {"Open World", "steam", "1", "1761300000"},
+            {"Space Sim", "epic", "1", "1761200000"},
+            {"Puzzle Night", "gog", "1", null},
+            {"Retro Arcade", "steam", "1", null},
+            {"Strategy", "microsoft", "1", null},
+            {"Music Studio", null, "1", null},
+            {"Ocean Explorer", "epic", "1", null},
+            {"Skybound", "steam", "1", null},
+            {"Ashfall", "steam", "1", null},
+            {"Brightwater", "steam", "1", "1761100000"},
+            {"Cinder Road", "steam", "0", null},
+            {"Deep Field", "steam", "1", null},
+            {"Ember Keep", "steam", "1", null},
+            {"Frostline", "steam", "1", null},
+            {"Glass Harbor", "steam", "0", null},
+            {"Hollow Peak", "steam", "1", null},
+            {"Iron Tide", "steam", "1", null},
+            {"Jade Circuit", "steam", "1", null},
+            {"Kite Season", "steam", "1", null},
+            {"Lantern Row", "steam", "0", null},
+            {"Moss and Stone", "steam", "1", null},
+            {"Night Courier", "steam", "1", null},
+            {"Orbit Garden", "steam", "1", null},
+            {"Paper Fleet", "steam", "1", null},
+            {"Quiet Engine", "steam", "0", null},
+            {"Red Mesa", "steam", "1", null},
+            {"Salt Flats Rally", "steam", "1", null},
+            {"Tidebreaker", "epic", "1", "1761000000"},
+            {"Under Ice", "epic", "0", null},
+            {"Vector Bloom", "epic", "1", null},
+            {"Wild Meridian", "gog", "1", "1760900000"},
+            {"Xeno Farm", "gog", "0", null},
+            {"Yard Sale Hero", "microsoft", "1", null},
+            {"Zero Gravity Golf", "microsoft", "1", null},
+    };
+    /** Found by the host in a store, not added: title, store. */
+    static final String[][] NOT_ADDED = {
+            {"Bastion Shore", "steam"}, {"Comet Tail", "steam"}, {"Driftwood", "epic"}, {"Echo Valley", "gog"},
+    };
+    /** "--ez add false": the host lists games not added but cannot add one on request. */
+    static boolean hostAdds = true;
+    /** The games of {@link #NOT_ADDED} added during this run, by index, with the app id each got. */
+    private static final java.util.Map<Integer, Integer> added = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The title of an app id of the demo library. */
+    static String titleOf(int appId) {
+        if (appId >= 1 && appId <= LIBRARY.length) return LIBRARY[appId - 1][0];
+        for (java.util.Map.Entry<Integer, Integer> entry : added.entrySet()) {
+            if (entry.getValue() == appId) return NOT_ADDED[entry.getKey()][0];
+        }
+        return "";
+    }
+
+    private static String storeName(String source) {
+        switch (source) {
+            case "steam": return "Steam";
+            case "epic": return "Epic Games";
+            case "gog": return "GOG";
+            default: return "Xbox";
+        }
+    }
+
+    private static void appendStore(StringBuilder json, String source, int id) {
+        if (source == null) {
+            json.append("\"store\":null,");
+        } else {
+            json.append("\"store\":{\"source\":\"").append(source).append("\",\"id\":\"").append(id)
+                    .append("\",\"name\":\"").append(storeName(source)).append("\"},");
+        }
+    }
+
+    private static String library(String argument) {
         StringBuilder games = new StringBuilder();
-        for (int i = 0; i < DemoFixtures.TITLES.length; i++) {
+        for (int i = 0; i < LIBRARY.length; i++) {
+            String[] game = LIBRARY[i];
             if (i > 0) games.append(',');
             games.append("{\"install_id\":\"demo-").append(i + 1).append("\",\"app_id\":").append(i + 1)
-                    .append(",\"title\":\"").append(DemoFixtures.TITLES[i]).append("\",\"game_id\":null,")
-                    .append("\"store\":{\"source\":\"steam\",\"id\":\"1\",\"name\":\"Steam\"},\"installed\":true,")
-                    .append("\"running\":").append(racingRuns && i == 1)
+                    .append(",\"title\":\"").append(game[0]).append("\",\"game_id\":")
+                    .append(game[1] == null ? "null" : "\"" + game[1] + ":" + (i + 1) + "\"").append(',');
+            appendStore(games, game[1], i + 1);
+            games.append("\"installed\":").append("1".equals(game[2]))
+                    .append(",\"running\":").append(racingRuns && i == 1)
+                    .append(",\"added\":true,\"last_played\":").append(game[3] == null ? "null" : game[3])
                     .append(",\"artwork\":{\"cover\":\"/api/native/v1/cover/demo-").append(i + 1)
                     .append("\",\"version\":\"\"}}");
         }
-        return "{\"ok\":{\"revision\":\"demo\",\"games\":[" + games + "]}}";
+        boolean unadded = argument != null && argument.contains("include=unadded");
+        for (int i = 0; i < NOT_ADDED.length; i++) {
+            String[] game = NOT_ADDED[i];
+            Integer appId = added.get(i);
+            if (appId == null && !unadded) continue;
+            games.append(",{\"title\":\"").append(game[0]).append("\",\"game_id\":\"").append(game[1]).append(":n")
+                    .append(i).append("\",");
+            appendStore(games, game[1], 900 + i);
+            if (appId == null) {
+                games.append("\"installed\":true,\"running\":false,\"added\":false}");
+            } else {
+                games.append("\"install_id\":\"demo-n").append(i).append("\",\"app_id\":").append(appId)
+                        .append(",\"installed\":true,\"running\":false,\"added\":true}");
+            }
+        }
+        return "{\"ok\":{\"revision\":\"demo-" + added.size() + "\",\"games\":[" + games + "]}}";
+    }
+
+    /** library_add: the game is added with the next app id after the library's. */
+    private static String add(String argument) throws NativeApiException {
+        for (int i = 0; i < NOT_ADDED.length; i++) {
+            if (argument != null && argument.contains("\"" + NOT_ADDED[i][1] + ":n" + i + "\"")) {
+                added.putIfAbsent(i, LIBRARY.length + 1 + i);
+                return library("include=unadded");
+            }
+        }
+        throw new NativeApiException(NativeApiException.Kind.UNAVAILABLE, "the demo has no such game");
     }
 
     private static String session() {
@@ -83,7 +193,8 @@ final class DemoConsole {
 
     private static String capabilities() {
         return "{\"ok\":{\"api_version\":1,\"host\":{\"name\":\"Living-room PC\",\"version\":\"3.0.0\",\"unique_id\":\"U\"},"
-                + "\"features\":[\"library\",\"session.close_game\"],\"permissions\":{\"list\":true,\"view\":true,"
+                + "\"features\":[\"library\",\"session.close_game\",\"library.unadded\""
+                + (hostAdds ? ",\"library.add\"" : "") + "],\"permissions\":{\"list\":true,\"view\":true,"
                 + "\"launch\":true,\"host_control\":" + hostControl + "}}}";
     }
 
@@ -92,7 +203,9 @@ final class DemoConsole {
         public String request(HostEndpoint host, String op, String argument) throws NativeApiException {
             switch (op) {
                 case "library":
-                    return library();
+                    return library(argument);
+                case "library_add":
+                    return add(argument);
                 case "session":
                     return session();
                 case "capabilities":

@@ -44,5 +44,7 @@
             android:exported="true"
             android:label="Nightjar overlay smoke test"
             android:theme="@style/StreamTheme" />
+        <!-- tv-redesign-4 -->
+        <activity android:name="com.limelight.demo.DemoAllGames" android:exported="false" />
     </application>
 </manifest>

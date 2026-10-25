@@ -65,7 +65,10 @@ public final class DemoLauncherActivity extends Activity {
         // options on Home (use --es host native for both Home states).
         DemoFixtures.studioAddress = "pair".equals(screen);
         Class<?> target;
+        DemoConsole.hostAdds = getIntent().getBooleanExtra("add", true);
         if ("home".equals(screen) || "options".equals(screen)) target = DemoConsoleHome.class;
+        // "--es state allgames --es filter store:steam": All games under a filter (with --es host native).
+        else if ("allgames".equals(screen)) target = DemoAllGames.class;
         else if ("detail".equals(screen)) target = DemoGameDetail.class;
         else if ("library".equals(screen)) target = DemoAppView.class;
         else if ("settings".equals(screen)) target = DemoStreamSettings.class;
@@ -87,14 +90,14 @@ public final class DemoLauncherActivity extends Activity {
                 .putExtra("orientation", getIntent().getStringExtra("orientation"))
                 .putExtra("size", getIntent().getStringExtra("size"))
                 .putExtra("page", getIntent().getStringExtra("page"))
+                .putExtra(com.limelight.console.AllGamesActivity.EXTRA_FILTER, getIntent().getStringExtra("filter"))
                 .putExtra(AppView.UUID_EXTRA, DemoFixtures.PC_UUID).putExtra(AppView.NAME_EXTRA, "Living-room PC")
                 .putExtra("host_uuid", DemoFixtures.PC_UUID).putExtra("host_name", "Living-room PC")
                 // The game detail: "--ei app 2" opens Racing Game (the running one), any other id its own card.
                 .putExtra(GameDetailActivity.EXTRA_HOST_UUID, DemoFixtures.PC_UUID)
                 .putExtra(GameDetailActivity.EXTRA_HOST_NAME, "Living-room PC")
                 .putExtra(GameDetailActivity.EXTRA_APP_ID, getIntent().getIntExtra("app", 2))
-                .putExtra(GameDetailActivity.EXTRA_TITLE, DemoFixtures.TITLES[
-                        Math.max(0, Math.min(DemoFixtures.TITLES.length, getIntent().getIntExtra("app", 2)) - 1)]);
+                .putExtra(GameDetailActivity.EXTRA_TITLE, DemoConsole.titleOf(getIntent().getIntExtra("app", 2)));
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         finish();
     }

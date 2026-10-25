@@ -8,6 +8,7 @@ import android.widget.Toast;
 import com.limelight.AppView;
 import com.limelight.PcView;
 import com.limelight.R;
+import com.limelight.console.AllGamesActivity;
 import com.limelight.console.ConsoleHomeActivity;
 import com.limelight.console.GameDetailActivity;
 import com.limelight.nativeapi.ConsoleRepository;
@@ -72,6 +73,10 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
 
     @Override protected Class<? extends GameDetailActivity> detailActivity() {
         return DemoGameDetail.class;
+    }
+
+    @Override protected Class<? extends AllGamesActivity> allGamesActivity() {
+        return DemoAllGames.class;
     }
 
     @Override public void startActivity(Intent intent, Bundle options) {

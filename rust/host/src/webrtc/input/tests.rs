@@ -283,15 +283,23 @@ fn mouse_mode_toggles_ticks_and_tells_the_client() {
 }
 
 #[test]
-fn an_idle_session_has_nothing_to_wake_for() {
+fn an_idle_session_wakes_only_to_see_whether_it_is_stopping() {
     let mut r = rig(u32::MAX);
     let now = r.at(0);
-    assert_eq!(r.core.wait(now), None);
-    // A key held is watched for the session stopping; nothing else.
+    // The injector exists, so the session stopping must be noticed; no pointer, repeat or
+    // rumble timer runs.
+    assert_eq!(r.core.wait(now), Some(STOP_POLL));
     r.input(r#"{"v":1,"type":"key","code":"KeyA","down":true}"#);
     assert_eq!(r.core.wait(now), Some(STOP_POLL));
     r.input(r#"{"v":1,"type":"key","code":"KeyA","down":false}"#);
-    assert_eq!(r.core.wait(now), None);
+    assert_eq!(r.core.wait(now), Some(STOP_POLL));
+    // With no injector and nothing held there is nothing to give up and nothing to wake for.
+    let f = Fixture::new();
+    let rec = Recorder::default();
+    rec.fail_makes(1);
+    let make = rec.clone();
+    let core = Core::new(session(&f, u32::MAX), Box::new(move |_| make.make()), now);
+    assert_eq!(core.wait(now), None);
     // A plugged pad is polled for rumble, but never ticked for the pointer.
     r.pad(0, 0);
     assert_eq!(r.core.wait(now), Some(Duration::ZERO));
@@ -439,7 +447,8 @@ fn the_devices_permission_bits_gate_keyboard_mouse_and_gamepad() {
     r.input(r#"{"v":1,"type":"mouse-move","dx":2,"dy":0}"#);
     r.pad(0, 0);
     assert!(r.events().is_empty());
-    // Gamepad mouse mode needs the mouse bit as well as the pad's.
+    // A pad without the mouse bit may toggle mouse mode, but the pointer events and buttons it
+    // would simulate are refused like any other mouse input.
     let mut r = rig(PAD);
     r.pad(0, 0);
     r.toggle_mouse_mode(0, 1, 0);
@@ -502,6 +511,142 @@ fn a_stopping_session_ends_the_worker_without_waiting_for_the_transport() {
     assert!(r.core.poll(r.at(1)));
     r.core.session.stop();
     assert!(!r.core.poll(r.at(2)));
+
+    // In the real loop: nothing is held and the transport never says it closed, yet the
+    // injector goes and the worker ends.
+    let f = Fixture::new();
+    let rec = Recorder::default();
+    let make = rec.clone();
+    let (tx, rx) = mpsc::channel();
+    let handle = InputHandle(tx);
+    let s = session(&f, u32::MAX);
+    let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
+    handle.bind(s.clone());
+    wait_for("the injector made", || rec.sinks() == (1, 1));
+    s.stop();
+    wait_for("the injector dropped", || rec.sinks() == (1, 0));
+    worker.join().unwrap();
+    // The handle outlived the worker: only the stopping session ended it.
+    drop(handle);
+}
+
+/// Poll `condition` for up to five seconds.
+fn wait_for(what: &str, condition: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !condition() {
+        assert!(Instant::now() < deadline, "timed out: {what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn a_device_without_the_controller_bit_gets_no_slot_no_mouse_mode_and_no_timers() {
+    let mut r = rig(MOUSE | KEYBOARD);
+    let idle = r.core.wait(r.at(0));
+    r.pad(0, 0);
+    r.toggle_mouse_mode(0, 1, 100);
+    r.state(0, 3, A, 1., 1000);
+    assert!(r.events().is_empty());
+    assert!(r.sent("mouse-mode").is_empty());
+    assert_eq!(r.core.pads.active_mask(), 0);
+    assert!(!r.core.pads.mouse_mode(0));
+    assert_eq!(r.core.pads.next_tick(), None);
+    assert_eq!(r.core.wait(r.at(1000)), idle);
+    assert!(r.warned("input_permission_controller"));
+    let summary = r.core.summary();
+    assert_eq!(summary.gamepad_messages, 4);
+    assert_eq!(summary.dropped, 4);
+    // The keyboard and mouse it may use still work.
+    r.input(r#"{"v":1,"type":"mouse-move","dx":2,"dy":0}"#);
+    assert_eq!(r.events().len(), 1);
+}
+
+#[test]
+fn the_queue_delay_is_measured_from_receipt_to_the_injector() {
+    let mut r = rig(u32::MAX);
+    let received = Instant::now() - Duration::from_millis(40);
+    r.core.input(
+        r#"{"v":1,"type":"key","code":"KeyA","down":true}"#,
+        received,
+    );
+    r.core.input(
+        r#"{"v":1,"type":"key","code":"KeyA","down":false}"#,
+        Instant::now(),
+    );
+    let summary = r.core.summary();
+    assert_eq!(summary.queued, 2);
+    assert!(summary.queue_max_us >= 40_000, "{summary:?}");
+    // Two samples: the 99th percentile is the slower one, to within a bucket.
+    assert!(
+        (40_000..=80_000).contains(&summary.queue_p99_us),
+        "{summary:?}"
+    );
+    // A message that injected nothing is not a sample.
+    r.core
+        .input(r#"{"v":1,"type":"key","code":"Fn","down":true}"#, received);
+    assert_eq!(r.core.summary().queued, 2);
+}
+
+#[test]
+fn the_delay_percentile_follows_the_bulk_not_the_outlier() {
+    let mut d = Delays::default();
+    assert_eq!(d.p99_us(), 0);
+    for _ in 0..990 {
+        d.record(Duration::from_micros(100));
+    }
+    for _ in 0..10 {
+        d.record(Duration::from_millis(20));
+    }
+    assert_eq!(d.max_us, 20_000);
+    // 99 % of 1000 samples are the fast ones.
+    assert!((100..=128).contains(&d.p99_us()), "{}", d.p99_us());
+    d.record(Duration::from_millis(20));
+    assert!(d.p99_us() > 1000, "{}", d.p99_us());
+    // A delay beyond the last bucket lands in it rather than overflowing.
+    d.record(Duration::MAX);
+    assert_eq!(d.max_us, u64::MAX);
+}
+
+#[test]
+fn a_worker_that_panics_still_releases_held_keys_and_buttons() {
+    let f = Fixture::new();
+    let rec = Recorder::default();
+    let make = rec.clone();
+    let (tx, rx) = mpsc::channel();
+    let handle = InputHandle(tx);
+    let s = session(&f, u32::MAX);
+    let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
+    handle.bind(s.clone());
+    handle.input(
+        br#"{"v":1,"type":"key","code":"KeyA","down":true}"#.to_vec(),
+        false,
+    );
+    handle.input(
+        br#"{"v":1,"type":"mouse-button","button":0,"down":true}"#.to_vec(),
+        false,
+    );
+    wait_for("both held", || rec.events().len() == 2);
+    // The injector fails on the next event, with the key and the button still down.
+    rec.panic_once();
+    handle.input(
+        br#"{"v":1,"type":"key","code":"KeyB","down":true}"#.to_vec(),
+        false,
+    );
+    // The thread survives its panic, releases, and ends; the handle is still open.
+    worker.join().unwrap();
+    let events = rec.events();
+    assert!(events.contains(&button(1, false)), "{events:?}");
+    assert!(events.contains(&key_up(0x41)), "{events:?}");
+    assert!(events.contains(&key_up(0x42)), "{events:?}");
+    assert_eq!(rec.sinks(), (1, 0));
+    assert!(
+        s.launch
+            .warnings
+            .snapshot()
+            .iter()
+            .any(|w| w.code == "input_worker")
+    );
+    drop(handle);
 }
 
 #[test]

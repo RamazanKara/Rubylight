@@ -52,7 +52,7 @@ const RETRY: Duration = Duration::from_millis(500);
 /// What the worker is told. Text frames only: the channels carry JSON.
 enum Message {
     Gamepad(String, Instant),
-    Input(String),
+    Input(String, Instant),
     /// A DataChannel closed.
     GamepadClosed,
     InputClosed,
@@ -78,7 +78,7 @@ impl InputHandle {
     /// A text frame from the `input` channel.
     pub fn input(&self, data: Vec<u8>, binary: bool) {
         if let Some(text) = text(data, binary, "input") {
-            let _ = self.0.send(Message::Input(text));
+            let _ = self.0.send(Message::Input(text, Instant::now()));
         }
     }
 
@@ -109,6 +109,18 @@ impl InputHandle {
     /// The transport closed: release everything and end.
     pub fn closed(&self) {
         let _ = self.0.send(Message::Closed);
+    }
+}
+
+/// An event of the kind a gamepad message produces, to ask what permission it needs.
+fn controller_event() -> Input {
+    Input::Controller {
+        id: 0,
+        active: 0,
+        buttons: 0,
+        left_trigger: 0,
+        right_trigger: 0,
+        sticks: [0; 4],
     }
 }
 
@@ -244,6 +256,53 @@ pub struct Summary {
     /// Events the device's permissions or a missing injector kept from the desktop.
     pub dropped: u64,
     pub rumble_sent: u64,
+    /// Messages whose events reached the injector, and how long the worker's queue held them:
+    /// from the transport receiving the frame to the injector having been handed its events.
+    pub queued: u64,
+    pub queue_max_us: u64,
+    pub queue_p99_us: u64,
+}
+
+/// A histogram of queue delays in power-of-two microsecond buckets: no allocation per message and
+/// a percentile that is at most twice too high.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Delays {
+    count: u64,
+    max_us: u64,
+    buckets: [u64; 40],
+}
+
+impl Default for Delays {
+    fn default() -> Self {
+        Self {
+            count: 0,
+            max_us: 0,
+            buckets: [0; 40],
+        }
+    }
+}
+
+impl Delays {
+    fn record(&mut self, delay: Duration) {
+        let us = u64::try_from(delay.as_micros()).unwrap_or(u64::MAX);
+        let bucket = ((u64::BITS - us.leading_zeros()) as usize).min(self.buckets.len() - 1);
+        self.buckets[bucket] += 1;
+        self.count += 1;
+        self.max_us = self.max_us.max(us);
+    }
+
+    /// The upper edge of the bucket the 99th percentile falls in, never above the maximum.
+    fn p99_us(&self) -> u64 {
+        let rank = (self.count * 99).div_ceil(100);
+        let mut seen = 0;
+        for (bucket, count) in self.buckets.iter().enumerate() {
+            seen += count;
+            if self.count > 0 && seen >= rank {
+                return (1u64 << bucket).min(self.max_us);
+            }
+        }
+        0
+    }
 }
 
 /// The state of one session's input, driven by [`run`] and by the tests with a clock of their own.
@@ -260,6 +319,9 @@ struct Core {
     refresh_at: Instant,
     feedback_at: Instant,
     summary: Summary,
+    delays: Delays,
+    /// When the frame being handled reached the transport, for the delay it waited in the queue.
+    received: Option<Instant>,
     warned_invalid: bool,
 }
 
@@ -278,6 +340,8 @@ impl Core {
             refresh_at: now,
             feedback_at: now,
             summary: Summary::default(),
+            delays: Delays::default(),
+            received: None,
             warned_invalid: false,
         };
         // Made before input comes, as the GameStream control loop does: making it with the
@@ -289,6 +353,9 @@ impl Core {
     fn summary(&self) -> Summary {
         Summary {
             unknown_codes: self.channel.unknown_codes(),
+            queued: self.delays.count,
+            queue_max_us: self.delays.max_us,
+            queue_p99_us: self.delays.p99_us(),
             ..self.summary
         }
     }
@@ -314,9 +381,15 @@ impl Core {
         }
     }
 
-    /// One `gamepad` channel message received at `now`.
+    /// One `gamepad` channel message received at `now`. A device without the controller
+    /// permission gets no slot, no mouse mode and no timers: the state machine never sees it.
     fn gamepad(&mut self, text: &str, now: Instant) {
         self.summary.gamepad_messages += 1;
+        if !self.allowed(&controller_event()) {
+            self.summary.dropped += 1;
+            return;
+        }
+        self.received = Some(now);
         match self.pads.handle_message(text, now) {
             Ok(outcome) => {
                 if !outcome.accepted && outcome.actions.is_empty() {
@@ -326,11 +399,13 @@ impl Core {
             }
             Err(error) => self.invalid("gamepad", &error),
         }
+        self.received = None;
     }
 
-    /// One `input` channel message.
+    /// One `input` channel message received at `now`.
     fn input(&mut self, text: &str, now: Instant) {
         self.summary.input_messages += 1;
+        self.received = Some(now);
         match butterpollo_core::webrtc::input::parse(text) {
             Ok(message) => {
                 let events = self.channel.translate(message);
@@ -338,6 +413,22 @@ impl Core {
             }
             Err(error) => self.invalid("input", &error),
         }
+        self.received = None;
+    }
+
+    /// Whether the device may send `event`; says once per kind in the stream's warnings when not.
+    fn allowed(&mut self, event: &Input) -> bool {
+        let client = &self.session.launch.client;
+        let permission = event.required_permission();
+        if client.allows(permission) {
+            return true;
+        }
+        if self.denied & permission == 0 {
+            self.denied |= permission;
+            let (code, message) = event.denied_warning(&client.name);
+            self.session.launch.warnings.set(&code, message);
+        }
+        false
     }
 
     fn invalid(&mut self, channel: &str, error: &dyn std::fmt::Display) {
@@ -376,18 +467,10 @@ impl Core {
     /// Check each event against the device's permissions, as the GameStream control loop does,
     /// remember what it holds, and hand the rest to the injector.
     fn dispatch(&mut self, events: Vec<Input>, now: Instant) {
-        let client = &self.session.launch.client;
         let mut allowed = Vec::with_capacity(events.len());
         for event in events {
-            let permission = event.required_permission();
-            if !client.allows(permission) {
+            if !self.allowed(&event) {
                 self.summary.dropped += 1;
-                // Say once per kind that the device may not send it.
-                if self.denied & permission == 0 {
-                    self.denied |= permission;
-                    let (code, message) = event.denied_warning(&client.name);
-                    self.session.launch.warnings.set(&code, message);
-                }
                 continue;
             }
             self.channel.observe(&event);
@@ -418,6 +501,10 @@ impl Core {
         self.summary.injected += events.len() as u64;
         for error in sink.apply(&events) {
             session.launch.warnings.event("input_injection", format!("Input injection failed ({error:#}); keyboard, mouse or controller actions may be missing. Unlock the desktop and check Windows input permissions."), EVENT_PERIOD);
+        }
+        if let Some(received) = self.received {
+            self.delays
+                .record(Instant::now().saturating_duration_since(received));
         }
     }
 
@@ -471,7 +558,10 @@ impl Core {
 
     /// How long the worker may sleep: None to wait for the next message.
     fn wait(&self, now: Instant) -> Option<Duration> {
-        let busy = self.pads.active_mask() != 0 || !self.channel.held().is_empty();
+        // An injector, a plugged pad or a held key is something to give up when the session
+        // stops, even if the transport is slow to say so.
+        let busy =
+            self.sink.is_some() || self.pads.active_mask() != 0 || !self.channel.held().is_empty();
         let deadlines = [
             self.pads.next_tick(),
             self.sink.as_ref().and_then(|sink| sink.next_due()),
@@ -520,6 +610,9 @@ impl Core {
             injected = summary.injected,
             dropped = summary.dropped,
             rumble_sent = summary.rumble_sent,
+            queued = summary.queued,
+            queue_max_us = summary.queue_max_us,
+            queue_p99_us = summary.queue_p99_us,
             "WebRTC input summary"
         );
     }
@@ -558,6 +651,37 @@ fn run(rx: mpsc::Receiver<Message>, make: Make) {
     if let Some(sender) = control {
         core.control = Some(Box::new(move |data| sender.send(data, false)));
     }
+    // A panic must not leave a key or a button down on the desktop: whatever happened, release
+    // what the client held and unplug its pads, and say so loudly.
+    let served = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        serve(&mut core, &rx, early)
+    }));
+    if let Err(panic) = served {
+        let what = panic_text(panic.as_ref());
+        tracing::error!(panic = %what, "WebRTC input worker panicked; releasing held keys, buttons and controllers");
+        core.session.launch.warnings.set(
+            "input_worker",
+            format!("The input worker failed ({what}); keyboard, mouse and controller input stopped. Reconnect to restore it."),
+        );
+    }
+    let finished =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.finish(Instant::now())));
+    if finished.is_err() {
+        tracing::error!("WebRTC input worker failed again while releasing; dropping the injector");
+        core.sink = None;
+    }
+}
+
+fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic".into())
+}
+
+/// The worker's loop, until the transport closes, every handle is gone or the session stops.
+fn serve(core: &mut Core, rx: &mpsc::Receiver<Message>, mut early: VecDeque<Message>) {
     loop {
         let message = if let Some(message) = early.pop_front() {
             Some(message)
@@ -577,7 +701,7 @@ fn run(rx: mpsc::Receiver<Message>, make: Make) {
         let now = Instant::now();
         match message {
             Some(Message::Gamepad(text, received)) => core.gamepad(&text, received),
-            Some(Message::Input(text)) => core.input(&text, now),
+            Some(Message::Input(text, received)) => core.input(&text, received),
             Some(Message::GamepadClosed) => core.unplug(now),
             Some(Message::InputClosed) => core.release_held(now),
             Some(Message::Control(sender)) => {
@@ -590,7 +714,6 @@ fn run(rx: mpsc::Receiver<Message>, make: Make) {
             break;
         }
     }
-    core.finish(Instant::now());
 }
 
 #[cfg(test)]
@@ -609,6 +732,7 @@ mod recording {
         alive: usize,
         fail_makes: usize,
         denied_kinds: Vec<u16>,
+        panic_next: bool,
     }
 
     /// An injector that records what it is handed and injects nothing: a test fixture's input
@@ -653,6 +777,11 @@ mod recording {
             self.0.lock().unwrap().fail_makes = count;
         }
 
+        /// The next `apply` panics, as a bug in the injector would.
+        pub(crate) fn panic_once(&self) {
+            self.0.lock().unwrap().panic_next = true;
+        }
+
         pub(crate) fn forbid_feedback(&self, kind: u16) {
             self.0.lock().unwrap().denied_kinds.push(kind);
         }
@@ -673,7 +802,12 @@ mod recording {
 
     impl Sink for Recording {
         fn apply(&mut self, events: &[Input]) -> Vec<anyhow::Error> {
-            (self.0).0.lock().unwrap().events.extend_from_slice(events);
+            let mut log = (self.0).0.lock().unwrap();
+            if std::mem::take(&mut log.panic_next) {
+                drop(log);
+                panic!("the test injector panicked");
+            }
+            log.events.extend_from_slice(events);
             Vec::new()
         }
         fn next_due(&self) -> Option<Instant> {

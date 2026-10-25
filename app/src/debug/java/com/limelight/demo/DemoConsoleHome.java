@@ -131,7 +131,8 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
             super.startActivity(new Intent(intent).setClass(this, DemoPcView.class), options);
         } else if (StreamSettings.class.getName().equals(target)) {
             super.startActivity(new Intent(this, DemoStreamSettings.class), options);
-        } else if (target != null && target.startsWith("com.limelight.demo.")) {
+        } else if (target != null && (target.startsWith("com.limelight.demo.") || target.startsWith("com.limelight.pin."))) {
+            // The demo's own screens, and the PIN lock pad the app lock puts over Home.
             super.startActivity(intent, options);
         } else {
             Toast.makeText(this, R.string.demo_offline, Toast.LENGTH_SHORT).show();

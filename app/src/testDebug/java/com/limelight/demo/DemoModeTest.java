@@ -294,6 +294,17 @@ public class DemoModeTest {
         assertFalse(store.hasPin());
         assertEquals(PinLockActivity.class.getName(), shadowOf(set.get()).getNextStartedActivity().getComponent().getClassName());
 
+        // Home must let the app lock's pad through instead of answering "demo offline".
+        var home = Robolectric.buildActivity(DemoConsoleHome.class).create();
+        try {
+            home.get().startActivity(PinLockActivity.forApp(home.get()));
+            Intent pad = shadowOf(home.get()).getNextStartedActivity();
+            while (pad != null && !PinLockActivity.class.getName().equals(pad.getComponent().getClassName())) {
+                pad = shadowOf(home.get()).getNextStartedActivity();
+            }
+            assertNotNull("demo Home swallowed the PIN pad", pad);
+        } finally { home.destroy(); }
+
         Robolectric.buildActivity(DemoLauncherActivity.class,
                 new Intent(context, DemoLauncherActivity.class).putExtra("state", "pin-off")).setup();
         assertFalse(store.hasPin());

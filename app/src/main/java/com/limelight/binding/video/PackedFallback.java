@@ -34,4 +34,9 @@ public final class PackedFallback {
     public static String toast() {
         return "Full chroma stopped. Reconnecting without it.";
     }
+
+    /** The PC refused full chroma at stream start (or no mode is in common); the reason goes to the log. */
+    public static String refusedToast() {
+        return "PC can't stream full chroma. Starting without it.";
+    }
 }

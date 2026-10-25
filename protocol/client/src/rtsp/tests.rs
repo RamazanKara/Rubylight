@@ -265,6 +265,188 @@ fn packed_chroma_requires_distinct_capabilities_and_keeps_codec_ids() {
 }
 
 #[test]
+fn packed_ten_bit_without_a_common_ten_bit_mode_streams_eight_bit_packed() {
+    let base = "a=rtpmap:98 AV1/90000\r\na=sprop-parameter-sets=AAAAAU\r\n";
+    let offer = |modes: u8| {
+        DescribeInfo::parse(&format!(
+            "{base}a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:{modes}\r\n"
+        ))
+    };
+    // An HDR request: both depths of both codecs on the client.
+    let hdr = StreamConfig {
+        experimental_packed_444: true,
+        packed444_modes: 15,
+        supported_video_formats: VIDEO_FORMAT_H265
+            | VIDEO_FORMAT_H265_MAIN10
+            | VIDEO_FORMAT_AV1_MAIN8
+            | VIDEO_FORMAT_AV1_MAIN10,
+        ..Default::default()
+    };
+    // (host modes, client modes, client formats, the format streamed)
+    for (host, client, formats, expected) in [
+        // A host whose 10-bit probes failed (the Retroid and RX 7900 XT case).
+        (5, 15, hdr.supported_video_formats, VIDEO_FORMAT_AV1_MAIN8),
+        (1, 15, hdr.supported_video_formats, VIDEO_FORMAT_H265),
+        // A client that verified no 10-bit path.
+        (15, 5, hdr.supported_video_formats, VIDEO_FORMAT_AV1_MAIN8),
+        // 10-bit in common on one codec: still 10-bit, on that codec.
+        (
+            2 | 4,
+            15,
+            hdr.supported_video_formats,
+            VIDEO_FORMAT_H265_MAIN10,
+        ),
+        (15, 15, hdr.supported_video_formats, VIDEO_FORMAT_AV1_MAIN10),
+        // 10-bit AV1 on the host, but AV1 not on the client: 8-bit HEVC.
+        (
+            8 | 1,
+            15,
+            VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10,
+            VIDEO_FORMAT_H265,
+        ),
+    ] {
+        let config = StreamConfig {
+            packed444_modes: client,
+            supported_video_formats: formats,
+            ..hdr.clone()
+        };
+        assert_eq!(
+            offer(host).select_packed_format(&config).unwrap(),
+            expected,
+            "host {host} client {client}"
+        );
+    }
+    // No mode at all in common is a packed refusal, not a generic failure.
+    for (host, client, formats) in [
+        (4, 15, VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10),
+        (1 | 2, 4 | 8, hdr.supported_video_formats),
+        (0, 15, hdr.supported_video_formats),
+        (15, 0, hdr.supported_video_formats),
+    ] {
+        let config = StreamConfig {
+            packed444_modes: client,
+            supported_video_formats: formats,
+            ..hdr.clone()
+        };
+        assert!(
+            matches!(
+                offer(host).select_packed_format(&config),
+                Err(RtspError::PackedRefused(_))
+            ),
+            "host {host} client {client}"
+        );
+    }
+}
+
+fn packed_handshake(formats: u32) -> Handshake {
+    let mut request = params(None);
+    request.server_codec_mode_support |= SCM_AV1_MAIN8 | SCM_AV1_MAIN10;
+    request.config.experimental_packed_444 = true;
+    request.config.packed444_modes = 15;
+    request.config.supported_video_formats = formats;
+    Handshake::new(request).unwrap()
+}
+
+/// Runs a handshake until it fails or finishes; returns the failure.
+fn run_to_error(
+    handshake: &mut Handshake,
+    respond: impl Fn(&str, &str) -> Vec<u8>,
+) -> Option<RtspError> {
+    loop {
+        let request = match handshake.next_plain_request() {
+            Ok(Some(request)) => request,
+            Ok(None) => return None,
+            Err(e) => return Some(e),
+        };
+        let response = parse_response(&respond(&request.method, &request.target)).unwrap();
+        if let Err(e) = handshake.handle_plain_response(&response) {
+            return Some(e);
+        }
+    }
+}
+
+#[test]
+fn packed_hdr_against_a_host_without_ten_bit_packed_starts_in_eight_bit() {
+    let hdr = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10;
+    for (modes, expected, dropped) in [
+        (1, VIDEO_FORMAT_H265, true),
+        (3, VIDEO_FORMAT_H265_MAIN10, false),
+    ] {
+        let mut handshake = packed_handshake(hdr);
+        let sent = run(&mut handshake, |method, target| {
+            if method == "DESCRIBE" {
+                ok(2, "", &format!("{DESCRIBE}a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:{modes}\r\n"))
+            } else {
+                sunshine_host(method, target)
+            }
+        });
+        let outcome = handshake.finish().unwrap();
+        assert_eq!(outcome.negotiated_video_format, expected);
+        assert_eq!(outcome.packed_ten_bit_dropped(), dropped);
+        assert!(sent.iter().any(|message| message.starts_with("ANNOUNCE ")
+            && message.contains("a=x-rl-video[0].chromaPacking:1")));
+    }
+    // An SDR request that streams 8-bit dropped nothing.
+    let mut handshake = packed_handshake(VIDEO_FORMAT_H265);
+    run(&mut handshake, |method, target| {
+        if method == "DESCRIBE" {
+            ok(2, "", &format!("{DESCRIBE}a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:1\r\n"))
+        } else {
+            sunshine_host(method, target)
+        }
+    });
+    assert!(!handshake.finish().unwrap().packed_ten_bit_dropped());
+}
+
+#[test]
+fn packed_refusals_at_describe_and_announce_are_packed_refused() {
+    let hdr = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10;
+    // A host without packed 4:4:4 (its setting off): refused at DESCRIBE, before ANNOUNCE.
+    let mut handshake = packed_handshake(hdr);
+    let error = run_to_error(&mut handshake, sunshine_host).unwrap();
+    assert!(
+        matches!(&error, RtspError::PackedRefused(m) if m.contains("does not offer packed")),
+        "{error:?}"
+    );
+    let announce_refusal = |body: &'static str| {
+        move |method: &str, target: &str| {
+            if method == "DESCRIBE" {
+                ok(2, "", &format!("{DESCRIBE}a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:3\r\n"))
+            } else if method == "ANNOUNCE" {
+                format!(
+                    "RTSP/1.0 400 Bad Request\r\nCSeq: 7\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .into_bytes()
+            } else {
+                sunshine_host(method, target)
+            }
+        }
+    };
+    let geometry =
+        "packed encoder cannot support the requested dimensions and frame rate: 1920x1080 at 120";
+    let mut handshake = packed_handshake(hdr);
+    let error = run_to_error(&mut handshake, announce_refusal(geometry)).unwrap();
+    assert!(
+        matches!(&error, RtspError::PackedRefused(m) if m.contains(geometry)),
+        "{error:?}"
+    );
+    // Any other ANNOUNCE refusal keeps its status, packed or not.
+    let mut handshake = packed_handshake(hdr);
+    let error = run_to_error(&mut handshake, announce_refusal("encoder busy")).unwrap();
+    assert!(
+        matches!(error, RtspError::Status { code: 400, .. }),
+        "{error:?}"
+    );
+    let mut handshake = Handshake::new(params(None)).unwrap();
+    let error = run_to_error(&mut handshake, announce_refusal(geometry)).unwrap();
+    assert!(
+        matches!(error, RtspError::Status { code: 400, .. }),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn layered_packing_is_negotiated_per_codec_and_falls_back_to_version_one() {
     for (format, layered, expected) in [
         (VIDEO_FORMAT_H265, "", 1),

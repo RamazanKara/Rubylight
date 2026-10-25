@@ -28,5 +28,7 @@ public class PackedFallbackTest {
         // Android 12+ shows two lines at most; the reason (an exception message at worst) is logged.
         assertTrue(PackedFallback.toast().length() <= 60);
         assertTrue(PackedFallback.toast().contains("without"));
+        assertTrue(PackedFallback.refusedToast().length() <= 60);
+        assertTrue(PackedFallback.refusedToast().contains("without"));
     }
 }

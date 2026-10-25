@@ -180,6 +180,46 @@ public class NvConnectionHostNoticeTest {
     }
 
     @Test
+    public void aPcWithoutTenBitPackedModesIsSaidOnceAfterTheHandshake() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        String uuid = "packed-after-start-host";
+        String reason = "host doesn't offer 10-bit full chroma";
+        List<String> messages = new ArrayList<>();
+        NvConnectionListener listener = (NvConnectionListener) Proxy.newProxyInstance(
+                NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("displayTransientMessage")) messages.add((String) args[0]);
+                    return null;
+                });
+        // The handshake fell back to 8-bit packed: named once, not on every stream.
+        NvConnection.noticePackedAfterStart(app, uuid, listener, true, null, reason);
+        assertEquals(1, messages.size());
+        assertTrue(messages.get(0), messages.get(0).contains(reason));
+        NvConnection.noticePackedAfterStart(app, uuid, listener, true, null, reason);
+        assertEquals(1, messages.size());
+        // A stream that never asked for HDR says nothing; the launch's own reason is not said twice.
+        NvConnection.noticePackedAfterStart(app, uuid, listener, false, null, null);
+        NvConnection.noticePackedAfterStart(app, uuid, listener, true, "the display has no HDR10", "the display has no HDR10");
+        assertEquals(1, messages.size());
+        // A packed stream that kept 10-bit re-arms it.
+        NvConnection.noticePackedAfterStart(app, uuid, listener, true, null, null);
+        NvConnection.noticePackedAfterStart(app, uuid, listener, true, null, reason);
+        assertEquals(2, messages.size());
+
+        // The launch of a packed stream asking for HDR does not re-arm it: only the handshake knows.
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        String launchReason = "the GPU offers no 10-bit output";
+        try {
+            sessionPacked = true;
+            assertEquals(1, stream(SUNSHINE, false, offered, false, launchReason).size());
+            assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, false));
+            assertEquals(Collections.emptyList(), stream(SUNSHINE, false, offered, false, launchReason));
+        } finally {
+            sessionPacked = false;
+        }
+    }
+
+    @Test
     public void nativeFullChromaWinsOver10BitSdrOnlyWithAPcThatHasIt() throws Exception {
         int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H264_HIGH8_444 |
                 MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10;

@@ -55,6 +55,9 @@ pub mod error {
     pub const NO_VIDEO_TRAFFIC: i32 = -100;
     /// Video arrived but no complete key frame within 10 seconds (`ML_ERROR_NO_VIDEO_FRAME`).
     pub const NO_VIDEO_FRAME: i32 = -101;
+    /// Packed 4:4:4 cannot be streamed with this host ([`crate::rtsp::RtspError::PackedRefused`],
+    /// Java's `CLIENT_ERROR_PACKED_444_REFUSED`): the client may reconnect without it.
+    pub const PACKED_444_REFUSED: i32 = -106;
     /// A failure without an OS error code.
     pub const FAILED: i32 = -1;
 }
@@ -411,6 +414,7 @@ fn rtsp_error_code(error: &RtspError) -> i32 {
     match error {
         RtspError::Status { code, .. } => *code,
         RtspError::Io(e) => e.raw_os_error().unwrap_or(error::FAILED),
+        RtspError::PackedRefused(_) => error::PACKED_444_REFUSED,
         _ => error::FAILED,
     }
 }
@@ -732,6 +736,9 @@ fn start(
         }
     }
     let outcome = handshake.finish().map_err(rtsp_fail)?;
+    if outcome.packed_ten_bit_dropped() {
+        listener.warn("Packed 4:4:4: no 10-bit mode both endpoints offer; streaming 8-bit SDR");
+    }
     listener.host_control_messages(&outcome.host_control_messages);
     listener.stage_complete(Stage::RtspHandshake);
     check_interrupt(Stage::RtspHandshake)?;
@@ -997,6 +1004,31 @@ fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_packed_refusal_has_its_own_start_code_and_keeps_its_text() {
+        let refused = RtspError::PackedRefused(
+            "requested packed codec and bit depth are not supported by both endpoints".into(),
+        );
+        assert_eq!(rtsp_error_code(&refused), error::PACKED_444_REFUSED);
+        assert_eq!(
+            refused.to_string(),
+            "RTSP: requested packed codec and bit depth are not supported by both endpoints"
+        );
+        // Every other failure keeps its code, so only a packed refusal reconnects without it.
+        assert_eq!(
+            rtsp_error_code(&RtspError::Unsupported("x".into())),
+            error::FAILED
+        );
+        assert_eq!(
+            rtsp_error_code(&RtspError::Status {
+                request: "ANNOUNCE",
+                code: 400,
+                reason: "Bad Request".into(),
+            }),
+            400
+        );
+    }
 
     #[test]
     fn auto_location_caps_remote_packet_sizes() {

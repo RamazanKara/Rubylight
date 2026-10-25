@@ -49,6 +49,9 @@ pub enum RtspError {
     Malformed(String),
     Encryption(String),
     Unsupported(String),
+    /// Packed 4:4:4 was requested and cannot be streamed: no mode both endpoints offer, or the
+    /// host refused it at ANNOUNCE. The client may reconnect without it.
+    PackedRefused(String),
     InvalidConfig(String),
     Interrupted,
 }
@@ -67,6 +70,7 @@ impl std::fmt::Display for RtspError {
             RtspError::Malformed(e)
             | RtspError::Encryption(e)
             | RtspError::Unsupported(e)
+            | RtspError::PackedRefused(e)
             | RtspError::InvalidConfig(e) => {
                 write!(f, "RTSP: {e}")
             }
@@ -284,6 +288,13 @@ impl RtspOutcome {
     pub fn reference_frame_invalidation_enabled(&self) -> bool {
         self.host_reference_frame_invalidation
             && sdp::decoder_supports_rfi(self.negotiated_video_format, self.video_capabilities)
+    }
+
+    /// Packed 4:4:4 was asked for in 10-bit and streams 8-bit: no 10-bit mode in common.
+    pub fn packed_ten_bit_dropped(&self) -> bool {
+        self.config.experimental_packed_444
+            && self.config.supported_video_formats & sdp::VIDEO_FORMAT_MASK_10BIT != 0
+            && self.negotiated_video_format & sdp::VIDEO_FORMAT_MASK_10BIT == 0
     }
 }
 
@@ -776,7 +787,17 @@ impl Handshake {
             }
             Stage::Announce => {
                 if !ok {
-                    return Err(failed());
+                    let error = failed();
+                    // Rubylight names packed 4:4:4 in each of its ANNOUNCE refusals of it (disabled,
+                    // a mode that failed its probe, a geometry its encoder cannot take).
+                    if let RtspError::Status { code, reason, .. } = &error {
+                        if self.out.config.experimental_packed_444 && reason.contains("packed") {
+                            return Err(RtspError::PackedRefused(format!(
+                                "host refused packed 4:4:4 at ANNOUNCE: {code} {reason}"
+                            )));
+                        }
+                    }
+                    return Err(error);
                 }
                 if self.at_least(7, 1, 431) {
                     Stage::Play

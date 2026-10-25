@@ -3804,12 +3804,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
      * session already runs without it or cannot reconnect now; the caller then ends the stream.
      */
     private boolean reconnectWithoutPackedChroma(String reason) {
+        return reconnectWithoutPackedChroma("Packed full chroma stopped: " + reason, PackedFallback.toast());
+    }
+
+    private boolean reconnectWithoutPackedChroma(String logLine, String toast) {
         boolean unpacked = getIntent().getBooleanExtra(EXTRA_PACKED_OFF, false);
         boolean canReconnect = foreground && !isFinishing() && !isDestroyed();
         if (PackedFallback.onFailure(unpacked, canReconnect) != PackedFallback.Action.RECONNECT_WITHOUT_PACKED) return false;
-        LimeLog.warning("Packed full chroma stopped: " + reason);
+        LimeLog.warning(logLine);
         if (!tryAutomaticRecovery(true)) return false;
-        Toast.makeText(getApplicationContext(), PackedFallback.toast(), Toast.LENGTH_LONG).show();
+        Toast.makeText(getApplicationContext(), toast, Toast.LENGTH_LONG).show();
         return true;
     }
 
@@ -6052,9 +6056,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LimeLog.info("Stream failed");
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
-        final boolean transientRecoveryFailure = isRecoveryAttempt() &&
+        // Experimental full chroma refused by the PC (or no mode in common): not a network failure.
+        final boolean packedRefused = errorCode == MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED;
+        final boolean transientRecoveryFailure = !packedRefused && isRecoveryAttempt() &&
                 StreamRecoveryPolicy.transientStartup(stage, portFlags, errorCode);
-        final int portTestResult = portFlags == 0 || transientRecoveryFailure ? MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
+        final int portTestResult = portFlags == 0 || transientRecoveryFailure || packedRefused ?
+                MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
                 MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443, portFlags);
 
         runOnUiThread(new Runnable() {
@@ -6063,6 +6070,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
+                // Once per session: the replacement starts without full chroma. A refusal in a session
+                // already without it (never expected: it does not ask) shows the error as usual.
+                if (packedRefused && reconnectWithoutPackedChroma("Full chroma refused at stream start (" +
+                        terminationDescription(errorCode) + (connectionErrorMessage != null ?
+                        "): " + connectionErrorMessage : ")"), PackedFallback.refusedToast())) return;
                 if (transientRecoveryFailure && tryAutomaticRecovery()) return;
                 if (spinner != null) {
                     spinner.dismiss();
@@ -6137,6 +6149,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case MoonBridge.ML_ERROR_PROTECTED_CONTENT: return code + " (protected content)";
             case MoonBridge.ML_ERROR_FRAME_CONVERSION: return code + " (frame conversion failed on the PC)";
             case MoonBridge.CLIENT_ERROR_VULKAN_RENDERER: return code + " (Vulkan renderer failed on this device)";
+            case MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED: return code + " (full chroma not available with this PC)";
             // This device's own code for a connection that ended without any reason from the PC.
             case -1: return code + " (connection lost, no reason from the PC)";
             default: return code + " (reported by the PC)";

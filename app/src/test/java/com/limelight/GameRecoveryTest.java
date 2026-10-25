@@ -917,6 +917,57 @@ public class GameRecoveryTest {
         assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
     }
 
+    // The RTSP handshake failed because full chroma cannot be streamed with this PC (code -106).
+    private static void refuseFullChromaAtStart(Game game) {
+        ReflectionHelpers.setField(game, "connected", false);
+        ReflectionHelpers.setField(game, "connecting", true);
+        game.stageFailed("RTSP handshake", MoonBridge.ML_PORT_FLAG_TCP_48010,
+                MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED);
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aFullChromaRefusalAtStartReconnectsOnceWithoutItInsteadOfAnError() throws Exception {
+        // Also on a startup retry, where a transient-looking failure would otherwise retry as it was.
+        for (int attempts : new int[] {0, 1}) {
+            Game game = recoveryGame();
+            long started = SystemClock.elapsedRealtime();
+            game.setIntent(new Intent().putExtra("RecoveryAttempts", attempts).putExtra("RecoveryStarted", started));
+            ReflectionHelpers.setField(game, "recoveryPolicy", new StreamRecoveryPolicy(attempts, started));
+            PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+            config.autoReconnect = false;
+            RecoveryBridge.connectivityTests = 0;
+            try {
+                refuseFullChromaAtStart(game);
+                assertNull("no error dialog", ReflectionHelpers.getField(game, "streamMenu"));
+                assertEquals("not a network failure", 0, RecoveryBridge.connectivityTests);
+                // The usual backoff: 1 s, then 2 s.
+                Intent retry = awaitRecoveryLaunch(game, attempts + 1);
+                assertTrue(retry.getBooleanExtra("PackedChromaOff", false));
+                assertEquals(attempts + 1, retry.getIntExtra("RecoveryAttempts", 0));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aSecondFullChromaRefusalShowsTheConnectionErrorWithoutAnotherRetry() {
+        Game game = recoveryGame();
+        // The session the first refusal started: already without full chroma.
+        game.setIntent(new Intent().putExtra("PackedChromaOff", true).putExtra("RecoveryAttempts", 1));
+        try {
+            refuseFullChromaAtStart(game);
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            assertTrue(ReflectionHelpers.getField(game, "displayedFailureDialog"));
+            assertNotNull("the usual connection error", ReflectionHelpers.getField(game, "streamMenu"));
+        } finally {
+            cleanupRecovery(game);
+        }
+        assertTrue(Game.terminationDescription(MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED).contains("full chroma"));
+    }
+
     @Test public void recoveryQueuesOneAttemptAndStoppingCancelsIt() {
         Game game = recoveryGame();
         try {

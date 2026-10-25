@@ -86,6 +86,8 @@ public class NvConnection {
     private volatile boolean stopRequested;
     private boolean nativeStarted;
     private volatile boolean nativeConnected;
+    // Why packed full chroma left HDR out before the launch (startApp), or null.
+    private String packedHdrDropAtLaunch;
     private long lastServerCommandTime;
     private volatile ScheduledExecutorService inputPoller;
     private ScheduledFuture<?> inputPoll;
@@ -549,6 +551,31 @@ public class NvConnection {
         return formats | pyroWave;
     }
 
+    /** Packed full chroma streams 8-bit SDR 4:4:4 for {@code reason}: said once per PC. */
+    static void announcePackedHdrDrop(Context appContext, String uuid, NvConnectionListener listener, String reason) {
+        LimeLog.warning("HDR not used with packed full chroma: " + reason);
+        if (HostNotices.claim(appContext, uuid, HostNotices.Notice.PACKED_HDR_UNAVAILABLE)) {
+            listener.displayTransientMessage("HDR is off: experimental full chroma cannot run in HDR here (" +
+                    reason + "). The stream is 8-bit SDR 4:4:4.");
+        }
+    }
+
+    /**
+     * After the RTSP handshake of a packed full-chroma stream that asked for HDR. Only there does
+     * the PC say whether it has a 10-bit packed mode; without one the stream is 8-bit and the
+     * renderer names why ({@code dropAfter} differs from the launch's {@code dropAtLaunch}, already
+     * said). A packed stream that kept HDR re-arms the notice.
+     */
+    static void noticePackedAfterStart(Context appContext, String uuid, NvConnectionListener listener,
+                                       boolean negotiatedHdr, String dropAtLaunch, String dropAfter) {
+        if (!negotiatedHdr) return;
+        if (dropAfter == null) {
+            HostNotices.reset(appContext, uuid, HostNotices.Notice.PACKED_HDR_UNAVAILABLE);
+        } else if (!dropAfter.equals(dropAtLaunch)) {
+            announcePackedHdrDrop(appContext, uuid, listener, dropAfter);
+        }
+    }
+
     private boolean startApp(VideoDecoderRenderer renderer) throws XmlPullParserException, IOException
     {
         NvHTTP h = new NvHTTP(context.serverAddress, context.httpsPort, uniqueId, context.serverCert, cryptoProvider);
@@ -748,14 +775,10 @@ public class NvConnection {
                 HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PYROWAVE_HDR_UNAVAILABLE);
             }
             String packedHdrDrop = renderer.packedHdrDropReason();
+            packedHdrDropAtLaunch = packedHdrDrop;
             if (packedHdrDrop != null) {
                 // The 10-bit formats were left out before negotiating, so the launch asks for SDR too.
-                LimeLog.warning("HDR not used with packed full chroma: " + packedHdrDrop);
-                if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.PACKED_HDR_UNAVAILABLE)) {
-                    context.connListener.displayTransientMessage(
-                            "HDR is off: experimental full chroma cannot run in HDR here (" + packedHdrDrop +
-                                    "). The stream is 8-bit SDR 4:4:4.");
-                }
+                announcePackedHdrDrop(appContext, details.uuid, context.connListener, packedHdrDrop);
             } else if (yuv444OverSdr10) {
                 // No 10-bit was negotiated, so the launch does not say hdrMode=0 either.
                 LimeLog.warning("10-bit SDR not used: native 4:4:4 takes precedence");
@@ -781,7 +804,11 @@ public class NvConnection {
             } else if (context.negotiatedHdr) {
                 // HDR works with this PC now; if it stops, say so again.
                 HostNotices.reset(appContext, details.uuid, HostNotices.Notice.HDR_UNAVAILABLE);
-                HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PACKED_HDR_UNAVAILABLE);
+                // A packed stream learns only in the RTSP handshake whether the PC has 10-bit packed
+                // modes; noticePackedAfterStart decides for it.
+                if (!context.streamConfig.isPacked444()) {
+                    HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PACKED_HDR_UNAVAILABLE);
+                }
             }
 
         }
@@ -1088,6 +1115,11 @@ public class NvConnection {
                                 sentLinkMbps, pyroWavePaceMbps, clientWireless);
                         if (ret != 0) {
                             return;
+                        }
+                        if (context.streamConfig.isPacked444()) {
+                            noticePackedAfterStart(appContext, hostDetails.uuid, context.connListener,
+                                    context.negotiatedHdr, packedHdrDropAtLaunch,
+                                    videoDecoderRenderer.packedHdrDropReason());
                         }
                         nativeConnected = true;
                         startInputPolling(prefs.unbatchedInput);

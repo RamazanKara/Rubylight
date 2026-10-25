@@ -175,7 +175,40 @@ public class MediaCodecOutputFormatTest {
                 assertEquals(com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265, launch);
                 if (issue != null) assertEquals(issue, holder[0].packedHdrDropReason());
                 else assertNotNull("a generic reason when the probe left none", holder[0].packedHdrDropReason());
+                assertEquals(false, ReflectionHelpers.getField(holder[0], "packedTenBitOffered"));
             }
+        }
+    }
+
+    @Test
+    public void aPcWithoutTenBitPackedModesIsNamedAsTheReasonHdrIsOff() {
+        int hevc = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265;
+        int hevc10 = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        String host = MediaCodecDecoderRenderer.ISSUE_HOST_NO_TEN_BIT;
+        assertEquals("host doesn't offer 10-bit full chroma", host);
+        // 10-bit offered, the handshake picked 8-bit packed: the PC had no 10-bit mode.
+        assertEquals(host, MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc));
+        assertNull(MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc | hevc10));
+        // Never offered, or already left out at the launch for this device's own reason.
+        assertNull(MediaCodecDecoderRenderer.hostTenBitDrop(false, null, hevc));
+        assertEquals(MediaCodecDecoderRenderer.ISSUE_NO_HDR10_DISPLAY, MediaCodecDecoderRenderer.hostTenBitDrop(
+                true, MediaCodecDecoderRenderer.ISSUE_NO_HDR10_DISPLAY, hevc));
+
+        // The preparation marks a verified 10-bit mode as offered.
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+            prefs.experimentalPacked444 = true;
+            prefs.rustEngine = true;
+            MediaCodecDecoderRenderer renderer = packedRenderer(activity.get(), prefs, fps -> 0b0011);
+            renderer.prepareVideoFormats(hevc | hevc10, 1920, 1080, 60);
+            assertNull(renderer.packedHdrDropReason());
+            assertEquals(true, ReflectionHelpers.getField(renderer, "packedTenBitOffered"));
+            // A session without packed chroma offers none.
+            prefs.experimentalPacked444 = false;
+            renderer.prepareVideoFormats(hevc | hevc10, 1920, 1080, 60);
+            assertEquals(false, ReflectionHelpers.getField(renderer, "packedTenBitOffered"));
         }
     }
 

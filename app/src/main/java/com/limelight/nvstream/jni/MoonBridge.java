@@ -71,6 +71,10 @@ public class MoonBridge {
     public static final int ML_ERROR_FRAME_CONVERSION = -104;
     // This device's own code, never sent by a PC: the optional Vulkan renderer failed mid-stream
     public static final int CLIENT_ERROR_VULKAN_RENDERER = -105;
+    // The New engine's start code (nightjar-core error::PACKED_444_REFUSED), never sent by a PC:
+    // experimental full chroma cannot be streamed with this PC (no packed mode both sides offer,
+    // or the PC refused it), so the stream may reconnect without it
+    public static final int CLIENT_ERROR_PACKED_444_REFUSED = -106;
 
     public static final int ML_PORT_INDEX_TCP_47984 = 0;
     public static final int ML_PORT_INDEX_TCP_47989 = 1;

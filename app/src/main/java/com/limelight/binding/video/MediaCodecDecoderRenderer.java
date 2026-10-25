@@ -103,6 +103,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile StreamSizeListener streamSizeListener;
     private volatile PackedFailureListener packedFailureListener;
     private volatile String packedHdrDrop;
+    // prepareVideoFormats kept 10-bit for packed full chroma: a verified 10-bit mode went to the PC.
+    private volatile boolean packedTenBitOffered;
     private String packedTenBitIssue;
     private int[] packedProbe;
     private int videoFormat;
@@ -1548,17 +1550,38 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
      */
     private int gatePackedHdr(int formats, int width, int height, int fps) {
         packedHdrDrop = null;
+        packedTenBitOffered = false;
         if (!prefs.experimentalPacked444 || !prefs.rustEngine ||
                 (formats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) == 0) return formats;
         int modes = preparePacked444Modes(formats, width, height, fps);
-        if (modes == 0 || (modes & PACKED_10BIT_MODES) != 0) return formats;
+        if (modes == 0) return formats;
+        if ((modes & PACKED_10BIT_MODES) != 0) {
+            packedTenBitOffered = true;
+            return formats;
+        }
         packedHdrDrop = packedTenBitIssue != null ? packedTenBitIssue :
                 "no 10-bit full-chroma decoder path could be verified on this device";
         LimeLog.warning("Packed full chroma without HDR: " + packedHdrDrop);
         return formats & ~MoonBridge.VIDEO_FORMAT_MASK_10BIT;
     }
 
-    /** Why HDR was left out of this stream's packed full chroma, or null. Set by prepareVideoFormats. */
+    static final String ISSUE_HOST_NO_TEN_BIT = "host doesn't offer 10-bit full chroma";
+
+    /**
+     * Why a packed stream that offered 10-bit got {@code negotiatedFormat}: the RTSP handshake picks
+     * 8-bit packed when the PC advertises no 10-bit packed mode this device also has. Null when it
+     * is 10-bit, when 10-bit was never offered, or when the launch already left HDR out.
+     */
+    static String hostTenBitDrop(boolean tenBitOffered, String dropAtLaunch, int negotiatedFormat) {
+        if (!tenBitOffered || dropAtLaunch != null ||
+                (negotiatedFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) return dropAtLaunch;
+        return ISSUE_HOST_NO_TEN_BIT;
+    }
+
+    /**
+     * Why HDR was left out of this stream's packed full chroma, or null. Set by prepareVideoFormats,
+     * and by setup when the PC had no 10-bit packed mode.
+     */
     @Override
     public String packedHdrDropReason() {
         return packedHdrDrop;
@@ -2155,6 +2178,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             this.refreshRate = redrawRate;
             this.streamFrameRateMilliHz = FramePacingPolicy.negotiatedFrameRateMilliHz(
                     streamFrameRateMilliHz, redrawRate);
+            String drop = hostTenBitDrop(packedTenBitOffered, packedHdrDrop, format);
+            if (drop != null && !drop.equals(packedHdrDrop)) {
+                LimeLog.warning("Packed full chroma without HDR: " + drop);
+                packedHdrDrop = drop;
+            }
 
             if ((format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 setupUpscaling();

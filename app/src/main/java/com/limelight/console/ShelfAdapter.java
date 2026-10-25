@@ -201,8 +201,12 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         final View more;
         final boolean cover;
         final boolean tile;
-        /** A TV poster's chips: the star of a favourite and the store's glyph or name. The phone's cover has neither. */
+        /**
+         * A TV poster's chips: at its top end the star of a favourite and the store's glyph or name, at its foot Not
+         * installed or what adding takes. The phone's cover has none of them.
+         */
         final ImageView star;
+        final TextView storeMark;
         final TextView store;
         /** An "All N" tile's count, the row's name and the store's glyph. */
         final TextView allCount;
@@ -228,6 +232,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             badge = view.findViewById(R.id.console_badge);
             more = view.findViewById(R.id.console_more);
             star = view.findViewById(R.id.console_star);
+            storeMark = view.findViewById(R.id.console_store_mark);
             store = view.findViewById(R.id.console_store);
             allCount = view.findViewById(R.id.console_all_count);
             allName = view.findViewById(R.id.console_all_name);
@@ -348,44 +353,55 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         }
 
         /**
-         * The chip at the poster's foot: the store's glyph, with Not installed or what adding takes beside it. A store
-         * without a glyph shows its name instead; a game of no store shows the chip only when it cannot start.
+         * The poster's store chips. The store's glyph (or, without one, its name) sits in the top end corner, clear of
+         * the title art a cover has at its foot; Not installed or what adding takes keeps the foot.
          */
         private void bindStore(Context context, HomeModel.GameCard card) {
-            int glyph = Stores.glyph(card.store());
             CharSequence label = availabilityOf(context, card);
-            // On a narrow poster (All games' grid) the words win: the focus caption names the store anyway.
-            if (label != null && glyph != 0 && !fits(context, label)) glyph = 0;
-            if (label == null && glyph == 0) label = card.storeName();
-            if (label == null && glyph == 0) {
-                store.setVisibility(View.GONE);
+            store.setText(label);
+            store.setVisibility(label == null ? View.GONE : View.VISIBLE);
+
+            android.content.res.Resources res = context.getResources();
+            int glyph = Stores.glyph(card.store());
+            CharSequence name = glyph == 0 ? card.storeName() : null;
+            int chip = res.getDimensionPixelSize(R.dimen.card_chip_height);
+            int pad = res.getDimensionPixelSize(R.dimen.space_s);
+            int width = glyph != 0 ? chip
+                    : name == null ? 0 : Math.round(storeMark.getPaint().measureText(name.toString())) + 2 * pad;
+            // On a narrow poster Running or Suspended and the star win: the focus caption and the row name the store.
+            if (width == 0 || width > roomForMark(context, card)) {
+                storeMark.setVisibility(View.GONE);
                 return;
             }
-            store.setText(label);
+            storeMark.setText(name);
             Drawable mark = null;
             if (glyph != 0) {
                 mark = AppCompatResources.getDrawable(context, glyph);
-                int size = context.getResources().getDimensionPixelSize(R.dimen.card_chip_glyph);
+                int size = res.getDimensionPixelSize(R.dimen.card_chip_glyph);
                 if (mark != null) mark.setBounds(0, 0, size, size);
             }
-            store.setCompoundDrawablesRelative(mark, null, null, null);
+            storeMark.setCompoundDrawablesRelative(mark, null, null, null);
             // A glyph alone sits in a round chip.
-            int side = label == null ? (context.getResources().getDimensionPixelSize(R.dimen.card_chip_height)
-                    - context.getResources().getDimensionPixelSize(R.dimen.card_chip_glyph)) / 2
-                    : context.getResources().getDimensionPixelSize(R.dimen.space_s);
-            store.setPaddingRelative(side, 0, side, 0);
-            store.setVisibility(View.VISIBLE);
+            int side = glyph != 0 ? (chip - res.getDimensionPixelSize(R.dimen.card_chip_glyph)) / 2 : pad;
+            storeMark.setPaddingRelative(side, 0, side, 0);
+            storeMark.setVisibility(View.VISIBLE);
         }
 
-        /** Whether the store's glyph and this label fit side by side in the chip on this card's poster. */
-        private boolean fits(Context context, CharSequence label) {
+        /** How wide the store's mark may be in the top row, beside Running or Suspended and the star. */
+        private int roomForMark(Context context, HomeModel.GameCard card) {
             android.content.res.Resources res = context.getResources();
-            int card = env.cardWidthPx > 0 ? env.cardWidthPx : res.getDimensionPixelSize(R.dimen.shelf_card_width);
+            int width = env.cardWidthPx > 0 ? env.cardWidthPx : res.getDimensionPixelSize(R.dimen.shelf_card_width);
             int margin = res.getDimensionPixelSize(R.dimen.space_s);
-            int room = card - 2 * res.getDimensionPixelSize(R.dimen.cover_inset) - 2 * margin;
-            float need = store.getPaint().measureText(label.toString()) + res.getDimensionPixelSize(R.dimen.card_chip_glyph)
-                    + store.getCompoundDrawablePadding() + 2 * margin;
-            return need <= room;
+            int room = width - 2 * res.getDimensionPixelSize(R.dimen.cover_inset) - 2 * margin;
+            if (card.favourite) {
+                room -= res.getDimensionPixelSize(R.dimen.card_chip_height) + res.getDimensionPixelSize(R.dimen.space_xs);
+            }
+            if (badge.getVisibility() == View.VISIBLE) {
+                Drawable dot = badge.getCompoundDrawablesRelative()[0];
+                room -= Math.round(badge.getPaint().measureText(badge.getText().toString())) + 2 * margin + margin
+                        + (dot == null ? 0 : dot.getIntrinsicWidth() + badge.getCompoundDrawablePadding());
+            }
+            return room;
         }
 
         /** A row's name, as its heading and its "All N" tile say it. */

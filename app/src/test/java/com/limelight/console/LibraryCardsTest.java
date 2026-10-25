@@ -10,10 +10,12 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 import android.content.Context;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ContextThemeWrapper;
 import android.widget.FrameLayout;
@@ -125,10 +127,14 @@ public class LibraryCardsTest {
         assertNotNull("a poster not installed is grey", portal.image.getColorFilter());
         assertEquals(View.VISIBLE, portal.store.getVisibility());
         assertEquals(context.getString(R.string.console_chip_not_installed), portal.store.getText().toString());
-        // Steam has a glyph: an installed game shows it alone.
-        assertEquals(View.VISIBLE, doom.store.getVisibility());
-        assertEquals("", doom.store.getText().toString());
-        assertNotNull(doom.store.getCompoundDrawablesRelative()[0]);
+        assertNull("the foot's chip has words only", portal.store.getCompoundDrawablesRelative()[0]);
+        // Steam has a glyph: both posters show it alone, up in the corner; an installed game has nothing at its foot.
+        assertEquals(View.VISIBLE, portal.storeMark.getVisibility());
+        assertNotNull(portal.storeMark.getCompoundDrawablesRelative()[0]);
+        assertEquals(View.GONE, doom.store.getVisibility());
+        assertEquals(View.VISIBLE, doom.storeMark.getVisibility());
+        assertEquals("", doom.storeMark.getText().toString());
+        assertNotNull(doom.storeMark.getCompoundDrawablesRelative()[0]);
         String description = portal.itemView.getContentDescription().toString();
         assertTrue(description, description.startsWith("Portal, Steam, "));
         assertTrue(description, description.contains(context.getString(R.string.console_chip_not_installed)));
@@ -152,9 +158,12 @@ public class LibraryCardsTest {
                 game(2, "Desktop", null, true, null));
         ConsoleHomeAdapter adapter = adapter(model());
         ShelfAdapter.CardHolder tetris = card(adapter, "shelf:store:itch", 0);
-        assertEquals("itch.io", tetris.store.getText().toString());
-        assertNull(tetris.store.getCompoundDrawablesRelative()[0]);
-        assertEquals(View.GONE, card(adapter, "shelf:other", 0).store.getVisibility());
+        assertEquals("itch.io", tetris.storeMark.getText().toString());
+        assertNull(tetris.storeMark.getCompoundDrawablesRelative()[0]);
+        assertEquals(View.GONE, tetris.store.getVisibility());
+        ShelfAdapter.CardHolder desktop = card(adapter, "shelf:other", 0);
+        assertEquals(View.GONE, desktop.storeMark.getVisibility());
+        assertEquals(View.GONE, desktop.store.getVisibility());
     }
 
     @Test
@@ -320,17 +329,42 @@ public class LibraryCardsTest {
     }
 
     @Test
-    public void aPosterTooNarrowForTheGlyphAndItsWordsKeepsTheWords() throws Exception {
+    public void theStoresMarkSitsInTheTopEndCornerAndNotInstalledAtTheFoot() throws Exception {
         tower(Collections.emptyList(), game(1, "Portal", "steam", false, null));
-        HomeModel.GameCard portal = model().allGames.get(0);
+        ShelfAdapter.CardHolder portal = card(adapter(model()), "shelf:store:steam", 0);
+        // A cover's own title art is at its foot: the store's glyph keeps clear of it, up with the star.
+        View marks = (View) portal.storeMark.getParent();
+        assertEquals(R.id.console_marks, marks.getId());
+        assertEquals(Gravity.TOP | Gravity.END, ((FrameLayout.LayoutParams) marks.getLayoutParams()).gravity);
+        assertSame("the star sits beside the glyph", marks, portal.star.getParent());
+        assertEquals(Gravity.BOTTOM | Gravity.START, ((FrameLayout.LayoutParams) portal.store.getLayoutParams()).gravity);
+    }
+
+    @Test
+    public void aPosterTooNarrowForTheGlyphBesideRunningKeepsRunning() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", false, null),
+                NativeApiFixtures.game("t-2", 2, "Doom", "steam:2", true));
+        List<HomeModel.GameCard> games = model().allGames;
+        android.content.res.Resources res = context.getResources();
         ShelfAdapter.Env env = new ShelfAdapter.Env(context, null, uuid -> null, null);
-        env.cardWidthPx = 60;
+        // Room for the glyph's chip alone.
+        env.cardWidthPx = 2 * res.getDimensionPixelSize(R.dimen.cover_inset) + 2 * res.getDimensionPixelSize(R.dimen.space_s)
+                + res.getDimensionPixelSize(R.dimen.card_chip_height);
         ShelfAdapter adapter = new ShelfAdapter(env);
-        adapter.setItems("all-games", Collections.singletonList(new ShelfAdapter.Item(portal.key, portal, null)));
-        ShelfAdapter.CardHolder holder = adapter.onCreateViewHolder(new FrameLayout(context), adapter.getItemViewType(0));
-        adapter.onBindViewHolder(holder, 0);
-        assertEquals(context.getString(R.string.console_chip_not_installed), holder.store.getText().toString());
-        assertNull(holder.store.getCompoundDrawablesRelative()[0]);
+        List<ShelfAdapter.Item> items = new ArrayList<>();
+        for (HomeModel.GameCard game : games) items.add(new ShelfAdapter.Item(game.key, game, null));
+        adapter.setItems("all-games", items);
+        for (int i = 0; i < games.size(); i++) {
+            ShelfAdapter.CardHolder holder = adapter.onCreateViewHolder(new FrameLayout(context), adapter.getItemViewType(i));
+            adapter.onBindViewHolder(holder, i);
+            if (games.get(i).title.equals("Portal")) {
+                assertEquals(View.VISIBLE, holder.storeMark.getVisibility());
+                assertEquals(context.getString(R.string.console_chip_not_installed), holder.store.getText().toString());
+            } else {
+                assertEquals(View.VISIBLE, holder.badge.getVisibility());
+                assertEquals("Running wins the top row", View.GONE, holder.storeMark.getVisibility());
+            }
+        }
     }
 
     private static List<String> titles(List<HomeModel.GameCard> cards) {

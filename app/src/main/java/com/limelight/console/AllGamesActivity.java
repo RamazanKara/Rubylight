@@ -234,10 +234,10 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         if (refresh) loading.setVisibility(View.VISIBLE);
         worker.execute(() -> {
             try {
-                show(mine, HomeModel.of(repo.cached(hosts), online), !refresh);
+                show(mine, HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts)), !refresh);
                 if (refresh) {
                     ConsoleSnapshot fresh = repo.refresh(hosts);
-                    show(mine, HomeModel.of(fresh, online), true);
+                    show(mine, HomeModel.of(fresh, online, HomeModel.launchDenied(hosts)), true);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -302,10 +302,13 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         }
     }
 
-    /** The chips, made again only when the library's sources or counts change; the chosen one is selected. */
+    /**
+     * The chips, made again only when the library's sources change; when only a count changes the chips keep their
+     * views, and focus, and just say the new count. The chosen one is selected.
+     */
     private void bindFilters() {
         StringBuilder signature = new StringBuilder();
-        for (HomeModel.Filter f : model.filters) signature.append(f.key).append('=').append(f.count).append(';');
+        for (HomeModel.Filter f : model.filters) signature.append(f.key).append(';');
         if (!signature.toString().equals(filterSignature)) {
             filterSignature = signature.toString();
             View focused = filterRow.findFocus();
@@ -315,10 +318,6 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             for (HomeModel.Filter f : model.filters) {
                 MaterialButton chip = (MaterialButton) inflater.inflate(R.layout.view_filter_chip, filterRow, false);
                 chip.setTag(f.key);
-                CharSequence label = labelOf(this, f);
-                chip.setText(chipText(label, f.count));
-                chip.setContentDescription(getResources().getQuantityString(R.plurals.console_filter_description,
-                        f.count, label, f.count));
                 String store = f.key.startsWith(HomeModel.STORE_FILTER)
                         ? f.key.substring(HomeModel.STORE_FILTER.length()) : null;
                 int glyph = Stores.glyph(store);
@@ -327,6 +326,14 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
                 filterRow.addView(chip);
                 if (f.key.equals(focusedKey)) chip.requestFocus();
             }
+        }
+        for (int i = 0; i < filterRow.getChildCount() && i < model.filters.size(); i++) {
+            HomeModel.Filter f = model.filters.get(i);
+            MaterialButton chip = (MaterialButton) filterRow.getChildAt(i);
+            CharSequence label = labelOf(this, f);
+            chip.setText(chipText(label, f.count));
+            chip.setContentDescription(getResources().getQuantityString(R.plurals.console_filter_description,
+                    f.count, label, f.count));
         }
         for (int i = 0; i < filterRow.getChildCount(); i++) {
             View chip = filterRow.getChildAt(i);

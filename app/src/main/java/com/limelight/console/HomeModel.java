@@ -3,6 +3,7 @@ package com.limelight.console;
 import com.limelight.nativeapi.ConsoleSnapshot;
 import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nativeapi.NativeSession;
+import com.limelight.nvstream.http.ComputerDetails;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -204,6 +205,15 @@ public final class HomeModel {
                 new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
     }
 
+    /** The UUIDs of the hosts that do not let this device start games (no Launch permission). */
+    public static Set<String> launchDenied(List<ComputerDetails> hosts) {
+        Set<String> denied = new HashSet<>();
+        for (ComputerDetails host : hosts) {
+            if (!host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) denied.add(host.uuid);
+        }
+        return denied;
+    }
+
     /** The row with this key, or null. */
     public Row row(String key) {
         for (Row row : rows) {
@@ -219,6 +229,14 @@ public final class HomeModel {
 
     /** {@code onlineHosts} are the UUIDs of the hosts that answer now. */
     public static HomeModel of(ConsoleSnapshot snapshot, Set<String> onlineHosts) {
+        return of(snapshot, onlineHosts, Collections.emptySet());
+    }
+
+    /**
+     * {@code onlineHosts} are the UUIDs of the hosts that answer now, {@code launchDenied} those where this device
+     * may not start games ({@link #launchDenied}): a game they have not added is added on the PC, not from here.
+     */
+    public static HomeModel of(ConsoleSnapshot snapshot, Set<String> onlineHosts, Set<String> launchDenied) {
         Set<String> starred = new HashSet<>();
         List<GameCard> favourites = new ArrayList<>();
         for (ConsoleSnapshot.Starred entry : snapshot.favourites) {
@@ -262,7 +280,7 @@ public final class HomeModel {
                     badgeOf(snapshot, best), best, hosts, starred.contains(best.hostUuid + ":" + best.appId)));
         }
         List<GameCard> allGames = new ArrayList<>();
-        List<Row> rows = libraryRows(snapshot, starred, allGames);
+        List<Row> rows = libraryRows(snapshot, starred, allGames, launchDenied);
         List<HostCard> hosts = new ArrayList<>();
         for (ConsoleSnapshot.Host host : snapshot.hosts) {
             boolean online = onlineHosts.contains(host.uuid);
@@ -295,7 +313,8 @@ public final class HomeModel {
      * desaturated), else, when its host lists the games it has not added, one not added. Each store's row has the
      * installed games first and is as long as the store's share, largest store first; the apps of no store follow.
      */
-    private static List<Row> libraryRows(ConsoleSnapshot snapshot, Set<String> starred, List<GameCard> allGames) {
+    private static List<Row> libraryRows(ConsoleSnapshot snapshot, Set<String> starred, List<GameCard> allGames,
+                                         Set<String> launchDenied) {
         Map<String, List<GameCard>> byStore = new LinkedHashMap<>();
         Map<String, String> storeNames = new HashMap<>();
         List<GameCard> other = new ArrayList<>();
@@ -312,7 +331,7 @@ public final class HomeModel {
                     ConsoleSnapshot.Host host = snapshot.host(source.hostUuid);
                     if (found == null && host != null && host.has(NativeCapabilities.LIBRARY_UNADDED)) {
                         found = source;
-                        addable = host.has(NativeCapabilities.LIBRARY_ADD);
+                        addable = host.has(NativeCapabilities.LIBRARY_ADD) && !launchDenied.contains(host.uuid);
                     }
                     continue;
                 }

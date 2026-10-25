@@ -10,6 +10,8 @@ import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeLibrary;
 import com.limelight.nvstream.http.ComputerDetails;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
 /**
@@ -18,6 +20,14 @@ import java.util.concurrent.Executor;
  */
 final class GameOpener {
     private GameOpener() {
+    }
+
+    /** The games being added now, by host and game id; touched on the UI thread only. */
+    private static final Set<String> ADDING = new HashSet<>();
+
+    /** True while the host is adding this game for a press; another press then does nothing. */
+    static boolean adding(String hostUuid, String gameId) {
+        return ADDING.contains(hostUuid + "|" + gameId);
     }
 
     /** What opening needs from the screen: its data, the host behind a card and what to do once a game was added. */
@@ -42,13 +52,18 @@ final class GameOpener {
         Activity activity = screen.activity();
         ConsoleRepository repo = screen.repository();
         ComputerDetails computer = screen.host(card.hostUuid);
-        if (!card.addable || repo == null || computer == null || card.source.gameId == null) {
+        if (!card.addable || repo == null || computer == null || card.source.gameId == null
+                || !computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
             Toast.makeText(activity, R.string.console_add_on_pc, Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(activity, activity.getString(R.string.console_adding, card.title), Toast.LENGTH_SHORT).show();
         String gameId = card.source.gameId;
-        worker.execute(() -> {
+        String addKey = card.hostUuid + "|" + gameId;
+        if (!ADDING.add(addKey)) {
+            return;
+        }
+        Toast.makeText(activity, activity.getString(R.string.console_adding, card.title), Toast.LENGTH_SHORT).show();
+        Runnable add = () -> {
             NativeLibrary.Game added;
             try {
                 added = repo.addToLibrary(computer, gameId);
@@ -58,6 +73,7 @@ final class GameOpener {
             }
             final NativeLibrary.Game game = added;
             activity.runOnUiThread(() -> {
+                ADDING.remove(addKey);
                 if (activity.isFinishing() || activity.isDestroyed()) {
                     return;
                 }
@@ -67,9 +83,15 @@ final class GameOpener {
                             Toast.LENGTH_LONG).show();
                     return;
                 }
-                showDetail(screen, card.hostUuid, game.appId, game.title, card.hostName);
+                showDetail(screen, card.hostUuid, game.appId, game.title.isEmpty() ? card.title : game.title,
+                        card.hostName);
             });
-        });
+        };
+        try {
+            worker.execute(add);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            ADDING.remove(addKey);
+        }
     }
 
     private static void showDetail(Screen screen, String hostUuid, int appId, String title, String hostName) {

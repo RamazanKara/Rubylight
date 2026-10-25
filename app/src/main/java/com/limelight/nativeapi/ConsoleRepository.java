@@ -55,6 +55,9 @@ public final class ConsoleRepository {
     private final ExecutorService executor;
     private final Clock clock;
     private final Map<String, List<String>> features = new java.util.concurrent.ConcurrentHashMap<>();
+    /** When the capabilities call of a host last failed; it is not asked again until {@link #FEATURES_RETRY_MS} later. */
+    private final Map<String, Long> featuresFailedAtMs = new java.util.concurrent.ConcurrentHashMap<>();
+    static final long FEATURES_RETRY_MS = 5 * 60 * 1000L;
 
     public ConsoleRepository(NativeApiTransport transport, EndpointFactory endpoints, LibraryCache cache,
                              RecentsStore recents, FavouritesStore favourites, ClassicAppSource classic, ExecutorService executor,
@@ -271,19 +274,27 @@ public final class ConsoleRepository {
 
     /**
      * The features the host advertises, read once per host while this repository lives (a host changes them only with
-     * an update). A host that does not answer has none this time; its library still loads.
+     * an update). When the call fails the host keeps the features stored with its last library, the failure is
+     * remembered so the refreshes that follow do not each ask again, and a refresh after {@link #FEATURES_RETRY_MS}
+     * reads them anew. Either way its library still loads.
      */
     private List<String> features(ComputerDetails computer, NativeApiClient client) {
         List<String> known = features.get(computer.uuid);
         if (known != null) return known;
-        try {
-            known = client.capabilities().features;
-            features.put(computer.uuid, known);
-            return known;
-        } catch (NativeApiException e) {
-            LimeLog.info("No capabilities from " + computer.name + ": " + e.getMessage());
-            return Collections.emptyList();
+        Long failedAt = featuresFailedAtMs.get(computer.uuid);
+        if (failedAt == null || clock.nowMs() - failedAt >= FEATURES_RETRY_MS) {
+            try {
+                known = client.capabilities().features;
+                features.put(computer.uuid, known);
+                featuresFailedAtMs.remove(computer.uuid);
+                return known;
+            } catch (NativeApiException e) {
+                LimeLog.info("No capabilities from " + computer.name + ": " + e.getMessage());
+                featuresFailedAtMs.put(computer.uuid, clock.nowMs());
+            }
         }
+        LibraryCache.Entry stored = cache.load(computer.uuid);
+        return stored != null ? stored.features : Collections.emptyList();
     }
 
     private static List<ConsoleSnapshot.Source> sourcesOf(ComputerDetails computer, NativeLibrary library) {

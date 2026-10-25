@@ -7,6 +7,7 @@ import static com.limelight.nativeapi.NativeApiFixtures.nativeHost;
 import static com.limelight.nativeapi.NativeApiFixtures.ok;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -89,17 +90,22 @@ public class LibraryCardsTest {
     }
 
     private ShelfAdapter.CardHolder card(ConsoleHomeAdapter adapter, String row, int card) {
+        ConsoleHomeAdapter.ShelfHolder shelf = shelf(adapter, row);
+        FrameLayout parent = new FrameLayout(context);
+        ShelfAdapter.CardHolder holder = shelf.adapter.onCreateViewHolder(parent, shelf.adapter.getItemViewType(card));
+        shelf.adapter.onBindViewHolder(holder, card);
+        return holder;
+    }
+
+    private ConsoleHomeAdapter.ShelfHolder shelf(ConsoleHomeAdapter adapter, String row) {
         int at = -1;
         for (int i = 0; i < adapter.rowCount(); i++) {
             if (row.equals(adapter.rowKey(i))) at = i;
         }
         assertTrue(row + " is a shelf", at >= 0);
-        FrameLayout parent = new FrameLayout(context);
-        ConsoleHomeAdapter.ShelfHolder shelf = adapter.onCreateViewHolder(parent, 0);
+        ConsoleHomeAdapter.ShelfHolder shelf = adapter.onCreateViewHolder(new FrameLayout(context), 0);
         adapter.onBindViewHolder(shelf, at);
-        ShelfAdapter.CardHolder holder = shelf.adapter.onCreateViewHolder(parent, shelf.adapter.getItemViewType(card));
-        shelf.adapter.onBindViewHolder(holder, card);
-        return holder;
+        return shelf;
     }
 
     private static int count(ConsoleHomeAdapter adapter, String row) {
@@ -127,8 +133,15 @@ public class LibraryCardsTest {
         assertTrue(description, description.startsWith("Portal, Steam, "));
         assertTrue(description, description.contains(context.getString(R.string.console_chip_not_installed)));
         assertTrue(description, description.contains(context.getString(R.string.console_card_on_host, "Tower")));
-        // A card bound again for an installed game loses the grey.
-        assertNull(card(adapter, "shelf:store:steam", 0).image.getColorFilter());
+        // The same holder, recycled for an installed game, loses the grey.
+        ConsoleHomeAdapter.ShelfHolder shelf = shelf(adapter, "shelf:store:steam");
+        ShelfAdapter.CardHolder reused = shelf.adapter.onCreateViewHolder(new FrameLayout(context),
+                shelf.adapter.getItemViewType(1));
+        shelf.adapter.onBindViewHolder(reused, 1);
+        assertNotNull(reused.image.getColorFilter());
+        shelf.adapter.onBindViewHolder(reused, 0);
+        assertNull("the recycled poster keeps no grey", reused.image.getColorFilter());
+        assertNotEquals(context.getString(R.string.console_chip_not_installed), reused.store.getText().toString());
     }
 
     @Test
@@ -204,23 +217,59 @@ public class LibraryCardsTest {
     }
 
     @Test
-    public void addingAGameAsksTheHostAndReturnsItWithItsAppId() throws Exception {
+    public void addingAGameAsksTheHostAndReturnsTheEntryItAdded() throws Exception {
         tower(Arrays.asList("library.unadded", "library.add"), found("Hades", "epic"));
         model();
-        rig.transport.reply("tower", "library_add", ok(library("t2",
-                "{\"install_id\":\"i9\",\"app_id\":9,\"title\":\"Hades\",\"game_id\":\"found:Hades\","
-                        + "\"store\":{\"source\":\"epic\"},\"installed\":true,\"added\":true,\"running\":false}")));
+        rig.transport.reply("tower", "library_add", ok("{\"install_id\":\"i9\",\"app_id\":9,\"title\":\"Hades\","
+                + "\"game_id\":\"found:Hades\",\"added\":true}"));
         ComputerDetails tower = nativeHost("tower", "Tower", true);
         NativeLibrary.Game added = rig.repository.addToLibrary(tower, "found:Hades");
         assertNotNull(added);
         assertEquals(9, added.appId);
+        assertEquals("i9", added.installId);
         assertEquals("tower|library_add", rig.transport.calls.get(rig.transport.calls.size() - 1));
         assertTrue(rig.transport.arguments.get(rig.transport.arguments.size() - 1).contains("found:Hades"));
-        // The answer is the library now: what is saved shows the game added, before any refresh.
+        // The answer is one entry, never the library: what is saved stays the host's last library until a refresh.
         HomeModel saved = HomeModel.of(rig.repository.cached(Collections.singletonList(tower)),
                 new HashSet<>(Collections.singletonList("tower")));
-        assertNull(saved.row("shelf:unadded"));
-        assertEquals(9, saved.row("shelf:store:epic").cards.get(0).appId);
+        assertEquals(1, saved.row("shelf:unadded").cards.size());
+        assertEquals(1, saved.allGames.size());
+
+        // The reload after an add reads the library, which now lists it.
+        rig.transport.reply("tower", "library", ok(library("t2",
+                "{\"install_id\":\"i9\",\"app_id\":9,\"title\":\"Hades\",\"game_id\":\"found:Hades\","
+                        + "\"store\":{\"source\":\"epic\"},\"installed\":true,\"added\":true,\"running\":false}")));
+        HomeModel fresh = model();
+        assertNull(fresh.row("shelf:unadded"));
+        assertEquals(9, fresh.row("shelf:store:epic").cards.get(0).appId);
+    }
+
+    @Test
+    public void aHostThatAnswersAnAddWithItsLibraryStillGivesTheEntryAndNothingIsSaved() throws Exception {
+        tower(Arrays.asList("library.unadded", "library.add"), found("Hades", "epic"));
+        model();
+        rig.transport.reply("tower", "library_add", ok(library("t2",
+                "{\"install_id\":\"i9\",\"app_id\":9,\"title\":\"Hades\",\"game_id\":\"found:Hades\",\"added\":true}")));
+        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        assertEquals(9, rig.repository.addToLibrary(tower, "found:Hades").appId);
+        HomeModel saved = HomeModel.of(rig.repository.cached(Collections.singletonList(tower)),
+                new HashSet<>(Collections.singletonList("tower")));
+        assertNotNull(saved.row("shelf:unadded"));
+    }
+
+    @Test
+    public void aGameNotAddedOnAHostThatDeniesLaunchIsAddedOnThePc() throws Exception {
+        tower(Arrays.asList("library.unadded", "library.add"), found("Hades", "epic"));
+        HomeModel model = HomeModel.of(rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true))),
+                new HashSet<>(Collections.singletonList("tower")), new HashSet<>(Collections.singletonList("tower")));
+        assertFalse(model.row("shelf:unadded").cards.get(0).addable);
+        assertEquals(context.getString(R.string.console_add_on_pc),
+                card(adapter(model), "shelf:unadded", 0).store.getText().toString());
+
+        ComputerDetails denied = nativeHost("tower", "Tower", true);
+        denied.permission = ComputerDetails.PERMISSION_LIST;
+        ComputerDetails allowed = nativeHost("pc", "PC", true);
+        assertEquals(Collections.singleton("tower"), HomeModel.launchDenied(Arrays.asList(denied, allowed)));
     }
 
     @Test

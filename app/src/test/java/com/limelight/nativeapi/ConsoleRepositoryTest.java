@@ -439,7 +439,68 @@ public class ConsoleRepositoryTest {
         ConsoleSnapshot unanswered = fresh.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
         assertEquals(ConsoleSnapshot.Status.LIVE, unanswered.host("tower").status);
         assertEquals("", transport.arguments.get(transport.calls.indexOf("tower|library")));
-        assertTrue(unanswered.host("tower").features.isEmpty());
+        // The features stored with the last library stand in for the ones the host did not say.
+        assertEquals(Collections.singleton("library"), unanswered.host("tower").features);
+    }
+
+    private ConsoleRepository freshRepository() {
+        return new ConsoleRepository(transport,
+                computer -> HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto()), cache, recentsStore,
+                new PreferencesFavouritesStore(RuntimeEnvironment.getApplication()),
+                computer -> classicApps.get(computer.uuid), executor, () -> now);
+    }
+
+    @Test
+    public void aFailedCapabilitiesCallKeepsTheStoredFeaturesIsNotRepeatedEachRefreshAndIsRetriedLater()
+            throws Exception {
+        unaddedTower(true);
+        List<ComputerDetails> hosts = Collections.singletonList(nativeHost("tower", "Tower", true));
+        repository.refresh(hosts);
+
+        transport.replies.remove("tower|capabilities");
+        ConsoleRepository fresh = freshRepository();
+        transport.calls.clear();
+        transport.arguments.clear();
+        ConsoleSnapshot unanswered = fresh.refresh(hosts);
+        assertEquals(1, Collections.frequency(transport.calls, "tower|capabilities"));
+        // The library is still asked for the games not added, and saving it does not drop the feature.
+        assertEquals("include=unadded", transport.arguments.get(transport.calls.indexOf("tower|library")));
+        assertTrue(unanswered.host("tower").has(NativeCapabilities.LIBRARY_UNADDED));
+        assertTrue(cache.load("tower").features.contains(NativeCapabilities.LIBRARY_UNADDED));
+
+        now += ConsoleRepository.FEATURES_RETRY_MS - 1;
+        assertTrue(fresh.refresh(hosts).host("tower").has(NativeCapabilities.LIBRARY_UNADDED));
+        assertEquals(1, Collections.frequency(transport.calls, "tower|capabilities"));
+
+        // Later the host answers again, and what it says now is what counts.
+        now += 1;
+        transport.reply("tower", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\"],"
+                + "\"permissions\":{\"list\":true}}"));
+        ConsoleSnapshot answered = fresh.refresh(hosts);
+        assertEquals(2, Collections.frequency(transport.calls, "tower|capabilities"));
+        assertFalse(answered.host("tower").has(NativeCapabilities.LIBRARY_UNADDED));
+        fresh.refresh(hosts);
+        assertEquals(2, Collections.frequency(transport.calls, "tower|capabilities"));
+    }
+
+    @Test
+    public void aStarWithNoIdIsNotTakenByAGameTheHostHasNotAdded() throws Exception {
+        unaddedTower(true);
+        // A star from before ids, on app id 0; the found games have neither an id nor an app id.
+        repository.setFavourite("tower", "Tower", "", 0, "Celeste", true);
+        ConsoleSnapshot snapshot = repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        assertTrue(snapshot.favourites.isEmpty());
+    }
+
+    @Test
+    public void whetherTheHostCanStartAGameReachesItsSource() throws Exception {
+        transport.reply("tower", "library", ok(library("t1",
+                "{\"install_id\":\"t-a\",\"app_id\":1,\"title\":\"Alan Wake\",\"launchable\":false}",
+                game("t-portal", 11, "Portal", null, false))));
+        transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
+        ConsoleSnapshot snapshot = repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+        assertEquals(Boolean.FALSE, snapshot.titles.get(0).sources.get(0).launchable);
+        assertNull(snapshot.titles.get(1).sources.get(0).launchable);
     }
 
     @Test

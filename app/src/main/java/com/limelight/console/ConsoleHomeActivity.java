@@ -380,10 +380,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         }
         worker.execute(() -> {
             try {
-                show(mine, HomeModel.of(repo.cached(hosts), online), hosts.isEmpty(), !refresh);
+                Set<String> denied = HomeModel.launchDenied(hosts);
+                show(mine, HomeModel.of(repo.cached(hosts), online, denied), hosts.isEmpty(), !refresh);
                 if (refresh) {
                     ConsoleSnapshot fresh = repo.refresh(hosts);
-                    show(mine, HomeModel.of(fresh, online), hosts.isEmpty(), true);
+                    show(mine, HomeModel.of(fresh, online, denied), hosts.isEmpty(), true);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -579,7 +580,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         starWorker.execute(() -> {
             try {
                 repo.setFavourite(card.hostUuid, card.hostName, key, card.appId, card.title, starred);
-                HomeModel model = HomeModel.of(repo.cached(hosts), online);
+                HomeModel model = HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts));
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) {
                         return;

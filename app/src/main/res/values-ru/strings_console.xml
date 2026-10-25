@@ -6,6 +6,10 @@
     <string name="console_section_library">Библиотека</string>
     <string name="console_section_hosts">ПК</string>
     <string name="console_hint_options">Параметры</string>
+    <string name="console_hint_open">Открыть</string>
+    <string name="console_hint_key_ok">OK</string>
+    <string name="console_hint_key_menu">Меню</string>
+    <string name="console_hint_line">"%1$s  %2$s      %3$s  %4$s"</string>
     <string name="console_favourite_add">Добавить в избранное</string>
     <string name="console_favourite_remove">Убрать из избранного</string>
     <string name="console_favourite_description">В избранном</string>

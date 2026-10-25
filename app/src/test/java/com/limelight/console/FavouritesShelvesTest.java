@@ -36,8 +36,8 @@ import java.util.List;
 
 /** The Favourites row of Home and the menu on a long press (a held D-pad centre is a long press too). */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 29, application = Application.class)
-public class FavouritesRowTest {
+@Config(sdk = 29, application = Application.class, qualifiers = "w960dp-h540dp-television-xhdpi")
+public class FavouritesShelvesTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     private ConsoleRig rig;
@@ -147,6 +147,88 @@ public class FavouritesRowTest {
         assertTrue("and stars nothing", toggles.isEmpty());
     }
 
+    @Test
+    public void menuOnAGameCardOpensItsOptionsAndStarsNothing() throws Exception {
+        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
+        List<RecordedMenu> menus = new ArrayList<>();
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(menus));
+        adapter.submit(model());
+        RecyclerView.ViewHolder card = card(adapter, 0, 0);
+        focus(new FrameLayout(context), card.itemView);
+
+        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_MENU));
+        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
+                android.view.KeyEvent.KEYCODE_MENU));
+        assertEquals("the options open, as on a PC card and in the library", 1, menus.size());
+        assertEquals("Zelda", menus.get(0).title);
+        assertTrue("favourite stays in the options", toggles.isEmpty());
+    }
+
+    @Test
+    public void aKeyThatWasCancelledOpensNoMenu() throws Exception {
+        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
+        List<RecordedMenu> menus = new ArrayList<>();
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(menus));
+        adapter.submit(model());
+        RecyclerView.ViewHolder card = card(adapter, 0, 0);
+        focus(new FrameLayout(context), card.itemView);
+
+        for (int key : new int[]{android.view.KeyEvent.KEYCODE_BUTTON_X, android.view.KeyEvent.KEYCODE_MENU}) {
+            card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, key));
+            // The window took the key away (a dialog came up, focus moved): the up arrives flagged as cancelled.
+            card.itemView.dispatchKeyEvent(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_UP, key, 0, 0, 0, 0,
+                    android.view.KeyEvent.FLAG_CANCELED));
+        }
+        assertTrue(menus.isEmpty());
+
+        RecyclerView.ViewHolder host = card(adapter, adapter.rowCount() - 1, 0);
+        focus(new FrameLayout(context), host.itemView);
+        host.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_MENU));
+        host.itemView.dispatchKeyEvent(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_UP,
+                android.view.KeyEvent.KEYCODE_MENU, 0, 0, 0, 0, android.view.KeyEvent.FLAG_CANCELED));
+        assertTrue("nor does a PC card", hostOptions.isEmpty());
+    }
+
+    @Test
+    public void theHintNamesTheKeysOfTheLastDeviceAndSaysOpenForAGame() {
+        String remote = HomeAmbience.hints(context, false, true);
+        assertEquals(context.getString(R.string.console_hint_line, context.getString(R.string.console_hint_key_ok),
+                context.getString(R.string.console_hint_open), context.getString(R.string.console_hint_key_menu),
+                context.getString(R.string.console_hint_options)), remote);
+        assertTrue(remote, remote.contains("OK") && remote.contains("Open") && remote.contains("Menu"));
+        assertFalse("a game's A opens its page; it does not play", remote.contains("Play"));
+
+        String pad = HomeAmbience.hints(context, true, true);
+        assertTrue(pad, pad.startsWith("A  Open") && pad.contains("X  "));
+        assertFalse(pad, pad.contains("OK") || pad.contains("Menu"));
+
+        String host = HomeAmbience.hints(context, true, false);
+        assertTrue("a PC opens its library", host.contains(context.getString(R.string.library_open)));
+    }
+
+    @Test
+    public void theHintFollowsTheKeyThatWasPressedLast() throws Exception {
+        android.widget.LinearLayout hero = new android.widget.LinearLayout(context);
+        android.widget.TextView hints = new android.widget.TextView(context);
+        hints.setId(R.id.home_hero_hints);
+        hero.addView(hints);
+        HomeAmbience ambience = new HomeAmbience(context, null, hero, uuid -> null, () -> null, () -> true);
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
+        adapter.submit(model());
+        ambience.refresh(adapter.itemAt(new ConsoleHomeAdapter.Cursor(0, 0)));
+        org.robolectric.shadows.ShadowLooper.idleMainLooper(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+        assertTrue(hints.getText().toString().contains("OK"));
+
+        ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_BUTTON_A, 0, 0, 0, 0, 0, android.view.InputDevice.SOURCE_GAMEPAD)));
+        assertTrue(hints.getText().toString(), hints.getText().toString().startsWith("A  "));
+        ambience.setGamepad(ConsoleHomeActivity.fromGamepad(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_DPAD_CENTER)));
+        assertTrue(hints.getText().toString().contains("OK"));
+    }
+
     private static final class RecordedMenu {
         final String title;
         final boolean favourite;
@@ -194,7 +276,6 @@ public class FavouritesRowTest {
 
     /** A held key moves focus card to card with no tween: the new card is at its focus scale and the old at rest at once. */
     @Test
-    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
     public void aHeldKeyPutsTheNewHomeCardStraightIntoFocusAndTheOldOneAtRest() throws Exception {
         ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
         adapter.submit(model());
@@ -222,30 +303,6 @@ public class FavouritesRowTest {
         assertTrue(second.itemView.requestFocus());
         assertEquals("the new card is focused at once", 1.08f, second.itemView.getScaleX(), 0.001f);
         assertEquals("the old card is at rest at once", 1f, first.itemView.getScaleX(), 0.001f);
-    }
-
-    @Test
-    public void theMenuKeyOnAGameCardTogglesItsFavouriteOnceAndAHostCardIgnoresIt() throws Exception {
-        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
-        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
-        adapter.submit(model());
-        FrameLayout parent = new FrameLayout(context);
-        RecyclerView.ViewHolder card = card(adapter, 0, 0);
-        focus(parent, card.itemView);
-
-        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
-                android.view.KeyEvent.KEYCODE_MENU));
-        assertTrue(toggles.isEmpty());
-        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
-                android.view.KeyEvent.KEYCODE_MENU));
-        assertEquals(java.util.Collections.singletonList("Zelda"), toggles);
-
-        RecyclerView.ViewHolder host = card(adapter, adapter.rowCount() - 1, 0);
-        parent.removeAllViews();
-        focus(parent, host.itemView);
-        host.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
-                android.view.KeyEvent.KEYCODE_MENU));
-        assertEquals(1, toggles.size());
     }
 
     @Test

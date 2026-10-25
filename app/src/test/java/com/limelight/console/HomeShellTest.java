@@ -134,8 +134,15 @@ public class HomeShellTest {
                 }
             }
             ConsoleSnapshot snapshot = rig.repository.refresh(Arrays.asList(hosts));
-            ConsoleHomeAdapter adapter = ReflectionHelpers.getField(home, "adapter");
-            adapter.submit(HomeModel.of(snapshot, online));
+            HomeModel model = HomeModel.of(snapshot, online);
+            // A phone's Home is the list of cards; a TV's is the shelves.
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            if (shelves != null) {
+                shelves.submit(model);
+            } else {
+                ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+                adapter.submit(model);
+            }
         } finally {
             rig.close();
         }
@@ -147,16 +154,27 @@ public class HomeShellTest {
     }
 
     private static View hostCard(Home home, String uuid) {
-        ConsoleHomeAdapter adapter = ReflectionHelpers.getField(home, "adapter");
         RecyclerView list = home.findViewById(R.id.console_list);
-        ConsoleHomeAdapter.Cursor at = adapter.positionOfKey("host:" + uuid);
-        assertNotNull("a card for " + uuid, at);
+        ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+        if (shelves != null) {
+            ConsoleHomeAdapter.Cursor at = shelves.positionOfKey("host:" + uuid);
+            assertNotNull("a card for " + uuid, at);
+            list.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY));
+            list.layout(0, 0, 1080, 1920);
+            View card = shelves.cardView(list, at);
+            assertNotNull("laid out", card);
+            return card;
+        }
+        ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+        int position = adapter.positionOfKey("host:" + uuid);
+        assertTrue("a card for " + uuid, position >= 0);
         list.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY));
         list.layout(0, 0, 1080, 1920);
-        View card = adapter.cardView(list, at);
-        assertNotNull("laid out", card);
-        return card;
+        RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(position);
+        assertNotNull("laid out", holder);
+        return holder.itemView;
     }
 
     private static List<String> labels(ActionSheet sheet) {
@@ -435,7 +453,7 @@ public class HomeShellTest {
             assertNotNull("down from the bar reaches a card", below);
             assertTrue("a card of the list", isInside(list(home), below));
             // The library's game is first on the page; the PC's card sits under it.
-            ConsoleHomeAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+            ConsoleHomeAdapter adapter = ReflectionHelpers.getField(home, "shelves");
             View first = adapter.cardView(list(home), adapter.initialFocus());
             assertNotNull(first);
             assertSame("up from the PC's card reaches the game above it", first, focusAfter(home, card, View.FOCUS_UP));

@@ -6,6 +6,10 @@
     <string name="console_section_library">游戏库</string>
     <string name="console_section_hosts">电脑</string>
     <string name="console_hint_options">选项</string>
+    <string name="console_hint_open">打开</string>
+    <string name="console_hint_key_ok">确定</string>
+    <string name="console_hint_key_menu">菜单</string>
+    <string name="console_hint_line">"%1$s  %2$s      %3$s  %4$s"</string>
     <string name="console_favourite_add">添加到收藏</string>
     <string name="console_favourite_remove">从收藏中移除</string>
     <string name="console_favourite_description">已收藏</string>

@@ -34,6 +34,7 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
     private ShelfAdapter.Item pending;
     private String shown;
     private boolean queued;
+    private boolean gamepad;
 
     /** Either part may be missing (a layout without the backdrop or the hero, as on a phone). */
     HomeAmbience(Context context, BackdropView backdrop, View hero, Function<String, ComputerDetails> hosts,
@@ -140,20 +141,45 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
     }
 
     private void write(ShelfAdapter.Item item) {
-        String options = context.getString(R.string.console_hint_options);
         if (item.game != null) {
             HomeModel.GameCard card = item.game;
             CharSequence state = ShelfAdapter.CardHolder.stateOf(context, card);
             String where = ShelfAdapter.CardHolder.whereOf(context, card);
             setText(meta, state == null ? where : state + " · " + where);
             setText(title, card.title);
-            setText(hints, "A  " + context.getString(R.string.library_play) + "      X  " + options);
         } else {
             setText(meta, ShelfAdapter.CardHolder.hostLine(context, item.host));
             setText(title, item.host.name);
-            setText(hints, "A  " + context.getString(R.string.library_open) + "      X  " + options);
         }
+        setText(hints, hints(context, gamepad, item.game != null));
         written = text(item);
+    }
+
+    /**
+     * The keys under the hero: what the select key and the options key do. A gamepad's are A and X; a remote's and a
+     * keyboard's are OK and Menu. A game opens its page, a PC its library.
+     */
+    static String hints(Context context, boolean gamepad, boolean game) {
+        String select = gamepad ? "A" : context.getString(R.string.console_hint_key_ok);
+        String menu = gamepad ? "X" : context.getString(R.string.console_hint_key_menu);
+        String open = context.getString(game ? R.string.console_hint_open : R.string.library_open);
+        return context.getString(R.string.console_hint_line, select, open, menu, context.getString(R.string.console_hint_options));
+    }
+
+    /** The last key came from a gamepad (A and X), or from a remote or keyboard (OK and Menu). */
+    void setGamepad(boolean gamepad) {
+        if (this.gamepad == gamepad) return;
+        this.gamepad = gamepad;
+        ShelfAdapter.Item item = pending;
+        if (item != null) setText(hints, hints(context, gamepad, item.game != null));
+    }
+
+    /** Drops the pending frame callback: the screen is going away. */
+    void destroy() {
+        Choreographer.getInstance().removeFrameCallback(this);
+        queued = false;
+        pending = null;
+        if (hero != null) hero.animate().cancel();
     }
 
     private static void setText(TextView view, CharSequence text) {

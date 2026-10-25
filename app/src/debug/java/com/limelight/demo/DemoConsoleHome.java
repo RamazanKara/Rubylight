@@ -49,11 +49,16 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
         if (attempt < 30) list.postDelayed(() -> openOptions(attempt + 1), 300);
     }
 
-    /** The three dots of the Living-room PC's card, which sits in a shelf of the list; null while it is not laid out. */
+    /** The three dots of the Living-room PC's card, in a shelf or in the grid; null while it is not laid out. */
     private static android.view.View moreOf(android.view.View view) {
-        if (view.getId() == R.id.console_more && view.getParent() instanceof android.view.View) {
-            android.widget.TextView title = ((android.view.View) view.getParent()).findViewById(R.id.console_title);
-            if (title != null && "Living-room PC".contentEquals(title.getText())) return view;
+        if (view.getId() == R.id.console_more) {
+            // The card's title may sit beside the dots or higher up in the card.
+            for (android.view.ViewParent up = view.getParent(); up instanceof android.view.View; up = up.getParent()) {
+                android.widget.TextView title = ((android.view.View) up).findViewById(R.id.console_title);
+                if (title != null) {
+                    return "Living-room PC".contentEquals(title.getText()) ? view : null;
+                }
+            }
         }
         if (view instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) view;

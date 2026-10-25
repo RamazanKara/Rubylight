@@ -228,18 +228,12 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                 if (event.getAction() == KeyEvent.ACTION_DOWN && movesFocus(keyCode)) {
                     env.travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
                 }
-                if (keyCode == KeyEvent.KEYCODE_BUTTON_X) {
-                    // X is the game's options, like a long press; the Menu key stars it at once.
-                    if (event.getAction() == KeyEvent.ACTION_UP) env.listener.onGameMenu(card);
+                if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_MENU) {
+                    // X and Menu open the game's options (where it is starred), like a long press and like a PC's card.
+                    if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) env.listener.onGameMenu(card);
                     return true;
                 }
-                if (keyCode != KeyEvent.KEYCODE_MENU) {
-                    return false;
-                }
-                if (event.getAction() == KeyEvent.ACTION_UP) {
-                    env.listener.onGameToggleFavourite(card);
-                }
-                return true;
+                return false;
             });
         }
 
@@ -317,7 +311,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BUTTON_X
                     || (keyCode == KeyEvent.KEYCODE_F10 && event.isShiftPressed())) {
                 markMore(false);
-                if (!down) {
+                if (!down && !event.isCanceled()) {
                     env.listener.onHostOptions(card);
                 }
                 return true;

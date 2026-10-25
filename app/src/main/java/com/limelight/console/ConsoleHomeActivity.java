@@ -10,6 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -64,7 +65,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         return thread;
     });
     private HostFeed feed;
-    private ConsoleHomeAdapter adapter;
+    /** The phone's Home: one grid of headers and cards. Null on TV. */
+    private ConsoleHomeListAdapter adapter;
+    private GridLayoutManager grid;
+    /** The TV's Home: shelves under a hero. Null on a phone. */
+    private ConsoleHomeAdapter shelves;
     private CoverLoaders covers;
     private RecyclerView list;
     private HomeAmbience ambience;
@@ -76,6 +81,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private boolean settled;
     private boolean shown;
     private boolean focusPending = true;
+    private int columns = 2;
+    private int lastWidthPx;
 
     private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
         @Override public ComputerManagerService.ComputerManagerBinder binder() { return feed == null ? null : feed.binder(); }
@@ -124,7 +131,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
         list = findViewById(R.id.console_list);
         feed = new HostFeed(this, this);
-        adapter = new ConsoleHomeAdapter(this, null, feed::host, new ConsoleHomeAdapter.Listener() {
+        ConsoleHomeAdapter.Listener listener = new ConsoleHomeAdapter.Listener() {
             @Override
             public void onGame(HomeModel.GameCard card) {
                 openGame(card);
@@ -149,39 +156,122 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             public void onHostOptions(HomeModel.HostCard card) {
                 showHostOptions(card);
             }
-        });
-        // The shelves: a vertical list of rows that snaps the focused row to the top and returns to each row's last card.
-        ShelfLayoutManager rows = new ShelfLayoutManager(this, LinearLayoutManager.VERTICAL,
-                () -> adapter.isFastTravel() || Motion.reduced(this));
-        rows.setRowFocus(adapter);
-        list.setLayoutManager(rows);
-        list.setItemAnimator(null);
-        list.setItemViewCacheSize(2);
-        adapter.setTelevision(findViewById(R.id.home_backdrop) != null);
-        list.setAdapter(adapter);
-        setUpAmbience();
+        };
+        if (isTelevision()) {
+            setUpShelves(listener);
+        } else {
+            setUpGrid(listener);
+        }
         feed.bind();
     }
 
-    /** The TV layout has a backdrop and a hero; the phone layout has neither and keeps its plain shelves. */
+    /** The TV layout has the backdrop behind the shelves; the phone layout is the plain grid. */
+    private boolean isTelevision() {
+        return findViewById(R.id.home_backdrop) != null;
+    }
+
+    private void setUpGrid(ConsoleHomeAdapter.Listener listener) {
+        grid = new GridLayoutManager(this, columns);
+        grid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                return spanOf(adapter.viewTypeAt(position), columns);
+            }
+        });
+        list.setLayoutManager(grid);
+        list.setItemAnimator(null);
+        list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            fitColumns(r - l);
+            ConsoleHomeListAdapter.fadeHeaders(list);
+        });
+        list.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(RecyclerView view, int dx, int dy) {
+                ConsoleHomeListAdapter.fadeHeaders(view);
+            }
+        });
+        adapter = new ConsoleHomeListAdapter(this, null, feed::host, listener);
+        list.setAdapter(adapter);
+    }
+
+    /** Headers take the whole row; wide cards take two columns, or the whole row when it has at most three. */
+    static int spanOf(int viewType, int columns) {
+        switch (viewType) {
+            case ConsoleHomeListAdapter.HEADER:
+                return columns;
+            case ConsoleHomeListAdapter.COVER_GAME:
+                return 1;
+            default:
+                return columns <= 3 ? columns : 2;
+        }
+    }
+
+    /** Columns for a list this wide: about 130 dp each, and an even number from four on so wide cards pair up. */
+    static int columnsFor(int widthDp) {
+        int columns = Math.max(2, widthDp / 130);
+        return columns >= 4 && columns % 2 == 1 ? columns - 1 : columns;
+    }
+
+    private void fitColumns(int widthPx) {
+        if (widthPx <= 0 || widthPx == lastWidthPx) {
+            return;
+        }
+        lastWidthPx = widthPx;
+        float density = getResources().getDisplayMetrics().density;
+        int count = columnsFor(Math.round(widthPx / density));
+        // A card keeps its margin around it.
+        int margin = getResources().getDimensionPixelSize(R.dimen.cover_inset);
+        int columnWidth = (widthPx - list.getPaddingLeft() - list.getPaddingRight()) / count - 2 * margin;
+        list.post(() -> {
+            if (count != columns) {
+                columns = count;
+                grid.setSpanCount(count);
+            }
+            adapter.setCoverHeight(Math.max(1, columnWidth * 4 / 3));
+        });
+    }
+
+    /** The shelves: a vertical list of rows that snaps the focused row to the top and returns to each row's last card. */
+    private void setUpShelves(ConsoleHomeAdapter.Listener listener) {
+        shelves = new ConsoleHomeAdapter(this, null, feed::host, listener);
+        ShelfLayoutManager rows = new ShelfLayoutManager(this, LinearLayoutManager.VERTICAL,
+                () -> shelves.isFastTravel() || Motion.reduced(this));
+        rows.setRowFocus(shelves);
+        list.setLayoutManager(rows);
+        list.setItemAnimator(null);
+        list.setItemViewCacheSize(2);
+        shelves.setTelevision(true);
+        list.setAdapter(shelves);
+        setUpAmbience();
+    }
+
     private void setUpAmbience() {
         BackdropView backdrop = findViewById(R.id.home_backdrop);
         View hero = findViewById(R.id.home_hero);
-        if (backdrop == null && hero == null) {
-            return;
+        int canvas = ContextCompat.getColor(this, R.color.tv_canvas);
+        // The window shows the canvas until the first backdrop covers it, then stops painting under it.
+        getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
+        // The TV's safe-area padding sits on the content view, which would otherwise clip the backdrop that reaches past it.
+        ((ViewGroup) findViewById(android.R.id.content)).setClipChildren(false);
+        backdrop.setCanvasColor(canvas);
+        backdrop.setDim(AppTheme.isHighContrast(this) ? 0.85f : 1f);
+        backdrop.setOnCovered(() -> getWindow().setBackgroundDrawable(null));
+        ambience = new HomeAmbience(this, backdrop, hero, feed::host, () -> covers, shelves::isFastTravel);
+        ambience.setGamepad(com.limelight.ui.StreamMenuHint.hasGamepad());
+        shelves.setFocusListener(ambience);
+    }
+
+    /** The hero's key hints follow the last key: a gamepad's A and X, or a remote's OK and Menu. */
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (ambience != null && event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            ambience.setGamepad(fromGamepad(event));
         }
-        if (backdrop != null) {
-            int canvas = ContextCompat.getColor(this, R.color.tv_canvas);
-            // The window shows the canvas until the first backdrop covers it, then stops painting under it.
-            getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
-            // The TV's safe-area padding sits on the content view, which would otherwise clip the backdrop that reaches past it.
-            ((ViewGroup) findViewById(android.R.id.content)).setClipChildren(false);
-            backdrop.setCanvasColor(canvas);
-            backdrop.setDim(AppTheme.isHighContrast(this) ? 0.85f : 1f);
-            backdrop.setOnCovered(() -> getWindow().setBackgroundDrawable(null));
-        }
-        ambience = new HomeAmbience(this, backdrop, hero, feed::host, () -> covers, adapter::isFastTravel);
-        adapter.setFocusListener(ambience);
+        return super.dispatchKeyEvent(event);
+    }
+
+    static boolean fromGamepad(android.view.KeyEvent event) {
+        return (event.getSource() & android.view.InputDevice.SOURCE_GAMEPAD) == android.view.InputDevice.SOURCE_GAMEPAD;
     }
 
     @Override
@@ -214,6 +304,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         feed.unbind();
         worker.shutdownNow();
         starWorker.shutdownNow();
+        if (ambience != null) {
+            ambience.destroy();
+        }
         if (covers != null) {
             covers.release();
         }
@@ -224,6 +317,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         UiHelper.notifyNewRootView(this);
+        lastWidthPx = 0;
     }
 
     @Override
@@ -259,7 +353,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             repository = createRepository(uniqueId);
             covers = new CoverLoaders(this, uniqueId, COVER_WIDTH_DP);
             if (ambience != null) covers.setArtListener(ambience::onArt);
-            adapter.setCovers(covers);
+            if (shelves != null) {
+                shelves.setCovers(covers);
+            } else {
+                adapter.setCovers(covers);
+            }
         }
         final ConsoleRepository repo = repository;
         final List<ComputerDetails> hosts = feed.hosts();
@@ -325,7 +423,24 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             findViewById(R.id.console_empty_hosts).requestFocus();
             return;
         }
-        ConsoleHomeAdapter.Cursor first = adapter.initialFocus();
+        if (shelves == null) {
+            int first = adapter.initialFocus();
+            if (first < 0 || list.isInTouchMode()) {
+                return;
+            }
+            focusPending = false;
+            list.post(() -> {
+                RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(first);
+                if (holder != null) {
+                    holder.itemView.requestFocus();
+                } else {
+                    grid.scrollToPosition(first);
+                    focusPending = true;
+                }
+            });
+            return;
+        }
+        ConsoleHomeAdapter.Cursor first = shelves.initialFocus();
         if (first == null) {
             if (ambience != null) ambience.clear();
             return;
@@ -340,16 +455,16 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     /** Focuses the card once its shelf and it are laid out; a card out of range is brought in and asked for again. */
     private void restoreFocus(ConsoleHomeAdapter.Cursor target, int attempt) {
         list.post(() -> {
-            View card = adapter.cardView(list, target);
+            View card = shelves.cardView(list, target);
             if (card != null) {
                 if (!card.hasFocus()) {
                     card.requestFocus();
                 } else if (ambience != null) {
                     // The card kept focus through the refresh: its state may have changed, so the hero is written again.
-                    ambience.refresh(adapter.itemAt(target));
+                    ambience.refresh(shelves.itemAt(target));
                 }
             } else if (attempt < 3) {
-                adapter.reveal(list, target);
+                shelves.reveal(list, target);
                 restoreFocus(target, attempt + 1);
             }
         });
@@ -365,21 +480,59 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     /** Submits the model; when a card had focus, the same card (by its stable id) has it afterwards. */
     private void submitKeepingFocus(HomeModel model) {
-        ConsoleHomeAdapter.Cursor at = adapter.focusedCard(list);
-        String key = adapter.keyAt(at);
-        adapter.submit(model);
+        if (shelves == null) {
+            submitGridKeepingFocus(model);
+            return;
+        }
+        ConsoleHomeAdapter.Cursor at = shelves.focusedCard(list);
+        String key = shelves.keyAt(at);
+        shelves.submit(model);
         if (key == null) {
             return;
         }
         // A card that left (an unstarred favourite) hands focus to its neighbour instead of dropping it.
-        ConsoleHomeAdapter.Cursor target = adapter.positionOfKey(key);
+        ConsoleHomeAdapter.Cursor target = shelves.positionOfKey(key);
         if (target == null) {
-            target = adapter.nearestCard(at);
+            target = shelves.nearestCard(at);
         }
         if (target == null) {
             return;
         }
         restoreFocus(target, 0);
+    }
+
+    private void submitGridKeepingFocus(HomeModel model) {
+        View focused = list.getFocusedChild();
+        int at = focused == null ? -1 : list.getChildAdapterPosition(focused);
+        String key = at < 0 ? null : adapter.keyAt(at);
+        adapter.submit(model);
+        if (key == null) {
+            return;
+        }
+        int target = adapter.positionOfKey(key);
+        if (target < 0) {
+            target = adapter.nearestCard(at);
+        }
+        if (target < 0) {
+            return;
+        }
+        final int position = target;
+        list.post(() -> {
+            RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(position);
+            if (holder != null) {
+                if (!holder.itemView.hasFocus()) {
+                    holder.itemView.requestFocus();
+                }
+            } else {
+                grid.scrollToPosition(position);
+                list.post(() -> {
+                    RecyclerView.ViewHolder later = list.findViewHolderForAdapterPosition(position);
+                    if (later != null) {
+                        later.itemView.requestFocus();
+                    }
+                });
+            }
+        });
     }
 
     /** The long-press menu of a game card: star or unstar it. */

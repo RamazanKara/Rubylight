@@ -2,13 +2,17 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cinttypes>
 #include <cmath>
+#include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <memory>
+#include <thread>
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
@@ -33,6 +37,9 @@
 namespace vkr {
 
 namespace {
+    // How long the destructor waits for a GPU that stop() found unfinished before leaking it
+    constexpr int kWedgedWaitSeconds = 5;
+
     std::mutex gLastErrorMutex;
     std::string gLastError;
 
@@ -800,26 +807,49 @@ VulkanRenderer::~VulkanRenderer() {
     }
     pending.clear();
 
+    bool leakDevice = false;
     if (device_) {
         if (deviceLost_) {
             ALOGW("The GPU was lost; releasing its resources without waiting for it");
         }
         else if (wedged_) {
             // stop() gave up on the GPU so the UI thread wouldn't wait; this runs on the stop
-            // worker, so wait as long as it takes. Destroying the device under pending work is
-            // undefined behaviour.
+            // worker. Destroying the device under pending work is undefined behaviour, but a GPU
+            // that never answers must not keep the process from starting another connection, so
+            // wait for a while, in a thread that may outlive this object (it holds copies only).
             ALOGW("The GPU had not finished when stopping; waiting for it before releasing its resources");
+            struct IdleWait {
+                std::mutex mutex;
+                std::condition_variable cv;
+                bool done = false;
+                VkResult result = VK_SUCCESS;
+            };
+            auto wait = std::make_shared<IdleWait>();
+            const auto waitIdleFn = vk_.vkDeviceWaitIdle;
+            const VkDevice device = device_;
             const int64_t startNs = nowNs();
-            VkResult idle;
-            {
-                std::lock_guard<std::mutex> lock(queueMutex_);
-                idle = vk_.vkDeviceWaitIdle(device_);
+            std::thread([wait, waitIdleFn, device] {
+                const VkResult result = waitIdleFn(device);
+                std::lock_guard<std::mutex> lock(wait->mutex);
+                wait->result = result;
+                wait->done = true;
+                wait->cv.notify_all();
+            }).detach();
+            std::unique_lock<std::mutex> lock(wait->mutex);
+            if (wait->cv.wait_for(lock, std::chrono::seconds(kWedgedWaitSeconds), [&] { return wait->done; })) {
+                const VkResult idle = wait->result;
+                if (idle == VK_ERROR_DEVICE_LOST) {
+                    deviceLost_ = true;
+                }
+                ALOGW("The GPU %s after %lld ms (%d)", idle == VK_SUCCESS ? "finished" : "gave up",
+                      static_cast<long long>((nowNs() - startNs) / 1'000'000), idle);
             }
-            if (idle == VK_ERROR_DEVICE_LOST) {
-                deviceLost_ = true;
+            else {
+                ALOGE("The GPU still had not finished after %d s; leaking the device, swapchain and surface "
+                      "so the stream can end",
+                      kWedgedWaitSeconds);
+                leakDevice = true;
             }
-            ALOGW("The GPU %s after %lld ms (%d)", idle == VK_SUCCESS ? "finished" : "gave up",
-                  static_cast<long long>((nowNs() - startNs) / 1'000'000), idle);
         }
         else {
             waitIdle();
@@ -830,7 +860,11 @@ VulkanRenderer::~VulkanRenderer() {
         frame.reset();
     }
 
-    if (device_) {
+    if (leakDevice) {
+        // Nothing of the device, its instance or the surface is touched: they may still be in use
+        instance_ = VK_NULL_HANDLE;
+    }
+    else if (device_) {
         // What stop() left alone if the GPU was wedged (a no-op otherwise)
         releaseOutput();
         destroyConversion();
@@ -2115,6 +2149,9 @@ bool VulkanRenderer::ensureSwapchain() {
 }
 
 bool VulkanRenderer::createSwapchain() {
+    // Only a window found empty below keeps failures from counting; any other failure does
+    const bool wasEmpty = outputWindowEmpty_;
+    outputWindowEmpty_ = false;
     VkSurfaceCapabilitiesKHR caps;
     if (vk_.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice_, surface_, &caps) != VK_SUCCESS) {
         return false;
@@ -2127,13 +2164,12 @@ bool VulkanRenderer::createSwapchain() {
     }
     if (extent.width == 0 || extent.height == 0) {
         // Not a failure: the window is being resized or rotated, and has a size again soon
-        if (!outputWindowEmpty_) {
+        if (!wasEmpty) {
             ALOGW("The output window has no size; not drawing until it has");
         }
         outputWindowEmpty_ = true;
         return false;
     }
-    outputWindowEmpty_ = false;
     const VkSurfaceTransformFlagBitsKHR transform = choosePreTransform(caps);
     extent = preRotatedExtent(extent, transform);
 

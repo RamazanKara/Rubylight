@@ -77,6 +77,14 @@ impl Rig {
         self.core.input(text, self.at(0));
     }
 
+    /// An `input` message as the worker handles it: received, then taken off the queue, then
+    /// handled, so the wait and queue delays are measured.
+    fn deliver(&mut self, text: &str) {
+        let received = Instant::now();
+        self.core.dequeued = Some(Instant::now());
+        self.core.input(text, received);
+    }
+
     fn events(&self) -> Vec<Input> {
         self.rec.events()
     }
@@ -618,19 +626,39 @@ fn a_slow_injector_call_is_not_the_hosts_queue_delay() {
     let mut r = rig(u32::MAX);
     r.rec.slow_apply(Duration::from_millis(15));
     for i in 0..4 {
-        r.core.input(
-            &format!(
-                r#"{{"v":1,"type":"mouse-button","button":0,"down":{}}}"#,
-                i % 2 == 0
-            ),
-            Instant::now(),
-        );
+        r.deliver(&format!(
+            r#"{{"v":1,"type":"mouse-button","button":0,"down":{}}}"#,
+            i % 2 == 0
+        ));
     }
     let summary = r.core.summary();
     assert_eq!(summary.queued, 4);
     assert!(summary.apply_max_us >= 15_000, "{summary:?}");
-    assert!(summary.queue_max_us < 2_000, "{summary:?}");
-    assert!(summary.wait_max_us < 2_000, "{summary:?}");
+    // If the injector call were counted as queue time these would be at least 15 ms.
+    assert!(summary.queue_max_us < 15_000, "{summary:?}");
+    assert!(summary.wait_max_us < 15_000, "{summary:?}");
+    assert_eq!(summary.slow_calls, 4);
+}
+
+#[test]
+fn slow_calls_are_all_counted_but_only_the_first_few_logged() {
+    let mut r = rig(u32::MAX);
+    r.rec.slow_apply(Duration::from_millis(3));
+    for i in 0..20 {
+        r.deliver(&format!(
+            r#"{{"v":1,"type":"mouse-button","button":0,"down":{}}}"#,
+            i % 2 == 0
+        ));
+    }
+    assert_eq!(r.core.summary().slow_calls, 20);
+    assert_eq!(r.core.slow_logged, SLOW_LOGGED);
+}
+
+#[test]
+fn the_kinds_in_a_slow_call_are_listed_once_each() {
+    let events = [key_down(1), key_up(1), key_down(2)];
+    assert_eq!(event_kinds(&events), ["Keyboard"]);
+    assert!(event_kinds(&[]).is_empty());
 }
 
 #[test]
@@ -642,27 +670,32 @@ fn a_burst_through_the_worker_reaches_the_injector_without_a_timer_in_the_way() 
     let handle = InputHandle(tx);
     let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
     handle.bind(session(&f, u32::MAX));
-    // The worker is up and has its injector before the burst.
+    // The worker is up and has its injector before the messages, and idle.
     handle.input(
         br#"{"v":1,"type":"mouse-move","dx":1,"dy":0}"#.to_vec(),
         false,
     );
     wait_for("the first move", || rec.events().len() == 1);
-    for i in 0..200 {
+    std::thread::sleep(Duration::from_millis(50));
+    // Single messages to an idle worker, spread so they meet every phase of a timer tick.
+    for i in 0..10 {
         handle.input(
             format!(r#"{{"v":1,"type":"mouse-move","dx":{},"dy":1}}"#, i % 5 + 1).into_bytes(),
             false,
         );
+        wait_for("the message", || rec.events().len() == 2 + i);
+        std::thread::sleep(Duration::from_millis(20));
     }
-    wait_for("the burst", || rec.events().len() == 201);
     handle.closed();
     let summary = worker.join().unwrap().expect("the worker ran");
-    assert_eq!(summary.queued, 201);
-    // Not a bound on the hop (a loaded machine can hold a thread for milliseconds) but on the
-    // failure it guards against: the worker waking on a timer tick, which holds a message for
-    // 8 to 25 ms, instead of on the channel.
-    assert!(summary.queue_p99_us < 8_000, "{summary:?}");
-    assert!(summary.wait_p99_us < 8_000, "{summary:?}");
+    assert_eq!(summary.queued, 11);
+    // The median, not a tail: a loaded machine can hold a thread for milliseconds now and then, but
+    // a worker that wakes on a timer tick instead of on the channel holds most messages for 8 to
+    // 25 ms.
+    assert!(
+        summary.queue_p50_us < 2_000 && summary.wait_p50_us < 2_000,
+        "{summary:?}"
+    );
 }
 
 #[test]
@@ -797,4 +830,24 @@ fn the_input_channel_closing_releases_and_dropping_every_handle_ends_the_worker(
     drop(handle);
     worker.join().unwrap();
     assert_eq!(rec.events(), vec![button(1, true), button(1, false)]);
+}
+
+#[test]
+fn the_histogram_buckets_are_exact_below_eight_and_a_quarter_octave_above() {
+    for (us, bucket) in [(0, 0), (7, 7), (8, 8), (9, 8), (10, 9), (15, 11), (16, 12)] {
+        assert_eq!(Delays::bucket(us), bucket, "{us} us");
+    }
+    assert_eq!(Delays::bucket(u64::MAX), BUCKETS - 1);
+    assert_eq!(BUCKETS - 1, 155);
+    // Every value is within its bucket's upper edge, which is under 25 % above it.
+    let mut x = 0u64;
+    while x < 5_000_000 {
+        let upper = Delays::upper(Delays::bucket(x));
+        assert!(x <= upper, "{x} us above its bucket's edge {upper}");
+        assert!(
+            (upper as f64) < 1.25 * x as f64 + 1.0,
+            "{x} us, edge {upper}"
+        );
+        x += 1 + x / 97;
+    }
 }

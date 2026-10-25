@@ -40,8 +40,10 @@ use std::{
 /// How often the injector's display lookup and pointer refresh run while input flows (the
 /// GameStream control loop runs them every pass of its 8 ms poll).
 const REFRESH: Duration = Duration::from_millis(8);
-/// An injector call slower than this is logged, with the kinds of event in it.
+/// An injector call slower than this is counted, and logged with the kinds of event in it.
 const SLOW_APPLY: Duration = Duration::from_millis(2);
+/// How many slow calls a session logs; the summary's `slow_calls` counts them all.
+const SLOW_LOGGED: u32 = 16;
 /// How often the injector is polled for rumble while a controller is plugged in, as the
 /// GameStream control loop does.
 const FEEDBACK_POLL: Duration = Duration::from_millis(8);
@@ -257,6 +259,22 @@ impl Drop for NativeSink {
 type Make = Box<dyn FnMut(&Session) -> Result<Box<dyn Sink>> + Send>;
 type Reply = Box<dyn FnMut(Vec<u8>) -> bool + Send>;
 
+/// The kinds of event in a call, each once, in the order they first appear.
+fn event_kinds(events: &[Input]) -> Vec<String> {
+    let mut kinds: Vec<String> = Vec::new();
+    for event in events {
+        let kind = format!("{event:?}")
+            .split([' ', '(', '{'])
+            .next()
+            .unwrap_or("")
+            .to_string();
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+    }
+    kinds
+}
+
 /// What a session's input did, for its end-of-stream log line.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Summary {
@@ -275,20 +293,24 @@ pub struct Summary {
     pub rumble_sent: u64,
     /// Messages whose events reached the injector, and how long the host held them: from the
     /// transport receiving the frame to the worker calling the injector. The injector call itself,
-    /// `SendInput`, is below: Windows runs every low-level hook before it returns, so a desktop
-    /// with a slow one (or a click that takes the focus) holds the call for milliseconds, as it
-    /// does for ENet, and that is not the host's queue.
+    /// `SendInput`, is below: it can take milliseconds (on the 780M laptop the first left press
+    /// after idle takes 20 to 38 ms, with or without a host), as it does for ENet, and that is not
+    /// the host's queue.
     pub queued: u64,
+    pub queue_p50_us: u64,
     pub queue_max_us: u64,
     pub queue_p99_us: u64,
     /// The parts of that delay: waiting in the channel for the worker, and the injector's
     /// periodic refresh that runs before the events; then the injector call itself.
+    pub wait_p50_us: u64,
     pub wait_max_us: u64,
     pub wait_p99_us: u64,
     pub refresh_max_us: u64,
     pub refresh_p99_us: u64,
     pub apply_max_us: u64,
     pub apply_p99_us: u64,
+    /// Injector calls that took [`SLOW_APPLY`] or more. Only the first 16 are logged; this is all.
+    pub slow_calls: u64,
 }
 
 /// Sub-buckets per power of two in [`Delays`]: a percentile is at most 1/SUB too high.
@@ -343,9 +365,18 @@ impl Delays {
         self.max_us = self.max_us.max(us);
     }
 
-    /// The upper edge of the bucket the 99th percentile falls in, never above the maximum.
+    /// The upper edge of the bucket the 99th percentile falls in, never above the maximum. It is
+    /// a figure over messages: one that refreshed the pointer counts once, like any other.
     fn p99_us(&self) -> u64 {
-        let rank = (self.count * 99).div_ceil(100);
+        self.percentile_us(99)
+    }
+
+    fn median_us(&self) -> u64 {
+        self.percentile_us(50)
+    }
+
+    fn percentile_us(&self, percent: u64) -> u64 {
+        let rank = (self.count * percent).div_ceil(100);
         let mut seen = 0;
         for (bucket, count) in self.buckets.iter().enumerate() {
             seen += count;
@@ -417,8 +448,10 @@ impl Core {
         Summary {
             unknown_codes: self.channel.unknown_codes(),
             queued: self.delays.count,
+            queue_p50_us: self.delays.median_us(),
             queue_max_us: self.delays.max_us,
             queue_p99_us: self.delays.p99_us(),
+            wait_p50_us: self.waits.median_us(),
             wait_max_us: self.waits.max_us,
             wait_p99_us: self.waits.p99_us(),
             refresh_max_us: self.refreshes.max_us,
@@ -576,23 +609,16 @@ impl Core {
             session.launch.warnings.event("input_injection", format!("Input injection failed ({error:#}); keyboard, mouse or controller actions may be missing. Unlock the desktop and check Windows input permissions."), EVENT_PERIOD);
         }
         let done = Instant::now();
-        if done.saturating_duration_since(started) >= SLOW_APPLY && self.slow_logged < 16 {
-            self.slow_logged += 1;
-            let kinds: Vec<String> = events
-                .iter()
-                .map(|e| {
-                    format!("{e:?}")
-                        .split([' ', '(', '{'])
-                        .next()
-                        .unwrap_or("")
-                        .to_string()
-                })
-                .collect();
-            tracing::info!(
-                took_us = done.saturating_duration_since(started).as_micros() as u64,
-                ?kinds,
-                "WebRTC input: a slow injection"
-            );
+        if done.saturating_duration_since(started) >= SLOW_APPLY {
+            self.summary.slow_calls += 1;
+            if self.slow_logged < SLOW_LOGGED {
+                self.slow_logged += 1;
+                tracing::info!(
+                    took_us = done.saturating_duration_since(started).as_micros() as u64,
+                    kinds = ?event_kinds(&events),
+                    "WebRTC input: a slow injection"
+                );
+            }
         }
         if let Some(received) = self.received {
             self.delays
@@ -709,14 +735,17 @@ impl Core {
             dropped = summary.dropped,
             rumble_sent = summary.rumble_sent,
             queued = summary.queued,
+            queue_p50_us = summary.queue_p50_us,
             queue_max_us = summary.queue_max_us,
             queue_p99_us = summary.queue_p99_us,
+            wait_p50_us = summary.wait_p50_us,
             wait_max_us = summary.wait_max_us,
             wait_p99_us = summary.wait_p99_us,
             refresh_max_us = summary.refresh_max_us,
             refresh_p99_us = summary.refresh_p99_us,
             apply_max_us = summary.apply_max_us,
             apply_p99_us = summary.apply_p99_us,
+            slow_calls = summary.slow_calls,
             "WebRTC input summary"
         );
     }

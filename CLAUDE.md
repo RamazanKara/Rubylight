@@ -9,11 +9,11 @@ Read the relevant doc instead of exploring: [docs/building.md](docs/building.md)
 - Internal names stay butterpollo (crates, `butterpollo.exe`, `BUTTERPOLLO_*`, `ProgramData\Butterpollo`, service `ApolloService`); only the install dir and branding say Rubylight.
 
 ## Build and check
-- Work in a Windows checkout under `C:\src`, never `\\wsl.localhost` (rustfmt and Edit fail there); this overrides the global WSL rule. Fresh clone: `git submodule update --init --recursive`.
-- `%LOCALAPPDATA%` is virtualized in the Claude app (MSIX) and breaks msiexec and Vite: always pass real paths.
-- Core loop, ~10 s warm, no dev shell: `cargo +1.98.1-x86_64-pc-windows-msvc test -p butterpollo-core --locked --target-dir C:\src\rl-target`. Otherwise bare `cargo` fails ("linker `gcc` not found"): `build.ps1` sets the GNU toolchain and SDK env for its own shell.
-- `build.ps1` and the driver need the VS dev shell (Build Tools only, hence `-products '*'`): `$vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath; Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"; Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'`
-- Full gate (fmt, tests, clippy, release build; ~19 min cold; in the background, never two at once): `.\rust\build.ps1 -FetchDependencies -Dependencies C:\src\butterpollo-release\<ver>\sdk -TargetDirectory C:\src\butterpollo-release\<ver>\target *> <log>`, then grep the log for `^test result|FAILED|^error`. Package (~3 min warm): add `-SkipTests -Package`, keeping `-FetchDependencies`. Measure only release builds.
+- Work in a Windows checkout under `C:\src`, never `\\wsl.localhost`; this overrides the global WSL rule. Fresh clone: `git submodule update --init --recursive`.
+- `%LOCALAPPDATA%` is virtualized here (MSIX) and breaks msiexec and Vite: pass real paths.
+- Core loop, no dev shell: `cargo +1.98.1-x86_64-pc-windows-msvc test -p butterpollo-core --locked --target-dir C:\src\rl-target`. Otherwise bare `cargo` fails ("linker `gcc` not found"): `build.ps1` sets the GNU toolchain and SDK env for its own shell.
+- `build.ps1` and the driver need the VS dev shell: `$vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath; Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"; Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'`
+- Full gate (fmt, tests, clippy, release build; in the background, never two at once): `.\rust\build.ps1 -FetchDependencies -Dependencies C:\src\butterpollo-release\<ver>\sdk -TargetDirectory C:\src\butterpollo-release\<ver>\target *> <log>`, then grep the log for `^test result|FAILED|^error`. Package: add `-SkipTests -Package`, keeping `-FetchDependencies`. Measure only release builds.
 - Other CI checks: `cd rust\web; npm ci --no-audit --no-fund; npm run check; node --test "*.test.mjs"; npm run build` (kill stray node/vite first: "Port 24678 is already in use"), and `python -m unittest discover -s rust/release -p test_release.py` (and `test_gpu_hang.py`).
 - Driver: build and install per its README (`build-package.ps1`, then `install-local.ps1` elevated, host idle, unsigned package). May need a restart.
 - Disk fills up: share `C:\src\rl-target` across worktrees and delete stale worktree `target\` folders.
@@ -26,7 +26,7 @@ Read the relevant doc instead of exploring: [docs/building.md](docs/building.md)
 - CI: `.github/workflows/rust-windows.yml` (windows-2022, 2× minutes) on pushes to main touching `rust/**`, Cargo or toolchain files; docs-only commits skip it. Always pass `-R RamazanKara/Rubylight` to `gh`.
 - Versions: patch bump for fixes, minor for features; fewer, well-tested releases. Commit style: `fix(stream): ...`, no model names.
 - Release (details in rust/release/README.md): changes go under `## Unreleased` in `rust/RELEASE_NOTES.md`. Run `python rust/release/bump.py X.Y.Z`, fill in `## New in X.Y.Z` with a "Tested." paragraph of our own measurements, check it with `python rust/release/notes.py vX.Y.Z --out body.md`, commit, push main.
-- Tag the exact SHA whose main run is green, not HEAD (other sessions push meanwhile): `git tag -a vX.Y.Z -m "Rubylight X.Y.Z" <sha> && git push origin vX.Y.Z`. The tag run then reuses that build and takes under a minute. Expect 3 assets (setup exe, zip, SHA256SUMS), then run `rust/release/check.ps1 vX.Y.Z` on this PC.
+- Tag the exact SHA whose main run is green, not HEAD: `git tag -a vX.Y.Z -m "Rubylight X.Y.Z" <sha> && git push origin vX.Y.Z`. Expect 3 assets (setup exe, zip, SHA256SUMS), then run `rust/release/check.ps1 vX.Y.Z` on this PC.
 - Never delete a published release or move a tag unless the user says so.
 
 ## Product rules
@@ -42,10 +42,10 @@ Read the relevant doc instead of exploring: [docs/building.md](docs/building.md)
 This PC is the dev box, the release test host and the user's gaming PC (RX 7900 XT). Host log: `C:\ProgramData\Butterpollo\config\logs\butterpollo.log`.
 - Before any install, restart or stream: `(Invoke-WebRequest http://127.0.0.1:47989/serverinfo).Content` must show RustHostSessionCount and RustHostPendingSessionCount at 0. Never interrupt a stream.
 - While the user is gaming: no GPU benchmarks, streams, virtual displays, layout changes, virtual controllers or `check.ps1`, and build with `-j 4`, unless the user says testing is fine.
-- Test hosts use an isolated profile and ports (`butterpollo.exe --config-dir C:\tests\<p> --port 48123 --bind 127.0.0.1`; the harness uses 48518-48544) with `virtual_display_layout = extended` (the default `exclusive` turns the monitor off). A host run as the user can't create a virtual display and changes the physical monitor's mode instead, so also set `dd_configuration_option = disabled` and `virtual_display_mode = disabled` unless the run needs a virtual display; check that the user is idle first, as the pattern window covers the monitor.
+- Test hosts use an isolated profile and ports (`butterpollo.exe --config-dir C:\tests\<p> --port 48123 --bind 127.0.0.1`; the harness uses 48518-48544) with `virtual_display_layout = extended`, and `dd_configuration_option = disabled` and `virtual_display_mode = disabled` unless the run needs a virtual display (as SYSTEM). Check that the user is idle first: the pattern window covers the monitor.
 - Driver and virtual-display tests need SYSTEM: use `rust/release/elevated.ps1` (`schtasks /RU SYSTEM`; setup in rust/release/README.md).
 - If `check.ps1` stops at "test receivers and probes", delete the stale `fixtures\moonlight-client-build`.
 - Exit code 3 from `e2e.py` or `check.ps1` means an AMD encoder hang: stop and investigate, never retry.
-- Restart only with the host idle, nothing in flight and the work able to resume unattended (a reboot ends the session); batch it last. Never upgrade Windows.
+- Restart only with the host idle, nothing in flight and the work able to resume unattended; batch it last. Never upgrade Windows.
 - Run streams and soaks in the background; read `result.json` and the 5 s `stream timings` lines in the host log, not full logs.
 - Clients: the user runs phone tests (read the host log after). The laptop "lap" (`ramaz@192.168.4.12`, use PowerShell ssh) runs `smoke.ps1`; the NUC (`ssh nuc`) stands in for phones while the user is away.

@@ -20,7 +20,7 @@ use super::{
     server,
 };
 use crate::{
-    nvhttp::{self, WebRtcLaunch, WebRtcLaunchError},
+    nvhttp::{self, StopStreams, WebRtcLaunch, WebRtcLaunchError},
     state::{Launch, Session, Shared},
     stream::Media,
 };
@@ -376,6 +376,8 @@ enum Waited {
     Answer(String),
     Interrupted(Command),
     TimedOut,
+    /// A newer launch replaced this one, which has no stream to wait for any more.
+    Superseded,
     Closed,
 }
 
@@ -651,6 +653,12 @@ impl Actor {
         };
         let running = running_app(&self.h);
         let same = running == Some(checked.app_id);
+        // Replacing the app ends it, which `cancel` allows its owner, or anyone with no remote
+        // session active.
+        if !same && nvhttp::terminate_refused(&self.h, &checked.client.uuid) {
+            self.say(Self::not_the_owner(KIND));
+            return Flow::Done;
+        }
         self.say(host_status(
             if same {
                 HostSessionState::Resuming
@@ -661,10 +669,17 @@ impl Actor {
             Some(checked.app_id),
             None,
         ));
+        let stopped = self
+            .stop_streams((!same).then(|| checked.client.uuid.clone()))
+            .await;
+        if stopped == StopStreams::Refused {
+            self.say(Self::not_the_owner(KIND));
+            return Flow::Done;
+        }
         if self.live.is_some() {
             self.stop();
         }
-        if !self.stop_streams(!same).await {
+        if stopped == StopStreams::TimedOut {
             self.refuse(
                 KIND,
                 ErrorCode::InternalError,
@@ -685,30 +700,38 @@ impl Actor {
     /// `stop-host-session`: every stream and the app end.
     async fn stop_host(&mut self) -> Flow {
         const KIND: &str = "stop-host-session";
-        let allowed = self
-            .h
-            .webrtc
-            .verify(&self.h, &self.client_id)
-            .is_ok_and(|client| client.allows(LAUNCH));
-        if !allowed {
-            self.say(ServerMessage::error(
-                KIND,
-                ErrorCode::NotAuthenticated,
-                "This device may not stop the host session",
-            ));
-            return Flow::Done;
-        }
+        let client = match self.h.webrtc.verify(&self.h, &self.client_id) {
+            Ok(client) if client.allows(LAUNCH) => client,
+            _ => {
+                self.say(ServerMessage::error(
+                    KIND,
+                    ErrorCode::NotAuthenticated,
+                    "This device may not stop the host session",
+                ));
+                return Flow::Done;
+            }
+        };
         let running = running_app(&self.h);
         let busy = running.is_some() || !self.h.sessions.lock().unwrap().idle();
         if !busy && self.live.is_none() {
             self.say(host_status(HostSessionState::Stopped, None, None, None));
             return Flow::Done;
         }
+        // The same guard as `cancel`, before anything is announced or stopped.
+        if nvhttp::terminate_refused(&self.h, &client.uuid) {
+            self.say(Self::not_the_owner(KIND));
+            return Flow::Done;
+        }
         self.say(host_status(HostSessionState::Stopping, running, None, None));
+        let stopped = self.stop_streams(Some(client.uuid)).await;
+        if stopped == StopStreams::Refused {
+            self.say(Self::not_the_owner(KIND));
+            return Flow::Done;
+        }
         if self.live.is_some() {
             self.stop();
         }
-        if self.stop_streams(true).await {
+        if stopped == StopStreams::Stopped {
             self.say(host_status(HostSessionState::Stopped, running, None, None));
         } else {
             self.say(host_status(
@@ -721,31 +744,40 @@ impl Actor {
         Flow::Done
     }
 
-    /// Stop every stream on the blocking pool, and the app when asked. False on a timeout.
-    async fn stop_streams(&self, terminate_app: bool) -> bool {
+    fn not_the_owner(kind: &str) -> ServerMessage {
+        ServerMessage::error(
+            kind,
+            ErrorCode::NotAuthenticated,
+            "Only the game owner may stop it while remote sessions are active",
+        )
+    }
+
+    /// Stop every stream on the blocking pool, and the app for the client named.
+    async fn stop_streams(&self, terminate_app_for: Option<String>) -> StopStreams {
         let h = self.h.clone();
-        tokio::task::spawn_blocking(move || nvhttp::stop_streams(&h, terminate_app))
+        tokio::task::spawn_blocking(move || nvhttp::stop_streams(&h, terminate_app_for.as_deref()))
             .await
-            .unwrap_or(false)
+            .unwrap_or(StopStreams::TimedOut)
     }
 
-    /// Cancel a launch no stream took, leaving its app running as an abandoned Moonlight launch does.
-    fn cancel(&self, launch: &Launch) {
-        self.h.webrtc_links.discard(&launch.id);
-        let canceled = self
-            .h
-            .sessions
-            .lock()
-            .unwrap()
-            .request_stop(Some(&launch.id));
-        drop(canceled);
+    /// Cancel a launch no stream took, leaving its app running as an abandoned Moonlight launch
+    /// does. On the blocking pool: the launch's resources are released as it drops.
+    async fn cancel(&self, launch: Launch) {
+        let h = self.h.clone();
+        let _ = tokio::task::spawn_blocking(move || cancel_launch(&h, launch)).await;
     }
 
-    async fn wait_for_answer(&mut self, session_id: u64) -> Waited {
+    async fn wait_for_answer(&mut self, session_id: u64, launch: &str) -> Waited {
         let deadline = tokio::time::Instant::now() + ANSWER_TIMEOUT;
         loop {
-            match tokio::time::timeout_at(deadline, self.inbox.recv()).await {
-                Err(_) => return Waited::TimedOut,
+            let step = (tokio::time::Instant::now() + WATCH).min(deadline);
+            match tokio::time::timeout_at(step, self.inbox.recv()).await {
+                Err(_) if tokio::time::Instant::now() >= deadline => return Waited::TimedOut,
+                // A newer start by this device took the launch; the socket must be free for it.
+                Err(_) if !self.h.sessions.lock().unwrap().pending.contains_key(launch) => {
+                    return Waited::Superseded;
+                }
+                Err(_) => {}
                 Ok(None) => return Waited::Closed,
                 Ok(Some(Command::Answer {
                     session_id: id,
@@ -811,11 +843,11 @@ impl Actor {
             }
         };
         let session_id = self.h.webrtc_links.next_session_id();
-        let mut prepared = match self.prepare(&settings).await {
+        let prepared = match self.prepare(&settings).await {
             Ok(prepared) => prepared,
             Err(error) => {
                 tracing::error!(error = %format!("{error:#}"), "WebRTC session could not be prepared");
-                self.cancel(&launch);
+                self.cancel(launch).await;
                 self.refuse(
                     kind,
                     ErrorCode::InternalError,
@@ -830,14 +862,29 @@ impl Actor {
             Some(session_id),
         ));
         self.say(ServerMessage::offer(session_id, prepared.offer_sdp()));
-        let answer = match self.wait_for_answer(session_id).await {
+        // Every way out but an answer frees the media socket first: releasing the launch can
+        // take a while, and the next start needs the port.
+        let answer = match self.wait_for_answer(session_id, &launch.id).await {
             Waited::Answer(answer) => answer,
             Waited::Interrupted(command) => {
-                self.cancel(&launch);
+                drop(prepared);
+                self.cancel(launch).await;
                 return Flow::Again(command);
             }
+            Waited::Superseded => {
+                drop(prepared);
+                self.cancel(launch).await;
+                self.refuse(
+                    kind,
+                    ErrorCode::SessionActive,
+                    "A newer start replaced this one",
+                    host_op,
+                );
+                return Flow::Done;
+            }
             Waited::TimedOut => {
-                self.cancel(&launch);
+                drop(prepared);
+                self.cancel(launch).await;
                 self.refuse(
                     kind,
                     ErrorCode::InternalError,
@@ -847,13 +894,34 @@ impl Actor {
                 return Flow::Done;
             }
             Waited::Closed => {
-                self.cancel(&launch);
+                drop(prepared);
+                self.cancel(launch).await;
                 return Flow::Closed;
             }
         };
         let (events, receiver) = unbounded_channel();
         let bridge = Bridge::new(events);
-        let started = self.go_live(&launch, &settings, &mut prepared, &answer, &bridge);
+        // Routing, spawning the transport's threads and starting the session block.
+        let (h, media, peer) = (self.h.clone(), self.media.clone(), self.peer);
+        let live_bridge = bridge.clone();
+        let started = tokio::task::spawn_blocking(move || {
+            go_live(
+                &h,
+                &media,
+                peer,
+                launch,
+                settings,
+                prepared,
+                &answer,
+                &live_bridge,
+            )
+        })
+        .await
+        .unwrap_or_else(|error| {
+            Err(Rejected::Host(anyhow!(
+                "starting the session panicked: {error}"
+            )))
+        });
         match started {
             Ok(session) => {
                 self.live = Some(Live {
@@ -873,7 +941,6 @@ impl Actor {
                     Rejected::Host(error) => (ErrorCode::InternalError, error),
                 };
                 tracing::error!(error = %format!("{error:#}"), "WebRTC session could not start");
-                self.cancel(&launch);
                 self.refuse(kind, code, format!("{error:#}"), host_op);
                 Flow::Done
             }
@@ -931,81 +998,109 @@ impl Actor {
             spec,
         })
     }
+}
 
-    /// Accept the answer, start the transport and the stream worker.
-    fn go_live(
-        &self,
-        launch: &Launch,
-        settings: &StreamSettings,
-        prepared: &mut Prepared,
-        answer: &str,
-        bridge: &Arc<Bridge>,
-    ) -> Result<Arc<Session>, Rejected> {
-        let (Some(socket), Some(mut rtc), Some(offer)) = (
-            prepared.socket.take(),
-            prepared.rtc.take(),
-            prepared.offer.take(),
-        ) else {
-            return Err(Rejected::Answer(anyhow!("the offer was already answered")));
-        };
-        let (ids, _) = sdp::accept_answer(&mut rtc, offer, answer, &prepared.spec)
-            .map_err(Rejected::Answer)?;
-        let link = butterpollo_windows::net::routed_link(self.peer);
-        let configured_kbps = self
-            .h
-            .config
-            .read()
-            .unwrap()
-            .integer("pacing_max_bitrate_kbps", 0);
-        let options = TransportOptions {
-            pacing: Pacing::Paced {
-                configured_kbps,
-                link_bps: link.bps,
-                wireless: link.wireless,
-            },
-            ..TransportOptions::default()
-        };
-        let handle = MediaHandle::spawn(
-            socket,
-            prepared.local,
-            media::Session {
-                rtc,
-                ids,
-                spec: &prepared.spec,
-                // The signalling connection authenticated the device.
-                authenticated: Arc::new(AtomicBool::new(true)),
-            },
-            options,
-            bridge.hooks(),
-        )
-        .map_err(Rejected::Host)?;
-        self.h.webrtc_links.put(launch.id.clone(), handle);
-        let negotiated = Negotiated::webrtc(
-            settings.width,
-            settings.height,
-            settings.fps,
-            settings.codec,
-            settings.hdr,
-            settings.bitrate_kbps,
-            settings.audio_channels as u8,
-        );
-        let started = self
-            .h
-            .sessions
-            .lock()
-            .unwrap()
-            .start(launch.clone(), negotiated);
-        let session = match started {
-            Ok(session) => session,
-            Err(error) => {
-                self.h.webrtc_links.discard(&launch.id);
-                return Err(Rejected::Host(error.context("starting the session")));
-            }
-        };
-        bridge.bind(&session);
-        self.media.start(self.h.clone(), session.clone());
-        Ok(session)
+/// Release a launch no stream took, and its transport if nobody took that either.
+fn cancel_launch(h: &Shared, launch: Launch) {
+    h.webrtc_links.discard(&launch.id);
+    let canceled = h.sessions.lock().unwrap().request_stop(Some(&launch.id));
+    drop(canceled);
+}
+
+/// Accept the answer, start the transport and the stream worker. Blocking: it routes, starts the
+/// transport's threads and takes the session lock. A launch that does not start is cancelled here,
+/// where releasing what it holds may block too.
+#[allow(clippy::too_many_arguments)]
+fn go_live(
+    h: &Shared,
+    media: &Arc<Media>,
+    peer: SocketAddr,
+    launch: Launch,
+    settings: StreamSettings,
+    mut prepared: Prepared,
+    answer: &str,
+    bridge: &Arc<Bridge>,
+) -> Result<Arc<Session>, Rejected> {
+    let started = start_live(
+        h,
+        media,
+        peer,
+        &launch,
+        &settings,
+        &mut prepared,
+        answer,
+        bridge,
+    );
+    if started.is_err() {
+        drop(prepared);
+        cancel_launch(h, launch);
     }
+    started
+}
+
+#[allow(clippy::too_many_arguments)]
+fn start_live(
+    h: &Shared,
+    media: &Arc<Media>,
+    peer: SocketAddr,
+    launch: &Launch,
+    settings: &StreamSettings,
+    prepared: &mut Prepared,
+    answer: &str,
+    bridge: &Arc<Bridge>,
+) -> Result<Arc<Session>, Rejected> {
+    let (Some(socket), Some(mut rtc), Some(offer)) = (
+        prepared.socket.take(),
+        prepared.rtc.take(),
+        prepared.offer.take(),
+    ) else {
+        return Err(Rejected::Answer(anyhow!("the offer was already answered")));
+    };
+    let (ids, _) =
+        sdp::accept_answer(&mut rtc, offer, answer, &prepared.spec).map_err(Rejected::Answer)?;
+    let link = butterpollo_windows::net::routed_link(peer);
+    let configured_kbps = h
+        .config
+        .read()
+        .unwrap()
+        .integer("pacing_max_bitrate_kbps", 0);
+    let options = TransportOptions {
+        pacing: Pacing::Paced {
+            configured_kbps,
+            link_bps: link.bps,
+            wireless: link.wireless,
+        },
+        ..TransportOptions::default()
+    };
+    let handle = MediaHandle::spawn(
+        socket,
+        prepared.local,
+        media::Session {
+            rtc,
+            ids,
+            spec: &prepared.spec,
+            // The signalling connection authenticated the device.
+            authenticated: Arc::new(AtomicBool::new(true)),
+        },
+        options,
+        bridge.hooks(),
+    )
+    .map_err(Rejected::Host)?;
+    h.webrtc_links.put(launch.id.clone(), handle);
+    let negotiated = Negotiated::webrtc(
+        settings.width,
+        settings.height,
+        settings.fps,
+        settings.codec,
+        settings.hdr,
+        settings.bitrate_kbps,
+        settings.audio_channels as u8,
+    );
+    let started = h.sessions.lock().unwrap().start(launch.clone(), negotiated);
+    let session = started.map_err(|error| Rejected::Host(error.context("starting the session")))?;
+    bridge.bind(&session);
+    media.start(h.clone(), session.clone());
+    Ok(session)
 }
 
 /// Why an answered session did not start.

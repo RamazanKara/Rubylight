@@ -68,6 +68,7 @@ impl std::fmt::Display for LaunchFailure {
     }
 }
 impl std::error::Error for LaunchFailure {}
+const APPLICATION_NOT_FOUND: &str = "application not found";
 pub(crate) fn wait_for_teardown(
     sessions: &Mutex<Sessions>,
     ids: &[String],
@@ -1412,7 +1413,7 @@ pub(crate) fn launch_webrtc(
             owner,
             false,
         )
-        .map_err(|_| LaunchFailure(404, "application not found"))?;
+        .map_err(launch_app_error)?;
         if h.current_app
             .lock()
             .unwrap()
@@ -1461,26 +1462,68 @@ pub(crate) fn launch_webrtc(
         _ => WebRtcLaunchError::Failed(format!("{error:#}")),
     })
 }
-/// Stop every stream, and the running app with them when `terminate_app` is set, as the `cancel`
-/// request does, for WebRTC's stop-host-session and switch-session. False when a stream worker
-/// outlived the wait.
-pub(crate) fn stop_streams(h: &Shared, terminate_app: bool) -> bool {
+/// A failed app lookup keeps its own status: only an unknown app is a 404.
+fn launch_app_error(error: anyhow::Error) -> anyhow::Error {
+    if error.downcast_ref::<LaunchFailure>().is_none() && error.to_string() == APPLICATION_NOT_FOUND
+    {
+        LaunchFailure(404, APPLICATION_NOT_FOUND).into()
+    } else {
+        error
+    }
+}
+/// Whether `client` may not terminate the running app: remote sessions are active and the client
+/// does not own the game. The `cancel` request answers this with a 403.
+pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
+    let Some(game) = remote_game(h) else {
+        return false;
+    };
+    let remote_active = !h.monitors.lock().unwrap().is_empty()
+        || h.sessions
+            .lock()
+            .unwrap()
+            .active
+            .values()
+            .any(|s| !s.stopping() && s.launch.role != Role::Stream);
+    remote_active && game.owner != client
+}
+/// What `stop_streams` did.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum StopStreams {
+    Stopped,
+    /// The client may not terminate the app (see `terminate_refused`); nothing was stopped.
+    Refused,
+    /// A stream worker outlived the wait.
+    TimedOut,
+}
+/// Stop every stream, and the running app with them when `terminate_app` names the client asking,
+/// as the `cancel` request does, for WebRTC's stop-host-session and switch-session. Remote Monitor
+/// and Remote Input sessions stay, and are not waited for.
+pub(crate) fn stop_streams(h: &Shared, terminate_app: Option<&str>) -> StopStreams {
     let _transition = h.launch_transition.lock().unwrap();
+    if terminate_app.is_some_and(|client| terminate_refused(h, client)) {
+        return StopStreams::Refused;
+    }
     let (canceled, ids) = {
         let mut sessions = h.sessions.lock().unwrap();
+        // The streams `stop_role` ends, and the teardowns already under way.
         let ids: Vec<String> = sessions
             .active
-            .keys()
-            .chain(sessions.teardown.keys())
-            .cloned()
+            .values()
+            .filter(|s| s.launch.role == Role::Stream)
+            .map(|s| s.launch.id.clone())
+            .chain(sessions.teardown.keys().cloned())
             .collect();
         (sessions.stop_role(Role::Stream, None), ids)
     };
     drop(canceled);
-    if terminate_app {
+    if terminate_app.is_some() {
         h.stop_app();
     }
-    wait_for_teardown(&h.sessions, &ids, Duration::from_secs(10))
+    if wait_for_teardown(&h.sessions, &ids, Duration::from_secs(10)) {
+        StopStreams::Stopped
+    } else {
+        StopStreams::TimedOut
+    }
 }
 fn validate_launch_client(
     h: &Shared,
@@ -1644,7 +1687,7 @@ fn resolve_launch_app(
         })
         .cloned();
     if role == Role::Stream && app.is_none() {
-        bail!("application not found");
+        bail!(APPLICATION_NOT_FOUND);
     }
     let app_id = app.as_ref().map_or(app_id, |a| a.id());
     Ok((role, app, app_id))
@@ -2029,23 +2072,15 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
         Err(e) => return xml(401, &[], Some(e.to_string())),
     };
     let _transition = h.launch_transition.lock().unwrap();
-    if let Some(game) = remote_game(&h) {
-        let remote_active = !h.monitors.lock().unwrap().is_empty()
-            || h.sessions
-                .lock()
-                .unwrap()
-                .active
-                .values()
-                .any(|s| !s.stopping() && s.launch.role != Role::Stream);
-        if remote_active && game.owner != client.uuid {
-            return xml(
-                403,
-                &[("cancel", "0".into())],
-                Some("Only the game owner may cancel while remote sessions are active".into()),
-            );
-        }
-    } else {
+    if remote_game(&h).is_none() {
         return xml(200, &[("cancel", "1".into())], None);
+    }
+    if terminate_refused(&h, &client.uuid) {
+        return xml(
+            403,
+            &[("cancel", "0".into())],
+            Some("Only the game owner may cancel while remote sessions are active".into()),
+        );
     }
     let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
     drop(canceled);
@@ -2282,6 +2317,95 @@ async fn abr(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Re
 #[cfg(test)]
 mod tests {
     use super::stream_key_id;
+    fn running_app(f: &crate::state::test_support::Fixture, owner: &str) {
+        let app = f.host.apps.read().unwrap()[0].clone();
+        let mut running =
+            crate::process::RunningApp::with_environment(&app, Default::default()).unwrap();
+        running.owner = owner.into();
+        *f.host.current_app.lock().unwrap() = Some(running);
+    }
+    #[test]
+    fn stopping_streams_does_not_wait_for_remote_sessions_it_leaves_running() {
+        use super::{Duration, Instant, StopStreams, stop_streams};
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::session::Role;
+        let f = Fixture::new();
+        let client = f.client(u32::MAX);
+        let monitor = f.session(client.clone(), Role::RemoteMonitor);
+        let input = f.session(client, Role::InputOnly);
+        for terminate in [None, Some("anyone")] {
+            let started = Instant::now();
+            assert_eq!(stop_streams(&f.host, terminate), StopStreams::Stopped);
+            assert!(started.elapsed() < Duration::from_secs(3));
+            assert!(!monitor.stopping() && !input.stopping());
+        }
+    }
+    #[test]
+    fn stopping_streams_ends_a_stream_and_waits_for_it_to_leave() {
+        use super::{Duration, StopStreams, stop_streams};
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::session::Role;
+        let f = Fixture::new();
+        let stream = f.session(f.client(u32::MAX), Role::Stream);
+        let host = f.host.clone();
+        let id = stream.launch.id.clone();
+        // The worker moves out of `active` once it sees the stop.
+        let worker = std::thread::spawn({
+            let stream = stream.clone();
+            move || {
+                while !stream.stopping() {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                host.sessions.lock().unwrap().active.remove(&id);
+            }
+        });
+        assert_eq!(stop_streams(&f.host, None), StopStreams::Stopped);
+        assert!(stream.stopping());
+        worker.join().unwrap();
+    }
+    #[test]
+    fn only_the_games_owner_may_terminate_it_while_remote_sessions_are_active() {
+        use super::{StopStreams, stop_streams, terminate_refused};
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::session::Role;
+        let f = Fixture::new();
+        // No game, nothing to refuse.
+        assert!(!terminate_refused(&f.host, "other"));
+        running_app(&f, "owner");
+        assert!(!terminate_refused(&f.host, "other"));
+        let monitor = f.session(f.client(u32::MAX), Role::RemoteMonitor);
+        assert!(terminate_refused(&f.host, "other"));
+        assert!(!terminate_refused(&f.host, "owner"));
+        // A refused stop changes nothing.
+        assert_eq!(stop_streams(&f.host, Some("other")), StopStreams::Refused);
+        assert!(f.host.current_app.lock().unwrap().is_some());
+        assert!(!monitor.stopping());
+        // Ending the remote session lifts the guard.
+        monitor.stop();
+        assert!(!terminate_refused(&f.host, "other"));
+        assert_eq!(stop_streams(&f.host, Some("other")), StopStreams::Stopped);
+        assert!(f.host.current_app.lock().unwrap().is_none());
+    }
+    #[test]
+    fn a_failed_app_lookup_keeps_its_own_status_and_only_an_unknown_app_is_a_404() {
+        use super::{APPLICATION_NOT_FOUND, LaunchFailure, launch_app_error};
+        let status = |error: anyhow::Error| {
+            error
+                .downcast_ref::<LaunchFailure>()
+                .map(|failure| failure.0)
+        };
+        assert_eq!(
+            status(launch_app_error(anyhow::anyhow!(APPLICATION_NOT_FOUND))),
+            Some(404)
+        );
+        assert_eq!(
+            status(launch_app_error(LaunchFailure(503, "busy").into())),
+            Some(503)
+        );
+        let other = launch_app_error(anyhow::anyhow!("remote input is disabled"));
+        assert_eq!(other.to_string(), "remote input is disabled");
+        assert!(other.downcast_ref::<LaunchFailure>().is_none());
+    }
     #[test]
     fn a_slow_teardown_blocks_the_next_launch_after_the_wait() {
         use super::{Duration, Instant, Mutex, Sessions, wait_for_teardown};

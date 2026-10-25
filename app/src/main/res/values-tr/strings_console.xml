@@ -33,4 +33,29 @@
     <string name="console_profile_main">Ana ayarlar</string>
     <string name="console_home_setting_title">Ana sayfada aç</string>
     <string name="console_home_setting_summary">Devam edilecek oyunlar ve kitaplıkla açılır. Kapalıyken bilgisayar listesiyle açılır.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Son oynananlar</string>
+    <string name="console_row_other">Diğer uygulamalar</string>
+    <string name="console_row_unadded">Bilgisayarlarında, eklenmemiş</string>
+    <string name="console_chip_not_installed">Yüklü değil</string>
+    <string name="console_chip_not_added">Eklenmedi</string>
+    <string name="console_add_on_pc">Bilgisayarda ekle</string>
+    <string name="console_adding">%1$s ekleniyor…</string>
+    <string name="console_add_failed">%1$s eklenemedi</string>
+    <string name="console_filter_all">Tümü</string>
+    <string name="console_filter_installed">Yüklü</string>
+    <string name="console_all_games_title">Tüm oyunlar</string>
+    <string name="console_all_games_empty">Bu filtrede oyun yok.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">%1$d oyun</item>
+        <item quantity="other">Tüm %1$d oyun</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: %2$d oyun</item>
+        <item quantity="other">%1$s: tüm %2$d oyun</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d oyun</item>
+        <item quantity="other">%1$s, %2$d oyun</item>
+    </plurals>
 </resources>

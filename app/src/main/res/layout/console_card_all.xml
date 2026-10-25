@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The last card of a library row with more games than it shows: "All N", poster-sized, opening All games under the
+     row's filter. It moves like a poster (glow under, ring around, the root's animator), so the row ends in a card and
+     not a button. ShelfAdapter sets the height. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:padding="@dimen/cover_inset" android:clipChildren="false" android:clipToPadding="false"
+    android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+    android:stateListAnimator="?attr/nightjarPosterFocusAnimator" android:descendantFocusability="blocksDescendants">
+    <View android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="-16dp" android:layout_marginEnd="-16dp" android:layout_marginTop="-16dp" android:layout_marginBottom="-16dp" android:background="?attr/nightjarPosterGlow"
+        android:duplicateParentState="true" android:importantForAccessibility="no" />
+    <com.google.android.material.card.MaterialCardView
+        app:cardPreventCornerOverlap="false" android:clipToOutline="true"
+        android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryPoster"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh" android:duplicateParentState="true">
+        <LinearLayout android:id="@+id/console_all_frame" android:layout_width="match_parent" android:layout_height="160dp"
+            android:orientation="vertical" android:gravity="center" android:padding="@dimen/space_m">
+            <ImageView android:id="@+id/console_all_glyph" android:layout_width="28dp" android:layout_height="28dp"
+                android:layout_marginBottom="@dimen/space_m" android:tint="?attr/colorOnSurfaceVariant"
+                android:visibility="gone" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/console_all_label" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurfaceVariant"
+                android:text="@string/console_filter_all" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/console_all_count" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Nightjar.TileCount" android:textColor="?attr/colorOnSurface"
+                android:importantForAccessibility="no" />
+            <TextView android:id="@+id/console_all_name" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:maxLines="2" android:ellipsize="end" android:gravity="center"
+                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant"
+                android:importantForAccessibility="no" />
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginTop="@dimen/space_m"
+                android:src="@drawable/settings_chevron" android:tint="@color/night_primary"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+    <View android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="-5dp" android:layout_marginEnd="-5dp" android:layout_marginTop="-5dp" android:layout_marginBottom="-5dp"
+        android:background="?attr/nightjarPosterRing" android:duplicateParentState="true"
+        android:importantForAccessibility="no" />
+</FrameLayout>

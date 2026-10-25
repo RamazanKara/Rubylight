@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * Home's shelves, one row each: games to continue, favourites, the library and the PCs. A shelf scrolls sideways on its own
+ * Home's shelves, one row each: games to continue, favourites, the library's rows (see {@link HomeModel#rows}) and the PCs. A shelf scrolls sideways on its own
  * (see {@link ShelfAdapter}); the list of shelves scrolls up and down and snaps the focused shelf to its top. Each shelf
  * remembers the card that had focus last, so a key up or down returns to it; a shelf not seen before takes the card nearest
  * the one focus came from. Cards are found again across a refresh by their stable keys.
@@ -41,15 +41,19 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
 
         /** The three dots, a long press, Menu, X or a right-click on a host card: that PC's options. */
         void onHostOptions(HomeModel.HostCard card);
+
+        /** A row's "All N" tile: All games under that row's filter. */
+        default void onAllGames(String filter) {
+        }
     }
 
     /** One shelf: a heading and its cards. */
     private static final class Shelf {
         final String key;
-        @StringRes final int title;
+        final CharSequence title;
         final List<ShelfAdapter.Item> items;
 
-        Shelf(String key, int title, List<ShelfAdapter.Item> items) {
+        Shelf(String key, CharSequence title, List<ShelfAdapter.Item> items) {
             this.key = key;
             this.title = title;
             this.items = items;
@@ -98,6 +102,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
         };
         pool.setMaxRecycledViews(ShelfAdapter.COVER_GAME, 24);
         pool.setMaxRecycledViews(ShelfAdapter.HOST, 8);
+        pool.setMaxRecycledViews(ShelfAdapter.ALL_TILE, 4);
         setHasStableIds(true);
     }
 
@@ -135,24 +140,33 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
         shelves.clear();
         addGames("continue", R.string.console_section_continue, model.continuePlaying);
         addGames("favourites", R.string.console_section_favourites, model.favourites);
-        addGames("library", R.string.console_section_library, model.library);
+        // The library's rows: Recently played, one per store (largest first), Other apps, the games not added.
+        for (HomeModel.Row row : model.rows) {
+            List<ShelfAdapter.Item> items = items(row.cards);
+            if (row.hasMore()) items.add(ShelfAdapter.Item.allOf(row));
+            shelves.add(new Shelf(row.key, ShelfAdapter.CardHolder.rowTitle(env.context, row), items));
+        }
         if (!model.hosts.isEmpty()) {
             List<ShelfAdapter.Item> items = new ArrayList<>();
             for (HomeModel.HostCard card : model.hosts) {
                 items.add(new ShelfAdapter.Item("host:" + card.uuid, null, card));
             }
-            shelves.add(new Shelf("shelf:hosts", R.string.console_section_hosts, items));
+            shelves.add(new Shelf("shelf:hosts", env.context.getString(R.string.console_section_hosts), items));
         }
         notifyDataSetChanged();
     }
 
     private void addGames(String name, @StringRes int title, List<HomeModel.GameCard> cards) {
         if (cards.isEmpty()) return;
-        List<ShelfAdapter.Item> items = new ArrayList<>();
+        shelves.add(new Shelf("shelf:" + name, env.context.getString(title), items(cards)));
+    }
+
+    private static List<ShelfAdapter.Item> items(List<HomeModel.GameCard> cards) {
+        List<ShelfAdapter.Item> items = new ArrayList<>(cards.size() + 1);
         for (HomeModel.GameCard card : cards) {
             items.add(new ShelfAdapter.Item(card.key, card, null));
         }
-        shelves.add(new Shelf("shelf:" + name, title, items));
+        return items;
     }
 
     // ---- Cursors: where cards are, found again by key. ----
@@ -329,7 +343,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
         if (moved) saveScroll(holder);
         holder.key = shelf.key;
         holder.title.setText(shelf.title);
-        holder.cards.setContentDescription(holder.itemView.getContext().getString(shelf.title));
+        holder.cards.setContentDescription(shelf.title);
         holder.adapter.setItems(shelf.key, shelf.items);
         if (!moved) return;
         int[] at = scrolled.get(shelf.key);

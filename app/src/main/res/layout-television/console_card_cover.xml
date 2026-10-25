@@ -27,12 +27,20 @@
                         android:gravity="center" android:padding="@dimen/space_m"
                         android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
                         android:maxLines="4" android:ellipsize="end" android:importantForAccessibility="no" />
-                    <TextView android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:layout_gravity="top|start" android:layout_margin="@dimen/space_xs"
-                        android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
-                        android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
-                        android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                    <!-- Running (with the live dot) or Suspended. -->
+                    <TextView android:id="@+id/console_badge" style="@style/Widget.Nightjar.CardChip"
+                        android:layout_gravity="top|start" android:layout_margin="@dimen/space_s"
+                        android:visibility="gone" />
+                    <!-- A favourite. -->
+                    <ImageView android:id="@+id/console_star" android:layout_width="@dimen/card_chip_height"
+                        android:layout_height="@dimen/card_chip_height" android:layout_gravity="top|end"
+                        android:layout_margin="@dimen/space_s" android:padding="5dp" android:background="@drawable/bg_card_star"
+                        android:src="@drawable/ic_star_filled" android:tint="@color/night_primary"
                         android:visibility="gone" android:importantForAccessibility="no" />
+                    <!-- The store's glyph (or name), and Not installed or what adding takes. -->
+                    <TextView android:id="@+id/console_store" style="@style/Widget.Nightjar.CardChip"
+                        android:layout_gravity="bottom|start" android:layout_margin="@dimen/space_s"
+                        android:visibility="gone" />
                 </FrameLayout>
             </LinearLayout>
         </FrameLayout>

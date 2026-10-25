@@ -33,4 +33,26 @@
     <string name="console_profile_main">メイン設定</string>
     <string name="console_home_setting_title">ホームで開く</string>
     <string name="console_home_setting_summary">続きをプレイするゲームとライブラリから始めます。オフにすると PC の一覧から始まります。</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">最近プレイしたゲーム</string>
+    <string name="console_row_other">その他のアプリ</string>
+    <string name="console_row_unadded">PC にあり、未追加</string>
+    <string name="console_chip_not_installed">未インストール</string>
+    <string name="console_chip_not_added">未追加</string>
+    <string name="console_add_on_pc">PC で追加してください</string>
+    <string name="console_adding">%1$s を追加しています…</string>
+    <string name="console_add_failed">%1$s を追加できませんでした</string>
+    <string name="console_filter_all">すべて</string>
+    <string name="console_filter_installed">インストール済み</string>
+    <string name="console_all_games_title">すべてのゲーム</string>
+    <string name="console_all_games_empty">このフィルタに該当するゲームはありません。</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="other">全 %1$d 本</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="other">%1$s: 全 %2$d 本</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="other">%1$s、%2$d 本</item>
+    </plurals>
 </resources>

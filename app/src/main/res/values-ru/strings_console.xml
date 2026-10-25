@@ -33,4 +33,35 @@
     <string name="console_profile_main">Основные настройки</string>
     <string name="console_home_setting_title">Открывать на главной</string>
     <string name="console_home_setting_summary">Запуск с игр для продолжения и библиотеки. Если выключено, запуск со списка ПК.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Недавно запускались</string>
+    <string name="console_row_other">Другие приложения</string>
+    <string name="console_row_unadded">На ваших ПК, не добавлены</string>
+    <string name="console_chip_not_installed">Не установлена</string>
+    <string name="console_chip_not_added">Не добавлена</string>
+    <string name="console_add_on_pc">Добавьте её на ПК</string>
+    <string name="console_adding">Добавление: %1$s…</string>
+    <string name="console_add_failed">Не удалось добавить: %1$s</string>
+    <string name="console_filter_all">Все</string>
+    <string name="console_filter_installed">Установленные</string>
+    <string name="console_all_games_title">Все игры</string>
+    <string name="console_all_games_empty">С этим фильтром игр нет.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">Все %1$d игра</item>
+        <item quantity="few">Все %1$d игры</item>
+        <item quantity="many">Все %1$d игр</item>
+        <item quantity="other">Все %1$d игры</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: все %2$d игра</item>
+        <item quantity="few">%1$s: все %2$d игры</item>
+        <item quantity="many">%1$s: все %2$d игр</item>
+        <item quantity="other">%1$s: все %2$d игры</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d игра</item>
+        <item quantity="few">%1$s, %2$d игры</item>
+        <item quantity="many">%1$s, %2$d игр</item>
+        <item quantity="other">%1$s, %2$d игры</item>
+    </plurals>
 </resources>

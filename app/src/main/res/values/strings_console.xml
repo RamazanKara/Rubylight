@@ -36,4 +36,29 @@
     <string name="console_profile_main">Main settings</string>
     <string name="console_home_setting_title">Open on Home</string>
     <string name="console_home_setting_summary">Start on the games to continue and your library. Off starts on the list of PCs.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Recently played</string>
+    <string name="console_row_other">Other apps</string>
+    <string name="console_row_unadded">On your PCs, not added</string>
+    <string name="console_chip_not_installed">Not installed</string>
+    <string name="console_chip_not_added">Not added</string>
+    <string name="console_add_on_pc">Add it on the PC</string>
+    <string name="console_adding">Adding %1$s…</string>
+    <string name="console_add_failed">Couldn\'t add %1$s</string>
+    <string name="console_filter_all">All</string>
+    <string name="console_filter_installed">Installed</string>
+    <string name="console_all_games_title">All games</string>
+    <string name="console_all_games_empty">No games under this filter.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">All %1$d game</item>
+        <item quantity="other">All %1$d games</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: all %2$d game</item>
+        <item quantity="other">%1$s: all %2$d games</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d game</item>
+        <item quantity="other">%1$s, %2$d games</item>
+    </plurals>
 </resources>

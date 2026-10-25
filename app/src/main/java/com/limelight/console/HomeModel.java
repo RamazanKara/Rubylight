@@ -47,9 +47,16 @@ public final class HomeModel {
         public final int hostCount;
         /** True when the player starred this game on this host. */
         public final boolean favourite;
+        /** A game not added that its host can add on request (library.add); otherwise it is added on the PC. */
+        public final boolean addable;
 
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
                  ConsoleSnapshot.Source source, int hostCount, boolean favourite) {
+            this(key, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, false);
+        }
+
+        GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
+                 ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable) {
             this.key = key;
             this.title = title;
             this.hostUuid = hostUuid;
@@ -59,6 +66,7 @@ public final class HomeModel {
             this.source = source;
             this.hostCount = hostCount;
             this.favourite = favourite;
+            this.addable = addable;
         }
 
         /** The store's key ("steam", ...); null for an app no store owns and for a classic app. */
@@ -297,11 +305,15 @@ public final class HomeModel {
             ConsoleSnapshot.Source installed = null;
             ConsoleSnapshot.Source missing = null;
             ConsoleSnapshot.Source found = null;
+            boolean addable = false;
             int hosts = 0;
             for (ConsoleSnapshot.Source source : title.sources) {
                 if (!source.added) {
                     ConsoleSnapshot.Host host = snapshot.host(source.hostUuid);
-                    if (found == null && host != null && host.has(NativeCapabilities.LIBRARY_UNADDED)) found = source;
+                    if (found == null && host != null && host.has(NativeCapabilities.LIBRARY_UNADDED)) {
+                        found = source;
+                        addable = host.has(NativeCapabilities.LIBRARY_ADD);
+                    }
                     continue;
                 }
                 hosts++;
@@ -315,7 +327,7 @@ public final class HomeModel {
             if (best == null) {
                 if (found != null) {
                     GameCard card = new GameCard("unadded:" + title.key, title.title, found.hostUuid, found.hostName,
-                            found.appId, Badge.NONE, found, 1, false);
+                            found.appId, Badge.NONE, found, 1, false, addable);
                     unadded.add(card);
                     allGames.add(card);
                 }

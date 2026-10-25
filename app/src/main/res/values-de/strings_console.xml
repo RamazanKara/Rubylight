@@ -33,4 +33,29 @@
     <string name="console_profile_main">Haupteinstellungen</string>
     <string name="console_home_setting_title">Mit Start öffnen</string>
     <string name="console_home_setting_summary">Starte mit den Spielen zum Weiterspielen und deiner Bibliothek. Aus startet mit der PC-Liste.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Zuletzt gespielt</string>
+    <string name="console_row_other">Andere Apps</string>
+    <string name="console_row_unadded">Auf deinen PCs, nicht hinzugefügt</string>
+    <string name="console_chip_not_installed">Nicht installiert</string>
+    <string name="console_chip_not_added">Nicht hinzugefügt</string>
+    <string name="console_add_on_pc">Am PC hinzufügen</string>
+    <string name="console_adding">%1$s wird hinzugefügt …</string>
+    <string name="console_add_failed">%1$s konnte nicht hinzugefügt werden</string>
+    <string name="console_filter_all">Alle</string>
+    <string name="console_filter_installed">Installiert</string>
+    <string name="console_all_games_title">Alle Spiele</string>
+    <string name="console_all_games_empty">Mit diesem Filter gibt es keine Spiele.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">%1$d Spiel</item>
+        <item quantity="other">Alle %1$d Spiele</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: %2$d Spiel</item>
+        <item quantity="other">%1$s: alle %2$d Spiele</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d Spiel</item>
+        <item quantity="other">%1$s, %2$d Spiele</item>
+    </plurals>
 </resources>

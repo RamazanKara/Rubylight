@@ -33,4 +33,32 @@
     <string name="console_profile_main">Paramètres principaux</string>
     <string name="console_home_setting_title">Ouvrir sur l’accueil</string>
     <string name="console_home_setting_summary">Démarre sur les jeux à reprendre et votre bibliothèque. Désactivé, l’application démarre sur la liste des PC.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Joués récemment</string>
+    <string name="console_row_other">Autres applis</string>
+    <string name="console_row_unadded">Sur vos PC, non ajoutés</string>
+    <string name="console_chip_not_installed">Non installé</string>
+    <string name="console_chip_not_added">Non ajouté</string>
+    <string name="console_add_on_pc">À ajouter sur le PC</string>
+    <string name="console_adding">Ajout de %1$s…</string>
+    <string name="console_add_failed">Impossible d\'ajouter %1$s</string>
+    <string name="console_filter_all">Tous</string>
+    <string name="console_filter_installed">Installés</string>
+    <string name="console_all_games_title">Tous les jeux</string>
+    <string name="console_all_games_empty">Aucun jeu avec ce filtre.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">%1$d jeu</item>
+        <item quantity="many">Les %1$d jeux</item>
+        <item quantity="other">Les %1$d jeux</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s : %2$d jeu</item>
+        <item quantity="many">%1$s : les %2$d jeux</item>
+        <item quantity="other">%1$s : les %2$d jeux</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d jeu</item>
+        <item quantity="many">%1$s, %2$d jeux</item>
+        <item quantity="other">%1$s, %2$d jeux</item>
+    </plurals>
 </resources>

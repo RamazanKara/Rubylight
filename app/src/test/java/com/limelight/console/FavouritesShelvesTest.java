@@ -83,7 +83,7 @@ public class FavouritesShelvesTest {
         assertEquals(4, adapter.rowCount());
         assertEquals("shelf:continue", adapter.rowKey(0));
         assertEquals("shelf:favourites", adapter.rowKey(1));
-        assertEquals("shelf:library", adapter.rowKey(2));
+        assertEquals("shelf:store:steam", adapter.rowKey(2));
         assertEquals("shelf:hosts", adapter.rowKey(3));
         FrameLayout parent = new FrameLayout(context);
         ConsoleHomeAdapter.ShelfHolder second = adapter.onCreateViewHolder(parent, 0);
@@ -98,7 +98,7 @@ public class FavouritesShelvesTest {
         adapter.submit(model());
         // No recents and no stars: the library and the PCs.
         assertEquals(2, adapter.rowCount());
-        assertEquals("shelf:library", adapter.rowKey(0));
+        assertEquals("shelf:store:steam", adapter.rowKey(0));
         assertTrue(card(adapter, 0, 0).cover);
         assertFalse(card(adapter, 1, 0).cover);
     }
@@ -350,7 +350,7 @@ public class FavouritesShelvesTest {
         adapter.submit(model());
         ConsoleHomeAdapter.Cursor library = adapter.positionOfKey("game:host:tower:12");
         assertNotNull(library);
-        assertEquals("shelf:library", adapter.rowKey(library.row));
+        assertEquals("shelf:store:steam", adapter.rowKey(library.row));
         assertEquals("game:host:tower:12", adapter.keyAt(library));
         assertNull(adapter.positionOfKey("favourite:tower:gone"));
         assertNull(adapter.keyAt(new ConsoleHomeAdapter.Cursor(0, 99)));

@@ -33,4 +33,26 @@
     <string name="console_profile_main">主要設定</string>
     <string name="console_home_setting_title">在首頁開啟</string>
     <string name="console_home_setting_summary">從可繼續的遊戲和遊戲庫開始。關閉後從 PC 清單開始。</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">最近玩過</string>
+    <string name="console_row_other">其他應用程式</string>
+    <string name="console_row_unadded">在你的 PC 上，尚未加入</string>
+    <string name="console_chip_not_installed">未安裝</string>
+    <string name="console_chip_not_added">未加入</string>
+    <string name="console_add_on_pc">請在 PC 上加入</string>
+    <string name="console_adding">正在加入 %1$s…</string>
+    <string name="console_add_failed">無法加入 %1$s</string>
+    <string name="console_filter_all">全部</string>
+    <string name="console_filter_installed">已安裝</string>
+    <string name="console_all_games_title">所有遊戲</string>
+    <string name="console_all_games_empty">此篩選條件下沒有遊戲。</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="other">全部 %1$d 款</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="other">%1$s：全部 %2$d 款遊戲</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="other">%1$s，%2$d 款遊戲</item>
+    </plurals>
 </resources>

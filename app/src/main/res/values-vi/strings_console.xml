@@ -33,4 +33,26 @@
     <string name="console_profile_main">Cài đặt chính</string>
     <string name="console_home_setting_title">Mở ở Trang chủ</string>
     <string name="console_home_setting_summary">Bắt đầu bằng các trò chơi để chơi tiếp và thư viện. Khi tắt, bắt đầu bằng danh sách PC.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Đã chơi gần đây</string>
+    <string name="console_row_other">Ứng dụng khác</string>
+    <string name="console_row_unadded">Trên PC của bạn, chưa thêm</string>
+    <string name="console_chip_not_installed">Chưa cài đặt</string>
+    <string name="console_chip_not_added">Chưa thêm</string>
+    <string name="console_add_on_pc">Thêm trên PC</string>
+    <string name="console_adding">Đang thêm %1$s…</string>
+    <string name="console_add_failed">Không thể thêm %1$s</string>
+    <string name="console_filter_all">Tất cả</string>
+    <string name="console_filter_installed">Đã cài đặt</string>
+    <string name="console_all_games_title">Tất cả trò chơi</string>
+    <string name="console_all_games_empty">Không có trò chơi nào với bộ lọc này.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="other">Tất cả %1$d trò chơi</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="other">%1$s: tất cả %2$d trò chơi</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="other">%1$s, %2$d trò chơi</item>
+    </plurals>
 </resources>

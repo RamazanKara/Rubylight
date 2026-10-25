@@ -33,4 +33,26 @@
     <string name="console_profile_main">기본 설정</string>
     <string name="console_home_setting_title">홈에서 열기</string>
     <string name="console_home_setting_summary">이어서 플레이할 게임과 라이브러리로 시작합니다. 끄면 PC 목록으로 시작합니다.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">최근 플레이</string>
+    <string name="console_row_other">기타 앱</string>
+    <string name="console_row_unadded">PC에 있지만 추가되지 않음</string>
+    <string name="console_chip_not_installed">설치되지 않음</string>
+    <string name="console_chip_not_added">추가되지 않음</string>
+    <string name="console_add_on_pc">PC에서 추가하세요</string>
+    <string name="console_adding">%1$s 추가 중…</string>
+    <string name="console_add_failed">%1$s을(를) 추가할 수 없습니다</string>
+    <string name="console_filter_all">전체</string>
+    <string name="console_filter_installed">설치됨</string>
+    <string name="console_all_games_title">모든 게임</string>
+    <string name="console_all_games_empty">이 필터에 해당하는 게임이 없습니다.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="other">전체 %1$d개</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="other">%1$s: 전체 %2$d개 게임</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="other">%1$s, 게임 %2$d개</item>
+    </plurals>
 </resources>

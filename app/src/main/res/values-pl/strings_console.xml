@@ -33,4 +33,35 @@
     <string name="console_profile_main">Ustawienia główne</string>
     <string name="console_home_setting_title">Otwieraj na ekranie startowym</string>
     <string name="console_home_setting_summary">Zaczyna od gier do kontynuowania i biblioteki. Po wyłączeniu zaczyna od listy komputerów.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Ostatnio grane</string>
+    <string name="console_row_other">Inne aplikacje</string>
+    <string name="console_row_unadded">Na twoich komputerach, niedodane</string>
+    <string name="console_chip_not_installed">Niezainstalowana</string>
+    <string name="console_chip_not_added">Niedodana</string>
+    <string name="console_add_on_pc">Dodaj ją na komputerze</string>
+    <string name="console_adding">Dodawanie: %1$s…</string>
+    <string name="console_add_failed">Nie udało się dodać: %1$s</string>
+    <string name="console_filter_all">Wszystkie</string>
+    <string name="console_filter_installed">Zainstalowane</string>
+    <string name="console_all_games_title">Wszystkie gry</string>
+    <string name="console_all_games_empty">Brak gier dla tego filtra.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">%1$d gra</item>
+        <item quantity="few">Wszystkie %1$d gry</item>
+        <item quantity="many">Wszystkie %1$d gier</item>
+        <item quantity="other">Wszystkie %1$d gry</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: %2$d gra</item>
+        <item quantity="few">%1$s: wszystkie %2$d gry</item>
+        <item quantity="many">%1$s: wszystkie %2$d gier</item>
+        <item quantity="other">%1$s: wszystkie %2$d gry</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d gra</item>
+        <item quantity="few">%1$s, %2$d gry</item>
+        <item quantity="many">%1$s, %2$d gier</item>
+        <item quantity="other">%1$s, %2$d gry</item>
+    </plurals>
 </resources>

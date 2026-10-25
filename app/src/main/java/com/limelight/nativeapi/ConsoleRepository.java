@@ -154,6 +154,30 @@ public final class ConsoleRepository {
         }
     }
 
+    /**
+     * Asks the host to add a game it found but has not added (blocks; only for a host with
+     * {@link NativeCapabilities#LIBRARY_ADD}) and keeps the library it answers with. Returns the game as the host now
+     * lists it, or null when the answer does not list it as added.
+     */
+    public NativeLibrary.Game addToLibrary(ComputerDetails computer, String gameId) throws NativeApiException {
+        HostEndpoint endpoint = endpoints.endpoint(computer);
+        if (endpoint == null) {
+            throw new NativeApiException(NativeApiException.Kind.UNAVAILABLE, computer.name + " has no address");
+        }
+        NativeLibrary library = new NativeApiClient(transport, endpoint).addToLibrary(gameId);
+        List<String> known = features.get(computer.uuid);
+        try {
+            cache.store(computer.uuid, new LibraryCache.Entry(library.toJson().toString(), clock.nowMs(),
+                    known == null ? Collections.emptyList() : known));
+        } catch (JSONException e) {
+            throw new NativeApiException(NativeApiException.Kind.MALFORMED, e.getMessage());
+        }
+        for (NativeLibrary.Game game : library.games) {
+            if (gameId.equals(game.gameId) && game.added) return game;
+        }
+        return null;
+    }
+
     /** Remembers that this device streamed the app; call when a stream starts. */
     public void recordLaunch(ComputerDetails computer, NvApp app) {
         if (app.getRole() == NvApp.Role.STREAM) {

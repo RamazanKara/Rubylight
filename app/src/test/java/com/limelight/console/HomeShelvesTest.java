@@ -128,7 +128,7 @@ public class HomeShelvesTest {
     @Test
     public void downFromACardLandsOnTheNearestCardOfTheNextShelfAndUpReturnsToIt() {
         assertEquals("shelf:favourites", adapter.rowKey(0));
-        assertEquals("shelf:library", adapter.rowKey(1));
+        assertEquals("shelf:store:steam", adapter.rowKey(1));
         View fifth = card(0, 5);
         assertTrue(fifth.requestFocus());
         layout();
@@ -249,7 +249,7 @@ public class HomeShelvesTest {
         adapter.submit(model);
         layout();
         int row = 1;
-        assertEquals("shelf:library", adapter.rowKey(row));
+        assertEquals("shelf:store:steam", adapter.rowKey(row));
         assertEquals(first, firstVisible(row));
     }
 

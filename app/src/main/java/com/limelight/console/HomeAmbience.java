@@ -85,15 +85,17 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
     private void askBackdrop(ShelfAdapter.Item item) {
         if (backdrop == null) return;
         if (item.game == null) {
-            // A PC has no art: the canvas, with no waiting for a cover.
-            backdrop.focus("host:" + item.host.uuid, null, true, fast.getAsBoolean());
+            // A PC and an "All N" tile have no art: the canvas, with no waiting for a cover.
+            backdrop.focus(item.host != null ? "host:" + item.host.uuid : item.key, null, true, fast.getAsBoolean());
             return;
         }
         HomeModel.GameCard card = item.game;
         CoverLoaders loaders = covers.get();
         ComputerDetails host = hosts.apply(card.hostUuid);
         com.limelight.nvstream.http.NvApp app = CoverLoaders.appOf(card.title, card.appId, card.source);
-        backdrop.focus("game:" + card.hostUuid + ":" + card.appId, loaders == null ? null : loaders.peek(host, app),
+        // A game not added has no app id yet: its title tells it from the others.
+        String id = card.appId != 0 ? String.valueOf(card.appId) : "title:" + card.title;
+        backdrop.focus("game:" + card.hostUuid + ":" + id, loaders == null ? null : loaders.peek(host, app),
                 loaders != null && loaders.lacksArt(host, app), fast.getAsBoolean());
     }
 
@@ -131,26 +133,27 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
     }
 
     private String text(ShelfAdapter.Item item) {
-        if (item.game != null) {
-            HomeModel.GameCard card = item.game;
-            CharSequence state = ShelfAdapter.CardHolder.stateOf(context, card);
-            String where = ShelfAdapter.CardHolder.whereOf(context, card);
-            return (state == null ? "" : state + " · ") + where + "\n" + card.title;
+        return metaOf(item) + "\n" + titleOf(item);
+    }
+
+    /** The line over the title: a game's store · state · where, a PC's games, a row's name for its "All N" tile. */
+    private String metaOf(ShelfAdapter.Item item) {
+        if (item.game != null) return ShelfAdapter.CardHolder.metaOf(context, item.game);
+        if (item.all != null) return String.valueOf(ShelfAdapter.CardHolder.rowTitle(context, item.all));
+        return ShelfAdapter.CardHolder.hostLine(context, item.host);
+    }
+
+    private String titleOf(ShelfAdapter.Item item) {
+        if (item.game != null) return item.game.title;
+        if (item.all != null) {
+            return context.getResources().getQuantityString(R.plurals.console_all_tile_title, item.all.total, item.all.total);
         }
-        return ShelfAdapter.CardHolder.hostLine(context, item.host) + "\n" + item.host.name;
+        return item.host.name;
     }
 
     private void write(ShelfAdapter.Item item) {
-        if (item.game != null) {
-            HomeModel.GameCard card = item.game;
-            CharSequence state = ShelfAdapter.CardHolder.stateOf(context, card);
-            String where = ShelfAdapter.CardHolder.whereOf(context, card);
-            setText(meta, state == null ? where : state + " · " + where);
-            setText(title, card.title);
-        } else {
-            setText(meta, ShelfAdapter.CardHolder.hostLine(context, item.host));
-            setText(title, item.host.name);
-        }
+        setText(meta, metaOf(item));
+        setText(title, titleOf(item));
         setText(hints, hints(context, gamepad, item.game != null));
         written = text(item);
     }

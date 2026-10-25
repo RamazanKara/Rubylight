@@ -2,6 +2,9 @@ package com.limelight.console;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.SystemClock;
 import android.view.KeyEvent;
@@ -12,6 +15,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.content.res.AppCompatResources;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.color.MaterialColors;
@@ -33,21 +37,34 @@ import java.util.function.Function;
 final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
     static final int COVER_GAME = 0;
     static final int HOST = 1;
+    static final int ALL_TILE = 2;
 
-    /** One card of a shelf: a game or a host, found again across a refresh by its stable key. */
+    /** One card of a shelf: a game, a host or a row's "All N" tile, found again across a refresh by its stable key. */
     static final class Item {
         final String key;
         final HomeModel.GameCard game;
         final HomeModel.HostCard host;
+        /** The row an "All N" tile opens in All games; null on other cards. */
+        final HomeModel.Row all;
 
         Item(String key, HomeModel.GameCard game, HomeModel.HostCard host) {
+            this(key, game, host, null);
+        }
+
+        private Item(String key, HomeModel.GameCard game, HomeModel.HostCard host, HomeModel.Row all) {
             this.key = key;
             this.game = game;
             this.host = host;
+            this.all = all;
+        }
+
+        /** The tile that ends a row with more games than it shows. */
+        static Item allOf(HomeModel.Row row) {
+            return new Item("all:" + row.key, null, null, row);
         }
 
         int type() {
-            return game != null ? COVER_GAME : HOST;
+            return game != null ? COVER_GAME : host != null ? HOST : ALL_TILE;
         }
     }
 
@@ -128,18 +145,33 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
     public CardHolder onCreateViewHolder(@NonNull ViewGroup parent, int type) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
         boolean cover = type == COVER_GAME;
-        View view = inflater.inflate(cover ? R.layout.console_card_cover : R.layout.console_card_host, parent, false);
-        int width = view.getResources().getDimensionPixelSize(cover ? R.dimen.shelf_card_width : R.dimen.shelf_host_width);
+        int layout = cover ? R.layout.console_card_cover : type == ALL_TILE ? R.layout.console_card_all : R.layout.console_card_host;
+        View view = inflater.inflate(layout, parent, false);
+        int width = view.getResources().getDimensionPixelSize(type == HOST ? R.dimen.shelf_host_width : R.dimen.shelf_card_width);
         RecyclerView.LayoutParams params = new RecyclerView.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         view.setLayoutParams(params);
-        return new CardHolder(env, view, cover);
+        return new CardHolder(env, view, cover, type == ALL_TILE);
     }
 
     @Override
     public void onBindViewHolder(@NonNull CardHolder holder, int position) {
         Item item = items.get(position);
         if (item.game != null) holder.bindGame(shelf, item);
+        else if (item.all != null) holder.bindAll(shelf, item);
         else holder.bindHost(shelf, item);
+    }
+
+    /** A poster in grey: a game the host lists but has not installed. One filter for every such card, set at bind. */
+    private static final ColorMatrixColorFilter NOT_INSTALLED;
+
+    static {
+        ColorMatrix grey = new ColorMatrix();
+        grey.setSaturation(0f);
+        // A little darker too, so it sits back from the installed games around it.
+        ColorMatrix dim = new ColorMatrix();
+        dim.setScale(0.72f, 0.72f, 0.72f, 1f);
+        grey.postConcat(dim);
+        NOT_INSTALLED = new ColorMatrixColorFilter(grey);
     }
 
     /** The height of a cover: its card's width less the inset on both sides, times 3/2 for a TV poster, 4/3 on a phone. */
@@ -160,46 +192,105 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         final View frame;
         final View more;
         final boolean cover;
+        final boolean tile;
+        /** A TV poster's chips: the star of a favourite and the store's glyph or name. The phone's cover has neither. */
+        final ImageView star;
+        final TextView store;
+        /** An "All N" tile's count, the row's name and the store's glyph. */
+        final TextView allCount;
+        final TextView allName;
+        final ImageView allGlyph;
         /** The host's three dots while the D-pad has marked them; the card keeps focus. */
         private boolean moreMarked;
 
         CardHolder(Env env, View view, boolean cover) {
+            this(env, view, cover, false);
+        }
+
+        CardHolder(Env env, View view, boolean cover, boolean tile) {
             super(view);
             this.env = env;
             this.cover = cover;
+            this.tile = tile;
             image = view.findViewById(cover ? R.id.console_cover : R.id.console_thumb);
             imageText = view.findViewById(cover ? R.id.console_cover_text : R.id.console_thumb_text);
-            frame = view.findViewById(cover ? R.id.console_cover_frame : R.id.console_thumb_frame);
+            frame = view.findViewById(cover ? R.id.console_cover_frame : tile ? R.id.console_all_frame : R.id.console_thumb_frame);
             title = view.findViewById(R.id.console_title);
             subtitle = view.findViewById(R.id.console_subtitle);
             badge = view.findViewById(R.id.console_badge);
             more = view.findViewById(R.id.console_more);
+            star = view.findViewById(R.id.console_star);
+            store = view.findViewById(R.id.console_store);
+            allCount = view.findViewById(R.id.console_all_count);
+            allName = view.findViewById(R.id.console_all_name);
+            allGlyph = view.findViewById(R.id.console_all_glyph);
             view.setOnHoverListener((card, event) -> {
                 card.setHovered(event.getActionMasked() != android.view.MotionEvent.ACTION_HOVER_EXIT);
                 return false;
             });
         }
 
-        /** What a screen reader says for a game card, whether or not the card shows it. */
+        /**
+         * What a screen reader says for a game card, whether or not the card shows it: the title, the store, Running
+         * or Suspended, Not installed or Not added, where it is and the star.
+         */
         static String describe(Context context, HomeModel.GameCard card, String where, CharSequence state) {
-            String description = state == null ? card.title + ", " + where : card.title + ", " + state + ", " + where;
-            return card.favourite ? description + ", " + context.getString(R.string.console_favourite_description) : description;
+            StringBuilder description = new StringBuilder(card.title);
+            String storeName = card.storeName();
+            if (storeName != null) description.append(", ").append(storeName);
+            if (state != null) description.append(", ").append(state);
+            CharSequence availability = availabilityOf(context, card);
+            if (availability != null) description.append(", ").append(availability);
+            description.append(", ").append(where);
+            if (card.favourite) description.append(", ").append(context.getString(R.string.console_favourite_description));
+            return description.toString();
         }
 
-        void bindGame(String shelf, Item item) {
-            HomeModel.GameCard card = item.game;
-            Context context = env.context;
-            if (env.coverHeightPx > 0) {
+        /** The hero's line over the focused game's title: store · state · not installed · where. */
+        static String metaOf(Context context, HomeModel.GameCard card) {
+            StringBuilder meta = new StringBuilder();
+            String storeName = card.storeName();
+            if (storeName != null) meta.append(storeName).append(" · ");
+            CharSequence state = stateOf(context, card);
+            if (state != null) meta.append(state).append(" · ");
+            CharSequence availability = availabilityOf(context, card);
+            if (availability != null) meta.append(availability).append(" · ");
+            return meta.append(whereOf(context, card)).toString();
+        }
+
+        /** Not installed, Not added (the host adds it on request) or Add it on the PC; null for a game that can start. */
+        static CharSequence availabilityOf(Context context, HomeModel.GameCard card) {
+            if (card.notAdded()) {
+                return context.getString(card.addable ? R.string.console_chip_not_added : R.string.console_add_on_pc);
+            }
+            return card.notInstalled() ? context.getString(R.string.console_chip_not_installed) : null;
+        }
+
+        private void setFrameHeight() {
+            if (env.coverHeightPx > 0 && frame != null) {
                 ViewGroup.LayoutParams params = frame.getLayoutParams();
                 if (params.height != env.coverHeightPx) {
                     params.height = env.coverHeightPx;
                     frame.setLayoutParams(params);
                 }
             }
+        }
+
+        void bindGame(String shelf, Item item) {
+            HomeModel.GameCard card = item.game;
+            Context context = env.context;
+            setFrameHeight();
             image.setImageTintList(null);
+            // Set once here, never animated: the art that loads later is drawn through it.
+            image.setColorFilter(cover && card.notInstalled() ? NOT_INSTALLED : null);
             // A cover is fitted to its poster by the art it is given (ArtFit).
             ArtFit.reset(image);
-            if (env.covers != null) {
+            if (card.appId == 0) {
+                // A game not added has no app id, so no cover the host can send: its title on the poster's surface.
+                image.setImageDrawable(null);
+                imageText.setText(card.title);
+                imageText.setVisibility(View.VISIBLE);
+            } else if (env.covers != null) {
                 env.covers.bind(env.hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
                         imageText);
             }
@@ -209,6 +300,12 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             CharSequence state = stateOf(context, card);
             badge.setText(state);
             badge.setVisibility(state == null ? View.GONE : View.VISIBLE);
+            if (star != null) {
+                badge.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                        card.badge == HomeModel.Badge.RUNNING ? R.drawable.ic_live_dot : 0, 0, 0, 0);
+                star.setVisibility(card.favourite ? View.VISIBLE : View.GONE);
+            }
+            if (store != null) bindStore(context, card);
             itemView.setContentDescription(describe(context, card, where, state));
             itemView.setOnClickListener(v -> env.listener.onGame(card));
             itemView.setOnLongClickListener(v -> {
@@ -232,6 +329,83 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                     // X and Menu open the game's options (where it is starred), like a long press and like a PC's card.
                     if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) env.listener.onGameMenu(card);
                     return true;
+                }
+                return false;
+            });
+        }
+
+        /**
+         * The chip at the poster's foot: the store's glyph, with Not installed or what adding takes beside it. A store
+         * without a glyph shows its name instead; a game of no store shows the chip only when it cannot start.
+         */
+        private void bindStore(Context context, HomeModel.GameCard card) {
+            int glyph = Stores.glyph(card.store());
+            CharSequence label = availabilityOf(context, card);
+            if (label == null && glyph == 0) label = card.storeName();
+            if (label == null && glyph == 0) {
+                store.setVisibility(View.GONE);
+                return;
+            }
+            store.setText(label);
+            Drawable mark = null;
+            if (glyph != 0) {
+                mark = AppCompatResources.getDrawable(context, glyph);
+                int size = context.getResources().getDimensionPixelSize(R.dimen.card_chip_glyph);
+                if (mark != null) mark.setBounds(0, 0, size, size);
+            }
+            store.setCompoundDrawablesRelative(mark, null, null, null);
+            // A glyph alone sits in a round chip.
+            int side = label == null ? (context.getResources().getDimensionPixelSize(R.dimen.card_chip_height)
+                    - context.getResources().getDimensionPixelSize(R.dimen.card_chip_glyph)) / 2
+                    : context.getResources().getDimensionPixelSize(R.dimen.space_s);
+            store.setPaddingRelative(side, 0, side, 0);
+            store.setVisibility(View.VISIBLE);
+        }
+
+        /** A row's name, as its heading and its "All N" tile say it. */
+        static CharSequence rowTitle(Context context, HomeModel.Row row) {
+            switch (row.kind) {
+                case STORE:
+                    return row.storeName;
+                case RECENT:
+                    return context.getString(R.string.console_row_recent);
+                case UNADDED:
+                    return context.getString(R.string.console_row_unadded);
+                default:
+                    return context.getString(HomeModel.FILTER_ALL.equals(row.filter)
+                            ? R.string.console_section_library : R.string.console_row_other);
+            }
+        }
+
+        /** What a screen reader says for a row's "All N" tile. */
+        static String describeAll(Context context, HomeModel.Row row) {
+            return context.getResources().getQuantityString(R.plurals.console_all_tile_description, row.total,
+                    rowTitle(context, row), row.total);
+        }
+
+        void bindAll(String shelf, Item item) {
+            HomeModel.Row row = item.all;
+            Context context = env.context;
+            setFrameHeight();
+            allCount.setText(String.format(java.util.Locale.getDefault(), "%d", row.total));
+            allName.setText(rowTitle(context, row));
+            int glyph = Stores.glyph(row.store);
+            if (glyph != 0) allGlyph.setImageResource(glyph);
+            allGlyph.setVisibility(glyph != 0 ? View.VISIBLE : View.GONE);
+            itemView.setContentDescription(describeAll(context, row));
+            itemView.setOnClickListener(v -> env.listener.onAllGames(row.filter));
+            itemView.setOnLongClickListener(null);
+            itemView.setLongClickable(false);
+            itemView.setOnFocusChangeListener((v, hasFocus) -> {
+                if (env.travel.isActive(SystemClock.uptimeMillis())) {
+                    v.refreshDrawableState();
+                    FastTravel.settle(v);
+                }
+                if (hasFocus && env.focus != null) env.focus.onCardFocus(shelf, item, v);
+            });
+            itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && movesFocus(keyCode)) {
+                    env.travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
                 }
                 return false;
             });

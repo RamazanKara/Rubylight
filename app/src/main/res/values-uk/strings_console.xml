@@ -33,4 +33,35 @@
     <string name="console_profile_main">Основні налаштування</string>
     <string name="console_home_setting_title">Відкривати на головній</string>
     <string name="console_home_setting_summary">Запуск з ігор для продовження та бібліотеки. Якщо вимкнено, запуск зі списку ПК.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Нещодавно запускалися</string>
+    <string name="console_row_other">Інші застосунки</string>
+    <string name="console_row_unadded">На ваших ПК, не додано</string>
+    <string name="console_chip_not_installed">Не встановлено</string>
+    <string name="console_chip_not_added">Не додано</string>
+    <string name="console_add_on_pc">Додайте її на ПК</string>
+    <string name="console_adding">Додавання: %1$s…</string>
+    <string name="console_add_failed">Не вдалося додати: %1$s</string>
+    <string name="console_filter_all">Усі</string>
+    <string name="console_filter_installed">Встановлені</string>
+    <string name="console_all_games_title">Усі ігри</string>
+    <string name="console_all_games_empty">З цим фільтром ігор немає.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">Усі %1$d гра</item>
+        <item quantity="few">Усі %1$d гри</item>
+        <item quantity="many">Усі %1$d ігор</item>
+        <item quantity="other">Усі %1$d гри</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: усі %2$d гра</item>
+        <item quantity="few">%1$s: усі %2$d гри</item>
+        <item quantity="many">%1$s: усі %2$d ігор</item>
+        <item quantity="other">%1$s: усі %2$d гри</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d гра</item>
+        <item quantity="few">%1$s, %2$d гри</item>
+        <item quantity="many">%1$s, %2$d ігор</item>
+        <item quantity="other">%1$s, %2$d гри</item>
+    </plurals>
 </resources>

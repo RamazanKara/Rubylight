@@ -21,10 +21,7 @@ use butterpollo_core::{
     state::App,
 };
 use butterpollo_windows::radeon::{Change, model::Value};
-use std::{
-    sync::{Mutex, PoisonError},
-    time::Duration,
-};
+use std::{sync::PoisonError, time::Duration};
 
 /// The stream's frame rate from a launch `mode` (`WIDTHxHEIGHTxFPS`, the rate may have
 /// decimals).
@@ -66,9 +63,6 @@ fn status(
     }
 }
 
-/// One profile thread at a time. A newer launch's thread waits for the older one, finds that it
-/// was superseded and writes nothing, or puts back what the older one wrote before it goes on.
-static SERIAL: Mutex<()> = Mutex::new(());
 /// How long a new game's settings wait for the restores of a device that lost its session.
 const RELEASE_WAIT: Duration = Duration::from_secs(30);
 
@@ -86,8 +80,15 @@ fn background(h: &Shared, device: &str, work: impl FnOnce(&Shared) + Send + 'sta
         .spawn({
             let h = h.clone();
             move || {
+                // One profile thread at a time. A newer launch's thread waits for the older one,
+                // finds that it was superseded and writes nothing, or puts back what the older one
+                // wrote before it goes on. The lock is the host's, so each test host has its own.
                 {
-                    let _one_at_a_time = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+                    let _one_at_a_time = h
+                        .radeon
+                        .profiles
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner);
                     work(&h);
                 }
                 h.radeon.forget();

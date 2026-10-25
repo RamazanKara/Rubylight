@@ -1632,6 +1632,30 @@ async fn launching_an_app_without_a_profile_puts_the_earlier_game_settings_back(
     assert!(rig.get("/session").await.session().radeon_profile.is_none());
 }
 
+/// Profile threads run one at a time per host, and no other host's wait for them. The tests run
+/// many hosts in one process: with one lock for the process, a profile held up behind a slow
+/// driver held up every other test's.
+#[tokio::test]
+async fn profile_threads_wait_only_for_their_own_hosts() {
+    let busy = Rig::new();
+    let rig = Rig::new();
+    let (_busy_stream, _stream) = (busy.owner(), rig.owner());
+    let busy_app = busy.app_with(json!({"radeon-profile": "competitive"}));
+    let app = rig.app_with(json!({"radeon-profile": "competitive"}));
+    // As a profile thread of the busy host that is still writing.
+    let writing = busy.host().radeon.profiles.lock().unwrap();
+    busy.launched(&busy_app, Some(60));
+    rig.launched(&app, Some(60));
+    assert_eq!(rig.settled().state, ProfileState::Applied);
+    assert_eq!(rig.fake.value("anti_lag.enabled"), Raw::Bool(true));
+    let held = busy.host().notes.profile(&busy.client.uuid).unwrap();
+    assert_eq!(held.status.state, ProfileState::Applying);
+    assert_eq!(busy.fake.value("anti_lag.enabled"), Raw::Bool(false));
+    drop(writing);
+    assert_eq!(busy.settled().state, ProfileState::Applied);
+    assert_eq!(busy.fake.value("anti_lag.enabled"), Raw::Bool(true));
+}
+
 #[tokio::test]
 async fn an_app_without_a_profile_never_touches_the_driver() {
     let rig = Rig::new();

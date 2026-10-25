@@ -117,6 +117,8 @@ pub struct Inner {
     /// Per device, the settings its last restore could not put back, with why. The panel shows
     /// one only while the journal still holds an entry of that device (see [`Inner::failed`]).
     failures: Mutex<BTreeMap<String, Vec<(String, String)>>>,
+    /// Held by a profile thread of `radeon_profile` while it runs: one at a time per host.
+    pub(crate) profiles: Mutex<()>,
 }
 
 #[derive(Default)]

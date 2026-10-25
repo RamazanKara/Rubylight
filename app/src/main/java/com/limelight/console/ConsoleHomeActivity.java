@@ -101,6 +101,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         @Override public void pausePolling() { feed.pause(); }
         @Override public void resumePolling() { if (shown) feed.resume(); }
     });
+    private final HomeWake wake = new HomeWake(this, handler, uuid -> feed == null ? null : feed.host(uuid),
+            this::sendWake, () -> {
+        refreshedSignature = null;
+        scheduleReload();
+    });
     private ActionSheet hostMenu;
     private HomeModel model = HomeModel.empty();
 
@@ -307,6 +312,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     @Override
     protected void onPause() {
         shown = false;
+        wake.cancel();
         feed.pause();
         handler.removeCallbacks(reload);
         handler.removeCallbacks(settle);
@@ -488,7 +494,50 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     private void openGame(HomeModel.GameCard card) {
+        // A game in several PCs' libraries asks which one first; a found game that is not added opens as before.
+        if (!card.notAdded() && card.hostCount > 1 && askHost(card)) {
+            return;
+        }
         GameOpener.open(opener, worker, card);
+    }
+
+    private void openGameOn(String hostUuid, int appId, String title, String hostName) {
+        startActivity(new Intent(this, detailActivity())
+                .putExtra(GameDetailActivity.EXTRA_HOST_UUID, hostUuid)
+                .putExtra(GameDetailActivity.EXTRA_APP_ID, appId)
+                .putExtra(GameDetailActivity.EXTRA_TITLE, title)
+                .putExtra(GameDetailActivity.EXTRA_HOST_NAME, hostName));
+    }
+
+    /**
+     * A game that several PCs have asks which one to open it on, from the saved libraries.
+     *
+     * @return false when there is nothing to ask (no library read yet): the card's own PC opens instead
+     */
+    private boolean askHost(HomeModel.GameCard card) {
+        final ConsoleRepository repo = repository;
+        if (repo == null || !card.key.startsWith("game:")) {
+            return false;
+        }
+        final List<ComputerDetails> hosts = feed.hosts();
+        final Set<String> online = onlineOf(hosts);
+        worker.execute(() -> {
+            List<HostChoice> choices = HostChoice.of(repo.cached(hosts), card.key, online);
+            runOnUiThread(() -> {
+                if (choices.size() > 1) {
+                    HostChooser.show(this, choices, chosen ->
+                            openGameOn(chosen.hostUuid, chosen.appId, card.title, chosen.hostName));
+                } else {
+                    openGameOn(card.hostUuid, card.appId, card.title, card.hostName);
+                }
+            });
+        });
+        return true;
+    }
+
+    /** Sends the wake packets to a PC that is away (off the UI thread); the debug demo and tests override this. */
+    protected void sendWake(ComputerDetails computer) throws java.io.IOException {
+        com.limelight.nvstream.wol.WakeOnLanSender.sendWolPacket(computer);
     }
 
     /** The games this screen is adding on a host now; see {@link GameOpener.Screen#adding}. */
@@ -617,7 +666,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     private void openHost(HomeModel.HostCard card) {
         if (!card.online) {
-            openHosts();
+            // A PC that is away is woken from here; one that cannot be (no MAC address yet) goes to the list of PCs.
+            if (!wake.wake(card.uuid)) {
+                openHosts();
+            }
             return;
         }
         openLibrary(card.uuid, card.name);

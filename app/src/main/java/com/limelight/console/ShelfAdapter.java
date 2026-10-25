@@ -325,6 +325,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             }
             if (store != null) bindStore(context, card);
             itemView.setContentDescription(describe(context, card, where, state));
+            OfflineLook.bind(itemView, subtitle, badge, env.hosts.apply(card.hostUuid));
             itemView.setOnClickListener(v -> env.listener.onGame(card));
             itemView.setOnLongClickListener(v -> {
                 env.listener.onGameMenu(card);
@@ -483,6 +484,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             subtitle.setText(line);
             badge.setVisibility(View.GONE);
             itemView.setContentDescription(card.name + ", " + line);
+            itemView.setAlpha(card.online ? 1f : OfflineLook.DIMMED);
             itemView.setOnClickListener(v -> env.listener.onHost(card));
             itemView.setOnLongClickListener(v -> {
                 env.listener.onHostOptions(card);

@@ -311,6 +311,7 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
             String description = state == null ? card.title + ", " + where : card.title + ", " + state + ", " + where;
             itemView.setContentDescription(card.favourite
                     ? description + ", " + context.getString(R.string.console_favourite_description) : description);
+            OfflineLook.bind(itemView, subtitle, badge, hosts.apply(card.hostUuid));
             itemView.setOnClickListener(v -> listener.onGame(card));
             itemView.setOnLongClickListener(v -> {
                 listener.onGameMenu(card);
@@ -357,6 +358,7 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
             subtitle.setText(line);
             badge.setVisibility(View.GONE);
             itemView.setContentDescription(card.name + ", " + line);
+            itemView.setAlpha(card.online ? 1f : OfflineLook.DIMMED);
             itemView.setOnClickListener(v -> listener.onHost(card));
             itemView.setOnLongClickListener(v -> {
                 listener.onHostOptions(card);

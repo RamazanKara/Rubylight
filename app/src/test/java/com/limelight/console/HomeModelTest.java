@@ -226,4 +226,63 @@ public class HomeModelTest {
         assertTrue(HomeModel.of(ConsoleSnapshot.empty(), online()).isEmpty());
         assertTrue(HomeModel.empty().isEmpty());
     }
+
+    private HomeModel.GameCard card(HomeModel model, String title) {
+        for (HomeModel.GameCard card : model.library) {
+            if (card.title.equalsIgnoreCase(title)) {
+                return card;
+            }
+        }
+        throw new AssertionError("no card " + title);
+    }
+
+    @Test
+    public void theHostsOfAGameListTheOnesThatAnswerFirst() throws Exception {
+        tower();
+        laptop();
+        List<ComputerDetails> hosts = Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true));
+        ConsoleSnapshot snapshot = rig.repository.refresh(hosts);
+        HomeModel model = HomeModel.of(snapshot, online("tower", "laptop"));
+        String key = card(model, "Portal").key;
+
+        List<HostChoice> both = HostChoice.of(snapshot, key, online("tower", "laptop"));
+        assertEquals(2, both.size());
+        assertEquals("tower", both.get(0).hostUuid);
+        assertEquals(11, both.get(0).appId);
+        assertEquals("laptop", both.get(1).hostUuid);
+        assertEquals(5, both.get(1).appId);
+
+        List<HostChoice> laptopAwake = HostChoice.of(snapshot, key, online("laptop"));
+        assertEquals("laptop", laptopAwake.get(0).hostUuid);
+        assertTrue(laptopAwake.get(0).online);
+        assertEquals("tower", laptopAwake.get(1).hostUuid);
+        assertFalse("A PC that is away is still offered, so it can be woken", laptopAwake.get(1).online);
+    }
+
+    @Test
+    public void aGameOnOneHostOrNoneGivesNoChoiceToMake() throws Exception {
+        tower();
+        laptop();
+        List<ComputerDetails> hosts = Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true));
+        ConsoleSnapshot snapshot = rig.repository.refresh(hosts);
+        HomeModel model = HomeModel.of(snapshot, online("tower", "laptop"));
+        assertEquals(1, HostChoice.of(snapshot, card(model, "Zelda").key, online("tower")).size());
+        assertTrue(HostChoice.of(snapshot, "game:nothing", online("tower")).isEmpty());
+    }
+
+    @Test
+    public void theSavedLibraryOffersTheGameOnPcsThatAreAllAway() throws Exception {
+        tower();
+        laptop();
+        List<ComputerDetails> hosts = Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true));
+        rig.repository.refresh(hosts);
+        List<ComputerDetails> away = Arrays.asList(nativeHost("tower", "Tower", false), nativeHost("laptop", "Laptop", false));
+        ConsoleSnapshot saved = rig.repository.cached(away);
+        HomeModel model = HomeModel.of(saved, online());
+        assertEquals(3, model.library.size());
+        List<HostChoice> choices = HostChoice.of(saved, card(model, "Portal").key, online());
+        assertEquals(2, choices.size());
+        assertFalse(choices.get(0).online);
+        assertFalse(choices.get(1).online);
+    }
 }

@@ -24,6 +24,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
@@ -73,6 +74,13 @@ public class HomeShellTest {
 
     /** Home without the computer manager service: tests report hosts themselves. */
     public static class Home extends ConsoleHomeActivity {
+        /** The PCs a wake packet was asked for; the real sender would use the network. */
+        final List<String> woken = Collections.synchronizedList(new ArrayList<>());
+
+        @Override protected void sendWake(ComputerDetails computer) {
+            woken.add(computer.uuid);
+        }
+
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
             return false;
         }
@@ -125,6 +133,14 @@ public class HomeShellTest {
 
     /** {@link #showHosts(Home, ComputerDetails...)} with {@code games} games on each online host. */
     private RecyclerView showHosts(Home home, int games, ComputerDetails... hosts) throws Exception {
+        return showHosts(home, games, false, hosts);
+    }
+
+    /**
+     * {@link #showHosts(Home, int, ComputerDetails...)}; with {@code saved}, every host has listed its games once
+     * before (so an offline one still shows them from its saved library) and Portal is one game across hosts.
+     */
+    private RecyclerView showHosts(Home home, int games, boolean saved, ComputerDetails... hosts) throws Exception {
         HostFeed feed = ReflectionHelpers.getField(home, "feed");
         ReflectionHelpers.setField(feed, "binder", binder(renamed, removed));
         ConsoleRig rig = new ConsoleRig(temporary.newFolder());
@@ -133,13 +149,18 @@ public class HomeShellTest {
             for (ComputerDetails host : hosts) {
                 feed.update(host);
                 if (host.state == ComputerDetails.State.ONLINE) online.add(host.uuid);
-                if (host.state == ComputerDetails.State.ONLINE) {
+                if (host.state == ComputerDetails.State.ONLINE || saved) {
                     String[] listed = new String[games];
                     for (int i = 0; i < games; i++) {
-                        listed[i] = game(host.uuid + "-g" + i, i + 1, i == 0 ? "Portal" : "Game " + i, null, false);
+                        listed[i] = game(host.uuid + "-g" + i, i + 1, i == 0 ? "Portal" : "Game " + i,
+                                saved && i == 0 ? "steam:400" : null, false);
                     }
                     rig.transport.reply(host.uuid, "library", ok(library("r", listed)));
                     rig.transport.reply(host.uuid, "session", ok(NativeApiFixtures.IDLE));
+                }
+                if (saved && host.state != ComputerDetails.State.ONLINE) {
+                    // The host was awake once: its library is on disk, and only that is left of it now.
+                    rig.repository.refresh(Collections.singletonList(nativeHost(host.uuid, host.name, true)));
                 }
             }
             ConsoleSnapshot snapshot = rig.repository.refresh(Arrays.asList(hosts));
@@ -163,11 +184,16 @@ public class HomeShellTest {
     }
 
     private static View hostCard(Home home, String uuid) {
+        return cardView(home, "host:" + uuid);
+    }
+
+    /** The laid-out card with the adapter key, on a phone's list or a TV's shelves. */
+    private static View cardView(Home home, String key) {
         RecyclerView list = home.findViewById(R.id.console_list);
         ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
         if (shelves != null) {
-            ConsoleHomeAdapter.Cursor at = shelves.positionOfKey("host:" + uuid);
-            assertNotNull("a card for " + uuid, at);
+            ConsoleHomeAdapter.Cursor at = shelves.positionOfKey(key);
+            assertNotNull("a card for " + key, at);
             list.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY));
             list.layout(0, 0, 1080, 1920);
@@ -176,8 +202,8 @@ public class HomeShellTest {
             return card;
         }
         ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
-        int position = adapter.positionOfKey("host:" + uuid);
-        assertTrue("a card for " + uuid, position >= 0);
+        int position = adapter.positionOfKey(key);
+        assertTrue("a card for " + key, position >= 0);
         list.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY));
         list.layout(0, 0, 1080, 1920);
@@ -589,6 +615,156 @@ public class HomeShellTest {
             View end = walkUp(home, card, 40);
             assertNotNull("focus does not get stuck", end);
             assertTrue("ends on a button of the bar, not on " + end, end == home.findViewById(R.id.shell_home));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Lets Home's worker and the main looper run until the condition holds. */
+    private static void await(java.util.function.BooleanSupplier done) throws Exception {
+        long end = System.currentTimeMillis() + 5000;
+        while (!done.getAsBoolean() && System.currentTimeMillis() < end) {
+            shadowOf(Looper.getMainLooper()).idle();
+            Thread.sleep(20);
+        }
+        assertTrue("in time", done.getAsBoolean());
+    }
+
+    private static String asleep(Home home, String line) {
+        return home.getString(R.string.console_card_asleep, line);
+    }
+
+    /** A game of the saved library on a PC that is away, a game on one that answers, and the away PC's own card. */
+    private void assertOfflineLook(Home home) throws Exception {
+        showHosts(home, 2, true, nativeHost("tower", "Tower", false), nativeHost("laptop", "Laptop", true));
+        View away = cardView(home, "game:host:tower:2");
+        View awake = cardView(home, "game:host:laptop:2");
+        assertEquals(OfflineLook.DIMMED, away.getAlpha(), 0f);
+        assertEquals(1f, awake.getAlpha(), 0f);
+        TextView line = away.findViewById(R.id.console_subtitle);
+        if (line != null) {
+            assertEquals("says the PC is asleep", asleep(home, home.getString(R.string.console_card_on_host, "Tower")),
+                    line.getText().toString());
+            assertFalse(((TextView) awake.findViewById(R.id.console_subtitle)).getText().toString().contains("asleep"));
+        } else {
+            // A poster on a TV has no second line: its badge says it.
+            TextView badge = away.findViewById(R.id.console_badge);
+            assertEquals(View.VISIBLE, badge.getVisibility());
+            assertEquals(home.getString(R.string.console_badge_asleep), badge.getText().toString());
+            assertEquals(View.GONE, awake.findViewById(R.id.console_badge).getVisibility());
+        }
+        assertTrue("and so does a screen reader: " + away.getContentDescription(),
+                away.getContentDescription().toString().endsWith(", PC asleep"));
+        assertTrue("still focusable", away.isFocusable());
+        assertTrue("still clickable", away.isClickable());
+        assertTrue("and takes focus", away.requestFocus());
+        View host = hostCard(home, "tower");
+        assertEquals(OfflineLook.DIMMED, host.getAlpha(), 0f);
+        assertTrue(host.isFocusable());
+        assertEquals(1f, hostCard(home, "laptop").getAlpha(), 0f);
+    }
+
+    @Test
+    public void onAPhoneAPcThatIsAwayKeepsItsSavedGamesDimmedAndFocusable() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            assertOfflineLook(controller.get());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionAPcThatIsAwayKeepsItsSavedGamesDimmedAndFocusable() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            assertOfflineLook(controller.get());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void tappingAPcThatIsAwayWakesItAndStaysOnHome() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            ComputerDetails attic = nativeHost("attic", "Attic", false);
+            attic.macAddress = "aa:bb:cc:dd:ee:ff";
+            showHosts(home, attic);
+            assertTrue(hostCard(home, "attic").performClick());
+            await(() -> home.woken.size() == 1);
+            assertEquals("attic", home.woken.get(0));
+            assertNull("no screen opens while it wakes", nextStarted(home));
+            // A second tap while it is waking sends nothing new.
+            hostCard(home, "attic").performClick();
+            Thread.sleep(100);
+            assertEquals(1, home.woken.size());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void tappingAPcThatIsAwayWithoutAMacAddressOpensThePcList() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, nativeHost("loft", "Loft", false));
+            hostCard(home, "loft").performClick();
+            Intent pcs = nextStarted(home);
+            assertNotNull(pcs);
+            assertEquals(PcView.class.getName(), pcs.getComponent().getClassName());
+            assertTrue(home.woken.isEmpty());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aGameSeveralPcsHaveAsksWhichPcAndOpensItOnTheChosenOne() throws Exception {
+        ActivityController<Home> controller = home();
+        ConsoleRig rig = new ConsoleRig(temporary.newFolder());
+        try {
+            Home home = controller.get();
+            for (String uuid : new String[]{"tower", "laptop"}) {
+                rig.transport.reply(uuid, "library", ok(library("r", game(uuid + "-g0", 1, "Portal", "steam:400", false))));
+                rig.transport.reply(uuid, "session", ok(NativeApiFixtures.IDLE));
+            }
+            rig.repository.refresh(Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", true)));
+            ReflectionHelpers.setField(home, "repository", rig.repository);
+            showHosts(home, 1, true, nativeHost("tower", "Tower", true), nativeHost("laptop", "Laptop", false));
+            assertTrue(cardView(home, "game:game:steam:400").performClick());
+            await(() -> ShadowDialog.getLatestDialog() instanceof AlertDialog
+                    && ShadowDialog.getLatestDialog().isShowing());
+            AlertDialog chooser = (AlertDialog) ShadowDialog.getLatestDialog();
+            android.widget.ListView choices = chooser.getListView();
+            assertEquals(2, choices.getCount());
+            assertEquals("The PC that answers comes first", "Tower", choices.getItemAtPosition(0).toString());
+            assertEquals("a PC that is away says so", asleep(home, "Laptop"), choices.getItemAtPosition(1).toString());
+            assertNull("nothing opens before the choice", nextStarted(home));
+            choices.performItemClick(null, 1, choices.getItemIdAtPosition(1));
+            Intent detail = nextStarted(home);
+            assertNotNull(detail);
+            assertEquals("laptop", detail.getStringExtra(GameDetailActivity.EXTRA_HOST_UUID));
+            assertEquals("Portal", detail.getStringExtra(GameDetailActivity.EXTRA_TITLE));
+        } finally {
+            rig.close();
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aGameOnOnePcOpensWithoutAskingWhichPc() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, nativeHost("tower", "Tower", true));
+            cardView(home, "game:host:tower:1").performClick();
+            Intent detail = nextStarted(home);
+            assertNotNull(detail);
+            assertEquals("tower", detail.getStringExtra(GameDetailActivity.EXTRA_HOST_UUID));
         } finally {
             controller.pause().stop().destroy();
         }

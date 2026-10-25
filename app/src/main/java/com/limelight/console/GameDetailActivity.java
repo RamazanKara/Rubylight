@@ -5,6 +5,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Toast;
@@ -23,6 +24,7 @@ import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.nvstream.wol.WakeOnLanSender;
 import com.limelight.ui.AppTheme;
 import com.limelight.ui.BackdropView;
 import com.limelight.ui.NightjarActivity;
@@ -31,6 +33,7 @@ import com.limelight.ui.TopAppBar;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,6 +70,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private boolean shown;
     private boolean focusPending = true;
     private GameDetailModel model;
+    /** Waking an offline PC to play: the wait, and the Play that follows once the PC answers and the page is fresh. */
+    private HostWaker waker;
+    private boolean playWhenReady;
 
     private View loading;
     private ImageView cover;
@@ -98,6 +104,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     /** Starts the stream; the debug demo overrides this so no stream is opened. */
     protected void play(NvApp app, ComputerDetails computer) {
         ServerHelper.doStart(this, app, computer, feed.binder());
+    }
+
+    /** Sends the wake packets to an offline host (off the UI thread); the debug demo and tests override this. */
+    protected void sendWake(ComputerDetails computer) throws IOException {
+        WakeOnLanSender.sendWolPacket(computer);
     }
 
     /** Ends the game on the host, then calls {@code onComplete} on any thread. */
@@ -195,6 +206,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     @Override
     protected void onPause() {
         shown = false;
+        // The feed stops polling with the screen, so a wait could not see the PC come up: it ends here.
+        cancelWake();
         if (feed != null) {
             feed.pause();
         }
@@ -319,6 +332,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             render(next, computer);
             if (done) {
                 loading.setVisibility(View.GONE);
+                if (playWhenReady && next.canStart()) {
+                    // The PC woke and the page is fresh from it: the Play that started the wait carries on.
+                    playWhenReady = false;
+                    onPlay();
+                }
             }
         });
     }
@@ -344,10 +362,10 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             askBackdrop();
         }
 
-        play.setText(m.resumes() ? R.string.applist_menu_resume : R.string.library_play);
-        play.setEnabled(m.canStart());
+        renderPlay(m);
         if (!m.hostOnline) {
-            note.setText(R.string.library_offline);
+            note.setText(waker != null && waker.isWaiting() ? getString(R.string.console_wake_waiting, m.hostName)
+                    : getString(R.string.library_offline));
             note.setVisibility(View.VISIBLE);
         } else if (m.blockedNote() != 0) {
             // Play is off: say why ("Not installed on Living-room PC").
@@ -433,6 +451,72 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         return spoken.length() == 0 ? null : spoken.toString();
     }
 
+    /** Play, Resume, or for a PC that is away Wake PC and play (Waking PC while the wait lasts); never greyed out then. */
+    private void renderPlay(GameDetailModel m) {
+        boolean waiting = waker != null && waker.isWaiting();
+        if (m.canWake()) {
+            play.setText(waiting ? R.string.wol_waking_pc : R.string.console_wake_and_play);
+        } else {
+            play.setText(m.resumes() ? R.string.applist_menu_resume : R.string.library_play);
+        }
+        play.setEnabled(m.canStart() || m.canWake());
+    }
+
+    private void cancelWake() {
+        playWhenReady = false;
+        if (waker != null) {
+            waker.cancel();
+        }
+    }
+
+    /** Play on a PC that is away: send the wake packets, wait for it, and let {@link #show} carry on with the game. */
+    private void wakeAndPlay() {
+        ComputerDetails computer = currentHost();
+        if (computer == null || (waker != null && waker.isWaiting())) {
+            return;
+        }
+        if (computer.state == ComputerDetails.State.ONLINE) {
+            // It woke by itself since the page was drawn: refresh, then the second press plays.
+            loadedSignature = null;
+            scheduleReload();
+            return;
+        }
+        if (!HostWaker.canWake(computer)) {
+            WakeFeedback.failed(this, model.hostName, R.string.wol_no_mac, null);
+            return;
+        }
+        if (waker == null) {
+            waker = new HostWaker(handler, r -> new Thread(r, "console-wake").start(), this::sendWake,
+                    () -> feed.host(hostUuid), SystemClock::elapsedRealtime, new HostWaker.Listener() {
+                @Override
+                public void onOnline() {
+                    // Reload at once: the page needs the PC's library and its running game before it plays.
+                    loadedSignature = null;
+                    handler.removeCallbacks(reload);
+                    reloadNow();
+                }
+
+                @Override
+                public void onTimedOut() {
+                    playWhenReady = false;
+                    renderPlay(model);
+                    WakeFeedback.timedOut(GameDetailActivity.this, model.hostName, GameDetailActivity.this::wakeAndPlay);
+                }
+
+                @Override
+                public void onSendFailed(IOException error) {
+                    playWhenReady = false;
+                    renderPlay(model);
+                    WakeFeedback.failed(GameDetailActivity.this, model.hostName, R.string.wol_fail,
+                            GameDetailActivity.this::wakeAndPlay);
+                }
+            });
+        }
+        playWhenReady = true;
+        waker.start();
+        render(model, computer);
+    }
+
     private void renderFavourite() {
         favourite.setText(favouriteCache ? R.string.console_favourite_remove : R.string.console_favourite_add);
         favourite.setIconResource(favouriteCache ? R.drawable.ic_star_filled : R.drawable.ic_star);
@@ -463,6 +547,10 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     private void onPlay() {
         ComputerDetails computer = currentHost();
+        if (model != null && model.canWake()) {
+            wakeAndPlay();
+            return;
+        }
         if (model == null || computer == null || feed.binder() == null || !model.canStart()) {
             return;
         }

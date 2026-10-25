@@ -90,6 +90,11 @@ public final class GameDetailModel {
         }
     }
 
+    /** The host is away: Play wakes it first and starts the game once it answers. */
+    public boolean canWake() {
+        return !hostOnline;
+    }
+
     /**
      * @param fallbackTitle shown when the host's library does not list the game
      * @param hostOnline    whether the host answers now

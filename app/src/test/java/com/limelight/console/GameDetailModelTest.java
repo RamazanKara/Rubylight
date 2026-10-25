@@ -168,6 +168,7 @@ public class GameDetailModelTest {
         GameDetailModel model = GameDetailModel.of(saved, "tower", 11, "x", "y", false, true, true);
         assertEquals(GameDetailModel.State.IDLE, model.state);
         assertFalse(model.canStart());
+        assertTrue("Play wakes the PC first", model.canWake());
         assertEquals(GameDetailModel.EndAction.NONE, model.endAction);
         assertNull(model.otherRunningTitle);
         assertEquals("Portal", model.title);
@@ -195,6 +196,7 @@ public class GameDetailModelTest {
         assertNull(model.source);
         assertEquals("Old Game", model.title);
         assertTrue(model.canStart());
+        assertFalse("An online PC needs no waking", model.canWake());
     }
 
     @Test

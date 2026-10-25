@@ -22,8 +22,8 @@ use butterpollo_core::{
 use rand::rngs::OsRng;
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
-    net::{IpAddr, SocketAddr},
+    collections::{HashMap, hash_map::Entry},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -67,7 +67,20 @@ struct Inner {
     peers: Vec<(u64, IpAddr)>,
     /// When each peer last raised a pairing notification.
     notified: HashMap<IpAddr, Instant>,
+    notify_every: Duration,
+    /// Notifications granted so far.
+    #[cfg(test)]
+    notices: usize,
     next: u64,
+}
+
+/// What counts as one peer: an IPv4 address, or an IPv6 /64. One PC rotates
+/// through many privacy addresses of its /64.
+fn peer_group(peer: IpAddr) -> IpAddr {
+    match peer {
+        IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & (u128::MAX << 64))),
+        v4 => v4,
+    }
 }
 
 pub struct Registry {
@@ -92,6 +105,9 @@ impl Registry {
                 closers: HashMap::new(),
                 peers: Vec::new(),
                 notified: HashMap::new(),
+                notify_every: NOTIFY_EVERY,
+                #[cfg(test)]
+                notices: 0,
                 next: 1,
             }),
             status: Mutex::new(Status::default()),
@@ -141,6 +157,7 @@ impl Registry {
     /// oldest, never another peer's; and when the total is full and the peer
     /// has none to push out, the new connection is refused.
     pub fn open(&self, peer: IpAddr) -> Option<Registered> {
+        let peer = peer_group(peer);
         let mut inner = self.inner.lock().unwrap();
         let waiting: Vec<u64> = inner
             .peers
@@ -180,12 +197,47 @@ impl Registry {
     /// Whether a pairing request from `peer` may raise a notification now:
     /// once per peer in 30 seconds.
     pub fn may_notify(&self, peer: IpAddr) -> bool {
+        self.may_notify_at(peer, Instant::now())
+    }
+
+    /// [`Self::may_notify`] at `now`. Only a granted notice starts the window,
+    /// so a peer asking every 20 seconds is told every 30, not never.
+    fn may_notify_at(&self, peer: IpAddr, now: Instant) -> bool {
         let mut inner = self.inner.lock().unwrap();
-        let now = Instant::now();
+        let every = inner.notify_every;
         inner
             .notified
-            .retain(|_, at| now.duration_since(*at) < NOTIFY_EVERY);
-        inner.notified.insert(peer, now).is_none()
+            .retain(|_, at| now.saturating_duration_since(*at) < every);
+        let inner = &mut *inner;
+        match inner.notified.entry(peer_group(peer)) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(slot) => {
+                slot.insert(now);
+                #[cfg(test)]
+                {
+                    inner.notices += 1;
+                }
+                true
+            }
+        }
+    }
+
+    /// Shorten (or end) the window between notices.
+    #[cfg(test)]
+    pub fn set_notify_every(&self, every: Duration) {
+        self.inner.lock().unwrap().notify_every = every;
+    }
+
+    /// Notifications granted so far.
+    #[cfg(test)]
+    pub fn notices(&self) -> usize {
+        self.inner.lock().unwrap().notices
+    }
+
+    /// Connections that hold a slot.
+    #[cfg(test)]
+    pub fn slots(&self) -> usize {
+        self.inner.lock().unwrap().peers.len()
     }
 
     /// The connection proved itself as `client_id`; its older connections go.
@@ -390,5 +442,54 @@ mod tests {
         assert!(registry.may_notify(ip(1)));
         assert!(!registry.may_notify(ip(1)));
         assert!(registry.may_notify(ip(2)));
+    }
+
+    #[test]
+    fn asking_more_often_than_the_window_does_not_slide_it() {
+        let registry = Registry::new();
+        let start = Instant::now();
+        let at = |secs: u64| start + Duration::from_secs(secs);
+        assert!(registry.may_notify_at(ip(1), at(0)));
+        // A TV asking every 20 seconds is refused at 20 ...
+        assert!(!registry.may_notify_at(ip(1), at(20)));
+        assert!(!registry.may_notify_at(ip(1), at(29)));
+        // ... and told again 30 seconds after the last notice, not the last ask.
+        assert!(registry.may_notify_at(ip(1), at(40)));
+        assert!(!registry.may_notify_at(ip(1), at(60)));
+        assert!(registry.may_notify_at(ip(1), at(70)));
+    }
+
+    fn v6(text: &str) -> IpAddr {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn ipv6_privacy_addresses_of_one_prefix_count_as_one_peer() {
+        let registry = Registry::new();
+        let mut one_pc: Vec<_> = (1..=4)
+            .map(|n| {
+                registry
+                    .open(v6(&format!("2001:db8:1:2:{n}:{n}:{n}:{n}")))
+                    .unwrap()
+            })
+            .collect();
+        // A fifth address of the same /64 pushes out the oldest of the PC.
+        let _fifth = registry.open(v6("2001:db8:1:2::99")).unwrap();
+        assert_eq!(
+            one_pc[0].closed.try_recv(),
+            Ok(Close::TooManyUnauthenticated)
+        );
+        // Another /64 has its own share.
+        let other: Vec<_> = (1..=4)
+            .map(|n| registry.open(v6(&format!("2001:db8:1:3::{n}"))).unwrap())
+            .collect();
+        for connection in one_pc[1..].iter_mut() {
+            assert!(connection.closed.try_recv().is_err());
+        }
+        assert_eq!(other.len(), 4);
+        // One notice per prefix.
+        assert!(registry.may_notify(v6("2001:db8:1:2::7")));
+        assert!(!registry.may_notify(v6("2001:db8:1:2:a:b:c:d")));
+        assert!(registry.may_notify(v6("2001:db8:1:3::7")));
     }
 }

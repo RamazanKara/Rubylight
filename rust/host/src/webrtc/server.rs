@@ -319,6 +319,22 @@ struct Connection {
     unauthenticated_until: tokio::time::Instant,
 }
 
+impl Connection {
+    fn new(h: Shared, limits: Limits, peer: Peer, id: u64) -> Self {
+        Self {
+            challenge: h.webrtc.challenge(),
+            h,
+            id,
+            peer,
+            client: None,
+            pairing: None,
+            probe: None,
+            limits,
+            unauthenticated_until: tokio::time::Instant::now() + limits.unauthenticated,
+        }
+    }
+}
+
 async fn connection(h: Shared, limits: Limits, peer: Peer, mut socket: WebSocket) {
     let Some(Registered { id, mut closed }) = h.webrtc.open(peer.address.ip().to_canonical())
     else {
@@ -326,17 +342,9 @@ async fn connection(h: Shared, limits: Limits, peer: Peer, mut socket: WebSocket
         let _ = socket.send(Message::Close(None)).await;
         return;
     };
-    let mut state = Connection {
-        challenge: h.webrtc.challenge(),
-        h: h.clone(),
-        id,
-        peer,
-        client: None,
-        pairing: None,
-        probe: None,
-        limits,
-        unauthenticated_until: tokio::time::Instant::now() + limits.unauthenticated,
-    };
+    // Dropping the state frees the connection's slots and pairing request,
+    // however the task ends: a normal exit, a panic or an abort.
+    let mut state = Connection::new(h.clone(), limits, peer, id);
     tracing::debug!(peer = %peer.address, id, "WebRTC connection opened");
     let mut changed = h.webrtc.subscribe();
     let mut tick = tokio::time::interval(PROBE_CHECK);
@@ -386,7 +394,7 @@ async fn connection(h: Shared, limits: Limits, peer: Peer, mut socket: WebSocket
             _ = tick.tick() => state.refresh_capabilities(&mut out),
         }
     }
-    state.end();
+    drop(state);
     tracing::debug!(peer = %peer.address, id, "WebRTC connection closed");
 }
 
@@ -777,10 +785,15 @@ impl Connection {
             out.push(capabilities);
         }
     }
+}
 
-    fn end(&mut self) {
-        self.cancel_pairing();
-        self.h.webrtc.close(self.id);
+impl Drop for Connection {
+    fn drop(&mut self) {
+        // Dropped while unwinding, a second panic would abort the host.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.cancel_pairing();
+            self.h.webrtc.close(self.id);
+        }));
     }
 }
 
@@ -1250,7 +1263,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_paired_connection_outlives_the_handshake_and_idle_limits() {
-        let server = Server::start_with(short(300, 60_000, 60_000));
+        // Both limits are far shorter than the wait below.
+        let server = Server::start_with(short(300, 300, 60_000));
         let (client_id, secret) = server.pair("TV").await;
         let mut ws = sign_in(&server, &client_id, &secret).await;
         tokio::time::sleep(Duration::from_millis(900)).await;
@@ -1290,8 +1304,8 @@ mod tests {
         let error = ws.expect("error").await;
         assert_eq!(error["code"], "pairing-failed");
         assert!(server.f.host.pins.lock().unwrap().is_empty());
-        // No notification was raised for the peer.
-        assert!(server.f.host.webrtc.may_notify([127, 0, 0, 1].into()));
+        // No notification was raised.
+        assert_eq!(server.f.host.webrtc.notices(), 0);
         assert!(server.f.host.paired.read().unwrap().clients.is_empty());
         // The connection is still usable, and pairing works again once it is on.
         server
@@ -1310,17 +1324,70 @@ mod tests {
     #[tokio::test]
     async fn asking_again_does_not_raise_another_notice() {
         let server = Server::start();
+        // No throttle window, so only the connection's own `again` check can
+        // hold back the second notice.
+        server.f.host.webrtc.set_notify_every(Duration::ZERO);
         let (mut ws, _) = server.connect().await;
         ws.send(json!({"version":2,"type":"request-pairing","pin":"4321","clientName":"TV"}))
             .await;
         server.pending_request().await;
-        // The first request used this peer's notice for 30 seconds.
-        assert!(!server.f.host.webrtc.may_notify([127, 0, 0, 1].into()));
+        assert_eq!(server.f.host.webrtc.notices(), 1);
         ws.send(json!({"version":2,"type":"request-pairing","pin":"8765","clientName":"TV"}))
             .await;
         ws.send(json!({"version":2,"type":"get-apps"})).await;
         assert_eq!(ws.expect("error").await["code"], "not-authenticated");
         assert_eq!(server.f.host.pins.lock().unwrap().len(), 1);
+        assert_eq!(server.f.host.webrtc.notices(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_connection_task_that_panics_or_is_aborted_frees_its_slots() {
+        let f = Fixture::new();
+        let h = f.host.clone();
+        let peer = Peer {
+            address: ([192, 168, 1, 9], 5000).into(),
+            local: ([192, 168, 1, 2], 8000).into(),
+        };
+        let ip = peer.address.ip();
+        // A connection with a pairing request, as a TV waiting for its PIN has.
+        let claim = |h: &Shared| {
+            let Registered { id, closed } = h.webrtc.open(ip).expect("a slot");
+            let mut state = Connection::new(h.clone(), Limits::default(), peer, id);
+            let (request_id, entered) = h.webrtc.begin_pairing(h, "4321", "TV");
+            state.pairing = Some(Pairing {
+                request_id,
+                entered,
+                deadline: tokio::time::Instant::now() + Duration::from_secs(60),
+            });
+            (state, closed)
+        };
+        let (state, closed) = claim(&h);
+        assert_eq!(h.webrtc.slots(), 1);
+        assert_eq!(h.pins.lock().unwrap().len(), 1);
+        let panicked = tokio::spawn(async move {
+            let _held = (state, closed);
+            panic!("a connection task failed");
+        });
+        assert!(panicked.await.unwrap_err().is_panic());
+        assert_eq!(h.webrtc.slots(), 0);
+        assert_eq!(h.webrtc.connections(), 0);
+        assert!(h.pins.lock().unwrap().is_empty());
+
+        let (state, closed) = claim(&h);
+        let waiting = tokio::spawn(async move {
+            let _held = (state, closed);
+            std::future::pending::<()>().await;
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(h.webrtc.slots(), 1);
+        waiting.abort();
+        assert!(waiting.await.unwrap_err().is_cancelled());
+        assert_eq!(h.webrtc.slots(), 0);
+        assert_eq!(h.webrtc.connections(), 0);
+        assert!(h.pins.lock().unwrap().is_empty());
+        // The peer has its whole share again.
+        let held: Vec<_> = (0..4).map(|_| h.webrtc.open(ip).unwrap()).collect();
+        assert_eq!(held.len(), 4);
     }
 
     #[tokio::test]
